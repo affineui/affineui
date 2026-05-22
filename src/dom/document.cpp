@@ -434,7 +434,12 @@ bool is_block_tag(const std::string& tag) {
            tag == "select" || tag == "label"  || tag == "form" ||
            tag == "ul"     || tag == "ol" ||
            tag == "li"     || tag == "a"      || tag == "span" ||
-           tag == "img";
+           tag == "img"    ||
+           // CSS table model — each produces a box (display is set by the
+           // UA stylesheet); the layout engine gives them table semantics.
+           tag == "table"  || tag == "thead"  || tag == "tbody" ||
+           tag == "tfoot"  || tag == "tr"     || tag == "td"    ||
+           tag == "th"     || tag == "caption";
 }
 
 // ── Stylesheet extraction ──────────────────────────────────────────
@@ -1160,6 +1165,98 @@ void collect_blocks(detail::DocumentImpl& impl,
     }
 }
 
+// Resolve table column widths so cells in the same column line up across
+// rows, then pin each cell's content width via intrinsic_w_px. Runs on the
+// *natural* (first-pass) layout: `natural[i].w` is the width Yoga gave
+// block i with cells free to size to content. Returns true if any table
+// was found, so the caller re-runs layout with the pinned widths.
+//
+// Scope: no rowspan/colspan (column index = a cell's position in its row);
+// border-collapse is approximated (each cell keeps its own borders). Both
+// match what the current corpus needs; widen later if a test requires it.
+bool assign_table_column_widths(std::vector<detail::BlockLayoutInput>& inputs,
+                                const std::vector<Rect>& natural) {
+    using D = detail::ComputedStyle::Display;
+    const int n = static_cast<int>(inputs.size());
+    bool found = false;
+
+    for (int t = 0; t < n; ++t) {
+        if (!inputs[t].style || inputs[t].style->display != D::Table) continue;
+        found = true;
+
+        // Rows = TableRow children of the table, plus TableRow children of
+        // any TableRowGroup (thead/tbody/tfoot) child of the table.
+        std::vector<int> rows;
+        for (int c = t + 1; c < n; ++c) {
+            const auto* cs = inputs[c].style;
+            if (!cs || inputs[c].parent_idx != t) continue;
+            if (cs->display == D::TableRow) {
+                rows.push_back(c);
+            } else if (cs->display == D::TableRowGroup) {
+                for (int r = c + 1; r < n; ++r) {
+                    if (inputs[r].parent_idx == c && inputs[r].style &&
+                        inputs[r].style->display == D::TableRow) {
+                        rows.push_back(r);
+                    }
+                }
+            }
+        }
+        if (rows.empty()) continue;
+
+        // Per-column width = widest natural cell in that column. Collect the
+        // cells per row so we can pin them after.
+        std::vector<int> colw;
+        std::vector<std::vector<int>> row_cells;
+        row_cells.reserve(rows.size());
+        for (int r : rows) {
+            std::vector<int> cells;
+            for (int c = r + 1; c < n; ++c) {
+                if (inputs[c].parent_idx == r && inputs[c].style &&
+                    inputs[c].style->display == D::TableCell) {
+                    cells.push_back(c);
+                }
+            }
+            for (std::size_t j = 0; j < cells.size(); ++j) {
+                const int w = natural[static_cast<std::size_t>(cells[j])].w;
+                if (j >= colw.size()) colw.resize(j + 1, 0);
+                if (w > colw[j]) colw[j] = w;
+            }
+            row_cells.push_back(std::move(cells));
+        }
+        const int ncols = static_cast<int>(colw.size());
+        if (ncols == 0) continue;
+
+        // Scale columns to fill an explicit table width (proportional to
+        // their natural widths). Auto-width tables keep natural columns.
+        const int table_w = inputs[t].style->width;  // -1 = auto
+        long long sum = 0;
+        for (int w : colw) sum += w;
+        if (table_w > 0 && sum > 0) {
+            int assigned = 0;
+            for (int j = 0; j < ncols; ++j) {
+                colw[j] = static_cast<int>(
+                    static_cast<long long>(table_w) * colw[j] / sum);
+                assigned += colw[j];
+            }
+            colw[static_cast<std::size_t>(ncols - 1)] += table_w - assigned;
+        }
+
+        // Pin each cell: content width = column border-box width minus the
+        // cell's own padding + border (Yoga adds them back, so the cell's
+        // border box equals the column width and the columns line up).
+        for (const auto& cells : row_cells) {
+            for (std::size_t j = 0; j < cells.size(); ++j) {
+                const auto& ccs = *inputs[static_cast<std::size_t>(cells[j])].style;
+                int content = colw[j] - ccs.padding_left - ccs.padding_right
+                            - ccs.border_left - ccs.border_right;
+                if (content < 0) content = 0;
+                inputs[static_cast<std::size_t>(cells[j])].intrinsic_w_px = content;
+            }
+        }
+    }
+    return found;
+}
+
 #endif  // !AFFINEUI_STUB_BUILD
 
 }  // namespace
@@ -1369,6 +1466,16 @@ void Document::layout(int viewport_width, int viewport_height,
     // tree where body is its own Yoga node.
     const int inner_w = viewport_width - pad_l - pad_r;
     detail::layout_blocks_with_yoga(inner_w, inputs, out, measurer);
+
+    // Table column alignment. Yoga lays each row out independently, so
+    // cells in column N of different rows wouldn't line up. Using the
+    // natural cell widths from the pass above, resolve one width per
+    // column (the widest cell, scaled to any explicit table width), pin
+    // every cell to it via intrinsic_w_px, and re-run layout so columns
+    // align. No-op (returns false) when the document has no tables.
+    if (assign_table_column_widths(inputs, out)) {
+        detail::layout_blocks_with_yoga(inner_w, inputs, out, measurer);
+    }
 
     int max_bottom = 0;
     for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {

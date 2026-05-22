@@ -41,7 +41,15 @@ std::string_view ua_default() {
         // intentionally left out — it's commonly a flex item in
         // navbars where an explicit inline override clashes.
         "span,strong,b,em,i,code,kbd,samp{display:inline}"
-        "code,pre,kbd,samp{font-family:monospace}";
+        "code,pre,kbd,samp{font-family:monospace}"
+        // CSS table model defaults (HTML5 UA stylesheet).
+        "table{display:table}"
+        "thead{display:table-row-group}"
+        "tbody{display:table-row-group}"
+        "tfoot{display:table-row-group}"
+        "tr{display:table-row}"
+        "td{display:table-cell}"
+        "th{display:table-cell;font-weight:bold;text-align:center}";
     return kCss;
 }
 

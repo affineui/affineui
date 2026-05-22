@@ -964,6 +964,17 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
                     s.computed.display = ComputedStyle::Display::InlineBlock; break;
                 case LXB_CSS_DISPLAY_NONE:
                     s.computed.display = ComputedStyle::Display::None; break;
+                // CSS table model.
+                case LXB_CSS_DISPLAY_TABLE:
+                    s.computed.display = ComputedStyle::Display::Table; break;
+                case LXB_CSS_DISPLAY_TABLE_ROW:
+                    s.computed.display = ComputedStyle::Display::TableRow; break;
+                case LXB_CSS_DISPLAY_TABLE_CELL:
+                    s.computed.display = ComputedStyle::Display::TableCell; break;
+                case LXB_CSS_DISPLAY_TABLE_ROW_GROUP:
+                case LXB_CSS_DISPLAY_TABLE_HEADER_GROUP:
+                case LXB_CSS_DISPLAY_TABLE_FOOTER_GROUP:
+                    s.computed.display = ComputedStyle::Display::TableRowGroup; break;
                 default: break;
             }
             break;

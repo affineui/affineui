@@ -122,6 +122,12 @@ struct ComputedStyle {
     // ── Display + flex + position (4 bytes) ───────────────────────
     enum class Display : std::uint8_t {
         Block, Inline, InlineBlock, Flex, None,
+        // CSS table model. Table stacks its row-groups/rows vertically;
+        // TableRowGroup (thead/tbody/tfoot) is a transparent vertical
+        // grouping; TableRow lays its cells horizontally; TableCell is a
+        // sized item. Column widths are aligned across rows by a pre-pass
+        // in the layout engine (see Document::layout).
+        Table, TableRowGroup, TableRow, TableCell,
     };
     enum class Position : std::uint8_t {
         Static, Relative, Absolute, Fixed,

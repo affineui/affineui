@@ -137,9 +137,16 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
         YGNodeStyleSetFlexWrap      (node, to_yg(cs.flex_wrap));
         if (cs.row_gap    > 0) YGNodeStyleSetGap(node, YGGutterRow,    static_cast<float>(cs.row_gap));
         if (cs.column_gap > 0) YGNodeStyleSetGap(node, YGGutterColumn, static_cast<float>(cs.column_gap));
+    } else if (cs.display == ComputedStyle::Display::TableRow) {
+        // A table row lays its cells out horizontally; stretch makes every
+        // cell as tall as the row (the tallest cell wins).
+        YGNodeStyleSetFlexDirection(node, YGFlexDirectionRow);
+        YGNodeStyleSetAlignItems   (node, YGAlignStretch);
     } else {
         // Plain block flow shape — column-stretch is what gives us
-        // CSS-like vertical stacking with cross-axis fill.
+        // CSS-like vertical stacking with cross-axis fill. Table and
+        // TableRowGroup (thead/tbody/tfoot) use this too: they stack
+        // their rows vertically and stretch them to the table width.
         YGNodeStyleSetFlexDirection(node, YGFlexDirectionColumn);
         YGNodeStyleSetAlignItems   (node, YGAlignStretch);
     }
@@ -158,7 +165,10 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
     // flex-start used to top-align the contents and visibly broke
     // mixed button + text rows.
     if (cs.display == ComputedStyle::Display::Inline ||
-        cs.display == ComputedStyle::Display::InlineBlock) {
+        cs.display == ComputedStyle::Display::InlineBlock ||
+        cs.display == ComputedStyle::Display::TableCell) {
+        // A table cell keeps the column width the layout pre-pass assigned
+        // it — don't let Yoga shrink it to fit the row.
         YGNodeStyleSetFlexShrink (node, 0.0f);
     }
 
