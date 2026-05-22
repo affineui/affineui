@@ -1226,9 +1226,16 @@ bool assign_table_column_widths(std::vector<detail::BlockLayoutInput>& inputs,
         const int ncols = static_cast<int>(colw.size());
         if (ncols == 0) continue;
 
-        // Scale columns to fill an explicit table width (proportional to
-        // their natural widths). Auto-width tables keep natural columns.
-        const int table_w = inputs[t].style->width;  // -1 = auto
+        // Scale columns to fill the table's resolved content width
+        // (proportional to their natural widths). Using the first-pass
+        // laid-out table width (natural[t].w) handles every case
+        // uniformly: explicit px, percentage (e.g. Bootstrap's
+        // width:100%), and auto (where it equals the natural content sum,
+        // so the scale is a no-op).
+        const auto& tcs = *inputs[t].style;
+        const int table_w = natural[static_cast<std::size_t>(t)].w
+                          - tcs.padding_left - tcs.padding_right
+                          - tcs.border_left - tcs.border_right;
         long long sum = 0;
         for (int w : colw) sum += w;
         if (table_w > 0 && sum > 0) {
