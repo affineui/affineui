@@ -299,22 +299,53 @@ void apply_flex_basis_value(const lxb_css_property_flex_basis_t& basis,
         basis.type == LXB_CSS_VALUE_MAX_CONTENT ||
         basis.type == LXB_CSS_FLEX_BASIS_CONTENT) {
         s.computed.flex_basis = -1;
+        s.computed.flex_basis_pct = -1;
         return;
     }
+    // Handle percentage flex-basis (e.g. flex: 0 0 0%, flex: 0 0 50%).
+    if (basis.type == LXB_CSS_VALUE__PERCENTAGE) {
+        const double pct = basis.u.percentage.num;
+        const double clamped = pct < 0.0 ? 0.0 : (pct > 100.0 ? 100.0 : pct);
+        // int8_t range: store integer percent (0..100). -1 = unset.
+        s.computed.flex_basis_pct =
+            static_cast<std::int8_t>(clamped + 0.5);
+        s.computed.flex_basis = -1;  // px field → auto when pct governs
+        return;
+    }
+    s.computed.flex_basis_pct = -1;
     if (parse_length_px(&basis, px) && px >= 0) {
         s.computed.flex_basis = static_cast<std::int16_t>(px);
     }
 }
 
+// Apply a CSS width/height value to the px and (optionally) pct fields.
+// `pct_out` receives percentage × 100 rounded to int16 (0..10000),
+// or -1 if the value is not a percentage. `out` (the px field) is set
+// to `auto_value` (-1) when a percentage is applied so yoga_adapter
+// can tell at a glance which field governs.
 void apply_width_value(const lxb_css_property_width_t& width,
                        std::int16_t& out,
-                       std::int16_t auto_value) {
+                       std::int16_t auto_value,
+                       std::int16_t* pct_out = nullptr) {
+    if (pct_out) *pct_out = -1;  // default: not a percentage
     int px = 0;
     if (width.type == LXB_CSS_VALUE_AUTO ||
         width.type == LXB_CSS_VALUE_NONE ||
         width.type == LXB_CSS_VALUE_MIN_CONTENT ||
         width.type == LXB_CSS_VALUE_MAX_CONTENT) {
         out = auto_value;
+        return;
+    }
+    // Handle percentage values (e.g. width: 33.33333333%).
+    if (width.type == LXB_CSS_VALUE__PERCENTAGE && pct_out) {
+        const double pct = width.u.percentage.num;
+        // Clamp to 0..100, store as pct × 100 (0..10000).
+        // Use floor (truncation) so sibling percentages that sum to
+        // 100% (e.g. col-2+col-8+col-2 = 16.67+66.67+16.67%) do not
+        // round up and cause Yoga to wrap the flex row.
+        const double clamped = pct < 0.0 ? 0.0 : (pct > 100.0 ? 100.0 : pct);
+        *pct_out = static_cast<std::int16_t>(clamped * 100.0);
+        out = auto_value;  // px field → auto when pct governs
         return;
     }
     if (parse_length_px(&width, px) && px >= 0) {
@@ -1066,13 +1097,19 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
         case LXB_CSS_PROPERTY_WIDTH: {
             const auto* v =
                 static_cast<const lxb_css_property_width_t*>(d->u.user);
-            apply_width_value(*v, s.computed.width, -1);
+            apply_width_value(*v, s.computed.width, -1, &s.computed.width_pct_x100);
             break;
         }
         case LXB_CSS_PROPERTY_HEIGHT: {
             const auto* v =
                 static_cast<const lxb_css_property_height_t*>(d->u.user);
-            apply_width_value(*v, s.computed.height, -1);
+            // height_pct is int8_t (0..100); use a temporary int16_t
+            // for apply_width_value and truncate to integer percent.
+            std::int16_t pct_x100 = -1;
+            apply_width_value(*v, s.computed.height, -1, &pct_x100);
+            s.computed.height_pct = (pct_x100 >= 0)
+                ? static_cast<std::int8_t>(pct_x100 / 100)
+                : static_cast<std::int8_t>(-1);
             break;
         }
         case LXB_CSS_PROPERTY_MIN_WIDTH: {
@@ -1282,6 +1319,10 @@ public:
         // inheritance. Note for the next person looking at this list.
         // (No reset.)
         s.computed.width = s.computed.height = -1;
+        // Percentage sizing (non-inherited; -1 = not a percentage).
+        s.computed.width_pct_x100 = -1;
+        s.computed.height_pct = -1;
+        s.computed.flex_basis_pct = -1;
         s.computed.display = ComputedStyle::Display::Block;
         s.computed.position = ComputedStyle::Position::Static;
         // Positioned insets (non-inherited; CSS initial = auto).

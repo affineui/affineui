@@ -168,7 +168,14 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
     // unconditionally.
     if (cs.flex_grow   != 0) YGNodeStyleSetFlexGrow  (node, static_cast<float>(cs.flex_grow));
     if (cs.flex_shrink != 1) YGNodeStyleSetFlexShrink(node, static_cast<float>(cs.flex_shrink));
-    if (cs.flex_basis  >= 0) YGNodeStyleSetFlexBasis (node, static_cast<float>(cs.flex_basis));
+    // flex-basis: percentage takes priority over px value.
+    // flex_basis_pct is int8_t (0..100), flex_basis is px (int16_t).
+    if (cs.flex_basis_pct >= 0) {
+        YGNodeStyleSetFlexBasisPercent(
+            node, static_cast<float>(cs.flex_basis_pct));
+    } else if (cs.flex_basis >= 0) {
+        YGNodeStyleSetFlexBasis(node, static_cast<float>(cs.flex_basis));
+    }
 
     // ── Margin (Yoga handles this; we do NOT pre-walk margins
     // ourselves anymore) ────────────────────────────────────────────
@@ -207,8 +214,22 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
     if (cs.min_width  > 0)  YGNodeStyleSetMinWidth (node, static_cast<float>(cs.min_width));
     if (cs.max_width  > 0)  YGNodeStyleSetMaxWidth (node, static_cast<float>(cs.max_width));
     if (cs.min_height > 0)  YGNodeStyleSetMinHeight(node, static_cast<float>(cs.min_height));
-    if (cs.width  > 0)      YGNodeStyleSetWidth (node, static_cast<float>(cs.width));
-    if (cs.height > 0)      YGNodeStyleSetHeight(node, static_cast<float>(cs.height));
+
+    // Width/height: percentage takes priority over px value.
+    // width_pct_x100 stores pct × 100 (e.g. 33.33% → 3333), int16_t.
+    // height_pct stores integer percent (0..100), int8_t.
+    if (cs.width_pct_x100 >= 0) {
+        YGNodeStyleSetWidthPercent(
+            node, static_cast<float>(cs.width_pct_x100) / 100.0f);
+    } else if (cs.width > 0) {
+        YGNodeStyleSetWidth(node, static_cast<float>(cs.width));
+    }
+    if (cs.height_pct >= 0) {
+        YGNodeStyleSetHeightPercent(
+            node, static_cast<float>(cs.height_pct));
+    } else if (cs.height > 0) {
+        YGNodeStyleSetHeight(node, static_cast<float>(cs.height));
+    }
 }
 
 }  // namespace

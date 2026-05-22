@@ -49,7 +49,9 @@ struct ComputedStyle {
         None = 0, Solid = 1, Dashed = 2, Dotted = 3,
     };
     BorderStyle  border_style              {BorderStyle::None};
-    std::uint8_t pad_border_               {0};
+    // Percentage height: -1 = not a percentage, else 0..100 (integer %).
+    // Repurposes the former pad_border_ byte; same alignment slot.
+    std::int8_t  height_pct               {-1};
     std::int16_t border_radius_top_left_px {0};
     std::int16_t border_radius_top_right_px{0};
     std::int16_t border_radius_bot_right_px{0};
@@ -163,7 +165,9 @@ struct ComputedStyle {
     JustifyContent justify_content{JustifyContent::Start};
     AlignItems     align_items    {AlignItems::Stretch};
     FlexWrap       flex_wrap      {FlexWrap::NoWrap};
-    std::uint8_t   pad_flex_      {0};
+    // Percentage flex-basis: -1 = not a pct, else 0..100 (integer %).
+    // flex: 1 0 0% → flex_basis_pct=0. Repurposes the former pad_flex_ byte.
+    std::int8_t    flex_basis_pct {-1};
 
     // Gaps. CSS allows length or %; we currently support px integers.
     std::int16_t row_gap   {0};
@@ -184,6 +188,14 @@ struct ComputedStyle {
     std::uint8_t  z_index_high {0};  // top 8 bits of i16 z-index
     std::int16_t  z_index_low  {0};  // bottom 16 bits (i16 for sort)
 
+    // ── Percentage width (2 bytes) ────────────────────────────────
+    // Stores width as percentage × 100 when a % value is present.
+    // -1 = not a percentage; otherwise 0..10000 (e.g. 33.33% → 3333).
+    // High precision required so that column fractions like 33.33%
+    // can be floored without accumulating error. Stored as int16_t
+    // after the other fields to avoid disturbing existing alignment.
+    std::int16_t  width_pct_x100{-1};
+
     // ── Inheritance presence bitset (4 bytes, plenty of room) ─────
     // Only inherited properties care about presence; non-inherited
     // properties default to their CSS initial value and never need
@@ -196,12 +208,13 @@ struct ComputedStyle {
         std::uint32_t font_style  : 1 {};
     } has{};
 
-    // Roughly ~86 bytes after flex + positioned-layout insets were
-    // added. The original 64-byte "fits in one x86_64 cache line"
-    // target survives only as a soft goal — modern Apple Silicon has
-    // 128-byte lines anyway, and the hot loops that read this struct
-    // read just a few fields per node, not the whole thing. The assert
-    // is a budget that tells us when we've grown problematically large.
+    // Roughly ~92 bytes after flex, positioned-layout insets, and
+    // percentage-sizing fields (width_pct_x100, height_pct, flex_basis_pct,
+    // for Bootstrap column widths) were added. The original 64-byte "fits
+    // in one x86_64 cache line" target survives only as a soft goal —
+    // modern Apple Silicon has 128-byte lines anyway, and the hot loops
+    // that read this struct read just a few fields per node, not the whole
+    // thing. The assert is a budget that tells us when we've grown large.
 };
 
 static_assert(sizeof(ComputedStyle) <= 96,
