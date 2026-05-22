@@ -270,6 +270,22 @@ lxb_html_element_style_append(lxb_html_element_t *element,
             return LXB_STATUS_ERROR;
         }
     }
+    else if (id == LXB_CSS_PROPERTY__UNDEF
+             && declr->u.undef->type != LXB_CSS_PROPERTY__UNDEF) {
+        /*
+         * A declaration that failed to type-parse because it carries a
+         * pending-substitution value (e.g. `color: var(--x)`). lexbor
+         * keeps it as __UNDEF but remembers the property it was meant to
+         * set in undef->type. Key the style node by that intended
+         * property rather than the shared __UNDEF id, so that:
+         *   1. multiple var() properties on one element don't collapse
+         *      into a single slot (only one would survive as primary);
+         *   2. a var() declaration cascades against ordinary typed
+         *      declarations of the same property by specificity.
+         * The consumer substitutes var() and re-parses the raw value.
+         */
+        id = declr->u.undef->type;
+    }
 
     node = (void *) lexbor_avl_search(css->styles, element->style, id);
     if (node != NULL) {

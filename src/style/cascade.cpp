@@ -22,11 +22,17 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cctype>
 #include <memory>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #if !defined(AFFINEUI_STUB_BUILD)
 #    include <lexbor/css/property.h>
 #    include <lexbor/css/value.h>
+#    include <lexbor/css/declaration.h>
+#    include <lexbor/css/parser.h>
 #    include <lexbor/html/html.h>
 #endif
 
@@ -258,6 +264,101 @@ void apply_width_value(const lxb_css_property_width_t& width,
     if (parse_length_px(&width, px) && px >= 0) {
         out = static_cast<std::int16_t>(px);
     }
+}
+
+// ── CSS custom properties + var() substitution ──────────────────────
+//
+// lexbor parses declarations into typed structs at stylesheet-parse
+// time, but `var()` can only be resolved per element at cascade time
+// (custom properties inherit and may differ per element). lexbor
+// already preserves what we need: a `--name: value` declaration lands
+// as LXB_CSS_PROPERTY__CUSTOM (name + raw value string); a normal
+// property whose value failed to type-parse (because it contains
+// var()) lands as LXB_CSS_PROPERTY__UNDEF (the intended property id +
+// raw value string). So the whole feature lives here: build the
+// element's inherited custom-property map, substitute var() in the raw
+// string, then re-parse the resolved declaration back through lexbor.
+
+bool is_ident_char(char c) {
+    return std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_';
+}
+
+std::string_view trim_ws(std::string_view s) {
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) s.remove_prefix(1);
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back())))  s.remove_suffix(1);
+    return s;
+}
+
+// Index of the matching ')' for the '(' at `open`, honoring nesting.
+// Returns npos if unbalanced.
+std::size_t match_paren(std::string_view s, std::size_t open) {
+    int depth = 0;
+    for (std::size_t i = open; i < s.size(); ++i) {
+        if (s[i] == '(') ++depth;
+        else if (s[i] == ')') { if (--depth == 0) return i; }
+    }
+    return std::string_view::npos;
+}
+
+// Find the next `var(` function token at/after `from` (must be at a
+// token boundary, not the tail of a longer ident). Returns the index
+// of the 'v', or npos.
+std::size_t find_var(std::string_view s, std::size_t from) {
+    for (std::size_t i = from; i + 4 <= s.size(); ++i) {
+        if ((s[i] == 'v' || s[i] == 'V') &&
+            (s[i + 1] == 'a' || s[i + 1] == 'A') &&
+            (s[i + 2] == 'r' || s[i + 2] == 'R') &&
+            s[i + 3] == '(') {
+            if (i == 0 || !is_ident_char(s[i - 1])) return i;
+        }
+    }
+    return std::string_view::npos;
+}
+
+// Replace every var(--name[, fallback]) in `input` with the custom
+// property's value (or the fallback), recursively — a custom property
+// value may itself contain var(). `depth` guards against cycles.
+std::string substitute_vars(std::string_view input, const CustomPropMap& map,
+                            int depth = 0) {
+    if (depth > 32) return std::string(input);  // cycle / runaway guard
+    std::string out;
+    std::size_t i = 0;
+    while (i < input.size()) {
+        const std::size_t v = find_var(input, i);
+        if (v == std::string_view::npos) { out.append(input.substr(i)); break; }
+        out.append(input.substr(i, v - i));
+        const std::size_t open = v + 3;             // the '(' after "var"
+        const std::size_t close = match_paren(input, open);
+        if (close == std::string_view::npos) {       // unbalanced — bail
+            out.append(input.substr(v));
+            break;
+        }
+        std::string_view args = input.substr(open + 1, close - open - 1);
+        // Split off the custom-property name at the first top-level comma.
+        std::string_view name = args, fallback;
+        bool has_fb = false;
+        int pd = 0;
+        for (std::size_t k = 0; k < args.size(); ++k) {
+            if (args[k] == '(') ++pd;
+            else if (args[k] == ')') --pd;
+            else if (args[k] == ',' && pd == 0) {
+                name = args.substr(0, k);
+                fallback = args.substr(k + 1);
+                has_fb = true;
+                break;
+            }
+        }
+        const std::string key(trim_ws(name));
+        std::string replacement;
+        if (auto it = map.find(key); it != map.end()) {
+            replacement = substitute_vars(trim_ws(it->second), map, depth + 1);
+        } else if (has_fb) {
+            replacement = substitute_vars(trim_ws(fallback), map, depth + 1);
+        }  // else: invalid var with no fallback → empties out (CSS: IACVT)
+        out.append(replacement);
+        i = close + 1;
+    }
+    return out;
 }
 
 // Route one declaration into the right struct.
@@ -961,7 +1062,20 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
 // CSS cascade semantics. Solution: ignore the weak chain entirely.
 // The primary entry already encodes the cascade winner for this
 // property on this element.
-struct WalkCtx { ResolvedStyle* out; };
+// A declaration whose typed parse failed because it contains var():
+// the intended property id plus the raw, unresolved value string. We
+// can't apply it until the element's full custom-property scope is
+// known, so we collect these during the walk and resolve them after.
+struct DeferredVar {
+    std::uintptr_t property_id;
+    std::string    raw_value;
+};
+
+struct WalkCtx {
+    ResolvedStyle*            out;
+    CustomPropMap*            own_customs;  // `--x` declared on this element
+    std::vector<DeferredVar>* deferred;     // var()-bearing declarations
+};
 
 lxb_status_t walk_callback(lxb_html_element_t* /*element*/,
                            const lxb_css_rule_declaration_t* declr,
@@ -969,7 +1083,36 @@ lxb_status_t walk_callback(lxb_html_element_t* /*element*/,
                            lxb_css_selector_specificity_t /*spec*/,
                            bool is_weak) {
     if (is_weak) return LXB_STATUS_OK;
-    apply_declaration(declr, *static_cast<WalkCtx*>(ctx)->out);
+    auto* w = static_cast<WalkCtx*>(ctx);
+
+    // `--name: value` → record the cascade-winning custom property.
+    if (declr->type == LXB_CSS_PROPERTY__CUSTOM) {
+        const auto* c = declr->u.custom;
+        if (c && c->name.data && c->value.data) {
+            (*w->own_customs)[std::string(
+                reinterpret_cast<const char*>(c->name.data), c->name.length)] =
+                std::string(reinterpret_cast<const char*>(c->value.data),
+                            c->value.length);
+        }
+        return LXB_STATUS_OK;
+    }
+
+    // A declaration lexbor couldn't type-parse. If it's a known
+    // property carrying var(), defer it for substitution + re-parse;
+    // anything else here is genuinely invalid CSS we correctly drop.
+    if (declr->type == LXB_CSS_PROPERTY__UNDEF) {
+        const auto* u = declr->u.undef;
+        if (u && u->value.data && u->type != LXB_CSS_PROPERTY__UNDEF) {
+            std::string_view val(reinterpret_cast<const char*>(u->value.data),
+                                 u->value.length);
+            if (find_var(val, 0) != std::string_view::npos) {
+                w->deferred->push_back({u->type, std::string(val)});
+            }
+        }
+        return LXB_STATUS_OK;
+    }
+
+    apply_declaration(declr, *w->out);
     return LXB_STATUS_OK;
 }
 
@@ -977,8 +1120,27 @@ class LexborResolver final : public StyleResolver {
 public:
     // doc_ is kept (but unused for now) so Phase 2E can attach
     // per-document caching/invalidation hooks without changing the
-    // construction shape.
-    explicit LexborResolver(lxb_html_document_t* doc) : doc_(doc) { (void)doc_; }
+    // construction shape. parser_/reparse_mem_ re-parse var()-resolved
+    // declaration strings back into typed lexbor declarations.
+    explicit LexborResolver(lxb_html_document_t* doc) : doc_(doc) {
+        (void)doc_;
+        parser_ = lxb_css_parser_create();
+        if (parser_ && lxb_css_parser_init(parser_, nullptr) != LXB_STATUS_OK) {
+            lxb_css_parser_destroy(parser_, true);
+            parser_ = nullptr;
+        }
+        reparse_mem_ = lxb_css_memory_create();
+        if (reparse_mem_ &&
+            lxb_css_memory_init(reparse_mem_, 128) != LXB_STATUS_OK) {
+            lxb_css_memory_destroy(reparse_mem_, true);
+            reparse_mem_ = nullptr;
+        }
+    }
+
+    ~LexborResolver() override {
+        if (reparse_mem_) lxb_css_memory_destroy(reparse_mem_, true);
+        if (parser_)      lxb_css_parser_destroy(parser_, true);
+    }
 
     ResolvedStyle resolve(lxb_dom_element_t* element,
                           const ResolvedStyle& parent) override {
@@ -1036,9 +1198,14 @@ public:
         // Box-sizing (non-inherited; CSS initial = content-box).
         s.computed.box_sizing = ComputedStyle::BoxSizing::ContentBox;
 
+        // Custom properties inherit: start the element's scope as its
+        // parent's (cheap shared_ptr copy via `s = parent`). The walk
+        // below layers on any `--x` this element declares.
         if (!element) return s;
 
-        WalkCtx ctx{&s};
+        CustomPropMap own_customs;
+        std::vector<DeferredVar> deferred;
+        WalkCtx ctx{&s, &own_customs, &deferred};
         auto* html_el =
             lxb_html_interface_element(lxb_dom_interface_node(element));
         // with_weak=false: only walk the cascade winner per property.
@@ -1046,6 +1213,28 @@ public:
         // belt-and-braces in case lexbor's contract ever shifts.
         lxb_html_element_style_walk(html_el, walk_callback, &ctx,
                                     /*with_weak=*/false);
+
+        // Finalize this element's custom-property scope (copy-on-write:
+        // only elements that declare `--x` clone the inherited map).
+        if (!own_customs.empty()) {
+            auto merged = std::make_shared<CustomPropMap>(
+                parent.custom_props ? *parent.custom_props : CustomPropMap{});
+            for (auto& [k, v] : own_customs) (*merged)[k] = std::move(v);
+            s.custom_props = std::move(merged);
+        }
+
+        // Resolve any deferred var()-bearing declarations against the
+        // now-complete scope, then re-parse them back into typed values.
+        if (!deferred.empty()) {
+            static const CustomPropMap kEmpty;
+            const CustomPropMap& scope =
+                s.custom_props ? *s.custom_props : kEmpty;
+            for (const auto& dv : deferred) {
+                const std::string resolved =
+                    substitute_vars(dv.raw_value, scope);
+                apply_resolved_decl(dv.property_id, resolved, s);
+            }
+        }
         return s;
     }
 
@@ -1067,7 +1256,39 @@ public:
     void clear() override {}
 
 private:
+    // Re-parse a var()-resolved value back into a typed declaration and
+    // apply it. `property_id` is the intended property (lexbor kept it
+    // on the failed declaration); `value` is the substituted value with
+    // no var() left. We build "<property-name>:<value>", run it through
+    // lexbor's declaration parser, and route the resulting typed
+    // declaration(s) through the normal apply path.
+    void apply_resolved_decl(std::uintptr_t property_id,
+                             const std::string& value, ResolvedStyle& s) {
+        if (value.empty() || !parser_ || !reparse_mem_) return;
+        const lxb_css_entry_data_t* pd = lxb_css_property_by_id(property_id);
+        if (!pd || pd->name == nullptr) return;
+
+        std::string decl(reinterpret_cast<const char*>(pd->name), pd->length);
+        decl += ':';
+        decl += value;
+
+        lxb_css_rule_declaration_list_t* list = lxb_css_declaration_list_parse(
+            parser_, reparse_mem_,
+            reinterpret_cast<const lxb_char_t*>(decl.data()), decl.size());
+        if (list != nullptr) {
+            for (auto* node = list->first; node != nullptr; node = node->next) {
+                apply_declaration(
+                    reinterpret_cast<const lxb_css_rule_declaration_t*>(node), s);
+            }
+        }
+        // Reset the arena for the next re-parse (the typed values we
+        // care about were already copied into `s` by apply_declaration).
+        lxb_css_memory_clean(reparse_mem_);
+    }
+
     lxb_html_document_t* doc_;
+    lxb_css_parser_t*    parser_{nullptr};
+    lxb_css_memory_t*    reparse_mem_{nullptr};
 };
 
 }  // namespace

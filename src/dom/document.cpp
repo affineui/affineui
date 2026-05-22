@@ -1166,9 +1166,19 @@ void Document::set_html(std::string_view html) {
     // that should be inheriting body's color.
     auto* body = lxb_html_document_body_element(impl_->doc);
     if (body) {
+        // Resolve <html> first so `:root { --custom: ... }` properties
+        // (e.g. Bootstrap's whole --bs-* palette) are collected and
+        // inherited down through <body> into every block. <html> is
+        // <body>'s parent node.
+        detail::ResolvedStyle html_style = impl_->root_style;
+        auto* body_node = lxb_dom_interface_node(body);
+        if (body_node->parent != nullptr &&
+            body_node->parent->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+            html_style = impl_->resolver->resolve(
+                lxb_dom_interface_element(body_node->parent), impl_->root_style);
+        }
         impl_->root_style = impl_->resolver->resolve(
-            lxb_dom_interface_element(lxb_dom_interface_node(body)),
-            impl_->root_style);
+            lxb_dom_interface_element(body_node), html_style);
     }
     collect_blocks(*impl_,
                    body ? lxb_dom_interface_node(body)
