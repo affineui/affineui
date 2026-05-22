@@ -1,0 +1,1 @@
+{"width": 640, "height": 420, "dpi": 1.0, "tolerance": 2, "threshold": 7.0, "steps": [], "_note": "dense-text flow test: 7% accommodates the irreducible NanoVG-vs-Skia glyph-AA floor (~6%, see html_text_basic). Verifies layout/flow; real flow bugs exceed it."}

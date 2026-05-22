@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #fff; font-family: sans-serif; color: #212121; }
+  .wrap { padding: 20px; }
+  p { font-size: 16px; line-height: 1.5; margin: 0 0 10px; }
+  .label { font-size: 11px; color: #888; margin: 0 0 2px; }
+  a { color: #0366d6; }
+  .tag {
+    display: inline-block;
+    background: #e3f0ff;
+    color: #0366d6;
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 1px 6px;
+  }
+  .hi { background: #fff3cd; color: #856404; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <p class="label">colored span and bold in one line</p>
+    <p><span style="color:#d32f2f">Red text</span> and <strong>bold text</strong> inline.</p>
+    <p class="label">inline-block badge</p>
+    <p>Status: <span class="tag">Beta</span> — feature in preview.</p>
+    <p class="label">highlighted span and link</p>
+    <p>See <span class="hi">highlighted term</span> and <a href="#">this link</a>.</p>
+    <p class="label">mixed inline on two lines</p>
+    <p>First <strong>bold</strong>, then <span style="color:#d32f2f">red</span>,
+       then plain text to fill the line and wrap to a second line here.</p>
+  </div>
+</body>
+</html>
