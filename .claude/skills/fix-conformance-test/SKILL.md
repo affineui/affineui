@@ -48,11 +48,32 @@ python conformance/run.py --test <name>
 #    conformance/out/<name>.browser.<snap>.png via conformance/diff.py)
 ```
 
-Then LOOK: open `conformance/out/<name>.browser.<snap>.png`,
-`<name>.affineui.<snap>.png`, and `<name>.diff.<snap>.png` (convert a `.ppm`
-with `python -c "from PIL import Image;Image.open('x.ppm').save('x.png')"`).
-The diff (red = changed) shows exactly what's wrong. Iterate: fix → rebuild →
-re-render → re-diff until `pct_changed` is well under the test's threshold.
+### ALWAYS visually inspect the images — never trust `pct_changed` alone
+
+After every render you MUST open and actually LOOK at all three images with the
+Read tool:
+- `conformance/out/<name>.browser.<snap>.png`  (Chrome — the truth)
+- `conformance/out/<name>.affineui.<snap>.png`  (ours; convert a `.ppm`:
+  `python -c "from PIL import Image;Image.open('x.ppm').save('x.png')"`)
+- `conformance/out/<name>.diff.<snap>.png`       (red = changed)
+
+`pct_changed` is necessary but NOT sufficient — it routinely HIDES real bugs:
+- A clearly-wrong single element is a small fraction of a mostly-white canvas
+  (e.g. `border-radius:50%` rendering a hard **square** scored only ~2%; a
+  heading rendering **non-bold** scored ~6%). Both look "passing" by number,
+  obviously broken by eye.
+- Localized wrong **color**, wrong **font weight/size**, wrong **layout**
+  (stacked vs inline), missing/extra elements — all easy to miss numerically.
+- In the diff, distinguish **thin glyph-edge red** (irreducible NanoVG-vs-Skia
+  text AA — a real ~6% floor on dense text) from **solid blocks / shifted
+  shapes / wrong fills** (real bugs to fix). Same % can be either.
+
+So: compare browser vs ours side by side, read the diff, and name the concrete
+defect ("subtitle is black, should be gray"; "links stack, should be inline")
+before changing code. Iterate fix → rebuild → re-render → re-LOOK until the
+render matches Chrome (not merely until the number drops). A test can be at/under
+threshold and still be visibly wrong — fix what you SEE, then let the number
+confirm.
 
 ## Where things live (find the right layer)
 
