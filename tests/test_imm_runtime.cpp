@@ -23,6 +23,10 @@ public:
     void stroke_rounded_rect(const affineui::Rect&, float, affineui::Color, float) override {}
     void fill_rounded_rect_varying(const affineui::Rect&, float, float, float, float, affineui::Color) override {}
     void stroke_rounded_rect_varying(const affineui::Rect&, float, float, float, float, affineui::Color, float) override {}
+    void fill_linear_gradient_rect(const affineui::Rect&, float, affineui::Color, affineui::Color,
+                                   float, float, float, float) override {}
+    void fill_radial_gradient_rect(const affineui::Rect&, affineui::Color, affineui::Color,
+                                   float, float, float, float) override {}
     std::uint32_t resolve_font(std::string_view, int, int, bool) override { return 1; }
     int measure_text(std::uint32_t, std::string_view text) override {
         return static_cast<int>(text.size()) * 8;

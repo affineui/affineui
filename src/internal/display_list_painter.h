@@ -135,6 +135,49 @@ public:
         list_.ops.push_back(op);
     }
 
+    void fill_linear_gradient_rect(const Rect& r, float angle_deg,
+                                   Color stop0, Color stop1,
+                                   float tl = 0, float tr = 0,
+                                   float br = 0, float bl = 0) override {
+        PaintOp op{};
+        op.kind = PaintOpKind::FillLinearGradientRect;
+        auto& g = op.p.fill_linear_gradient;
+        g.x          = static_cast<std::int16_t>(r.x);
+        g.y          = static_cast<std::int16_t>(r.y);
+        g.w          = static_cast<std::int16_t>(r.w);
+        g.h          = static_cast<std::int16_t>(r.h);
+        g.angle_deg  = static_cast<std::int16_t>(angle_deg);
+        g.tl         = static_cast<std::uint8_t>(std::clamp(tl, 0.f, 255.f));
+        g.tr         = static_cast<std::uint8_t>(std::clamp(tr, 0.f, 255.f));
+        g.br         = static_cast<std::uint8_t>(std::clamp(br, 0.f, 255.f));
+        g.bl         = static_cast<std::uint8_t>(std::clamp(bl, 0.f, 255.f));
+        g.pad_       = 0;
+        g.stop0_rgba = pack(stop0);
+        g.stop1_rgba = pack(stop1);
+        list_.ops.push_back(op);
+    }
+
+    void fill_radial_gradient_rect(const Rect& r,
+                                   Color stop0, Color stop1,
+                                   float tl = 0, float tr = 0,
+                                   float br = 0, float bl = 0) override {
+        PaintOp op{};
+        op.kind = PaintOpKind::FillRadialGradientRect;
+        auto& g = op.p.fill_radial_gradient;
+        g.x          = static_cast<std::int16_t>(r.x);
+        g.y          = static_cast<std::int16_t>(r.y);
+        g.w          = static_cast<std::int16_t>(r.w);
+        g.h          = static_cast<std::int16_t>(r.h);
+        g.tl         = static_cast<std::uint8_t>(std::clamp(tl, 0.f, 255.f));
+        g.tr         = static_cast<std::uint8_t>(std::clamp(tr, 0.f, 255.f));
+        g.br         = static_cast<std::uint8_t>(std::clamp(br, 0.f, 255.f));
+        g.bl         = static_cast<std::uint8_t>(std::clamp(bl, 0.f, 255.f));
+        g.pad_       = 0;
+        g.stop0_rgba = pack(stop0);
+        g.stop1_rgba = pack(stop1);
+        list_.ops.push_back(op);
+    }
+
     std::uint32_t resolve_font(std::string_view family, int size_px,
                                int weight, bool italic) override {
         return font_resolver_
@@ -306,6 +349,25 @@ inline void replay(const DisplayList& list, Painter& target) {
                     static_cast<float>(r.tl), static_cast<float>(r.tr),
                     static_cast<float>(r.br), static_cast<float>(r.bl),
                     unpack(r.rgba), r.thickness);
+                break;
+            }
+            case PaintOpKind::FillLinearGradientRect: {
+                const auto& g = op.p.fill_linear_gradient;
+                target.fill_linear_gradient_rect(
+                    Rect{g.x, g.y, g.w, g.h},
+                    static_cast<float>(g.angle_deg),
+                    unpack(g.stop0_rgba), unpack(g.stop1_rgba),
+                    static_cast<float>(g.tl), static_cast<float>(g.tr),
+                    static_cast<float>(g.br), static_cast<float>(g.bl));
+                break;
+            }
+            case PaintOpKind::FillRadialGradientRect: {
+                const auto& g = op.p.fill_radial_gradient;
+                target.fill_radial_gradient_rect(
+                    Rect{g.x, g.y, g.w, g.h},
+                    unpack(g.stop0_rgba), unpack(g.stop1_rgba),
+                    static_cast<float>(g.tl), static_cast<float>(g.tr),
+                    static_cast<float>(g.br), static_cast<float>(g.bl));
                 break;
             }
             case PaintOpKind::DrawText: {

@@ -40,6 +40,10 @@ public:
     void stroke_rounded_rect(const Rect&, float, Color, float) override {}
     void fill_rounded_rect_varying(const Rect&, float, float, float, float, Color) override {}
     void stroke_rounded_rect_varying(const Rect&, float, float, float, float, Color, float) override {}
+    void fill_linear_gradient_rect(const Rect&, float, Color, Color,
+                                   float, float, float, float) override {}
+    void fill_radial_gradient_rect(const Rect&, Color, Color,
+                                   float, float, float, float) override {}
     std::uint32_t resolve_font(std::string_view, int, int, bool) override { return 0; }
     int           measure_text(std::uint32_t, std::string_view) override { return 0; }
     TextMetrics   text_metrics(std::uint32_t) override { return {}; }
@@ -140,6 +144,84 @@ public:
         nvgStrokeColor(vg_, to_nvg(c));
         nvgStrokeWidth(vg_, w);
         nvgStroke(vg_);
+    }
+
+    void fill_linear_gradient_rect(const Rect& r, float angle_deg,
+                                   Color stop0, Color stop1,
+                                   float tl, float tr, float br, float bl) override {
+        // Convert CSS angle to gradient start/end points.
+        // CSS: 0deg = upward, 90deg = rightward, 180deg = downward.
+        // We derive a start point and end point spanning the bounding box.
+        const float fx = static_cast<float>(r.x);
+        const float fy = static_cast<float>(r.y);
+        const float fw = static_cast<float>(r.w);
+        const float fh = static_cast<float>(r.h);
+        const float cx = fx + fw * 0.5f;
+        const float cy = fy + fh * 0.5f;
+
+        // angle_deg is CSS convention: 0=upward, clockwise.
+        // Convert to standard math angle (anticlockwise from positive X):
+        //   CSS 0  → point upward   → math_angle = 90  → sin=1, cos=0 → dx=0,dy=-1
+        //   CSS 90 → point rightward → math_angle = 0  → dx=1, dy=0
+        //   CSS 180→ point downward  → math_angle = -90 → dx=0, dy=1
+        const float rad = angle_deg * (3.14159265358979323846f / 180.0f);
+        // In CSS: the line is drawn in direction (sin(angle), -cos(angle))
+        // from the start to the end of the gradient.
+        const float dx = std::sin(rad);
+        const float dy = -std::cos(rad);
+
+        // Scale to cover the full bounding box (use half-diagonal projection).
+        // The gradient runs from center-minus-half-extent to center+half-extent.
+        // Extent: max of |dx*w/2 + dy*h/2| makes it cover the box.
+        const float ext = std::abs(dx) * (fw * 0.5f) + std::abs(dy) * (fh * 0.5f);
+
+        const float sx = cx - dx * ext;
+        const float sy = cy - dy * ext;
+        const float ex = cx + dx * ext;
+        const float ey = cy + dy * ext;
+
+        NVGpaint paint = nvgLinearGradient(vg_, sx, sy, ex, ey,
+                                           to_nvg(stop0), to_nvg(stop1));
+        nvgBeginPath(vg_);
+        const float all_same = (tl == tr && tr == br && br == bl);
+        if (all_same && tl == 0.0f) {
+            nvgRect(vg_, fx, fy, fw, fh);
+        } else if (all_same) {
+            nvgRoundedRect(vg_, fx, fy, fw, fh, tl);
+        } else {
+            nvgRoundedRectVarying(vg_, fx, fy, fw, fh, tl, tr, br, bl);
+        }
+        nvgFillPaint(vg_, paint);
+        nvgFill(vg_);
+    }
+
+    void fill_radial_gradient_rect(const Rect& r,
+                                   Color stop0, Color stop1,
+                                   float tl, float tr, float br, float bl) override {
+        const float fx = static_cast<float>(r.x);
+        const float fy = static_cast<float>(r.y);
+        const float fw = static_cast<float>(r.w);
+        const float fh = static_cast<float>(r.h);
+        // Center the gradient on the box center.
+        const float cx = fx + fw * 0.5f;
+        const float cy = fy + fh * 0.5f;
+        // Outer radius: CSS `farthest-corner` default for `circle`.
+        // Half-diagonal of the box is the radius to the farthest corner.
+        const float outer_r = std::sqrt(fw * fw + fh * fh) * 0.5f;
+
+        NVGpaint paint = nvgRadialGradient(vg_, cx, cy, 0.0f, outer_r,
+                                           to_nvg(stop0), to_nvg(stop1));
+        nvgBeginPath(vg_);
+        const bool all_same = (tl == tr && tr == br && br == bl);
+        if (all_same && tl == 0.0f) {
+            nvgRect(vg_, fx, fy, fw, fh);
+        } else if (all_same) {
+            nvgRoundedRect(vg_, fx, fy, fw, fh, tl);
+        } else {
+            nvgRoundedRectVarying(vg_, fx, fy, fw, fh, tl, tr, br, bl);
+        }
+        nvgFillPaint(vg_, paint);
+        nvgFill(vg_);
     }
 
     std::uint32_t resolve_font(std::string_view family,

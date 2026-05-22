@@ -1408,7 +1408,8 @@ void Document::draw(Painter& painter) {
         const float r_bl = static_cast<float>(cs.border_radius_bot_left_px);
         const bool any_radius  = (r_tl > 0 || r_tr > 0 || r_br > 0 || r_bl > 0);
         const bool uniform_r   = (r_tl == r_tr && r_tr == r_br && r_br == r_bl);
-        const bool has_bg = (an.background_rgba & 0xFFu) != 0;
+        const bool has_gradient = (an.gradient_kind != detail::AnimatedStyle::GradientKind::None);
+        const bool has_bg = !has_gradient && (an.background_rgba & 0xFFu) != 0;
         const bool has_border =
             cs.border_style != detail::ComputedStyle::BorderStyle::None
             && (cs.border_top > 0 || cs.border_right > 0
@@ -1445,6 +1446,19 @@ void Document::draw(Painter& painter) {
             else if (uniform_r)               painter.fill_rounded_rect(eff, r_tl, bg);
             else                              painter.fill_rounded_rect_varying(
                                                   eff, r_tl, r_tr, r_br, r_bl, bg);
+        }
+
+        if (has_gradient) {
+            const Color s0 = detail::unpack_rgba(an.gradient_stop0_rgba);
+            const Color s1 = detail::unpack_rgba(an.gradient_stop1_rgba);
+            if (an.gradient_kind == detail::AnimatedStyle::GradientKind::Linear) {
+                painter.fill_linear_gradient_rect(
+                    eff, static_cast<float>(an.gradient_angle_deg),
+                    s0, s1, r_tl, r_tr, r_br, r_bl);
+            } else {
+                painter.fill_radial_gradient_rect(
+                    eff, s0, s1, r_tl, r_tr, r_br, r_bl);
+            }
         }
 
         if (!b.image_src.empty()) {

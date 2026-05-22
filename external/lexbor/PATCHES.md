@@ -25,6 +25,21 @@ Adds `border-radius`, `border-color`, `background`, `box-shadow`, `gap`,
 `row-gap`, and `column-gap` to the generated property table, including
 parsing, serialization, and declaration tests for framework stylesheets.
 
+### css: 2-stop gradient parsing in background property
+
+Extends `lxb_css_property_background_t` with a `lxb_css_property_gradient_t`
+member (kind + angle_deg + two color stops). The `lxb_css_property_state_background`
+handler now detects `linear-gradient()` and `radial-gradient()` FUNCTION tokens
+and dispatches to a new `lxb_css_property_state_gradient_args()` parser that
+handles:
+  - `linear-gradient([ <angle> | to <side> ]?, <color>, <color>)`
+  - `radial-gradient([ circle ]?, <color>, <color>)`
+The `to` and `circle` keywords are matched by direct string comparison (they
+are not in the CSS value enum table). Angle units (deg, rad, turn, grad) are
+converted to CSS degrees using `lxb_css_unit_angel_by_name` against the correct
+`LXB_CSS_UNIT_DEG / LXB_CSS_UNIT_RAD / LXB_CSS_UNIT_TURN / LXB_CSS_UNIT_GRAD`
+enum values. Error recovery skips to `)` on parse failure.
+
 ## Syncing Into AffineUI
 
 From the AffineUI repo:

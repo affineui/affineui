@@ -43,12 +43,28 @@ struct AnimatedStyle {
     // ── Compositor (4 bytes) ──────────────────────────────────────
     float opacity{1.0f};
 
-    // Total: 16 + 8 + 20 + 4 = 48 bytes. Still well inside one cache
-    // line; per-side border colors would push us higher.
+    // ── Background gradient (12 bytes) ────────────────────────────
+    // 2-stop gradient descriptor.  NanoVG natively supports 2-stop
+    // gradients (nvgLinearGradient / nvgRadialGradient), so this is
+    // the correct primitive for our paint layer.  N-stop (>2) is a
+    // future extension — add an external stop table at that time.
+    //
+    // kind: 0 = none (use background_rgba), 1 = linear, 2 = radial.
+    // angle_deg: CSS angle in degrees (0 = upward, clockwise).
+    //   For `to right` that is 90 deg, for `45deg` that is 45 deg.
+    //   For radial gradients this field is unused (set to 0).
+    enum class GradientKind : std::uint8_t { None = 0, Linear = 1, Radial = 2 };
+    GradientKind  gradient_kind   {GradientKind::None};
+    std::uint8_t  gradient_pad_   {0};
+    std::int16_t  gradient_angle_deg{0};  // CSS angle, 0–359
+    std::uint32_t gradient_stop0_rgba{0};
+    std::uint32_t gradient_stop1_rgba{0};
+
+    // Total: 16 + 8 + 20 + 4 + 12 = 60 bytes.
 };
 
-static_assert(sizeof(AnimatedStyle) <= 48,
-              "AnimatedStyle should stay inside one cache line");
+static_assert(sizeof(AnimatedStyle) <= 64,
+              "AnimatedStyle should stay inside two cache lines");
 static_assert(std::is_trivially_copyable_v<AnimatedStyle>,
               "AnimatedStyle must be trivially copyable");
 

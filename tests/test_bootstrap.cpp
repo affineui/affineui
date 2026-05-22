@@ -56,6 +56,16 @@ public:
                                      affineui::Color color, float) override {
         strokes.push_back({rect, color});
     }
+    void fill_linear_gradient_rect(const affineui::Rect& rect, float,
+                                   affineui::Color c0, affineui::Color,
+                                   float, float, float, float) override {
+        fills.push_back({rect, c0});
+    }
+    void fill_radial_gradient_rect(const affineui::Rect& rect,
+                                   affineui::Color c0, affineui::Color,
+                                   float, float, float, float) override {
+        fills.push_back({rect, c0});
+    }
     std::uint32_t resolve_font(std::string_view, int, int, bool) override {
         return 1;
     }

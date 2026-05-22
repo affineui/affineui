@@ -38,7 +38,7 @@ static const lxb_css_entry_data_t lxb_css_property_data[LXB_CSS_PROPERTY__LAST_E
      &(lxb_css_property_alignment_baseline_t) {.type = LXB_CSS_ALIGNMENT_BASELINE_BASELINE}},
     {(lxb_char_t *) "background", 10, LXB_CSS_PROPERTY_BACKGROUND, lxb_css_property_state_background,
      lxb_css_property_background_create, lxb_css_property_background_destroy, lxb_css_property_background_serialize,
-     &(lxb_css_property_background_t) {.color = {.type = LXB_CSS_COLOR_TRANSPARENT}}},
+     &(lxb_css_property_background_t) {.color = {.type = LXB_CSS_COLOR_TRANSPARENT}, .gradient = {.kind = LXB_CSS_GRADIENT_NONE}}},
     {(lxb_char_t *) "background-color", 16, LXB_CSS_PROPERTY_BACKGROUND_COLOR, lxb_css_property_state_background_color,
      lxb_css_property_background_color_create, lxb_css_property_background_color_destroy, lxb_css_property_background_color_serialize,
      &(lxb_css_property_background_color_t) {.type = LXB_CSS_COLOR_TRANSPARENT}},

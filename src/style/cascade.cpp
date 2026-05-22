@@ -439,6 +439,27 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
                 static_cast<const lxb_css_property_background_t*>(d->u.user);
             std::uint32_t rgba;
             if (parse_color(&v->color, rgba)) s.animated.background_rgba = rgba;
+
+            // Gradient descriptor
+            if (v->gradient.kind != LXB_CSS_GRADIENT_NONE) {
+                using GK = AnimatedStyle::GradientKind;
+                s.animated.gradient_kind =
+                    (v->gradient.kind == LXB_CSS_GRADIENT_LINEAR)
+                        ? GK::Linear
+                        : GK::Radial;
+                // Clamp angle to [0, 360)
+                double ang = v->gradient.angle_deg;
+                ang = ang - 360.0 * std::floor(ang / 360.0);
+                s.animated.gradient_angle_deg = static_cast<std::int16_t>(ang);
+
+                std::uint32_t stop0 = 0, stop1 = 0;
+                parse_color(&v->gradient.stop0, stop0);
+                parse_color(&v->gradient.stop1, stop1);
+                s.animated.gradient_stop0_rgba = stop0;
+                s.animated.gradient_stop1_rgba = stop1;
+            } else {
+                s.animated.gradient_kind = AnimatedStyle::GradientKind::None;
+            }
             break;
         }
         case LXB_CSS_PROPERTY_BOX_SHADOW: {

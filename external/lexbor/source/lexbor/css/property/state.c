@@ -2760,6 +2760,215 @@ lxb_css_property_state_border_bottom_left_radius(
         : lxb_css_parser_failed(parser);
 }
 
+/*
+ * Parse `to <side-or-corner>` into an angle in degrees.
+ * CSS spec: `to right` = 90deg, `to bottom` = 180deg (default),
+ * `to left` = 270deg, `to top` = 0deg.
+ * Returns false if the ident sequence is not a valid direction.
+ */
+static bool
+lxb_css_property_state_gradient_to_direction(lxb_css_parser_t *parser,
+                                             const lxb_css_syntax_token_t *token,
+                                             double *angle_deg_out)
+{
+    lxb_css_value_type_t side;
+
+    /* Already consumed `to`; token is the first side keyword. */
+    if (token->type != LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        return false;
+    }
+
+    side = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                 lxb_css_syntax_token_ident(token)->length);
+
+    switch (side) {
+        case LXB_CSS_VALUE_TOP:    *angle_deg_out = 0.0;   break;
+        case LXB_CSS_VALUE_RIGHT:  *angle_deg_out = 90.0;  break;
+        case LXB_CSS_VALUE_BOTTOM: *angle_deg_out = 180.0; break;
+        case LXB_CSS_VALUE_LEFT:   *angle_deg_out = 270.0; break;
+        default:
+            return false;
+    }
+
+    lxb_css_syntax_parser_consume(parser);
+    return true;
+}
+
+/*
+ * Skip all remaining tokens until and including the closing `)`.
+ * Used to consume the remainder of an unrecognised function call.
+ */
+static void
+lxb_css_property_state_skip_to_r_paren(lxb_css_parser_t *parser)
+{
+    const lxb_css_syntax_token_t *tok;
+
+    for (;;) {
+        tok = lxb_css_syntax_parser_token(parser);
+        if (tok == NULL) break;
+        if (tok->type == LXB_CSS_SYNTAX_TOKEN_R_PARENTHESIS
+            || tok->type == LXB_CSS_SYNTAX_TOKEN__END)
+        {
+            lxb_css_syntax_parser_consume(parser);
+            break;
+        }
+        lxb_css_syntax_parser_consume(parser);
+    }
+}
+
+/*
+ * Parse the interior of linear-gradient() or radial-gradient().
+ *
+ * Supported subset (2-stop only — NanoVG is natively 2-stop):
+ *
+ *   linear-gradient([ <angle> | to <side> ]?, <color>, <color>)
+ *   radial-gradient([ circle ]?, <color>, <color>)
+ *
+ * The `gradient` struct is populated on success and true is returned.
+ * On any parse error false is returned; the caller decides whether to
+ * fail the whole declaration.
+ *
+ * The token argument is the first token AFTER the opening `(` has been
+ * consumed by the tokeniser (i.e. lxb_css_syntax_parser_consume(parser)
+ * was called on the FUNCTION token by the caller).
+ */
+static bool
+lxb_css_property_state_gradient_args(lxb_css_parser_t *parser,
+                                     lxb_css_gradient_kind_t kind,
+                                     lxb_css_property_gradient_t *gradient)
+{
+    lxb_status_t status;
+    const lxb_css_syntax_token_t *token;
+
+    gradient->kind      = kind;
+    gradient->angle_deg = 180.0; /* CSS default: `to bottom` */
+    gradient->stop0.type = LXB_CSS_VALUE__UNDEF;
+    gradient->stop1.type = LXB_CSS_VALUE__UNDEF;
+
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    if (token == NULL) return false;
+
+    if (kind == LXB_CSS_GRADIENT_LINEAR) {
+        /* Optional: <angle> or `to <side>` */
+        if (token->type == LXB_CSS_SYNTAX_TOKEN_DIMENSION) {
+            /* <angle>: convert to degrees */
+            const lxb_css_data_t *unit =
+                lxb_css_unit_angel_by_name(
+                    lxb_css_syntax_token_dimension(token)->str.data,
+                    lxb_css_syntax_token_dimension(token)->str.length);
+            if (unit != NULL) {
+                double num = lxb_css_syntax_token_dimension(token)->num.num;
+                switch ((lxb_css_unit_angel_t) unit->unique) {
+                    case LXB_CSS_UNIT_DEG:  gradient->angle_deg = num;         break;
+                    case LXB_CSS_UNIT_TURN: gradient->angle_deg = num * 360.0; break;
+                    case LXB_CSS_UNIT_RAD:  gradient->angle_deg = num * (180.0 / 3.14159265358979323846); break;
+                    case LXB_CSS_UNIT_GRAD: gradient->angle_deg = num * 0.9;  break;
+                    default:                gradient->angle_deg = num;         break;
+                }
+                lxb_css_syntax_parser_consume(parser);
+
+                /* Expect comma */
+                token = lxb_css_syntax_parser_token_wo_ws(parser);
+                if (token == NULL || token->type != LXB_CSS_SYNTAX_TOKEN_COMMA) {
+                    return false;
+                }
+                lxb_css_syntax_parser_consume(parser);
+                token = lxb_css_syntax_parser_token_wo_ws(parser);
+                if (token == NULL) return false;
+            }
+            /* else: unrecognized dimension — fall through and try parsing as color */
+        }
+        else if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+            /* `to` is not in the CSS value enum table; compare directly. */
+            const lxb_char_t *kw  = lxb_css_syntax_token_ident(token)->data;
+            size_t            kwl = lxb_css_syntax_token_ident(token)->length;
+            if (kwl == 2
+                && lexbor_str_data_ncasecmp(kw, (const lxb_char_t *)"to", 2))
+            {
+                lxb_css_syntax_parser_consume(parser);
+                token = lxb_css_syntax_parser_token_wo_ws(parser);
+                if (token == NULL) return false;
+
+                if (!lxb_css_property_state_gradient_to_direction(
+                        parser, token, &gradient->angle_deg))
+                {
+                    return false;
+                }
+
+                /* Expect comma */
+                token = lxb_css_syntax_parser_token_wo_ws(parser);
+                if (token == NULL || token->type != LXB_CSS_SYNTAX_TOKEN_COMMA) {
+                    return false;
+                }
+                lxb_css_syntax_parser_consume(parser);
+                token = lxb_css_syntax_parser_token_wo_ws(parser);
+                if (token == NULL) return false;
+            }
+            /* else: treat as color (no direction prefix) */
+        }
+    }
+    else { /* RADIAL */
+        /* Optional: `circle` keyword */
+        if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+            /* `circle` is not in the CSS value enum table; compare directly. */
+            const lxb_char_t *kw  = lxb_css_syntax_token_ident(token)->data;
+            size_t            kwl = lxb_css_syntax_token_ident(token)->length;
+            if (kwl == 6
+                && lexbor_str_data_ncasecmp(kw, (const lxb_char_t *)"circle", 6))
+            {
+                lxb_css_syntax_parser_consume(parser);
+
+                /* Expect comma */
+                token = lxb_css_syntax_parser_token_wo_ws(parser);
+                if (token == NULL || token->type != LXB_CSS_SYNTAX_TOKEN_COMMA) {
+                    return false;
+                }
+                lxb_css_syntax_parser_consume(parser);
+                token = lxb_css_syntax_parser_token_wo_ws(parser);
+                if (token == NULL) return false;
+            }
+            /* else: may still be a color keyword — fall through */
+        }
+    }
+
+    /* Parse stop 0 */
+    if (!lxb_css_property_state_color_handler(parser, token,
+                                               &gradient->stop0, &status)) {
+        return false;
+    }
+
+    /* Expect comma */
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    if (token == NULL || token->type != LXB_CSS_SYNTAX_TOKEN_COMMA) {
+        return false;
+    }
+    lxb_css_syntax_parser_consume(parser);
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    if (token == NULL) return false;
+
+    /* Parse stop 1 */
+    if (!lxb_css_property_state_color_handler(parser, token,
+                                               &gradient->stop1, &status)) {
+        return false;
+    }
+
+    /* Expect `)` */
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    if (token == NULL || token->type != LXB_CSS_SYNTAX_TOKEN_R_PARENTHESIS) {
+        return false;
+    }
+    lxb_css_syntax_parser_consume(parser);
+
+    return true;
+}
+
+/*
+ * String literals for gradient function names (lowercase, as the
+ * tokenizer normalizes CSS function names to lowercase).
+ */
+static const lxb_char_t lxb_css_str_linear_gradient[] = "linear-gradient";
+static const lxb_char_t lxb_css_str_radial_gradient[] = "radial-gradient";
+
 bool
 lxb_css_property_state_background(lxb_css_parser_t *parser,
                                   const lxb_css_syntax_token_t *token, void *ctx)
@@ -2782,6 +2991,48 @@ lxb_css_property_state_background(lxb_css_parser_t *parser,
     }
 
     do {
+        /* Check for gradient function tokens first. */
+        if (token->type == LXB_CSS_SYNTAX_TOKEN_FUNCTION) {
+            const lxb_char_t *fname = lxb_css_syntax_token_function(token)->data;
+            size_t            flen  = lxb_css_syntax_token_function(token)->length;
+            lxb_css_gradient_kind_t gkind = LXB_CSS_GRADIENT_NONE;
+
+            if (flen == sizeof(lxb_css_str_linear_gradient) - 1
+                && lexbor_str_data_ncasecmp(fname,
+                       lxb_css_str_linear_gradient,
+                       sizeof(lxb_css_str_linear_gradient) - 1))
+            {
+                gkind = LXB_CSS_GRADIENT_LINEAR;
+            }
+            else if (flen == sizeof(lxb_css_str_radial_gradient) - 1
+                     && lexbor_str_data_ncasecmp(fname,
+                            lxb_css_str_radial_gradient,
+                            sizeof(lxb_css_str_radial_gradient) - 1))
+            {
+                gkind = LXB_CSS_GRADIENT_RADIAL;
+            }
+
+            if (gkind != LXB_CSS_GRADIENT_NONE) {
+                /* Consume the function token (the `(` is part of it). */
+                lxb_css_syntax_parser_consume(parser);
+
+                if (lxb_css_property_state_gradient_args(parser, gkind,
+                        &declar->u.background->gradient))
+                {
+                    /* Successfully parsed — no solid color from this token. */
+                }
+                else {
+                    /* Gradient parse failed; clear and skip to `)`. */
+                    declar->u.background->gradient.kind = LXB_CSS_GRADIENT_NONE;
+                    lxb_css_property_state_skip_to_r_paren(parser);
+                }
+
+                token = lxb_css_syntax_parser_token_wo_ws(parser);
+                lxb_css_property_state_check_token(parser, token);
+                continue;
+            }
+        }
+
         color.type = LXB_CSS_VALUE__UNDEF;
 
         if (lxb_css_property_state_color_handler(parser, token, &color, &status)) {

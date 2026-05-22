@@ -26,6 +26,8 @@ enum class PaintOpKind : std::uint8_t {
     StrokeRoundedRect,
     FillRoundedRectVarying,
     StrokeRoundedRectVarying,
+    FillLinearGradientRect,
+    FillRadialGradientRect,
     DrawText,
     DrawTextBox,
     DrawImage,
@@ -114,6 +116,26 @@ struct PaintOp {
             std::int16_t  x, y, w, h;
             std::int16_t  sx, sy, sw, sh;
         } draw_image;
+
+        // Gradient fills: angle_deg is CSS-convention (0=up, 90=right).
+        // Corner radii are capped to u8 (0–255 px), sufficient for CSS
+        // border-radius values in real UIs.
+        struct {
+            std::int16_t  x, y, w, h;       // 8
+            std::int16_t  angle_deg;         // 2  (CSS angle, i16 fits 0–359)
+            std::uint8_t  tl, tr, br, bl;   // 4  (corner radii, u8 px)
+            std::uint16_t pad_;             // 2
+            std::uint32_t stop0_rgba;        // 4
+            std::uint32_t stop1_rgba;        // 4
+        } fill_linear_gradient;              // = 24 bytes
+
+        struct {
+            std::int16_t  x, y, w, h;       // 8
+            std::uint8_t  tl, tr, br, bl;   // 4
+            std::uint32_t pad_;             // 4
+            std::uint32_t stop0_rgba;        // 4
+            std::uint32_t stop1_rgba;        // 4
+        } fill_radial_gradient;              // = 24 bytes
 
         struct {
             std::int16_t x, y, w, h;

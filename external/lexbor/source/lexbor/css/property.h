@@ -149,8 +149,29 @@ lxb_css_property_border_bottom_right_radius_t;
 typedef lxb_css_property_border_radius_corner_t
 lxb_css_property_border_bottom_left_radius_t;
 
+/*
+ * 2-stop gradient descriptor for `background`.
+ * NanoVG is natively 2-stop; N-stop is a future extension.
+ * kind: 0=none, 1=linear-gradient, 2=radial-gradient.
+ * angle_deg: CSS angle in degrees (0=upward, clockwise).
+ *   `to right` => 90 deg.  Unused for radial (set 0).
+ */
+typedef enum {
+    LXB_CSS_GRADIENT_NONE   = 0,
+    LXB_CSS_GRADIENT_LINEAR = 1,
+    LXB_CSS_GRADIENT_RADIAL = 2
+} lxb_css_gradient_kind_t;
+
 typedef struct {
-    lxb_css_value_color_t color;
+    lxb_css_gradient_kind_t kind;
+    double                  angle_deg;  /* linear: CSS angle degrees */
+    lxb_css_value_color_t   stop0;
+    lxb_css_value_color_t   stop1;
+} lxb_css_property_gradient_t;
+
+typedef struct {
+    lxb_css_value_color_t      color;
+    lxb_css_property_gradient_t gradient; /* kind=NONE when no gradient */
 }
 lxb_css_property_background_t;
 

@@ -36,6 +36,21 @@ public:
                                              float tl, float tr, float br, float bl,
                                              Color color, float w) = 0;
 
+    // ── Gradient fills ──────────────────────────────────────────────
+    /// CSS-convention angle: 0=upward, 90=right, 180=downward, 270=left.
+    /// Supports optional corner radii (pass 0 for sharp corners).
+    virtual void fill_linear_gradient_rect(const Rect& r,
+                                           float angle_deg,
+                                           Color stop0, Color stop1,
+                                           float tl = 0, float tr = 0,
+                                           float br = 0, float bl = 0) = 0;
+    /// Radial gradient centered on `r`. Inner radius = 0; outer radius
+    /// = farthest-corner distance (Chrome default for `circle`).
+    virtual void fill_radial_gradient_rect(const Rect& r,
+                                           Color stop0, Color stop1,
+                                           float tl = 0, float tr = 0,
+                                           float br = 0, float bl = 0) = 0;
+
     // ── Text ────────────────────────────────────────────────────────
     /// Returns an opaque font handle. Implementation-defined; zero means
     /// "use default fallback face."
