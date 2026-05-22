@@ -90,6 +90,8 @@ public:
     }
     void push_clip(const affineui::Rect&) override {}
     void pop_clip() override {}
+    void push_alpha(float) override {}
+    void pop_alpha() override {}
 };
 
 bool same_color(affineui::Color a, affineui::Color b) {

@@ -1521,16 +1521,58 @@ struct DeferredVar {
     std::string    raw_value;
 };
 
+// One per-property cascade winner collected during the walk, paired with
+// its specificity so we can apply the winners in CSS cascade order rather
+// than in lexbor's AVL-tree (pre-order) traversal order.
+struct PendingDecl {
+    lxb_css_selector_specificity_t    spec;
+    const lxb_css_rule_declaration_t* declr;
+};
+
+// CSS shorthands (margin, padding, border, …) expand to several
+// longhands. lexbor's pre-matched store keeps each *declared* property —
+// shorthand or longhand — as its own cascade winner under a separate id,
+// so an overlapping shorthand and longhand (e.g. a UA `margin` shorthand
+// vs an author `margin-top:0` reset) never compete; both survive as
+// primaries. We must therefore order their application ourselves: a
+// shorthand has to be written BEFORE the longhands it can set, otherwise
+// a same-specificity longhand reset — the universal pattern in
+// resets/normalizers such as Bootstrap Reboot — would be silently
+// clobbered. Broader shorthands rank lower (applied earlier) than the
+// per-side shorthands they contain, which in turn precede longhands.
+inline int shorthand_rank(std::uintptr_t id) {
+    switch (id) {
+        case LXB_CSS_PROPERTY_MARGIN:
+        case LXB_CSS_PROPERTY_PADDING:
+        case LXB_CSS_PROPERTY_BORDER:
+        case LXB_CSS_PROPERTY_BORDER_COLOR:
+        case LXB_CSS_PROPERTY_BORDER_RADIUS:
+        case LXB_CSS_PROPERTY_BACKGROUND:
+        case LXB_CSS_PROPERTY_GAP:
+        case LXB_CSS_PROPERTY_FLEX:
+        case LXB_CSS_PROPERTY_OVERFLOW:
+            return 0;  // broad shorthands
+        case LXB_CSS_PROPERTY_BORDER_TOP:
+        case LXB_CSS_PROPERTY_BORDER_RIGHT:
+        case LXB_CSS_PROPERTY_BORDER_BOTTOM:
+        case LXB_CSS_PROPERTY_BORDER_LEFT:
+            return 1;  // per-side border shorthands
+        default:
+            return 2;  // longhands
+    }
+}
+
 struct WalkCtx {
     ResolvedStyle*            out;
     CustomPropMap*            own_customs;  // `--x` declared on this element
     std::vector<DeferredVar>* deferred;     // var()-bearing declarations
+    std::vector<PendingDecl>* pending;      // typed cascade winners, unsorted
 };
 
 lxb_status_t walk_callback(lxb_html_element_t* /*element*/,
                            const lxb_css_rule_declaration_t* declr,
                            void* ctx,
-                           lxb_css_selector_specificity_t /*spec*/,
+                           lxb_css_selector_specificity_t spec,
                            bool is_weak) {
     if (is_weak) return LXB_STATUS_OK;
     auto* w = static_cast<WalkCtx*>(ctx);
@@ -1562,7 +1604,9 @@ lxb_status_t walk_callback(lxb_html_element_t* /*element*/,
         return LXB_STATUS_OK;
     }
 
-    apply_declaration(declr, *w->out);
+    // Defer application: collect the winner with its specificity so the
+    // resolver can apply all winners in cascade order (see shorthand_rank).
+    w->pending->push_back({spec, declr});
     return LXB_STATUS_OK;
 }
 
@@ -1667,7 +1711,8 @@ public:
 
         CustomPropMap own_customs;
         std::vector<DeferredVar> deferred;
-        WalkCtx ctx{&s, &own_customs, &deferred};
+        std::vector<PendingDecl> pending;
+        WalkCtx ctx{&s, &own_customs, &deferred, &pending};
         auto* html_el =
             lxb_html_interface_element(lxb_dom_interface_node(element));
         // with_weak=false: only walk the cascade winner per property.
@@ -1675,6 +1720,23 @@ public:
         // belt-and-braces in case lexbor's contract ever shifts.
         lxb_html_element_style_walk(html_el, walk_callback, &ctx,
                                     /*with_weak=*/false);
+
+        // Apply the collected cascade winners in CSS order. lexbor visits
+        // its style AVL in pre-order (tree shape, NOT cascade order), and
+        // it keeps overlapping shorthands/longhands as separate winners,
+        // so applying in walk order lets, e.g., a UA `margin` shorthand
+        // clobber a later `margin-top:0` reset. Sort by specificity
+        // ascending (higher specificity wins via last-write — the packed
+        // spec compares as important > inline > id > class > type), and on
+        // equal specificity put shorthands before the longhands they set.
+        // stable_sort keeps the per-property walk order for true ties.
+        std::stable_sort(pending.begin(), pending.end(),
+            [](const PendingDecl& a, const PendingDecl& b) {
+                if (a.spec != b.spec) return a.spec < b.spec;
+                return shorthand_rank(a.declr->type) <
+                       shorthand_rank(b.declr->type);
+            });
+        for (const PendingDecl& pd : pending) apply_declaration(pd.declr, s);
 
         // Finalize this element's custom-property scope (copy-on-write:
         // only elements that declare `--x` clone the inherited map).

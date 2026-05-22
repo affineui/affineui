@@ -45,6 +45,8 @@ public:
     void draw_image(std::uint32_t, const affineui::Rect&, const affineui::Rect&) override {}
     void push_clip(const affineui::Rect&) override {}
     void pop_clip() override {}
+    void push_alpha(float) override {}
+    void pop_alpha() override {}
 };
 
 std::string imm_id(ui::CallSite here) {

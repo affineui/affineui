@@ -173,7 +173,9 @@ TEST_CASE("border side color longhands reach the resolved border color") {
 
     const affineui::detail::ResolvedStyle parent{};
     const auto rs = env.resolver->resolve(button, parent);
-    CHECK(rs.animated.border_rgba == rgba(0x44, 0x55, 0x66));
+    // border-top-color sets only the top side; the paint path uses the
+    // per-side color in preference to the unified border_rgba fallback.
+    CHECK(rs.animated.border_top_rgba == rgba(0x44, 0x55, 0x66));
 }
 
 TEST_CASE("rgba colors resolve to packed alpha") {
@@ -232,6 +234,49 @@ TEST_CASE("framework shorthands reach resolved style") {
     CHECK(button_rs.computed.border_radius_bot_left_px == 4);
 }
 
+TEST_CASE("a longhand reset overrides an equal-specificity shorthand") {
+    // The Bootstrap-Reboot pattern: the UA sheet sets a heading's box
+    // with the `margin` shorthand, then a later author rule of EQUAL
+    // specificity zeroes one side with the `margin-top` longhand. CSS
+    // source order says the longhand wins. lexbor keeps the shorthand and
+    // the longhand as separate per-property cascade winners, so the
+    // resolver must apply the shorthand before the longhand for the reset
+    // to take effect (see shorthand_rank in cascade.cpp).
+    CssEnv env("<h6>hi</h6>");
+    env.attach("h6 { margin: 16px; }");          // UA-like shorthand (first)
+    env.attach("h6 { margin-top: 0; }");          // reset longhand (later)
+    env.build_resolver();
+
+    auto* h6 = env.find("h6");
+    REQUIRE(h6 != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(h6, parent);
+    CHECK(rs.computed.margin_top == 0);    // longhand reset won
+    CHECK(rs.computed.margin_bottom == 16);
+    CHECK(rs.computed.margin_left == 16);
+    CHECK(rs.computed.margin_right == 16);
+}
+
+TEST_CASE("a more-specific longhand overrides a shorthand regardless of order") {
+    // The shorthand is declared LATER but is less specific; the
+    // higher-specificity longhand must still win for its side. This
+    // exercises the specificity-ascending half of the apply ordering.
+    CssEnv env("<h6 class=\"sub\">hi</h6>");
+    env.attach(".sub { margin-top: 2px; }");      // longhand, spec (0,1,0)
+    env.attach("h6 { margin: 16px; }");            // shorthand, spec (0,0,1)
+    env.build_resolver();
+
+    auto* h6 = env.find("h6");
+    REQUIRE(h6 != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(h6, parent);
+    CHECK(rs.computed.margin_top == 2);    // more-specific longhand won
+    CHECK(rs.computed.margin_bottom == 16);
+    CHECK(rs.computed.margin_left == 16);
+}
+
 TEST_CASE("border-radius longhands reach computed style") {
     CssEnv env("<button>hi</button>");
     env.attach("button { border-top-left-radius: 8px 12px;"
@@ -268,7 +313,10 @@ TEST_CASE("flex sizing properties reach computed style") {
     CHECK(section_rs.computed.min_width == 0);
     CHECK(article_rs.computed.flex_grow == 1);
     CHECK(article_rs.computed.flex_shrink == 0);
-    CHECK(article_rs.computed.flex_basis == 0);
+    // `flex: 1 0 0%` — the basis is a *percentage*, so it lands in
+    // flex_basis_pct (0), leaving the px field unset (-1 = pct governs).
+    CHECK(article_rs.computed.flex_basis_pct == 0);
+    CHECK(article_rs.computed.flex_basis == -1);
 }
 
 TEST_CASE("font-size in px lands in ComputedStyle, not AnimatedStyle") {
