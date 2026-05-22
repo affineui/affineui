@@ -27,7 +27,7 @@ REPO = ROOT.parent
 CASES = ROOT / "cases"
 OUT = ROOT / "out"
 
-DEFAULTS = {"width": 1024, "height": 768, "dpi": 1.0, "tolerance": 2, "threshold": 10.0, "steps": []}
+DEFAULTS = {"width": 1024, "height": 768, "dpi": 1.0, "tolerance": 2, "threshold": 5.0, "steps": []}
 
 
 def find_tool() -> Path:

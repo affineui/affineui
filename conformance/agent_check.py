@@ -39,7 +39,7 @@ OUT = ROOT / "out"
 # --ref-dir or $AFFINEUI_BROWSER_REF so it can diff without running Chrome.
 DEFAULT_REF = os.environ.get("AFFINEUI_BROWSER_REF", str(OUT))
 
-DEFAULTS = {"tolerance": 2, "threshold": 10.0, "steps": [{"snapshot": "default"}]}
+DEFAULTS = {"tolerance": 2, "threshold": 5.0, "steps": [{"snapshot": "default"}]}
 
 
 def find_tool() -> Path:
