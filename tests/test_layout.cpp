@@ -173,6 +173,37 @@ TEST_CASE("flex row with flex-grow:1 children distributes width evenly") {
     CHECK(out[3].x == 600);
 }
 
+TEST_CASE("border-box %-width flex items fit with padding (no overflow/wrap)") {
+    // The Bootstrap grid case: two `width:50%` columns with horizontal
+    // gutter padding inside a wrapping flex row. With box-sizing:border-box
+    // the padding is inside the 50%, so both fit on one row. If border-box
+    // is ignored for the width dimension, padding is added outside and the
+    // second column wraps.
+    ComputedStyle parent{};
+    parent.display   = ComputedStyle::Display::Flex;
+    parent.flex_wrap = ComputedStyle::FlexWrap::Wrap;
+
+    ComputedStyle col{};
+    col.box_sizing     = ComputedStyle::BoxSizing::BorderBox;
+    col.width_pct_x100 = 5000;   // 50%
+    col.flex_grow      = 0;
+    col.flex_shrink    = 0;      // Bootstrap cols can't shrink → wrap on overflow
+    col.padding_left   = 12;
+    col.padding_right  = 12;
+
+    auto out = run(800, {
+        make_input(parent, 0),
+        make_input(col, 40, 0),
+        make_input(col, 40, 0),
+    });
+
+    REQUIRE(out.size() == 3);
+    CHECK(out[1].w == 400);            // 50% border-box
+    CHECK(out[2].w == 400);
+    CHECK(out[1].y == out[2].y);       // same row — no wrap
+    CHECK(out[2].x == 400);
+}
+
 TEST_CASE("flex row gap separates children on the main axis") {
     ComputedStyle parent{};
     parent.display    = ComputedStyle::Display::Flex;

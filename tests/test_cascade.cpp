@@ -304,6 +304,95 @@ TEST_CASE("var() color with alpha resolves through :root inheritance") {
     CHECK(h6_rs.animated.color_rgba == rgba(33, 37, 41, 191));  // .75*255
 }
 
+TEST_CASE("calc() evaluates length arithmetic, including with var()") {
+    // The Bootstrap .card-subtitle pattern: a negative margin from
+    // calc(-.5 * var(--spacer)). Also exercises mixed +/* and px/rem.
+    CssEnv env("<div class=\"sub\">x</div>");
+    env.attach(":root { --spacer: 0.5rem; }");          // 8px
+    env.attach(".sub { margin-top: calc(-.5 * var(--spacer));"
+               "       margin-left: calc(100px / 4 + 2px);"
+               "       margin-right: calc(1rem + 4px); }");
+    env.build_resolver();
+
+    auto* html = env.find("html");
+    auto* sub  = env.find("div");
+    REQUIRE(html != nullptr);
+    REQUIRE(sub != nullptr);
+
+    const affineui::detail::ResolvedStyle root{};
+    const auto html_rs = env.resolver->resolve(html, root);
+    const auto rs      = env.resolver->resolve(sub, html_rs);
+    CHECK(rs.computed.margin_top   == -4);   // -.5 * 8px
+    CHECK(rs.computed.margin_left  == 27);   // 100/4 + 2
+    CHECK(rs.computed.margin_right == 20);   // 16 + 4
+}
+
+TEST_CASE("calc() with an unsupported percentage is dropped, not misapplied") {
+    CssEnv env("<div class=\"sub\">x</div>");
+    env.attach(".sub { margin-top: calc(100% - 10px); }");
+    env.build_resolver();
+    auto* sub = env.find("div");
+    REQUIRE(sub != nullptr);
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(sub, parent);
+    // The calc() carries a % we can't resolve without layout context, so
+    // it is left verbatim and dropped on re-parse — margin stays initial
+    // (0) rather than being misparsed into a garbage value.
+    CHECK(rs.computed.margin_top == 0);
+}
+
+TEST_CASE("universal selector applies box-sizing to an element") {
+    // Bootstrap relies on `*,*::before,*::after{box-sizing:border-box}`.
+    // Without it, a %-width flex column with gutter padding overflows and
+    // wraps (cols are flex:0 0 auto, so they can't shrink).
+    CssEnv env("<div class=\"col\">x</div>");
+    env.attach("*{box-sizing:border-box}");
+    env.build_resolver();
+    auto* col = env.find("div");
+    REQUIRE(col != nullptr);
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(col, parent);
+    CHECK(rs.computed.box_sizing ==
+          affineui::detail::ComputedStyle::BoxSizing::BorderBox);
+}
+
+TEST_CASE("universal selector grouped with pseudo-elements still applies (Reboot)") {
+    // Bootstrap Reboot's exact selector. If lexbor mishandles the
+    // *::before / *::after members of the list, the `*` member must still
+    // match real elements — otherwise box-sizing:border-box never lands
+    // and %-width grid columns overflow.
+    CssEnv env("<div class=\"col\">x</div>");
+    env.attach("*,*::before,*::after{box-sizing:border-box}");
+    env.build_resolver();
+    auto* col = env.find("div");
+    REQUIRE(col != nullptr);
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(col, parent);
+    CHECK(rs.computed.box_sizing ==
+          affineui::detail::ComputedStyle::BoxSizing::BorderBox);
+}
+
+TEST_CASE("selector list with pseudo-element members still applies to elements") {
+    // A CSS selector list is non-forgiving, but ::before/::after are
+    // VALID selectors — they just never match in an engine with no
+    // pseudo-element nodes. lexbor used to treat them as a parse error,
+    // which discarded the whole rule (Bootstrap's
+    // `*,*::before,*::after{box-sizing:border-box}` lost its reset).
+    auto red = [](const char* css) {
+        CssEnv env("<div class=\"col\">x</div>");
+        env.attach(css);
+        env.build_resolver();
+        auto* col = env.find("div");
+        const affineui::detail::ResolvedStyle parent{};
+        return env.resolver->resolve(col, parent).animated.color_rgba ==
+               rgba(0xFF, 0x00, 0x00);
+    };
+    CHECK(red("div,div::before{color:red}"));          // pseudo last
+    CHECK(red("div::before,div{color:red}"));          // pseudo first
+    CHECK(red("div,*::before,*::after{color:red}"));    // Reboot shape
+    CHECK(red("div::after{color:blue} div{color:red}")); // pseudo-only rule is inert
+}
+
 TEST_CASE("border-radius longhands reach computed style") {
     CssEnv env("<button>hi</button>");
     env.attach("button { border-top-left-radius: 8px 12px;"

@@ -1581,7 +1581,6 @@ lxb_css_selectors_state_pseudo_element(lxb_css_parser_t *parser,
                                        const lxb_css_syntax_token_t *token)
 {
     lxb_status_t status;
-    lxb_css_log_message_t *msg;
     lxb_css_selector_t *selector;
     lxb_css_selectors_t *selectors;
     const lxb_css_selectors_pseudo_data_t *pseudo;
@@ -1599,33 +1598,16 @@ lxb_css_selectors_state_pseudo_element(lxb_css_parser_t *parser,
         return lxb_css_parser_unexpected_status(parser);
     }
 
-    switch (pseudo->id) {
-        case LXB_CSS_SELECTOR_PSEUDO_ELEMENT_AFTER:
-        case LXB_CSS_SELECTOR_PSEUDO_ELEMENT_BACKDROP:
-        case LXB_CSS_SELECTOR_PSEUDO_ELEMENT_BEFORE:
-        case LXB_CSS_SELECTOR_PSEUDO_ELEMENT_FIRST_LETTER:
-        case LXB_CSS_SELECTOR_PSEUDO_ELEMENT_FIRST_LINE:
-        case LXB_CSS_SELECTOR_PSEUDO_ELEMENT_GRAMMAR_ERROR:
-        case LXB_CSS_SELECTOR_PSEUDO_ELEMENT_INACTIVE_SELECTION:
-        case LXB_CSS_SELECTOR_PSEUDO_ELEMENT_MARKER:
-        case LXB_CSS_SELECTOR_PSEUDO_ELEMENT_PLACEHOLDER:
-        case LXB_CSS_SELECTOR_PSEUDO_ELEMENT_SELECTION:
-        case LXB_CSS_SELECTOR_PSEUDO_ELEMENT_SPELLING_ERROR:
-        case LXB_CSS_SELECTOR_PSEUDO_ELEMENT_TARGET_TEXT:
-            msg = lxb_css_log_not_supported(parser->log,
-                                            lxb_css_selectors_module_name,
-                                            (const char *) selector->name.data);
-            if (msg == NULL) {
-                (void) lxb_css_parser_memory_fail(parser);
-                return parser->status;
-            }
-
-            return lxb_css_parser_unexpected_status(parser);
-
-        default:
-            break;
-    }
-
+    /*
+     * Accept the standard pseudo-elements (::before, ::after, ::marker,
+     * …) as VALID selectors at parse time even though this engine has no
+     * pseudo-element nodes to match (the matcher returns false for them).
+     * Treating them as a parse ERROR was wrong: a CSS selector list is
+     * non-forgiving, so erroring on one member discarded the ENTIRE rule
+     * — e.g. Bootstrap's `*,*::before,*::after{box-sizing:border-box}`
+     * lost its `*` reset entirely. Parsing them keeps the real-element
+     * members of such lists working; they simply never match.
+     */
     selector->u.pseudo.type = pseudo->id;
     selector->u.pseudo.data = NULL;
 

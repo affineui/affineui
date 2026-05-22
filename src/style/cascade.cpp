@@ -21,6 +21,7 @@
 #include "internal/style_resolver.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cctype>
 #include <memory>
@@ -355,14 +356,17 @@ bool parse_color(const lxb_css_value_color_t* v, std::uint32_t& out) {
 }
 
 bool parse_length_value(double num, int unit, int& out) {
+    // std::lround rounds half away from zero, so negative lengths (e.g. a
+    // calc()-derived negative margin) round symmetrically — plain
+    // `int(num + 0.5)` would truncate -4.0 toward zero as -3.
     switch (unit) {
         case LXB_CSS_UNIT__UNDEF:
         case LXB_CSS_UNIT_PX:
-            out = static_cast<int>(num + 0.5);
+            out = static_cast<int>(std::lround(num));
             return true;
         case LXB_CSS_UNIT_REM:
         case LXB_CSS_UNIT_EM:
-            out = static_cast<int>((num * 16.0) + 0.5);
+            out = static_cast<int>(std::lround(num * 16.0));
             return true;
         default:
             return false;
@@ -606,6 +610,153 @@ std::string substitute_vars(std::string_view input, const CustomPropMap& map,
         }  // else: invalid var with no fallback → empties out (CSS: IACVT)
         out.append(replacement);
         i = close + 1;
+    }
+    return out;
+}
+
+// ── calc() evaluation ──────────────────────────────────────────────
+// lexbor does not parse calc(). var() resolution already does string-
+// level substitution + re-parse, so calc() is evaluated in that same
+// pipeline (run AFTER substitute_vars, so only numbers/units/operators
+// remain). We resolve only calc()s that reduce to a single px length
+// (or a pure number) from px / rem / em arithmetic — percentages and
+// other units need layout context we don't have here, so a calc() that
+// carries them is left verbatim and the declaration is then dropped on
+// re-parse (CSS "invalid at computed-value time").
+
+bool calc_kw_at(std::string_view s, std::size_t i) {  // "calc(" at boundary
+    static constexpr std::string_view kw = "calc(";
+    if (i + kw.size() > s.size()) return false;
+    for (std::size_t k = 0; k < kw.size(); ++k)
+        if (static_cast<char>(std::tolower(
+                static_cast<unsigned char>(s[i + k]))) != kw[k]) return false;
+    return i == 0 || !is_ident_char(s[i - 1]);
+}
+
+std::size_t find_calc(std::string_view s, std::size_t from) {
+    for (std::size_t i = from; i < s.size(); ++i)
+        if ((s[i] == 'c' || s[i] == 'C') && calc_kw_at(s, i)) return i;
+    return std::string_view::npos;
+}
+
+struct CalcVal {
+    double v{0.0};
+    int    dims{0};      // 0 = pure number, 1 = length (px)
+    bool   ok{false};
+};
+
+void calc_ws(std::string_view s, std::size_t& i) {
+    while (i < s.size() && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
+}
+
+CalcVal calc_expr(std::string_view s, std::size_t& i, double rem, double em);
+
+CalcVal calc_factor(std::string_view s, std::size_t& i, double rem, double em) {
+    calc_ws(s, i);
+    if (i >= s.size()) return {};
+    // Unary sign that applies to a parenthesised group / nested calc.
+    double sign = 1.0;
+    if (s[i] == '+' || s[i] == '-') {
+        std::size_t k = i + 1;
+        calc_ws(s, k);
+        if (k < s.size() && (s[k] == '(' || calc_kw_at(s, k))) {
+            sign = (s[i] == '-') ? -1.0 : 1.0;
+            i = k;
+        }
+    }
+    if (i < s.size() && (s[i] == '(' || calc_kw_at(s, i))) {
+        i += (s[i] == '(') ? 1 : 5;
+        CalcVal inner = calc_expr(s, i, rem, em);
+        if (!inner.ok) return {};
+        calc_ws(s, i);
+        if (i >= s.size() || s[i] != ')') return {};
+        ++i;
+        inner.v *= sign;
+        return inner;
+    }
+    // Number (from_chars handles a leading sign and a bare ".5").
+    double num = 0.0;
+    auto fc = std::from_chars(s.data() + i, s.data() + s.size(), num);
+    if (fc.ec != std::errc()) return {};
+    i = static_cast<std::size_t>(fc.ptr - s.data());
+    const std::size_t us = i;
+    while (i < s.size() && std::isalpha(static_cast<unsigned char>(s[i]))) ++i;
+    std::string_view unit = s.substr(us, i - us);
+    if (i < s.size() && s[i] == '%') return {};   // percentage: unsupported
+    auto ieq = [](std::string_view a, const char* b) {
+        std::size_t n = 0; for (; b[n]; ++n) {}
+        if (a.size() != n) return false;
+        for (std::size_t k = 0; k < n; ++k)
+            if (static_cast<char>(std::tolower(
+                    static_cast<unsigned char>(a[k]))) != b[k]) return false;
+        return true;
+    };
+    if (unit.empty())     return {num,        0, true};
+    if (ieq(unit, "px"))  return {num,        1, true};
+    if (ieq(unit, "rem")) return {num * rem,  1, true};
+    if (ieq(unit, "em"))  return {num * em,   1, true};
+    return {};   // unknown unit
+}
+
+CalcVal calc_term(std::string_view s, std::size_t& i, double rem, double em) {
+    CalcVal a = calc_factor(s, i, rem, em);
+    if (!a.ok) return {};
+    for (;;) {
+        calc_ws(s, i);
+        if (i >= s.size() || (s[i] != '*' && s[i] != '/')) break;
+        const char op = s[i++];
+        CalcVal b = calc_factor(s, i, rem, em);
+        if (!b.ok) return {};
+        if (op == '*') { a.v *= b.v; a.dims += b.dims; }
+        else { if (b.v == 0.0) return {}; a.v /= b.v; a.dims -= b.dims; }
+    }
+    return a;
+}
+
+CalcVal calc_expr(std::string_view s, std::size_t& i, double rem, double em) {
+    CalcVal a = calc_term(s, i, rem, em);
+    if (!a.ok) return {};
+    for (;;) {
+        calc_ws(s, i);
+        if (i >= s.size() || (s[i] != '+' && s[i] != '-')) break;
+        const char op = s[i++];
+        CalcVal b = calc_term(s, i, rem, em);
+        if (!b.ok || a.dims != b.dims) return {};   // mismatched unit/number
+        a.v += (op == '+') ? b.v : -b.v;
+    }
+    return a;
+}
+
+// Replace every resolvable top-level calc(...) in `input` with its
+// evaluated literal (e.g. "calc(-.5 * 0.5rem)" -> "-4px"). Unresolvable
+// calc()s are left untouched. `rem` is the root font size (px), `em` the
+// element's font size (px).
+std::string evaluate_calc(std::string_view input, double rem, double em) {
+    if (find_calc(input, 0) == std::string_view::npos)
+        return std::string(input);
+    std::string out;
+    std::size_t i = 0;
+    while (i < input.size()) {
+        const std::size_t c = find_calc(input, i);
+        if (c == std::string_view::npos) { out.append(input.substr(i)); break; }
+        out.append(input.substr(i, c - i));
+        std::size_t j = c + 5;   // past "calc("
+        CalcVal r = calc_expr(input, j, rem, em);
+        calc_ws(input, j);
+        if (r.ok && (r.dims == 0 || r.dims == 1) &&
+            j < input.size() && input[j] == ')') {
+            char buf[40];
+            auto tc = std::to_chars(buf, buf + sizeof(buf), r.v);
+            out.append(buf, tc.ptr);
+            if (r.dims == 1) out += "px";
+            i = j + 1;
+        } else {
+            // Unresolvable: keep the literal "calc(" and continue; the
+            // remaining text (incl. its ')') copies through verbatim, so
+            // the declaration fails to re-parse and is dropped.
+            out.append(input.substr(c, 5));
+            i = c + 5;
+        }
     }
     return out;
 }
@@ -1591,7 +1742,8 @@ lxb_status_t walk_callback(lxb_html_element_t* /*element*/,
         if (u && u->value.data && u->type != LXB_CSS_PROPERTY__UNDEF) {
             std::string_view val(reinterpret_cast<const char*>(u->value.data),
                                  u->value.length);
-            if (find_var(val, 0) != std::string_view::npos) {
+            if (find_var(val, 0) != std::string_view::npos ||
+                find_calc(val, 0) != std::string_view::npos) {
                 w->deferred->push_back({u->type, std::string(val)});
             }
         }
@@ -1741,15 +1893,22 @@ public:
             s.custom_props = std::move(merged);
         }
 
-        // Resolve any deferred var()-bearing declarations against the
-        // now-complete scope, then re-parse them back into typed values.
+        // Resolve any deferred var()/calc()-bearing declarations against
+        // the now-complete scope, then re-parse them back into typed
+        // values. var() substitutes first (so calc() sees concrete units),
+        // then calc() evaluates to a px literal. `em` is the element's
+        // resolved font size; `rem` is the root font size (16px default).
         if (!deferred.empty()) {
             static const CustomPropMap kEmpty;
             const CustomPropMap& scope =
                 s.custom_props ? *s.custom_props : kEmpty;
+            const double em  = s.computed.font_size_px > 0
+                                   ? static_cast<double>(s.computed.font_size_px)
+                                   : 16.0;
+            constexpr double rem = 16.0;
             for (const auto& dv : deferred) {
-                const std::string resolved =
-                    substitute_vars(dv.raw_value, scope);
+                std::string resolved = substitute_vars(dv.raw_value, scope);
+                resolved = evaluate_calc(resolved, rem, em);
                 apply_resolved_decl(dv.property_id, resolved, s);
             }
         }
