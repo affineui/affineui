@@ -332,6 +332,10 @@ detail::ResolvedStyle anonymous_text_style(const detail::ResolvedStyle& parent) 
     rs.computed.line_height_x100     = parent.computed.line_height_x100;
     rs.computed.font_id              = parent.computed.font_id;
     rs.computed.cursor               = parent.computed.cursor;
+    // text-align is inherited; anonymous text runs must honour the
+    // containing block's alignment so center/right/justify render
+    // correctly on inline content.
+    rs.computed.text_align           = parent.computed.text_align;
     rs.computed.display              = detail::ComputedStyle::Display::Inline;
     // Inherited text features — propagate from parent.
     rs.computed.letter_spacing_x100  = parent.computed.letter_spacing_x100;
@@ -1910,11 +1914,68 @@ void Document::draw(Painter& painter) {
         if (!b.text.empty()) {
             const auto font = painter.resolve_font(
                 impl_->style_store.font_family_of(cs.font_id), cs.font_size_px, cs.font_weight, cs.font_style != 0);
-            const int text_x = eff.x + cs.border_left + cs.padding_left;
             const int text_y = eff.y + cs.border_top  + cs.padding_top;
-            const float content_w = static_cast<float>(
+
+            // Map ComputedStyle::TextAlign → Painter::TextAlign.
+            Painter::TextAlign paint_align = Painter::TextAlign::Left;
+            switch (cs.text_align) {
+                case detail::ComputedStyle::TextAlign::Left:
+                    paint_align = Painter::TextAlign::Left;    break;
+                case detail::ComputedStyle::TextAlign::Center:
+                    paint_align = Painter::TextAlign::Center;  break;
+                case detail::ComputedStyle::TextAlign::Right:
+                    paint_align = Painter::TextAlign::Right;   break;
+                case detail::ComputedStyle::TextAlign::Justify:
+                    paint_align = Painter::TextAlign::Justify; break;
+            }
+
+            // For text alignment (center/right), nvgTextBox needs:
+            //   x = left edge of the line box
+            //   breakRowWidth = width of the line box
+            // For block-level leaves (spans, divs) this is the block's
+            // own content area. For anonymous #text leaves that live
+            // inside a synthetic flex-row, the block's own width is the
+            // natural text width, so centering/right-aligning within it
+            // is a no-op. Instead, walk up to the nearest non-synthetic
+            // ancestor block and use its content geometry as the line box.
+            int text_x    = eff.x + cs.border_left + cs.padding_left;
+            float content_w = static_cast<float>(
                 eff.w - cs.border_left - cs.border_right
                       - cs.padding_left - cs.padding_right);
+
+            if (paint_align != Painter::TextAlign::Left && b.synthetic == false) {
+                // Walk parent chain to find the first non-synthetic block.
+                int anc = b.parent_idx;
+                while (anc >= 0) {
+                    const auto& ab = impl_->blocks[static_cast<std::size_t>(anc)];
+                    if (!ab.synthetic) {
+                        const auto& acs =
+                            impl_->style_store.computed(ab.id);
+                        const int anc_dy = scroll_offset_y_for(
+                            impl_->blocks, impl_->style_store, anc);
+                        const Rect ae{
+                            ab.bounds.x, ab.bounds.y - anc_dy,
+                            ab.bounds.w, ab.bounds.h,
+                        };
+                        const int al = ae.x + acs.border_left + acs.padding_left;
+                        const float aw = static_cast<float>(
+                            ae.w - acs.border_left - acs.border_right
+                                 - acs.padding_left - acs.padding_right);
+                        // Only use the ancestor geometry when it's
+                        // meaningfully wider (i.e. the current block is
+                        // narrower than the container). This avoids
+                        // replacing a block leaf's own width with a
+                        // wider ancestor unexpectedly.
+                        if (aw > content_w + 1.0f) {
+                            text_x    = al;
+                            content_w = aw;
+                        }
+                        break;
+                    }
+                    anc = ab.parent_idx;
+                }
+            }
+
             // Add 1px slack to wrap width: measure rounds + draw word-
             // break can disagree at the edge (text whose natural width
             // exactly equals content_w sometimes wraps the last word
@@ -1940,7 +2001,8 @@ void Document::draw(Painter& painter) {
                                   detail::unpack_rgba(an.color_rgba),
                                   draw_max_w,
                                   detail::effective_line_height_mult(cs),
-                                  letter_spacing_px);
+                                  letter_spacing_px,
+                                  paint_align);
         }
 
         if (has_opacity) painter.pop_alpha();

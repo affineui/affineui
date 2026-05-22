@@ -74,7 +74,7 @@ public:
                 18};
     }
     void draw_text_box(std::uint32_t, const affineui::Point&, std::string_view text,
-                       affineui::Color, float, float, float) override {
+                       affineui::Color, float, float, float, TextAlign) override {
         text_runs.emplace_back(text);
     }
     std::uint32_t load_image(std::string_view url) override {

@@ -52,7 +52,7 @@ public:
     TextMetrics   text_metrics(std::uint32_t) override { return {}; }
     void draw_text(std::uint32_t, const Point&, std::string_view, Color) override {}
     Size measure_text_box(std::uint32_t, std::string_view, float, float, float) override { return {}; }
-    void draw_text_box(std::uint32_t, const Point&, std::string_view, Color, float, float, float) override {}
+    void draw_text_box(std::uint32_t, const Point&, std::string_view, Color, float, float, float, TextAlign) override {}
     std::uint32_t load_image(std::string_view) override { return 0; }
     Size          image_size(std::uint32_t) override { return {}; }
     void draw_image(std::uint32_t, const Rect&, const Rect&) override {}
@@ -424,7 +424,8 @@ public:
                        Color         color,
                        float         max_width,
                        float         line_height_mult,
-                       float         letter_spacing_px) override {
+                       float         letter_spacing_px,
+                       TextAlign     align) override {
         if (handle == 0 || text.empty()) return;
         apply_handle(handle);
         nvgTextLetterSpacing(vg_, letter_spacing_px);
@@ -432,7 +433,29 @@ public:
         const float css_line_h =
             css_line_height_px(handle, line_height_mult, natural_line_h);
         nvgFillColor(vg_, to_nvg(color));
+
+        // nvgTextBox reads `state->textAlign` for halign before entering
+        // its inner loop. For each row it computes:
+        //   LEFT:   nvgText(x, ...)
+        //   CENTER: nvgText(x + breakRowWidth/2 - row->width/2, ...)
+        //   RIGHT:  nvgText(x + breakRowWidth - row->width, ...)
+        // In all three cases x is the LEFT edge of the content column —
+        // i.e. we pass the unchanged content origin. NanoVG does the
+        // per-row offset arithmetic itself. Justify falls back to left
+        // (NanoVG has no full justify mode).
         const float fx = static_cast<float>(pos.x);
+        int nvg_halign = NVG_ALIGN_LEFT;
+        switch (align) {
+            case TextAlign::Center:  nvg_halign = NVG_ALIGN_CENTER; break;
+            case TextAlign::Right:   nvg_halign = NVG_ALIGN_RIGHT;  break;
+            case TextAlign::Left:
+            case TextAlign::Justify:
+            default:                 nvg_halign = NVG_ALIGN_LEFT;   break;
+        }
+        // Set align BEFORE nvgTextBox — it reads state->textAlign at
+        // entry (line 2548 in nanovg.c). TOP stays fixed.
+        nvgTextAlign(vg_, nvg_halign | NVG_ALIGN_TOP);
+
         const float fy = static_cast<float>(pos.y)
                        + line_box_leading(css_line_h, natural_line_h) * 0.5f;
 

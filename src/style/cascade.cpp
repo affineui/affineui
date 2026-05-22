@@ -1315,6 +1315,27 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             }
             break;
         }
+        case LXB_CSS_PROPERTY_TEXT_ALIGN: {
+            // text-align is an inherited property. The cascade resolver
+            // pre-seeds `s` from the parent, so inherited values arrive
+            // automatically. An explicit declaration overrides.
+            const auto* v =
+                static_cast<const lxb_css_property_text_align_t*>(d->u.user);
+            using TA = ComputedStyle::TextAlign;
+            switch (v->type) {
+                case LXB_CSS_TEXT_ALIGN_LEFT:
+                case LXB_CSS_TEXT_ALIGN_START: s.computed.text_align = TA::Left;    break;
+                case LXB_CSS_TEXT_ALIGN_RIGHT:
+                case LXB_CSS_TEXT_ALIGN_END:   s.computed.text_align = TA::Right;   break;
+                case LXB_CSS_TEXT_ALIGN_CENTER: s.computed.text_align = TA::Center; break;
+                case LXB_CSS_TEXT_ALIGN_JUSTIFY:
+                case LXB_CSS_TEXT_ALIGN_JUSTIFY_ALL:
+                                               s.computed.text_align = TA::Justify; break;
+                default: break;
+            }
+            s.computed.has.text_align = 1;
+            break;
+        }
         // Everything else lands when we have a test for it.
         default:
             break;

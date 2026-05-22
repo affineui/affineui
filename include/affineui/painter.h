@@ -103,19 +103,29 @@ public:
                                   float           line_height_mult = 1.0f,
                                   float           letter_spacing_px = 0.0f) = 0;
 
+    /// Horizontal alignment for draw_text_box. Matches CSS text-align
+    /// semantics. Justify falls back to Left (NanoVG has no justify
+    /// mode; justified rendering requires a custom line-breaker).
+    enum class TextAlign : std::uint8_t {
+        Left = 0, Center, Right, Justify,
+    };
+
     /// Render `text` wrapped to `max_width`. Position is the top-left
     /// of the wrapped text block. `line_height_mult` must match the
     /// value passed to measure_text_box for the layout's height to
     /// agree with what's actually drawn.
     /// `letter_spacing_px` adds extra advance between glyphs (CSS
     /// letter-spacing). Must match the value used in measure_text_box.
+    /// `align` controls horizontal placement of each line within the
+    /// `max_width` column (CSS text-align).
     virtual void draw_text_box(std::uint32_t   font,
                                const Point&    pos,
                                std::string_view text,
                                Color           color,
                                float           max_width,
                                float           line_height_mult = 1.0f,
-                               float           letter_spacing_px = 0.0f) = 0;
+                               float           letter_spacing_px = 0.0f,
+                               TextAlign       align = TextAlign::Left) = 0;
 
     // ── Images ──────────────────────────────────────────────────────
     /// Returns an opaque image handle. Zero on miss.

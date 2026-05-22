@@ -244,7 +244,8 @@ public:
     void draw_text_box(std::uint32_t font, const Point& pos,
                        std::string_view text, Color c, float max_w,
                        float line_height_mult = 1.0f,
-                       float letter_spacing_px = 0.0f) override {
+                       float letter_spacing_px = 0.0f,
+                       TextAlign align = TextAlign::Left) override {
         const auto [off, len] = list_.intern_text(text);
         PaintOp op{};
         op.kind = PaintOpKind::DrawTextBox;
@@ -264,6 +265,8 @@ public:
         op.p.draw_text_box.letter_spacing_x100 =
             static_cast<std::int16_t>(std::clamp(letter_spacing_px * 100.0f,
                                                   -32768.0f, 32767.0f));
+        op.p.draw_text_box.align = static_cast<std::uint8_t>(align);
+        op.p.draw_text_box.pad0_ = 0;
         list_.ops.push_back(op);
     }
 
@@ -427,7 +430,8 @@ inline void replay(const DisplayList& list, Painter& target) {
                                      unpack(t.rgba),
                                      static_cast<float>(t.max_width),
                                      static_cast<float>(t.line_height_x100) / 100.0f,
-                                     static_cast<float>(t.letter_spacing_x100) / 100.0f);
+                                     static_cast<float>(t.letter_spacing_x100) / 100.0f,
+                                     static_cast<Painter::TextAlign>(t.align));
                 break;
             }
             case PaintOpKind::DrawImage: {

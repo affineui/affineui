@@ -119,6 +119,8 @@ struct PaintOp {
         // (so 1.5 lands as 150; 0 means "use 100"/1.0).
         // letter_spacing_x100 stores CSS letter-spacing × 100 in px
         // (so 3.0px lands as 300; 0 = normal/no extra spacing).
+        // align: 0=Left, 1=Center, 2=Right, 3=Justify (matches
+        // Painter::TextAlign ordinals).
         struct {
             std::uint32_t font_handle;
             std::int16_t  x, y;
@@ -128,6 +130,8 @@ struct PaintOp {
             std::uint16_t max_width;
             std::uint16_t line_height_x100;
             std::int16_t  letter_spacing_x100;
+            std::uint8_t  align;
+            std::uint8_t  pad0_;
         } draw_text_box;
 
         struct {

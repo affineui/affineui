@@ -156,6 +156,17 @@ struct ComputedStyle {
     };
     Cursor cursor{Cursor::Default};
 
+    // CSS `text-align`. Controls horizontal alignment of inline content
+    // within the block. Inherited (like `color`), so block children
+    // inherit the parent's alignment unless explicitly overridden.
+    // Justify is treated as Left for the last/only line (CSS default
+    // for `text-align-last`). NanoVG does not support full justify so
+    // we fall back to left for all lines when justify is specified.
+    enum class TextAlign : std::uint8_t {
+        Left = 0, Center, Right, Justify,
+    };
+    TextAlign     text_align{TextAlign::Left};
+
     // CSS `overflow-y`. Determines whether children of this block can
     // be scrolled when content exceeds the box. Visible is the CSS
     // default (children paint outside the parent's bounds, no scroll).
@@ -249,6 +260,7 @@ struct ComputedStyle {
         std::uint32_t font_size   : 1 {};
         std::uint32_t font_weight : 1 {};
         std::uint32_t font_style  : 1 {};
+        std::uint32_t text_align  : 1 {};
     } has{};
 
     // Roughly ~92 bytes after flex, positioned-layout insets, and
