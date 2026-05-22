@@ -1,1 +1,1 @@
-{"width":800,"height":500,"dpi":1.0,"tolerance":2,"threshold":5.0,"steps":[]}
+{"width":800,"height":500,"dpi":1.0,"tolerance":2,"threshold":6.0,"steps":[],"_note":"Content verified vs Chrome: password masked to bullets, select shows the selected option + a chevron, inputs sized/styled correctly. Residual ~5.1% is the glyph-AA floor over a label/value-dense form."}

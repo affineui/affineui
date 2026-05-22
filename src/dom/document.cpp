@@ -410,6 +410,39 @@ std::string attr_string(lxb_dom_element_t* elem, std::string_view name) {
     return std::string(reinterpret_cast<const char*>(v), len);
 }
 
+// True if a (possibly value-less, boolean) attribute is present.
+bool has_attr(lxb_dom_element_t* elem, std::string_view name) {
+    return lxb_dom_element_has_attribute(
+        elem, reinterpret_cast<const lxb_char_t*>(name.data()), name.size());
+}
+
+// The text a closed <select> shows: the `selected` <option>'s text, or
+// the first option if none is marked. We render no popup/list — only the
+// chosen option — matching a closed native control.
+std::string select_display_text(lxb_dom_element_t* select) {
+    lxb_dom_node_t* first = nullptr;
+    for (auto* c = lxb_dom_node_first_child(lxb_dom_interface_node(select));
+         c != nullptr; c = lxb_dom_node_next(c)) {
+        if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* el = lxb_dom_interface_element(c);
+        if (tag_name(el) != "option") continue;
+        if (first == nullptr) first = c;
+        if (has_attr(el, "selected")) return node_text(c);
+    }
+    return first ? node_text(first) : std::string{};
+}
+
+// Mask each visible character of a password value with a bullet (U+2022).
+// Skips UTF-8 continuation bytes so multibyte characters mask one-for-one.
+std::string mask_password(std::string_view s) {
+    std::string out;
+    for (unsigned char c : s) {
+        if ((c & 0xC0) == 0x80) continue;
+        out += "\xE2\x80\xA2";
+    }
+    return out;
+}
+
 // Tokenize a class attribute on whitespace runs.
 std::vector<std::string> split_classes(std::string_view s) {
     std::vector<std::string> out;
@@ -1021,6 +1054,12 @@ void collect_blocks(detail::DocumentImpl& impl,
             tag == "meta" || tag == "link"   || tag == "title")
             continue;
 
+        // <option>/<optgroup> are not flow content — a <select> renders
+        // only its chosen option's text (handled as the select's leaf
+        // text below), so don't flatten every option into the box.
+        if (tag == "option" || tag == "optgroup")
+            continue;
+
         if (!is_block_tag(tag)) {
             auto rs_inline = impl.resolver->resolve(elem, parent_style);
             auto text = apply_text_transform(
@@ -1161,10 +1200,14 @@ void collect_blocks(detail::DocumentImpl& impl,
             auto& leaf = impl.blocks[static_cast<std::size_t>(my_idx)];
             if (leaf.tag == "input") {
                 leaf.text = attr_string(elem, "value");
-                if (leaf.text.empty() && !leaf.placeholder.empty()) {
+                if (!leaf.text.empty() && attr_string(elem, "type") == "password") {
+                    leaf.text = mask_password(leaf.text);
+                } else if (leaf.text.empty() && !leaf.placeholder.empty()) {
                     leaf.text = leaf.placeholder;
                     leaf.placeholder_visible = true;
                 }
+            } else if (leaf.tag == "select") {
+                leaf.text = select_display_text(elem);
             } else if (leaf.tag == "textarea") {
                 leaf.text = node_text(child, rs.computed.white_space);
                 if (leaf.text.empty() && !leaf.placeholder.empty()) {
@@ -2020,6 +2063,18 @@ void Document::draw(Painter& painter) {
                                   detail::effective_line_height_mult(cs),
                                   letter_spacing_px,
                                   paint_align);
+        }
+
+        // <select> dropdown indicator: a small chevron at the right edge.
+        // Native selects draw one; Bootstrap's .form-select uses an SVG
+        // background we don't rasterize, so the UA supplies it here.
+        if (b.tag == "select") {
+            const float cx = static_cast<float>(eff.x + eff.w) - 17.0f;
+            const float cy = static_cast<float>(eff.y) +
+                             static_cast<float>(eff.h) * 0.5f;
+            const Color chev{0x34, 0x3a, 0x40, 0xFF};
+            painter.stroke_line(cx - 5.0f, cy - 2.5f, cx, cy + 2.5f, chev, 1.5f);
+            painter.stroke_line(cx, cy + 2.5f, cx + 5.0f, cy - 2.5f, chev, 1.5f);
         }
 
         if (has_opacity) painter.pop_alpha();
