@@ -2003,6 +2003,7 @@ void Document::draw(Painter& painter) {
                 eff.w - cs.border_left - cs.border_right
                       - cs.padding_left - cs.padding_right);
 
+            const bool is_justify = (paint_align == Painter::TextAlign::Justify);
             if (paint_align != Painter::TextAlign::Left && b.synthetic == false) {
                 // Walk parent chain to find the first non-synthetic block.
                 int anc = b.parent_idx;
@@ -2021,12 +2022,15 @@ void Document::draw(Painter& painter) {
                         const float aw = static_cast<float>(
                             ae.w - acs.border_left - acs.border_right
                                  - acs.padding_left - acs.padding_right);
-                        // Only use the ancestor geometry when it's
-                        // meaningfully wider (i.e. the current block is
-                        // narrower than the container). This avoids
-                        // replacing a block leaf's own width with a
-                        // wider ancestor unexpectedly.
-                        if (aw > content_w + 1.0f) {
+                        // Use the ancestor geometry when it's meaningfully
+                        // wider (the current block is narrower than the
+                        // container) — for center/right that's the line box.
+                        // For JUSTIFY we must also clamp DOWN to the
+                        // container when the leaf's natural (unwrapped) width
+                        // overflows it, so the text wraps to the line box and
+                        // fills it edge-to-edge instead of overflowing on one
+                        // line.
+                        if (aw > content_w + 1.0f || is_justify) {
                             text_x    = al;
                             content_w = aw;
                         }
@@ -2054,7 +2058,10 @@ void Document::draw(Painter& painter) {
             using WS = detail::ComputedStyle::WhiteSpace;
             const bool is_nowrap = (cs.white_space == WS::Nowrap ||
                                     cs.white_space == WS::Pre);
-            const float draw_max_w = is_nowrap ? 1e6f : content_w + 4.0f;
+            // Justify fills exactly to the content edge — no wrap slack
+            // (the +4 below would let justified lines spill 4px past it).
+            const float draw_max_w = is_nowrap ? 1e6f
+                                   : (is_justify ? content_w : content_w + 4.0f);
             const float letter_spacing_px =
                 static_cast<float>(cs.letter_spacing_x100) / 100.0f;
             painter.draw_text_box(font, Point{text_x, text_y}, b.text,

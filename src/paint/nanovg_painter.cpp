@@ -562,6 +562,66 @@ public:
                 if (!nl) break;
                 p = nl + 1;
             }
+        } else if (align == TextAlign::Justify) {
+            // NanoVG has no justify mode. Break the text into rows and, for
+            // every row except the last (and rows that end at a hard
+            // break), distribute the leftover width evenly across the
+            // inter-word gaps so the line is flush on both edges. The last
+            // / paragraph-final line stays left-aligned (CSS semantics).
+            const auto draw_run = [&](float x, float y, const char* s, const char* e) {
+                nvgText(vg_, x, y, s, e);
+                if (handle_is_synth_bold(handle)) nvgText(vg_, x + 0.5f, y, s, e);
+            };
+            struct Row { const char* start; const char* end; const char* next; };
+            std::vector<Row> rows;
+            const char* cursor = text.data();
+            const char* const text_end = text.data() + text.size();
+            NVGtextRow buf[8];
+            while (cursor < text_end) {
+                int n = nvgTextBreakLines(vg_, cursor, text_end, max_width, buf, 8);
+                if (n == 0) break;
+                for (int i = 0; i < n; ++i)
+                    rows.push_back({buf[i].start, buf[i].end, buf[i].next});
+                cursor = buf[n - 1].next;
+            }
+            float cy = fy;
+            for (std::size_t ri = 0; ri < rows.size(); ++ri) {
+                const Row& row = rows[ri];
+                bool hard_break = false;
+                for (const char* p = row.end; p < row.next; ++p)
+                    if (*p == '\n' || *p == '\r') { hard_break = true; break; }
+                const bool last = (ri + 1 == rows.size());
+                if (last || hard_break) {
+                    draw_run(fx, cy, row.start, row.end);
+                } else {
+                    struct W { const char* s; const char* e; float adv; };
+                    std::vector<W> words;
+                    const char* p = row.start;
+                    while (p < row.end) {
+                        while (p < row.end && (*p == ' ' || *p == '\t')) ++p;
+                        if (p >= row.end) break;
+                        const char* ws = p;
+                        while (p < row.end && *p != ' ' && *p != '\t') ++p;
+                        words.push_back({ws, p,
+                            nvgTextBounds(vg_, 0.0f, 0.0f, ws, p, nullptr)});
+                    }
+                    if (words.size() <= 1) {
+                        if (!words.empty())
+                            draw_run(fx, cy, words[0].s, words[0].e);
+                    } else {
+                        float sum = 0.0f;
+                        for (const auto& w : words) sum += w.adv;
+                        const float gap = (max_width - sum) /
+                                          static_cast<float>(words.size() - 1);
+                        float wx = fx;
+                        for (const auto& w : words) {
+                            draw_run(wx, cy, w.s, w.e);
+                            wx += w.adv + gap;
+                        }
+                    }
+                }
+                cy += css_line_h;
+            }
         } else {
             nvgTextLineHeight(vg_, nvg_line_height_mult(css_line_h, natural_line_h));
             nvgTextBox(vg_, fx, fy, max_width,
