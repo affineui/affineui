@@ -243,6 +243,8 @@ struct MeasureCtx {
     std::size_t   text_size;
     std::uint32_t font;
     float         line_height_mult;
+    float         letter_spacing_px;
+    bool          nowrap;
 };
 
 YGSize measure_text_cb(YGNodeConstRef node,
@@ -250,15 +252,17 @@ YGSize measure_text_cb(YGNodeConstRef node,
                        float /*height*/, YGMeasureMode /*height_mode*/) {
     auto* ctx = static_cast<const MeasureCtx*>(YGNodeGetContext(node));
     if (!ctx || !ctx->painter || ctx->font == 0) return {0.0f, 0.0f};
-    // If width is unconstrained, pass a large wrap width so text
-    // measures as a single line of its natural width.
+    // If width is unconstrained OR white-space: nowrap, pass a large
+    // wrap width so text measures as a single line of its natural width.
     const float wrap_w =
-        (width_mode == YGMeasureModeUndefined || width <= 0.0f) ? 1e6f : width;
+        (ctx->nowrap ||
+         width_mode == YGMeasureModeUndefined || width <= 0.0f) ? 1e6f : width;
     const auto sz = ctx->painter->measure_text_box(
         ctx->font,
         std::string_view(ctx->text_data, ctx->text_size),
         wrap_w,
-        ctx->line_height_mult);
+        ctx->line_height_mult,
+        ctx->letter_spacing_px);
     return YGSize{
         static_cast<float>(sz.width),
         static_cast<float>(sz.height),
@@ -307,6 +311,8 @@ void layout_blocks_with_yoga(int viewport_width_px,
                 inputs[i].text.size(),
                 inputs[i].font,
                 inputs[i].style ? effective_line_height_mult(*inputs[i].style) : 1.0f,
+                inputs[i].letter_spacing_px,
+                inputs[i].nowrap,
             };
             YGNodeSetContext(n, &measure_ctxs[i]);
             YGNodeSetMeasureFunc(n, measure_text_cb);

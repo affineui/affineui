@@ -208,21 +208,50 @@ bool is_html_ws(unsigned char c) {
            c == '\r' || c == '\f' || c == '\v';
 }
 
-// CSS `white-space: normal` text content: collapse all whitespace
-// runs (spaces, tabs, newlines, vertical-tabs, form-feeds, carriage-
-// returns) to a single space character, and trim the result.
-// Multi-line text in HTML source is *not* preserved as multi-line
-// in the rendered output by default — the wrap engine breaks lines
-// based on the *available width*, not the source line breaks.
+// Extract text content from a DOM node. Behaviour depends on the
+// CSS white-space mode inherited by the element:
 //
-// Phase 2D widening: honor `white-space: pre`/`pre-wrap` by reading
-// the inherited white-space ComputedStyle and skipping the collapse
-// for those modes.
-std::string node_text(lxb_dom_node_t* node) {
+//   Normal (default): collapse all whitespace runs to a single space,
+//     trim leading/trailing. Wrap is determined by container width.
+//
+//   Pre / PreLine / PreWrap: preserve spaces and newlines literally.
+//     Tabs are converted to a single space (we don't compute tab stops).
+//     NanoVG's nvgTextBox honours '\n' as a hard line break, so the
+//     painter naturally renders multi-line pre content correctly.
+//
+//   Nowrap: same collapsing as Normal; wrap is suppressed at paint/
+//     measure time by passing a very large max-width.
+std::string node_text(lxb_dom_node_t* node,
+                      detail::ComputedStyle::WhiteSpace ws
+                          = detail::ComputedStyle::WhiteSpace::Normal) {
     size_t len = 0;
     lxb_char_t* raw = lxb_dom_node_text_content(node, &len);
     if (!raw || len == 0) return {};
 
+    using WS = detail::ComputedStyle::WhiteSpace;
+    const bool preserve = (ws == WS::Pre || ws == WS::PreWrap ||
+                           ws == WS::PreLine);
+
+    if (preserve) {
+        // Keep newlines; convert tabs to space; keep other chars as-is.
+        std::string out;
+        out.reserve(len);
+        for (std::size_t i = 0; i < len; ++i) {
+            const auto c = static_cast<unsigned char>(raw[i]);
+            if (c == '\r') {
+                // CR or CRLF → LF (normalize line endings).
+                out.push_back('\n');
+                if (i + 1 < len && raw[i + 1] == '\n') ++i;
+            } else if (c == '\t') {
+                out.push_back(' ');
+            } else {
+                out.push_back(static_cast<char>(c));
+            }
+        }
+        return out;
+    }
+
+    // Normal / Nowrap: collapse whitespace.
     std::string out;
     out.reserve(len);
     bool prev_was_ws = true;  // leading whitespace is dropped
@@ -239,6 +268,44 @@ std::string node_text(lxb_dom_node_t* node) {
     // Trim a trailing space we may have appended just before EOF.
     if (!out.empty() && out.back() == ' ') out.pop_back();
     return out;
+}
+
+// Apply text-transform to a string. All transforms operate on
+// ASCII letters only — full Unicode case-mapping is out of scope.
+// Capitalize uppercases the first character of each whitespace-
+// delimited word (matching CSS spec word boundary definition for
+// ASCII content).
+std::string apply_text_transform(std::string s,
+                                 detail::ComputedStyle::TextTransform tt) {
+    using TT = detail::ComputedStyle::TextTransform;
+    switch (tt) {
+        case TT::Uppercase:
+            for (char& c : s) c = static_cast<char>(std::toupper(
+                static_cast<unsigned char>(c)));
+            break;
+        case TT::Lowercase:
+            for (char& c : s) c = static_cast<char>(std::tolower(
+                static_cast<unsigned char>(c)));
+            break;
+        case TT::Capitalize: {
+            bool at_word_start = true;
+            for (char& c : s) {
+                if (is_html_ws(static_cast<unsigned char>(c))) {
+                    at_word_start = true;
+                } else {
+                    if (at_word_start)
+                        c = static_cast<char>(std::toupper(
+                            static_cast<unsigned char>(c)));
+                    at_word_start = false;
+                }
+            }
+            break;
+        }
+        case TT::None:
+        default:
+            break;
+    }
+    return s;
 }
 
 bool node_is_collapsible_whitespace(lxb_dom_node_t* node) {
@@ -266,6 +333,10 @@ detail::ResolvedStyle anonymous_text_style(const detail::ResolvedStyle& parent) 
     rs.computed.font_id              = parent.computed.font_id;
     rs.computed.cursor               = parent.computed.cursor;
     rs.computed.display              = detail::ComputedStyle::Display::Inline;
+    // Inherited text features — propagate from parent.
+    rs.computed.letter_spacing_x100  = parent.computed.letter_spacing_x100;
+    rs.computed.white_space          = parent.computed.white_space;
+    rs.computed.text_transform       = parent.computed.text_transform;
     return rs;
 }
 
@@ -915,7 +986,9 @@ void collect_blocks(detail::DocumentImpl& impl,
         }
 
         if (child->type == LXB_DOM_NODE_TYPE_TEXT) {
-            auto text = node_text(child);
+            auto text = apply_text_transform(
+                node_text(child, parent_style.computed.white_space),
+                parent_style.computed.text_transform);
             if (!text.empty()) {
                 const int inline_parent_idx =
                     ensure_inline_run(impl, parent_idx, open_synth_idx);
@@ -940,9 +1013,11 @@ void collect_blocks(detail::DocumentImpl& impl,
             continue;
 
         if (!is_block_tag(tag)) {
-            auto text = node_text(child);
+            auto rs_inline = impl.resolver->resolve(elem, parent_style);
+            auto text = apply_text_transform(
+                node_text(child, rs_inline.computed.white_space),
+                rs_inline.computed.text_transform);
             if (!text.empty()) {
-                auto rs = impl.resolver->resolve(elem, parent_style);
                 const int inline_parent_idx =
                     ensure_inline_run(impl, parent_idx, open_synth_idx);
                 if (pending_inline_space) {
@@ -950,7 +1025,7 @@ void collect_blocks(detail::DocumentImpl& impl,
                                                  inline_parent_idx, " ");
                     pending_inline_space = false;
                 }
-                append_anonymous_inline_text(impl, rs, inline_parent_idx,
+                append_anonymous_inline_text(impl, rs_inline, inline_parent_idx,
                                              std::move(text));
             }
             continue;
@@ -1071,13 +1146,15 @@ void collect_blocks(detail::DocumentImpl& impl,
                     leaf.placeholder_visible = true;
                 }
             } else if (leaf.tag == "textarea") {
-                leaf.text = node_text(child);
+                leaf.text = node_text(child, rs.computed.white_space);
                 if (leaf.text.empty() && !leaf.placeholder.empty()) {
                     leaf.text = leaf.placeholder;
                     leaf.placeholder_visible = true;
                 }
             } else if (leaf.tag != "img") {
-                leaf.text = node_text(child);
+                leaf.text = apply_text_transform(
+                    node_text(child, rs.computed.white_space),
+                    rs.computed.text_transform);
             }
         }
     }
@@ -1273,6 +1350,10 @@ void Document::layout(int viewport_width, int viewport_height,
             in.font = measurer->resolve_font(
                 impl_->style_store.font_family_of(cs.font_id), cs.font_size_px, cs.font_weight, cs.font_style != 0);
             in.text = b.text;
+            in.letter_spacing_px = static_cast<float>(cs.letter_spacing_x100) / 100.0f;
+            using WS = detail::ComputedStyle::WhiteSpace;
+            in.nowrap = (cs.white_space == WS::Nowrap ||
+                         cs.white_space == WS::Pre);
             // Leave intrinsic_h_px = 0 — the measure callback supplies
             // the height instead.
         } else {
@@ -1716,10 +1797,20 @@ void Document::draw(Painter& painter) {
             // overhang, so passing exactly content_w would wrap text
             // that measure said fits. A few pixels of slack covers
             // the gap for typical UI fonts at typical sizes.
+            //
+            // white-space: nowrap / pre — suppress line-wrapping by
+            // passing a very large max-width to both measure and draw.
+            using WS = detail::ComputedStyle::WhiteSpace;
+            const bool is_nowrap = (cs.white_space == WS::Nowrap ||
+                                    cs.white_space == WS::Pre);
+            const float draw_max_w = is_nowrap ? 1e6f : content_w + 4.0f;
+            const float letter_spacing_px =
+                static_cast<float>(cs.letter_spacing_x100) / 100.0f;
             painter.draw_text_box(font, Point{text_x, text_y}, b.text,
                                   detail::unpack_rgba(an.color_rgba),
-                                  content_w + 4.0f,
-                                  detail::effective_line_height_mult(cs));
+                                  draw_max_w,
+                                  detail::effective_line_height_mult(cs),
+                                  letter_spacing_px);
         }
 
         if (has_opacity) painter.pop_alpha();

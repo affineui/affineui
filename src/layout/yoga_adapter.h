@@ -56,6 +56,15 @@ struct BlockLayoutInput {
     /// either is missing, `intrinsic_h_px` is used as a fixed height.
     std::string_view     text{};
     std::uint32_t        font{0};
+
+    /// CSS letter-spacing in pixels (0 = normal, no extra spacing).
+    float                letter_spacing_px{0.0f};
+
+    /// When true, the text measure callback passes a very large wrap
+    /// width so the text is never broken across lines (CSS
+    /// white-space: nowrap). The painter draw path also receives a
+    /// huge max-width so the rendered lines match the measure.
+    bool                 nowrap{false};
 };
 
 /// Run layout. `measurer` is consulted via Yoga's measure callbacks

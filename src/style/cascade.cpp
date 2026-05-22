@@ -1149,6 +1149,60 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             s.computed.has.font_weight = 1;
             break;
         }
+        // ── Text features ──────────────────────────────────────────
+        case LXB_CSS_PROPERTY_LETTER_SPACING: {
+            const auto* v =
+                static_cast<const lxb_css_property_letter_spacing_t*>(d->u.user);
+            if (v->type == LXB_CSS_VALUE_NORMAL) {
+                s.computed.letter_spacing_x100 = 0;
+            } else if (v->type == LXB_CSS_VALUE__LENGTH) {
+                int px = 0;
+                if (parse_length_value(v->length.num,
+                                       static_cast<int>(v->length.unit), px)) {
+                    s.computed.letter_spacing_x100 =
+                        static_cast<std::int16_t>(
+                            std::clamp(static_cast<int>(v->length.num * 100.0 + 0.5),
+                                       -32767, 32767));
+                }
+            }
+            break;
+        }
+        case LXB_CSS_PROPERTY_WHITE_SPACE: {
+            const auto* v =
+                static_cast<const lxb_css_property_white_space_t*>(d->u.user);
+            using WS = ComputedStyle::WhiteSpace;
+            switch (v->type) {
+                case LXB_CSS_WHITE_SPACE_NORMAL:
+                    s.computed.white_space = WS::Normal;   break;
+                case LXB_CSS_WHITE_SPACE_PRE:
+                    s.computed.white_space = WS::Pre;      break;
+                case LXB_CSS_WHITE_SPACE_NOWRAP:
+                    s.computed.white_space = WS::Nowrap;   break;
+                case LXB_CSS_WHITE_SPACE_PRE_WRAP:
+                    s.computed.white_space = WS::PreWrap;  break;
+                case LXB_CSS_WHITE_SPACE_PRE_LINE:
+                    s.computed.white_space = WS::PreLine;  break;
+                default: break;
+            }
+            break;
+        }
+        case LXB_CSS_PROPERTY_TEXT_TRANSFORM: {
+            const auto* v =
+                static_cast<const lxb_css_property_text_transform_t*>(d->u.user);
+            using TT = ComputedStyle::TextTransform;
+            switch (v->type_case) {
+                case LXB_CSS_TEXT_TRANSFORM_NONE:
+                    s.computed.text_transform = TT::None;       break;
+                case LXB_CSS_TEXT_TRANSFORM_UPPERCASE:
+                    s.computed.text_transform = TT::Uppercase;  break;
+                case LXB_CSS_TEXT_TRANSFORM_LOWERCASE:
+                    s.computed.text_transform = TT::Lowercase;  break;
+                case LXB_CSS_TEXT_TRANSFORM_CAPITALIZE:
+                    s.computed.text_transform = TT::Capitalize; break;
+                default: break;
+            }
+            break;
+        }
         case LXB_CSS_PROPERTY_WIDTH: {
             const auto* v =
                 static_cast<const lxb_css_property_width_t*>(d->u.user);
@@ -1390,6 +1444,10 @@ public:
         s.computed.inset_has = ComputedStyle::InsetHas{};
         // Box-sizing (non-inherited; CSS initial = content-box).
         s.computed.box_sizing = ComputedStyle::BoxSizing::ContentBox;
+        // white-space, letter-spacing, text-transform are all inherited
+        // in CSS. cascade's `s = parent` at the top of resolve() already
+        // propagated their values down, so no reset is needed here —
+        // the cascade overrides only when the element explicitly sets them.
 
         // Custom properties inherit: start the element's scope as its
         // parent's (cheap shared_ptr copy via `s = parent`). The walk

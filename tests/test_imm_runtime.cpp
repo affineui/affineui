@@ -35,11 +35,11 @@ public:
     }
     TextMetrics text_metrics(std::uint32_t) override { return {12.0f, 4.0f, 18.0f}; }
     void draw_text(std::uint32_t, const affineui::Point&, std::string_view, affineui::Color) override {}
-    affineui::Size measure_text_box(std::uint32_t, std::string_view text, float max_width, float) override {
+    affineui::Size measure_text_box(std::uint32_t, std::string_view text, float max_width, float, float) override {
         const int natural = static_cast<int>(text.size()) * 8;
         return {natural < static_cast<int>(max_width) ? natural : static_cast<int>(max_width), 18};
     }
-    void draw_text_box(std::uint32_t, const affineui::Point&, std::string_view, affineui::Color, float, float) override {}
+    void draw_text_box(std::uint32_t, const affineui::Point&, std::string_view, affineui::Color, float, float, float) override {}
     std::uint32_t load_image(std::string_view) override { return 0; }
     affineui::Size image_size(std::uint32_t) override { return {}; }
     void draw_image(std::uint32_t, const affineui::Rect&, const affineui::Rect&) override {}

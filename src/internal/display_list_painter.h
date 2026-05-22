@@ -233,15 +233,18 @@ public:
     }
 
     Size measure_text_box(std::uint32_t font, std::string_view text, float max_w,
-                          float line_height_mult = 1.0f) override {
+                          float line_height_mult = 1.0f,
+                          float letter_spacing_px = 0.0f) override {
         return font_resolver_
-                 ? font_resolver_->measure_text_box(font, text, max_w, line_height_mult)
+                 ? font_resolver_->measure_text_box(font, text, max_w, line_height_mult,
+                                                    letter_spacing_px)
                  : Size{};
     }
 
     void draw_text_box(std::uint32_t font, const Point& pos,
                        std::string_view text, Color c, float max_w,
-                       float line_height_mult = 1.0f) override {
+                       float line_height_mult = 1.0f,
+                       float letter_spacing_px = 0.0f) override {
         const auto [off, len] = list_.intern_text(text);
         PaintOp op{};
         op.kind = PaintOpKind::DrawTextBox;
@@ -252,11 +255,15 @@ public:
         op.p.draw_text_box.text_offset = off;
         op.p.draw_text_box.text_len    = len;
         // Cap at u16; document content widths > 65535 don't happen.
+        // For nowrap, max_w may be 1e6 — cap to u16 max (65535).
         op.p.draw_text_box.max_width =
             static_cast<std::uint16_t>(max_w > 65535.f ? 65535 : (max_w < 0.f ? 0 : max_w));
         op.p.draw_text_box.line_height_x100 =
             static_cast<std::uint16_t>(std::clamp(line_height_mult * 100.0f, 0.0f, 65535.0f));
-        op.p.draw_text_box.pad0_ = 0;
+        // letter_spacing × 100, clamped to int16 range.
+        op.p.draw_text_box.letter_spacing_x100 =
+            static_cast<std::int16_t>(std::clamp(letter_spacing_px * 100.0f,
+                                                  -32768.0f, 32767.0f));
         list_.ops.push_back(op);
     }
 
@@ -419,7 +426,8 @@ inline void replay(const DisplayList& list, Painter& target) {
                                      list.text_at(t.text_offset, t.text_len),
                                      unpack(t.rgba),
                                      static_cast<float>(t.max_width),
-                                     static_cast<float>(t.line_height_x100) / 100.0f);
+                                     static_cast<float>(t.line_height_x100) / 100.0f,
+                                     static_cast<float>(t.letter_spacing_x100) / 100.0f);
                 break;
             }
             case PaintOpKind::DrawImage: {

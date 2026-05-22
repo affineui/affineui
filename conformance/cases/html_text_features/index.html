@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #fff; font-family: sans-serif; color: #212121; }
+  .wrap { padding: 16px; }
+  .row { margin-bottom: 8px; font-size: 14px; line-height: 1.4; }
+  .lbl { font-size: 10px; color: #999; display: block; }
+
+  /* white-space variants */
+  .ws-nowrap { white-space: nowrap; }
+  .ws-pre    { white-space: pre; font-family: monospace; }
+
+  /* letter-spacing */
+  .ls-3px { letter-spacing: 3px; }
+
+  /* text-transform */
+  .tt-upper { text-transform: uppercase; }
+  .tt-lower { text-transform: lowercase; }
+  .tt-cap   { text-transform: capitalize; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="row">
+      <span class="lbl">nowrap</span>
+      <span class="ws-nowrap">no wrap</span>
+    </div>
+    <div class="row ws-pre">Hello   World
+  indented</div>
+    <div class="row ls-3px">spaced</div>
+    <div class="row tt-upper">hello</div>
+    <div class="row tt-lower">HELLO</div>
+    <div class="row tt-cap">hello world</div>
+  </div>
+</body>
+</html>

@@ -86,7 +86,7 @@ public:
         text_runs.push_back({std::string{text}, pos});
     }
     affineui::Size measure_text_box(std::uint32_t, std::string_view text,
-                                    float max_width, float) override {
+                                    float max_width, float, float) override {
         const int natural = static_cast<int>(text.size()) * 8;
         const int width = max_width > 0.0f
                               ? std::min(natural, static_cast<int>(max_width))
@@ -95,7 +95,7 @@ public:
     }
     void draw_text_box(std::uint32_t, const affineui::Point& pos,
                        std::string_view text, affineui::Color, float,
-                       float) override {
+                       float, float) override {
         text_runs.push_back({std::string{text}, pos});
     }
     std::uint32_t load_image(std::string_view) override {

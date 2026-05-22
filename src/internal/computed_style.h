@@ -94,6 +94,31 @@ struct ComputedStyle {
     // from any positive multiplier.
     std::int16_t  line_height_x100{0};
 
+    // ── Text features (8 bytes) ───────────────────────────────────
+    // letter-spacing in 1/100 px (signed). 0 = normal. Max useful
+    // value is a few hundred px; int16 range is ±327.67 px, plenty.
+    std::int16_t letter_spacing_x100{0};
+
+    // white-space: controls whitespace collapsing and wrapping.
+    enum class WhiteSpace : std::uint8_t {
+        Normal = 0, // collapse + wrap (CSS default)
+        Pre,        // preserve spaces+newlines, no wrap
+        Nowrap,     // collapse + no wrap
+        PreWrap,    // preserve spaces+newlines + wrap
+        PreLine,    // preserve newlines, collapse spaces + wrap
+    };
+    WhiteSpace white_space{WhiteSpace::Normal};
+
+    // text-transform: none / uppercase / lowercase / capitalize.
+    enum class TextTransform : std::uint8_t {
+        None = 0, Uppercase, Lowercase, Capitalize,
+    };
+    TextTransform text_transform{TextTransform::None};
+
+    // 4-byte pad to keep struct on an even boundary (letter_spacing
+    // is int16 + 2 enums = 4 bytes, so no explicit pad needed here).
+    // Struct size stays at ~74 bytes after this addition.
+
     // ── Display + flex + position (4 bytes) ───────────────────────
     enum class Display : std::uint8_t {
         Block, Inline, InlineBlock, Flex, None,

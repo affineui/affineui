@@ -117,6 +117,8 @@ struct PaintOp {
         // nvgTextBox replays this at rasterize time.
         // line_height_x100 stores the line-height multiplier × 100
         // (so 1.5 lands as 150; 0 means "use 100"/1.0).
+        // letter_spacing_x100 stores CSS letter-spacing × 100 in px
+        // (so 3.0px lands as 300; 0 = normal/no extra spacing).
         struct {
             std::uint32_t font_handle;
             std::int16_t  x, y;
@@ -125,7 +127,7 @@ struct PaintOp {
             std::uint16_t text_len;
             std::uint16_t max_width;
             std::uint16_t line_height_x100;
-            std::uint16_t pad0_;
+            std::int16_t  letter_spacing_x100;
         } draw_text_box;
 
         struct {

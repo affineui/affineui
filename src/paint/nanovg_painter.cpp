@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -50,8 +51,8 @@ public:
     int           measure_text(std::uint32_t, std::string_view) override { return 0; }
     TextMetrics   text_metrics(std::uint32_t) override { return {}; }
     void draw_text(std::uint32_t, const Point&, std::string_view, Color) override {}
-    Size measure_text_box(std::uint32_t, std::string_view, float, float) override { return {}; }
-    void draw_text_box(std::uint32_t, const Point&, std::string_view, Color, float, float) override {}
+    Size measure_text_box(std::uint32_t, std::string_view, float, float, float) override { return {}; }
+    void draw_text_box(std::uint32_t, const Point&, std::string_view, Color, float, float, float) override {}
     std::uint32_t load_image(std::string_view) override { return 0; }
     Size          image_size(std::uint32_t) override { return {}; }
     void draw_image(std::uint32_t, const Rect&, const Rect&) override {}
@@ -337,12 +338,48 @@ public:
     Size measure_text_box(std::uint32_t handle,
                           std::string_view text,
                           float max_width,
-                          float line_height_mult) override {
+                          float line_height_mult,
+                          float letter_spacing_px) override {
         if (handle == 0 || text.empty()) return {};
         apply_handle(handle);
+        nvgTextLetterSpacing(vg_, letter_spacing_px);
         const float natural_line_h = natural_line_height_px(handle);
         const float css_line_h =
             css_line_height_px(handle, line_height_mult, natural_line_h);
+
+        // Pre-formatted text (max_width >= 60000 + has '\n'): measure each
+        // line individually so that leading spaces in indented lines are
+        // counted rather than skipped by nvgTextBoxBounds's word-wrap logic.
+        // NOTE: 60000 is chosen so that the sentinel 65535 stored in the
+        // display-list's uint16 max_width field also triggers this path.
+        const bool has_newline = text.find('\n') != std::string_view::npos;
+        if (has_newline && max_width >= 60000.0f) {
+            float max_line_w = 0.0f;
+            int   line_count = 0;
+            const char* p = text.data();
+            const char* end = text.data() + text.size();
+            while (p <= end) {
+                const char* nl = static_cast<const char*>(
+                    std::memchr(p, '\n', static_cast<std::size_t>(end - p)));
+                const char* line_end = nl ? nl : end;
+                float bounds[4] = {0, 0, 0, 0};
+                nvgTextBounds(vg_, 0.0f, 0.0f, p, line_end, bounds);
+                const float lw = bounds[2] - bounds[0];
+                if (lw > max_line_w) max_line_w = lw;
+                ++line_count;
+                if (!nl) break;
+                p = nl + 1;
+            }
+            if (line_count == 0) line_count = 1;
+            const float leading = line_box_leading(css_line_h, natural_line_h);
+            const float total_h = css_line_h * static_cast<float>(line_count) + leading;
+            nvgTextLetterSpacing(vg_, 0.0f);
+            return Size{
+                static_cast<int>(std::ceil(max_line_w)),
+                static_cast<int>(std::ceil(total_h)),
+            };
+        }
+
         nvgTextLineHeight(vg_, nvg_line_height_mult(css_line_h, natural_line_h));
         // nvgTextBoxBounds returns [xmin, ymin, xmax, ymax] for the
         // rendered text wrapped at `breakRowWidth`. The bounds are in
@@ -373,6 +410,8 @@ public:
         if (height < static_cast<int>(std::ceil(css_line_h))) {
             height = static_cast<int>(std::ceil(css_line_h));
         }
+        // Reset letter spacing to default so subsequent draws are unaffected.
+        nvgTextLetterSpacing(vg_, 0.0f);
         return Size{
             width,
             height,
@@ -384,23 +423,58 @@ public:
                        std::string_view text,
                        Color         color,
                        float         max_width,
-                       float         line_height_mult) override {
+                       float         line_height_mult,
+                       float         letter_spacing_px) override {
         if (handle == 0 || text.empty()) return;
         apply_handle(handle);
+        nvgTextLetterSpacing(vg_, letter_spacing_px);
         const float natural_line_h = natural_line_height_px(handle);
         const float css_line_h =
             css_line_height_px(handle, line_height_mult, natural_line_h);
-        nvgTextLineHeight(vg_, nvg_line_height_mult(css_line_h, natural_line_h));
         nvgFillColor(vg_, to_nvg(color));
         const float fx = static_cast<float>(pos.x);
         const float fy = static_cast<float>(pos.y)
                        + line_box_leading(css_line_h, natural_line_h) * 0.5f;
-        nvgTextBox(vg_, fx, fy, max_width,
-                   text.data(), text.data() + text.size());
-        if (handle_is_synth_bold(handle)) {
-            nvgTextBox(vg_, fx + 0.5f, fy, max_width,
+
+        // CSS white-space: pre text arrives with a huge max_width AND may
+        // contain explicit '\n' newlines. NanoVG's nvgTextBox intentionally
+        // skips leading whitespace after each newline (word-wrap behaviour),
+        // which breaks pre-formatted indentation. When the text has explicit
+        // newlines AND the caller signalled no-wrap (max_width >= 60000), we
+        // split and draw each line individually with nvgText so that leading
+        // spaces on indented lines are preserved.
+        // NOTE: 60000 is chosen so that the sentinel 65535 (uint16 max, stored
+        // by DisplayListBuilder) also triggers this path.
+        const bool has_newline = text.find('\n') != std::string_view::npos;
+        if (has_newline && max_width >= 60000.0f) {
+            // Draw pre-formatted text line by line at the exact x origin.
+            // Each line inherits the same Y-advance as css_line_h.
+            const float lh = css_line_h;
+            float cy = fy;
+            const char* p = text.data();
+            const char* end = text.data() + text.size();
+            while (p <= end) {
+                const char* nl = static_cast<const char*>(
+                    std::memchr(p, '\n', static_cast<std::size_t>(end - p)));
+                const char* line_end = nl ? nl : end;
+                nvgText(vg_, fx, cy, p, line_end);
+                if (handle_is_synth_bold(handle))
+                    nvgText(vg_, fx + 0.5f, cy, p, line_end);
+                cy += lh;
+                if (!nl) break;
+                p = nl + 1;
+            }
+        } else {
+            nvgTextLineHeight(vg_, nvg_line_height_mult(css_line_h, natural_line_h));
+            nvgTextBox(vg_, fx, fy, max_width,
                        text.data(), text.data() + text.size());
+            if (handle_is_synth_bold(handle)) {
+                nvgTextBox(vg_, fx + 0.5f, fy, max_width,
+                           text.data(), text.data() + text.size());
+            }
         }
+        // Reset letter spacing to default so subsequent draws are unaffected.
+        nvgTextLetterSpacing(vg_, 0.0f);
     }
 
     std::uint32_t load_image(std::string_view url) override {
