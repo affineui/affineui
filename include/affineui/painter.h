@@ -25,6 +25,13 @@ public:
     // ── Fills & strokes ─────────────────────────────────────────────
     virtual void fill_rect(const Rect& r, Color color)                = 0;
     virtual void stroke_rect(const Rect& r, Color color, float w)     = 0;
+    /// Draw a line segment from (x0, y0) to (x1, y1) with the given
+    /// stroke width. Used for per-side border drawing.
+    virtual void stroke_line(float x0, float y0, float x1, float y1,
+                             Color color, float w)                     = 0;
+    /// Draw a filled circle (used for dotted border dots).
+    virtual void fill_circle(float cx, float cy, float radius,
+                             Color color)                              = 0;
     virtual void fill_rounded_rect(const Rect& r, float radius, Color color) = 0;
     virtual void stroke_rounded_rect(const Rect& r, float radius, Color color, float w) = 0;
     /// Per-corner radii, top-left / top-right / bottom-right / bottom-left.

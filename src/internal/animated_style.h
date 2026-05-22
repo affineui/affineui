@@ -17,13 +17,22 @@ namespace affineui::detail {
 /// See docs/DESIGN.md § "Real-time render architecture" for the
 /// rationale.
 struct AnimatedStyle {
-    // ── Colors (12 bytes) ─────────────────────────────────────────
+    // ── Colors (28 bytes) ────────────────────────────────────────
     // Packed as RGBA8 (one u32 each) for compact storage and trivial
     // GPU-uniform handoff. Color (the type) unpacks at use-time.
     std::uint32_t color_rgba           {0xFFFFFFFFu};  // foreground
     std::uint32_t background_rgba      {0x00000000u};
     std::uint32_t border_rgba          {0x00000000u};  // uniform border color
     std::uint32_t shadow_rgba          {0x00000000u};
+    // Per-side border colors. When all four are 0x00000000 (transparent),
+    // border_rgba is used for all sides (backward-compatible fast path for
+    // the common `border: N style color` shorthand). When any per-side
+    // color is non-zero, that side uses its own value; others fall back
+    // to border_rgba. Cascade sets them via border-{top,right,bottom,left}.
+    std::uint32_t border_top_rgba      {0x00000000u};
+    std::uint32_t border_right_rgba    {0x00000000u};
+    std::uint32_t border_bottom_rgba   {0x00000000u};
+    std::uint32_t border_left_rgba     {0x00000000u};
 
     // ── Shadow geometry (8 bytes) ─────────────────────────────────
     std::int16_t shadow_offset_x{0};
@@ -63,8 +72,11 @@ struct AnimatedStyle {
     // Total: 16 + 8 + 20 + 4 + 12 = 60 bytes.
 };
 
+// Per-side border colors + the gradient descriptor grew the struct toward
+// one cache line (64 B on x86_64; Apple Silicon lines are 128 B). The old
+// 48-byte target was soft; this stays well inside one 128-byte line.
 static_assert(sizeof(AnimatedStyle) <= 64,
-              "AnimatedStyle should stay inside two cache lines");
+              "AnimatedStyle exceeded one cache line — re-pack before growing further");
 static_assert(std::is_trivially_copyable_v<AnimatedStyle>,
               "AnimatedStyle must be trivially copyable");
 

@@ -46,8 +46,14 @@ struct ComputedStyle {
     // them here to keep border data grouped; will migrate if
     // border-radius animations become a hot path.
     enum class BorderStyle : std::uint8_t {
-        None = 0, Solid = 1, Dashed = 2, Dotted = 3,
+        None = 0, Solid = 1, Dashed = 2, Dotted = 3, Double = 4,
     };
+    // Uniform border style for all four sides. Per-side style variation
+    // (e.g. `border-left: dashed; border-right: dotted`) is deferred —
+    // the current design handles per-side widths and per-side colors (via
+    // AnimatedStyle) but keeps one style that applies to all sides.
+    // Mixed-style-per-side is rare in practice; this is a Phase 2C
+    // limitation documented in the border drawing code in document.cpp.
     BorderStyle  border_style              {BorderStyle::None};
     // Percentage height: -1 = not a percentage, else 0..100 (integer %).
     // Repurposes the former pad_border_ byte; same alignment slot.

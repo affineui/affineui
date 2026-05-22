@@ -74,6 +74,31 @@ public:
         list_.ops.push_back(op);
     }
 
+    void stroke_line(float x0, float y0, float x1, float y1,
+                     Color c, float w) override {
+        PaintOp op{};
+        op.kind = PaintOpKind::StrokeLine;
+        op.p.stroke_line.x0 = x0;
+        op.p.stroke_line.y0 = y0;
+        op.p.stroke_line.x1 = x1;
+        op.p.stroke_line.y1 = y1;
+        op.p.stroke_line.rgba = pack(c);
+        op.p.stroke_line.thickness = w;
+        list_.ops.push_back(op);
+    }
+
+    void fill_circle(float cx, float cy, float radius, Color c) override {
+        PaintOp op{};
+        op.kind = PaintOpKind::FillCircle;
+        op.p.fill_circle.cx     = cx;
+        op.p.fill_circle.cy     = cy;
+        op.p.fill_circle.radius = radius;
+        op.p.fill_circle.rgba   = pack(c);
+        op.p.fill_circle.pad0_  = 0;
+        op.p.fill_circle.pad1_  = 0;
+        list_.ops.push_back(op);
+    }
+
     void fill_rounded_rect(const Rect& r, float radius, Color c) override {
         PaintOp op{};
         op.kind = PaintOpKind::FillRoundedRect;
@@ -319,6 +344,17 @@ inline void replay(const DisplayList& list, Painter& target) {
                 const auto& r = op.p.stroke_rect;
                 target.stroke_rect(Rect{r.x, r.y, r.w, r.h},
                                    unpack(r.rgba), r.thickness);
+                break;
+            }
+            case PaintOpKind::StrokeLine: {
+                const auto& ln = op.p.stroke_line;
+                target.stroke_line(ln.x0, ln.y0, ln.x1, ln.y1,
+                                   unpack(ln.rgba), ln.thickness);
+                break;
+            }
+            case PaintOpKind::FillCircle: {
+                const auto& fc = op.p.fill_circle;
+                target.fill_circle(fc.cx, fc.cy, fc.radius, unpack(fc.rgba));
                 break;
             }
             case PaintOpKind::FillRoundedRect: {

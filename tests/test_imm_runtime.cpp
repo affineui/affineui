@@ -19,6 +19,8 @@ public:
     void end_frame() override {}
     void fill_rect(const affineui::Rect&, affineui::Color) override {}
     void stroke_rect(const affineui::Rect&, affineui::Color, float) override {}
+    void stroke_line(float, float, float, float, affineui::Color, float) override {}
+    void fill_circle(float, float, float, affineui::Color) override {}
     void fill_rounded_rect(const affineui::Rect&, float, affineui::Color) override {}
     void stroke_rounded_rect(const affineui::Rect&, float, affineui::Color, float) override {}
     void fill_rounded_rect_varying(const affineui::Rect&, float, float, float, float, affineui::Color) override {}

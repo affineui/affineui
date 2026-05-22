@@ -22,6 +22,8 @@ namespace affineui::detail {
 enum class PaintOpKind : std::uint8_t {
     FillRect,
     StrokeRect,
+    StrokeLine,
+    FillCircle,
     FillRoundedRect,
     StrokeRoundedRect,
     FillRoundedRectVarying,
@@ -57,6 +59,21 @@ struct PaintOp {
             std::uint32_t rgba;
             float         thickness;
         } stroke_rect;
+
+        // Line segment from (x0,y0) to (x1,y1) with given width.
+        struct {
+            float         x0, y0, x1, y1;   // 16
+            std::uint32_t rgba;              // 4
+            float         thickness;         // 4
+        } stroke_line;
+
+        // Filled circle centred at (cx,cy).
+        struct {
+            float         cx, cy, radius;   // 12
+            std::uint32_t rgba;             // 4
+            std::uint32_t pad0_;            // 4
+            std::uint32_t pad1_;            // 4
+        } fill_circle;
 
         struct {
             std::int16_t  x, y, w, h;

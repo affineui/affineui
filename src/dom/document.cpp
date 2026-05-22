@@ -1408,13 +1408,48 @@ void Document::draw(Painter& painter) {
         const float r_bl = static_cast<float>(cs.border_radius_bot_left_px);
         const bool any_radius  = (r_tl > 0 || r_tr > 0 || r_br > 0 || r_bl > 0);
         const bool uniform_r   = (r_tl == r_tr && r_tr == r_br && r_br == r_bl);
-        const bool has_gradient = (an.gradient_kind != detail::AnimatedStyle::GradientKind::None);
+        // Background: a gradient (if present) wins over the solid color.
+        const bool has_gradient =
+            (an.gradient_kind != detail::AnimatedStyle::GradientKind::None);
         const bool has_bg = !has_gradient && (an.background_rgba & 0xFFu) != 0;
-        const bool has_border =
-            cs.border_style != detail::ComputedStyle::BorderStyle::None
-            && (cs.border_top > 0 || cs.border_right > 0
-                || cs.border_bottom > 0 || cs.border_left > 0)
-            && (an.border_rgba & 0xFFu) != 0;
+
+        // Resolve effective per-side border color. When the per-side
+        // override (set by `border-{side}:` shorthands) is non-zero,
+        // use it; otherwise fall back to the uniform border_rgba (set by
+        // the `border:` shorthand).
+        using BS = detail::ComputedStyle::BorderStyle;
+        auto side_rgba = [&](std::uint32_t per_side_rgba,
+                             std::uint32_t fallback_rgba) -> std::uint32_t {
+            return (per_side_rgba != 0) ? per_side_rgba : fallback_rgba;
+        };
+
+        const std::uint32_t c_top    = side_rgba(an.border_top_rgba,    an.border_rgba);
+        const std::uint32_t c_right  = side_rgba(an.border_right_rgba,  an.border_rgba);
+        const std::uint32_t c_bottom = side_rgba(an.border_bottom_rgba, an.border_rgba);
+        const std::uint32_t c_left   = side_rgba(an.border_left_rgba,   an.border_rgba);
+
+        // A side is visible if the element's border_style is non-None,
+        // the side has a non-zero width, and its effective color is opaque.
+        const bool style_active = cs.border_style != BS::None;
+        auto side_visible = [&](int w, std::uint32_t rgba) -> bool {
+            return style_active && w > 0 && (rgba & 0xFFu) != 0;
+        };
+
+        const bool vis_top    = side_visible(cs.border_top,    c_top);
+        const bool vis_right  = side_visible(cs.border_right,  c_right);
+        const bool vis_bottom = side_visible(cs.border_bottom, c_bottom);
+        const bool vis_left   = side_visible(cs.border_left,   c_left);
+
+        const bool has_border = vis_top || vis_right || vis_bottom || vis_left;
+
+        // True when all visible sides share identical color and width, enabling
+        // the fast-path stroke_rect / stroke_rounded_rect for the Solid style.
+        const bool uniform_border =
+            has_border
+            && cs.border_style == BS::Solid
+            && c_top == c_right && c_right == c_bottom && c_bottom == c_left
+            && cs.border_top == cs.border_right && cs.border_right == cs.border_bottom
+            && cs.border_bottom == cs.border_left;
         const bool has_shadow = (an.shadow_rgba & 0xFFu) != 0
             && (an.shadow_blur != 0 || an.shadow_spread != 0 ||
                 an.shadow_offset_x != 0 || an.shadow_offset_y != 0);
@@ -1481,21 +1516,184 @@ void Document::draw(Painter& painter) {
         }
 
         if (has_border) {
-            int wmax = cs.border_top;
-            if (cs.border_right  > wmax) wmax = cs.border_right;
-            if (cs.border_bottom > wmax) wmax = cs.border_bottom;
-            if (cs.border_left   > wmax) wmax = cs.border_left;
-            const float thickness = static_cast<float>(wmax);
-            const int   inset     = wmax / 2;
-            const Rect  stroke_r{
-                eff.x + inset, eff.y + inset,
-                eff.w - 2 * inset, eff.h - 2 * inset,
-            };
-            const Color bc = detail::unpack_rgba(an.border_rgba);
-            if      (!any_radius) painter.stroke_rect(stroke_r, bc, thickness);
-            else if (uniform_r)   painter.stroke_rounded_rect(stroke_r, r_tl, bc, thickness);
-            else                  painter.stroke_rounded_rect_varying(
-                                      stroke_r, r_tl, r_tr, r_br, r_bl, bc, thickness);
+            if (uniform_border && !any_radius) {
+                // Fast path: uniform solid border, no radius. One NVG stroke
+                // (avoids 4 separate lineto calls).
+                const float thickness = static_cast<float>(cs.border_top);
+                const int   inset     = cs.border_top / 2;
+                const Rect  stroke_r{
+                    eff.x + inset, eff.y + inset,
+                    eff.w - 2 * inset, eff.h - 2 * inset,
+                };
+                painter.stroke_rect(stroke_r, detail::unpack_rgba(c_top), thickness);
+            } else if (uniform_border && any_radius) {
+                // Fast path: uniform solid border with border-radius.
+                const float thickness = static_cast<float>(cs.border_top);
+                const int   inset     = cs.border_top / 2;
+                const Rect  stroke_r{
+                    eff.x + inset, eff.y + inset,
+                    eff.w - 2 * inset, eff.h - 2 * inset,
+                };
+                const Color bc = detail::unpack_rgba(c_top);
+                if (uniform_r) painter.stroke_rounded_rect(stroke_r, r_tl, bc, thickness);
+                else           painter.stroke_rounded_rect_varying(
+                                   stroke_r, r_tl, r_tr, r_br, r_bl, bc, thickness);
+            } else {
+                // General path: draw each visible side independently.
+                //
+                // Geometry for per-side edge drawing (CSS box model):
+                //   The border sits inside the element's border-box.
+                //   Each edge is centred on the midpoint of its own border
+                //   half-width from the outer border-box edge.
+                //
+                // Corner convention: horizontal edges own the full width
+                // including their corner squares; vertical edges span only
+                // between the outer horizontal edge endpoints — matching
+                // the T-intersect rendering browsers produce for different
+                // side widths/colors.
+                //
+                // For non-solid styles (dashed/dotted/double), border-radius
+                // is ignored in this phase (same as the previous implementation
+                // which always used a single stroke_rect call regardless of
+                // style). Radius + non-solid border is rare in practice.
+
+                const float ex = static_cast<float>(eff.x);
+                const float ey = static_cast<float>(eff.y);
+                const float ew = static_cast<float>(eff.w);
+                const float eh = static_cast<float>(eff.h);
+
+                // Helper: draw one edge segment with a given border style.
+                // (ax,ay)→(bx,by) are the outer-edge start/end points.
+                // `w` is the border width in px; style and color are side-specific.
+                auto draw_edge = [&](float ax, float ay, float bx, float by,
+                                     float w, BS style, Color color) {
+                    if (w <= 0.0f) return;
+                    // Centre of the border stripe, perpendicular to the edge.
+                    // For horizontal edges: shift down by w/2. For vertical:
+                    // shift right by w/2. Both are embedded in ax/ay already
+                    // for our usage — the caller passes midpoint coordinates.
+                    switch (style) {
+                        case BS::Solid: {
+                            painter.stroke_line(ax, ay, bx, by, color, w);
+                            break;
+                        }
+                        case BS::Dashed: {
+                            // CSS dashed: dash ≈ 3× border width, gap ≈ border width.
+                            const float dash   = std::max(w * 3.0f, 1.0f);
+                            const float gap    = std::max(w,         1.0f);
+                            const float period = dash + gap;
+                            const float dx = bx - ax;
+                            const float dy = by - ay;
+                            const float len = std::sqrt(dx * dx + dy * dy);
+                            if (len <= 0.0f) break;
+                            const float ux = dx / len;
+                            const float uy = dy / len;
+                            float t = 0.0f;
+                            while (t < len) {
+                                const float dash_end = std::min(t + dash, len);
+                                painter.stroke_line(ax + ux * t,  ay + uy * t,
+                                                    ax + ux * dash_end,
+                                                    ay + uy * dash_end,
+                                                    color, w);
+                                t += period;
+                            }
+                            break;
+                        }
+                        case BS::Dotted: {
+                            // CSS dotted: circular dots, diameter = border width,
+                            // spaced at ~2× diameter (dot + equal gap).
+                            const float radius = w * 0.5f;
+                            const float period = w * 2.0f;
+                            const float dx = bx - ax;
+                            const float dy = by - ay;
+                            const float len = std::sqrt(dx * dx + dy * dy);
+                            if (len <= 0.0f) break;
+                            const float ux = dx / len;
+                            const float uy = dy / len;
+                            float t = radius;  // first dot centred at w/2 from edge
+                            while (t <= len) {
+                                painter.fill_circle(ax + ux * t, ay + uy * t,
+                                                    radius, color);
+                                t += period;
+                            }
+                            break;
+                        }
+                        case BS::Double: {
+                            // CSS double: outer stroke + gap + inner stroke.
+                            // Each stripe is w/3; gap is w/3.
+                            // Total border width w = outer(w/3) + gap(w/3) + inner(w/3).
+                            // The outer stripe is tangent to the outer edge of the
+                            // border box; the inner is tangent to the content box.
+                            // The caller passed midpoints of the overall border stripe;
+                            // to draw the outer/inner sub-stripes we need to offset
+                            // perpendicular to the edge by ±w/3.
+                            //
+                            // For simplicity we approximate using two parallel
+                            // stroke_lines at offsets computed from the edge direction.
+                            // Horizontal edge (ay == by): offset in Y.
+                            // Vertical edge (ax == bx): offset in X.
+                            const float sub_w = std::max(1.0f, w / 3.0f);
+                            const float offset = w / 3.0f;  // shift to outer / inner
+                            const bool horiz = (std::abs(by - ay) < 0.5f);
+                            if (horiz) {
+                                // Outer stripe (closer to top outer edge)
+                                painter.stroke_line(ax, ay - offset, bx, by - offset,
+                                                    color, sub_w);
+                                // Inner stripe (closer to content area)
+                                painter.stroke_line(ax, ay + offset, bx, by + offset,
+                                                    color, sub_w);
+                            } else {
+                                // Outer stripe (closer to left outer edge)
+                                painter.stroke_line(ax - offset, ay, bx - offset, by,
+                                                    color, sub_w);
+                                // Inner stripe
+                                painter.stroke_line(ax + offset, ay, bx + offset, by,
+                                                    color, sub_w);
+                            }
+                            break;
+                        }
+                        default: break;
+                    }
+                };
+
+                // All sides share the same style (per-side style variation
+                // is Phase 2C+ — see computed_style.h comment).
+                const BS bstyle = cs.border_style;
+
+                // Top edge: runs full width from left edge to right edge.
+                // Y midpoint = eff.y + border_top/2.
+                if (vis_top) {
+                    const float wt = static_cast<float>(cs.border_top);
+                    const float my = ey + wt * 0.5f;
+                    draw_edge(ex, my, ex + ew, my, wt, bstyle,
+                              detail::unpack_rgba(c_top));
+                }
+                // Bottom edge: full width.
+                if (vis_bottom) {
+                    const float wb = static_cast<float>(cs.border_bottom);
+                    const float my = ey + eh - wb * 0.5f;
+                    draw_edge(ex, my, ex + ew, my, wb, bstyle,
+                              detail::unpack_rgba(c_bottom));
+                }
+                // Left edge: between the top and bottom edges' outer boundaries.
+                if (vis_left) {
+                    const float wl  = static_cast<float>(cs.border_left);
+                    const float mx  = ex + wl * 0.5f;
+                    const float y0  = ey + static_cast<float>(cs.border_top);
+                    const float y1  = ey + eh - static_cast<float>(cs.border_bottom);
+                    draw_edge(mx, y0, mx, y1, wl, bstyle,
+                              detail::unpack_rgba(c_left));
+                }
+                // Right edge: between top and bottom edges' outer boundaries.
+                if (vis_right) {
+                    const float wr  = static_cast<float>(cs.border_right);
+                    const float mx  = ex + ew - wr * 0.5f;
+                    const float y0  = ey + static_cast<float>(cs.border_top);
+                    const float y1  = ey + eh - static_cast<float>(cs.border_bottom);
+                    draw_edge(mx, y0, mx, y1, wr, bstyle,
+                              detail::unpack_rgba(c_right));
+                }
+            }
         }
 
         if (!b.text.empty()) {

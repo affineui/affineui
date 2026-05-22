@@ -26,6 +26,12 @@ public:
     void stroke_rect(const affineui::Rect&, affineui::Color color, float) override {
         stroke_colors.push_back(color);
     }
+    void stroke_line(float, float, float, float, affineui::Color color, float) override {
+        stroke_colors.push_back(color);
+    }
+    void fill_circle(float, float, float, affineui::Color color) override {
+        fill_colors.push_back(color);
+    }
     void fill_rounded_rect(const affineui::Rect&, float,
                            affineui::Color color) override {
         fill_colors.push_back(color);

@@ -583,12 +583,49 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
                 case LXB_CSS_BORDER_SOLID:  style = BS::Solid;  break;
                 case LXB_CSS_BORDER_DASHED: style = BS::Dashed; break;
                 case LXB_CSS_BORDER_DOTTED: style = BS::Dotted; break;
+                case LXB_CSS_BORDER_DOUBLE: style = BS::Double; break;
                 default:                    style = BS::None;   break;
             }
-            s.computed.border_style = style;
+            // Store style uniformly — per-side style variation is a
+            // Phase 2C+ feature (see computed_style.h comment).
+            // For side-shorthands, we set border_style only if ALL four
+            // sides are being set (the `border:` shorthand). Per-side
+            // shorthands (border-top:, border-left: etc.) update border_style
+            // only if the style value is non-None, so that the last of the
+            // two forms wins. This matches CSS cascade: `border: 4px solid`
+            // followed by `border-top: 6px dashed` should produce dashed on
+            // top and solid on the other three sides — currently we can only
+            // approximate by using the last-written style for all sides.
+            // Acceptable for Phase 2C; the test only uses mixed colors,
+            // not mixed styles.
+            if (d->type == LXB_CSS_PROPERTY_BORDER) {
+                s.computed.border_style = style;
+            } else if (style != BS::None) {
+                // Per-side shorthand: update uniform style if it was None
+                // or if the new style overrides it (last shorthand wins).
+                s.computed.border_style = style;
+            }
             // Color — Bootstrap relies on rgba() here for card borders.
-            std::uint32_t rgba;
-            if (parse_color(&v->color, rgba)) s.animated.border_rgba = rgba;
+            std::uint32_t rgba = 0;
+            if (parse_color(&v->color, rgba)) {
+                if (d->type == LXB_CSS_PROPERTY_BORDER_TOP)
+                    s.animated.border_top_rgba    = rgba;
+                else if (d->type == LXB_CSS_PROPERTY_BORDER_RIGHT)
+                    s.animated.border_right_rgba  = rgba;
+                else if (d->type == LXB_CSS_PROPERTY_BORDER_BOTTOM)
+                    s.animated.border_bottom_rgba = rgba;
+                else if (d->type == LXB_CSS_PROPERTY_BORDER_LEFT)
+                    s.animated.border_left_rgba   = rgba;
+                else {
+                    // `border` shorthand: sets uniform color and clears
+                    // per-side overrides.
+                    s.animated.border_rgba        = rgba;
+                    s.animated.border_top_rgba    = 0;
+                    s.animated.border_right_rgba  = 0;
+                    s.animated.border_bottom_rgba = 0;
+                    s.animated.border_left_rgba   = 0;
+                }
+            }
             break;
         }
         case LXB_CSS_PROPERTY_BORDER_COLOR: {
@@ -665,14 +702,32 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             }
             break;
         }
-        case LXB_CSS_PROPERTY_BORDER_TOP_COLOR:
-        case LXB_CSS_PROPERTY_BORDER_RIGHT_COLOR:
-        case LXB_CSS_PROPERTY_BORDER_BOTTOM_COLOR:
+        case LXB_CSS_PROPERTY_BORDER_TOP_COLOR: {
+            const auto* v =
+                static_cast<const lxb_css_value_color_t*>(d->u.user);
+            std::uint32_t rgba;
+            if (parse_color(v, rgba)) s.animated.border_top_rgba = rgba;
+            break;
+        }
+        case LXB_CSS_PROPERTY_BORDER_RIGHT_COLOR: {
+            const auto* v =
+                static_cast<const lxb_css_value_color_t*>(d->u.user);
+            std::uint32_t rgba;
+            if (parse_color(v, rgba)) s.animated.border_right_rgba = rgba;
+            break;
+        }
+        case LXB_CSS_PROPERTY_BORDER_BOTTOM_COLOR: {
+            const auto* v =
+                static_cast<const lxb_css_value_color_t*>(d->u.user);
+            std::uint32_t rgba;
+            if (parse_color(v, rgba)) s.animated.border_bottom_rgba = rgba;
+            break;
+        }
         case LXB_CSS_PROPERTY_BORDER_LEFT_COLOR: {
             const auto* v =
                 static_cast<const lxb_css_value_color_t*>(d->u.user);
             std::uint32_t rgba;
-            if (parse_color(v, rgba)) s.animated.border_rgba = rgba;
+            if (parse_color(v, rgba)) s.animated.border_left_rgba = rgba;
             break;
         }
         case LXB_CSS_PROPERTY_GAP: {
@@ -1283,8 +1338,12 @@ public:
         // them out of the parent here.
         ResolvedStyle s = parent;
         // Reset non-inherited fields to their initial values.
-        s.animated.background_rgba = 0x00000000u;  // transparent
-        s.animated.border_rgba     = 0x00000000u;  // transparent
+        s.animated.background_rgba     = 0x00000000u;  // transparent
+        s.animated.border_rgba         = 0x00000000u;  // transparent
+        s.animated.border_top_rgba     = 0x00000000u;
+        s.animated.border_right_rgba   = 0x00000000u;
+        s.animated.border_bottom_rgba  = 0x00000000u;
+        s.animated.border_left_rgba    = 0x00000000u;
         clear_box_shadow(s.animated);
         s.animated.tx = s.animated.ty = 0.0f;
         s.animated.scale_x = s.animated.scale_y = 1.0f;

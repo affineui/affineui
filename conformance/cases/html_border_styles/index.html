@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #fff; font-family: sans-serif; }
+  .grid {
+    padding: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+  .box {
+    width: 120px;
+    height: 70px;
+    background: #f5f5f5;
+    box-sizing: border-box;
+  }
+
+  /* Border style variations */
+  .solid  { border: 4px solid #3367d6; }
+  .dashed { border: 4px dashed #3367d6; }
+  .dotted { border: 4px dotted #3367d6; }
+  .double { border: 6px double #3367d6; }
+
+  /* Per-side: left red solid, bottom green solid, no other borders */
+  .perside {
+    border-left: 6px solid #d32f2f;
+    border-bottom: 6px solid #388e3c;
+  }
+</style>
+</head>
+<body>
+  <div class="grid">
+    <div class="box solid"></div>
+    <div class="box dashed"></div>
+    <div class="box dotted"></div>
+    <div class="box double"></div>
+    <div class="box perside"></div>
+  </div>
+</body>
+</html>

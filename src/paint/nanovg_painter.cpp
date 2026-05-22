@@ -36,6 +36,8 @@ public:
     void end_frame() override {}
     void fill_rect(const Rect&, Color) override {}
     void stroke_rect(const Rect&, Color, float) override {}
+    void stroke_line(float, float, float, float, Color, float) override {}
+    void fill_circle(float, float, float, Color) override {}
     void fill_rounded_rect(const Rect&, float, Color) override {}
     void stroke_rounded_rect(const Rect&, float, Color, float) override {}
     void fill_rounded_rect_varying(const Rect&, float, float, float, float, Color) override {}
@@ -102,6 +104,26 @@ public:
         nvgStrokeColor(vg_, to_nvg(c));
         nvgStrokeWidth(vg_, thickness);
         nvgStroke(vg_);
+    }
+
+    void stroke_line(float x0, float y0, float x1, float y1,
+                     Color c, float w) override {
+        nvgBeginPath(vg_);
+        nvgMoveTo(vg_, x0, y0);
+        nvgLineTo(vg_, x1, y1);
+        nvgStrokeColor(vg_, to_nvg(c));
+        nvgStrokeWidth(vg_, w);
+        // Square caps place the stroke end exactly at the endpoint, which
+        // gives clean corners when adjacent border sides are drawn separately.
+        nvgLineCap(vg_, NVG_SQUARE);
+        nvgStroke(vg_);
+    }
+
+    void fill_circle(float cx, float cy, float radius, Color c) override {
+        nvgBeginPath(vg_);
+        nvgCircle(vg_, cx, cy, radius);
+        nvgFillColor(vg_, to_nvg(c));
+        nvgFill(vg_);
     }
 
     void fill_rounded_rect(const Rect& r, float radius, Color c) override {
