@@ -128,6 +128,174 @@ std::uint8_t alpha_component(const lxb_css_value_number_percentage_t& a) {
         return clamp_u8(a.u.number.num * 255.0);
     return 0xFF;
 }
+// CSS named colors (aliceblue ... rebeccapurple): resolve a
+// lxb_css_color_type_t keyword to packed RGBA (full alpha).
+static bool parse_named_color(lxb_css_color_type_t type, std::uint32_t& out) {
+    using T = lxb_css_color_type_t;
+    struct Entry { T type; std::uint32_t rgb; };
+    static constexpr Entry kTable[] = {
+        {T(LXB_CSS_COLOR_ALICEBLUE),             0xF0F8FFUL},
+        {T(LXB_CSS_COLOR_ANTIQUEWHITE),          0xFAEBD7UL},
+        {T(LXB_CSS_COLOR_AQUA),                  0x00FFFFUL},
+        {T(LXB_CSS_COLOR_AQUAMARINE),            0x7FFFD4UL},
+        {T(LXB_CSS_COLOR_AZURE),                 0xF0FFFFUL},
+        {T(LXB_CSS_COLOR_BEIGE),                 0xF5F5DCUL},
+        {T(LXB_CSS_COLOR_BISQUE),                0xFFE4C4UL},
+        {T(LXB_CSS_COLOR_BLACK),                 0x000000UL},
+        {T(LXB_CSS_COLOR_BLANCHEDALMOND),        0xFFEBCDUL},
+        {T(LXB_CSS_COLOR_BLUE),                  0x0000FFUL},
+        {T(LXB_CSS_COLOR_BLUEVIOLET),            0x8A2BE2UL},
+        {T(LXB_CSS_COLOR_BROWN),                 0xA52A2AUL},
+        {T(LXB_CSS_COLOR_BURLYWOOD),             0xDEB887UL},
+        {T(LXB_CSS_COLOR_CADETBLUE),             0x5F9EA0UL},
+        {T(LXB_CSS_COLOR_CHARTREUSE),            0x7FFF00UL},
+        {T(LXB_CSS_COLOR_CHOCOLATE),             0xD2691EUL},
+        {T(LXB_CSS_COLOR_CORAL),                 0xFF7F50UL},
+        {T(LXB_CSS_COLOR_CORNFLOWERBLUE),        0x6495EDUL},
+        {T(LXB_CSS_COLOR_CORNSILK),              0xFFF8DCUL},
+        {T(LXB_CSS_COLOR_CRIMSON),               0xDC143CUL},
+        {T(LXB_CSS_COLOR_CYAN),                  0x00FFFFUL},
+        {T(LXB_CSS_COLOR_DARKBLUE),              0x00008BUL},
+        {T(LXB_CSS_COLOR_DARKCYAN),              0x008B8BUL},
+        {T(LXB_CSS_COLOR_DARKGOLDENROD),         0xB8860BUL},
+        {T(LXB_CSS_COLOR_DARKGRAY),              0xA9A9A9UL},
+        {T(LXB_CSS_COLOR_DARKGREEN),             0x006400UL},
+        {T(LXB_CSS_COLOR_DARKGREY),              0xA9A9A9UL},
+        {T(LXB_CSS_COLOR_DARKKHAKI),             0xBDB76BUL},
+        {T(LXB_CSS_COLOR_DARKMAGENTA),           0x8B008BUL},
+        {T(LXB_CSS_COLOR_DARKOLIVEGREEN),        0x556B2FUL},
+        {T(LXB_CSS_COLOR_DARKORANGE),            0xFF8C00UL},
+        {T(LXB_CSS_COLOR_DARKORCHID),            0x9932CCUL},
+        {T(LXB_CSS_COLOR_DARKRED),               0x8B0000UL},
+        {T(LXB_CSS_COLOR_DARKSALMON),            0xE9967AUL},
+        {T(LXB_CSS_COLOR_DARKSEAGREEN),          0x8FBC8FUL},
+        {T(LXB_CSS_COLOR_DARKSLATEBLUE),         0x483D8BUL},
+        {T(LXB_CSS_COLOR_DARKSLATEGRAY),         0x2F4F4FUL},
+        {T(LXB_CSS_COLOR_DARKSLATEGREY),         0x2F4F4FUL},
+        {T(LXB_CSS_COLOR_DARKTURQUOISE),         0x00CED1UL},
+        {T(LXB_CSS_COLOR_DARKVIOLET),            0x9400D3UL},
+        {T(LXB_CSS_COLOR_DEEPPINK),              0xFF1493UL},
+        {T(LXB_CSS_COLOR_DEEPSKYBLUE),           0x00BFFFUL},
+        {T(LXB_CSS_COLOR_DIMGRAY),               0x696969UL},
+        {T(LXB_CSS_COLOR_DIMGREY),               0x696969UL},
+        {T(LXB_CSS_COLOR_DODGERBLUE),            0x1E90FFUL},
+        {T(LXB_CSS_COLOR_FIREBRICK),             0xB22222UL},
+        {T(LXB_CSS_COLOR_FLORALWHITE),           0xFFFAF0UL},
+        {T(LXB_CSS_COLOR_FORESTGREEN),           0x228B22UL},
+        {T(LXB_CSS_COLOR_FUCHSIA),               0xFF00FFUL},
+        {T(LXB_CSS_COLOR_GAINSBORO),             0xDCDCDCUL},
+        {T(LXB_CSS_COLOR_GHOSTWHITE),            0xF8F8FFUL},
+        {T(LXB_CSS_COLOR_GOLD),                  0xFFD700UL},
+        {T(LXB_CSS_COLOR_GOLDENROD),             0xDAA520UL},
+        {T(LXB_CSS_COLOR_GRAY),                  0x808080UL},
+        {T(LXB_CSS_COLOR_GREEN),                 0x008000UL},
+        {T(LXB_CSS_COLOR_GREENYELLOW),           0xADFF2FUL},
+        {T(LXB_CSS_COLOR_GREY),                  0x808080UL},
+        {T(LXB_CSS_COLOR_HONEYDEW),              0xF0FFF0UL},
+        {T(LXB_CSS_COLOR_HOTPINK),               0xFF69B4UL},
+        {T(LXB_CSS_COLOR_INDIANRED),             0xCD5C5CUL},
+        {T(LXB_CSS_COLOR_INDIGO),                0x4B0082UL},
+        {T(LXB_CSS_COLOR_IVORY),                 0xFFFFF0UL},
+        {T(LXB_CSS_COLOR_KHAKI),                 0xF0E68CUL},
+        {T(LXB_CSS_COLOR_LAVENDER),              0xE6E6FAUL},
+        {T(LXB_CSS_COLOR_LAVENDERBLUSH),         0xFFF0F5UL},
+        {T(LXB_CSS_COLOR_LAWNGREEN),             0x7CFC00UL},
+        {T(LXB_CSS_COLOR_LEMONCHIFFON),          0xFFFACDUL},
+        {T(LXB_CSS_COLOR_LIGHTBLUE),             0xADD8E6UL},
+        {T(LXB_CSS_COLOR_LIGHTCORAL),            0xF08080UL},
+        {T(LXB_CSS_COLOR_LIGHTCYAN),             0xE0FFFFUL},
+        {T(LXB_CSS_COLOR_LIGHTGOLDENRODYELLOW),  0xFAFAD2UL},
+        {T(LXB_CSS_COLOR_LIGHTGRAY),             0xD3D3D3UL},
+        {T(LXB_CSS_COLOR_LIGHTGREEN),            0x90EE90UL},
+        {T(LXB_CSS_COLOR_LIGHTGREY),             0xD3D3D3UL},
+        {T(LXB_CSS_COLOR_LIGHTPINK),             0xFFB6C1UL},
+        {T(LXB_CSS_COLOR_LIGHTSALMON),           0xFFA07AUL},
+        {T(LXB_CSS_COLOR_LIGHTSEAGREEN),         0x20B2AAUL},
+        {T(LXB_CSS_COLOR_LIGHTSKYBLUE),          0x87CEFAUL},
+        {T(LXB_CSS_COLOR_LIGHTSLATEGRAY),        0x778899UL},
+        {T(LXB_CSS_COLOR_LIGHTSLATEGREY),        0x778899UL},
+        {T(LXB_CSS_COLOR_LIGHTSTEELBLUE),        0xB0C4DEUL},
+        {T(LXB_CSS_COLOR_LIGHTYELLOW),           0xFFFFE0UL},
+        {T(LXB_CSS_COLOR_LIME),                  0x00FF00UL},
+        {T(LXB_CSS_COLOR_LIMEGREEN),             0x32CD32UL},
+        {T(LXB_CSS_COLOR_LINEN),                 0xFAF0E6UL},
+        {T(LXB_CSS_COLOR_MAGENTA),               0xFF00FFUL},
+        {T(LXB_CSS_COLOR_MAROON),                0x800000UL},
+        {T(LXB_CSS_COLOR_MEDIUMAQUAMARINE),      0x66CDAAUL},
+        {T(LXB_CSS_COLOR_MEDIUMBLUE),            0x0000CDUL},
+        {T(LXB_CSS_COLOR_MEDIUMORCHID),          0xBA55D3UL},
+        {T(LXB_CSS_COLOR_MEDIUMPURPLE),          0x9370DBUL},
+        {T(LXB_CSS_COLOR_MEDIUMSEAGREEN),        0x3CB371UL},
+        {T(LXB_CSS_COLOR_MEDIUMSLATEBLUE),       0x7B68EEUL},
+        {T(LXB_CSS_COLOR_MEDIUMSPRINGGREEN),     0x00FA9AUL},
+        {T(LXB_CSS_COLOR_MEDIUMTURQUOISE),       0x48D1CCUL},
+        {T(LXB_CSS_COLOR_MEDIUMVIOLETRED),       0xC71585UL},
+        {T(LXB_CSS_COLOR_MIDNIGHTBLUE),          0x191970UL},
+        {T(LXB_CSS_COLOR_MINTCREAM),             0xF5FFFAUL},
+        {T(LXB_CSS_COLOR_MISTYROSE),             0xFFE4E1UL},
+        {T(LXB_CSS_COLOR_MOCCASIN),              0xFFE4B5UL},
+        {T(LXB_CSS_COLOR_NAVAJOWHITE),           0xFFDEADUL},
+        {T(LXB_CSS_COLOR_NAVY),                  0x000080UL},
+        {T(LXB_CSS_COLOR_OLDLACE),               0xFDF5E6UL},
+        {T(LXB_CSS_COLOR_OLIVE),                 0x808000UL},
+        {T(LXB_CSS_COLOR_OLIVEDRAB),             0x6B8E23UL},
+        {T(LXB_CSS_COLOR_ORANGE),                0xFFA500UL},
+        {T(LXB_CSS_COLOR_ORANGERED),             0xFF4500UL},
+        {T(LXB_CSS_COLOR_ORCHID),                0xDA70D6UL},
+        {T(LXB_CSS_COLOR_PALEGOLDENROD),         0xEEE8AAUL},
+        {T(LXB_CSS_COLOR_PALEGREEN),             0x98FB98UL},
+        {T(LXB_CSS_COLOR_PALETURQUOISE),         0xAFEEEEUL},
+        {T(LXB_CSS_COLOR_PALEVIOLETRED),         0xDB7093UL},
+        {T(LXB_CSS_COLOR_PAPAYAWHIP),            0xFFEFD5UL},
+        {T(LXB_CSS_COLOR_PEACHPUFF),             0xFFDAB9UL},
+        {T(LXB_CSS_COLOR_PERU),                  0xCD853FUL},
+        {T(LXB_CSS_COLOR_PINK),                  0xFFC0CBUL},
+        {T(LXB_CSS_COLOR_PLUM),                  0xDDA0DDUL},
+        {T(LXB_CSS_COLOR_POWDERBLUE),            0xB0E0E6UL},
+        {T(LXB_CSS_COLOR_PURPLE),                0x800080UL},
+        {T(LXB_CSS_COLOR_REBECCAPURPLE),         0x663399UL},
+        {T(LXB_CSS_COLOR_RED),                   0xFF0000UL},
+        {T(LXB_CSS_COLOR_ROSYBROWN),             0xBC8F8FUL},
+        {T(LXB_CSS_COLOR_ROYALBLUE),             0x4169E1UL},
+        {T(LXB_CSS_COLOR_SADDLEBROWN),           0x8B4513UL},
+        {T(LXB_CSS_COLOR_SALMON),                0xFA8072UL},
+        {T(LXB_CSS_COLOR_SANDYBROWN),            0xF4A460UL},
+        {T(LXB_CSS_COLOR_SEAGREEN),              0x2E8B57UL},
+        {T(LXB_CSS_COLOR_SEASHELL),              0xFFF5EEUL},
+        {T(LXB_CSS_COLOR_SIENNA),                0xA0522DUL},
+        {T(LXB_CSS_COLOR_SILVER),                0xC0C0C0UL},
+        {T(LXB_CSS_COLOR_SKYBLUE),               0x87CEEBUL},
+        {T(LXB_CSS_COLOR_SLATEBLUE),             0x6A5ACDUL},
+        {T(LXB_CSS_COLOR_SLATEGRAY),             0x708090UL},
+        {T(LXB_CSS_COLOR_SLATEGREY),             0x708090UL},
+        {T(LXB_CSS_COLOR_SNOW),                  0xFFFAFAUL},
+        {T(LXB_CSS_COLOR_SPRINGGREEN),           0x00FF7FUL},
+        {T(LXB_CSS_COLOR_STEELBLUE),             0x4682B4UL},
+        {T(LXB_CSS_COLOR_TAN),                   0xD2B48CUL},
+        {T(LXB_CSS_COLOR_TEAL),                  0x008080UL},
+        {T(LXB_CSS_COLOR_THISTLE),               0xD8BFD8UL},
+        {T(LXB_CSS_COLOR_TOMATO),                0xFF6347UL},
+        {T(LXB_CSS_COLOR_TURQUOISE),             0x40E0D0UL},
+        {T(LXB_CSS_COLOR_VIOLET),                0xEE82EEUL},
+        {T(LXB_CSS_COLOR_WHEAT),                 0xF5DEB3UL},
+        {T(LXB_CSS_COLOR_WHITE),                 0xFFFFFFUL},
+        {T(LXB_CSS_COLOR_WHITESMOKE),            0xF5F5F5UL},
+        {T(LXB_CSS_COLOR_YELLOW),                0xFFFF00UL},
+        {T(LXB_CSS_COLOR_YELLOWGREEN),           0x9ACD32UL},
+    };
+    for (const auto& e : kTable) {
+        if (static_cast<int>(e.type) == static_cast<int>(type)) {
+            const std::uint32_t rgb = e.rgb;
+            out = make_rgba(static_cast<std::uint8_t>((rgb >> 16) & 0xFF),
+                            static_cast<std::uint8_t>((rgb >>  8) & 0xFF),
+                            static_cast<std::uint8_t>( rgb        & 0xFF),
+                            0xFF);
+            return true;
+        }
+    }
+    return false;
+}
+
 
 // Common CSS color values used by framework stylesheets. Bootstrap
 // relies heavily on hex + rgba; named-color coverage can grow as real
@@ -177,20 +345,13 @@ bool parse_color(const lxb_css_value_color_t* v, std::uint32_t& out) {
         out = make_rgba(r, g, b, a);
         return true;
     }
-    switch (v->type) {
-        case LXB_CSS_COLOR_TRANSPARENT:
-            out = 0x00000000u;
-            return true;
-        case LXB_CSS_COLOR_BLACK:
-            out = make_rgba(0x00, 0x00, 0x00, 0xFF);
-            return true;
-        case LXB_CSS_COLOR_WHITE:
-            out = make_rgba(0xFF, 0xFF, 0xFF, 0xFF);
-            return true;
-        default:
-            break;
+    if (v->type == LXB_CSS_COLOR_TRANSPARENT) {
+        out = 0x00000000u;  // special-cased: zero alpha
+        return true;
     }
-    return false;
+    // All other CSS named colors (black/white/aliceblue/…) resolve via
+    // the named-color table.
+    return parse_named_color(v->type, out);
 }
 
 bool parse_length_value(double num, int unit, int& out) {

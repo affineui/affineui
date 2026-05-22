@@ -1,0 +1,58 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #fff; font-family: sans-serif; }
+  .grid {
+    padding: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .cell { width: 140px; }
+  .cap { font-size: 11px; color: #555; margin: 4px 0 0; text-align: center; }
+  .box { width: 140px; height: 80px; }
+
+  /* Hex colors */
+  .hex6  { background-color: #3f51b5; }
+  .hex3  { background-color: #f60; }
+
+  /* rgb() / rgba() */
+  .rgb   { background-color: rgb(76, 175, 80); }
+  .rgba  { background-color: rgba(233, 30, 99, 0.75); }
+
+  /* Named colors */
+  .named  { background-color: tomato; }
+  .named2 { background-color: steelblue; }
+
+  /* background shorthand with color only */
+  .bg_short { background: #009688; }
+
+  /* transparent should show parent (white) */
+  .transp { background-color: transparent; border: 2px solid #ccc; }
+
+  /* Non-inheritance: child should NOT inherit parent bg */
+  .parent_bg { background-color: #ffeb3b; padding: 10px; width: 140px; }
+  .child_no_bg { width: 120px; height: 40px; border: 1px solid #999; }
+</style>
+</head>
+<body>
+  <div class="grid">
+    <div class="cell"><div class="box hex6"></div><p class="cap">#3f51b5 hex6</p></div>
+    <div class="cell"><div class="box hex3"></div><p class="cap">#f60 hex3</p></div>
+    <div class="cell"><div class="box rgb"></div><p class="cap">rgb(76,175,80)</p></div>
+    <div class="cell"><div class="box rgba"></div><p class="cap">rgba(233,30,99,0.75)</p></div>
+    <div class="cell"><div class="box named"></div><p class="cap">tomato</p></div>
+    <div class="cell"><div class="box named2"></div><p class="cap">steelblue</p></div>
+    <div class="cell"><div class="box bg_short"></div><p class="cap">background: #009688</p></div>
+    <div class="cell"><div class="box transp"></div><p class="cap">transparent</p></div>
+    <div class="cell">
+      <div class="parent_bg">
+        <div class="child_no_bg"></div>
+      </div>
+      <p class="cap">no inherit</p>
+    </div>
+  </div>
+</body>
+</html>
