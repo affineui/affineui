@@ -111,6 +111,21 @@ TEST_CASE("margin spaces siblings apart vertically") {
     CHECK(out[1].h == 30);
 }
 
+TEST_CASE("negative margins are applied, not clamped to zero") {
+    // Bootstrap's grid gutters (.row margin: calc(-.5*gutter)) and
+    // .card-subtitle pull-up rely on negative margins. Clamping them to 0
+    // shifted Small/Large and card content down.
+    ComputedStyle a{};
+    ComputedStyle b{};
+    b.margin_top = -10;
+
+    auto out = run(800, {make_input(a, 30), make_input(b, 30)});
+
+    REQUIRE(out.size() == 2);
+    CHECK(out[0].y == 0);
+    CHECK(out[1].y == 30 - 10);   // pulled up by the negative margin
+}
+
 TEST_CASE("padding shifts content-box origin so child y starts after padding") {
     ComputedStyle parent{};
     parent.padding_top  = 16;

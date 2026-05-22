@@ -200,10 +200,14 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
 
     // ── Margin (Yoga handles this; we do NOT pre-walk margins
     // ourselves anymore) ────────────────────────────────────────────
-    YGNodeStyleSetMargin(node, YGEdgeTop,    to_yoga_edge(cs.margin_top));
-    YGNodeStyleSetMargin(node, YGEdgeRight,  to_yoga_edge(cs.margin_right));
-    YGNodeStyleSetMargin(node, YGEdgeBottom, to_yoga_edge(cs.margin_bottom));
-    YGNodeStyleSetMargin(node, YGEdgeLeft,   to_yoga_edge(cs.margin_left));
+    // Margins may be negative (CSS allows it; Bootstrap's grid gutters and
+    // .card-subtitle pull-up rely on it). Set them verbatim — to_yoga_edge
+    // clamps negatives to 0, which is right for padding/border but wrong
+    // for margins.
+    YGNodeStyleSetMargin(node, YGEdgeTop,    static_cast<float>(cs.margin_top));
+    YGNodeStyleSetMargin(node, YGEdgeRight,  static_cast<float>(cs.margin_right));
+    YGNodeStyleSetMargin(node, YGEdgeBottom, static_cast<float>(cs.margin_bottom));
+    YGNodeStyleSetMargin(node, YGEdgeLeft,   static_cast<float>(cs.margin_left));
 
     // ── Padding ────────────────────────────────────────────────────
     YGNodeStyleSetPadding(node, YGEdgeTop,    to_yoga_edge(cs.padding_top));
