@@ -602,6 +602,87 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             if (parse_length_px(v, px)) s.computed.margin_left = static_cast<std::int16_t>(px);
             break;
         }
+        // ── Positioned layout ──────────────────────────────────────
+        // `position` selects the layout scheme; `top/right/bottom/left`
+        // give the insets the scheme applies. lexbor parses all five;
+        // we map them onto ComputedStyle and the Yoga adapter turns
+        // them into YGPositionType + per-edge positions. Insets are
+        // length-percentage-auto — parse_length_px returns false for
+        // `auto`, so an unspecified/auto side leaves its presence bit
+        // clear and the adapter skips it (Yoga then treats it as
+        // undefined, the correct CSS behaviour).
+        case LXB_CSS_PROPERTY_POSITION: {
+            const auto* v =
+                static_cast<const lxb_css_property_position_t*>(d->u.user);
+            using P = ComputedStyle::Position;
+            switch (v->type) {
+                case LXB_CSS_POSITION_STATIC:   s.computed.position = P::Static;   break;
+                case LXB_CSS_POSITION_RELATIVE: s.computed.position = P::Relative; break;
+                case LXB_CSS_POSITION_ABSOLUTE: s.computed.position = P::Absolute; break;
+                case LXB_CSS_POSITION_FIXED:    s.computed.position = P::Fixed;    break;
+                // `sticky` has no Yoga equivalent — fall back to the
+                // closest in-flow scheme (relative) rather than break
+                // layout. Documented gap; revisit if a test needs it.
+                case LXB_CSS_POSITION_STICKY:   s.computed.position = P::Relative; break;
+                default: break;
+            }
+            break;
+        }
+        case LXB_CSS_PROPERTY_TOP: {
+            const auto* v = static_cast<const lxb_css_property_top_t*>(d->u.user);
+            int px = 0;
+            if (parse_length_px(v, px)) {
+                s.computed.inset_top = static_cast<std::int16_t>(px);
+                s.computed.inset_has.top = 1;
+            }
+            break;
+        }
+        case LXB_CSS_PROPERTY_RIGHT: {
+            const auto* v = static_cast<const lxb_css_property_right_t*>(d->u.user);
+            int px = 0;
+            if (parse_length_px(v, px)) {
+                s.computed.inset_right = static_cast<std::int16_t>(px);
+                s.computed.inset_has.right = 1;
+            }
+            break;
+        }
+        case LXB_CSS_PROPERTY_BOTTOM: {
+            const auto* v = static_cast<const lxb_css_property_bottom_t*>(d->u.user);
+            int px = 0;
+            if (parse_length_px(v, px)) {
+                s.computed.inset_bottom = static_cast<std::int16_t>(px);
+                s.computed.inset_has.bottom = 1;
+            }
+            break;
+        }
+        case LXB_CSS_PROPERTY_LEFT: {
+            const auto* v = static_cast<const lxb_css_property_left_t*>(d->u.user);
+            int px = 0;
+            if (parse_length_px(v, px)) {
+                s.computed.inset_left = static_cast<std::int16_t>(px);
+                s.computed.inset_has.left = 1;
+            }
+            break;
+        }
+
+        // ── Box sizing ──────────────────────────────────────────────
+        // Selects whether width/height measure the content box (CSS
+        // default) or the border box. lexbor parses it; we map onto
+        // ComputedStyle and the Yoga adapter forwards it to YGBoxSizing.
+        case LXB_CSS_PROPERTY_BOX_SIZING: {
+            const auto* v =
+                static_cast<const lxb_css_property_box_sizing_t*>(d->u.user);
+            using BX = ComputedStyle::BoxSizing;
+            switch (v->type) {
+                case LXB_CSS_BOX_SIZING_BORDER_BOX:
+                    s.computed.box_sizing = BX::BorderBox;  break;
+                case LXB_CSS_BOX_SIZING_CONTENT_BOX:
+                    s.computed.box_sizing = BX::ContentBox; break;
+                default: break;
+            }
+            break;
+        }
+
         // ── Flex container properties ──────────────────────────────
         case LXB_CSS_PROPERTY_DISPLAY: {
             const auto* v =
@@ -931,6 +1012,12 @@ public:
         s.computed.width = s.computed.height = -1;
         s.computed.display = ComputedStyle::Display::Block;
         s.computed.position = ComputedStyle::Position::Static;
+        // Positioned insets (non-inherited; CSS initial = auto).
+        s.computed.inset_top = s.computed.inset_right =
+            s.computed.inset_bottom = s.computed.inset_left = 0;
+        s.computed.inset_has = ComputedStyle::InsetHas{};
+        // Box-sizing (non-inherited; CSS initial = content-box).
+        s.computed.box_sizing = ComputedStyle::BoxSizing::ContentBox;
 
         if (!element) return s;
 

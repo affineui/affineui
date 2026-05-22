@@ -62,6 +62,20 @@ struct ComputedStyle {
     std::int16_t max_width {-1};
     std::int16_t min_height{0};
 
+    // ── Positioned-layout insets (8 bytes) ────────────────────────
+    // CSS `top` / `right` / `bottom` / `left`. Only meaningful when
+    // `position` is Relative / Absolute / Fixed. Each side is "auto"
+    // by default — a bit in `inset_has` (declared above, packed into
+    // the old cursor padding) records whether the author gave it an
+    // explicit length, so the adapter only pushes the edges that were
+    // actually specified. Yoga treats the rest as undefined / auto,
+    // which is the correct CSS behaviour for absolute anchoring and a
+    // no-op for relative.
+    std::int16_t inset_top   {0};
+    std::int16_t inset_right {0};
+    std::int16_t inset_bottom{0};
+    std::int16_t inset_left  {0};
+
     // ── Text layout (6 bytes) ─────────────────────────────────────
     std::uint16_t font_size_px{16};  // resolved px
     std::uint16_t font_weight {400};  // 100..900
@@ -106,7 +120,31 @@ struct ComputedStyle {
         Visible = 0, Hidden, Clip, Scroll, Auto,
     };
     Overflow      overflow_y{Overflow::Visible};
-    std::uint16_t pad_cursor2_{0};
+
+    // Presence bits for the positioned-layout insets below. An inset
+    // that the author left at its `auto` initial value keeps its bit
+    // clear so the Yoga adapter skips that edge (Yoga then treats it
+    // as undefined — the correct behaviour for absolute anchoring).
+    // Packed into the byte that used to be cursor padding so adding
+    // positioning costs no extra struct size.
+    struct InsetHas {
+        std::uint8_t top    : 1 {};
+        std::uint8_t right  : 1 {};
+        std::uint8_t bottom : 1 {};
+        std::uint8_t left   : 1 {};
+    } inset_has{};
+
+    // CSS `box-sizing`. ContentBox (the CSS default) means width/height
+    // size the content box and padding+border add on top; BorderBox
+    // means width/height size the border box (padding+border eat into
+    // it). The Yoga adapter maps this onto YGBoxSizing — Yoga's own
+    // default is border-box, so the adapter explicitly pushes whichever
+    // value the cascade resolved. Lives in what used to be cursor
+    // padding, so it costs no struct size.
+    enum class BoxSizing : std::uint8_t {
+        ContentBox = 0, BorderBox,
+    };
+    BoxSizing     box_sizing{BoxSizing::ContentBox};
 
     // ── Flex container + item properties (12 bytes) ───────────────
     // CSS flex enums collapsed to our minimum-needed sets. Each maps
@@ -158,15 +196,15 @@ struct ComputedStyle {
         std::uint32_t font_style  : 1 {};
     } has{};
 
-    // Roughly ~66 bytes after flex was added. The original 64-byte
-    // "fits in one x86_64 cache line" target survives only as a soft
-    // goal — modern Apple Silicon has 128-byte lines anyway, and the
-    // hot loops that read this struct read just a few fields per
-    // node, not the whole thing. Relaxing the assert to a budget that
-    // tells us when we've grown problematically large.
+    // Roughly ~86 bytes after flex + positioned-layout insets were
+    // added. The original 64-byte "fits in one x86_64 cache line"
+    // target survives only as a soft goal — modern Apple Silicon has
+    // 128-byte lines anyway, and the hot loops that read this struct
+    // read just a few fields per node, not the whole thing. The assert
+    // is a budget that tells us when we've grown problematically large.
 };
 
-static_assert(sizeof(ComputedStyle) <= 80,
+static_assert(sizeof(ComputedStyle) <= 96,
               "ComputedStyle exceeded its size budget — re-pack before bumping further");
 static_assert(std::is_trivially_copyable_v<ComputedStyle>,
               "ComputedStyle must be trivially copyable");

@@ -74,14 +74,56 @@ inline YGWrap to_yg(ComputedStyle::FlexWrap w) noexcept {
     return YGWrapNoWrap;
 }
 
+// Map our CSS `position` onto Yoga's position type. Yoga has no
+// `fixed`; treat it as `absolute` (anchored to the nearest positioned
+// ancestor — the synthetic root in our flat tree). `sticky` is mapped
+// to `relative` at cascade time, so it never reaches here.
+inline YGPositionType to_yg(ComputedStyle::Position p) noexcept {
+    switch (p) {
+        case ComputedStyle::Position::Static:   return YGPositionTypeStatic;
+        case ComputedStyle::Position::Relative: return YGPositionTypeRelative;
+        case ComputedStyle::Position::Absolute: return YGPositionTypeAbsolute;
+        case ComputedStyle::Position::Fixed:    return YGPositionTypeAbsolute;
+    }
+    return YGPositionTypeStatic;
+}
+
 void apply_style(YGNodeRef node, const ComputedStyle& cs,
                  int intrinsic_w, int intrinsic_h) {
-    // ── Box-sizing: force content-box (CSS default) ────────────────
-    // Yoga's *default* is border-box — the opposite of CSS. Without
-    // this override, a 50px height + 32px padding produces a 50px
-    // outer rect with the content squashed to 50-32 = 18px, and
-    // every text run overflows its container. Match CSS expectations.
-    YGNodeStyleSetBoxSizing(node, YGBoxSizingContentBox);
+    // ── Box-sizing ─────────────────────────────────────────────────
+    // Yoga's *default* is border-box, but the CSS default is
+    // content-box (width/height size the content; padding+border add
+    // on top). Without honoring the cascade, a 50px height + 32px
+    // padding produces a 50px outer rect with content squashed to
+    // 50-32 = 18px. Forward whatever `box-sizing` the cascade
+    // resolved: content-box (CSS default) or border-box (where the
+    // declared size already includes padding+border).
+    YGNodeStyleSetBoxSizing(node,
+        cs.box_sizing == ComputedStyle::BoxSizing::BorderBox
+            ? YGBoxSizingBorderBox
+            : YGBoxSizingContentBox);
+
+    // ── Positioned layout ──────────────────────────────────────────
+    // `position: relative` shifts the box from its in-flow slot by the
+    // specified insets while still reserving that slot; `absolute`
+    // (and our `fixed` fallback) takes it out of flow and pins it to
+    // the containing block's edges. Yoga implements both natively once
+    // we set the position type + the edges the author specified. We
+    // only push edges whose presence bit is set so an unspecified side
+    // stays "undefined" (auto) — that's what lets an absolute box
+    // anchor to top/left vs bottom/right correctly. Insets may be
+    // negative, so set them verbatim rather than via to_yoga_edge.
+    if (cs.position != ComputedStyle::Position::Static) {
+        YGNodeStyleSetPositionType(node, to_yg(cs.position));
+        if (cs.inset_has.top)
+            YGNodeStyleSetPosition(node, YGEdgeTop,    static_cast<float>(cs.inset_top));
+        if (cs.inset_has.right)
+            YGNodeStyleSetPosition(node, YGEdgeRight,  static_cast<float>(cs.inset_right));
+        if (cs.inset_has.bottom)
+            YGNodeStyleSetPosition(node, YGEdgeBottom, static_cast<float>(cs.inset_bottom));
+        if (cs.inset_has.left)
+            YGNodeStyleSetPosition(node, YGEdgeLeft,   static_cast<float>(cs.inset_left));
+    }
 
     // ── Flex container properties ──────────────────────────────────
     // CSS only honors these when display: flex. For plain block flow
