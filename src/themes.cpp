@@ -24,10 +24,14 @@ std::string_view ua_default() {
         // they want it; the UA default stays `normal`.
         "body{font-family:sans-serif;font-size:16px;"
         "color:#1f2328;background:#ffffff}"
-        "h1{font-size:2em;margin:.67em 0}"
-        "h2{font-size:1.5em;margin:.75em 0}"
-        "h3{font-size:1.17em;margin:.83em 0}"
-        "h4{margin:1.12em 0}"
+        // Headings are bold in the HTML5 UA stylesheet (browsers render
+        // h1–h6 at font-weight:bold). Without this they came out regular.
+        "h1{font-size:2em;font-weight:bold;margin:.67em 0}"
+        "h2{font-size:1.5em;font-weight:bold;margin:.75em 0}"
+        "h3{font-size:1.17em;font-weight:bold;margin:.83em 0}"
+        "h4{font-weight:bold;margin:1.12em 0}"
+        "h5{font-size:.83em;font-weight:bold;margin:1.5em 0}"
+        "h6{font-size:.67em;font-weight:bold;margin:1.67em 0}"
         "p{margin:1em 0}"
         "a{color:#0366d6;text-decoration:underline}"
         "strong,b{font-weight:bold}"
