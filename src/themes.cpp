@@ -17,7 +17,12 @@ std::string_view ua_default() {
         // not user-agent CSS; frameworks such as Bootstrap assume
         // body padding starts at zero.
         "html,body{margin:0;padding:0}"
-        "body{font-family:sans-serif;font-size:16px;line-height:1.5;"
+        // No `line-height` here: the CSS initial value is `normal`, which
+        // is what browsers use on <body>. Setting a fixed multiplier (we
+        // used to set 1.5) inherits into every element and inflates every
+        // line box ~50% vs a real browser. Authors set line-height when
+        // they want it; the UA default stays `normal`.
+        "body{font-family:sans-serif;font-size:16px;"
         "color:#1f2328;background:#ffffff}"
         "h1{font-size:2em;margin:.67em 0}"
         "h2{font-size:1.5em;margin:.75em 0}"
