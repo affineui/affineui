@@ -1567,6 +1567,22 @@ void Document::draw(Painter& painter) {
         const auto& cs = impl_->style_store.computed(b.id);
         const auto& an = impl_->style_store.animated(b.id);
 
+        // CSS `display:none` removes the element from layout AND from
+        // paint — nothing is drawn, no space is reserved.
+        if (cs.display == detail::ComputedStyle::Display::None) {
+            continue;
+        }
+
+        // CSS `visibility:hidden` (or collapse): the box keeps its
+        // layout space but paints nothing — neither this element nor
+        // its descendants (unless a descendant re-asserts
+        // visibility:visible, in which case that block's own
+        // cs.visibility will be Visible and it will paint normally).
+        using V = detail::ComputedStyle::Visibility;
+        if (cs.visibility == V::Hidden || cs.visibility == V::Collapse) {
+            continue;
+        }
+
         const int dy = scroll_offset_y_for(impl_->blocks, impl_->style_store,
                                            static_cast<int>(i));
         const Rect eff{b.bounds.x, b.bounds.y - dy, b.bounds.w, b.bounds.h};

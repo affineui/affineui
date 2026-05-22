@@ -52,12 +52,18 @@ struct ComputedStyle {
     // (e.g. `border-left: dashed; border-right: dotted`) is deferred —
     // the current design handles per-side widths and per-side colors (via
     // AnimatedStyle) but keeps one style that applies to all sides.
-    // Mixed-style-per-side is rare in practice; this is a Phase 2C
-    // limitation documented in the border drawing code in document.cpp.
     BorderStyle  border_style              {BorderStyle::None};
     // Percentage height: -1 = not a percentage, else 0..100 (integer %).
-    // Repurposes the former pad_border_ byte; same alignment slot.
     std::int8_t  height_pct               {-1};
+    // CSS `visibility` (INHERITED). Visible = painted; Hidden = box kept
+    // in layout but nothing painted (self + children, unless a child
+    // re-asserts visibility:visible); Collapse ≡ Hidden for non-table
+    // elements. The cascade does NOT reset it — it flows down from the
+    // parent unless overridden. Initial value is Visible.
+    enum class Visibility : std::uint8_t {
+        Visible = 0, Hidden = 1, Collapse = 2,
+    };
+    Visibility   visibility                {Visibility::Visible};
     std::int16_t border_radius_top_left_px {0};
     std::int16_t border_radius_top_right_px{0};
     std::int16_t border_radius_bot_right_px{0};

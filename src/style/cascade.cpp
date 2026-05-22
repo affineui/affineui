@@ -1297,6 +1297,24 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             s.animated.opacity = op;
             break;
         }
+        // ── Visibility ─────────────────────────────────────────────
+        // CSS `visibility` is an inherited property (initial = visible).
+        // Visible    → painted normally.
+        // Hidden     → box kept in layout, nothing painted (self +
+        //              descendants unless a child re-asserts `visible`).
+        // Collapse   → same as hidden for non-table elements (CSS spec).
+        case LXB_CSS_PROPERTY_VISIBILITY: {
+            const auto* v =
+                static_cast<const lxb_css_property_visibility_t*>(d->u.user);
+            using V = ComputedStyle::Visibility;
+            switch (v->type) {
+                case LXB_CSS_VISIBILITY_VISIBLE:  s.computed.visibility = V::Visible;  break;
+                case LXB_CSS_VISIBILITY_HIDDEN:   s.computed.visibility = V::Hidden;   break;
+                case LXB_CSS_VISIBILITY_COLLAPSE: s.computed.visibility = V::Collapse; break;
+                default: break;
+            }
+            break;
+        }
         // Everything else lands when we have a test for it.
         default:
             break;

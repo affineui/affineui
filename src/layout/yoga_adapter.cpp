@@ -125,6 +125,17 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
             YGNodeStyleSetPosition(node, YGEdgeLeft,   static_cast<float>(cs.inset_left));
     }
 
+    // ── display:none ───────────────────────────────────────────────
+    // CSS `display:none` removes the element from layout entirely —
+    // no box, no space. Yoga models this via YGDisplayNone which
+    // collapses the node and excludes it from the parent's layout.
+    // Return early; the remaining style properties don't matter for
+    // a node that contributes no geometry.
+    if (cs.display == ComputedStyle::Display::None) {
+        YGNodeStyleSetDisplay(node, YGDisplayNone);
+        return;
+    }
+
     // ── Flex container properties ──────────────────────────────────
     // CSS only honors these when display: flex. For plain block flow
     // (Yoga's column-stretch shape) the values still get pushed —
