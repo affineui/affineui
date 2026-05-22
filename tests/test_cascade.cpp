@@ -519,4 +519,35 @@ TEST_CASE(":hover overlay layered via apply_decl_list updates the color") {
     CHECK(rs.animated.color_rgba == rgba(0xFF, 0x00, 0x00));
 }
 
+TEST_CASE("font shorthand sets font_size_px and line_height_x100") {
+    CssEnv env("<p>hi</p>");
+    env.attach("p { font: bold 32px/1.5 sans-serif; }");
+    env.build_resolver();
+
+    auto* p = env.find("p");
+    REQUIRE(p != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(p, parent);
+    // font-size: 32px
+    CHECK(rs.computed.font_size_px == 32);
+    // line-height: 1.5 → stored as 1.5 * 100 = 150
+    CHECK(rs.computed.line_height_x100 == 150);
+}
+
+TEST_CASE("font shorthand without line-height sets font_size_px only") {
+    CssEnv env("<p>hi</p>");
+    env.attach("p { font: 14px Arial; }");
+    env.build_resolver();
+
+    auto* p = env.find("p");
+    REQUIRE(p != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(p, parent);
+    CHECK(rs.computed.font_size_px == 14);
+    // line-height not set (normal) → 0
+    CHECK(rs.computed.line_height_x100 == 0);
+}
+
 #endif  // !AFFINEUI_STUB_BUILD

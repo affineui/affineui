@@ -403,6 +403,22 @@ lxb_css_property_vertical_align_t;
 
 typedef lxb_css_value_number_length_percentage_t lxb_css_property_line_height_t;
 
+/*
+ * font shorthand — holds the longhands the cascade cares about.
+ * When type == LXB_CSS_FONT__DETAIL the style/weight/size/line_height
+ * and family fields are set.  Any other type value is a system-font
+ * keyword (recorded in type but treated as a no-op by AffineUI).
+ */
+typedef struct {
+    lxb_css_font_type_t            type;
+    lxb_css_property_font_style_t  style;
+    lxb_css_property_font_weight_t weight;
+    lxb_css_property_font_size_t   size;
+    lxb_css_property_line_height_t line_height;
+    lxb_css_property_font_family_t family;
+}
+lxb_css_property_font_t;
+
 typedef lxb_css_value_integer_type_t lxb_css_property_z_index_t;
 
 typedef struct {
@@ -1457,6 +1473,19 @@ lxb_css_property_font_size_destroy(lxb_css_memory_t *memory,
 LXB_API lxb_status_t
 lxb_css_property_font_size_serialize(const void *style,
                                      lexbor_serialize_cb_f cb, void *ctx);
+
+/* Font (shorthand). */
+
+LXB_API void *
+lxb_css_property_font_create(lxb_css_memory_t *memory);
+
+LXB_API void *
+lxb_css_property_font_destroy(lxb_css_memory_t *memory,
+                              void *style, bool self_destroy);
+
+LXB_API lxb_status_t
+lxb_css_property_font_serialize(const void *style,
+                                lexbor_serialize_cb_f cb, void *ctx);
 
 /* Float-reference. */
 

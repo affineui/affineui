@@ -362,7 +362,10 @@ static const lxb_css_entry_data_t lxb_css_property_data[LXB_CSS_PROPERTY__LAST_E
      &(lxb_css_property_z_index_t) {.type = LXB_CSS_Z_INDEX_AUTO}},
     {(lxb_char_t *) "overflow", 8, LXB_CSS_PROPERTY_OVERFLOW, lxb_css_property_state_overflow,
      lxb_css_property_overflow_create, lxb_css_property_overflow_destroy, lxb_css_property_overflow_serialize,
-     &(lxb_css_property_overflow_t) {.type = LXB_CSS_OVERFLOW_VISIBLE}}
+     &(lxb_css_property_overflow_t) {.type = LXB_CSS_OVERFLOW_VISIBLE}},
+    {(lxb_char_t *) "font", 4, LXB_CSS_PROPERTY_FONT, lxb_css_property_state_font,
+     lxb_css_property_font_create, lxb_css_property_font_destroy, lxb_css_property_font_serialize,
+     NULL}
 };
 
 static const lexbor_shs_entry_t lxb_css_property_shs[249] =
@@ -468,7 +471,7 @@ static const lexbor_shs_entry_t lxb_css_property_shs[249] =
     {"max-width", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MAX_WIDTH], 9, 12},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"padding-left", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_PADDING_LEFT], 12, 0},
+    {"font", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FONT], 4, 246},
     {"float", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLOAT], 5, 13},
     {"box-shadow", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BOX_SHADOW], 10, 0},
     {NULL, NULL, 0, 0},
@@ -613,7 +616,7 @@ static const lexbor_shs_entry_t lxb_css_property_shs[249] =
     {NULL, NULL, 0, 0},
     {"text-indent", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_INDENT], 11, 0},
     {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
+    {"padding-left", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_PADDING_LEFT], 12, 0},
     {NULL, NULL, 0, 0},
     {"text-align-last", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_ALIGN_LAST], 15, 0}
 };

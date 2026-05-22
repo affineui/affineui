@@ -3675,3 +3675,28 @@ lxb_css_property_text_decoration_serialize(const void *style,
 
     return LXB_STATUS_OK;
 }
+
+/* Font (shorthand). */
+
+void *
+lxb_css_property_font_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_font_t));
+}
+
+void *
+lxb_css_property_font_destroy(lxb_css_memory_t *memory,
+                              void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_font_serialize(const void *style,
+                                lexbor_serialize_cb_f cb, void *ctx)
+{
+    /* Serialize as the font-size component (sufficient for cascade use). */
+    const lxb_css_property_font_t *font =
+        (const lxb_css_property_font_t *) style;
+    return lxb_css_value_length_percentage_type_sr(&font->size, cb, ctx);
+}

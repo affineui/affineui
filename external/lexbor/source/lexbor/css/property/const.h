@@ -134,7 +134,8 @@ enum {
     LXB_CSS_PROPERTY_WRITING_MODE               = 0x0070,
     LXB_CSS_PROPERTY_Z_INDEX                    = 0x0071,
     LXB_CSS_PROPERTY_OVERFLOW                   = 0x0072,
-    LXB_CSS_PROPERTY__LAST_ENTRY                = 0x0073
+    LXB_CSS_PROPERTY_FONT                       = 0x0073,
+    LXB_CSS_PROPERTY__LAST_ENTRY                = 0x0074
 };
 typedef uintptr_t lxb_css_property_type_t;
 
@@ -744,6 +745,16 @@ enum {
     LXB_CSS_FONT_WEIGHT_LIGHTER = LXB_CSS_VALUE_LIGHTER
 };
 typedef unsigned int lxb_css_font_weight_type_t;
+
+/*
+ * font shorthand: either a detail value or a system-font keyword.
+ * LXB_CSS_FONT__DETAIL means the struct's longhands are populated;
+ * any other type value is a system-font keyword (treated as no-op).
+ */
+enum {
+    LXB_CSS_FONT__DETAIL = LXB_CSS_VALUE__UNDEF  /* size/lh/family set */
+};
+typedef unsigned int lxb_css_font_type_t;
 
 enum {
     LXB_CSS_GAP__LENGTH     = LXB_CSS_VALUE__LENGTH,

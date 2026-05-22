@@ -167,6 +167,7 @@ struct lxb_css_rule_declaration {
         lxb_css_property_word_spacing_t          *word_spacing;
         lxb_css_property_letter_spacing_t        *letter_spacing;
         lxb_css_property_hanging_punctuation_t   *hanging_punctuation;
+        lxb_css_property_font_t                  *font;
         lxb_css_property_font_family_t           *font_family;
         lxb_css_property_font_weight_t           *font_weight;
         lxb_css_property_font_stretch_t          *font_stretch;

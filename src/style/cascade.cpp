@@ -1387,6 +1387,88 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
         }
 
         // ── Layout-affecting ───────────────────────────────────────
+
+        // font shorthand: sets font-size, line-height, and optionally
+        // font-weight/font-style from a single declaration like
+        // `font: bold 32px/1.5 sans-serif`.
+        case LXB_CSS_PROPERTY_FONT: {
+            const auto* v =
+                static_cast<const lxb_css_property_font_t*>(d->u.user);
+            if (!v || v->type != LXB_CSS_FONT__DETAIL) break;
+
+            // font-size
+            {
+                int px = 0;
+                if (parse_length_px(&v->size, px) && px > 0)
+                    s.computed.font_size_px = static_cast<std::uint16_t>(px);
+            }
+
+            // line-height (same logic as LXB_CSS_PROPERTY_LINE_HEIGHT)
+            {
+                const auto* lh = &v->line_height;
+                switch (lh->type) {
+                    case LXB_CSS_LINE_HEIGHT_NORMAL:
+                        // leave at 0 = unset; paint applies the default
+                        break;
+                    case LXB_CSS_LINE_HEIGHT__NUMBER: {
+                        const auto m = lh->u.number.num * 100.0;
+                        s.computed.line_height_x100 =
+                            static_cast<std::int16_t>(std::clamp(m, 0.0, 32760.0));
+                        break;
+                    }
+                    case LXB_CSS_LINE_HEIGHT__PERCENTAGE: {
+                        const auto m = lh->u.percentage.num;
+                        s.computed.line_height_x100 =
+                            static_cast<std::int16_t>(std::clamp(m, 0.0, 32760.0));
+                        break;
+                    }
+                    case LXB_CSS_LINE_HEIGHT__LENGTH: {
+                        int px = 0;
+                        parse_length_value(lh->u.length.num,
+                                           static_cast<int>(lh->u.length.unit),
+                                           px);
+                        if (px > 0)
+                            s.computed.line_height_x100 =
+                                static_cast<std::int16_t>(-px);
+                        break;
+                    }
+                    default: break;
+                }
+            }
+
+            // font-weight
+            {
+                const auto* fw = &v->weight;
+                int w = 0;
+                switch (fw->type) {
+                    case LXB_CSS_FONT_WEIGHT__NUMBER:
+                        w = static_cast<int>(fw->number.num + 0.5);
+                        break;
+                    case LXB_CSS_FONT_WEIGHT_NORMAL:  w = 400; break;
+                    case LXB_CSS_FONT_WEIGHT_BOLD:    w = 700; break;
+                    case LXB_CSS_FONT_WEIGHT_BOLDER:  w = 700; break;
+                    case LXB_CSS_FONT_WEIGHT_LIGHTER: w = 300; break;
+                    default: break;
+                }
+                if (w > 0)
+                    s.computed.font_weight =
+                        static_cast<std::uint16_t>(std::clamp(w, 1, 999));
+            }
+
+            // font-style
+            {
+                const auto* fs = &v->style;
+                switch (fs->type) {
+                    case LXB_CSS_FONT_STYLE_NORMAL:  s.computed.font_style = 0; break;
+                    case LXB_CSS_FONT_STYLE_ITALIC:  s.computed.font_style = 1; break;
+                    case LXB_CSS_FONT_STYLE_OBLIQUE: s.computed.font_style = 2; break;
+                    default: break;
+                }
+            }
+
+            break;
+        }
+
         case LXB_CSS_PROPERTY_FONT_SIZE: {
             const auto* v =
                 static_cast<const lxb_css_property_font_size_t*>(d->u.user);

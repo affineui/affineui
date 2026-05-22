@@ -3959,6 +3959,244 @@ next:
     }
 }
 
+/*
+ * font shorthand parser.
+ *
+ * Grammar (simplified CSS2/CSS3):
+ *   font: [ <font-style> || <font-weight> ]? <font-size> [ / <line-height> ]?
+ *         <font-family>
+ *       | <system-font>
+ *
+ * system-font keywords (caption|icon|menu|message-box|small-caption|status-bar)
+ * are accepted and set type to the keyword value; AffineUI treats them as no-op.
+ */
+bool
+lxb_css_property_state_font(lxb_css_parser_t *parser,
+                            const lxb_css_syntax_token_t *token, void *ctx)
+{
+    bool res;
+    lxb_css_value_type_t type;
+    lxb_css_rule_declaration_t *declar = ctx;
+    lxb_css_property_font_t *font = declar->u.font;
+    lexbor_mraw_t *mraw = parser->memory->mraw;
+    lxb_css_property_family_name_t *name;
+
+    /* Initialise sub-fields to sane defaults. */
+    font->style.type   = LXB_CSS_FONT_STYLE_NORMAL;
+    font->weight.type  = LXB_CSS_FONT_WEIGHT_NORMAL;
+    font->line_height.type = LXB_CSS_LINE_HEIGHT_NORMAL;
+    font->family.first = NULL;
+    font->family.last  = NULL;
+    font->family.count = 0;
+
+    /* --- Optional leading ident: style or weight keyword --- */
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        type = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                     lxb_css_syntax_token_ident(token)->length);
+
+        switch (type) {
+            /* Global values apply to the shorthand as a whole. */
+            case LXB_CSS_VALUE_INITIAL:
+            case LXB_CSS_VALUE_INHERIT:
+            case LXB_CSS_VALUE_UNSET:
+            case LXB_CSS_VALUE_REVERT:
+                font->type = type;
+                lxb_css_syntax_parser_consume(parser);
+                return lxb_css_parser_success(parser);
+
+            /* font-style keyword before font-size. */
+            case LXB_CSS_FONT_STYLE_ITALIC:
+            case LXB_CSS_FONT_STYLE_OBLIQUE:
+                font->style.type = type;
+                lxb_css_syntax_parser_consume(parser);
+                token = lxb_css_syntax_parser_token_wo_ws(parser);
+                lxb_css_property_state_check_token(parser, token);
+                break;
+
+            /* font-weight keyword before font-size. */
+            case LXB_CSS_FONT_WEIGHT_BOLD:
+            case LXB_CSS_FONT_WEIGHT_BOLDER:
+            case LXB_CSS_FONT_WEIGHT_LIGHTER:
+                font->weight.type = type;
+                lxb_css_syntax_parser_consume(parser);
+                token = lxb_css_syntax_parser_token_wo_ws(parser);
+                lxb_css_property_state_check_token(parser, token);
+                break;
+
+            /* font-size keyword — fall through to size parsing below. */
+            case LXB_CSS_FONT_SIZE_XX_SMALL:
+            case LXB_CSS_FONT_SIZE_X_SMALL:
+            case LXB_CSS_FONT_SIZE_SMALL:
+            case LXB_CSS_FONT_SIZE_MEDIUM:
+            case LXB_CSS_FONT_SIZE_LARGE:
+            case LXB_CSS_FONT_SIZE_X_LARGE:
+            case LXB_CSS_FONT_SIZE_XX_LARGE:
+            case LXB_CSS_FONT_SIZE_XXX_LARGE:
+            case LXB_CSS_FONT_SIZE_LARGER:
+            case LXB_CSS_FONT_SIZE_SMALLER:
+            case LXB_CSS_FONT_SIZE_MATH:
+            case LXB_CSS_VALUE_NORMAL:
+                /* normal could be a weight placeholder; treat as start of size */
+                break;
+
+            default:
+                /* Unknown ident — might be a font-size keyword we don't know
+                   or a font-family name; try size parsing and let it fail. */
+                break;
+        }
+    }
+    else if (token->type == LXB_CSS_SYNTAX_TOKEN_NUMBER) {
+        /* Numeric weight like "700" before font-size. */
+        res = lxb_css_property_state_number(parser, token, &font->weight.number);
+        if (res) {
+            if (font->weight.number.num >= 1 && font->weight.number.num <= 1000) {
+                font->weight.type = LXB_CSS_FONT_WEIGHT__NUMBER;
+                token = lxb_css_syntax_parser_token_wo_ws(parser);
+                lxb_css_property_state_check_token(parser, token);
+            }
+        }
+    }
+
+    /* --- Required: font-size --- */
+    res = lxb_css_property_state_length_percentage(parser, token, &font->size.length);
+    if (res) {
+        if (font->size.length.u.length.num < 0) {
+            return lxb_css_parser_failed(parser);
+        }
+        font->size.type = LXB_CSS_FONT_SIZE__LENGTH;
+    }
+    else if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        type = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                     lxb_css_syntax_token_ident(token)->length);
+        switch (type) {
+            case LXB_CSS_FONT_SIZE_XX_SMALL:
+            case LXB_CSS_FONT_SIZE_X_SMALL:
+            case LXB_CSS_FONT_SIZE_SMALL:
+            case LXB_CSS_FONT_SIZE_MEDIUM:
+            case LXB_CSS_FONT_SIZE_LARGE:
+            case LXB_CSS_FONT_SIZE_X_LARGE:
+            case LXB_CSS_FONT_SIZE_XX_LARGE:
+            case LXB_CSS_FONT_SIZE_XXX_LARGE:
+            case LXB_CSS_FONT_SIZE_LARGER:
+            case LXB_CSS_FONT_SIZE_SMALLER:
+            case LXB_CSS_FONT_SIZE_MATH:
+                font->size.type = type;
+                lxb_css_syntax_parser_consume(parser);
+                break;
+            default:
+                return lxb_css_parser_failed(parser);
+        }
+    }
+    else {
+        return lxb_css_parser_failed(parser);
+    }
+
+    font->type = LXB_CSS_FONT__DETAIL;
+
+    /* --- Optional: / <line-height> --- */
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    lxb_css_property_state_check_token(parser, token);
+
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_DELIM
+        && lxb_css_syntax_token_delim_char(token) == '/')
+    {
+        lxb_css_syntax_parser_consume(parser);
+        token = lxb_css_syntax_parser_token_wo_ws(parser);
+        lxb_css_property_state_check_token(parser, token);
+
+        res = lxb_css_property_state_number_length_percentage(parser, token,
+                                                              &font->line_height);
+        if (!res) {
+            if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+                type = lxb_css_value_by_name(
+                    lxb_css_syntax_token_ident(token)->data,
+                    lxb_css_syntax_token_ident(token)->length);
+                if (type == LXB_CSS_LINE_HEIGHT_NORMAL) {
+                    font->line_height.type = LXB_CSS_LINE_HEIGHT_NORMAL;
+                    lxb_css_syntax_parser_consume(parser);
+                } else {
+                    return lxb_css_parser_failed(parser);
+                }
+            } else {
+                return lxb_css_parser_failed(parser);
+            }
+        }
+
+        token = lxb_css_syntax_parser_token_wo_ws(parser);
+        lxb_css_property_state_check_token(parser, token);
+    }
+
+    /* --- Required: font-family (one or more names) --- */
+    while (token->type != LXB_CSS_SYNTAX_TOKEN__END) {
+        name = lexbor_mraw_alloc(mraw, sizeof(lxb_css_property_family_name_t));
+        if (name == NULL) {
+            return lxb_css_parser_memory_fail(parser);
+        }
+
+        if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+            const lxb_char_t *data = lxb_css_syntax_token_ident(token)->data;
+            size_t length = lxb_css_syntax_token_ident(token)->length;
+            lxb_css_value_type_t ftype = lxb_css_value_by_name(data, length);
+            if (ftype != LXB_CSS_VALUE__UNDEF) {
+                name->generic = true;
+                name->u.type = ftype;
+            } else {
+                name->generic = false;
+                (void) lexbor_str_init(&name->u.str, mraw, length);
+                if (name->u.str.data == NULL) {
+                    return lxb_css_parser_memory_fail(parser);
+                }
+                memcpy(name->u.str.data, data, length);
+                name->u.str.data[length] = '\0';
+                name->u.str.length = length;
+            }
+        }
+        else if (token->type == LXB_CSS_SYNTAX_TOKEN_STRING) {
+            const lxb_char_t *data = lxb_css_syntax_token_string(token)->data;
+            size_t length = lxb_css_syntax_token_string(token)->length;
+            name->generic = false;
+            (void) lexbor_str_init(&name->u.str, mraw, length);
+            if (name->u.str.data == NULL) {
+                return lxb_css_parser_memory_fail(parser);
+            }
+            memcpy(name->u.str.data, data, length);
+            name->u.str.data[length] = '\0';
+            name->u.str.length = length;
+        }
+        else {
+            /* Unexpected token — the family list is done. */
+            break;
+        }
+
+        name->next = NULL;
+        name->prev = font->family.last;
+
+        if (font->family.first == NULL) {
+            font->family.first = name;
+        } else {
+            font->family.last->next = name;
+        }
+        font->family.last = name;
+        font->family.count++;
+
+        lxb_css_syntax_parser_consume(parser);
+        token = lxb_css_syntax_parser_token_wo_ws(parser);
+        lxb_css_property_state_check_token(parser, token);
+
+        if (token->type == LXB_CSS_SYNTAX_TOKEN_COMMA) {
+            lxb_css_syntax_parser_consume(parser);
+            token = lxb_css_syntax_parser_token_wo_ws(parser);
+            lxb_css_property_state_check_token(parser, token);
+        }
+    }
+
+    if (font->family.first == NULL) {
+        return lxb_css_parser_failed(parser);
+    }
+
+    return lxb_css_parser_success(parser);
+}
+
 bool
 lxb_css_property_state_font_family(lxb_css_parser_t *parser,
                                    const lxb_css_syntax_token_t *token, void *ctx)
