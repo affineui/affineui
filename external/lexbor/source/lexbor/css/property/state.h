@@ -318,6 +318,9 @@ LXB_API bool
 lxb_css_property_state_overflow_y(lxb_css_parser_t *parser,
                                   const lxb_css_syntax_token_t *token, void *ctx);
 LXB_API bool
+lxb_css_property_state_overflow(lxb_css_parser_t *parser,
+                                const lxb_css_syntax_token_t *token, void *ctx);
+LXB_API bool
 lxb_css_property_state_overflow_block(lxb_css_parser_t *parser,
                                       const lxb_css_syntax_token_t *token, void *ctx);
 LXB_API bool

@@ -359,7 +359,10 @@ static const lxb_css_entry_data_t lxb_css_property_data[LXB_CSS_PROPERTY__LAST_E
      &(lxb_css_property_writing_mode_t) {.type = LXB_CSS_WRITING_MODE_HORIZONTAL_TB}},
     {(lxb_char_t *) "z-index", 7, LXB_CSS_PROPERTY_Z_INDEX, lxb_css_property_state_z_index,
      lxb_css_property_z_index_create, lxb_css_property_z_index_destroy, lxb_css_property_z_index_serialize,
-     &(lxb_css_property_z_index_t) {.type = LXB_CSS_Z_INDEX_AUTO}}
+     &(lxb_css_property_z_index_t) {.type = LXB_CSS_Z_INDEX_AUTO}},
+    {(lxb_char_t *) "overflow", 8, LXB_CSS_PROPERTY_OVERFLOW, lxb_css_property_state_overflow,
+     lxb_css_property_overflow_create, lxb_css_property_overflow_destroy, lxb_css_property_overflow_serialize,
+     &(lxb_css_property_overflow_t) {.type = LXB_CSS_OVERFLOW_VISIBLE}}
 };
 
 static const lexbor_shs_entry_t lxb_css_property_shs[249] =
@@ -396,7 +399,7 @@ static const lexbor_shs_entry_t lxb_css_property_shs[249] =
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {"height", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_HEIGHT], 6, 0},
-    {NULL, NULL, 0, 0},
+    {"overflow", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_OVERFLOW], 8, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {"bottom", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BOTTOM], 6, 0},

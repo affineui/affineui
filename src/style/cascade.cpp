@@ -915,6 +915,23 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             apply_width_value(*v, s.computed.min_height, 0);
             break;
         }
+        case LXB_CSS_PROPERTY_OVERFLOW: {
+            // CSS `overflow` shorthand applies the single value to both
+            // overflow-x and overflow-y. AffineUI currently tracks only
+            // the Y axis for clipping; map it there.
+            const auto* v =
+                static_cast<const lxb_css_property_overflow_t*>(d->u.user);
+            using O = ComputedStyle::Overflow;
+            switch (v->type) {
+                case LXB_CSS_OVERFLOW_VISIBLE: s.computed.overflow_y = O::Visible; break;
+                case LXB_CSS_OVERFLOW_HIDDEN:  s.computed.overflow_y = O::Hidden;  break;
+                case LXB_CSS_OVERFLOW_CLIP:    s.computed.overflow_y = O::Clip;    break;
+                case LXB_CSS_OVERFLOW_SCROLL:  s.computed.overflow_y = O::Scroll;  break;
+                case LXB_CSS_OVERFLOW_AUTO:    s.computed.overflow_y = O::Auto;    break;
+                default: break;
+            }
+            break;
+        }
         case LXB_CSS_PROPERTY_OVERFLOW_Y: {
             const auto* v =
                 static_cast<const lxb_css_property_overflow_y_t*>(d->u.user);

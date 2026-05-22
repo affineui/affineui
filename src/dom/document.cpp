@@ -1318,6 +1318,7 @@ void Document::layout(int viewport_width, int viewport_height,
 namespace {
 #if !defined(AFFINEUI_STUB_BUILD)
 bool block_is_scrollable_y(const detail::DocumentImpl& impl, int idx);
+bool block_clips_overflow(const detail::DocumentImpl& impl, int idx);
 int  scroll_offset_y_for(const std::vector<Block>& blocks,
                          const detail::StyleStore& styles, int idx);
 #endif
@@ -1372,10 +1373,11 @@ void Document::draw(Painter& painter) {
                                            static_cast<int>(i));
         const Rect eff{b.bounds.x, b.bounds.y - dy, b.bounds.w, b.bounds.h};
 
-        // Find the nearest scrollable ancestor so we can clip this
-        // block's draws to it. -1 if none.
+        // Find the nearest ancestor whose overflow clips children
+        // (overflow: hidden | clip | scroll | auto). Push its bounds as
+        // the scissor rect so overflowing descendants are masked.
         int clip_idx = b.parent_idx;
-        while (clip_idx >= 0 && !block_is_scrollable_y(*impl_, clip_idx)) {
+        while (clip_idx >= 0 && !block_clips_overflow(*impl_, clip_idx)) {
             clip_idx = impl_->blocks[static_cast<std::size_t>(clip_idx)].parent_idx;
         }
         const bool clipped = (clip_idx >= 0);
@@ -1747,6 +1749,17 @@ int focusable_ancestor(const detail::DocumentImpl& impl, int idx) {
         idx = b.parent_idx;
     }
     return -1;
+}
+
+// True iff this block clips its children (overflow is non-visible).
+// CSS overflow: hidden | clip | scroll | auto all clip descendant paint.
+bool block_clips_overflow(const detail::DocumentImpl& impl, int idx) {
+    if (idx < 0) return false;
+    const auto& b = impl.blocks[static_cast<std::size_t>(idx)];
+    const auto ov = impl.style_store.computed(b.id).overflow_y;
+    using O = detail::ComputedStyle::Overflow;
+    return ov == O::Hidden || ov == O::Clip
+        || ov == O::Scroll || ov == O::Auto;
 }
 
 // True iff this block accepts scroll input on its Y axis.

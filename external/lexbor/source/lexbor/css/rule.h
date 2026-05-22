@@ -204,6 +204,7 @@ struct lxb_css_rule_declaration {
         lxb_css_property_text_combine_upright_t  *text_combine_upright;
         lxb_css_property_overflow_x_t            *overflow_x;
         lxb_css_property_overflow_y_t            *overflow_y;
+        lxb_css_property_overflow_t              *overflow;
         lxb_css_property_overflow_block_t        *overflow_block;
         lxb_css_property_overflow_inline_t       *overflow_inline;
         lxb_css_property_text_overflow_t         *text_overflow;

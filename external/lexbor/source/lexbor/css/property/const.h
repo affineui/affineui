@@ -133,7 +133,8 @@ enum {
     LXB_CSS_PROPERTY_WRAP_THROUGH               = 0x006f,
     LXB_CSS_PROPERTY_WRITING_MODE               = 0x0070,
     LXB_CSS_PROPERTY_Z_INDEX                    = 0x0071,
-    LXB_CSS_PROPERTY__LAST_ENTRY                = 0x0072
+    LXB_CSS_PROPERTY_OVERFLOW                   = 0x0072,
+    LXB_CSS_PROPERTY__LAST_ENTRY                = 0x0073
 };
 typedef uintptr_t lxb_css_property_type_t;
 
@@ -977,6 +978,16 @@ enum {
     LXB_CSS_OVERFLOW_Y_AUTO    = LXB_CSS_VALUE_AUTO
 };
 typedef unsigned int lxb_css_overflow_y_type_t;
+
+/* overflow shorthand: maps to overflow-x and overflow-y. */
+enum {
+    LXB_CSS_OVERFLOW_VISIBLE = LXB_CSS_VALUE_VISIBLE,
+    LXB_CSS_OVERFLOW_HIDDEN  = LXB_CSS_VALUE_HIDDEN,
+    LXB_CSS_OVERFLOW_CLIP    = LXB_CSS_VALUE_CLIP,
+    LXB_CSS_OVERFLOW_SCROLL  = LXB_CSS_VALUE_SCROLL,
+    LXB_CSS_OVERFLOW_AUTO    = LXB_CSS_VALUE_AUTO
+};
+typedef unsigned int lxb_css_overflow_type_t;
 
 enum {
     LXB_CSS_PADDING_AUTO        = LXB_CSS_VALUE_AUTO,

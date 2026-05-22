@@ -424,6 +424,12 @@ typedef struct {
 }
 lxb_css_property_overflow_y_t;
 
+/* overflow shorthand — the single value applies to both axes. */
+typedef struct {
+    lxb_css_overflow_type_t type;
+}
+lxb_css_property_overflow_t;
+
 typedef struct {
     lxb_css_overflow_block_type_t type;
 }
@@ -1846,6 +1852,19 @@ lxb_css_property_overflow_y_destroy(lxb_css_memory_t *memory,
 LXB_API lxb_status_t
 lxb_css_property_overflow_y_serialize(const void *style,
                                       lexbor_serialize_cb_f cb, void *ctx);
+
+/* Overflow shorthand. */
+
+LXB_API void *
+lxb_css_property_overflow_create(lxb_css_memory_t *memory);
+
+LXB_API void *
+lxb_css_property_overflow_destroy(lxb_css_memory_t *memory,
+                                  void *style, bool self_destroy);
+
+LXB_API lxb_status_t
+lxb_css_property_overflow_serialize(const void *style,
+                                    lexbor_serialize_cb_f cb, void *ctx);
 
 /* Overflow-block. */
 
