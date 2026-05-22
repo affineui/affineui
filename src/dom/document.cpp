@@ -1105,10 +1105,21 @@ void collect_blocks(detail::DocumentImpl& impl,
         // them so they flow horizontally instead of stacking. A
         // block-level sibling breaks the run; the next inline
         // sibling opens a fresh line-box.
+        //
+        // Flex-item blockification (CSS Flexbox §4): the children of a
+        // flex container are flex items, and an inline-level flex item is
+        // blockified. So when the parent establishes a flex formatting
+        // context we DON'T group inline children into a line-box — each
+        // becomes a direct block-level flex item. This is what makes an
+        // `<a class="nav-link">` inside a `display:flex` navbar lay out as
+        // a flex item rather than collapsing into an inline run.
         using Display = detail::ComputedStyle::Display;
+        const bool parent_is_flex =
+            parent_style.computed.display == Display::Flex;
         const bool child_is_inline =
-            rs.computed.display == Display::Inline ||
-            rs.computed.display == Display::InlineBlock;
+            !parent_is_flex &&
+            (rs.computed.display == Display::Inline ||
+             rs.computed.display == Display::InlineBlock);
         int effective_parent_idx;
         if (child_is_inline) {
             ensure_inline_run(impl, parent_idx, open_synth_idx);

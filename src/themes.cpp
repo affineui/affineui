@@ -40,11 +40,14 @@ std::string_view ua_default() {
         "img{display:inline-block}"
         // Form controls default to inline-block (HTML5 UA stylesheet).
         "button,input,select,textarea{font:inherit;display:inline-block}"
-        // Phrasing elements default to inline so they flow with other
-        // inline siblings via the synthetic line-box wrapper. `a` is
-        // intentionally left out — it's commonly a flex item in
-        // navbars where an explicit inline override clashes.
-        "span,strong,b,em,i,code,kbd,samp{display:inline}"
+        // Phrasing elements (including `a`) default to inline so they flow
+        // with their inline siblings via the synthetic line-box wrapper.
+        // When such an element is the child of a flex container it is
+        // blockified into a flex item (CSS flex item rules) — see the
+        // flex-parent check in document.cpp's child collection — so the
+        // navbar/nav-link case (an `a` flex item) behaves correctly
+        // without leaving `a` out of this UA default.
+        "a,span,strong,b,em,i,code,kbd,samp{display:inline}"
         "code,pre,kbd,samp{font-family:monospace}"
         // CSS table model defaults (HTML5 UA stylesheet).
         "table{display:table}"
