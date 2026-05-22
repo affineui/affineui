@@ -277,6 +277,33 @@ TEST_CASE("a more-specific longhand overrides a shorthand regardless of order") 
     CHECK(rs.computed.margin_left == 16);
 }
 
+TEST_CASE("var() color with alpha resolves through :root inheritance") {
+    // Bootstrap .text-body-secondary pattern: a :root custom property
+    // holds an rgba() with alpha, and a class colours text with
+    // color:var(...)!important while a lower-specificity reboot rule also
+    // sets color via a (here undefined) var. The important var() must win
+    // and resolve to the alpha colour, not fall back to inherited text.
+    CssEnv env("<html><body><h6 class=\"sub\">x</h6></body></html>");
+    env.attach(":root { --c: rgba(33, 37, 41, 0.75); }");
+    env.attach("body { color: #1f2328; }");
+    env.attach("h6 { color: var(--undef-heading); }");      // reboot-like
+    env.attach(".sub { color: var(--c) !important; }");      // wins
+    env.build_resolver();
+
+    auto* html = env.find("html");
+    auto* body = env.find("body");
+    auto* h6   = env.find("h6");
+    REQUIRE(html != nullptr);
+    REQUIRE(body != nullptr);
+    REQUIRE(h6 != nullptr);
+
+    const affineui::detail::ResolvedStyle root{};
+    const auto html_rs = env.resolver->resolve(html, root);
+    const auto body_rs = env.resolver->resolve(body, html_rs);
+    const auto h6_rs   = env.resolver->resolve(h6, body_rs);
+    CHECK(h6_rs.animated.color_rgba == rgba(33, 37, 41, 191));  // .75*255
+}
+
 TEST_CASE("border-radius longhands reach computed style") {
     CssEnv env("<button>hi</button>");
     env.attach("button { border-top-left-radius: 8px 12px;"

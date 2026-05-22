@@ -78,6 +78,21 @@ inline NVGcolor to_nvg(Color c) {
     return nvgRGBA(c.r, c.g, c.b, c.a);
 }
 
+// Synthetic-medium weight draws the glyphs twice (offset by half a
+// pixel) to thicken strokes. For a fully opaque colour that's fine, but
+// for a semi-transparent colour the two passes composite on top of each
+// other and darken the text (rgba(.,.,.,.75) drawn twice ≈ alpha .94).
+// Split the alpha across the two passes so they composite back to the
+// intended alpha: with a' = 1 - sqrt(1 - a), 1 - (1 - a')^2 == a. Opaque
+// text (a == 255) is unchanged.
+inline Color synth_bold_pass_color(Color c) {
+    if (c.a == 255) return c;
+    const float a = c.a / 255.0f;
+    const float a_pass = 1.0f - std::sqrt(1.0f - a);
+    c.a = static_cast<std::uint8_t>(std::lround(a_pass * 255.0f));
+    return c;
+}
+
 class NanoVGPainter final : public Painter {
 public:
     explicit NanoVGPainter(NVGcontext* vg) : vg_(vg) {}
@@ -323,6 +338,7 @@ public:
                    Color           color) override {
         if (handle == 0) return;
         apply_handle(handle);
+        if (handle_is_synth_bold(handle)) color = synth_bold_pass_color(color);
         nvgFillColor(vg_, to_nvg(color));
         const float fx = static_cast<float>(pos.x);
         const float fy = static_cast<float>(pos.y);
@@ -432,6 +448,7 @@ public:
         const float natural_line_h = natural_line_height_px(handle);
         const float css_line_h =
             css_line_height_px(handle, line_height_mult, natural_line_h);
+        if (handle_is_synth_bold(handle)) color = synth_bold_pass_color(color);
         nvgFillColor(vg_, to_nvg(color));
 
         // nvgTextBox reads `state->textAlign` for halign before entering
