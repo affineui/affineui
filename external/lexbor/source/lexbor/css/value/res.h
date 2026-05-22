@@ -391,10 +391,11 @@ static const lxb_css_data_t lxb_css_value_data[LXB_CSS_VALUE__LAST_ENTRY] =
     {(lxb_char_t *) "vertical-rl", 11, LXB_CSS_VALUE_VERTICAL_RL},
     {(lxb_char_t *) "vertical-lr", 11, LXB_CSS_VALUE_VERTICAL_LR},
     {(lxb_char_t *) "sideways-rl", 11, LXB_CSS_VALUE_SIDEWAYS_RL},
-    {(lxb_char_t *) "sideways-lr", 11, LXB_CSS_VALUE_SIDEWAYS_LR}
+    {(lxb_char_t *) "sideways-lr", 11, LXB_CSS_VALUE_SIDEWAYS_LR},
+    {(lxb_char_t *) "space-evenly", 12, LXB_CSS_VALUE_SPACE_EVENLY}
 };
 
-static const lexbor_shs_entry_t lxb_css_value_shs[373] = 
+static const lexbor_shs_entry_t lxb_css_value_shs[374] =
 {
     {NULL, NULL, 253, 0}, 
     {"salmon", (void *) LXB_CSS_VALUE_SALMON, 6, 2}, 
@@ -492,7 +493,7 @@ static const lexbor_shs_entry_t lxb_css_value_shs[373] =
     {"activetext", (void *) LXB_CSS_VALUE_ACTIVETEXT, 10, 94}, 
     {"buttonface", (void *) LXB_CSS_VALUE_BUTTONFACE, 10, 96}, 
     {"each-line", (void *) LXB_CSS_VALUE_EACH_LINE, 9, 0}, 
-    {"greenyellow", (void *) LXB_CSS_VALUE_GREENYELLOW, 11, 0}, 
+    {"greenyellow", (void *) LXB_CSS_VALUE_GREENYELLOW, 11, 373},
     {"hanging", (void *) LXB_CSS_VALUE_HANGING, 7, 0}, 
     {"hotpink", (void *) LXB_CSS_VALUE_HOTPINK, 7, 0}, 
     {"midnightblue", (void *) LXB_CSS_VALUE_MIDNIGHTBLUE, 12, 0}, 
@@ -768,7 +769,8 @@ static const lexbor_shs_entry_t lxb_css_value_shs[373] =
     {"ui-sans-serif", (void *) LXB_CSS_VALUE_UI_SANS_SERIF, 13, 0}, 
     {"condensed", (void *) LXB_CSS_VALUE_CONDENSED, 9, 0}, 
     {"ruby-text-container", (void *) LXB_CSS_VALUE_RUBY_TEXT_CONTAINER, 19, 0}, 
-    {"orangered", (void *) LXB_CSS_VALUE_ORANGERED, 9, 0}
+    {"orangered", (void *) LXB_CSS_VALUE_ORANGERED, 9, 0},
+    {"space-evenly", (void *) LXB_CSS_VALUE_SPACE_EVENLY, 12, 0}
 };
 
 

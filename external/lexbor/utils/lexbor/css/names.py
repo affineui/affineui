@@ -228,10 +228,10 @@ styles = {
     "flex-grow": {"values": ["_number"], "initial": "&(lxb_css_property_flex_grow_t) {.type = LXB_CSS_FLEX_GROW__NUMBER, .number = {.num = 0, .is_float = false}}"},
     "flex-shrink": {"values": ["_number"], "initial":  "&(lxb_css_property_flex_shrink_t) {.type = LXB_CSS_FLEX_SHRINK__NUMBER, .number = {.num = 1, .is_float = false}}"},
     "flex-basis": {"values": ["content"], "initial": "&(lxb_css_property_flex_basis_t) {.type = LXB_CSS_WIDTH_AUTO, %s}" % length_0},
-    "justify-content": {"values": ["flex-start", "flex-end", "center", "space-between", "space-around"], "initial": "&(lxb_css_property_justify_content_t) {.type = LXB_CSS_JUSTIFY_CONTENT_FLEX_START}"},
+    "justify-content": {"values": ["flex-start", "flex-end", "center", "space-between", "space-around", "space-evenly"], "initial": "&(lxb_css_property_justify_content_t) {.type = LXB_CSS_JUSTIFY_CONTENT_FLEX_START}"},
     "align-items": {"values": ["flex-start", "flex-end", "center", "baseline", "stretch"], "initial": "&(lxb_css_property_align_items_t) {.type = LXB_CSS_ALIGN_ITEMS_STRETCH}"},
     "align-self": {"values": ["auto", "flex-start", "flex-end", "center", "baseline", "stretch"], "initial": "&(lxb_css_property_align_self_t) {.type = LXB_CSS_ALIGN_SELF_AUTO}"},
-    "align-content": {"values": ["flex-start", "flex-end", "center", "space-between", "space-around", "stretch"], "initial": "&(lxb_css_property_align_content_t) {.type = LXB_CSS_ALIGN_CONTENT_STRETCH}"},
+    "align-content": {"values": ["flex-start", "flex-end", "center", "space-between", "space-around", "space-evenly", "stretch"], "initial": "&(lxb_css_property_align_content_t) {.type = LXB_CSS_ALIGN_CONTENT_STRETCH}"},
 
     # https://drafts.csswg.org/css-inline/
 

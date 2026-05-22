@@ -4848,6 +4848,7 @@ lxb_css_property_state_justify_content(lxb_css_parser_t *parser,
         case LXB_CSS_JUSTIFY_CONTENT_CENTER:
         case LXB_CSS_JUSTIFY_CONTENT_SPACE_BETWEEN:
         case LXB_CSS_JUSTIFY_CONTENT_SPACE_AROUND:
+        case LXB_CSS_JUSTIFY_CONTENT_SPACE_EVENLY:
             declar->u.justify_content->type = type;
             break;
 
@@ -4960,6 +4961,7 @@ lxb_css_property_state_align_content(lxb_css_parser_t *parser,
         case LXB_CSS_ALIGN_CONTENT_CENTER:
         case LXB_CSS_ALIGN_CONTENT_SPACE_BETWEEN:
         case LXB_CSS_ALIGN_CONTENT_SPACE_AROUND:
+        case LXB_CSS_ALIGN_CONTENT_SPACE_EVENLY:
         case LXB_CSS_ALIGN_CONTENT_STRETCH:
             declar->u.align_content->type = type;
             break;

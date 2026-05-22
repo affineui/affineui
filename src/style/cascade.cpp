@@ -658,6 +658,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
                 case LXB_CSS_JUSTIFY_CONTENT_CENTER:        s.computed.justify_content = JC::Center;       break;
                 case LXB_CSS_JUSTIFY_CONTENT_SPACE_BETWEEN: s.computed.justify_content = JC::SpaceBetween; break;
                 case LXB_CSS_JUSTIFY_CONTENT_SPACE_AROUND:  s.computed.justify_content = JC::SpaceAround;  break;
+                case LXB_CSS_JUSTIFY_CONTENT_SPACE_EVENLY:  s.computed.justify_content = JC::SpaceEvenly;  break;
                 default: break;
             }
             break;

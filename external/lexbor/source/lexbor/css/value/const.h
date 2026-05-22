@@ -389,7 +389,8 @@ enum {
     LXB_CSS_VALUE_VERTICAL_LR          = 0x0172,
     LXB_CSS_VALUE_SIDEWAYS_RL          = 0x0173,
     LXB_CSS_VALUE_SIDEWAYS_LR          = 0x0174,
-    LXB_CSS_VALUE__LAST_ENTRY          = 0x0175
+    LXB_CSS_VALUE_SPACE_EVENLY         = 0x0175,
+    LXB_CSS_VALUE__LAST_ENTRY          = 0x0176
 };
 typedef unsigned int lxb_css_value_type_t;
 
