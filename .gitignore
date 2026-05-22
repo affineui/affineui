@@ -71,3 +71,6 @@ conformance/browser/node_modules/
 
 # git worktrees created by agents
 .claude/worktrees/
+
+# Background agent status board (local only)
+.agent-status/
