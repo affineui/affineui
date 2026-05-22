@@ -15,7 +15,29 @@
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+
+// Force the browser to render with AffineUI's embedded Roboto so the A/B
+// compares the SAME typeface on both sides. Chrome resolves `sans-serif`
+// to the system default (Arial on Windows), but AffineUI renders Roboto
+// — different glyph shapes AND metrics, which inflates every text test's
+// diff and bounds how low it can go. We control Roboto in-repo, so we
+// inject it into the page (cross-platform, unlike depending on system
+// Arial). This isolates CSS/layout conformance from font choice; the
+// residual is just rasterizer AA (Skia vs NanoVG), which is irreducible.
+const FONTS_DIR = path.resolve(fileURLToPath(import.meta.url), '../../../assets/fonts');
+function fontFaceCss() {
+  const url = (f) => pathToFileURL(path.join(FONTS_DIR, f)).href;
+  return `
+    @font-face { font-family:'AUI-Sans'; font-style:normal; font-weight:400;
+                 src:url('${url('Roboto-Regular.ttf')}') format('truetype'); }
+    @font-face { font-family:'AUI-Sans'; font-style:normal; font-weight:700;
+                 src:url('${url('Roboto-Bold.ttf')}') format('truetype'); }
+    /* Override every element's family (incl. generic sans-serif/monospace,
+       which AffineUI also renders as Roboto) so both sides match. */
+    *, *::before, *::after { font-family:'AUI-Sans' !important; }
+  `;
+}
 
 function parseArgs(argv) {
   const a = { casesDir: 'conformance/cases', outDir: '.', channel: '' };
@@ -68,6 +90,10 @@ try {
   });
   const page = await ctx.newPage();
   await page.goto(pathToFileURL(path.resolve(args.html)).href, { waitUntil: 'load' });
+  // Swap in the shared Roboto so text matches AffineUI, then wait for the
+  // faces to finish loading before any screenshot.
+  await page.addStyleTag({ content: fontFaceCss() });
+  await page.evaluate(() => document.fonts.ready);
 
   const shot = async (snap) => {
     const out = path.join(args.outDir, `${name}.browser.${snap}.png`);

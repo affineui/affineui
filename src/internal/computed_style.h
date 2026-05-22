@@ -209,6 +209,19 @@ static_assert(sizeof(ComputedStyle) <= 96,
 static_assert(std::is_trivially_copyable_v<ComputedStyle>,
               "ComputedStyle must be trivially copyable");
 
+/// CSS `line-height: normal`. The spec leaves the value impl-defined
+/// ("a reasonable value based on the font"); browsers use the font's
+/// own line metrics, (ascender − descender + lineGap) / unitsPerEm.
+/// For our embedded default font (Roboto) that is (2146 + 555 + 0) /
+/// 2048 ≈ 1.32 — and that is exactly what Chrome renders for it, so
+/// matching it is what makes `normal`-spaced text line up in the
+/// conformance A/B. fontstash normalizes its reported line height to
+/// 1.0em (it folds away the real ratio), so we can't read this back
+/// from nvgTextMetrics; we encode the UA default here. TODO: when the
+/// font registry exposes real per-font v-metrics, derive this per font
+/// instead of assuming the default face.
+inline constexpr float kNormalLineHeight = 1.32f;
+
 /// Translate `ComputedStyle.line_height_x100` into a multiplier
 /// suitable for `Painter::draw_text_box` / `measure_text_box`. The
 /// stored value is signed: positive = multiplier × 100, negative =
@@ -220,7 +233,7 @@ inline float effective_line_height_mult(const ComputedStyle& cs) {
     if (cs.line_height_x100 < 0 && cs.font_size_px > 0)
         return static_cast<float>(-cs.line_height_x100)
              / static_cast<float>(cs.font_size_px);
-    return 1.0f;  // unset → NVG default
+    return kNormalLineHeight;  // unset → CSS `normal` (font-derived)
 }
 
 }  // namespace affineui::detail
