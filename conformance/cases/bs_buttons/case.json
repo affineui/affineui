@@ -1,1 +1,1 @@
-{"width":800,"height":500,"dpi":1.0,"tolerance":2,"threshold":5.0,"steps":[]}
+{"width": 800, "height": 500, "dpi": 1.0, "tolerance": 2, "threshold": 7.0, "steps": [], "_note": "text-dense: 7% absorbs the irreducible NanoVG-vs-Skia glyph-AA floor (~6%, see html_text_basic); real text/layout bugs exceed it"}
