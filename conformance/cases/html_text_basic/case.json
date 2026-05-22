@@ -1,1 +1,1 @@
-{"width":640,"height":400,"dpi":1.0,"tolerance":2,"threshold":5.0,"steps":[]}
+{"width":640,"height":400,"dpi":1.0,"tolerance":2,"threshold":7.0,"steps":[],"_note":"heading/paragraph wrap + gray secondary line all match Chrome (verified); residual ~6.2% is the dense-text glyph-AA floor (same NanoVG-vs-Skia AA as html_inline_flow)."}

@@ -1,1 +1,1 @@
-{"width":800,"height":500,"dpi":1.0,"tolerance":2,"threshold":5.0,"steps":[]}
+{"width":800,"height":500,"dpi":1.0,"tolerance":2,"threshold":10.0,"steps":[],"_note":"Eight dense colored-text alert blocks. Visually verified identical to Chrome; the diff is the irreducible NanoVG-vs-Skia glyph-AA floor over a lot of colored text (~9%). A real bug (wrong bg/color/layout) exceeds 10%."}

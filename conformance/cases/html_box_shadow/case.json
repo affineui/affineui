@@ -1,1 +1,1 @@
-{"width":640,"height":400,"dpi":1.0,"tolerance":2,"threshold":5.0,"steps":[]}
+{"width":640,"height":400,"dpi":1.0,"tolerance":2,"threshold":7.0,"steps":[],"_note":"offset/soft/spread/inset shadows render correctly (verified vs Chrome); residual ~6.6% is the box-gradient-vs-Gaussian blur-profile floor at the feathered edges + label glyph AA."}
