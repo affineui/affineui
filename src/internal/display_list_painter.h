@@ -228,6 +228,18 @@ public:
         list_.ops.push_back(op);
     }
 
+    void push_alpha(float alpha) override {
+        PaintOp op{};
+        op.kind = PaintOpKind::PushAlpha;
+        op.p.push_alpha.alpha = alpha;
+        list_.ops.push_back(op);
+    }
+    void pop_alpha() override {
+        PaintOp op{};
+        op.kind = PaintOpKind::PopAlpha;
+        list_.ops.push_back(op);
+    }
+
 private:
     static std::uint32_t pack(Color c) {
         return (std::uint32_t(c.r) << 24)
@@ -326,6 +338,12 @@ inline void replay(const DisplayList& list, Painter& target) {
             }
             case PaintOpKind::PopClip:
                 target.pop_clip();
+                break;
+            case PaintOpKind::PushAlpha:
+                target.push_alpha(op.p.push_alpha.alpha);
+                break;
+            case PaintOpKind::PopAlpha:
+                target.pop_alpha();
                 break;
         }
     }

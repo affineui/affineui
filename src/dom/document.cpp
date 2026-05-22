@@ -1396,6 +1396,12 @@ void Document::draw(Painter& painter) {
                 static_cast<std::size_t>(clip_idx)].bounds);
         }
 
+        // CSS `opacity` — composite this element's entire subtree at a
+        // group alpha. NanoVG's nvgGlobalAlpha multiplies onto whatever
+        // alpha is currently set, so save/restore gives clean isolation.
+        const bool has_opacity = (an.opacity < 1.0f - 1e-5f);
+        if (has_opacity) painter.push_alpha(an.opacity);
+
         const float r_tl = static_cast<float>(cs.border_radius_top_left_px);
         const float r_tr = static_cast<float>(cs.border_radius_top_right_px);
         const float r_br = static_cast<float>(cs.border_radius_bot_right_px);
@@ -1504,6 +1510,7 @@ void Document::draw(Painter& painter) {
                                   detail::effective_line_height_mult(cs));
         }
 
+        if (has_opacity) painter.pop_alpha();
         if (clipped) painter.pop_clip();
     }
 

@@ -31,6 +31,8 @@ enum class PaintOpKind : std::uint8_t {
     DrawImage,
     PushClip,
     PopClip,
+    PushAlpha,
+    PopAlpha,
 };
 
 struct PaintOp {
@@ -118,6 +120,17 @@ struct PaintOp {
             std::uint32_t pad0_;
             std::uint32_t pad1_;
         } clip;
+
+        // PushAlpha: `alpha` is the value passed by the caller (0–1).
+        // PopAlpha carries no payload — the painter restores its stack.
+        struct {
+            float        alpha;
+            std::uint32_t pad0_;
+            std::uint32_t pad1_;
+            std::uint32_t pad2_;
+            std::uint32_t pad3_;
+            std::uint32_t pad4_;
+        } push_alpha;
 
         std::uint8_t raw[24];
     } p{};

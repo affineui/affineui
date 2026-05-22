@@ -100,6 +100,13 @@ public:
     // ── Clipping ────────────────────────────────────────────────────
     virtual void push_clip(const Rect& r) = 0;
     virtual void pop_clip()               = 0;
+
+    // ── Opacity group ───────────────────────────────────────────────
+    /// Save the current global alpha and multiply it by `alpha` (0–1).
+    /// All subsequent drawing calls are composited at the resulting
+    /// combined alpha. Must be balanced by pop_alpha().
+    virtual void push_alpha(float alpha) = 0;
+    virtual void pop_alpha()             = 0;
 };
 
 }  // namespace affineui

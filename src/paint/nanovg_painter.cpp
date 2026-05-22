@@ -51,6 +51,8 @@ public:
     void draw_image(std::uint32_t, const Rect&, const Rect&) override {}
     void push_clip(const Rect&) override {}
     void pop_clip() override {}
+    void push_alpha(float) override {}
+    void pop_alpha() override {}
 };
 
 namespace detail {
@@ -334,6 +336,16 @@ public:
     }
 
     void pop_clip() override { nvgRestore(vg_); }
+
+    // CSS `opacity` group alpha: save NanoVG state and apply a global
+    // alpha multiplier. All subsequent NanoVG draws are composited at
+    // `current_alpha * alpha` until pop_alpha() restores the old state.
+    void push_alpha(float alpha) override {
+        nvgSave(vg_);
+        nvgGlobalAlpha(vg_, alpha);
+    }
+
+    void pop_alpha() override { nvgRestore(vg_); }
 
     void set_default_face    (int face) { default_face_     = face; }
     void set_bold_face       (int face) { bold_face_        = face; }

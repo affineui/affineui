@@ -13,7 +13,7 @@
 //
 // What this file deliberately does NOT do (yet):
 //   - Cache ResolvedStyle per element. Phase 2E adds that.
-//   - Handle hsl(), and % lengths. Phase 3.
+//   - Handle % lengths. Phase 3.
 //   - Touch font_family or font_id. Font registry lands alongside.
 //
 // Adding a property = one switch arm and one small parser helper.
@@ -33,6 +33,7 @@
 #    include <lexbor/css/value.h>
 #    include <lexbor/css/declaration.h>
 #    include <lexbor/css/parser.h>
+#    include <lexbor/css/unit/const.h>
 #    include <lexbor/html/html.h>
 #endif
 
@@ -72,6 +73,44 @@ std::uint8_t clamp_u8(double v) {
     if (v <= 0.0) return 0;
     if (v >= 255.0) return 255;
     return static_cast<std::uint8_t>(std::lround(v));
+}
+
+// CSS hsl() → RGB conversion per the CSS Color Level 4 spec.
+// h is in degrees [0, 360), s and l are fractions in [0, 1].
+// Returns packed RGBA8 with full alpha (caller supplies alpha).
+void hsl_to_rgb(double h, double s, double l,
+                std::uint8_t& r, std::uint8_t& g, std::uint8_t& b) {
+    // Normalise hue to [0, 360).
+    h = std::fmod(h, 360.0);
+    if (h < 0.0) h += 360.0;
+
+    const double a_chroma = s * std::min(l, 1.0 - l);
+    auto f = [&](double n) -> double {
+        const double k = std::fmod(n + h / 30.0, 12.0);
+        return l - a_chroma * std::max(-1.0, std::min({k - 3.0, 9.0 - k, 1.0}));
+    };
+    r = clamp_u8(f(0.0) * 255.0);
+    g = clamp_u8(f(8.0) * 255.0);
+    b = clamp_u8(f(4.0) * 255.0);
+}
+
+// Extract hue as degrees from lexbor's hue union.
+double hue_to_degrees(const lxb_css_value_hue_t& hue) {
+    constexpr double kPi = 3.14159265358979323846;
+    if (hue.type == LXB_CSS_VALUE__NUMBER) {
+        return hue.u.number.num;  // bare number = degrees in CSS Color 4
+    }
+    if (hue.type == LXB_CSS_VALUE__ANGLE) {
+        const double num = hue.u.angle.num;
+        switch (static_cast<int>(hue.u.angle.unit)) {
+            case LXB_CSS_UNIT_DEG:  return num;
+            case LXB_CSS_UNIT_GRAD: return num * 360.0 / 400.0;
+            case LXB_CSS_UNIT_RAD:  return num * 180.0 / kPi;
+            case LXB_CSS_UNIT_TURN: return num * 360.0;
+            default:                return num;
+        }
+    }
+    return 0.0;
 }
 
 std::uint8_t color_component(const lxb_css_value_number_percentage_t& c) {
@@ -119,6 +158,23 @@ bool parse_color(const lxb_css_value_color_t* v, std::uint32_t& out) {
                         color_component(v->u.rgb.g),
                         color_component(v->u.rgb.b),
                         alpha_component(v->u.rgb.a));
+        return true;
+    }
+    if (v->type == LXB_CSS_COLOR_HSL || v->type == LXB_CSS_COLOR_HSLA) {
+        const auto& hsl = v->u.hsl;
+        const double h = hue_to_degrees(hsl.h);
+        // s and l are lxb_css_value_percentage_type_t. In the legacy
+        // comma-separated format (hsl.old == true), lexbor only fills
+        // s.percentage / l.percentage and does NOT set the .type field.
+        // In the modern format .type is LXB_CSS_VALUE__PERCENTAGE.
+        // Read the raw percentage.num in both cases; % semantics apply
+        // either way (old format only accepts percentages for s and l).
+        const double s = hsl.s.percentage.num / 100.0;
+        const double l = hsl.l.percentage.num / 100.0;
+        std::uint8_t r, g, b;
+        hsl_to_rgb(h, s, l, r, g, b);
+        const std::uint8_t a = alpha_component(hsl.a);
+        out = make_rgba(r, g, b, a);
         return true;
     }
     switch (v->type) {
@@ -1045,6 +1101,22 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
                 case LXB_CSS_OVERFLOW_Y_AUTO:    s.computed.overflow_y = O::Auto;    break;
                 default: break;
             }
+            break;
+        }
+        case LXB_CSS_PROPERTY_OPACITY: {
+            const auto* v =
+                static_cast<const lxb_css_property_opacity_t*>(d->u.user);
+            // opacity is lxb_css_value_number_percentage_t.
+            // CSS: number 0–1 or percentage 0%–100%.
+            float op = 1.0f;
+            if (v->type == LXB_CSS_VALUE__NUMBER) {
+                op = static_cast<float>(
+                    std::clamp(v->u.number.num, 0.0, 1.0));
+            } else if (v->type == LXB_CSS_VALUE__PERCENTAGE) {
+                op = static_cast<float>(
+                    std::clamp(v->u.percentage.num / 100.0, 0.0, 1.0));
+            }
+            s.animated.opacity = op;
             break;
         }
         // Everything else lands when we have a test for it.
