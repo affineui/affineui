@@ -72,6 +72,10 @@ public:
                                    float, float, float, float) override {
         fills.push_back({rect, c0});
     }
+    void fill_box_shadow(const affineui::Rect& rect, float, affineui::Color c,
+                         float, float, float, float, bool) override {
+        fills.push_back({rect, c});
+    }
     std::uint32_t resolve_font(std::string_view, int, int, bool) override {
         return 1;
     }

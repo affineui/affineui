@@ -29,6 +29,8 @@ public:
                                    float, float, float, float) override {}
     void fill_radial_gradient_rect(const affineui::Rect&, affineui::Color, affineui::Color,
                                    float, float, float, float) override {}
+    void fill_box_shadow(const affineui::Rect&, float, affineui::Color,
+                         float, float, float, float, bool) override {}
     std::uint32_t resolve_font(std::string_view, int, int, bool) override { return 1; }
     int measure_text(std::uint32_t, std::string_view text) override {
         return static_cast<int>(text.size()) * 8;

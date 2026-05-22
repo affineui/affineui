@@ -30,6 +30,7 @@ enum class PaintOpKind : std::uint8_t {
     StrokeRoundedRectVarying,
     FillLinearGradientRect,
     FillRadialGradientRect,
+    FillBoxShadow,
     DrawText,
     DrawTextBox,
     DrawImage,
@@ -159,6 +160,19 @@ struct PaintOp {
             std::uint32_t stop0_rgba;        // 4
             std::uint32_t stop1_rgba;        // 4
         } fill_radial_gradient;              // = 24 bytes
+
+        // CSS box-shadow. Border box (x,y,w,h) + colour + offset + blur
+        // + spread + a single corner radius; `inset` selects the inner
+        // shadow paint. radius/blur/spread fit comfortably in u16/i16.
+        struct {
+            std::int16_t  x, y, w, h;       // 8
+            std::uint32_t rgba;             // 4
+            std::int16_t  offset_x, offset_y;  // 4
+            std::int16_t  blur, spread;     // 4
+            std::uint16_t radius;           // 2
+            std::uint8_t  inset;            // 1
+            std::uint8_t  pad_;             // 1
+        } fill_box_shadow;                   // = 24 bytes
 
         struct {
             std::int16_t x, y, w, h;

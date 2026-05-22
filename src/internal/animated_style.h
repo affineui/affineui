@@ -39,6 +39,10 @@ struct AnimatedStyle {
     std::int16_t shadow_offset_y{0};
     std::int16_t shadow_blur    {0};
     std::int16_t shadow_spread  {0};
+    // CSS `inset` keyword: paint the shadow inside the box instead of
+    // behind it. Stored separately so the paint pass can order it after
+    // the background (CSS painting order) rather than before.
+    bool         shadow_inset   {false};
 
     // ── Transform (20 bytes) ──────────────────────────────────────
     // 2D affine: translate + scale + rotation. The full 3x2 matrix

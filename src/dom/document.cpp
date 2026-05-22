@@ -1680,25 +1680,19 @@ void Document::draw(Painter& painter) {
             && (an.shadow_blur != 0 || an.shadow_spread != 0 ||
                 an.shadow_offset_x != 0 || an.shadow_offset_y != 0);
 
-        if (has_shadow) {
-            const int spread = std::max<int>(0, an.shadow_spread);
-            const int blur   = std::max<int>(0, an.shadow_blur);
-            const int expand = std::max(1, spread + blur);
-            const Rect shadow_r{
-                eff.x + an.shadow_offset_x - expand,
-                eff.y + an.shadow_offset_y - expand,
-                eff.w + expand * 2,
-                eff.h + expand * 2,
-            };
-            const float sr = any_radius
-                ? std::max({r_tl, r_tr, r_br, r_bl}) + static_cast<float>(expand)
-                : 0.0f;
-            if (sr > 0.0f) {
-                painter.fill_rounded_rect(shadow_r, sr,
-                                          detail::unpack_rgba(an.shadow_rgba));
-            } else {
-                painter.fill_rect(shadow_r, detail::unpack_rgba(an.shadow_rgba));
-            }
+        // Single radius for the shadow primitive (CSS box-shadow follows
+        // the largest corner; per-corner shadow radii are not a thing).
+        const float shadow_radius = any_radius
+            ? std::max({r_tl, r_tr, r_br, r_bl}) : 0.0f;
+        // Outset shadow paints BEHIND the background (CSS painting order).
+        if (has_shadow && !an.shadow_inset) {
+            painter.fill_box_shadow(
+                eff, shadow_radius, detail::unpack_rgba(an.shadow_rgba),
+                static_cast<float>(an.shadow_offset_x),
+                static_cast<float>(an.shadow_offset_y),
+                static_cast<float>(an.shadow_blur),
+                static_cast<float>(an.shadow_spread),
+                /*inset=*/false);
         }
 
         if (has_bg) {
@@ -1720,6 +1714,18 @@ void Document::draw(Painter& painter) {
                 painter.fill_radial_gradient_rect(
                     eff, s0, s1, r_tl, r_tr, r_br, r_bl);
             }
+        }
+
+        // Inset shadow paints ON TOP of the background/gradient but under
+        // the border and content (CSS painting order).
+        if (has_shadow && an.shadow_inset) {
+            painter.fill_box_shadow(
+                eff, shadow_radius, detail::unpack_rgba(an.shadow_rgba),
+                static_cast<float>(an.shadow_offset_x),
+                static_cast<float>(an.shadow_offset_y),
+                static_cast<float>(an.shadow_blur),
+                static_cast<float>(an.shadow_spread),
+                /*inset=*/true);
         }
 
         if (!b.image_src.empty()) {

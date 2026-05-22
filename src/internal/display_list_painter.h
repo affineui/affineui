@@ -203,6 +203,27 @@ public:
         list_.ops.push_back(op);
     }
 
+    void fill_box_shadow(const Rect& r, float radius, Color color,
+                         float offset_x, float offset_y,
+                         float blur, float spread, bool inset) override {
+        PaintOp op{};
+        op.kind = PaintOpKind::FillBoxShadow;
+        auto& s = op.p.fill_box_shadow;
+        s.x        = static_cast<std::int16_t>(r.x);
+        s.y        = static_cast<std::int16_t>(r.y);
+        s.w        = static_cast<std::int16_t>(r.w);
+        s.h        = static_cast<std::int16_t>(r.h);
+        s.rgba     = pack(color);
+        s.offset_x = static_cast<std::int16_t>(offset_x);
+        s.offset_y = static_cast<std::int16_t>(offset_y);
+        s.blur     = static_cast<std::int16_t>(blur);
+        s.spread   = static_cast<std::int16_t>(spread);
+        s.radius   = static_cast<std::uint16_t>(std::clamp(radius, 0.f, 65535.f));
+        s.inset    = inset ? 1u : 0u;
+        s.pad_     = 0;
+        list_.ops.push_back(op);
+    }
+
     std::uint32_t resolve_font(std::string_view family, int size_px,
                                int weight, bool italic) override {
         return font_resolver_
@@ -414,6 +435,16 @@ inline void replay(const DisplayList& list, Painter& target) {
                     unpack(g.stop0_rgba), unpack(g.stop1_rgba),
                     static_cast<float>(g.tl), static_cast<float>(g.tr),
                     static_cast<float>(g.br), static_cast<float>(g.bl));
+                break;
+            }
+            case PaintOpKind::FillBoxShadow: {
+                const auto& s = op.p.fill_box_shadow;
+                target.fill_box_shadow(
+                    Rect{s.x, s.y, s.w, s.h},
+                    static_cast<float>(s.radius), unpack(s.rgba),
+                    static_cast<float>(s.offset_x), static_cast<float>(s.offset_y),
+                    static_cast<float>(s.blur), static_cast<float>(s.spread),
+                    s.inset != 0);
                 break;
             }
             case PaintOpKind::DrawText: {

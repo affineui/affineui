@@ -47,6 +47,8 @@ public:
                                    float, float, float, float) override {}
     void fill_radial_gradient_rect(const Rect&, Color, Color,
                                    float, float, float, float) override {}
+    void fill_box_shadow(const Rect&, float, Color, float, float, float, float,
+                         bool) override {}
     std::uint32_t resolve_font(std::string_view, int, int, bool) override { return 0; }
     int           measure_text(std::uint32_t, std::string_view) override { return 0; }
     TextMetrics   text_metrics(std::uint32_t) override { return {}; }
@@ -258,6 +260,62 @@ public:
         } else {
             nvgRoundedRectVarying(vg_, fx, fy, fw, fh, tl, tr, br, bl);
         }
+        nvgFillPaint(vg_, paint);
+        nvgFill(vg_);
+    }
+
+    void fill_box_shadow(const Rect& r, float radius, Color color,
+                         float offset_x, float offset_y,
+                         float blur, float spread, bool inset) override {
+        const float bx = static_cast<float>(r.x);
+        const float by = static_cast<float>(r.y);
+        const float bw = static_cast<float>(r.w);
+        const float bh = static_cast<float>(r.h);
+        const NVGcolor solid = to_nvg(color);
+        const NVGcolor clear = nvgRGBA(color.r, color.g, color.b, 0);
+        // NanoVG's box gradient needs a positive feather. CSS blur:0 is a
+        // sharp shadow — give it a hairline feather so the edge is crisp
+        // without a divide-by-zero. A CSS Gaussian blur of radius `blur`
+        // spreads visibly further than NanoVG's linear box-gradient
+        // falloff of the same width, so widen the feather to approximate
+        // the softer Gaussian tail (empirically the closest match to
+        // Chrome on the html_box_shadow corpus).
+        const float feather = blur > 0.0f ? blur * 1.5f : 0.5f;
+
+        if (!inset) {
+            // Outset drop shadow: the shadow box is the border box shifted
+            // by the offset and grown by `spread`. Painted before the box
+            // background, so the solid interior is covered by the box.
+            const float sx = bx + offset_x - spread;
+            const float sy = by + offset_y - spread;
+            const float sw = bw + spread * 2.0f;
+            const float sh = bh + spread * 2.0f;
+            const float srad = std::max(0.0f, radius + spread);
+            NVGpaint paint = nvgBoxGradient(vg_, sx, sy, sw, sh, srad,
+                                            feather, solid, clear);
+            nvgBeginPath(vg_);
+            // Cover the shadow box plus the feathered falloff on every side.
+            nvgRect(vg_, sx - feather, sy - feather,
+                    sw + feather * 2.0f, sh + feather * 2.0f);
+            nvgFillPaint(vg_, paint);
+            nvgFill(vg_);
+            return;
+        }
+
+        // Inset shadow: shadow colour creeps inward from the edges. The
+        // clear inner region is the border box shifted by the offset and
+        // shrunk by `spread`; the gradient is transparent inside it and
+        // fades to the shadow colour at its boundary. Clipped to the box.
+        const float ix = bx + offset_x + spread;
+        const float iy = by + offset_y + spread;
+        const float iw = std::max(1.0f, bw - spread * 2.0f);
+        const float ih = std::max(1.0f, bh - spread * 2.0f);
+        const float irad = std::max(0.0f, radius - spread);
+        NVGpaint paint = nvgBoxGradient(vg_, ix, iy, iw, ih, irad,
+                                        feather, clear, solid);
+        nvgBeginPath(vg_);
+        if (radius > 0.0f) nvgRoundedRect(vg_, bx, by, bw, bh, radius);
+        else               nvgRect(vg_, bx, by, bw, bh);
         nvgFillPaint(vg_, paint);
         nvgFill(vg_);
     }

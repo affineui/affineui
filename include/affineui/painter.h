@@ -58,6 +58,18 @@ public:
                                            float tl = 0, float tr = 0,
                                            float br = 0, float bl = 0) = 0;
 
+    // ── Box shadow ──────────────────────────────────────────────────
+    /// Draw a CSS box-shadow for the border box `r` (corner radius
+    /// `radius`, 0 = sharp). `offset_x/offset_y` shift the shadow,
+    /// `blur` is the CSS blur radius (feathered falloff), `spread`
+    /// grows (outset) or shrinks (inset) the shadow box. When `inset`
+    /// is true the shadow is painted inside the box; otherwise it is an
+    /// outset drop shadow behind the box. Backends without a native
+    /// feather (e.g. NanoVG's box gradient) approximate the Gaussian.
+    virtual void fill_box_shadow(const Rect& r, float radius, Color color,
+                                 float offset_x, float offset_y,
+                                 float blur, float spread, bool inset) = 0;
+
     // ── Text ────────────────────────────────────────────────────────
     /// Returns an opaque font handle. Implementation-defined; zero means
     /// "use default fallback face."

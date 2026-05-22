@@ -421,6 +421,7 @@ void clear_box_shadow(AnimatedStyle& s) {
     s.shadow_offset_y = 0;
     s.shadow_blur = 0;
     s.shadow_spread = 0;
+    s.shadow_inset = false;
 }
 
 bool parse_length_px(const lxb_css_value_length_percentage_t* v, int& out) {
@@ -665,14 +666,6 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
                     clear_box_shadow(s.animated);
                     break;
                 case LXB_CSS_BOX_SHADOW__LENGTH: {
-                    if (v->inset) {
-                        // Inset shadows need a separate inner-shadow
-                        // paint path. Avoid painting them as outer
-                        // shadows until that renderer exists.
-                        clear_box_shadow(s.animated);
-                        break;
-                    }
-
                     int ox = 0;
                     int oy = 0;
                     int blur = 0;
@@ -700,6 +693,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
                         static_cast<std::int16_t>(blur);
                     s.animated.shadow_spread =
                         static_cast<std::int16_t>(spread);
+                    s.animated.shadow_inset = v->inset;
                     break;
                 }
                 default:

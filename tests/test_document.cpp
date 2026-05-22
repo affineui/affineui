@@ -58,6 +58,10 @@ public:
                                    float, float, float, float) override {
         fill_colors.push_back(c0);
     }
+    void fill_box_shadow(const affineui::Rect&, float, affineui::Color c,
+                         float, float, float, float, bool) override {
+        fill_colors.push_back(c);
+    }
     std::uint32_t resolve_font(std::string_view, int, int, bool) override { return 1; }
     int measure_text(std::uint32_t, std::string_view text) override {
         return static_cast<int>(text.size()) * 8;
