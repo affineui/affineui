@@ -177,11 +177,13 @@ struct PaintOp {
             std::uint32_t pad4_;
         } push_alpha;
 
-        std::uint8_t raw[24];
+        std::uint8_t raw[28];
     } p{};
 };
 
-static_assert(sizeof(PaintOp) == 28, "PaintOp must stay compact");
+// draw_text_box is the largest member (28 B): it carries font + position +
+// color + text ref + wrap width + line-height + letter-spacing + align.
+static_assert(sizeof(PaintOp) == 32, "PaintOp must stay compact");
 static_assert(std::is_trivially_copyable_v<PaintOp>,
               "PaintOp must be trivially copyable for byte-hashing");
 
