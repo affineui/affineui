@@ -394,3 +394,104 @@ TEST_CASE("focused input accepts text input and backspace") {
     REQUIRE(!painter.text_runs.empty());
     CHECK(painter.text_runs.back() == "A");
 }
+
+// ── @media query tests ────────────────────────────────────────────────
+//
+// Verify that min-width / max-width media queries are evaluated against
+// the actual layout viewport width and nested style rules are applied
+// when the query matches (and ignored when it doesn't).
+
+TEST_CASE("@media min-width matches and applies nested rules") {
+    // A blue box becomes red inside @media (min-width: 600px).
+    // At viewport 800px the query matches → fill should be red.
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+            div { background: #0000ff; width: 100px; height: 100px; }
+            @media (min-width: 600px) {
+                div { background: #ff0000; }
+            }
+        </style>
+        <div></div>
+    )HTML");
+    doc.layout(800, 600, &painter);  // 800 >= 600 → @media matches
+    doc.draw(painter);
+
+    // Red (#ff0000) should be present; blue (#0000ff) should NOT be
+    // the final fill (media rule overrides the base rule).
+    CHECK(saw_fill(painter, affineui::Color::rgb(0xff, 0x00, 0x00)));
+    CHECK(!saw_fill(painter, affineui::Color::rgb(0x00, 0x00, 0xff)));
+}
+
+TEST_CASE("@media min-width does NOT match when viewport is smaller") {
+    // Same setup as above, but viewport is 400px < 600px → query fails,
+    // the nested rule is NOT applied, and the base blue remains.
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+            div { background: #0000ff; width: 100px; height: 100px; }
+            @media (min-width: 600px) {
+                div { background: #ff0000; }
+            }
+        </style>
+        <div></div>
+    )HTML");
+    doc.layout(400, 600, &painter);  // 400 < 600 → @media does NOT match
+    doc.draw(painter);
+
+    CHECK(saw_fill(painter, affineui::Color::rgb(0x00, 0x00, 0xff)));
+    CHECK(!saw_fill(painter, affineui::Color::rgb(0xff, 0x00, 0x00)));
+}
+
+TEST_CASE("@media max-width matches when viewport is small enough") {
+    // Green rule applies only up to 480px.
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+            div { background: #ffffff; width: 100px; height: 100px; }
+            @media (max-width: 480px) {
+                div { background: #00ff00; }
+            }
+        </style>
+        <div></div>
+    )HTML");
+    doc.layout(320, 480, &painter);  // 320 <= 480 → @media matches
+    doc.draw(painter);
+
+    CHECK(saw_fill(painter, affineui::Color::rgb(0x00, 0xff, 0x00)));
+}
+
+TEST_CASE("@media viewport re-evaluated on layout width change") {
+    // At 800px viewport, red applies. After re-layout at 400px, blue applies.
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+            div { background: #0000ff; width: 100px; height: 100px; }
+            @media (min-width: 600px) {
+                div { background: #ff0000; }
+            }
+        </style>
+        <div></div>
+    )HTML");
+
+    // First layout at 800px → red
+    doc.layout(800, 600, &painter);
+    painter.fill_colors.clear();
+    doc.draw(painter);
+    CHECK(saw_fill(painter, affineui::Color::rgb(0xff, 0x00, 0x00)));
+
+    // Second layout at 400px → media no longer matches → blue
+    doc.layout(400, 600, &painter);
+    painter.fill_colors.clear();
+    doc.draw(painter);
+    CHECK(saw_fill(painter, affineui::Color::rgb(0x00, 0x00, 0xff)));
+    CHECK(!saw_fill(painter, affineui::Color::rgb(0xff, 0x00, 0x00)));
+}

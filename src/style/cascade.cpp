@@ -1146,6 +1146,9 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             s.computed.margin_right  = static_cast<std::int16_t>(R);
             s.computed.margin_bottom = static_cast<std::int16_t>(B);
             s.computed.margin_left   = static_cast<std::int16_t>(L);
+            // Detect `auto` on the horizontal sides for centering.
+            if (v->right.type == LXB_CSS_VALUE_AUTO) s.computed.margin_auto.right = 1;
+            if (v->left.type  == LXB_CSS_VALUE_AUTO) s.computed.margin_auto.left  = 1;
             break;
         }
         case LXB_CSS_PROPERTY_MARGIN_TOP: {
@@ -1157,7 +1160,12 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
         case LXB_CSS_PROPERTY_MARGIN_RIGHT: {
             const auto* v = static_cast<const lxb_css_property_margin_right_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px)) s.computed.margin_right = static_cast<std::int16_t>(px);
+            if (parse_length_px(v, px)) {
+                s.computed.margin_right = static_cast<std::int16_t>(px);
+                s.computed.margin_auto.right = 0;
+            } else if (v->type == LXB_CSS_VALUE_AUTO) {
+                s.computed.margin_auto.right = 1;
+            }
             break;
         }
         case LXB_CSS_PROPERTY_MARGIN_BOTTOM: {
@@ -1169,7 +1177,12 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
         case LXB_CSS_PROPERTY_MARGIN_LEFT: {
             const auto* v = static_cast<const lxb_css_property_margin_left_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px)) s.computed.margin_left = static_cast<std::int16_t>(px);
+            if (parse_length_px(v, px)) {
+                s.computed.margin_left = static_cast<std::int16_t>(px);
+                s.computed.margin_auto.left = 0;
+            } else if (v->type == LXB_CSS_VALUE_AUTO) {
+                s.computed.margin_auto.left = 1;
+            }
             break;
         }
         // ── Positioned layout ──────────────────────────────────────

@@ -132,6 +132,24 @@ struct RuleFill {
 constexpr std::uint8_t kHoverStateBit  = 1u << 0;
 constexpr std::uint8_t kActiveStateBit = 1u << 1;
 constexpr std::uint8_t kFocusStateBit  = 1u << 2;
+
+// A CSS @media block whose nested rules apply only when the viewport
+// width satisfies the (min-width)/(max-width) constraints. Both
+// min_width_px and max_width_px use -1 to mean "unset / unconstrained".
+// block_css is the raw text of the rules inside the braces (not including
+// the braces themselves) — ready to pass to lxb_css_stylesheet_parse as
+// a standalone stylesheet.
+struct MediaBlock {
+    int         min_width_px{-1};
+    int         max_width_px{-1};
+    std::string block_css;
+
+    bool matches(int viewport_px) const {
+        if (min_width_px >= 0 && viewport_px < min_width_px) return false;
+        if (max_width_px >= 0 && viewport_px > max_width_px) return false;
+        return true;
+    }
+};
 #endif
 
 }  // namespace
@@ -169,6 +187,12 @@ struct DocumentImpl {
     // calls; reset() inside set_html() recycles capacity.
     StyleStore                style_store;
 
+    // Viewport width used for @media query evaluation. 0 = unknown
+    // (no media rules evaluated). Updated by layout() before calling
+    // set_html() when the width changes. Stored here so attach_stylesheet
+    // can read it during the re-parse triggered by layout().
+    int                       media_viewport_width_px{0};
+
 #if !defined(AFFINEUI_STUB_BUILD)
     lxb_html_document_t*               doc{nullptr};
     std::vector<lxb_css_stylesheet_t*> sheets;
@@ -179,6 +203,10 @@ struct DocumentImpl {
     // Font-family fill rules populated by scan_rule_fills() from the raw
     // CSS source at attach time.
     std::vector<RuleFill>              rule_fills;
+    // @media blocks collected during attach_stylesheet. Evaluated against
+    // media_viewport_width_px; matching blocks are re-attached as extra
+    // stylesheets so their rules participate in the normal cascade.
+    std::vector<MediaBlock>            media_blocks;
     std::unique_ptr<StyleResolver>     resolver;
     ResolvedStyle                      root_style{};  // inheritance root
 #endif
@@ -936,6 +964,93 @@ void scan_rule_fills(lxb_css_stylesheet_t* sst,
         });
 }
 
+// ── @media query support ────────────────────────────────────────────
+//
+// lexbor recognises the `@media` at-keyword but its state handler returns
+// `failed`, so every media rule ends up stored as LXB_CSS_AT_RULE__UNDEF
+// with the original type recorded in lxb_css_at_rule__undef_t::type.
+// The `prelude` lexbor_str_t holds the raw query text (everything between
+// `@media` and the opening `{`), and `block` holds the nested CSS text
+// (without the surrounding braces).
+//
+// We walk the rule list here to collect those blocks and parse the
+// min-width / max-width constraints from the prelude so layout() can
+// later evaluate them against the known viewport width.
+
+// Parse a dimension value `NNNpx` (only `px` units are relevant for
+// min/max-width media features) from a string_view. Returns -1 if the
+// value is absent or not in pixels.
+static int parse_media_px(std::string_view s, std::string_view key) {
+    // key is e.g. "min-width" or "max-width"
+    auto pos = s.find(key);
+    while (pos != std::string_view::npos) {
+        // Walk past the keyword
+        std::size_t i = pos + key.size();
+        while (i < s.size() && is_css_ws(s[i])) ++i;
+        if (i >= s.size() || s[i] != ':') {
+            pos = s.find(key, pos + 1); continue;
+        }
+        ++i;  // skip ':'
+        while (i < s.size() && is_css_ws(s[i])) ++i;
+        // Parse optional decimal number
+        if (i >= s.size() || (!std::isdigit(static_cast<unsigned char>(s[i]))
+                              && s[i] != '.')) {
+            pos = s.find(key, pos + 1); continue;
+        }
+        std::size_t num_start = i;
+        while (i < s.size() && (std::isdigit(static_cast<unsigned char>(s[i]))
+                                 || s[i] == '.')) ++i;
+        // Expect "px" (case-insensitive)
+        if (i + 1 < s.size() && (s[i] == 'p' || s[i] == 'P') &&
+                                 (s[i+1] == 'x' || s[i+1] == 'X')) {
+            double val = 0.0;
+            for (std::size_t k = num_start; k < i; ++k) {
+                if (s[k] == '.') { /* skip – no sub-px needed */ }
+                else val = val * 10.0 + (s[k] - '0');
+            }
+            return static_cast<int>(val);
+        }
+        pos = s.find(key, pos + 1);
+    }
+    return -1;
+}
+
+// Walk one parsed stylesheet and collect @media at-rules that lexbor
+// stored as _undef. For each, parse min-width / max-width from the
+// prelude and record a MediaBlock entry. This runs at attach time so
+// that layout() can evaluate the collected blocks against the then-known
+// viewport width.
+void scan_media_blocks(lxb_css_stylesheet_t* sst,
+                       std::vector<MediaBlock>& out) {
+    if (!sst || !sst->root) return;
+    auto* rule_list = lxb_css_rule_list(sst->root);
+    for (auto* r = rule_list->first; r != nullptr; r = r->next) {
+        if (r->type != LXB_CSS_RULE_AT_RULE) continue;
+        auto* at = lxb_css_rule_at(r);
+        // The at-rule must be UNDEF (media state handler failed) with the
+        // original type recorded as LXB_CSS_AT_RULE_MEDIA.
+        if (at->type != LXB_CSS_AT_RULE__UNDEF) continue;
+        const auto* undef = at->u.undef;
+        if (!undef || undef->type != LXB_CSS_AT_RULE_MEDIA) continue;
+
+        // block must be present; a media rule without a block is useless.
+        if (!undef->block.data || undef->block.length == 0) continue;
+
+        std::string_view prelude(
+            reinterpret_cast<const char*>(undef->prelude.data),
+            undef->prelude.length);
+        std::string_view block(
+            reinterpret_cast<const char*>(undef->block.data),
+            undef->block.length);
+
+        MediaBlock mb;
+        mb.min_width_px = parse_media_px(prelude, "min-width");
+        mb.max_width_px = parse_media_px(prelude, "max-width");
+        mb.block_css.assign(block.data(), block.size());
+        out.push_back(std::move(mb));
+    }
+}
+
 void attach_stylesheet(detail::DocumentImpl& impl, std::string_view css) {
     if (css.empty()) return;
     // Parse via the document's own CSS parser (pre-wired with the
@@ -956,6 +1071,8 @@ void attach_stylesheet(detail::DocumentImpl& impl, std::string_view css) {
         // author CSS is a local that's destroyed when set_html returns,
         // but RuleFill values copy what they need).
         scan_rule_fills(sst, css, impl.rule_fills);
+        // Collect @media blocks for later evaluation in layout().
+        scan_media_blocks(sst, impl.media_blocks);
     } else {
         lxb_css_stylesheet_destroy(sst, true);
     }
@@ -1346,6 +1463,7 @@ void Document::set_html(std::string_view html) {
     impl_->sheets.clear();
     impl_->pseudo_rules.clear();
     impl_->rule_fills.clear();
+    impl_->media_blocks.clear();
     impl_->hovered_chain.clear();
     impl_->active_chain.clear();
     impl_->active_idx = -1;
@@ -1374,12 +1492,46 @@ void Document::set_html(std::string_view html) {
     // Cascade order (lower → higher specificity, ties to last):
     //   1. User-agent baseline
     //   2. Author <style> blocks from the page
-    //   3. User stylesheet (App-supplied, often a theme override)
+    //   3. Matching @media blocks (viewport-conditional sub-rules from 1 & 2)
+    //   4. User stylesheet (App-supplied, often a theme override)
     attach_stylesheet(*impl_, theme::ua_default());
 
     std::string author_css;
     collect_author_stylesheets(lxb_dom_interface_node(impl_->doc), *impl_, author_css);
     attach_stylesheet(*impl_, author_css);
+
+    // Evaluate collected @media blocks against the current viewport width.
+    // Each matching block's nested CSS is re-parsed and attached as its own
+    // stylesheet so the rules participate in the normal cascade (same
+    // specificity rules, correct source order relative to base rules).
+    // media_viewport_width_px == 0 means the viewport is not yet known;
+    // we skip evaluation and layout() will trigger a re-parse once it is.
+    if (impl_->media_viewport_width_px > 0 && !impl_->media_blocks.empty()) {
+        for (const auto& mb : impl_->media_blocks) {
+            if (mb.matches(impl_->media_viewport_width_px)) {
+                // Attach the block's CSS as a standalone stylesheet. We must
+                // NOT call scan_media_blocks on this sheet to avoid duplicate
+                // (and in theory nested) media block entries — pass a flag via
+                // a direct lxb_css_stylesheet_parse + attach path.
+                auto* sst_media = lxb_css_stylesheet_parse(
+                    impl_->doc->css.parser,
+                    reinterpret_cast<const lxb_char_t*>(mb.block_css.data()),
+                    mb.block_css.size());
+                if (sst_media) {
+                    if (lxb_html_document_stylesheet_attach(impl_->doc, sst_media)
+                            == LXB_STATUS_OK) {
+                        impl_->sheets.push_back(sst_media);
+                        scan_pseudo_rules(sst_media, impl_->pseudo_rules);
+                        scan_rule_fills(sst_media, mb.block_css, impl_->rule_fills);
+                        // Do NOT call scan_media_blocks here: nested @media is
+                        // not in scope for this implementation.
+                    } else {
+                        lxb_css_stylesheet_destroy(sst_media, true);
+                    }
+                }
+            }
+        }
+    }
 
     attach_stylesheet(*impl_, impl_->user_stylesheet);
 
@@ -1451,6 +1603,24 @@ void Document::layout(int viewport_width, int viewport_height,
     // Page gutter is driven by body's CSS padding. The UA stylesheet
     // keeps body padding at the browser-compatible zero default;
     // demos or applications that want a gutter author it explicitly.
+
+#if !defined(AFFINEUI_STUB_BUILD)
+    // @media evaluation: if we have collected media blocks from the last
+    // set_html() call and the viewport width has changed (or was unknown),
+    // re-parse the HTML so the matching @media rules participate in the
+    // cascade. This is the one call site that knows the real viewport
+    // width. We update media_viewport_width_px BEFORE calling set_html so
+    // the re-parse picks up the new width.
+    if (!impl_->html.empty() &&
+        !impl_->media_blocks.empty() &&
+        viewport_width != impl_->media_viewport_width_px) {
+        impl_->media_viewport_width_px = viewport_width;
+        set_html(impl_->html);
+        // set_html resets everything; fall through to the normal layout path
+        // with the newly resolved blocks.
+    }
+#endif
+
     int pad_l = 0, pad_t = 0, pad_r = 0, pad_b = 0;
 #if !defined(AFFINEUI_STUB_BUILD)
     if (impl_->doc && impl_->resolver) {

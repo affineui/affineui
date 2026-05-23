@@ -204,10 +204,22 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
     // .card-subtitle pull-up rely on it). Set them verbatim — to_yoga_edge
     // clamps negatives to 0, which is right for padding/border but wrong
     // for margins.
+    //
+    // `margin-left:auto` / `margin-right:auto` (recorded via the cascade's
+    // margin_auto bits) maps to Yoga's YGNodeStyleSetMarginAuto so block
+    // boxes get proper horizontal centering (e.g. Bootstrap's .container).
     YGNodeStyleSetMargin(node, YGEdgeTop,    static_cast<float>(cs.margin_top));
-    YGNodeStyleSetMargin(node, YGEdgeRight,  static_cast<float>(cs.margin_right));
+    if (cs.margin_auto.right) {
+        YGNodeStyleSetMarginAuto(node, YGEdgeRight);
+    } else {
+        YGNodeStyleSetMargin(node, YGEdgeRight, static_cast<float>(cs.margin_right));
+    }
     YGNodeStyleSetMargin(node, YGEdgeBottom, static_cast<float>(cs.margin_bottom));
-    YGNodeStyleSetMargin(node, YGEdgeLeft,   static_cast<float>(cs.margin_left));
+    if (cs.margin_auto.left) {
+        YGNodeStyleSetMarginAuto(node, YGEdgeLeft);
+    } else {
+        YGNodeStyleSetMargin(node, YGEdgeLeft, static_cast<float>(cs.margin_left));
+    }
 
     // ── Padding ────────────────────────────────────────────────────
     YGNodeStyleSetPadding(node, YGEdgeTop,    to_yoga_edge(cs.padding_top));

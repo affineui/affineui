@@ -190,6 +190,15 @@ struct ComputedStyle {
         std::uint8_t left   : 1 {};
     } inset_has{};
 
+    // Margin auto bits. When `margin-left:auto` / `margin-right:auto`
+    // is set, the cascade records it here so the Yoga adapter can call
+    // YGNodeStyleSetMarginAuto() for horizontal centering of block boxes
+    // that have an explicit (or max-width-constrained) width.
+    struct MarginAuto {
+        std::uint8_t left  : 1 {};
+        std::uint8_t right : 1 {};
+    } margin_auto{};
+
     // CSS `box-sizing`. ContentBox (the CSS default) means width/height
     // size the content box and padding+border add on top; BorderBox
     // means width/height size the border box (padding+border eat into
