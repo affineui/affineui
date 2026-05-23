@@ -1151,10 +1151,23 @@ void collect_blocks(detail::DocumentImpl& impl,
         }
 
         if (child->type == LXB_DOM_NODE_TYPE_TEXT) {
+            // Capture source leading/trailing whitespace BEFORE node_text
+            // collapse-trims it. Between inline-level boxes CSS keeps one
+            // collapsed space — so a text node's boundary whitespace is a
+            // real inter-inline gap (e.g. "Heading <span class=badge>New"),
+            // not something to drop. Only the line-box *edges* trim, which
+            // falls out naturally: leading ws at run start (open_synth_idx
+            // < 0) is ignored, and a dangling trailing space with no inline
+            // sibling after it is never emitted.
+            std::size_t rlen = 0;
+            lxb_char_t* rraw = lxb_dom_node_text_content(child, &rlen);
+            const bool lead_ws  = rraw && rlen && is_html_ws(rraw[0]);
+            const bool trail_ws = rraw && rlen && is_html_ws(rraw[rlen - 1]);
             auto text = apply_text_transform(
                 node_text(child, parent_style.computed.white_space),
                 parent_style.computed.text_transform);
             if (!text.empty()) {
+                if (lead_ws && open_synth_idx >= 0) pending_inline_space = true;
                 const int inline_parent_idx =
                     ensure_inline_run(impl, parent_idx, open_synth_idx);
                 if (pending_inline_space) {
@@ -1165,6 +1178,7 @@ void collect_blocks(detail::DocumentImpl& impl,
                 append_anonymous_inline_text(impl, parent_style,
                                              inline_parent_idx,
                                              std::move(text));
+                if (trail_ws) pending_inline_space = true;
             }
             continue;
         }
