@@ -228,10 +228,23 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
     YGNodeStyleSetPadding(node, YGEdgeLeft,   to_yoga_edge(cs.padding_left));
 
     // ── Border (Yoga treats border like padding for sizing) ────────
-    YGNodeStyleSetBorder(node, YGEdgeTop,    to_yoga_edge(cs.border_top));
-    YGNodeStyleSetBorder(node, YGEdgeRight,  to_yoga_edge(cs.border_right));
-    YGNodeStyleSetBorder(node, YGEdgeBottom, to_yoga_edge(cs.border_bottom));
-    YGNodeStyleSetBorder(node, YGEdgeLeft,   to_yoga_edge(cs.border_left));
+    // border-collapse: collapse — a table's borders sit on shared grid
+    // lines; they must NOT inset the child rows/cells. Otherwise a row's
+    // top/bottom border (Bootstrap's .table-bordered puts 1px on rows)
+    // pushes its cells 1px inward, so the row's border-bottom and the
+    // cell's own base border-bottom land a pixel apart (doubled horizontal
+    // line) and the 1px row-edge strip is left uncovered by the cell's
+    // background tint (a white sliver above the cell). Zero the *layout*
+    // border on the row-direction containers; paint still draws the line
+    // on the grid (see document.cpp collapse edge-snapping).
+    const bool collapse_container = cs.border_collapse &&
+        (cs.display == ComputedStyle::Display::Table ||
+         cs.display == ComputedStyle::Display::TableRowGroup ||
+         cs.display == ComputedStyle::Display::TableRow);
+    YGNodeStyleSetBorder(node, YGEdgeTop,    collapse_container ? 0.0f : to_yoga_edge(cs.border_top));
+    YGNodeStyleSetBorder(node, YGEdgeRight,  collapse_container ? 0.0f : to_yoga_edge(cs.border_right));
+    YGNodeStyleSetBorder(node, YGEdgeBottom, collapse_container ? 0.0f : to_yoga_edge(cs.border_bottom));
+    YGNodeStyleSetBorder(node, YGEdgeLeft,   collapse_container ? 0.0f : to_yoga_edge(cs.border_left));
 
     // ── Intrinsic content size ─────────────────────────────────────
     // Phase 2C: we pre-measure text height (font_size + a small line-h
