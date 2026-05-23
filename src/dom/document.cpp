@@ -2133,36 +2133,51 @@ void Document::draw(Painter& painter) {
                 // is Phase 2C+ — see computed_style.h comment).
                 const BS bstyle = cs.border_style;
 
+                // border-collapse: collapse — adjacent cells share one border.
+                // Normally each edge sits half its width INSIDE the border box;
+                // two adjacent cells then draw the shared edge one stripe apart,
+                // doubling the interior grid line. In collapse mode we snap each
+                // edge to (boundary - 0.5): a 1px stroke there covers exactly one
+                // pixel column/row just inside the boundary, and BOTH neighbours
+                // (cell right == next cell left; row bottom == next row top, which
+                // also coincides with the cells' base border-bottom) snap to that
+                // same pixel — a single crisp grid line instead of a double.
+                const bool collapse = cs.border_collapse;
+                const float cwt = collapse ? -0.5f : 0.0f;  // half-pixel snap
+
                 // Top edge: runs full width from left edge to right edge.
-                // Y midpoint = eff.y + border_top/2.
                 if (vis_top) {
                     const float wt = static_cast<float>(cs.border_top);
-                    const float my = ey + wt * 0.5f;
+                    const float my = collapse ? ey + cwt : ey + wt * 0.5f;
                     draw_edge(ex, my, ex + ew, my, wt, bstyle,
                               detail::unpack_rgba(c_top));
                 }
                 // Bottom edge: full width.
                 if (vis_bottom) {
                     const float wb = static_cast<float>(cs.border_bottom);
-                    const float my = ey + eh - wb * 0.5f;
+                    const float my = collapse ? ey + eh + cwt : ey + eh - wb * 0.5f;
                     draw_edge(ex, my, ex + ew, my, wb, bstyle,
                               detail::unpack_rgba(c_bottom));
                 }
                 // Left edge: between the top and bottom edges' outer boundaries.
                 if (vis_left) {
                     const float wl  = static_cast<float>(cs.border_left);
-                    const float mx  = ex + wl * 0.5f;
-                    const float y0  = ey + static_cast<float>(cs.border_top);
-                    const float y1  = ey + eh - static_cast<float>(cs.border_bottom);
+                    const float mx  = collapse ? ex + cwt : ex + wl * 0.5f;
+                    const float y0  = collapse ? ey + cwt
+                                      : ey + static_cast<float>(cs.border_top);
+                    const float y1  = collapse ? ey + eh + cwt
+                                      : ey + eh - static_cast<float>(cs.border_bottom);
                     draw_edge(mx, y0, mx, y1, wl, bstyle,
                               detail::unpack_rgba(c_left));
                 }
                 // Right edge: between top and bottom edges' outer boundaries.
                 if (vis_right) {
                     const float wr  = static_cast<float>(cs.border_right);
-                    const float mx  = ex + ew - wr * 0.5f;
-                    const float y0  = ey + static_cast<float>(cs.border_top);
-                    const float y1  = ey + eh - static_cast<float>(cs.border_bottom);
+                    const float mx  = collapse ? ex + ew + cwt : ex + ew - wr * 0.5f;
+                    const float y0  = collapse ? ey + cwt
+                                      : ey + static_cast<float>(cs.border_top);
+                    const float y1  = collapse ? ey + eh + cwt
+                                      : ey + eh - static_cast<float>(cs.border_bottom);
                     draw_edge(mx, y0, mx, y1, wr, bstyle,
                               detail::unpack_rgba(c_right));
                 }
