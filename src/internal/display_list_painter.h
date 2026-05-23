@@ -99,6 +99,21 @@ public:
         list_.ops.push_back(op);
     }
 
+    void stroke_arc(float cx, float cy, float radius,
+                    float angle_start_deg, float angle_end_deg,
+                    Color c, float w) override {
+        PaintOp op{};
+        op.kind = PaintOpKind::StrokeArc;
+        op.p.stroke_arc.cx          = cx;
+        op.p.stroke_arc.cy          = cy;
+        op.p.stroke_arc.radius      = radius;
+        op.p.stroke_arc.rgba        = pack(c);
+        op.p.stroke_arc.angle_start = static_cast<std::int16_t>(angle_start_deg);
+        op.p.stroke_arc.angle_end   = static_cast<std::int16_t>(angle_end_deg);
+        op.p.stroke_arc.thickness   = w;
+        list_.ops.push_back(op);
+    }
+
     void fill_rounded_rect(const Rect& r, float radius, Color c) override {
         PaintOp op{};
         op.kind = PaintOpKind::FillRoundedRect;
@@ -386,6 +401,14 @@ inline void replay(const DisplayList& list, Painter& target) {
             case PaintOpKind::FillCircle: {
                 const auto& fc = op.p.fill_circle;
                 target.fill_circle(fc.cx, fc.cy, fc.radius, unpack(fc.rgba));
+                break;
+            }
+            case PaintOpKind::StrokeArc: {
+                const auto& sa = op.p.stroke_arc;
+                target.stroke_arc(sa.cx, sa.cy, sa.radius,
+                                  static_cast<float>(sa.angle_start),
+                                  static_cast<float>(sa.angle_end),
+                                  unpack(sa.rgba), sa.thickness);
                 break;
             }
             case PaintOpKind::FillRoundedRect: {

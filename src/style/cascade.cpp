@@ -355,6 +355,19 @@ bool parse_color(const lxb_css_value_color_t* v, std::uint32_t& out) {
     return parse_named_color(v->type, out);
 }
 
+// Variant that resolves `currentcolor` to `current_color_rgba`.
+// CSS `currentcolor` is the element's own `color` property value.
+// This overload is used at border-color call sites where the current
+// foreground colour is already resolved into `s.animated.color_rgba`.
+bool parse_color(const lxb_css_value_color_t* v, std::uint32_t& out,
+                 std::uint32_t current_color_rgba) {
+    if (v && v->type == LXB_CSS_COLOR_CURRENTCOLOR) {
+        out = current_color_rgba;
+        return true;
+    }
+    return parse_color(v, out);
+}
+
 // em_px: the font-size in CSS pixels used to resolve `em` lengths.
 //   For most properties this is the element's own computed font-size.
 //   For `font-size` itself it must be the PARENT's font-size (passed by
@@ -959,8 +972,11 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s,
                 s.computed.border_style = style;
             }
             // Color — Bootstrap relies on rgba() here for card borders.
+            // Use the currentcolor-aware overload so that
+            // `border-bottom-color: currentcolor` resolves to the element's
+            // foreground colour (CSS `color` property, already resolved above).
             std::uint32_t rgba = 0;
-            if (parse_color(&v->color, rgba)) {
+            if (parse_color(&v->color, rgba, s.animated.color_rgba)) {
                 if (d->type == LXB_CSS_PROPERTY_BORDER_TOP)
                     s.animated.border_top_rgba    = rgba;
                 else if (d->type == LXB_CSS_PROPERTY_BORDER_RIGHT)
@@ -985,7 +1001,8 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s,
             const auto* v =
                 static_cast<const lxb_css_property_border_color_t*>(d->u.user);
             std::uint32_t rgba;
-            if (parse_color(&v->top, rgba)) s.animated.border_rgba = rgba;
+            if (parse_color(&v->top, rgba, s.animated.color_rgba))
+                s.animated.border_rgba = rgba;
             break;
         }
         case LXB_CSS_PROPERTY_BORDER_RADIUS: {
@@ -1059,28 +1076,32 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s,
             const auto* v =
                 static_cast<const lxb_css_value_color_t*>(d->u.user);
             std::uint32_t rgba;
-            if (parse_color(v, rgba)) s.animated.border_top_rgba = rgba;
+            if (parse_color(v, rgba, s.animated.color_rgba))
+                s.animated.border_top_rgba = rgba;
             break;
         }
         case LXB_CSS_PROPERTY_BORDER_RIGHT_COLOR: {
             const auto* v =
                 static_cast<const lxb_css_value_color_t*>(d->u.user);
             std::uint32_t rgba;
-            if (parse_color(v, rgba)) s.animated.border_right_rgba = rgba;
+            if (parse_color(v, rgba, s.animated.color_rgba))
+                s.animated.border_right_rgba = rgba;
             break;
         }
         case LXB_CSS_PROPERTY_BORDER_BOTTOM_COLOR: {
             const auto* v =
                 static_cast<const lxb_css_value_color_t*>(d->u.user);
             std::uint32_t rgba;
-            if (parse_color(v, rgba)) s.animated.border_bottom_rgba = rgba;
+            if (parse_color(v, rgba, s.animated.color_rgba))
+                s.animated.border_bottom_rgba = rgba;
             break;
         }
         case LXB_CSS_PROPERTY_BORDER_LEFT_COLOR: {
             const auto* v =
                 static_cast<const lxb_css_value_color_t*>(d->u.user);
             std::uint32_t rgba;
-            if (parse_color(v, rgba)) s.animated.border_left_rgba = rgba;
+            if (parse_color(v, rgba, s.animated.color_rgba))
+                s.animated.border_left_rgba = rgba;
             break;
         }
         case LXB_CSS_PROPERTY_BORDER_STYLE: {
@@ -1927,8 +1948,9 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s,
 // can't apply it until the element's full custom-property scope is
 // known, so we collect these during the walk and resolve them after.
 struct DeferredVar {
-    std::uintptr_t property_id;
-    std::string    raw_value;
+    std::uintptr_t                 property_id;
+    std::string                    raw_value;
+    lxb_css_selector_specificity_t spec{0};
 };
 
 // One per-property cascade winner collected during the walk, paired with
@@ -2011,7 +2033,7 @@ lxb_status_t walk_callback(lxb_html_element_t* /*element*/,
                                  u->value.length);
             if (find_var(val, 0) != std::string_view::npos ||
                 find_calc(val, 0) != std::string_view::npos) {
-                w->deferred->push_back({u->type, std::string(val)});
+                w->deferred->push_back({u->type, std::string(val), spec});
             }
         }
         return LXB_STATUS_OK;
@@ -2134,58 +2156,9 @@ public:
         lxb_html_element_style_walk(html_el, walk_callback, &ctx,
                                     /*with_weak=*/false);
 
-        // Apply the collected cascade winners in CSS order. lexbor visits
-        // its style AVL in pre-order (tree shape, NOT cascade order), and
-        // it keeps overlapping shorthands/longhands as separate winners,
-        // so applying in walk order lets, e.g., a UA `margin` shorthand
-        // clobber a later `margin-top:0` reset. Sort by specificity
-        // ascending (higher specificity wins via last-write — the packed
-        // spec compares as important > inline > id > class > type), and on
-        // equal specificity put shorthands before the longhands they set.
-        // stable_sort keeps the per-property walk order for true ties.
-        std::stable_sort(pending.begin(), pending.end(),
-            [](const PendingDecl& a, const PendingDecl& b) {
-                if (a.spec != b.spec) return a.spec < b.spec;
-                return shorthand_rank(a.declr->type) <
-                       shorthand_rank(b.declr->type);
-            });
-
-        // Two-pass application to implement correct `em` resolution:
-        //
-        // CSS spec §9.2 (Computed values): `em` in font-size resolves against
-        // the PARENT's font-size; `em` in all other properties resolves
-        // against the element's OWN computed font-size.
-        //
-        // At the start of resolve(), `s = parent`, so s.computed.font_size_px
-        // holds the inherited (parent's) font-size. Pass 1 applies FONT_SIZE
-        // and FONT declarations in cascade order using that inherited value as
-        // the `em` base, updating font_size_px to the element's own size.
-        // Pass 2 then applies all OTHER declarations using the element's own
-        // font-size for `em`. FONT_SIZE/FONT are deliberately skipped in pass 2
-        // because they were already applied correctly in pass 1.
-        const double parent_font_em = (s.computed.font_size_px > 0)
-            ? static_cast<double>(s.computed.font_size_px) : 16.0;
-
-        // Pass 1: resolve font-size (using parent's em for any `em` units).
-        for (const PendingDecl& pd : pending) {
-            const auto t = pd.declr->type;
-            if (t == LXB_CSS_PROPERTY_FONT_SIZE || t == LXB_CSS_PROPERTY_FONT) {
-                apply_declaration(pd.declr, s, parent_font_em);
-            }
-        }
-
-        // Pass 2: resolve all other declarations (em = element's own font-size).
-        const double own_em = (s.computed.font_size_px > 0)
-            ? static_cast<double>(s.computed.font_size_px) : 16.0;
-        for (const PendingDecl& pd : pending) {
-            const auto t = pd.declr->type;
-            if (t != LXB_CSS_PROPERTY_FONT_SIZE && t != LXB_CSS_PROPERTY_FONT) {
-                apply_declaration(pd.declr, s, own_em);
-            }
-        }
-
-        // Finalize this element's custom-property scope (copy-on-write:
-        // only elements that declare `--x` clone the inherited map).
+        // Finalize this element's custom-property scope FIRST (copy-on-write:
+        // only elements that declare `--x` clone the inherited map) so the
+        // deferred var() declarations below can resolve against it.
         if (!own_customs.empty()) {
             auto merged = std::make_shared<CustomPropMap>(
                 parent.custom_props ? *parent.custom_props : CustomPropMap{});
@@ -2193,27 +2166,69 @@ public:
             s.custom_props = std::move(merged);
         }
 
-        // Resolve any deferred var()/calc()-bearing declarations against
-        // the now-complete scope, then re-parse them back into typed
-        // values. var() substitutes first (so calc() sees concrete units),
-        // then calc() evaluates to a px literal. `em` is the element's
-        // resolved font size; `rem` is the root font size (16px default).
-        if (!deferred.empty()) {
-            static const CustomPropMap kEmpty;
-            const CustomPropMap& scope =
-                s.custom_props ? *s.custom_props : kEmpty;
-            // own_em: element's font-size after pass 1 resolved it.
-            // This is correct for non-font-size deferred properties.
-            // For font-size itself via var(), the correct base would be
-            // parent_font_em, but this edge case is acceptable for now.
-            const double deferred_em = own_em;
-            constexpr double rem = 16.0;
-            for (const auto& dv : deferred) {
-                std::string resolved = substitute_vars(dv.raw_value, scope);
-                resolved = evaluate_calc(resolved, rem, deferred_em);
-                apply_resolved_decl(dv.property_id, resolved, s, deferred_em);
+        // Apply the cascade winners. Two requirements drive the ordering:
+        //   1. `em` resolution (CSS §): font-size resolves `em` against the
+        //      PARENT's font-size; every other property resolves `em` against
+        //      the element's OWN computed font-size — so font-size goes first.
+        //   2. Specificity across var(): a higher-specificity declaration must
+        //      win whether or not it uses var(), so typed (pending) and
+        //      deferred var() declarations are merged in specificity order
+        //      (e.g. `.nav-link.active{border-bottom-color:currentcolor}` must
+        //      beat `.nav-link{border-bottom:var(--w) solid transparent}`).
+        // lexbor visits its style AVL in pre-order (not cascade order) and
+        // keeps overlapping shorthands/longhands as separate winners, so we
+        // sort by (specificity asc, shorthand-before-longhand) + last-write-wins.
+        std::stable_sort(pending.begin(), pending.end(),
+            [](const PendingDecl& a, const PendingDecl& b) {
+                if (a.spec != b.spec) return a.spec < b.spec;
+                return shorthand_rank(a.declr->type) <
+                       shorthand_rank(b.declr->type);
+            });
+        std::stable_sort(deferred.begin(), deferred.end(),
+            [](const DeferredVar& a, const DeferredVar& b) {
+                return a.spec < b.spec;
+            });
+
+        static const CustomPropMap kEmpty;
+        const CustomPropMap& scope = s.custom_props ? *s.custom_props : kEmpty;
+        constexpr double rem = 16.0;
+        auto is_font_size = [](std::uintptr_t t) {
+            return t == LXB_CSS_PROPERTY_FONT_SIZE || t == LXB_CSS_PROPERTY_FONT;
+        };
+
+        // ── Pass 1: font-size only (em resolves against the PARENT's size).
+        const double parent_em = (s.computed.font_size_px > 0)
+            ? static_cast<double>(s.computed.font_size_px) : 16.0;
+        for (const PendingDecl& pd : pending)
+            if (is_font_size(pd.declr->type))
+                apply_declaration(pd.declr, s, parent_em);
+        for (const DeferredVar& dv : deferred)
+            if (is_font_size(dv.property_id)) {
+                const std::string resolved = evaluate_calc(
+                    substitute_vars(dv.raw_value, scope), rem, parent_em);
+                apply_resolved_decl(dv.property_id, resolved, s, parent_em);
             }
+
+        // ── Pass 2: everything else, interleaving typed + deferred var() by
+        // ascending specificity; em now resolves against the element's OWN
+        // font-size (set by pass 1). font-size entries are skipped (done).
+        const double own_em = (s.computed.font_size_px > 0)
+            ? static_cast<double>(s.computed.font_size_px) : 16.0;
+        std::size_t di = 0;
+        auto apply_deferred = [&](const DeferredVar& dv) {
+            if (is_font_size(dv.property_id)) return;  // applied in pass 1
+            const std::string resolved = evaluate_calc(
+                substitute_vars(dv.raw_value, scope), rem, own_em);
+            apply_resolved_decl(dv.property_id, resolved, s, own_em);
+        };
+        for (const PendingDecl& pd : pending) {
+            if (is_font_size(pd.declr->type)) continue;  // applied in pass 1
+            while (di < deferred.size() && deferred[di].spec < pd.spec)
+                apply_deferred(deferred[di++]);
+            apply_declaration(pd.declr, s, own_em);
         }
+        while (di < deferred.size()) apply_deferred(deferred[di++]);
+
         return s;
     }
 

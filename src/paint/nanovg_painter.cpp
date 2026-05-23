@@ -39,6 +39,7 @@ public:
     void stroke_rect(const Rect&, Color, float) override {}
     void stroke_line(float, float, float, float, Color, float) override {}
     void fill_circle(float, float, float, Color) override {}
+    void stroke_arc(float, float, float, float, float, Color, float) override {}
     void fill_rounded_rect(const Rect&, float, Color) override {}
     void stroke_rounded_rect(const Rect&, float, Color, float) override {}
     void fill_rounded_rect_varying(const Rect&, float, float, float, float, Color) override {}
@@ -142,6 +143,25 @@ public:
         nvgCircle(vg_, cx, cy, radius);
         nvgFillColor(vg_, to_nvg(c));
         nvgFill(vg_);
+    }
+
+    // CSS-clock-convention: 0 = top (12 o'clock), increasing clockwise.
+    // NanoVG uses standard math angles (0 = right, CCW positive), and its
+    // Y axis points down so CCW in screen space is actually CW visually.
+    // Mapping: css_deg → nvg_rad = (css_deg - 90) * pi/180 with CW winding.
+    void stroke_arc(float cx, float cy, float radius,
+                    float angle_start_deg, float angle_end_deg,
+                    Color c, float w) override {
+        constexpr float kPi = 3.14159265358979323846f;
+        const float a0 = (angle_start_deg - 90.0f) * kPi / 180.0f;
+        const float a1 = (angle_end_deg   - 90.0f) * kPi / 180.0f;
+        nvgBeginPath(vg_);
+        // NVG_CW produces the clockwise arc in screen-space (Y-down coords).
+        nvgArc(vg_, cx, cy, radius, a0, a1, NVG_CW);
+        nvgStrokeColor(vg_, to_nvg(c));
+        nvgStrokeWidth(vg_, w);
+        nvgLineCap(vg_, NVG_ROUND);
+        nvgStroke(vg_);
     }
 
     void fill_rounded_rect(const Rect& r, float radius, Color c) override {

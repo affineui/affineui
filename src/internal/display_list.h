@@ -24,6 +24,7 @@ enum class PaintOpKind : std::uint8_t {
     StrokeRect,
     StrokeLine,
     FillCircle,
+    StrokeArc,
     FillRoundedRect,
     StrokeRoundedRect,
     FillRoundedRectVarying,
@@ -75,6 +76,15 @@ struct PaintOp {
             std::uint32_t pad0_;            // 4
             std::uint32_t pad1_;            // 4
         } fill_circle;
+
+        // Circular arc centred at (cx,cy), CSS-clock angles in degrees.
+        struct {
+            float         cx, cy, radius;   // 12
+            std::uint32_t rgba;             // 4
+            std::int16_t  angle_start;      // 2  (degrees, CSS clock: 0=top CW)
+            std::int16_t  angle_end;        // 2
+            float         thickness;        // 4
+        } stroke_arc;                       // = 24 bytes
 
         struct {
             std::int16_t  x, y, w, h;

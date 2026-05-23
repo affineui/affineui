@@ -32,6 +32,13 @@ public:
     /// Draw a filled circle (used for dotted border dots).
     virtual void fill_circle(float cx, float cy, float radius,
                              Color color)                              = 0;
+    /// Draw a circular arc centered at (cx, cy) with the given radius.
+    /// `angle_start` and `angle_end` are in degrees measured clockwise
+    /// from the 12-o'clock (top) position (CSS/SVG convention).
+    /// Used for spinner-border UA representation.
+    virtual void stroke_arc(float cx, float cy, float radius,
+                            float angle_start_deg, float angle_end_deg,
+                            Color color, float w)                      = 0;
     virtual void fill_rounded_rect(const Rect& r, float radius, Color color) = 0;
     virtual void stroke_rounded_rect(const Rect& r, float radius, Color color, float w) = 0;
     /// Per-corner radii, top-left / top-right / bottom-right / bottom-left.

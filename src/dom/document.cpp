@@ -82,6 +82,12 @@ struct Block {
     bool              synthetic{false};
     bool              text_control{false};
     bool              placeholder_visible{false};
+    // Input-control UA paint hints. Populated for <input> elements at
+    // collect time; empty / false for all other elements.
+    std::string       input_type;       // "checkbox" / "radio" / ""
+    std::string       role_attr;        // "switch" etc.
+    bool              is_checked{false};
+    bool              is_disabled{false};
 };
 
 #if !defined(AFFINEUI_STUB_BUILD)
@@ -1304,6 +1310,12 @@ void collect_blocks(detail::DocumentImpl& impl,
             b.text_control = true;
             b.placeholder = attr_string(elem, "placeholder");
         }
+        if (b.tag == "input") {
+            b.input_type  = attr_string(elem, "type");
+            b.role_attr   = attr_string(elem, "role");
+            b.is_checked  = has_attr(elem, "checked");
+            b.is_disabled = has_attr(elem, "disabled");
+        }
         b.parent_idx = effective_parent_idx;
         impl.blocks.push_back(std::move(b));
 
@@ -1881,6 +1893,14 @@ void Document::draw(Painter& painter) {
 
         const bool has_border = vis_top || vis_right || vis_bottom || vis_left;
 
+        // spinner-border uses CSS border-color to set the ring color, but its
+        // CSS border draws as a square (border-radius: 50% doesn't work with
+        // percentage values in our cascade yet). Suppress the CSS border draw
+        // for spinner-border elements; the arc is drawn in the UA spinner block
+        // below. spinner-grow doesn't use border at all so no check needed.
+        const bool is_spinner_border = std::find(b.classes.begin(),
+            b.classes.end(), "spinner-border") != b.classes.end();
+
         // True when all visible sides share identical color and width, enabling
         // the fast-path stroke_rect / stroke_rounded_rect for the Solid style.
         const bool uniform_border =
@@ -1960,7 +1980,7 @@ void Document::draw(Painter& painter) {
             }
         }
 
-        if (has_border) {
+        if (has_border && !is_spinner_border) {
             if (uniform_border && !any_radius) {
                 // Fast path: uniform solid border, no radius. One NVG stroke
                 // (avoids 4 separate lineto calls).
@@ -2252,6 +2272,100 @@ void Document::draw(Painter& painter) {
             const Color chev{0x34, 0x3a, 0x40, 0xFF};
             painter.stroke_line(cx - 5.0f, cy - 2.5f, cx, cy + 2.5f, chev, 1.5f);
             painter.stroke_line(cx, cy + 2.5f, cx + 5.0f, cy - 2.5f, chev, 1.5f);
+        }
+
+        // ── UA spinner drawing ─────────────────────────────────────────
+        // Bootstrap spinners use CSS animations and SVG-level drawing we
+        // can't rasterize. Draw a static approximation that matches
+        // Chrome's frozen-animation frame.
+        {
+            // Helper: class membership test.
+            auto has_cls = [&](std::string_view name) -> bool {
+                return std::find(b.classes.begin(), b.classes.end(), name)
+                       != b.classes.end();
+            };
+            // Foreground colour for the spinner ring / disc.
+            const Color fg = detail::unpack_rgba(an.color_rgba);
+
+            if (has_cls("spinner-border")) {
+                // spinner-border: a ring (open arc, ~270° visible) centred on
+                // the element's border box. Bootstrap's default spinner-border
+                // is 2rem (32px) with a 0.25em (4px) border-width. spinner-
+                // border-sm is 1rem (16px) with a 0.2em (≈3px) border.
+                const float cx = static_cast<float>(eff.x) + static_cast<float>(eff.w) * 0.5f;
+                const float cy = static_cast<float>(eff.y) + static_cast<float>(eff.h) * 0.5f;
+                // Border stroke width ≈ 12.5% of the element's shorter dimension
+                // (matches Bootstrap's 0.25em / 2rem ratio).
+                const float short_side = static_cast<float>(std::min(eff.w, eff.h));
+                const float stroke_w   = std::max(2.0f, short_side * 0.125f);
+                const float radius     = short_side * 0.5f - stroke_w * 0.5f;
+                if (radius > 0.0f) {
+                    // Draw 270° arc (0°→270° clockwise from top = 3/4 ring).
+                    // Chrome's frozen frame stops at ~270° (gap at bottom-right).
+                    painter.stroke_arc(cx, cy, radius, 0.0f, 270.0f, fg, stroke_w);
+                }
+            } else if (has_cls("spinner-grow")) {
+                // spinner-grow: a filled circle (Bootstrap's grow spinner is a
+                // solid disc that scales up; frozen at full size = filled circle).
+                const float cx = static_cast<float>(eff.x) + static_cast<float>(eff.w) * 0.5f;
+                const float cy = static_cast<float>(eff.y) + static_cast<float>(eff.h) * 0.5f;
+                const float radius = static_cast<float>(std::min(eff.w, eff.h)) * 0.5f;
+                if (radius > 0.0f) {
+                    painter.fill_circle(cx, cy, radius, fg);
+                }
+            }
+        }
+
+        // ── UA form-control drawing ────────────────────────────────────
+        // Bootstrap's form-check-input uses SVG data: URIs for its
+        // checkbox checkmark, radio dot, and switch knob — none of which
+        // we rasterize. Draw UA approximations for :checked / unchecked
+        // states that match Chrome's static appearance. The box itself
+        // (border + background) is already painted by the normal path above.
+        if (b.tag == "input" &&
+            (b.input_type == "checkbox" || b.input_type == "radio")) {
+            const float bx = static_cast<float>(eff.x);
+            const float by = static_cast<float>(eff.y);
+            const float bw = static_cast<float>(eff.w);
+            const float bh = static_cast<float>(eff.h);
+            const float cx = bx + bw * 0.5f;
+            const float cy = by + bh * 0.5f;
+
+            const bool is_switch = (b.role_attr == "switch");
+
+            if (b.input_type == "checkbox" && !is_switch) {
+                if (b.is_checked) {
+                    // White checkmark polyline (matches Bootstrap's SVG icon).
+                    // Proportional to the box: from ~20% to ~45% (bottom-left
+                    // of the tick) then to ~80%,20% (top-right).
+                    const float m = std::min(bw, bh);
+                    const float x0 = bx + m * 0.20f, y0 = by + m * 0.55f;
+                    const float x1 = bx + m * 0.40f, y1 = by + m * 0.80f;
+                    const float x2 = bx + m * 0.80f, y2 = by + m * 0.20f;
+                    const Color white{0xFF, 0xFF, 0xFF, 0xFF};
+                    painter.stroke_line(x0, y0, x1, y1, white, 2.0f);
+                    painter.stroke_line(x1, y1, x2, y2, white, 2.0f);
+                }
+            } else if (b.input_type == "radio") {
+                if (b.is_checked) {
+                    // Filled white center dot (Bootstrap radio checked icon).
+                    const float dot_r = std::min(bw, bh) * 0.22f;
+                    painter.fill_circle(cx, cy, dot_r, Color{0xFF, 0xFF, 0xFF, 0xFF});
+                }
+            }
+
+            // Switch knob: pill-shaped background is drawn by CSS (the
+            // form-switch input has a wide border-radius). We draw the
+            // round white knob positioned at left (unchecked) or right
+            // (checked).
+            if (b.input_type == "checkbox" && is_switch) {
+                const float knob_r   = bh * 0.5f - 2.0f;
+                const float knob_cx  = b.is_checked
+                    ? (bx + bw - knob_r - 2.0f)
+                    : (bx      + knob_r + 2.0f);
+                painter.fill_circle(knob_cx, cy, knob_r,
+                                    Color{0xFF, 0xFF, 0xFF, 0xFF});
+            }
         }
 
         if (has_opacity) painter.pop_alpha();
