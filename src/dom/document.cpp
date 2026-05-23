@@ -1435,16 +1435,24 @@ bool assign_table_column_widths(std::vector<detail::BlockLayoutInput>& inputs,
             colw[static_cast<std::size_t>(ncols - 1)] += table_w - assigned;
         }
 
-        // Pin each cell: content width = column border-box width minus the
-        // cell's own padding + border (Yoga adds them back, so the cell's
-        // border box equals the column width and the columns line up).
+        // Pin each cell so its border box equals the column width and the
+        // columns line up. intrinsic_w_px feeds YGNodeStyleSetWidth, whose
+        // meaning depends on the cell's box-sizing:
+        //   border-box (Bootstrap's `*{box-sizing:border-box}`): the width
+        //     IS the border box — pin colw[j] directly. (Subtracting
+        //     padding+border here is the bug that left every cell ~18px too
+        //     narrow, summing to a phantom empty column on the table's right.)
+        //   content-box: Yoga adds padding+border back — pin the content box.
+        using BoxSizing = detail::ComputedStyle::BoxSizing;
         for (const auto& cells : row_cells) {
             for (std::size_t j = 0; j < cells.size(); ++j) {
                 const auto& ccs = *inputs[static_cast<std::size_t>(cells[j])].style;
-                int content = colw[j] - ccs.padding_left - ccs.padding_right
-                            - ccs.border_left - ccs.border_right;
-                if (content < 0) content = 0;
-                inputs[static_cast<std::size_t>(cells[j])].intrinsic_w_px = content;
+                int w = (ccs.box_sizing == BoxSizing::BorderBox)
+                    ? colw[j]
+                    : colw[j] - ccs.padding_left - ccs.padding_right
+                              - ccs.border_left - ccs.border_right;
+                if (w < 0) w = 0;
+                inputs[static_cast<std::size_t>(cells[j])].intrinsic_w_px = w;
             }
         }
     }
