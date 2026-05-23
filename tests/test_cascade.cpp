@@ -713,4 +713,65 @@ TEST_CASE("css custom property striping via var() on table cells") {
     CHECK(td2_rs.animated.background_rgba == rgba(0xFF, 0xFF, 0xFF));
 }
 
+TEST_CASE("em length uses element font-size, not root 16px") {
+    // Bootstrap .badge: font-size:0.75em → 12px (parent=16px).
+    // Then padding:0.35em 0.65em must resolve against 12px, not 16px.
+    // Expected: padding_top = round(0.35 * 12) = 4, padding_left = round(0.65 * 12) = 8.
+    CssEnv env("<div class=\"badge\">X</div>");
+    env.attach(
+        // Parent (root) has 16px font-size (default).
+        // .badge shrinks font-size to 0.75em → 12px,
+        // then uses em-based padding against its OWN font-size.
+        ".badge { font-size: 0.75em; padding: 0.35em 0.65em; }");
+    env.build_resolver();
+
+    const affineui::detail::ResolvedStyle root{};  // font_size_px = 16 (default)
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+    const auto rs = env.resolver->resolve(div, root);
+
+    // font-size: 0.75em against parent 16px = 12px
+    CHECK(rs.computed.font_size_px == 12);
+    // padding-top: 0.35em against own 12px = round(4.2) = 4
+    CHECK(rs.computed.padding_top == 4);
+    // padding-left: 0.65em against own 12px = round(7.8) = 8
+    CHECK(rs.computed.padding_left == 8);
+    // padding-right same as padding-left (2-value shorthand)
+    CHECK(rs.computed.padding_right == 8);
+    // padding-bottom same as padding-top
+    CHECK(rs.computed.padding_bottom == 4);
+}
+
+TEST_CASE("em font-size inherits parent font-size for nested elements") {
+    // h1{font-size:2em} inside body{font-size:16px} → h1 = 32px.
+    // p inside h1 with font-size:0.5em → 16px (half of h1's 32px).
+    CssEnv env("<body><h1><p class=\"sub\">text</p></h1></body>");
+    env.attach(
+        "body { font-size: 16px; }"
+        "h1 { font-size: 2em; }"
+        ".sub { font-size: 0.5em; padding-top: 1em; }");
+    env.build_resolver();
+
+    const affineui::detail::ResolvedStyle root{};
+    auto* body = env.find("body");
+    auto* h1   = env.find("h1");
+    auto* p    = env.find("p");
+    REQUIRE(body != nullptr);
+    REQUIRE(h1   != nullptr);
+    REQUIRE(p    != nullptr);
+
+    const auto body_rs = env.resolver->resolve(body, root);
+    CHECK(body_rs.computed.font_size_px == 16);
+
+    const auto h1_rs = env.resolver->resolve(h1, body_rs);
+    // 2em against parent 16px = 32px
+    CHECK(h1_rs.computed.font_size_px == 32);
+
+    const auto p_rs = env.resolver->resolve(p, h1_rs);
+    // 0.5em against parent 32px = 16px
+    CHECK(p_rs.computed.font_size_px == 16);
+    // padding-top: 1em against own 16px = 16px
+    CHECK(p_rs.computed.padding_top == 16);
+}
+
 #endif  // !AFFINEUI_STUB_BUILD

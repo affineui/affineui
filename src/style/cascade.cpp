@@ -355,7 +355,13 @@ bool parse_color(const lxb_css_value_color_t* v, std::uint32_t& out) {
     return parse_named_color(v->type, out);
 }
 
-bool parse_length_value(double num, int unit, int& out) {
+// em_px: the font-size in CSS pixels used to resolve `em` lengths.
+//   For most properties this is the element's own computed font-size.
+//   For `font-size` itself it must be the PARENT's font-size (passed by
+//   the caller), because `font-size: 0.75em` means "75% of the parent's
+//   font-size", not "75% of myself".
+// rem always resolves against the root font-size (16 px UA default).
+bool parse_length_value(double num, int unit, int& out, double em_px = 16.0) {
     // std::lround rounds half away from zero, so negative lengths (e.g. a
     // calc()-derived negative margin) round symmetrically — plain
     // `int(num + 0.5)` would truncate -4.0 toward zero as -3.
@@ -365,8 +371,10 @@ bool parse_length_value(double num, int unit, int& out) {
             out = static_cast<int>(std::lround(num));
             return true;
         case LXB_CSS_UNIT_REM:
-        case LXB_CSS_UNIT_EM:
             out = static_cast<int>(std::lround(num * 16.0));
+            return true;
+        case LXB_CSS_UNIT_EM:
+            out = static_cast<int>(std::lround(num * em_px));
             return true;
         default:
             return false;
@@ -384,11 +392,16 @@ bool parse_length_value(double num, int unit, int& out) {
 // the right/left sides and the mirror logic treats them as "unset"
 // — copying the top value into all four sides. Visible bug: items
 // got 6px of horizontal padding they didn't ask for.
-bool parse_length_px(const lxb_css_value_length_percentage_type_t* v, int& out) {
+//
+// em_px: the font-size in px used for `em` unit resolution (see
+// parse_length_value). Default 16 is correct for callers that have
+// no font-size context (apply_decl_list, unit tests).
+bool parse_length_px(const lxb_css_value_length_percentage_type_t* v, int& out,
+                     double em_px = 16.0) {
     if (!v) return false;
     if (v->length.type == LXB_CSS_VALUE__LENGTH) {
         const auto& L = v->length.u.length;
-        return parse_length_value(L.num, static_cast<int>(L.unit), out);
+        return parse_length_value(L.num, static_cast<int>(L.unit), out, em_px);
     }
     if (v->length.type == LXB_CSS_VALUE__PERCENTAGE &&
         v->length.u.percentage.num == 0.0) {
@@ -402,11 +415,12 @@ bool parse_length_px(const lxb_css_value_length_percentage_type_t* v, int& out) 
     return false;
 }
 
-bool parse_length_px(const lxb_css_value_length_type_t* v, int& out) {
+bool parse_length_px(const lxb_css_value_length_type_t* v, int& out,
+                     double em_px = 16.0) {
     if (!v) return false;
     if (v->type == LXB_CSS_VALUE__LENGTH) {
         return parse_length_value(v->length.num,
-                                  static_cast<int>(v->length.unit), out);
+                                  static_cast<int>(v->length.unit), out, em_px);
     }
     if (v->type == LXB_CSS_VALUE__NUMBER) {
         // The lxb_css_value_length_type_t union doesn't expose the
@@ -428,11 +442,12 @@ void clear_box_shadow(AnimatedStyle& s) {
     s.shadow_inset = false;
 }
 
-bool parse_length_px(const lxb_css_value_length_percentage_t* v, int& out) {
+bool parse_length_px(const lxb_css_value_length_percentage_t* v, int& out,
+                     double em_px = 16.0) {
     if (!v) return false;
     if (v->type == LXB_CSS_VALUE__LENGTH) {
         return parse_length_value(v->u.length.num,
-                                  static_cast<int>(v->u.length.unit), out);
+                                  static_cast<int>(v->u.length.unit), out, em_px);
     }
     if (v->type == LXB_CSS_VALUE__PERCENTAGE &&
         v->u.percentage.num == 0.0) {
@@ -450,15 +465,15 @@ bool parse_length_px(const lxb_css_value_length_percentage_t* v, int& out) {
 }
 
 bool parse_radius_px(const lxb_css_property_border_radius_corner_t& corner,
-                     int& out) {
+                     int& out, double em_px = 16.0) {
     // AffineUI currently stores one scalar radius per corner. CSS
     // allows elliptical radii (`h / v`); use the horizontal radius
     // until the renderer grows paired radii.
-    return parse_length_px(&corner.h, out);
+    return parse_length_px(&corner.h, out, em_px);
 }
 
 void apply_flex_basis_value(const lxb_css_property_flex_basis_t& basis,
-                            ResolvedStyle& s) {
+                            ResolvedStyle& s, double em_px = 16.0) {
     int px = 0;
     if (basis.type == LXB_CSS_VALUE_AUTO ||
         basis.type == LXB_CSS_VALUE_MIN_CONTENT ||
@@ -479,7 +494,7 @@ void apply_flex_basis_value(const lxb_css_property_flex_basis_t& basis,
         return;
     }
     s.computed.flex_basis_pct = -1;
-    if (parse_length_px(&basis, px) && px >= 0) {
+    if (parse_length_px(&basis, px, em_px) && px >= 0) {
         s.computed.flex_basis = static_cast<std::int16_t>(px);
     }
 }
@@ -492,7 +507,8 @@ void apply_flex_basis_value(const lxb_css_property_flex_basis_t& basis,
 void apply_width_value(const lxb_css_property_width_t& width,
                        std::int16_t& out,
                        std::int16_t auto_value,
-                       std::int16_t* pct_out = nullptr) {
+                       std::int16_t* pct_out = nullptr,
+                       double em_px = 16.0) {
     if (pct_out) *pct_out = -1;  // default: not a percentage
     int px = 0;
     if (width.type == LXB_CSS_VALUE_AUTO ||
@@ -514,7 +530,7 @@ void apply_width_value(const lxb_css_property_width_t& width,
         out = auto_value;  // px field → auto when pct governs
         return;
     }
-    if (parse_length_px(&width, px) && px >= 0) {
+    if (parse_length_px(&width, px, em_px) && px >= 0) {
         out = static_cast<std::int16_t>(px);
     }
 }
@@ -762,7 +778,38 @@ std::string evaluate_calc(std::string_view input, double rem, double em) {
 }
 
 // Route one declaration into the right struct.
-void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
+// em_px: element's own computed font-size in px, used for `em` length
+// resolution in all properties EXCEPT font-size itself (the caller
+// must pass the PARENT's font-size when applying FONT_SIZE / FONT).
+void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s,
+                       double em_px = 16.0) {
+    // Local helpers that forward em_px to the free-function overloads so
+    // every length in this declaration resolves against the correct em.
+    // These shadow the free functions within apply_declaration's scope.
+    auto plx_lpt = [em_px](const lxb_css_value_length_percentage_type_t* v, int& o) {
+        return parse_length_px(v, o, em_px);
+    };
+    auto plx_lt = [em_px](const lxb_css_value_length_type_t* v, int& o) {
+        return parse_length_px(v, o, em_px);
+    };
+    auto plx_lp = [em_px](const lxb_css_value_length_percentage_t* v, int& o) {
+        return parse_length_px(v, o, em_px);
+    };
+    auto plv = [em_px](double num, int unit, int& o) {
+        return parse_length_value(num, unit, o, em_px);
+    };
+    auto rpx = [em_px](const lxb_css_property_border_radius_corner_t& c, int& o) {
+        return parse_radius_px(c, o, em_px);
+    };
+    auto awv = [em_px](const lxb_css_property_width_t& w, std::int16_t& o,
+                       std::int16_t av, std::int16_t* po = nullptr) {
+        return apply_width_value(w, o, av, po, em_px);
+    };
+    auto afb = [em_px](const lxb_css_property_flex_basis_t& b, ResolvedStyle& rs) {
+        return apply_flex_basis_value(b, rs, em_px);
+    };
+    (void)plx_lpt; (void)plx_lt; (void)plx_lp; (void)plv;
+    (void)rpx; (void)awv; (void)afb;
     switch (d->type) {
         // ── Paint-only ─────────────────────────────────────────────
         case LXB_CSS_PROPERTY_COLOR: {
@@ -821,15 +868,15 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
                     int oy = 0;
                     int blur = 0;
                     int spread = 0;
-                    if (!parse_length_px(&v->offset_x, ox) ||
-                        !parse_length_px(&v->offset_y, oy)) {
+                    if (!plx_lt(&v->offset_x, ox) ||
+                        !plx_lt(&v->offset_y, oy)) {
                         break;
                     }
                     if (v->blur_radius.type != LXB_CSS_VALUE__UNDEF) {
-                        parse_length_px(&v->blur_radius, blur);
+                        plx_lt(&v->blur_radius, blur);
                     }
                     if (v->spread_radius.type != LXB_CSS_VALUE__UNDEF) {
-                        parse_length_px(&v->spread_radius, spread);
+                        plx_lt(&v->spread_radius, spread);
                     }
 
                     std::uint32_t rgba = s.animated.color_rgba;
@@ -869,7 +916,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             // Width — lexbor's `width` is a length value, same type as
             // padding/margin lengths, so parse_length_px applies.
             int px = 0;
-            if (parse_length_px(&v->width, px) && px >= 0) {
+            if (plx_lt(&v->width, px) && px >= 0) {
                 const auto w16 = static_cast<std::int16_t>(px);
                 if (d->type == LXB_CSS_PROPERTY_BORDER_TOP)    s.computed.border_top    = w16;
                 else if (d->type == LXB_CSS_PROPERTY_BORDER_RIGHT)  s.computed.border_right  = w16;
@@ -948,19 +995,19 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             int tr = 0;
             int br = 0;
             int bl = 0;
-            if (parse_radius_px(v->top_left, tl)) {
+            if (rpx(v->top_left, tl)) {
                 s.computed.border_radius_top_left_px =
                     static_cast<std::int16_t>(tl);
             }
-            if (parse_radius_px(v->top_right, tr)) {
+            if (rpx(v->top_right, tr)) {
                 s.computed.border_radius_top_right_px =
                     static_cast<std::int16_t>(tr);
             }
-            if (parse_radius_px(v->bottom_right, br)) {
+            if (rpx(v->bottom_right, br)) {
                 s.computed.border_radius_bot_right_px =
                     static_cast<std::int16_t>(br);
             }
-            if (parse_radius_px(v->bottom_left, bl)) {
+            if (rpx(v->bottom_left, bl)) {
                 s.computed.border_radius_bot_left_px =
                     static_cast<std::int16_t>(bl);
             }
@@ -970,7 +1017,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             const auto* v = static_cast<
                 const lxb_css_property_border_top_left_radius_t*>(d->u.user);
             int px = 0;
-            if (parse_radius_px(*v, px)) {
+            if (rpx(*v, px)) {
                 s.computed.border_radius_top_left_px =
                     static_cast<std::int16_t>(px);
             }
@@ -980,7 +1027,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             const auto* v = static_cast<
                 const lxb_css_property_border_top_right_radius_t*>(d->u.user);
             int px = 0;
-            if (parse_radius_px(*v, px)) {
+            if (rpx(*v, px)) {
                 s.computed.border_radius_top_right_px =
                     static_cast<std::int16_t>(px);
             }
@@ -991,7 +1038,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
                 const lxb_css_property_border_bottom_right_radius_t*>(
                     d->u.user);
             int px = 0;
-            if (parse_radius_px(*v, px)) {
+            if (rpx(*v, px)) {
                 s.computed.border_radius_bot_right_px =
                     static_cast<std::int16_t>(px);
             }
@@ -1002,7 +1049,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
                 const lxb_css_property_border_bottom_left_radius_t*>(
                     d->u.user);
             int px = 0;
-            if (parse_radius_px(*v, px)) {
+            if (rpx(*v, px)) {
                 s.computed.border_radius_bot_left_px =
                     static_cast<std::int16_t>(px);
             }
@@ -1074,9 +1121,9 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             // border-width shorthand: sets per-side widths.
             const auto* v =
                 static_cast<const lxb_css_property_border_width_t*>(d->u.user);
-            auto resolve_width = [](const lxb_css_value_length_type_t& lt) -> int {
+            auto resolve_width = [&](const lxb_css_value_length_type_t& lt) -> int {
                 int px = 0;
-                if (parse_length_px(&lt, px)) return px >= 0 ? px : 0;
+                if (plx_lt(&lt, px)) return px >= 0 ? px : 0;
                 // thin/medium/thick keywords
                 switch (lt.type) {
                     case LXB_CSS_VALUE_THIN:   return 1;
@@ -1095,7 +1142,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             const auto* v =
                 static_cast<const lxb_css_property_border_top_width_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px) && px >= 0)
+            if (plx_lt(v, px) && px >= 0)
                 s.computed.border_top = static_cast<std::int16_t>(px);
             else switch (v->type) {
                 case LXB_CSS_VALUE_THIN:   s.computed.border_top = 1; break;
@@ -1109,7 +1156,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             const auto* v =
                 static_cast<const lxb_css_property_border_right_width_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px) && px >= 0)
+            if (plx_lt(v, px) && px >= 0)
                 s.computed.border_right = static_cast<std::int16_t>(px);
             else switch (v->type) {
                 case LXB_CSS_VALUE_THIN:   s.computed.border_right = 1; break;
@@ -1123,7 +1170,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             const auto* v =
                 static_cast<const lxb_css_property_border_bottom_width_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px) && px >= 0)
+            if (plx_lt(v, px) && px >= 0)
                 s.computed.border_bottom = static_cast<std::int16_t>(px);
             else switch (v->type) {
                 case LXB_CSS_VALUE_THIN:   s.computed.border_bottom = 1; break;
@@ -1137,7 +1184,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             const auto* v =
                 static_cast<const lxb_css_property_border_left_width_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px) && px >= 0)
+            if (plx_lt(v, px) && px >= 0)
                 s.computed.border_left = static_cast<std::int16_t>(px);
             else switch (v->type) {
                 case LXB_CSS_VALUE_THIN:   s.computed.border_left = 1; break;
@@ -1161,10 +1208,10 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
                 static_cast<const lxb_css_property_gap_t*>(d->u.user);
             int row = 0;
             int column = 0;
-            if (parse_length_px(&v->row, row)) {
+            if (plx_lp(&v->row, row)) {
                 s.computed.row_gap = static_cast<std::int16_t>(row);
             }
-            if (parse_length_px(&v->column, column)) {
+            if (plx_lp(&v->column, column)) {
                 s.computed.column_gap = static_cast<std::int16_t>(column);
             }
             break;
@@ -1173,7 +1220,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             const auto* v =
                 static_cast<const lxb_css_property_row_gap_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px)) {
+            if (plx_lp(v, px)) {
                 s.computed.row_gap = static_cast<std::int16_t>(px);
             }
             break;
@@ -1182,7 +1229,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             const auto* v =
                 static_cast<const lxb_css_property_column_gap_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px)) {
+            if (plx_lp(v, px)) {
                 s.computed.column_gap = static_cast<std::int16_t>(px);
             }
             break;
@@ -1203,10 +1250,10 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             const auto* v =
                 static_cast<const lxb_css_property_padding_t*>(d->u.user);
             int t = 0, r = 0, bp = 0, l = 0;
-            const bool ok_t = parse_length_px(&v->top,    t);
-            const bool ok_r = parse_length_px(&v->right,  r);
-            const bool ok_b = parse_length_px(&v->bottom, bp);
-            const bool ok_l = parse_length_px(&v->left,   l);
+            const bool ok_t = plx_lp(&v->top,    t);
+            const bool ok_r = plx_lp(&v->right,  r);
+            const bool ok_b = plx_lp(&v->bottom, bp);
+            const bool ok_l = plx_lp(&v->left,   l);
 
             // Mirror per the shorthand rules: a side that lexbor left
             // unset inherits from its CSS-shorthand peer.
@@ -1223,28 +1270,28 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
         case LXB_CSS_PROPERTY_PADDING_TOP: {
             const auto* v = static_cast<const lxb_css_property_padding_top_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px) && px >= 0)
+            if (plx_lp(v, px) && px >= 0)
                 s.computed.padding_top = static_cast<std::int16_t>(px);
             break;
         }
         case LXB_CSS_PROPERTY_PADDING_RIGHT: {
             const auto* v = static_cast<const lxb_css_property_padding_right_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px) && px >= 0)
+            if (plx_lp(v, px) && px >= 0)
                 s.computed.padding_right = static_cast<std::int16_t>(px);
             break;
         }
         case LXB_CSS_PROPERTY_PADDING_BOTTOM: {
             const auto* v = static_cast<const lxb_css_property_padding_bottom_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px) && px >= 0)
+            if (plx_lp(v, px) && px >= 0)
                 s.computed.padding_bottom = static_cast<std::int16_t>(px);
             break;
         }
         case LXB_CSS_PROPERTY_PADDING_LEFT: {
             const auto* v = static_cast<const lxb_css_property_padding_left_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px) && px >= 0)
+            if (plx_lp(v, px) && px >= 0)
                 s.computed.padding_left = static_cast<std::int16_t>(px);
             break;
         }
@@ -1254,10 +1301,10 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             const auto* v =
                 static_cast<const lxb_css_property_margin_t*>(d->u.user);
             int t = 0, r = 0, bp = 0, l = 0;
-            const bool ok_t = parse_length_px(&v->top,    t);
-            const bool ok_r = parse_length_px(&v->right,  r);
-            const bool ok_b = parse_length_px(&v->bottom, bp);
-            const bool ok_l = parse_length_px(&v->left,   l);
+            const bool ok_t = plx_lp(&v->top,    t);
+            const bool ok_r = plx_lp(&v->right,  r);
+            const bool ok_b = plx_lp(&v->bottom, bp);
+            const bool ok_l = plx_lp(&v->left,   l);
             const int T = ok_t ? t : 0;
             const int R = ok_r ? r : T;
             const int B = ok_b ? bp : T;
@@ -1274,13 +1321,13 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
         case LXB_CSS_PROPERTY_MARGIN_TOP: {
             const auto* v = static_cast<const lxb_css_property_margin_top_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px)) s.computed.margin_top = static_cast<std::int16_t>(px);
+            if (plx_lp(v, px)) s.computed.margin_top = static_cast<std::int16_t>(px);
             break;
         }
         case LXB_CSS_PROPERTY_MARGIN_RIGHT: {
             const auto* v = static_cast<const lxb_css_property_margin_right_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px)) {
+            if (plx_lp(v, px)) {
                 s.computed.margin_right = static_cast<std::int16_t>(px);
                 s.computed.margin_auto.right = 0;
             } else if (v->type == LXB_CSS_VALUE_AUTO) {
@@ -1291,13 +1338,13 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
         case LXB_CSS_PROPERTY_MARGIN_BOTTOM: {
             const auto* v = static_cast<const lxb_css_property_margin_bottom_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px)) s.computed.margin_bottom = static_cast<std::int16_t>(px);
+            if (plx_lp(v, px)) s.computed.margin_bottom = static_cast<std::int16_t>(px);
             break;
         }
         case LXB_CSS_PROPERTY_MARGIN_LEFT: {
             const auto* v = static_cast<const lxb_css_property_margin_left_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px)) {
+            if (plx_lp(v, px)) {
                 s.computed.margin_left = static_cast<std::int16_t>(px);
                 s.computed.margin_auto.left = 0;
             } else if (v->type == LXB_CSS_VALUE_AUTO) {
@@ -1334,7 +1381,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
         case LXB_CSS_PROPERTY_TOP: {
             const auto* v = static_cast<const lxb_css_property_top_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px)) {
+            if (plx_lp(v, px)) {
                 s.computed.inset_top = static_cast<std::int16_t>(px);
                 s.computed.inset_has.top = 1;
             }
@@ -1343,7 +1390,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
         case LXB_CSS_PROPERTY_RIGHT: {
             const auto* v = static_cast<const lxb_css_property_right_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px)) {
+            if (plx_lp(v, px)) {
                 s.computed.inset_right = static_cast<std::int16_t>(px);
                 s.computed.inset_has.right = 1;
             }
@@ -1352,7 +1399,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
         case LXB_CSS_PROPERTY_BOTTOM: {
             const auto* v = static_cast<const lxb_css_property_bottom_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px)) {
+            if (plx_lp(v, px)) {
                 s.computed.inset_bottom = static_cast<std::int16_t>(px);
                 s.computed.inset_has.bottom = 1;
             }
@@ -1361,7 +1408,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
         case LXB_CSS_PROPERTY_LEFT: {
             const auto* v = static_cast<const lxb_css_property_left_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px)) {
+            if (plx_lp(v, px)) {
                 s.computed.inset_left = static_cast<std::int16_t>(px);
                 s.computed.inset_has.left = 1;
             }
@@ -1491,7 +1538,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
         case LXB_CSS_PROPERTY_FLEX_BASIS: {
             const auto* v =
                 static_cast<const lxb_css_property_flex_basis_t*>(d->u.user);
-            apply_flex_basis_value(*v, s);
+            afb(*v, s);
             break;
         }
         case LXB_CSS_PROPERTY_FLEX: {
@@ -1514,7 +1561,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
                     static_cast<std::uint8_t>(std::clamp(n, 0, 255));
             }
             if (v->basis.type != LXB_CSS_VALUE__UNDEF) {
-                apply_flex_basis_value(v->basis, s);
+                afb(v->basis, s);
             }
             break;
         }
@@ -1529,10 +1576,11 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
                 static_cast<const lxb_css_property_font_t*>(d->u.user);
             if (!v || v->type != LXB_CSS_FONT__DETAIL) break;
 
-            // font-size
+            // font-size: em_px here is the PARENT's font-size (caller
+            // invokes apply_declaration with parent_em for FONT/FONT_SIZE).
             {
                 int px = 0;
-                if (parse_length_px(&v->size, px) && px > 0)
+                if (plx_lpt(&v->size, px) && px > 0)
                     s.computed.font_size_px = static_cast<std::uint16_t>(px);
             }
 
@@ -1557,9 +1605,9 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
                     }
                     case LXB_CSS_LINE_HEIGHT__LENGTH: {
                         int px = 0;
-                        parse_length_value(lh->u.length.num,
-                                           static_cast<int>(lh->u.length.unit),
-                                           px);
+                        plv(lh->u.length.num,
+                            static_cast<int>(lh->u.length.unit),
+                            px);
                         if (px > 0)
                             s.computed.line_height_x100 =
                                 static_cast<std::int16_t>(-px);
@@ -1603,10 +1651,12 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
         }
 
         case LXB_CSS_PROPERTY_FONT_SIZE: {
+            // em_px here is the PARENT's font-size (caller invokes
+            // apply_declaration with parent_em for FONT_SIZE).
             const auto* v =
                 static_cast<const lxb_css_property_font_size_t*>(d->u.user);
             int px = 0;
-            if (parse_length_px(v, px) && px > 0)
+            if (plx_lpt(v, px) && px > 0)
                 s.computed.font_size_px = static_cast<std::uint16_t>(px);
             break;
         }
@@ -1637,9 +1687,9 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
                     // apart from "multiplier."
                     int px = 0;
                     // For length type, the value lives in v->u.length.
-                    parse_length_value(v->u.length.num,
-                                       static_cast<int>(v->u.length.unit),
-                                       px);
+                    plv(v->u.length.num,
+                        static_cast<int>(v->u.length.unit),
+                        px);
                     if (px > 0)
                         s.computed.line_height_x100 =
                             static_cast<std::int16_t>(-px);
@@ -1689,8 +1739,8 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
                 s.computed.letter_spacing_x100 = 0;
             } else if (v->type == LXB_CSS_VALUE__LENGTH) {
                 int px = 0;
-                if (parse_length_value(v->length.num,
-                                       static_cast<int>(v->length.unit), px)) {
+                if (plv(v->length.num,
+                        static_cast<int>(v->length.unit), px)) {
                     s.computed.letter_spacing_x100 =
                         static_cast<std::int16_t>(
                             std::clamp(static_cast<int>(v->length.num * 100.0 + 0.5),
@@ -1738,7 +1788,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
         case LXB_CSS_PROPERTY_WIDTH: {
             const auto* v =
                 static_cast<const lxb_css_property_width_t*>(d->u.user);
-            apply_width_value(*v, s.computed.width, -1, &s.computed.width_pct_x100);
+            awv(*v, s.computed.width, -1, &s.computed.width_pct_x100);
             break;
         }
         case LXB_CSS_PROPERTY_HEIGHT: {
@@ -1747,7 +1797,7 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             // height_pct is int8_t (0..100); use a temporary int16_t
             // for apply_width_value and truncate to integer percent.
             std::int16_t pct_x100 = -1;
-            apply_width_value(*v, s.computed.height, -1, &pct_x100);
+            awv(*v, s.computed.height, -1, &pct_x100);
             s.computed.height_pct = (pct_x100 >= 0)
                 ? static_cast<std::int8_t>(pct_x100 / 100)
                 : static_cast<std::int8_t>(-1);
@@ -1756,19 +1806,19 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
         case LXB_CSS_PROPERTY_MIN_WIDTH: {
             const auto* v =
                 static_cast<const lxb_css_property_min_width_t*>(d->u.user);
-            apply_width_value(*v, s.computed.min_width, 0);
+            awv(*v, s.computed.min_width, 0);
             break;
         }
         case LXB_CSS_PROPERTY_MAX_WIDTH: {
             const auto* v =
                 static_cast<const lxb_css_property_max_width_t*>(d->u.user);
-            apply_width_value(*v, s.computed.max_width, -1);
+            awv(*v, s.computed.max_width, -1);
             break;
         }
         case LXB_CSS_PROPERTY_MIN_HEIGHT: {
             const auto* v =
                 static_cast<const lxb_css_property_min_height_t*>(d->u.user);
-            apply_width_value(*v, s.computed.min_height, 0);
+            awv(*v, s.computed.min_height, 0);
             break;
         }
         case LXB_CSS_PROPERTY_OVERFLOW: {
@@ -2099,7 +2149,40 @@ public:
                 return shorthand_rank(a.declr->type) <
                        shorthand_rank(b.declr->type);
             });
-        for (const PendingDecl& pd : pending) apply_declaration(pd.declr, s);
+
+        // Two-pass application to implement correct `em` resolution:
+        //
+        // CSS spec §9.2 (Computed values): `em` in font-size resolves against
+        // the PARENT's font-size; `em` in all other properties resolves
+        // against the element's OWN computed font-size.
+        //
+        // At the start of resolve(), `s = parent`, so s.computed.font_size_px
+        // holds the inherited (parent's) font-size. Pass 1 applies FONT_SIZE
+        // and FONT declarations in cascade order using that inherited value as
+        // the `em` base, updating font_size_px to the element's own size.
+        // Pass 2 then applies all OTHER declarations using the element's own
+        // font-size for `em`. FONT_SIZE/FONT are deliberately skipped in pass 2
+        // because they were already applied correctly in pass 1.
+        const double parent_font_em = (s.computed.font_size_px > 0)
+            ? static_cast<double>(s.computed.font_size_px) : 16.0;
+
+        // Pass 1: resolve font-size (using parent's em for any `em` units).
+        for (const PendingDecl& pd : pending) {
+            const auto t = pd.declr->type;
+            if (t == LXB_CSS_PROPERTY_FONT_SIZE || t == LXB_CSS_PROPERTY_FONT) {
+                apply_declaration(pd.declr, s, parent_font_em);
+            }
+        }
+
+        // Pass 2: resolve all other declarations (em = element's own font-size).
+        const double own_em = (s.computed.font_size_px > 0)
+            ? static_cast<double>(s.computed.font_size_px) : 16.0;
+        for (const PendingDecl& pd : pending) {
+            const auto t = pd.declr->type;
+            if (t != LXB_CSS_PROPERTY_FONT_SIZE && t != LXB_CSS_PROPERTY_FONT) {
+                apply_declaration(pd.declr, s, own_em);
+            }
+        }
 
         // Finalize this element's custom-property scope (copy-on-write:
         // only elements that declare `--x` clone the inherited map).
@@ -2119,14 +2202,16 @@ public:
             static const CustomPropMap kEmpty;
             const CustomPropMap& scope =
                 s.custom_props ? *s.custom_props : kEmpty;
-            const double em  = s.computed.font_size_px > 0
-                                   ? static_cast<double>(s.computed.font_size_px)
-                                   : 16.0;
+            // own_em: element's font-size after pass 1 resolved it.
+            // This is correct for non-font-size deferred properties.
+            // For font-size itself via var(), the correct base would be
+            // parent_font_em, but this edge case is acceptable for now.
+            const double deferred_em = own_em;
             constexpr double rem = 16.0;
             for (const auto& dv : deferred) {
                 std::string resolved = substitute_vars(dv.raw_value, scope);
-                resolved = evaluate_calc(resolved, rem, em);
-                apply_resolved_decl(dv.property_id, resolved, s);
+                resolved = evaluate_calc(resolved, rem, deferred_em);
+                apply_resolved_decl(dv.property_id, resolved, s, deferred_em);
             }
         }
         return s;
@@ -2156,8 +2241,10 @@ private:
     // no var() left. We build "<property-name>:<value>", run it through
     // lexbor's declaration parser, and route the resulting typed
     // declaration(s) through the normal apply path.
+    // em_px: element's own font-size used for `em` length resolution.
     void apply_resolved_decl(std::uintptr_t property_id,
-                             const std::string& value, ResolvedStyle& s) {
+                             const std::string& value, ResolvedStyle& s,
+                             double em_px = 16.0) {
         if (value.empty() || !parser_ || !reparse_mem_) return;
         const lxb_css_entry_data_t* pd = lxb_css_property_by_id(property_id);
         if (!pd || pd->name == nullptr) return;
@@ -2172,7 +2259,8 @@ private:
         if (list != nullptr) {
             for (auto* node = list->first; node != nullptr; node = node->next) {
                 apply_declaration(
-                    reinterpret_cast<const lxb_css_rule_declaration_t*>(node), s);
+                    reinterpret_cast<const lxb_css_rule_declaration_t*>(node), s,
+                    em_px);
             }
         }
         // Reset the arena for the next re-parse (the typed values we
