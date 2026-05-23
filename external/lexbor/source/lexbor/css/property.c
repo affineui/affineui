@@ -1183,6 +1183,220 @@ lxb_css_property_border_left_color_serialize(const void *style,
     return lxb_css_value_color_serialize(style, cb, ctx);
 }
 
+/* Border-style shorthand. */
+
+void *
+lxb_css_property_border_style_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_style_t));
+}
+
+void *
+lxb_css_property_border_style_destroy(lxb_css_memory_t *memory,
+                                      void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_style_serialize(const void *style,
+                                        lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_border_style_t *bs = style;
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    status = lxb_css_value_serialize(bs->top, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    status = lxb_css_value_serialize(bs->right, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    status = lxb_css_value_serialize(bs->bottom, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    return lxb_css_value_serialize(bs->left, cb, ctx);
+}
+
+/* Border-width shorthand. */
+
+void *
+lxb_css_property_border_width_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_width_t));
+}
+
+void *
+lxb_css_property_border_width_destroy(lxb_css_memory_t *memory,
+                                      void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_width_serialize(const void *style,
+                                        lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_border_width_t *bw = style;
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    status = lxb_css_value_length_type_sr(&bw->top, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    status = lxb_css_value_length_type_sr(&bw->right, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    status = lxb_css_value_length_type_sr(&bw->bottom, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    return lxb_css_value_length_type_sr(&bw->left, cb, ctx);
+}
+
+/* Border-top-width. */
+
+void *
+lxb_css_property_border_top_width_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_top_width_t));
+}
+
+void *
+lxb_css_property_border_top_width_destroy(lxb_css_memory_t *memory,
+                                          void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_top_width_serialize(const void *style,
+                                            lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_type_sr(style, cb, ctx);
+}
+
+/* Border-right-width. */
+
+void *
+lxb_css_property_border_right_width_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_right_width_t));
+}
+
+void *
+lxb_css_property_border_right_width_destroy(lxb_css_memory_t *memory,
+                                            void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_right_width_serialize(const void *style,
+                                              lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_type_sr(style, cb, ctx);
+}
+
+/* Border-bottom-width. */
+
+void *
+lxb_css_property_border_bottom_width_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_bottom_width_t));
+}
+
+void *
+lxb_css_property_border_bottom_width_destroy(lxb_css_memory_t *memory,
+                                             void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_bottom_width_serialize(const void *style,
+                                               lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_type_sr(style, cb, ctx);
+}
+
+/* Border-left-width. */
+
+void *
+lxb_css_property_border_left_width_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_left_width_t));
+}
+
+void *
+lxb_css_property_border_left_width_destroy(lxb_css_memory_t *memory,
+                                           void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_left_width_serialize(const void *style,
+                                             lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_type_sr(style, cb, ctx);
+}
+
+/* border-collapse: a single keyword value (collapse | separate). */
+
+void *
+lxb_css_property_border_collapse_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_border_collapse_t));
+}
+
+void *
+lxb_css_property_border_collapse_destroy(lxb_css_memory_t *memory,
+                                         void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_collapse_serialize(const void *style,
+                                           lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_border_collapse_t *bc =
+        (const lxb_css_property_border_collapse_t *) style;
+    return lxb_css_value_serialize(*bc, cb, ctx);
+}
+
 static bool
 lxb_css_property_length_percentage_eq(const lxb_css_value_length_percentage_t *a,
                                       const lxb_css_value_length_percentage_t *b)

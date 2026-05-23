@@ -25,6 +25,26 @@ Adds `border-radius`, `border-color`, `background`, `box-shadow`, `gap`,
 `row-gap`, and `column-gap` to the generated property table, including
 parsing, serialization, and declaration tests for framework stylesheets.
 
+### css: border-style and border-width shorthand + per-side longhands
+
+Adds 6 new CSS properties to the lexbor property table:
+- `border-style` shorthand: up to 4 style keywords (none/solid/dashed/dotted/hidden/double/groove/ridge/inset/outset); 1–4 value box-shorthand fill rules applied; global keywords (inherit/initial/unset/revert).
+- `border-width` shorthand: up to 4 line-width values (thin/medium/thick or `<dimension>`); same box-shorthand fill rules; global keywords.
+- `border-top-width`, `border-right-width`, `border-bottom-width`, `border-left-width`: single line-width longhands; identical parsing to each side of the shorthand.
+
+**Types added** (`property.h`):
+```c
+typedef struct { lxb_css_value_type_t top, right, bottom, left; } lxb_css_property_border_style_t;
+typedef struct { lxb_css_value_length_type_t top, right, bottom, left; } lxb_css_property_border_width_t;
+typedef lxb_css_value_length_type_t lxb_css_property_border_{top,right,bottom,left}_width_t;
+```
+
+**SHS hash table** (`res.h`): 6 new entries at computed slots 89, 134, 135, 137, 138, 139, 140, 141 with chains correctly ordered ascending by key length for the SHS early-exit invariant.
+
+**Enum values** (`property/const.h`): `LXB_CSS_PROPERTY_BORDER_STYLE` (0x0074) through `LXB_CSS_PROPERTY_BORDER_LEFT_WIDTH` (0x0079).
+
+Wired in AffineUI's `cascade.cpp` via `BORDER_STYLE` (→ `ComputedStyle::border_style`) and `BORDER_WIDTH` / per-side longhands (→ `ComputedStyle::border_{top,right,bottom,left}`). Both new shorthands rank at 0 (broad shorthands, applied before per-side overrides).
+
 ### css: 2-stop gradient parsing in background property
 
 Extends `lxb_css_property_background_t` with a `lxb_css_property_gradient_t`

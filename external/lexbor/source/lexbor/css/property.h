@@ -126,6 +126,33 @@ typedef lxb_css_value_color_t lxb_css_property_border_right_color_t;
 typedef lxb_css_value_color_t lxb_css_property_border_bottom_color_t;
 typedef lxb_css_value_color_t lxb_css_property_border_left_color_t;
 
+/* border-style shorthand (1-4 keyword values). */
+typedef struct {
+    lxb_css_value_type_t top;
+    lxb_css_value_type_t right;
+    lxb_css_value_type_t bottom;
+    lxb_css_value_type_t left;
+}
+lxb_css_property_border_style_t;
+
+/* border-width shorthand (1-4 length values). */
+typedef struct {
+    lxb_css_value_length_type_t top;
+    lxb_css_value_length_type_t right;
+    lxb_css_value_length_type_t bottom;
+    lxb_css_value_length_type_t left;
+}
+lxb_css_property_border_width_t;
+
+/* Per-side border-width longhands — each is a single length. */
+typedef lxb_css_value_length_type_t lxb_css_property_border_top_width_t;
+typedef lxb_css_value_length_type_t lxb_css_property_border_right_width_t;
+typedef lxb_css_value_length_type_t lxb_css_property_border_bottom_width_t;
+typedef lxb_css_value_length_type_t lxb_css_property_border_left_width_t;
+
+/* border-collapse: a single keyword (collapse | separate). */
+typedef lxb_css_value_type_t lxb_css_property_border_collapse_t;
+
 typedef struct {
     lxb_css_value_length_percentage_t h;
     lxb_css_value_length_percentage_t v;
@@ -980,6 +1007,90 @@ lxb_css_property_border_left_color_destroy(lxb_css_memory_t *memory,
 LXB_API lxb_status_t
 lxb_css_property_border_left_color_serialize(const void *style,
                                              lexbor_serialize_cb_f cb, void *ctx);
+
+/* Border-style. */
+
+LXB_API void *
+lxb_css_property_border_style_create(lxb_css_memory_t *memory);
+
+LXB_API void *
+lxb_css_property_border_style_destroy(lxb_css_memory_t *memory,
+                                      void *style, bool self_destroy);
+LXB_API lxb_status_t
+lxb_css_property_border_style_serialize(const void *style,
+                                        lexbor_serialize_cb_f cb, void *ctx);
+
+/* Border-width. */
+
+LXB_API void *
+lxb_css_property_border_width_create(lxb_css_memory_t *memory);
+
+LXB_API void *
+lxb_css_property_border_width_destroy(lxb_css_memory_t *memory,
+                                      void *style, bool self_destroy);
+LXB_API lxb_status_t
+lxb_css_property_border_width_serialize(const void *style,
+                                        lexbor_serialize_cb_f cb, void *ctx);
+
+/* Border-top-width. */
+
+LXB_API void *
+lxb_css_property_border_top_width_create(lxb_css_memory_t *memory);
+
+LXB_API void *
+lxb_css_property_border_top_width_destroy(lxb_css_memory_t *memory,
+                                          void *style, bool self_destroy);
+LXB_API lxb_status_t
+lxb_css_property_border_top_width_serialize(const void *style,
+                                            lexbor_serialize_cb_f cb, void *ctx);
+
+/* Border-right-width. */
+
+LXB_API void *
+lxb_css_property_border_right_width_create(lxb_css_memory_t *memory);
+
+LXB_API void *
+lxb_css_property_border_right_width_destroy(lxb_css_memory_t *memory,
+                                            void *style, bool self_destroy);
+LXB_API lxb_status_t
+lxb_css_property_border_right_width_serialize(const void *style,
+                                              lexbor_serialize_cb_f cb, void *ctx);
+
+/* Border-bottom-width. */
+
+LXB_API void *
+lxb_css_property_border_bottom_width_create(lxb_css_memory_t *memory);
+
+LXB_API void *
+lxb_css_property_border_bottom_width_destroy(lxb_css_memory_t *memory,
+                                             void *style, bool self_destroy);
+LXB_API lxb_status_t
+lxb_css_property_border_bottom_width_serialize(const void *style,
+                                               lexbor_serialize_cb_f cb, void *ctx);
+
+/* Border-left-width. */
+
+LXB_API void *
+lxb_css_property_border_left_width_create(lxb_css_memory_t *memory);
+
+LXB_API void *
+lxb_css_property_border_left_width_destroy(lxb_css_memory_t *memory,
+                                           void *style, bool self_destroy);
+LXB_API lxb_status_t
+lxb_css_property_border_left_width_serialize(const void *style,
+                                             lexbor_serialize_cb_f cb, void *ctx);
+
+/* Border-collapse. */
+
+LXB_API void *
+lxb_css_property_border_collapse_create(lxb_css_memory_t *memory);
+
+LXB_API void *
+lxb_css_property_border_collapse_destroy(lxb_css_memory_t *memory,
+                                         void *style, bool self_destroy);
+LXB_API lxb_status_t
+lxb_css_property_border_collapse_serialize(const void *style,
+                                           lexbor_serialize_cb_f cb, void *ctx);
 
 /* Border-radius. */
 

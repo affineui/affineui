@@ -133,6 +133,13 @@ struct lxb_css_rule_declaration {
         lxb_css_property_border_right_color_t    *border_right_color;
         lxb_css_property_border_bottom_color_t   *border_bottom_color;
         lxb_css_property_border_left_color_t     *border_left_color;
+        lxb_css_property_border_style_t          *border_style;
+        lxb_css_property_border_width_t          *border_width;
+        lxb_css_property_border_top_width_t      *border_top_width;
+        lxb_css_property_border_right_width_t    *border_right_width;
+        lxb_css_property_border_bottom_width_t   *border_bottom_width;
+        lxb_css_property_border_left_width_t     *border_left_width;
+        lxb_css_property_border_collapse_t      *border_collapse;
         lxb_css_property_border_radius_t         *border_radius;
         lxb_css_property_border_top_left_radius_t *border_top_left_radius;
         lxb_css_property_border_top_right_radius_t *border_top_right_radius;

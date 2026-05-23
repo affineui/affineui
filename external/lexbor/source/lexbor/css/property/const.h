@@ -135,7 +135,16 @@ enum {
     LXB_CSS_PROPERTY_Z_INDEX                    = 0x0071,
     LXB_CSS_PROPERTY_OVERFLOW                   = 0x0072,
     LXB_CSS_PROPERTY_FONT                       = 0x0073,
-    LXB_CSS_PROPERTY__LAST_ENTRY                = 0x0074
+    /* Border width longhands and shorthands (added by AffineUI patch). */
+    LXB_CSS_PROPERTY_BORDER_STYLE               = 0x0074,
+    LXB_CSS_PROPERTY_BORDER_WIDTH               = 0x0075,
+    LXB_CSS_PROPERTY_BORDER_TOP_WIDTH           = 0x0076,
+    LXB_CSS_PROPERTY_BORDER_RIGHT_WIDTH         = 0x0077,
+    LXB_CSS_PROPERTY_BORDER_BOTTOM_WIDTH        = 0x0078,
+    LXB_CSS_PROPERTY_BORDER_LEFT_WIDTH          = 0x0079,
+    /* border-collapse (added by AffineUI patch). */
+    LXB_CSS_PROPERTY_BORDER_COLLAPSE            = 0x007a,
+    LXB_CSS_PROPERTY__LAST_ENTRY                = 0x007b
 };
 typedef uintptr_t lxb_css_property_type_t;
 

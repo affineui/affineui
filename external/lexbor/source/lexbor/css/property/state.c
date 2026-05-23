@@ -2494,6 +2494,316 @@ lxb_css_property_state_border_left_color(lxb_css_parser_t *parser,
     return lxb_css_property_state_color(parser, token, ctx);
 }
 
+/* Helper: parse a single <line-width> (thin|medium|thick|<length>) into
+ * a lxb_css_value_length_type_t.  Returns true on success. */
+static bool
+lxb_css_property_state_line_width_one(lxb_css_parser_t *parser,
+                                      const lxb_css_syntax_token_t *token,
+                                      lxb_css_value_length_type_t *out)
+{
+    lxb_css_value_type_t type;
+    const lxb_css_data_t *unit;
+    lxb_css_syntax_token_string_t *str;
+
+    switch (token->type) {
+        case LXB_CSS_SYNTAX_TOKEN_DIMENSION:
+            str = &lxb_css_syntax_token_dimension(token)->str;
+            unit = lxb_css_unit_absolute_relative_by_name(str->data, str->length);
+            if (unit == NULL) {
+                return false;
+            }
+            out->type = LXB_CSS_VALUE__LENGTH;
+            out->length.num = lxb_css_syntax_token_dimension(token)->num.num;
+            out->length.is_float = lxb_css_syntax_token_dimension(token)->num.is_float;
+            out->length.unit = (lxb_css_unit_t) unit->unique;
+            lxb_css_syntax_parser_consume(parser);
+            return true;
+
+        case LXB_CSS_SYNTAX_TOKEN_NUMBER:
+            out->type = LXB_CSS_VALUE__NUMBER;
+            out->length.num = lxb_css_syntax_token_number(token)->num;
+            out->length.is_float = lxb_css_syntax_token_number(token)->is_float;
+            out->length.unit = LXB_CSS_UNIT__UNDEF;
+            lxb_css_syntax_parser_consume(parser);
+            return true;
+
+        case LXB_CSS_SYNTAX_TOKEN_IDENT:
+            type = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                         lxb_css_syntax_token_ident(token)->length);
+            switch (type) {
+                case LXB_CSS_VALUE_THIN:
+                case LXB_CSS_VALUE_MEDIUM:
+                case LXB_CSS_VALUE_THICK:
+                    out->type = type;
+                    lxb_css_syntax_parser_consume(parser);
+                    return true;
+                default:
+                    break;
+            }
+            break;
+
+        default:
+            break;
+    }
+
+    return false;
+}
+
+/* Helper: apply 1-4 line-width values to top/right/bottom/left. */
+static void
+lxb_css_property_state_border_width_apply(lxb_css_property_border_width_t *bw,
+                                          lxb_css_value_length_type_t vals[4],
+                                          unsigned count)
+{
+    bw->top    = vals[0];
+    bw->right  = (count > 1) ? vals[1] : vals[0];
+    bw->bottom = (count > 2) ? vals[2] : vals[0];
+    bw->left   = (count > 3) ? vals[3] : bw->right;
+}
+
+bool
+lxb_css_property_state_border_style(lxb_css_parser_t *parser,
+                                    const lxb_css_syntax_token_t *token, void *ctx)
+{
+    lxb_css_value_type_t type;
+    lxb_css_rule_declaration_t *declar = ctx;
+    lxb_css_property_border_style_t *bs = declar->u.border_style;
+    lxb_css_value_type_t vals[4] = {
+        LXB_CSS_VALUE__UNDEF, LXB_CSS_VALUE__UNDEF,
+        LXB_CSS_VALUE__UNDEF, LXB_CSS_VALUE__UNDEF
+    };
+    unsigned count = 0;
+
+    /* Handle global keywords. */
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        type = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                     lxb_css_syntax_token_ident(token)->length);
+        if (lxb_css_property_state_is_global(type)) {
+            bs->top = bs->right = bs->bottom = bs->left = type;
+            lxb_css_syntax_parser_consume(parser);
+            return lxb_css_parser_success(parser);
+        }
+    }
+
+    do {
+        if (count == 4 || token->type != LXB_CSS_SYNTAX_TOKEN_IDENT) {
+            return lxb_css_parser_failed(parser);
+        }
+
+        type = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                     lxb_css_syntax_token_ident(token)->length);
+        switch (type) {
+            case LXB_CSS_VALUE_NONE:
+            case LXB_CSS_VALUE_HIDDEN:
+            case LXB_CSS_VALUE_DOTTED:
+            case LXB_CSS_VALUE_DASHED:
+            case LXB_CSS_VALUE_SOLID:
+            case LXB_CSS_VALUE_DOUBLE:
+            case LXB_CSS_VALUE_GROOVE:
+            case LXB_CSS_VALUE_RIDGE:
+            case LXB_CSS_VALUE_INSET:
+            case LXB_CSS_VALUE_OUTSET:
+                vals[count++] = type;
+                lxb_css_syntax_parser_consume(parser);
+                break;
+            default:
+                return lxb_css_parser_failed(parser);
+        }
+
+        token = lxb_css_syntax_parser_token_wo_ws(parser);
+        lxb_css_property_state_check_token(parser, token);
+    }
+    while (token->type != LXB_CSS_SYNTAX_TOKEN__END);
+
+    bs->top    = vals[0];
+    bs->right  = (count > 1) ? vals[1] : vals[0];
+    bs->bottom = (count > 2) ? vals[2] : vals[0];
+    bs->left   = (count > 3) ? vals[3] : bs->right;
+
+    return lxb_css_parser_success(parser);
+}
+
+bool
+lxb_css_property_state_border_width(lxb_css_parser_t *parser,
+                                    const lxb_css_syntax_token_t *token, void *ctx)
+{
+    lxb_css_value_type_t type;
+    lxb_css_rule_declaration_t *declar = ctx;
+    lxb_css_property_border_width_t *bw = declar->u.border_width;
+    lxb_css_value_length_type_t vals[4] = {
+        {LXB_CSS_VALUE__UNDEF, {0}}, {LXB_CSS_VALUE__UNDEF, {0}},
+        {LXB_CSS_VALUE__UNDEF, {0}}, {LXB_CSS_VALUE__UNDEF, {0}}
+    };
+    unsigned count = 0;
+
+    /* Handle global keywords. */
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        type = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                     lxb_css_syntax_token_ident(token)->length);
+        if (lxb_css_property_state_is_global(type)) {
+            bw->top.type = bw->right.type = bw->bottom.type = bw->left.type = type;
+            lxb_css_syntax_parser_consume(parser);
+            return lxb_css_parser_success(parser);
+        }
+    }
+
+    do {
+        if (count == 4) {
+            return lxb_css_parser_failed(parser);
+        }
+
+        if (!lxb_css_property_state_line_width_one(parser, token, &vals[count])) {
+            return lxb_css_parser_failed(parser);
+        }
+        count++;
+
+        token = lxb_css_syntax_parser_token_wo_ws(parser);
+        lxb_css_property_state_check_token(parser, token);
+    }
+    while (token->type != LXB_CSS_SYNTAX_TOKEN__END);
+
+    lxb_css_property_state_border_width_apply(bw, vals, count);
+    return lxb_css_parser_success(parser);
+}
+
+bool
+lxb_css_property_state_border_top_width(lxb_css_parser_t *parser,
+                                        const lxb_css_syntax_token_t *token, void *ctx)
+{
+    lxb_css_value_type_t type;
+    lxb_css_rule_declaration_t *declar = ctx;
+    lxb_css_value_length_type_t *out = declar->u.border_top_width;
+
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        type = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                     lxb_css_syntax_token_ident(token)->length);
+        if (lxb_css_property_state_is_global(type)) {
+            out->type = type;
+            lxb_css_syntax_parser_consume(parser);
+            return lxb_css_parser_success(parser);
+        }
+    }
+
+    return lxb_css_property_state_line_width_one(parser, token, out)
+         ? lxb_css_parser_success(parser)
+         : lxb_css_parser_failed(parser);
+}
+
+bool
+lxb_css_property_state_border_right_width(lxb_css_parser_t *parser,
+                                          const lxb_css_syntax_token_t *token, void *ctx)
+{
+    lxb_css_value_type_t type;
+    lxb_css_rule_declaration_t *declar = ctx;
+    lxb_css_value_length_type_t *out = declar->u.border_right_width;
+
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        type = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                     lxb_css_syntax_token_ident(token)->length);
+        if (lxb_css_property_state_is_global(type)) {
+            out->type = type;
+            lxb_css_syntax_parser_consume(parser);
+            return lxb_css_parser_success(parser);
+        }
+    }
+
+    return lxb_css_property_state_line_width_one(parser, token, out)
+         ? lxb_css_parser_success(parser)
+         : lxb_css_parser_failed(parser);
+}
+
+bool
+lxb_css_property_state_border_bottom_width(lxb_css_parser_t *parser,
+                                           const lxb_css_syntax_token_t *token, void *ctx)
+{
+    lxb_css_value_type_t type;
+    lxb_css_rule_declaration_t *declar = ctx;
+    lxb_css_value_length_type_t *out = declar->u.border_bottom_width;
+
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        type = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                     lxb_css_syntax_token_ident(token)->length);
+        if (lxb_css_property_state_is_global(type)) {
+            out->type = type;
+            lxb_css_syntax_parser_consume(parser);
+            return lxb_css_parser_success(parser);
+        }
+    }
+
+    return lxb_css_property_state_line_width_one(parser, token, out)
+         ? lxb_css_parser_success(parser)
+         : lxb_css_parser_failed(parser);
+}
+
+bool
+lxb_css_property_state_border_left_width(lxb_css_parser_t *parser,
+                                         const lxb_css_syntax_token_t *token, void *ctx)
+{
+    lxb_css_value_type_t type;
+    lxb_css_rule_declaration_t *declar = ctx;
+    lxb_css_value_length_type_t *out = declar->u.border_left_width;
+
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        type = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                     lxb_css_syntax_token_ident(token)->length);
+        if (lxb_css_property_state_is_global(type)) {
+            out->type = type;
+            lxb_css_syntax_parser_consume(parser);
+            return lxb_css_parser_success(parser);
+        }
+    }
+
+    return lxb_css_property_state_line_width_one(parser, token, out)
+         ? lxb_css_parser_success(parser)
+         : lxb_css_parser_failed(parser);
+}
+
+bool
+lxb_css_property_state_border_collapse(lxb_css_parser_t *parser,
+                                       const lxb_css_syntax_token_t *token, void *ctx)
+{
+    lxb_css_value_type_t type;
+    lxb_css_rule_declaration_t *declar = ctx;
+    lxb_css_property_border_collapse_t *out = declar->u.border_collapse;
+
+    if (token->type != LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        return lxb_css_parser_failed(parser);
+    }
+
+    type = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                 lxb_css_syntax_token_ident(token)->length);
+
+    /* Accept: collapse, separate, or a global keyword. */
+    switch (type) {
+        case LXB_CSS_VALUE_COLLAPSE:
+            *out = type;
+            lxb_css_syntax_parser_consume(parser);
+            return lxb_css_parser_success(parser);
+        default:
+            break;
+    }
+
+    /* "separate" is not in the value enum; match it by name. */
+    {
+        const lxb_css_syntax_token_ident_t *ident = lxb_css_syntax_token_ident(token);
+        static const lxb_char_t kw_separate[] = "separate";
+        if (ident->length == 8 &&
+            lexbor_str_data_ncasecmp(ident->data, kw_separate, 8)) {
+            *out = LXB_CSS_VALUE__UNDEF;  /* treat as "not collapse" */
+            lxb_css_syntax_parser_consume(parser);
+            return lxb_css_parser_success(parser);
+        }
+    }
+
+    if (lxb_css_property_state_is_global(type)) {
+        *out = type;
+        lxb_css_syntax_parser_consume(parser);
+        return lxb_css_parser_success(parser);
+    }
+
+    return lxb_css_parser_failed(parser);
+}
+
 static void
 lxb_css_property_state_border_radius_set_global(
     lxb_css_property_border_radius_corner_t *corner, lxb_css_value_type_t type)

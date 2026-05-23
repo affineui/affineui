@@ -53,6 +53,11 @@ struct ComputedStyle {
     // the current design handles per-side widths and per-side colors (via
     // AnimatedStyle) but keeps one style that applies to all sides.
     BorderStyle  border_style              {BorderStyle::None};
+    // CSS `border-collapse` (INHERITED). When true, the table uses collapsed
+    // border model: adjacent cell borders are merged and border widths do NOT
+    // add to the cell's box size in layout. The cascade propagates this to all
+    // descendant elements (tr, td, th, etc.) via normal CSS inheritance.
+    bool         border_collapse           {false};
     // Percentage height: -1 = not a percentage, else 0..100 (integer %).
     std::int8_t  height_pct               {-1};
     // CSS `visibility` (INHERITED). Visible = painted; Hidden = box kept

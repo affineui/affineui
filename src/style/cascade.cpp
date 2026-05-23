@@ -1036,6 +1036,126 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s) {
             if (parse_color(v, rgba)) s.animated.border_left_rgba = rgba;
             break;
         }
+        case LXB_CSS_PROPERTY_BORDER_STYLE: {
+            // border-style shorthand: sets uniform border_style for all four
+            // sides (per-side style variation is a Phase 2C+ feature).
+            // The shorthand has top/right/bottom/left, we use `top` to
+            // represent the overall intent (solid is the important case).
+            const auto* v =
+                static_cast<const lxb_css_property_border_style_t*>(d->u.user);
+            using BS = ComputedStyle::BorderStyle;
+            // Aggregate: if any side is non-None, use that style for all.
+            // Most Bootstrap usage sets all sides to the same value.
+            auto map_style = [](lxb_css_value_type_t t) -> BS {
+                switch (t) {
+                    case LXB_CSS_VALUE_SOLID:  return BS::Solid;
+                    case LXB_CSS_VALUE_DASHED: return BS::Dashed;
+                    case LXB_CSS_VALUE_DOTTED: return BS::Dotted;
+                    case LXB_CSS_VALUE_DOUBLE: return BS::Double;
+                    default:                   return BS::None;
+                }
+            };
+            BS top    = map_style(v->top);
+            BS right  = map_style(v->right);
+            BS bottom = map_style(v->bottom);
+            BS left   = map_style(v->left);
+            // Pick the "strongest" style: prefer Solid > Dashed > Dotted >
+            // Double > None. This matches the Bootstrap case where all four
+            // sides are set to solid.
+            BS best = BS::None;
+            for (BS b : {top, right, bottom, left}) {
+                if (b == BS::Solid)  { best = b; break; }
+                if (b != BS::None)     best = b;
+            }
+            s.computed.border_style = best;
+            break;
+        }
+        case LXB_CSS_PROPERTY_BORDER_WIDTH: {
+            // border-width shorthand: sets per-side widths.
+            const auto* v =
+                static_cast<const lxb_css_property_border_width_t*>(d->u.user);
+            auto resolve_width = [](const lxb_css_value_length_type_t& lt) -> int {
+                int px = 0;
+                if (parse_length_px(&lt, px)) return px >= 0 ? px : 0;
+                // thin/medium/thick keywords
+                switch (lt.type) {
+                    case LXB_CSS_VALUE_THIN:   return 1;
+                    case LXB_CSS_VALUE_MEDIUM: return 3;
+                    case LXB_CSS_VALUE_THICK:  return 5;
+                    default:                   return 0;
+                }
+            };
+            s.computed.border_top    = static_cast<std::int16_t>(resolve_width(v->top));
+            s.computed.border_right  = static_cast<std::int16_t>(resolve_width(v->right));
+            s.computed.border_bottom = static_cast<std::int16_t>(resolve_width(v->bottom));
+            s.computed.border_left   = static_cast<std::int16_t>(resolve_width(v->left));
+            break;
+        }
+        case LXB_CSS_PROPERTY_BORDER_TOP_WIDTH: {
+            const auto* v =
+                static_cast<const lxb_css_property_border_top_width_t*>(d->u.user);
+            int px = 0;
+            if (parse_length_px(v, px) && px >= 0)
+                s.computed.border_top = static_cast<std::int16_t>(px);
+            else switch (v->type) {
+                case LXB_CSS_VALUE_THIN:   s.computed.border_top = 1; break;
+                case LXB_CSS_VALUE_MEDIUM: s.computed.border_top = 3; break;
+                case LXB_CSS_VALUE_THICK:  s.computed.border_top = 5; break;
+                default: break;
+            }
+            break;
+        }
+        case LXB_CSS_PROPERTY_BORDER_RIGHT_WIDTH: {
+            const auto* v =
+                static_cast<const lxb_css_property_border_right_width_t*>(d->u.user);
+            int px = 0;
+            if (parse_length_px(v, px) && px >= 0)
+                s.computed.border_right = static_cast<std::int16_t>(px);
+            else switch (v->type) {
+                case LXB_CSS_VALUE_THIN:   s.computed.border_right = 1; break;
+                case LXB_CSS_VALUE_MEDIUM: s.computed.border_right = 3; break;
+                case LXB_CSS_VALUE_THICK:  s.computed.border_right = 5; break;
+                default: break;
+            }
+            break;
+        }
+        case LXB_CSS_PROPERTY_BORDER_BOTTOM_WIDTH: {
+            const auto* v =
+                static_cast<const lxb_css_property_border_bottom_width_t*>(d->u.user);
+            int px = 0;
+            if (parse_length_px(v, px) && px >= 0)
+                s.computed.border_bottom = static_cast<std::int16_t>(px);
+            else switch (v->type) {
+                case LXB_CSS_VALUE_THIN:   s.computed.border_bottom = 1; break;
+                case LXB_CSS_VALUE_MEDIUM: s.computed.border_bottom = 3; break;
+                case LXB_CSS_VALUE_THICK:  s.computed.border_bottom = 5; break;
+                default: break;
+            }
+            break;
+        }
+        case LXB_CSS_PROPERTY_BORDER_LEFT_WIDTH: {
+            const auto* v =
+                static_cast<const lxb_css_property_border_left_width_t*>(d->u.user);
+            int px = 0;
+            if (parse_length_px(v, px) && px >= 0)
+                s.computed.border_left = static_cast<std::int16_t>(px);
+            else switch (v->type) {
+                case LXB_CSS_VALUE_THIN:   s.computed.border_left = 1; break;
+                case LXB_CSS_VALUE_MEDIUM: s.computed.border_left = 3; break;
+                case LXB_CSS_VALUE_THICK:  s.computed.border_left = 5; break;
+                default: break;
+            }
+            break;
+        }
+        case LXB_CSS_PROPERTY_BORDER_COLLAPSE: {
+            // border-collapse is an INHERITED property. Setting it on a table
+            // element causes all descendant tr/td/th to inherit `true`, which
+            // signals the layout engine to treat cells as having no border
+            // contribution to box size (approximating the collapsed model).
+            const auto type = *static_cast<const lxb_css_property_border_collapse_t*>(d->u.user);
+            s.computed.border_collapse = (type == LXB_CSS_VALUE_COLLAPSE);
+            break;
+        }
         case LXB_CSS_PROPERTY_GAP: {
             const auto* v =
                 static_cast<const lxb_css_property_gap_t*>(d->u.user);
@@ -1786,6 +1906,8 @@ inline int shorthand_rank(std::uintptr_t id) {
         case LXB_CSS_PROPERTY_PADDING:
         case LXB_CSS_PROPERTY_BORDER:
         case LXB_CSS_PROPERTY_BORDER_COLOR:
+        case LXB_CSS_PROPERTY_BORDER_STYLE:
+        case LXB_CSS_PROPERTY_BORDER_WIDTH:
         case LXB_CSS_PROPERTY_BORDER_RADIUS:
         case LXB_CSS_PROPERTY_BACKGROUND:
         case LXB_CSS_PROPERTY_GAP:

@@ -550,4 +550,167 @@ TEST_CASE("font shorthand without line-height sets font_size_px only") {
     CHECK(rs.computed.line_height_x100 == 0);
 }
 
+// ── Table cell selector matching diagnostics ─────────────────────────
+
+// Helper: find a specific element with a given tag AND the Nth occurrence
+// (0-based) among same-tag elements in document order.
+lxb_dom_element_t* find_nth(lxb_dom_node_t* root, const char* tag, int nth) {
+    int count = 0;
+    std::function<lxb_dom_element_t*(lxb_dom_node_t*)> dfs =
+        [&](lxb_dom_node_t* node) -> lxb_dom_element_t* {
+        for (auto* c = lxb_dom_node_first_child(node); c;
+             c = lxb_dom_node_next(c)) {
+            if (c->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+                auto* el = lxb_dom_interface_element(c);
+                size_t len = 0;
+                const auto* name = lxb_dom_element_qualified_name(el, &len);
+                if (name && len == std::strlen(tag) &&
+                    std::memcmp(name, tag, len) == 0) {
+                    if (count++ == nth) return el;
+                }
+                if (auto* nested = dfs(c)) return nested;
+            }
+        }
+        return nullptr;
+    };
+    return dfs(root);
+}
+
+TEST_CASE("table child selector matches td for padding") {
+    // Minimal table with .table class — tests that .table>:not(caption)>*>*
+    // correctly selects <td> elements.
+    CssEnv env(
+        "<table class=\"table\"><thead><tr><th>A</th></tr></thead>"
+        "<tbody><tr><td>B</td></tr></tbody></table>");
+    env.attach(".table>:not(caption)>*>*{padding:8px 12px}");
+    env.build_resolver();
+
+    auto* td = env.find("td");
+    REQUIRE(td != nullptr);
+
+    const affineui::detail::ResolvedStyle root{};
+    // We need a parent chain: table → tbody → tr → td
+    auto* table_el = env.find("table");
+    auto* tbody_el = env.find("tbody");
+    auto* tr_el    = env.find("tr");
+    REQUIRE(table_el != nullptr);
+    REQUIRE(tbody_el != nullptr);
+    REQUIRE(tr_el    != nullptr);
+
+    const auto table_rs = env.resolver->resolve(table_el, root);
+    const auto tbody_rs = env.resolver->resolve(tbody_el, table_rs);
+    const auto tr_rs    = env.resolver->resolve(tr_el,    tbody_rs);
+    const auto td_rs    = env.resolver->resolve(td,       tr_rs);
+
+    // .table>:not(caption)>*>* should apply padding: 8px 12px
+    CHECK(td_rs.computed.padding_top    == 8);
+    CHECK(td_rs.computed.padding_bottom == 8);
+    CHECK(td_rs.computed.padding_left   == 12);
+    CHECK(td_rs.computed.padding_right  == 12);
+}
+
+TEST_CASE("nth-child selector applies background to even rows") {
+    // Tests tbody tr:nth-child(even) td { background: #eceff1 }
+    CssEnv env(
+        "<table><tbody>"
+        "<tr><td>A</td></tr>"
+        "<tr><td>B</td></tr>"
+        "<tr><td>C</td></tr>"
+        "</tbody></table>");
+    env.attach("tbody tr:nth-child(even) td { background-color: #eceff1; }");
+    env.build_resolver();
+
+    const affineui::detail::ResolvedStyle root{};
+    // Find the first and second tr
+    auto* table_el  = env.find("table");
+    auto* tbody_el  = env.find("tbody");
+    REQUIRE(table_el != nullptr);
+    REQUIRE(tbody_el != nullptr);
+    const auto table_rs = env.resolver->resolve(table_el, root);
+    const auto tbody_rs = env.resolver->resolve(tbody_el, table_rs);
+
+    // First tr (odd) — no background
+    auto* tr1 = find_nth(lxb_dom_interface_node(env.doc), "tr", 0);
+    auto* td1 = find_nth(lxb_dom_interface_node(env.doc), "td", 0);
+    REQUIRE(tr1 != nullptr);
+    REQUIRE(td1 != nullptr);
+    const auto tr1_rs = env.resolver->resolve(tr1, tbody_rs);
+    const auto td1_rs = env.resolver->resolve(td1, tr1_rs);
+    CHECK(td1_rs.animated.background_rgba == 0x00000000u);  // no bg
+
+    // Second tr (even) — should have #eceff1 background
+    auto* tr2 = find_nth(lxb_dom_interface_node(env.doc), "tr", 1);
+    auto* td2 = find_nth(lxb_dom_interface_node(env.doc), "td", 1);
+    REQUIRE(tr2 != nullptr);
+    REQUIRE(td2 != nullptr);
+    const auto tr2_rs = env.resolver->resolve(tr2, tbody_rs);
+    const auto td2_rs = env.resolver->resolve(td2, tr2_rs);
+    // #eceff1 = r=0xec, g=0xef, b=0xf1, a=0xff
+    CHECK(td2_rs.animated.background_rgba == rgba(0xEC, 0xEF, 0xF1));
+}
+
+TEST_CASE("border-bottom-width via border shorthand applies to cells") {
+    // Tests that border: 1px solid #000 sets border_bottom correctly
+    CssEnv env("<table><tbody><tr><td>A</td></tr></tbody></table>");
+    env.attach("td { border: 1px solid #000; }");
+    env.build_resolver();
+
+    const affineui::detail::ResolvedStyle root{};
+    auto* td = env.find("td");
+    REQUIRE(td != nullptr);
+    const auto td_rs = env.resolver->resolve(td, root);
+    CHECK(td_rs.computed.border_top    == 1);
+    CHECK(td_rs.computed.border_bottom == 1);
+    CHECK(td_rs.computed.border_left   == 1);
+    CHECK(td_rs.computed.border_right  == 1);
+}
+
+TEST_CASE("css custom property striping via var() on table cells") {
+    // Mimics Bootstrap's table striping: .table sets --bs-table-striped-bg,
+    // :nth-of-type(odd) overrides --bs-table-bg-type, cell uses var() for bg.
+    // This exercises the full custom-property inheritance + var() substitution chain.
+    CssEnv env(
+        "<table class=\"table table-striped\">"
+        "<tbody>"
+        "<tr><td>A</td></tr>"
+        "<tr><td>B</td></tr>"
+        "</tbody></table>");
+    env.attach(
+        // Table sets the striped bg color
+        ".table { --bs-table-striped-bg: #f2f2f2; --bs-table-bg: #fff; }"
+        // Cell uses a chain of vars for its bg
+        ".table>:not(caption)>*>* { background-color: var(--bs-table-bg-type, var(--bs-table-bg)); }"
+        // Odd rows override --bs-table-bg-type
+        ".table-striped>tbody>tr:nth-of-type(odd)>* { --bs-table-bg-type: var(--bs-table-striped-bg); }");
+    env.build_resolver();
+
+    const affineui::detail::ResolvedStyle root{};
+    auto* table_el = env.find("table");
+    auto* tbody_el = env.find("tbody");
+    REQUIRE(table_el != nullptr);
+    REQUIRE(tbody_el != nullptr);
+    const auto table_rs = env.resolver->resolve(table_el, root);
+    const auto tbody_rs = env.resolver->resolve(tbody_el, table_rs);
+
+    // First tr (1st = odd in nth-of-type) — should have striped bg #f2f2f2
+    auto* tr1 = find_nth(lxb_dom_interface_node(env.doc), "tr", 0);
+    auto* td1 = find_nth(lxb_dom_interface_node(env.doc), "td", 0);
+    REQUIRE(tr1 != nullptr);
+    REQUIRE(td1 != nullptr);
+    const auto tr1_rs = env.resolver->resolve(tr1, tbody_rs);
+    const auto td1_rs = env.resolver->resolve(td1, tr1_rs);
+    // #f2f2f2 = r=0xf2, g=0xf2, b=0xf2
+    CHECK(td1_rs.animated.background_rgba == rgba(0xF2, 0xF2, 0xF2));
+
+    // Second tr (2nd = even in nth-of-type) — should have table bg #fff
+    auto* tr2 = find_nth(lxb_dom_interface_node(env.doc), "tr", 1);
+    auto* td2 = find_nth(lxb_dom_interface_node(env.doc), "td", 1);
+    REQUIRE(tr2 != nullptr);
+    REQUIRE(td2 != nullptr);
+    const auto tr2_rs = env.resolver->resolve(tr2, tbody_rs);
+    const auto td2_rs = env.resolver->resolve(td2, tr2_rs);
+    // #fff = r=0xff, g=0xff, b=0xff
+    CHECK(td2_rs.animated.background_rgba == rgba(0xFF, 0xFF, 0xFF));
+}
+
 #endif  // !AFFINEUI_STUB_BUILD
