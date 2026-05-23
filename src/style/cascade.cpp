@@ -795,7 +795,8 @@ std::string evaluate_calc(std::string_view input, double rem, double em) {
 // resolution in all properties EXCEPT font-size itself (the caller
 // must pass the PARENT's font-size when applying FONT_SIZE / FONT).
 void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s,
-                       double em_px = 16.0) {
+                       double em_px = 16.0,
+                       const ResolvedStyle* parent = nullptr) {
     // Local helpers that forward em_px to the free-function overloads so
     // every length in this declaration resolves against the correct em.
     // These shadow the free functions within apply_declaration's scope.
@@ -1000,6 +1001,18 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s,
         case LXB_CSS_PROPERTY_BORDER_COLOR: {
             const auto* v =
                 static_cast<const lxb_css_property_border_color_t*>(d->u.user);
+            // `border-color: inherit` (Bootstrap's reboot uses this on table
+            // cells so they pick up the table's --bs-table-border-color).
+            // border-color is normally NON-inherited, so `s = parent` was
+            // reset; copy the parent's resolved border colour back here.
+            if (v->top.type == LXB_CSS_VALUE_INHERIT && parent) {
+                s.animated.border_rgba        = parent->animated.border_rgba;
+                s.animated.border_top_rgba    = parent->animated.border_top_rgba;
+                s.animated.border_right_rgba  = parent->animated.border_right_rgba;
+                s.animated.border_bottom_rgba = parent->animated.border_bottom_rgba;
+                s.animated.border_left_rgba   = parent->animated.border_left_rgba;
+                break;
+            }
             std::uint32_t rgba;
             if (parse_color(&v->top, rgba, s.animated.color_rgba))
                 s.animated.border_rgba = rgba;
@@ -2201,7 +2214,7 @@ public:
             ? static_cast<double>(s.computed.font_size_px) : 16.0;
         for (const PendingDecl& pd : pending)
             if (is_font_size(pd.declr->type))
-                apply_declaration(pd.declr, s, parent_em);
+                apply_declaration(pd.declr, s, parent_em, &parent);
         for (const DeferredVar& dv : deferred)
             if (is_font_size(dv.property_id)) {
                 const std::string resolved = evaluate_calc(
@@ -2225,7 +2238,7 @@ public:
             if (is_font_size(pd.declr->type)) continue;  // applied in pass 1
             while (di < deferred.size() && deferred[di].spec < pd.spec)
                 apply_deferred(deferred[di++]);
-            apply_declaration(pd.declr, s, own_em);
+            apply_declaration(pd.declr, s, own_em, &parent);
         }
         while (di < deferred.size()) apply_deferred(deferred[di++]);
 
