@@ -2248,6 +2248,25 @@ void Document::draw(Painter& painter) {
             using WS = detail::ComputedStyle::WhiteSpace;
             const bool is_nowrap = (cs.white_space == WS::Nowrap ||
                                     cs.white_space == WS::Pre);
+
+            // white-space:nowrap forces a single line, which we signal to
+            // the painter with a huge wrap width. But nvgTextBox aligns
+            // center/right *within* that wrap width — at 1e6 it would fling
+            // the glyphs ~500k px off-screen (the symptom: nowrap centered
+            // text like progress-bar "%" labels and badges renders blank).
+            // So resolve the alignment offset here against the real line box
+            // and hand the painter a pre-positioned LEFT single-line draw.
+            if (is_nowrap && (paint_align == Painter::TextAlign::Center ||
+                              paint_align == Painter::TextAlign::Right)) {
+                const float tw = static_cast<float>(painter.measure_text(font, b.text));
+                const float slack = content_w - tw;
+                if (paint_align == Painter::TextAlign::Center)
+                    text_x += static_cast<int>(slack * 0.5f + 0.5f);
+                else  // Right
+                    text_x += static_cast<int>(slack + 0.5f);
+                paint_align = Painter::TextAlign::Left;
+            }
+
             // Justify fills exactly to the content edge — no wrap slack
             // (the +4 below would let justified lines spill 4px past it).
             const float draw_max_w = is_nowrap ? 1e6f

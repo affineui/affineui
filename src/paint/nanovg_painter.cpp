@@ -164,7 +164,18 @@ public:
         nvgStroke(vg_);
     }
 
+    // CSS clamps border-radius UNIFORMLY to min(w,h)/2, keeping corners
+    // circular — a huge radius (e.g. `border-radius:50rem` for a pill)
+    // becomes a pill (semicircular ends), not an ellipse. NanoVG instead
+    // clamps per-axis (rx→w/2, ry→h/2 independently), which turns a large
+    // radius into a full ellipse. So pre-clamp here.
+    float clamp_radius(float radius, int w, int h) const {
+        const float maxr = 0.5f * static_cast<float>(std::min(w, h));
+        return radius < maxr ? radius : maxr;
+    }
+
     void fill_rounded_rect(const Rect& r, float radius, Color c) override {
+        radius = clamp_radius(radius, r.w, r.h);
         nvgBeginPath(vg_);
         nvgRoundedRect(vg_, static_cast<float>(r.x), static_cast<float>(r.y),
                        static_cast<float>(r.w), static_cast<float>(r.h), radius);
@@ -173,6 +184,7 @@ public:
     }
 
     void stroke_rounded_rect(const Rect& r, float radius, Color c, float w) override {
+        radius = clamp_radius(radius, r.w, r.h);
         nvgBeginPath(vg_);
         nvgRoundedRect(vg_, static_cast<float>(r.x), static_cast<float>(r.y),
                        static_cast<float>(r.w), static_cast<float>(r.h), radius);
@@ -184,6 +196,9 @@ public:
     void fill_rounded_rect_varying(const Rect& r,
                                    float tl, float tr, float br, float bl,
                                    Color c) override {
+        const float m = 0.5f * static_cast<float>(std::min(r.w, r.h));
+        tl = std::min(tl, m); tr = std::min(tr, m);
+        br = std::min(br, m); bl = std::min(bl, m);
         nvgBeginPath(vg_);
         nvgRoundedRectVarying(vg_,
             static_cast<float>(r.x), static_cast<float>(r.y),
@@ -196,6 +211,9 @@ public:
     void stroke_rounded_rect_varying(const Rect& r,
                                      float tl, float tr, float br, float bl,
                                      Color c, float w) override {
+        const float m = 0.5f * static_cast<float>(std::min(r.w, r.h));
+        tl = std::min(tl, m); tr = std::min(tr, m);
+        br = std::min(br, m); bl = std::min(bl, m);
         nvgBeginPath(vg_);
         nvgRoundedRectVarying(vg_,
             static_cast<float>(r.x), static_cast<float>(r.y),
