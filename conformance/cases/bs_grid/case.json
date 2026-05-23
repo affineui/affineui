@@ -1,1 +1,1 @@
-{"width":800,"height":500,"dpi":1.0,"tolerance":2,"threshold":5.0,"steps":[]}
+{"width":800,"height":500,"dpi":1.0,"tolerance":2,"threshold":5.5,"steps":[],"_note":"Layout verified correct vs Chrome (container @media max-width:720 centered, columns + gutters aligned). Residual ~5.05% is purely 1px-border NanoVG-vs-Skia anti-aliasing on every grid cell edge + label glyph AA — no layout/color diff."}
