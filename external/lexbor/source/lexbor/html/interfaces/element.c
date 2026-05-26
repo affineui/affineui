@@ -490,6 +490,60 @@ lxb_html_element_style_remove_all_not(lxb_html_document_t *doc,
 }
 
 lxb_html_style_node_t *
+lxb_html_element_style_detach_all_not(lxb_html_document_t *doc,
+                                      lexbor_avl_node_t **root,
+                                      lxb_html_style_node_t *style, bool bs)
+{
+    lxb_html_style_weak_t *weak, *prev, *next;
+
+    weak = style->weak;
+    prev = NULL;
+
+    while (weak != NULL) {
+        next = weak->next;
+
+        if (lxb_css_selector_sp_s(weak->sp) == bs) {
+            lxb_css_rule_ref_dec(weak->value);
+            lexbor_dobject_free(doc->css.weak, weak);
+
+            if (prev != NULL) {
+                prev->next = next;
+            }
+            else {
+                style->weak = next;
+            }
+        }
+        else {
+            prev = weak;
+        }
+
+        weak = next;
+    }
+
+    if (lxb_css_selector_sp_s(style->sp) != bs) {
+        return style;
+    }
+
+    lxb_css_rule_ref_dec(style->entry.value);
+
+    if (style->weak == NULL) {
+        lexbor_avl_remove_by_node(doc->css.styles, root,
+                                  (lexbor_avl_node_t *) style);
+        return NULL;
+    }
+
+    weak = style->weak;
+
+    style->entry.value = weak->value;
+    style->sp = weak->sp;
+    style->weak = weak->next;
+
+    lexbor_dobject_free(doc->css.weak, weak);
+
+    return style;
+}
+
+lxb_html_style_node_t *
 lxb_html_element_style_remove_all(lxb_html_document_t *doc,
                                   lexbor_avl_node_t **root,
                                   lxb_html_style_node_t *style)

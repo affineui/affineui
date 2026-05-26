@@ -642,6 +642,11 @@ struct ReplayClipStats {
     std::uint32_t culled{0};
 };
 
+struct DisplayListDiffBounds {
+    bool known{true};
+    Rect bounds{};
+};
+
 inline bool replay_rect_valid(const Rect& r) {
     return r.w > 0 && r.h > 0;
 }
@@ -813,6 +818,27 @@ inline Rect replay_union_rect(const Rect& a, const Rect& b) {
     return Rect{x0, y0, x1 - x0, y1 - y0};
 }
 
+inline bool replay_paint_ops_equal(const DisplayList& a,
+                                   const PaintOp& a_op,
+                                   const DisplayList& b,
+                                   const PaintOp& b_op) {
+    if (a_op.kind != b_op.kind) return false;
+    if (std::memcmp(&a_op, &b_op, sizeof(PaintOp)) != 0) return false;
+    if (a_op.kind == PaintOpKind::DrawText) {
+        return a.text_at(a_op.p.draw_text.text_offset,
+                         a_op.p.draw_text.text_len)
+            == b.text_at(b_op.p.draw_text.text_offset,
+                         b_op.p.draw_text.text_len);
+    }
+    if (a_op.kind == PaintOpKind::DrawTextBox) {
+        return a.text_at(a_op.p.draw_text_box.text_offset,
+                         a_op.p.draw_text_box.text_len)
+            == b.text_at(b_op.p.draw_text_box.text_offset,
+                         b_op.p.draw_text_box.text_len);
+    }
+    return true;
+}
+
 inline std::size_t replay_matching_transform_pop(const DisplayList& list,
                                                  std::size_t push_index) {
     int depth = 1;
@@ -953,6 +979,134 @@ inline const DisplayListClipRange* replay_clip_range_at(
         return nullptr;
     }
     return &range;
+}
+
+inline bool replay_visual_bounds_for_op(const DisplayList& list,
+                                        std::size_t index,
+                                        const Mat2x3& current_transform,
+                                        Rect& out) {
+    if (index >= list.ops.size()) return false;
+    const auto& op = list.ops[index];
+    if (op.kind == PaintOpKind::PushTransform) {
+        if (const auto* range = replay_transform_range_at(list, index)) {
+            if (range->bounds_known) {
+                out = replay_transform_bounds(range->bounds,
+                                              current_transform);
+                return replay_rect_valid(out);
+            }
+        }
+        return false;
+    }
+    if (op.kind == PaintOpKind::PushAlpha) {
+        return false;
+    }
+
+    Rect local{};
+    if (!replay_op_bounds(op, local)) return false;
+    out = replay_transform_bounds(local, current_transform);
+    return replay_rect_valid(out);
+}
+
+inline bool replay_compute_visual_bounds(const DisplayList& list,
+                                         std::vector<Rect>& bounds,
+                                         std::vector<std::uint8_t>& known) {
+    bounds.clear();
+    known.clear();
+    bounds.resize(list.ops.size());
+    known.resize(list.ops.size(), 0);
+
+    std::array<Mat2x3, 64> transform_stack{};
+    int transform_depth = 0;
+    int transform_overflow_depth = 0;
+    Mat2x3 current_transform = Mat2x3::identity();
+
+    bool all_known = true;
+    for (std::size_t i = 0; i < list.ops.size(); ++i) {
+        const auto& op = list.ops[i];
+        Rect op_bounds{};
+        if (transform_overflow_depth == 0 &&
+            replay_visual_bounds_for_op(list, i, current_transform,
+                                        op_bounds)) {
+            bounds[i] = op_bounds;
+            known[i] = 1;
+        } else if (op.kind != PaintOpKind::PopTransform &&
+                   op.kind != PaintOpKind::PopClip &&
+                   op.kind != PaintOpKind::PushClip &&
+                   op.kind != PaintOpKind::PopAlpha) {
+            if (op.kind == PaintOpKind::DrawText ||
+                op.kind == PaintOpKind::DrawTextBox ||
+                op.kind == PaintOpKind::PushAlpha ||
+                transform_overflow_depth > 0) {
+                all_known = false;
+            }
+        }
+
+        if (op.kind == PaintOpKind::PushTransform) {
+            const auto next_transform =
+                current_transform.then(replay_transform_from_op(op));
+            if (transform_overflow_depth > 0 ||
+                transform_depth >= static_cast<int>(transform_stack.size())) {
+                ++transform_overflow_depth;
+            } else {
+                transform_stack[static_cast<std::size_t>(transform_depth)] =
+                    current_transform;
+                ++transform_depth;
+                current_transform = next_transform;
+            }
+        } else if (op.kind == PaintOpKind::PopTransform) {
+            if (transform_overflow_depth > 0) {
+                --transform_overflow_depth;
+            } else if (transform_depth > 0) {
+                --transform_depth;
+                current_transform =
+                    transform_stack[static_cast<std::size_t>(transform_depth)];
+            }
+        }
+    }
+    return all_known;
+}
+
+inline DisplayListDiffBounds display_list_diff_bounds(const DisplayList& old_list,
+                                                      const DisplayList& new_list) {
+    DisplayListDiffBounds result{};
+    std::vector<Rect> old_bounds;
+    std::vector<Rect> new_bounds;
+    std::vector<std::uint8_t> old_known;
+    std::vector<std::uint8_t> new_known;
+    replay_compute_visual_bounds(old_list, old_bounds, old_known);
+    replay_compute_visual_bounds(new_list, new_bounds, new_known);
+
+    const std::size_t shared =
+        std::min(old_list.ops.size(), new_list.ops.size());
+    for (std::size_t i = 0; i < shared; ++i) {
+        if (replay_paint_ops_equal(old_list, old_list.ops[i],
+                                   new_list, new_list.ops[i])) {
+            continue;
+        }
+        if (!old_known[i] || !new_known[i]) {
+            result.known = false;
+            return result;
+        }
+        result.bounds = replay_union_rect(result.bounds, old_bounds[i]);
+        result.bounds = replay_union_rect(result.bounds, new_bounds[i]);
+    }
+
+    for (std::size_t i = shared; i < old_list.ops.size(); ++i) {
+        if (!old_known[i]) {
+            result.known = false;
+            return result;
+        }
+        result.bounds = replay_union_rect(result.bounds, old_bounds[i]);
+    }
+    for (std::size_t i = shared; i < new_list.ops.size(); ++i) {
+        if (!new_known[i]) {
+            result.known = false;
+            return result;
+        }
+        result.bounds = replay_union_rect(result.bounds, new_bounds[i]);
+    }
+
+    return result;
 }
 
 inline ReplayClipStats replay_clipped(const DisplayList& list,

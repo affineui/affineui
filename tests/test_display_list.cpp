@@ -98,6 +98,21 @@ affineui::detail::PaintOp pop_transform() {
     return op;
 }
 
+affineui::detail::PaintOp draw_text_box(affineui::detail::DisplayList& list,
+                                        int x,
+                                        int y,
+                                        std::string_view text) {
+    const auto [off, len] = list.intern_text(text);
+    affineui::detail::PaintOp op{};
+    op.kind = affineui::detail::PaintOpKind::DrawTextBox;
+    op.p.draw_text_box.x = static_cast<std::int16_t>(x);
+    op.p.draw_text_box.y = static_cast<std::int16_t>(y);
+    op.p.draw_text_box.text_offset = off;
+    op.p.draw_text_box.text_len = len;
+    op.p.draw_text_box.max_width = 120;
+    return op;
+}
+
 }  // namespace
 
 TEST_CASE("clipped replay culls paint inside translated transform") {
@@ -211,6 +226,44 @@ TEST_CASE("display list prepares nested clip range jumps") {
     CHECK(painter.clips == 0);
     CHECK(painter.fill_rects == 0);
     CHECK(stats.culled == 5);
+}
+
+TEST_CASE("display list diff bounds cover old and new known paint") {
+    affineui::detail::DisplayList old_list;
+    old_list.ops.push_back(fill_rect(10, 20, 12, 8));
+    old_list.ops.push_back(fill_rect(80, 20, 12, 8));
+    old_list.finalize_hash();
+    affineui::detail::prepare_replay_metadata(old_list);
+
+    affineui::detail::DisplayList new_list;
+    new_list.ops.push_back(fill_rect(10, 44, 12, 8));
+    new_list.ops.push_back(fill_rect(80, 20, 12, 8));
+    new_list.finalize_hash();
+    affineui::detail::prepare_replay_metadata(new_list);
+
+    const auto diff =
+        affineui::detail::display_list_diff_bounds(old_list, new_list);
+    REQUIRE(diff.known);
+    CHECK(diff.bounds.x == 10);
+    CHECK(diff.bounds.y == 20);
+    CHECK(diff.bounds.w == 12);
+    CHECK(diff.bounds.h == 32);
+}
+
+TEST_CASE("display list diff bounds reject changed text without exact bounds") {
+    affineui::detail::DisplayList old_list;
+    old_list.ops.push_back(draw_text_box(old_list, 10, 10, "One"));
+    old_list.finalize_hash();
+    affineui::detail::prepare_replay_metadata(old_list);
+
+    affineui::detail::DisplayList new_list;
+    new_list.ops.push_back(draw_text_box(new_list, 10, 10, "Two"));
+    new_list.finalize_hash();
+    affineui::detail::prepare_replay_metadata(new_list);
+
+    const auto diff =
+        affineui::detail::display_list_diff_bounds(old_list, new_list);
+    CHECK_FALSE(diff.known);
 }
 
 TEST_CASE("clipped replay still handles unprepared clip ranges") {

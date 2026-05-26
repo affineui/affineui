@@ -20,6 +20,26 @@ struct ValueAccess {
     std::function<void()> rerender;
 };
 
+inline bool set_boolean_attr(affineui::Ui& ui,
+                             std::string_view id,
+                             std::string_view attr,
+                             bool enabled) {
+    return enabled ? ui.set_attr(id, attr, "true")
+                   : ui.remove_attr(id, attr);
+}
+
+inline bool set_checked(affineui::Ui& ui,
+                        std::string_view id,
+                        bool checked) {
+    return set_boolean_attr(ui, id, "aria-checked", checked);
+}
+
+inline bool set_pressed(affineui::Ui& ui,
+                        std::string_view id,
+                        bool pressed) {
+    return set_boolean_attr(ui, id, "aria-pressed", pressed);
+}
+
 namespace detail {
 
 inline const std::string* attr(const affineui::Document::HoverInfo& info,

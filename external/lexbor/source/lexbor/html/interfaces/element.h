@@ -98,6 +98,11 @@ lxb_html_element_style_remove_all_not(lxb_html_document_t *doc,
                                       lxb_html_style_node_t *style, bool bs);
 
 LXB_API lxb_html_style_node_t *
+lxb_html_element_style_detach_all_not(lxb_html_document_t *doc,
+                                      lexbor_avl_node_t **root,
+                                      lxb_html_style_node_t *style, bool bs);
+
+LXB_API lxb_html_style_node_t *
 lxb_html_element_style_remove_all(lxb_html_document_t *doc,
                                   lexbor_avl_node_t **root,
                                   lxb_html_style_node_t *style);

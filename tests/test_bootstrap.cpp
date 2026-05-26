@@ -167,10 +167,37 @@ std::string bootstrap_css() {
     return {};
 }
 
+std::string bootstrap5_css() {
+#if defined(AFFINEUI_TEST_SOURCE_DIR)
+    const std::string source_dir = AFFINEUI_TEST_SOURCE_DIR;
+    auto css = read_file(
+        (source_dir + "/examples/frameworks/css/bootstrap-5.3.8.min.css")
+            .c_str());
+    if (!css.empty()) return css;
+#endif
+
+    for (const char* path : {
+             "examples/frameworks/css/bootstrap-5.3.8.min.css",
+             "../examples/frameworks/css/bootstrap-5.3.8.min.css",
+             "../../examples/frameworks/css/bootstrap-5.3.8.min.css",
+         }) {
+        auto css = read_file(path);
+        if (!css.empty()) return css;
+    }
+    return {};
+}
+
 bool require_bootstrap_css(std::string& css) {
     css = bootstrap_css();
     if (!css.empty()) return true;
     WARN("Bootstrap CSS fixture not found");
+    return false;
+}
+
+bool require_bootstrap5_css(std::string& css) {
+    css = bootstrap5_css();
+    if (!css.empty()) return true;
+    WARN("Bootstrap 5 CSS fixture not found");
     return false;
 }
 
@@ -193,6 +220,22 @@ RecordingPainter render_bootstrap(std::string_view html, int width = 960,
                                   int height = 0) {
     std::string css;
     REQUIRE(require_bootstrap_css(css));
+
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_user_stylesheet(css);
+    doc.set_html(html);
+    doc.layout(width, height, &painter);
+    doc.draw(painter);
+
+    return painter;
+}
+
+RecordingPainter render_bootstrap5(std::string_view html, int width = 960,
+                                   int height = 0) {
+    std::string css;
+    REQUIRE(require_bootstrap5_css(css));
 
     affineui::Document doc;
     RecordingPainter painter;
@@ -239,6 +282,30 @@ TEST_CASE("Bootstrap grid columns stay on the same row") {
     CHECK(right->x > left->x + 120);
     CHECK(right->y >= left->y - 4);
     CHECK(right->y <= left->y + 4);
+}
+
+TEST_CASE("Bootstrap 5 dashboard sidebar uses desktop grid width") {
+    auto painter = render_bootstrap5(R"HTML(
+        <div class="container-fluid">
+            <div class="row">
+                <nav class="col-md-3 col-lg-2 d-md-block bg-body-tertiary sidebar collapse">
+                    <h6 class="px-3">Workspace</h6>
+                </nav>
+                <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 dashboard-main">
+                    <h1 class="h2">Dashboard</h1>
+                </main>
+            </div>
+        </div>
+    )HTML", 1440, 920);
+
+    const auto sidebar = point_for_text(painter, "Workspace");
+    const auto main = point_for_text(painter, "Dashboard");
+    REQUIRE(sidebar.has_value());
+    REQUIRE(main.has_value());
+
+    CHECK(main->x > sidebar->x + 180);
+    CHECK(main->y >= sidebar->y - 4);
+    CHECK(main->y <= sidebar->y + 40);
 }
 
 TEST_CASE("Bootstrap button row preserves inline spacing and paints focusable variants") {

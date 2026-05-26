@@ -69,6 +69,11 @@ lxb_html_document_style_remove_avl_cb(lexbor_avl_t *avl,
                                       lexbor_avl_node_t *node, void *ctx);
 
 static lxb_status_t
+lxb_html_document_style_detach_avl_cb(lexbor_avl_t *avl,
+                                      lexbor_avl_node_t **root,
+                                      lexbor_avl_node_t *node, void *ctx);
+
+static lxb_status_t
 lxb_html_document_style_cb(lxb_dom_node_t *node,
                            lxb_css_selector_specificity_t spec, void *ctx);
 
@@ -571,6 +576,34 @@ lxb_html_document_element_styles_attach(lxb_html_element_t *element)
     return LXB_STATUS_OK;
 }
 
+lxb_status_t
+lxb_html_document_element_styles_rematch(lxb_html_element_t *element)
+{
+    lxb_status_t status;
+    lxb_html_document_t *document;
+    lxb_html_document_event_ctx_t context;
+
+    if (element == NULL) {
+        return LXB_STATUS_ERROR_WRONG_ARGS;
+    }
+
+    document = lxb_html_element_document(element);
+
+    if (element->style != NULL) {
+        context.doc = document;
+        context.all = false;
+
+        status = lexbor_avl_foreach(document->css.styles, &element->style,
+                                    lxb_html_document_style_detach_avl_cb,
+                                    &context);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+    }
+
+    return lxb_html_document_element_styles_attach(element);
+}
+
 void
 lxb_html_document_stylesheet_destroy_all(lxb_html_document_t *document,
                                          bool destroy_memory)
@@ -654,6 +687,19 @@ lxb_html_document_style_remove_avl_cb(lexbor_avl_t *avl,
 
     lxb_html_element_style_remove_by_list(context->doc, root,
                                           style, context->list);
+    return LXB_STATUS_OK;
+}
+
+static lxb_status_t
+lxb_html_document_style_detach_avl_cb(lexbor_avl_t *avl,
+                                      lexbor_avl_node_t **root,
+                                      lexbor_avl_node_t *node, void *ctx)
+{
+    lxb_html_document_event_ctx_t *context = ctx;
+    lxb_html_style_node_t *style = (lxb_html_style_node_t *) node;
+
+    lxb_html_element_style_detach_all_not(context->doc, root, style, false);
+
     return LXB_STATUS_OK;
 }
 

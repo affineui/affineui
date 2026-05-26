@@ -134,6 +134,9 @@ lxb_html_document_stylesheet_remove(lxb_html_document_t *document,
 LXB_API lxb_status_t
 lxb_html_document_element_styles_attach(lxb_html_element_t *element);
 
+LXB_API lxb_status_t
+lxb_html_document_element_styles_rematch(lxb_html_element_t *element);
+
 LXB_API void
 lxb_html_document_stylesheet_destroy_all(lxb_html_document_t *document,
                                          bool destroy_memory);

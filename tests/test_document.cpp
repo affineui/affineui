@@ -629,6 +629,64 @@ TEST_CASE("real Decius checkbox generated icon updates after live aria mutation"
     CHECK(find_text_draw(painter, "Hard sync") != nullptr);
 }
 
+TEST_CASE("live selector attribute mutation rematches cascade") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .row { display: flex; gap: 8px; }
+        .check { display: inline-flex; align-items: center; gap: 6px; }
+        .box {
+          width: 14px;
+          height: 14px;
+          background: #20232b;
+          border: 1px solid #5d6577;
+        }
+        .check[aria-checked=true] .box {
+          background: #3dd68a;
+          border-color: #3dd68a;
+        }
+        </style>
+        <div class="row">
+          <div id="sync" class="check"><div class="box"></div><span>Hard sync</span></div>
+          <div>Other control</div>
+        </div>
+    )HTML");
+    doc.layout(260, 80, &painter);
+    (void)doc.take_paint_dirty();
+    (void)doc.take_dirty_rects();
+
+    REQUIRE(doc.set_attribute_by_id("sync", "aria-checked", "true"));
+    CHECK_FALSE(doc.take_paint_dirty());
+    CHECK_FALSE(doc.take_dirty_rects().empty());
+    doc.layout(260, 80, &painter);
+
+    painter.fill_draws.clear();
+    painter.fill_colors.clear();
+    painter.rounded_fill_draws.clear();
+    doc.draw(painter);
+
+    CHECK((saw_fill(painter, affineui::Color::rgb(0x3d, 0xd6, 0x8a)) ||
+           find_rounded_fill_draw(
+               painter, affineui::Color::rgb(0x3d, 0xd6, 0x8a)) != nullptr));
+
+    (void)doc.take_paint_dirty();
+    (void)doc.take_dirty_rects();
+    REQUIRE(doc.remove_attribute_by_id("sync", "aria-checked"));
+    CHECK_FALSE(doc.take_paint_dirty());
+    CHECK_FALSE(doc.take_dirty_rects().empty());
+    doc.layout(260, 80, &painter);
+
+    painter.fill_draws.clear();
+    painter.fill_colors.clear();
+    painter.rounded_fill_draws.clear();
+    doc.draw(painter);
+
+    CHECK_FALSE(saw_fill(painter, affineui::Color::rgb(0x3d, 0xd6, 0x8a)));
+}
+
 TEST_CASE("real Decius checkbox survives unrelated live control mutation") {
     affineui::Ui ui;
     RecordingPainter painter;

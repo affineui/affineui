@@ -99,8 +99,14 @@ int main() {
     rerender();
     ui.on_click("#prev", [&] { state.patch = (state.patch + 7) % 8; rerender(); });
     ui.on_click("#next", [&] { state.patch = (state.patch + 1) % 8; rerender(); });
-    ui.on_click("#sync", [&] { state.sync = !state.sync; rerender(); });
-    ui.on_click("#armed", [&] { state.armed = !state.armed; rerender(); });
+    ui.on_click("#sync", [&] {
+        state.sync = !state.sync;
+        if (!dcs::set_checked(ui, "sync", state.sync)) rerender();
+    });
+    ui.on_click("#armed", [&] {
+        state.armed = !state.armed;
+        if (!dcs::set_checked(ui, "armed", state.armed)) rerender();
+    });
     dcs::install_value_interactions(ui, {
         [&](std::string_view id) { return value(state, id, 0.0f); },
         [&](std::string_view id, float v) { state.values[std::string(id)] = v; },

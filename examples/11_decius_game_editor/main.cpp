@@ -150,9 +150,22 @@ int main() {
     rerender();
 
     ui.on_click("#play", [&] { state.playing = !state.playing; rerender(); });
-    ui.on_click("#snap", [&] { state.snap = !state.snap; rerender(); });
-    ui.on_click("#cast-shadows", [&] { state.cast_shadows = !state.cast_shadows; rerender(); });
-    ui.on_click("#gpu-skinning", [&] { state.gpu_skinning = !state.gpu_skinning; rerender(); });
+    ui.on_click("#snap", [&] {
+        state.snap = !state.snap;
+        if (!dcs::set_pressed(ui, "snap", state.snap)) rerender();
+    });
+    ui.on_click("#cast-shadows", [&] {
+        state.cast_shadows = !state.cast_shadows;
+        if (!dcs::set_checked(ui, "cast-shadows", state.cast_shadows)) {
+            rerender();
+        }
+    });
+    ui.on_click("#gpu-skinning", [&] {
+        state.gpu_skinning = !state.gpu_skinning;
+        if (!dcs::set_checked(ui, "gpu-skinning", state.gpu_skinning)) {
+            rerender();
+        }
+    });
     ui.on_click("#object-0", [&] { state.selected = 0; rerender(); });
     ui.on_click("#object-1", [&] { state.selected = 1; rerender(); });
     ui.on_click("#object-2", [&] { state.selected = 2; rerender(); });

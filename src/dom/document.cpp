@@ -47,7 +47,6 @@
 #    include <lexbor/dom/dom.h>
 #    include <lexbor/dom/interfaces/attr.h>
 #    include <lexbor/html/html.h>
-#    include <lexbor/html/serialize.h>
 #endif
 
 namespace affineui {
@@ -2712,12 +2711,40 @@ void scan_keyframe_blocks(lxb_css_stylesheet_t* sst,
     }
 }
 
+void attach_media_block(detail::DocumentImpl& impl, const MediaBlock& mb) {
+    auto* sst_media = lxb_css_stylesheet_parse(
+        impl.doc->css.parser,
+        reinterpret_cast<const lxb_char_t*>(mb.block_css.data()),
+        mb.block_css.size());
+    if (!sst_media) return;
+
+    if (lxb_html_document_stylesheet_attach(impl.doc, sst_media)
+            == LXB_STATUS_OK) {
+        impl.sheets.push_back(sst_media);
+        scan_pseudo_rules(sst_media, impl.pseudo_rules);
+        scan_rule_fills(sst_media, mb.block_css, impl.rule_fills);
+        scan_font_face_rules(mb.block_css, {}, impl.font_faces);
+        scan_generated_content_rules(
+            impl.doc->css.parser,
+            impl.doc->css.memory, mb.block_css,
+            impl.generated_content_rules);
+        scan_keyframe_blocks(
+            sst_media, impl.doc->css.parser,
+            impl.doc->css.memory, impl.keyframes);
+        // Nested @media blocks are not in scope for the current media
+        // implementation; do not rescan this generated stylesheet.
+    } else {
+        lxb_css_stylesheet_destroy(sst_media, true);
+    }
+}
+
 void attach_stylesheet(detail::DocumentImpl& impl, std::string_view css) {
     if (css.empty()) return;
     // Parse via the document's own CSS parser (pre-wired with the
     // document's memory pool + selectors engine). Parsing through a
     // standalone parser allocates rules in a foreign pool that the
     // document's ev_destroy hook can't safely tear down.
+    const auto media_start = impl.media_blocks.size();
     auto* sst = lxb_css_stylesheet_parse(
         impl.doc->css.parser,
         reinterpret_cast<const lxb_char_t*>(css.data()),
@@ -2740,6 +2767,13 @@ void attach_stylesheet(detail::DocumentImpl& impl, std::string_view css) {
                              impl.keyframes);
         // Collect @media blocks for later evaluation in layout().
         scan_media_blocks(sst, impl.media_blocks);
+        if (impl.media_viewport_width_px > 0) {
+            for (std::size_t i = media_start; i < impl.media_blocks.size(); ++i) {
+                if (impl.media_blocks[i].matches(impl.media_viewport_width_px)) {
+                    attach_media_block(impl, impl.media_blocks[i]);
+                }
+            }
+        }
     } else {
         lxb_css_stylesheet_destroy(sst, true);
     }
@@ -3476,54 +3510,14 @@ void Document::set_html(std::string_view html) {
     // Cascade order (lower â†’ higher specificity, ties to last):
     //   1. User-agent baseline
     //   2. Author <style> blocks from the page
-    //   3. Matching @media blocks (viewport-conditional sub-rules from 1 & 2)
-    //   4. User stylesheet (App-supplied, often a theme override)
+    //   3. User stylesheet (App-supplied, often a framework/theme)
+    // Matching @media blocks are attached by attach_stylesheet() after the
+    // stylesheet that owns them once a viewport is known.
     attach_stylesheet(*impl_, theme::ua_default());
 
     std::string author_css;
     collect_author_stylesheets(lxb_dom_interface_node(impl_->doc), *impl_, author_css);
     attach_stylesheet(*impl_, author_css);
-
-    // Evaluate collected @media blocks against the current viewport width.
-    // Each matching block's nested CSS is re-parsed and attached as its own
-    // stylesheet so the rules participate in the normal cascade (same
-    // specificity rules, correct source order relative to base rules).
-    // media_viewport_width_px == 0 means the viewport is not yet known;
-    // we skip evaluation and layout() will trigger a re-parse once it is.
-    if (impl_->media_viewport_width_px > 0 && !impl_->media_blocks.empty()) {
-        for (const auto& mb : impl_->media_blocks) {
-            if (mb.matches(impl_->media_viewport_width_px)) {
-                // Attach the block's CSS as a standalone stylesheet. We must
-                // NOT call scan_media_blocks on this sheet to avoid duplicate
-                // (and in theory nested) media block entries â€” pass a flag via
-                // a direct lxb_css_stylesheet_parse + attach path.
-                auto* sst_media = lxb_css_stylesheet_parse(
-                    impl_->doc->css.parser,
-                    reinterpret_cast<const lxb_char_t*>(mb.block_css.data()),
-                    mb.block_css.size());
-                if (sst_media) {
-                    if (lxb_html_document_stylesheet_attach(impl_->doc, sst_media)
-                            == LXB_STATUS_OK) {
-                        impl_->sheets.push_back(sst_media);
-                        scan_pseudo_rules(sst_media, impl_->pseudo_rules);
-                        scan_rule_fills(sst_media, mb.block_css, impl_->rule_fills);
-                        scan_font_face_rules(mb.block_css, {}, impl_->font_faces);
-                        scan_generated_content_rules(
-                            impl_->doc->css.parser,
-                            impl_->doc->css.memory, mb.block_css,
-                            impl_->generated_content_rules);
-                        scan_keyframe_blocks(
-                            sst_media, impl_->doc->css.parser,
-                            impl_->doc->css.memory, impl_->keyframes);
-                        // Do NOT call scan_media_blocks here: nested @media is
-                        // not in scope for this implementation.
-                    } else {
-                        lxb_css_stylesheet_destroy(sst_media, true);
-                    }
-                }
-            }
-        }
-    }
 
     attach_stylesheet(*impl_, impl_->user_stylesheet);
 
@@ -3723,6 +3717,12 @@ void Document::layout(int viewport_width, int viewport_height,
         layout_styles.push_back(impl_->style_store.computed(b.id));
     }
 
+    // NanoVG's bounds measurement reports ink extents, while its text-box
+    // wrapping decisions use glyph advances. Paint gets the same slack before
+    // draw_text_box; min-content sizing needs it too or tight controls can
+    // wrap their final glyph even though measurement said the label fit.
+    constexpr int kTextAdvanceSlackPx = 4;
+
     collapse_block_flow_vertical_margins(child_indices, impl_->blocks,
                                          layout_styles);
 
@@ -3784,12 +3784,13 @@ void Document::layout(int viewport_width, int viewport_height,
                 const auto& parent_style =
                     layout_styles[static_cast<std::size_t>(b.parent_idx)];
                 if (is_flex_container_display(parent_style.display) &&
-                    (parent_style.flex_direction ==
+                (parent_style.flex_direction ==
                          detail::ComputedStyle::FlexDirection::Row ||
                      parent_style.flex_direction ==
                          detail::ComputedStyle::FlexDirection::RowReverse)) {
                     in.auto_min_w_px =
                         std::max(1, measurer->measure_text(in.font, b.text))
+                        + kTextAdvanceSlackPx
                         + cs.padding_left + cs.padding_right
                         + cs.used_border_left() + cs.used_border_right();
                 }
@@ -3835,7 +3836,8 @@ void Document::layout(int viewport_width, int viewport_height,
             if (!b.text.empty() && inputs[ri].font != 0) {
                 content_w = std::max(
                     content_w,
-                    std::max(1, measurer->measure_text(inputs[ri].font, b.text)));
+                    std::max(1, measurer->measure_text(inputs[ri].font, b.text))
+                    + kTextAdvanceSlackPx);
             }
 
             const auto& kids = child_indices[ri];
@@ -5571,16 +5573,12 @@ bool restyle_subtree(detail::DocumentImpl& impl, int root_idx) {
     return needs_layout;
 }
 
-bool subtree_contains_generated_pseudo(const detail::DocumentImpl& impl,
-                                       int root_idx) {
-    if (root_idx < 0 || root_idx >= static_cast<int>(impl.blocks.size()))
-        return false;
-    for (int idx = root_idx; idx < static_cast<int>(impl.blocks.size()); ++idx) {
-        if (!is_descendant_of_or_self(impl.blocks, idx, root_idx)) continue;
-        const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
-        if (block.tag == "#before" || block.tag == "#after") return true;
+bool restyle_all_blocks(detail::DocumentImpl& impl) {
+    bool needs_layout = false;
+    for (int idx = 0; idx < static_cast<int>(impl.blocks.size()); ++idx) {
+        needs_layout = restyle_block(impl, idx) || needs_layout;
     }
-    return false;
+    return needs_layout;
 }
 
 bool starts_with(std::string_view value, std::string_view prefix) {
@@ -5599,30 +5597,42 @@ bool attribute_can_affect_selector_matching(std::string_view name) {
            starts_with(name, "aria-") || starts_with(name, "data-");
 }
 
-lxb_status_t append_serialized_html(const lxb_char_t* data,
-                                    size_t len,
-                                    void* ctx) {
-    auto* out = static_cast<std::string*>(ctx);
-    out->append(reinterpret_cast<const char*>(data), len);
-    return LXB_STATUS_OK;
+#if !defined(AFFINEUI_STUB_BUILD)
+bool simple_selector_depends_on_attribute(const SimpleSelector& simple,
+                                          std::string_view name) {
+    switch (simple.kind) {
+        case SimpleSelector::Kind::Class: return name == "class";
+        case SimpleSelector::Kind::Id: return name == "id";
+        case SimpleSelector::Kind::Attr: return simple.name == name;
+        case SimpleSelector::Kind::Tag: return false;
+    }
+    return false;
 }
 
-std::string serialize_current_document_html(detail::DocumentImpl& impl) {
-#if !defined(AFFINEUI_STUB_BUILD)
-    std::string out;
-    if (!impl.doc) return out;
-    auto* node = lxb_dom_interface_node(impl.doc);
-    if (!node) return out;
-    if (lxb_html_serialize_tree_cb(node, append_serialized_html, &out)
-        != LXB_STATUS_OK) {
-        out.clear();
-    }
-    return out;
-#else
-    (void)impl;
-    return {};
-#endif
+bool compound_depends_on_attribute(const CompoundSelector& compound,
+                                   std::string_view name) {
+    return std::any_of(compound.simples.begin(), compound.simples.end(),
+                       [name](const SimpleSelector& simple) {
+                           return simple_selector_depends_on_attribute(simple,
+                                                                       name);
+                       });
 }
+
+bool generated_content_depends_on_attribute(
+    const detail::DocumentImpl& impl,
+    std::string_view name) {
+    for (const auto& rule : impl.generated_content_rules) {
+        if (compound_depends_on_attribute(rule.target, name)) return true;
+        if (compound_depends_on_attribute(rule.previous_adjacent, name))
+            return true;
+        for (const auto& ancestor : rule.ancestors) {
+            if (compound_depends_on_attribute(ancestor, name)) return true;
+        }
+    }
+    return false;
+}
+
+#endif
 
 void reset_dynamic_block_state(detail::DocumentImpl& impl) {
     impl.hovered_idx = -1;
@@ -5681,6 +5691,53 @@ void recollect_blocks_from_current_dom(detail::DocumentImpl& impl) {
     impl.paint_dirty = true;
 #else
     (void)impl;
+#endif
+}
+
+lxb_status_t rematch_stylesheet_matches(lxb_dom_node_t* node) {
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (!node) return LXB_STATUS_OK;
+
+    if (node->type == LXB_DOM_NODE_TYPE_ELEMENT && node->ns == LXB_NS_HTML) {
+        const auto status = lxb_html_document_element_styles_rematch(
+            lxb_html_interface_element(node));
+        if (status != LXB_STATUS_OK) return status;
+    }
+
+    for (auto* child = lxb_dom_node_first_child(node);
+         child != nullptr; child = lxb_dom_node_next(child)) {
+        const auto status = rematch_stylesheet_matches(child);
+        if (status != LXB_STATUS_OK) return status;
+    }
+#else
+    (void)node;
+#endif
+    return LXB_STATUS_OK;
+}
+
+bool rematch_stylesheet_matches_for_subtree(detail::DocumentImpl& impl,
+                                            int root_idx) {
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (!impl.doc) return false;
+
+    lxb_dom_node_t* root_node = nullptr;
+    if (root_idx >= 0 && root_idx < static_cast<int>(impl.blocks.size())) {
+        auto* elem = impl.style_store.element_of(
+            impl.blocks[static_cast<std::size_t>(root_idx)].id);
+        if (elem) root_node = lxb_dom_interface_node(elem);
+    }
+
+    if (!root_node) {
+        auto* body = lxb_html_document_body_element(impl.doc);
+        root_node = body ? lxb_dom_interface_node(body)
+                         : lxb_dom_interface_node(impl.doc);
+    }
+
+    return rematch_stylesheet_matches(root_node) == LXB_STATUS_OK;
+#else
+    (void)impl;
+    (void)root_idx;
+    return false;
 #endif
 }
 
@@ -5748,6 +5805,14 @@ Rect subtree_visual_rect(const detail::DocumentImpl& impl, int root_idx) {
         return out;
     for (int idx = root_idx; idx < static_cast<int>(impl.blocks.size()); ++idx) {
         if (!is_descendant_of_or_self(impl.blocks, idx, root_idx)) continue;
+        out = union_rect(out, block_visual_rect(impl, idx));
+    }
+    return out;
+}
+
+Rect document_visual_rect(const detail::DocumentImpl& impl) {
+    Rect out{};
+    for (int idx = 0; idx < static_cast<int>(impl.blocks.size()); ++idx) {
         out = union_rect(out, block_visual_rect(impl, idx));
     }
     return out;
@@ -6237,41 +6302,66 @@ bool Document::set_attribute_by_id(std::string_view elem_id,
     const int dirty_root_idx =
         target_idx >= 0 ? target_idx
                         : block_index_for_element_or_ancestor(*impl_, elem);
-    const Rect old_rect = subtree_visual_rect(*impl_, dirty_root_idx);
     const bool selector_affecting =
         attribute_can_affect_selector_matching(name);
+    const int mutation_dirty_root_idx =
+        selector_affecting && target_idx >= 0 &&
+                impl_->blocks[static_cast<std::size_t>(target_idx)].parent_idx >= 0
+            ? impl_->blocks[static_cast<std::size_t>(target_idx)].parent_idx
+            : dirty_root_idx;
+    const Rect old_rect = mutation_dirty_root_idx >= 0
+                              ? subtree_visual_rect(*impl_, mutation_dirty_root_idx)
+                              : document_visual_rect(*impl_);
     const bool recollect_generated_subtree =
-        target_idx >= 0 &&
-        ((!impl_->generated_content_rules.empty() && selector_affecting) ||
-         subtree_contains_generated_pseudo(*impl_, target_idx));
+        selector_affecting &&
+        generated_content_depends_on_attribute(*impl_, name);
 
     if (!lxb_dom_element_set_attribute(elem, as_lxb(name), name.size(),
                                        as_lxb(value), value.size())) {
         return false;
     }
 
+    bool needs_layout = false;
     if (selector_affecting) {
-        const auto reparsed_html = serialize_current_document_html(*impl_);
-        if (!reparsed_html.empty()) {
-            set_html(reparsed_html);
+        if (!rematch_stylesheet_matches_for_subtree(*impl_,
+                                                    mutation_dirty_root_idx)) {
+            return false;
+        }
+        if (impl_->resolver) impl_->resolver->clear();
+
+        if (target_idx >= 0) {
+            auto& block = impl_->blocks[static_cast<std::size_t>(target_idx)];
+            refresh_block_metadata_from_element(block, elem);
+        }
+
+        if (recollect_generated_subtree) {
+            recollect_blocks_from_current_dom(*impl_);
+            mark_live_mutation_dirty(*impl_, mutation_dirty_root_idx, old_rect,
+                                     /*needs_layout=*/true);
             return true;
         }
+
+        needs_layout = mutation_dirty_root_idx >= 0
+                           ? restyle_subtree(*impl_, mutation_dirty_root_idx)
+                           : restyle_all_blocks(*impl_);
+        if (target_idx >= 0) {
+            auto& block = impl_->blocks[static_cast<std::size_t>(target_idx)];
+            if (block.tag == "img" && name == "src") needs_layout = true;
+        }
+        mark_live_mutation_dirty(*impl_, mutation_dirty_root_idx, old_rect,
+                                 needs_layout);
+        return true;
     }
 
-    bool needs_layout = false;
     if (target_idx >= 0) {
         impl_->resolver->invalidate(elem);
-        if (recollect_generated_subtree) {
-            add_dirty_rect(*impl_, old_rect);
-            recollect_blocks_from_current_dom(*impl_);
-            return true;
-        }
         auto& block = impl_->blocks[static_cast<std::size_t>(target_idx)];
         refresh_block_metadata_from_element(block, elem);
         needs_layout = restyle_subtree(*impl_, target_idx);
         if (block.tag == "img" && name == "src") needs_layout = true;
     }
-    mark_live_mutation_dirty(*impl_, dirty_root_idx, old_rect, needs_layout);
+    mark_live_mutation_dirty(*impl_, mutation_dirty_root_idx, old_rect,
+                             needs_layout);
     return true;
 #else
     (void)elem_id; (void)name; (void)value;
@@ -6297,41 +6387,66 @@ bool Document::remove_attribute_by_id(std::string_view elem_id,
     const int dirty_root_idx =
         target_idx >= 0 ? target_idx
                         : block_index_for_element_or_ancestor(*impl_, elem);
-    const Rect old_rect = subtree_visual_rect(*impl_, dirty_root_idx);
     const bool selector_affecting =
         attribute_can_affect_selector_matching(name);
+    const int mutation_dirty_root_idx =
+        selector_affecting && target_idx >= 0 &&
+                impl_->blocks[static_cast<std::size_t>(target_idx)].parent_idx >= 0
+            ? impl_->blocks[static_cast<std::size_t>(target_idx)].parent_idx
+            : dirty_root_idx;
+    const Rect old_rect = mutation_dirty_root_idx >= 0
+                              ? subtree_visual_rect(*impl_, mutation_dirty_root_idx)
+                              : document_visual_rect(*impl_);
     const bool recollect_generated_subtree =
-        target_idx >= 0 &&
-        ((!impl_->generated_content_rules.empty() && selector_affecting) ||
-         subtree_contains_generated_pseudo(*impl_, target_idx));
+        selector_affecting &&
+        generated_content_depends_on_attribute(*impl_, name);
 
     if (lxb_dom_element_remove_attribute(elem, as_lxb(name), name.size())
             != LXB_STATUS_OK) {
         return false;
     }
 
+    bool needs_layout = false;
     if (selector_affecting) {
-        const auto reparsed_html = serialize_current_document_html(*impl_);
-        if (!reparsed_html.empty()) {
-            set_html(reparsed_html);
+        if (!rematch_stylesheet_matches_for_subtree(*impl_,
+                                                    mutation_dirty_root_idx)) {
+            return false;
+        }
+        if (impl_->resolver) impl_->resolver->clear();
+
+        if (target_idx >= 0) {
+            auto& block = impl_->blocks[static_cast<std::size_t>(target_idx)];
+            refresh_block_metadata_from_element(block, elem);
+        }
+
+        if (recollect_generated_subtree) {
+            recollect_blocks_from_current_dom(*impl_);
+            mark_live_mutation_dirty(*impl_, mutation_dirty_root_idx, old_rect,
+                                     /*needs_layout=*/true);
             return true;
         }
+
+        needs_layout = mutation_dirty_root_idx >= 0
+                           ? restyle_subtree(*impl_, mutation_dirty_root_idx)
+                           : restyle_all_blocks(*impl_);
+        if (target_idx >= 0) {
+            auto& block = impl_->blocks[static_cast<std::size_t>(target_idx)];
+            if (block.tag == "img" && name == "src") needs_layout = true;
+        }
+        mark_live_mutation_dirty(*impl_, mutation_dirty_root_idx, old_rect,
+                                 needs_layout);
+        return true;
     }
 
-    bool needs_layout = false;
     if (target_idx >= 0) {
         impl_->resolver->invalidate(elem);
-        if (recollect_generated_subtree) {
-            add_dirty_rect(*impl_, old_rect);
-            recollect_blocks_from_current_dom(*impl_);
-            return true;
-        }
         auto& block = impl_->blocks[static_cast<std::size_t>(target_idx)];
         refresh_block_metadata_from_element(block, elem);
         needs_layout = restyle_subtree(*impl_, target_idx);
         if (block.tag == "img" && name == "src") needs_layout = true;
     }
-    mark_live_mutation_dirty(*impl_, dirty_root_idx, old_rect, needs_layout);
+    mark_live_mutation_dirty(*impl_, mutation_dirty_root_idx, old_rect,
+                             needs_layout);
     return true;
 #else
     (void)elem_id; (void)name;

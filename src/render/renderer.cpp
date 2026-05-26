@@ -61,7 +61,7 @@ struct RendererImpl {
     // kept in-tree, but live rendering must not clear/replay sub-rects until
     // dirty coverage and clipped replay are proven exact. Otherwise text and
     // controls can accumulate or punch holes in the cached root texture.
-    bool                     partial_root_raster_enabled{false};
+    bool                     partial_root_raster_enabled{true};
     struct RootLayer {
         int      w{0};
         int      h{0};
@@ -173,12 +173,15 @@ struct PreparedFrame {
     int  pt_h{0};
     bool recorded{false};
     bool display_list_changed{false};
+    bool display_list_diff_bounds_known{false};
     bool viewport_changed{false};
     bool layout_dirty{false};
     bool paint_dirty{false};
     bool animations_active{false};
     std::uint32_t dirty_rects{0};
     Rect dirty_bounds{};
+    Rect raster_bounds{};
+    Rect display_list_diff_bounds{};
 };
 
 bool rect_valid(const Rect& r) {
@@ -426,11 +429,6 @@ PreparedFrame prepare_frame(detail::RendererImpl& impl,
     }
     frame.dirty_bounds = inflate_and_clip(frame.dirty_bounds, 2,
                                           frame.pt_w, frame.pt_h);
-    const std::uint64_t dirty_area =
-        rect_valid(frame.dirty_bounds)
-            ? static_cast<std::uint64_t>(frame.dirty_bounds.w) *
-                  static_cast<std::uint64_t>(frame.dirty_bounds.h)
-            : 0;
     const std::uint64_t frame_area =
         static_cast<std::uint64_t>(std::max(frame.pt_w, 1)) *
         static_cast<std::uint64_t>(std::max(frame.pt_h, 1));
@@ -453,11 +451,34 @@ PreparedFrame prepare_frame(detail::RendererImpl& impl,
             builder.list().ops.size() != impl.cached_display_list.ops.size() ||
             builder.list().text_pool.size() !=
                 impl.cached_display_list.text_pool.size();
+        if (had_cached_list && frame.display_list_changed) {
+            const auto diff = detail::display_list_diff_bounds(
+                impl.cached_display_list, builder.list());
+            frame.display_list_diff_bounds_known =
+                diff.known && rect_valid(diff.bounds);
+            if (frame.display_list_diff_bounds_known) {
+                frame.display_list_diff_bounds = inflate_and_clip(
+                    diff.bounds, 4, frame.pt_w, frame.pt_h);
+            }
+        }
         impl.cached_display_list = std::move(builder.list());
         impl.cached_display_list_valid = true;
         frame.recorded = true;
     }
     impl.last_frame_had_active_animations = frame.animations_active;
+
+    frame.raster_bounds = frame.dirty_bounds;
+    if (frame.display_list_diff_bounds_known) {
+        frame.raster_bounds =
+            union_rect(frame.raster_bounds, frame.display_list_diff_bounds);
+        frame.raster_bounds = inflate_and_clip(frame.raster_bounds, 2,
+                                              frame.pt_w, frame.pt_h);
+    }
+    const std::uint64_t dirty_area =
+        rect_valid(frame.raster_bounds)
+            ? static_cast<std::uint64_t>(frame.raster_bounds.w) *
+                  static_cast<std::uint64_t>(frame.raster_bounds.h)
+            : 0;
 
     impl.stats.frames += 1;
     if (frame.recorded) impl.stats.display_list_records += 1;
@@ -837,15 +858,13 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
             impl_->partial_root_raster_enabled &&
             impl_->root_layer.valid &&
             frame.display_list_changed &&
-            frame.dirty_rects > 0 &&
-            rect_valid(frame.dirty_bounds) &&
+            rect_valid(frame.raster_bounds) &&
+            frame.display_list_diff_bounds_known &&
             !frame.viewport_changed &&
-            !frame.layout_dirty &&
-            !frame.paint_dirty &&
-            !frame.animations_active;
+            !frame.paint_dirty;
         if (can_partial_raster) {
             rasterize_root_layer_region(*impl_, frame.pt_w, frame.pt_h,
-                                        t.dpi_scale, frame.dirty_bounds);
+                                        t.dpi_scale, frame.raster_bounds);
         } else {
             rasterize_root_layer(*impl_, frame.pt_w, frame.pt_h, t.dpi_scale);
         }
