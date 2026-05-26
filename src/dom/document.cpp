@@ -5773,6 +5773,59 @@ bool attribute_can_affect_selector_matching(std::string_view name) {
 }
 
 #if !defined(AFFINEUI_STUB_BUILD)
+bool selector_simple_depends_on_attribute(const lxb_css_selector_t* sel,
+                                          std::string_view name) {
+    if (!sel) return false;
+    switch (sel->type) {
+        case LXB_CSS_SELECTOR_TYPE_CLASS:
+            return name == "class";
+        case LXB_CSS_SELECTOR_TYPE_ID:
+            return name == "id";
+        case LXB_CSS_SELECTOR_TYPE_ATTRIBUTE:
+            return std::string_view(
+                       reinterpret_cast<const char*>(sel->name.data),
+                       sel->name.length) == name;
+        default:
+            return false;
+    }
+}
+
+bool stylesheet_dependencies_stay_in_mutated_subtree(
+    const detail::DocumentImpl& impl,
+    std::string_view name) {
+    for (auto* sst : impl.sheets) {
+        if (!sst || !sst->root) continue;
+        auto* rule_list = lxb_css_rule_list(sst->root);
+        if (!rule_list) continue;
+        for (auto* r = rule_list->first; r != nullptr; r = r->next) {
+            if (r->type != LXB_CSS_RULE_STYLE) continue;
+            auto* style = lxb_css_rule_style(r);
+            if (!style) continue;
+            for (auto* sl = style->selector; sl != nullptr; sl = sl->next) {
+                bool selector_mentions_attr = false;
+                bool selector_is_subtree_local = true;
+                for (auto* sel = sl->first; sel != nullptr; sel = sel->next) {
+                    if (sel->combinator ==
+                            LXB_CSS_SELECTOR_COMBINATOR_SIBLING ||
+                        sel->combinator ==
+                            LXB_CSS_SELECTOR_COMBINATOR_FOLLOWING ||
+                        sel->combinator ==
+                            LXB_CSS_SELECTOR_COMBINATOR_CELL) {
+                        selector_is_subtree_local = false;
+                    }
+                    selector_mentions_attr =
+                        selector_mentions_attr ||
+                        selector_simple_depends_on_attribute(sel, name);
+                }
+                if (selector_mentions_attr && !selector_is_subtree_local) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
 bool simple_selector_depends_on_attribute(const SimpleSelector& simple,
                                           std::string_view name) {
     switch (simple.kind) {
@@ -6505,8 +6558,11 @@ bool Document::set_attribute_by_id(std::string_view elem_id,
                         : block_index_for_element_or_ancestor(*impl_, elem);
     const bool selector_affecting =
         attribute_can_affect_selector_matching(name);
+    const bool subtree_local_selectors =
+        !selector_affecting ||
+        stylesheet_dependencies_stay_in_mutated_subtree(*impl_, name);
     const int mutation_dirty_root_idx =
-        selector_affecting && target_idx >= 0 &&
+        selector_affecting && !subtree_local_selectors && target_idx >= 0 &&
                 impl_->blocks[static_cast<std::size_t>(target_idx)].parent_idx >= 0
             ? impl_->blocks[static_cast<std::size_t>(target_idx)].parent_idx
             : dirty_root_idx;
@@ -6590,8 +6646,11 @@ bool Document::remove_attribute_by_id(std::string_view elem_id,
                         : block_index_for_element_or_ancestor(*impl_, elem);
     const bool selector_affecting =
         attribute_can_affect_selector_matching(name);
+    const bool subtree_local_selectors =
+        !selector_affecting ||
+        stylesheet_dependencies_stay_in_mutated_subtree(*impl_, name);
     const int mutation_dirty_root_idx =
-        selector_affecting && target_idx >= 0 &&
+        selector_affecting && !subtree_local_selectors && target_idx >= 0 &&
                 impl_->blocks[static_cast<std::size_t>(target_idx)].parent_idx >= 0
             ? impl_->blocks[static_cast<std::size_t>(target_idx)].parent_idx
             : dirty_root_idx;
