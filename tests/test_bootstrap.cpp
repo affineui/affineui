@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <optional>
 #include <sstream>
@@ -22,6 +23,8 @@ struct PaintRect {
 struct TextRun {
     std::string text;
     affineui::Point pos;
+    float max_width{0.0f};
+    affineui::Painter::TextAlign align{affineui::Painter::TextAlign::Left};
 };
 
 class RecordingPainter final : public affineui::Painter {
@@ -103,9 +106,10 @@ public:
         return {width, 18};
     }
     void draw_text_box(std::uint32_t, const affineui::Point& pos,
-                       std::string_view text, affineui::Color, float,
-                       float, float, TextAlign) override {
-        text_runs.push_back({std::string{text}, pos});
+                       std::string_view text, affineui::Color,
+                       float max_width, float, float,
+                       affineui::Painter::TextAlign align) override {
+        text_runs.push_back({std::string{text}, pos, max_width, align});
     }
     std::uint32_t load_image(std::string_view) override {
         return 0;
@@ -145,6 +149,22 @@ std::string read_file(const char* path) {
     std::stringstream bytes;
     bytes << file.rdbuf();
     return bytes.str();
+}
+
+std::string read_file(const std::filesystem::path& path) {
+    return read_file(path.string().c_str());
+}
+
+std::filesystem::path test_source_root() {
+#if defined(AFFINEUI_TEST_SOURCE_DIR)
+    return std::filesystem::path{AFFINEUI_TEST_SOURCE_DIR};
+#else
+    return std::filesystem::current_path();
+#endif
+}
+
+std::filesystem::path example_dir(std::string_view example_name) {
+    return test_source_root() / "examples" / std::string(example_name);
 }
 
 std::string bootstrap_css() {
@@ -216,6 +236,26 @@ point_for_text(const RecordingPainter& painter, std::string_view needle) {
     return std::nullopt;
 }
 
+const TextRun* text_run_for(const RecordingPainter& painter,
+                            std::string_view needle) {
+    for (const auto& run : painter.text_runs) {
+        if (run.text.find(needle) != std::string::npos) return &run;
+    }
+    return nullptr;
+}
+
+std::string text_run_summary(const RecordingPainter& painter) {
+    std::ostringstream out;
+    const auto count = std::min<std::size_t>(painter.text_runs.size(), 16);
+    out << "text runs (" << painter.text_runs.size() << "):";
+    for (std::size_t i = 0; i < count; ++i) {
+        out << " [" << painter.text_runs[i].text << " @ "
+            << painter.text_runs[i].pos.x << ","
+            << painter.text_runs[i].pos.y << "]";
+    }
+    return out.str();
+}
+
 RecordingPainter render_bootstrap(std::string_view html, int width = 960,
                                   int height = 0) {
     std::string css;
@@ -241,6 +281,31 @@ RecordingPainter render_bootstrap5(std::string_view html, int width = 960,
     RecordingPainter painter;
 
     doc.set_user_stylesheet(css);
+    doc.set_html(html);
+    doc.layout(width, height, &painter);
+    doc.draw(painter);
+
+    return painter;
+}
+
+RecordingPainter render_example(std::string_view example_name,
+                                std::string_view html,
+                                int width,
+                                int height) {
+    const auto root = example_dir(example_name);
+
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_resource_loader([root](std::string_view url) -> std::string {
+        if (url.empty() || url.find("://") != std::string_view::npos ||
+            url.rfind("data:", 0) == 0) {
+            return {};
+        }
+        const auto path =
+            (root / std::filesystem::path{std::string(url)}).lexically_normal();
+        return read_file(path);
+    });
     doc.set_html(html);
     doc.layout(width, height, &painter);
     doc.draw(painter);
@@ -367,6 +432,36 @@ TEST_CASE("Bootstrap 5 dashboard sidebar is not squeezed by wide main content") 
     CHECK(sidebar_fill->w >= 220);
 }
 
+TEST_CASE("Bootstrap dashboard example loads linked CSS and keeps sidebar wide") {
+    const auto html =
+        read_file(example_dir("10_bootstrap_dashboard") / "index.html");
+    REQUIRE(!html.empty());
+
+    auto painter =
+        render_example("10_bootstrap_dashboard", html, 1440, 920);
+
+    const auto sidebar = point_for_text(painter, "WORKSPACE");
+    const auto main = point_for_text(painter, "Revenue");
+    INFO(text_run_summary(painter));
+    REQUIRE(sidebar.has_value());
+    REQUIRE(main.has_value());
+
+    CHECK(sidebar->x < 80);
+    CHECK(main->x > sidebar->x + 220);
+
+    std::optional<affineui::Rect> sidebar_fill;
+    const auto tertiary = affineui::Color::rgb(0xf8, 0xf9, 0xfa);
+    for (const auto& fill : painter.fills) {
+        if (!same_color(fill.color, tertiary)) continue;
+        if (fill.rect.h < 100) continue;
+        if (!sidebar_fill || fill.rect.w > sidebar_fill->w) {
+            sidebar_fill = fill.rect;
+        }
+    }
+    REQUIRE(sidebar_fill.has_value());
+    CHECK(sidebar_fill->w >= 220);
+}
+
 TEST_CASE("Bootstrap button row preserves inline spacing and paints focusable variants") {
     auto painter = render_bootstrap(R"HTML(
         <main class="container py-4">
@@ -390,6 +485,26 @@ TEST_CASE("Bootstrap button row preserves inline spacing and paints focusable va
     CHECK(saw_fill(painter, affineui::Color::rgb(0x00, 0x7b, 0xff)));
     CHECK(saw_fill(painter, affineui::Color::rgb(0x6c, 0x75, 0x7d)));
     CHECK(saw_stroke(painter, affineui::Color::rgb(0x00, 0x7b, 0xff)));
+}
+
+TEST_CASE("Centered auto-sized labels draw without tight wrap rebreak") {
+    auto painter = render_bootstrap5(R"HTML(
+        <style>
+        .tight-centered {
+            display: inline-block;
+            text-align: center;
+            padding: 0;
+            border: 0;
+            font-size: 16px;
+        }
+        </style>
+        <button class="tight-centered">Primary action</button>
+    )HTML", 320, 80);
+
+    const auto* label = text_run_for(painter, "Primary action");
+    REQUIRE(label != nullptr);
+    CHECK(label->align == affineui::Painter::TextAlign::Left);
+    CHECK(label->max_width > 60000.0f);
 }
 
 TEST_CASE("Bootstrap static JavaScript component states are renderable markup") {

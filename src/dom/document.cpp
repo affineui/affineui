@@ -5103,6 +5103,21 @@ void Document::draw(Painter& painter) {
             using WS = detail::ComputedStyle::WhiteSpace;
             const bool is_nowrap = (cs.white_space == WS::Nowrap ||
                                     cs.white_space == WS::Pre);
+            const float letter_spacing_px =
+                static_cast<float>(cs.letter_spacing_x100) / 100.0f;
+            const float line_height_mult =
+                detail::effective_line_height_mult(cs);
+            const auto natural_text_width = [&] {
+                if (cs.letter_spacing_x100 == 0) {
+                    return static_cast<float>(painter.measure_text(font, b.text));
+                }
+                return static_cast<float>(
+                    painter
+                        .measure_text_box(font, b.text, 1e6f,
+                                          line_height_mult,
+                                          letter_spacing_px)
+                        .width);
+            };
 
             // white-space:nowrap forces a single line, which we signal to
             // the painter with a huge wrap width. But nvgTextBox aligns
@@ -5113,13 +5128,34 @@ void Document::draw(Painter& painter) {
             // and hand the painter a pre-positioned LEFT single-line draw.
             if (is_nowrap && (paint_align == Painter::TextAlign::Center ||
                               paint_align == Painter::TextAlign::Right)) {
-                const float tw = static_cast<float>(painter.measure_text(font, b.text));
+                const float tw = natural_text_width();
                 const float slack = content_w - tw;
                 if (paint_align == Painter::TextAlign::Center)
-                    text_x += static_cast<int>(slack * 0.5f + 0.5f);
+                    text_x += static_cast<int>(std::lround(slack * 0.5f));
                 else  // Right
-                    text_x += static_cast<int>(slack + 0.5f);
+                    text_x += static_cast<int>(std::lround(slack));
                 paint_align = Painter::TextAlign::Left;
+            }
+
+            bool force_single_line = is_nowrap;
+            if (!is_nowrap &&
+                !b.text_control &&
+                b.tag != "select" &&
+                !in_mixed_inline_run &&
+                b.text.find('\n') == std::string::npos &&
+                (paint_align == Painter::TextAlign::Center ||
+                 paint_align == Painter::TextAlign::Right)) {
+                constexpr float kAdvanceTolerancePx = 4.0f;
+                const float tw = natural_text_width();
+                if (tw <= content_w + kAdvanceTolerancePx) {
+                    const float slack = content_w - tw;
+                    if (paint_align == Painter::TextAlign::Center)
+                        text_x += static_cast<int>(std::lround(slack * 0.5f));
+                    else
+                        text_x += static_cast<int>(std::lround(slack));
+                    paint_align = Painter::TextAlign::Left;
+                    force_single_line = true;
+                }
             }
 
             // Justify fills exactly to the content edge â€” no wrap slack
@@ -5130,15 +5166,13 @@ void Document::draw(Painter& painter) {
             const bool suppress_wrap_slack = b.text_control ||
                 b.tag == "select" || aligned_text;
             const float wrap_slack = suppress_wrap_slack ? 0.0f : 4.0f;
-            const float draw_max_w = is_nowrap ? 1e6f
+            const float draw_max_w = force_single_line ? 1e6f
                                    : (is_justify ? content_w
                                                  : content_w + wrap_slack);
-            const float letter_spacing_px =
-                static_cast<float>(cs.letter_spacing_x100) / 100.0f;
             painter.draw_text_box(font, Point{text_x, text_y}, b.text,
                                   detail::unpack_rgba(an.color_rgba),
                                   draw_max_w,
-                                  detail::effective_line_height_mult(cs),
+                                  line_height_mult,
                                   letter_spacing_px,
                                   paint_align);
             if (cs.text_decoration_line != detail::ComputedStyle::DecorationNone) {
