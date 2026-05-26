@@ -1321,6 +1321,59 @@ TEST_CASE("dark synth C++ value interactions keep checked checkbox visible") {
     CHECK(find_text_draw(painter, "Hard sync") != nullptr);
 }
 
+TEST_CASE("live Decius checkbox state survives ordinary viewport relayout") {
+    namespace dcs = demo::decius;
+
+    affineui::Ui ui;
+    RecordingPainter painter;
+
+    const auto examples_root =
+        std::filesystem::path{AFFINEUI_TEST_SOURCE_DIR} / "examples";
+    ui.document().set_resource_loader(
+        [examples_root](std::string_view url) -> std::string {
+            const std::filesystem::path rel{std::string(url)};
+            return read_test_file(examples_root / rel);
+        });
+
+    std::ostringstream h;
+    h << R"HTML(
+        <!doctype html><html><head><meta charset="utf-8">
+        <link rel="stylesheet" href="frameworks/css/decius-css-0.4.1.bundle.min.css">
+        <style>
+        body{margin:0;background:#101219}
+        .desk{padding:18px;background:#101219}
+        </style></head>
+        <body class="dcs" data-dcs-density="comfortable" data-dcs-accent="green">
+        <div class="desk">
+    )HTML"
+      << dcs::check("Hard sync", false, false, "sync")
+      << R"HTML(</div></body></html>)HTML";
+
+    ui.html(h.str());
+    ui.document().layout(520, 160, &painter);
+    REQUIRE(ui.set_attr("sync", "aria-checked", "true"));
+
+    // Resizing inside the same media-query set must not reparse from the
+    // original HTML string, or live DOM mutations disappear.
+    ui.document().layout(560, 160, &painter);
+
+    painter.fill_draws.clear();
+    painter.fill_colors.clear();
+    painter.rounded_fill_draws.clear();
+    painter.border_ring_draws.clear();
+    painter.stroke_colors.clear();
+    painter.text_draws.clear();
+    painter.text_runs.clear();
+    ui.document().draw(painter);
+
+    const auto checked_fill = affineui::Color::rgb(0x3d, 0xd6, 0x8a);
+    CHECK((saw_fill(painter, checked_fill) ||
+           find_rounded_fill_draw(painter, checked_fill) != nullptr));
+    const auto* icon = find_text_draw(painter, "\xEE\x80\x9B");
+    REQUIRE(icon != nullptr);
+    CHECK(same_color(icon->color, affineui::Color::rgb(0x0a, 0x12, 0x20)));
+}
+
 TEST_CASE("game editor inspector keeps Decius check and switch interactive across rerenders") {
     namespace dcs = demo::decius;
 

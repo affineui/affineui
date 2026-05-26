@@ -288,6 +288,7 @@ struct DocumentImpl {
     // media_viewport_width_px; matching blocks are re-attached as extra
     // stylesheets so their rules participate in the normal cascade.
     std::vector<MediaBlock>            media_blocks;
+    std::uint64_t                      media_match_signature{0};
     std::vector<KeyframeBlock>         keyframes;
     std::unique_ptr<StyleResolver>     resolver;
     ResolvedStyle                      root_style{};  // inheritance root
@@ -323,6 +324,20 @@ namespace {
 #if !defined(AFFINEUI_STUB_BUILD)
 
 // â”€â”€ DOM utilities â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+std::uint64_t media_match_signature(const detail::DocumentImpl& impl,
+                                    int viewport_width) {
+    std::uint64_t h = 1469598103934665603ull;
+    auto mix = [&](std::uint64_t v) {
+        h ^= v;
+        h *= 1099511628211ull;
+    };
+    mix(static_cast<std::uint64_t>(impl.media_blocks.size()));
+    for (const auto& block : impl.media_blocks) {
+        mix(block.matches(viewport_width) ? 1u : 0u);
+    }
+    return h;
+}
 
 bool is_html_ws(unsigned char c) {
     return c == ' ' || c == '\t' || c == '\n' ||
@@ -3533,6 +3548,8 @@ void Document::set_html(std::string_view html) {
     impl_->resolver = detail::make_lexbor_resolver(
         impl_->doc, impl_->media_viewport_width_px,
         impl_->media_viewport_height_px);
+    impl_->media_match_signature =
+        media_match_signature(*impl_, impl_->media_viewport_width_px);
 
     // Establish a root inheritance baseline. Reasonable initial values
     // for the implicit document root â€” anything not overridden by CSS
@@ -3602,6 +3619,9 @@ namespace {
 #if !defined(AFFINEUI_STUB_BUILD)
 void add_dirty_rect(detail::DocumentImpl& impl, const Rect& r);
 Rect subtree_visual_rect(const detail::DocumentImpl& impl, int root_idx);
+std::uint64_t media_match_signature(const detail::DocumentImpl& impl,
+                                    int viewport_width);
+void recollect_blocks_from_current_dom(detail::DocumentImpl& impl);
 #endif
 }  // namespace
 
@@ -3620,17 +3640,35 @@ void Document::layout(int viewport_width, int viewport_height,
 
 #if !defined(AFFINEUI_STUB_BUILD)
     // Viewport-dependent cascade: this is the one call site that knows
-    // the real CSS viewport. Re-parse when either dimension changes so
-    // @media rules and viewport units (`vw`, `vh`, `vmin`, `vmax`) are
-    // resolved against the same dimensions layout is about to use.
+    // the real CSS viewport. Rebuild the parsed HTML/CSS attachment graph
+    // only when the active @media set changes. Ordinary resize ticks still
+    // need fresh computed styles for vw/vh/calc(), but they can be collected
+    // from the current live DOM; reparsing from impl_->html would lose live
+    // attribute/text mutations and makes interactive resizing much heavier.
     if (!impl_->html.empty() &&
         (viewport_width != impl_->media_viewport_width_px ||
          viewport_height != impl_->media_viewport_height_px)) {
+        const bool first_viewport =
+            impl_->media_viewport_width_px <= 0 ||
+            impl_->media_viewport_height_px <= 0;
+        const auto next_media_sig =
+            media_match_signature(*impl_, viewport_width);
+        const bool media_set_changed =
+            first_viewport ||
+            next_media_sig != impl_->media_match_signature;
         impl_->media_viewport_width_px = viewport_width;
         impl_->media_viewport_height_px = viewport_height;
-        set_html(impl_->html);
-        // set_html resets everything; fall through to the normal layout path
-        // with the newly resolved blocks.
+        if (media_set_changed) {
+            set_html(impl_->html);
+            // set_html resets everything; fall through to the normal layout
+            // path with media blocks attached for the new viewport.
+        } else {
+            impl_->resolver = detail::make_lexbor_resolver(
+                impl_->doc, impl_->media_viewport_width_px,
+                impl_->media_viewport_height_px);
+            recollect_blocks_from_current_dom(*impl_);
+            impl_->media_match_signature = next_media_sig;
+        }
     }
 #endif
 
