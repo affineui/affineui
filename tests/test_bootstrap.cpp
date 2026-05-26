@@ -308,6 +308,65 @@ TEST_CASE("Bootstrap 5 dashboard sidebar uses desktop grid width") {
     CHECK(main->y <= sidebar->y + 40);
 }
 
+TEST_CASE("Bootstrap 5 dashboard sidebar is not squeezed by wide main content") {
+    auto painter = render_bootstrap5(R"HTML(
+        <style>
+        .sidebar { min-height: calc(100vh - 44px); }
+        .chart-grid { height: 250px; display: flex; align-items: end; gap: 18px; }
+        .chart-bar { width: 100%; min-width: 32px; }
+        </style>
+        <div class="container-fluid">
+            <div class="row">
+                <nav class="col-md-3 col-lg-2 d-md-block bg-body-tertiary sidebar collapse">
+                    <h6 class="px-3">Workspace</h6>
+                    <ul class="nav flex-column">
+                        <li class="nav-item"><a class="nav-link active" href="#">Dashboard</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#">Orders</a></li>
+                    </ul>
+                </nav>
+                <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 dashboard-main">
+                    <div class="row row-cols-1 row-cols-xl-4 g-3 mb-4">
+                      <div class="col"><div class="card"><div class="card-body"><div class="display-6">184.2k</div></div></div></div>
+                      <div class="col"><div class="card"><div class="card-body"><div class="display-6">1,428</div></div></div></div>
+                      <div class="col"><div class="card"><div class="card-body"><div class="display-6">38.4%</div></div></div></div>
+                      <div class="col"><div class="card"><div class="card-body"><div class="display-6">17</div></div></div></div>
+                    </div>
+                    <div class="chart-grid">
+                      <div class="chart-bar bg-primary"></div><div class="chart-bar bg-primary"></div>
+                      <div class="chart-bar bg-primary"></div><div class="chart-bar bg-primary"></div>
+                      <div class="chart-bar bg-success"></div><div class="chart-bar bg-success"></div>
+                    </div>
+                    <table class="table">
+                      <tbody>
+                        <tr><td>Aster Freight</td><td>Morgan</td><td><button class="btn btn-sm btn-outline-primary">Open</button></td></tr>
+                        <tr><td>Orbit Labs</td><td>Iris</td><td><button class="btn btn-sm btn-outline-primary">Open</button></td></tr>
+                      </tbody>
+                    </table>
+                </main>
+            </div>
+        </div>
+    )HTML", 1440, 920);
+
+    const auto sidebar = point_for_text(painter, "Workspace");
+    const auto main = point_for_text(painter, "184.2k");
+    REQUIRE(sidebar.has_value());
+    REQUIRE(main.has_value());
+
+    CHECK(main->x > sidebar->x + 180);
+
+    std::optional<affineui::Rect> sidebar_fill;
+    const auto tertiary = affineui::Color::rgb(0xf8, 0xf9, 0xfa);
+    for (const auto& fill : painter.fills) {
+        if (!same_color(fill.color, tertiary)) continue;
+        if (fill.rect.h < 100) continue;
+        if (!sidebar_fill || fill.rect.w > sidebar_fill->w) {
+            sidebar_fill = fill.rect;
+        }
+    }
+    REQUIRE(sidebar_fill.has_value());
+    CHECK(sidebar_fill->w >= 220);
+}
+
 TEST_CASE("Bootstrap button row preserves inline spacing and paints focusable variants") {
     auto painter = render_bootstrap(R"HTML(
         <main class="container py-4">

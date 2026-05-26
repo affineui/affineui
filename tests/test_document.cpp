@@ -3097,8 +3097,12 @@ TEST_CASE("live style mutation restyles descendants and tracks dirty rects") {
         painter, affineui::Color::rgb(0x11, 0x22, 0x33));
     REQUIRE(first != nullptr);
     CHECK(first->rect.x == 20);
+    (void)doc.take_dirty_rects();
+    (void)doc.take_paint_dirty();
 
     REQUIRE(doc.set_attribute_by_id("root", "style", "--x:40px"));
+    CHECK(doc.content_size().width == 100);
+    CHECK_FALSE(doc.take_paint_dirty());
     doc.layout(100, 100, &painter);
 
     painter.fill_draws.clear();

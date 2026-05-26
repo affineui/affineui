@@ -5511,6 +5511,141 @@ bool computed_change_needs_layout(const detail::ComputedStyle& a,
         a.width_pct_x100 != b.width_pct_x100;
 }
 
+bool absolute_geometry_change_can_stay_local(detail::ComputedStyle a,
+                                             detail::ComputedStyle b) {
+    using Position = detail::ComputedStyle::Position;
+    if (a.position != b.position ||
+        (b.position != Position::Absolute && b.position != Position::Fixed)) {
+        return false;
+    }
+
+    a.width = b.width = 0;
+    a.height = b.height = 0;
+    a.height_pct = b.height_pct = -1;
+    a.width_pct_x100 = b.width_pct_x100 = -1;
+    a.inset_top = b.inset_top = 0;
+    a.inset_right = b.inset_right = 0;
+    a.inset_bottom = b.inset_bottom = 0;
+    a.inset_left = b.inset_left = 0;
+    a.inset_has.top = b.inset_has.top = 0;
+    a.inset_has.right = b.inset_has.right = 0;
+    a.inset_has.bottom = b.inset_has.bottom = 0;
+    a.inset_has.left = b.inset_has.left = 0;
+    a.inset_has.top_pct = b.inset_has.top_pct = 0;
+    a.inset_has.right_pct = b.inset_has.right_pct = 0;
+    a.inset_has.bottom_pct = b.inset_has.bottom_pct = 0;
+    a.inset_has.left_pct = b.inset_has.left_pct = 0;
+
+    return !computed_change_needs_layout(a, b);
+}
+
+int resolve_position_edge(std::int16_t value, bool is_pct, int basis) {
+    if (!is_pct) return static_cast<int>(value);
+    return static_cast<int>(
+        std::lround(static_cast<double>(basis) *
+                    (static_cast<double>(value) / 10000.0)));
+}
+
+int resolved_outer_length(std::int16_t px,
+                          std::int16_t pct_x100,
+                          int basis,
+                          int fallback,
+                          const detail::ComputedStyle& cs,
+                          bool horizontal) {
+    int length = fallback;
+    if (pct_x100 >= 0) {
+        length = resolve_position_edge(pct_x100, true, basis);
+    } else if (px >= 0) {
+        length = static_cast<int>(px);
+    }
+    if (cs.box_sizing == detail::ComputedStyle::BoxSizing::ContentBox &&
+        (pct_x100 >= 0 || px >= 0)) {
+        if (horizontal) {
+            length += cs.padding_left + cs.padding_right +
+                      cs.used_border_left() + cs.used_border_right();
+        } else {
+            length += cs.padding_top + cs.padding_bottom +
+                      cs.used_border_top() + cs.used_border_bottom();
+        }
+    }
+    return std::max(0, length);
+}
+
+void translate_subtree_bounds(std::vector<Block>& blocks,
+                              int root_idx,
+                              int dx,
+                              int dy) {
+    if (dx == 0 && dy == 0) return;
+    for (int idx = root_idx; idx < static_cast<int>(blocks.size()); ++idx) {
+        bool in_subtree = false;
+        for (int cur = idx; cur >= 0; ) {
+            if (cur == root_idx) {
+                in_subtree = true;
+                break;
+            }
+            cur = blocks[static_cast<std::size_t>(cur)].parent_idx;
+        }
+        if (!in_subtree) continue;
+        auto& block = blocks[static_cast<std::size_t>(idx)];
+        block.bounds.x += dx;
+        block.bounds.y += dy;
+        block.bounds_f.x += static_cast<float>(dx);
+        block.bounds_f.y += static_cast<float>(dy);
+    }
+}
+
+bool update_absolute_geometry(detail::DocumentImpl& impl,
+                              int idx,
+                              const detail::ComputedStyle& cs) {
+    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return false;
+    auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+    if (block.parent_idx < 0 ||
+        block.parent_idx >= static_cast<int>(impl.blocks.size())) {
+        return false;
+    }
+
+    const auto& parent = impl.blocks[static_cast<std::size_t>(block.parent_idx)];
+    Rect next = block.bounds;
+    next.w = resolved_outer_length(cs.width, cs.width_pct_x100, parent.bounds.w,
+                                   next.w, cs, true);
+    next.h = resolved_outer_length(
+        cs.height,
+        cs.height_pct >= 0 ? static_cast<std::int16_t>(cs.height_pct * 100)
+                           : static_cast<std::int16_t>(-1),
+        parent.bounds.h, next.h, cs, false);
+
+    if (cs.inset_has.left) {
+        next.x = parent.bounds.x + resolve_position_edge(
+            cs.inset_left, cs.inset_has.left_pct, parent.bounds.w);
+    } else if (cs.inset_has.right) {
+        next.x = parent.bounds.x + parent.bounds.w -
+                 resolve_position_edge(cs.inset_right,
+                                       cs.inset_has.right_pct,
+                                       parent.bounds.w) -
+                 next.w;
+    }
+
+    if (cs.inset_has.top) {
+        next.y = parent.bounds.y + resolve_position_edge(
+            cs.inset_top, cs.inset_has.top_pct, parent.bounds.h);
+    } else if (cs.inset_has.bottom) {
+        next.y = parent.bounds.y + parent.bounds.h -
+                 resolve_position_edge(cs.inset_bottom,
+                                       cs.inset_has.bottom_pct,
+                                       parent.bounds.h) -
+                 next.h;
+    }
+
+    const int dx = next.x - block.bounds.x;
+    const int dy = next.y - block.bounds.y;
+    translate_subtree_bounds(impl.blocks, idx, dx, dy);
+    block.bounds.w = next.w;
+    block.bounds.h = next.h;
+    block.bounds_f.w = static_cast<float>(next.w);
+    block.bounds_f.h = static_cast<float>(next.h);
+    return true;
+}
+
 // Re-resolve one block's style, applying any active pseudo overlays.
 // Returns true if the computed layout fields changed and the caller
 // must schedule layout. Paint-only changes can stay inside the block's
@@ -5538,6 +5673,12 @@ bool restyle_block(detail::DocumentImpl& impl, int idx) {
     block.box_shadows = rs.box_shadows;
     block.base_animated = rs.animated;
     block.animation = rs.animation;
+    bool local_absolute_geometry_update = false;
+    if (needs_layout &&
+        absolute_geometry_change_can_stay_local(old_computed, rs.computed)) {
+        local_absolute_geometry_update =
+            update_absolute_geometry(impl, idx, rs.computed);
+    }
     if (!same_animation(old_animation, block.animation)) {
         const bool old_candidate = animation_candidate(old_animation);
         const bool new_candidate = animation_candidate(block.animation);
@@ -5548,7 +5689,7 @@ bool restyle_block(detail::DocumentImpl& impl, int idx) {
         }
         block.animation_epoch = std::chrono::steady_clock::now();
     }
-    return needs_layout;
+    return needs_layout && !local_absolute_geometry_update;
 }
 
 bool is_descendant_of_or_self(const std::vector<Block>& blocks,
