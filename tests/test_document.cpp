@@ -411,6 +411,76 @@ TEST_CASE("Ui on_click matches hovered ancestors") {
     CHECK(clicked);
 }
 
+TEST_CASE("captured pointer moves bypass DOM hover restyle") {
+    affineui::Ui ui;
+    RecordingPainter painter;
+    int captured_moves = 0;
+
+    ui.html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .box { display: inline-block; width: 50px; height: 40px; }
+        #left { background: #222; }
+        #right { background: #444; }
+        #right:hover { background: #3dd68a; }
+        </style>
+        <div id="left" class="box"></div><div id="right" class="box"></div>
+    )HTML");
+    ui.document().layout(140, 60, &painter);
+    ui.on_event([&](const affineui::Event& e,
+                    const std::vector<affineui::Document::HoverInfo>& chain) {
+        if (e.type == affineui::EventType::MouseDown) {
+            const bool on_left = std::any_of(
+                chain.begin(), chain.end(),
+                [](const affineui::Document::HoverInfo& info) {
+                    return info.elem_id == "left";
+                });
+            if (on_left) {
+                ui.capture_pointer();
+                return true;
+            }
+        }
+        if (e.type == affineui::EventType::MouseMove &&
+            ui.pointer_captured()) {
+            ++captured_moves;
+            return true;
+        }
+        if (e.type == affineui::EventType::MouseUp &&
+            ui.pointer_captured()) {
+            ui.release_pointer();
+            return true;
+        }
+        return false;
+    });
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {10, 10};
+    CHECK_FALSE(ui.dispatch(move));
+    CHECK(ui.document().hovered_info().elem_id == "left");
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {10, 10};
+    CHECK(ui.dispatch(down));
+    CHECK(ui.pointer_captured());
+    (void)ui.document().take_dirty_rects();
+
+    move.pos = {70, 10};
+    CHECK(ui.dispatch(move));
+    CHECK(captured_moves == 1);
+    CHECK(ui.document().hovered_info().elem_id == "left");
+    CHECK(ui.document().take_dirty_rects().empty());
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = {70, 10};
+    CHECK(ui.dispatch(up));
+    CHECK_FALSE(ui.pointer_captured());
+}
+
 TEST_CASE("set_html clears stale hover identity") {
     affineui::Document doc;
     RecordingPainter painter;

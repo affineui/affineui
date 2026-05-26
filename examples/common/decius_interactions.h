@@ -173,6 +173,7 @@ inline void install_value_interactions(affineui::Ui& ui,
             }
             if (e.type == affineui::EventType::MouseUp) {
                 drag->kind = Drag::Kind::None;
+                if (live_ui) live_ui->release_pointer();
                 return true;
             }
             return e.type == affineui::EventType::MouseDown;
@@ -205,6 +206,7 @@ inline void install_value_interactions(affineui::Ui& ui,
                 ? access.get(drag->id)
                 : detail::attr_float(info, "data-value", drag->min);
             drag->start_y = e.pos.y;
+            if (live_ui) live_ui->capture_pointer();
 
             if (kind == Drag::Kind::Slider) {
                 commit(detail::value_from_x(

@@ -158,6 +158,14 @@ public:
     /// state while still letting AffineUI own hit-testing and CSS state.
     std::vector<Document::HoverInfo> hovered_info_chain() const;
 
+    /// Capture pointer moves for a native event handler. While captured,
+    /// MouseMove is offered to low-level handlers before DOM hover hit
+    /// testing, so drag controls can update without thrashing unrelated
+    /// :hover state. MouseDown/MouseUp still flow through the document.
+    void capture_pointer();
+    void release_pointer();
+    bool pointer_captured() const;
+
     /// Cursor the OS should display under the last hovered position.
     /// Maps onto your windowing toolkit's cursor enum.
     ///   0 = default, 1 = pointer, 2 = text, 3 = crosshair, 4 = move,

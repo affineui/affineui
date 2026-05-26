@@ -90,6 +90,7 @@ struct UiImpl {
     std::vector<std::pair<std::string, std::function<void()>>> click_handlers;
     std::vector<Ui::EventHandler> event_handlers;
     std::vector<Document::HoverInfo> hover_chain_scratch;
+    bool pointer_captured{false};
 };
 
 // ── Internal log sink (embed_log.h) ─────────────────────────────────
@@ -282,6 +283,7 @@ void Ui::reset() {
     impl_->click_handlers.clear();
     impl_->event_handlers.clear();
     impl_->hover_chain_scratch.clear();
+    impl_->pointer_captured = false;
     impl_->dirty = true;
     impl_->animations_active = false;
     // TODO(embed §7): also release cached GPU resources + the asset cache
@@ -291,6 +293,16 @@ void Ui::reset() {
 // ── Input ───────────────────────────────────────────────────────────
 
 bool Ui::dispatch(const Event& e) {
+    if (impl_->pointer_captured && e.type == EventType::MouseMove &&
+        !impl_->event_handlers.empty()) {
+        impl_->document.hovered_info_chain(impl_->hover_chain_scratch);
+        bool consumed = false;
+        for (const auto& cb : impl_->event_handlers) {
+            consumed = cb(e, impl_->hover_chain_scratch) || consumed;
+        }
+        if (consumed) return true;
+    }
+
     if (e.type == EventType::Resize) {
         impl_->dirty = true;
     }
@@ -355,6 +367,18 @@ std::vector<Document::HoverInfo> Ui::hovered_info_chain() const {
 }
 
 // ── Handlers ────────────────────────────────────────────────────────
+
+void Ui::capture_pointer() {
+    impl_->pointer_captured = true;
+}
+
+void Ui::release_pointer() {
+    impl_->pointer_captured = false;
+}
+
+bool Ui::pointer_captured() const {
+    return impl_->pointer_captured;
+}
 
 void Ui::on_click(std::string_view selector, std::function<void()> cb) {
     impl_->click_handlers.emplace_back(std::string(selector), std::move(cb));
