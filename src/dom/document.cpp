@@ -5952,13 +5952,36 @@ Rect shadow_extent(const Rect& base,
     };
 }
 
+Rect transform_visual_rect(const Rect& r, const Mat2x3& m) {
+    if (!rect_valid(r) || m.is_identity()) return r;
+    const Vec2 p0 = m.apply(Vec2{static_cast<float>(r.x),
+                                 static_cast<float>(r.y)});
+    const Vec2 p1 = m.apply(Vec2{static_cast<float>(r.x + r.w),
+                                 static_cast<float>(r.y)});
+    const Vec2 p2 = m.apply(Vec2{static_cast<float>(r.x),
+                                 static_cast<float>(r.y + r.h)});
+    const Vec2 p3 = m.apply(Vec2{static_cast<float>(r.x + r.w),
+                                 static_cast<float>(r.y + r.h)});
+    const float min_x = std::min({p0.x, p1.x, p2.x, p3.x});
+    const float min_y = std::min({p0.y, p1.y, p2.y, p3.y});
+    const float max_x = std::max({p0.x, p1.x, p2.x, p3.x});
+    const float max_y = std::max({p0.y, p1.y, p2.y, p3.y});
+    const int x0 = static_cast<int>(std::floor(min_x)) - 1;
+    const int y0 = static_cast<int>(std::floor(min_y)) - 1;
+    const int x1 = static_cast<int>(std::ceil(max_x)) + 1;
+    const int y1 = static_cast<int>(std::ceil(max_y)) + 1;
+    return Rect{x0, y0, x1 - x0, y1 - y0};
+}
+
 Rect block_visual_rect(const detail::DocumentImpl& impl, int idx) {
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return {};
     const auto& b = impl.blocks[static_cast<std::size_t>(idx)];
-    Rect out = b.bounds;
+    const int dy = scroll_offset_y_for(impl.blocks, impl.style_store, idx);
+    const Rect base{b.bounds.x, b.bounds.y - dy, b.bounds.w, b.bounds.h};
+    Rect out = base;
     if (b.box_shadows) {
         for (const auto& layer : *b.box_shadows) {
-            out = union_rect(out, shadow_extent(b.bounds, layer));
+            out = union_rect(out, shadow_extent(base, layer));
         }
     } else {
         const auto& an = impl.style_store.animated(b.id);
@@ -5969,8 +5992,11 @@ Rect block_visual_rect(const detail::DocumentImpl& impl, int idx) {
         layer.blur = an.shadow_blur;
         layer.spread = an.shadow_spread;
         layer.inset = an.shadow_inset;
-        out = union_rect(out, shadow_extent(b.bounds, layer));
+        out = union_rect(out, shadow_extent(base, layer));
     }
+#if !defined(AFFINEUI_STUB_BUILD)
+    out = transform_visual_rect(out, effective_transform_for(impl, idx));
+#endif
     return out;
 }
 

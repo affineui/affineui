@@ -709,6 +709,56 @@ TEST_CASE("live selector attribute mutation rematches cascade") {
     CHECK_FALSE(saw_fill(painter, affineui::Color::rgb(0x3d, 0xd6, 0x8a)));
 }
 
+TEST_CASE("live mutation dirty rects include transformed visual bounds") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        #track { position: relative; width: 100px; height: 100px; }
+        #thumb {
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          width: 20px;
+          height: 10px;
+          transform: translate(-50%, -50%);
+          background: #fff;
+        }
+        </style>
+        <div id="track"><div id="thumb"></div></div>
+    )HTML");
+    doc.layout(140, 120, &painter);
+    (void)doc.take_paint_dirty();
+    (void)doc.take_dirty_rects();
+
+    REQUIRE(doc.set_attribute_by_id(
+        "thumb", "style",
+        "position:absolute;left:50%;top:70%;width:20px;height:10px;"
+        "transform:translate(-50%,-50%);background:#fff"));
+
+    auto dirty = doc.take_dirty_rects();
+    REQUIRE_FALSE(dirty.empty());
+    affineui::Rect bounds{};
+    for (const auto& r : dirty) {
+        if (bounds.w <= 0 || bounds.h <= 0) {
+            bounds = r;
+        } else {
+            const int x0 = std::min(bounds.x, r.x);
+            const int y0 = std::min(bounds.y, r.y);
+            const int x1 = std::max(bounds.x + bounds.w, r.x + r.w);
+            const int y1 = std::max(bounds.y + bounds.h, r.y + r.h);
+            bounds = {x0, y0, x1 - x0, y1 - y0};
+        }
+    }
+
+    CHECK(bounds.x <= 40);
+    CHECK(bounds.y <= 45);
+    CHECK(bounds.x + bounds.w >= 60);
+    CHECK(bounds.y + bounds.h >= 76);
+}
+
 TEST_CASE("real Decius checkbox survives unrelated live control mutation") {
     affineui::Ui ui;
     RecordingPainter painter;
