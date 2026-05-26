@@ -19,6 +19,8 @@
 
 #include "lexbor/core/conv.h"
 
+#include <string.h>
+
 
 #define lxb_css_property_state_check_token(parser, token)                     \
     if ((token) == NULL) {                                                    \
@@ -1750,6 +1752,7 @@ lxb_css_property_state_box_shadow(lxb_css_parser_t *parser,
     lxb_css_value_type_t type;
     lxb_css_value_length_type_t lengths[4];
     lxb_css_property_box_shadow_t shadow = {0};
+    lxb_css_property_box_shadow_layer_t layer = {0};
     lxb_css_rule_declaration_t *declar = ctx;
 
     static const lexbor_str_t str_inset = lexbor_str("inset");
@@ -1779,11 +1782,18 @@ lxb_css_property_state_box_shadow(lxb_css_parser_t *parser,
     inset = false;
     length_count = 0;
     shadow.type = LXB_CSS_BOX_SHADOW__LENGTH;
-    shadow.blur_radius.type = LXB_CSS_VALUE__UNDEF;
-    shadow.spread_radius.type = LXB_CSS_VALUE__UNDEF;
-    shadow.color.type = LXB_CSS_VALUE__UNDEF;
 
     do {
+        inset = false;
+        length_count = 0;
+        memset(&layer, 0, sizeof(layer));
+        layer.blur_radius.type = LXB_CSS_VALUE__UNDEF;
+        layer.spread_radius.type = LXB_CSS_VALUE__UNDEF;
+        layer.color.type = LXB_CSS_VALUE__UNDEF;
+
+        while (token->type != LXB_CSS_SYNTAX_TOKEN__END
+               && token->type != LXB_CSS_SYNTAX_TOKEN_COMMA)
+        {
         if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT
             && lxb_css_syntax_token_ident(token)->length == str_inset.length
             && lexbor_str_data_ncasecmp(lxb_css_syntax_token_ident(token)->data,
@@ -1797,9 +1807,9 @@ lxb_css_property_state_box_shadow(lxb_css_parser_t *parser,
             lxb_css_syntax_parser_consume(parser);
         }
         else {
-            if (shadow.color.type == LXB_CSS_VALUE__UNDEF) {
+            if (layer.color.type == LXB_CSS_VALUE__UNDEF) {
                 if (lxb_css_property_state_color_handler(parser, token,
-                                                         &shadow.color,
+                                                         &layer.color,
                                                          &status))
                 {
                     goto next;
@@ -1828,23 +1838,43 @@ next:
 
         token = lxb_css_syntax_parser_token_wo_ws(parser);
         lxb_css_property_state_check_token(parser, token);
+        }
+
+        if (length_count < 2) {
+            return lxb_css_parser_failed(parser);
+        }
+
+        if (shadow.layer_count >= LXB_CSS_BOX_SHADOW_LAYER_MAX) {
+            return lxb_css_parser_failed(parser);
+        }
+
+        layer.inset = inset;
+        layer.offset_x = lengths[0];
+        layer.offset_y = lengths[1];
+
+        if (length_count > 2) {
+            layer.blur_radius = lengths[2];
+        }
+
+        if (length_count > 3) {
+            layer.spread_radius = lengths[3];
+        }
+
+        shadow.layers[shadow.layer_count++] = layer;
+
+        if (token->type == LXB_CSS_SYNTAX_TOKEN_COMMA) {
+            lxb_css_syntax_parser_consume(parser);
+            token = lxb_css_syntax_parser_token_wo_ws(parser);
+            lxb_css_property_state_check_token(parser, token);
+            if (token->type == LXB_CSS_SYNTAX_TOKEN__END) {
+                return lxb_css_parser_failed(parser);
+            }
+        }
     }
     while (token->type != LXB_CSS_SYNTAX_TOKEN__END);
 
-    if (length_count < 2) {
-        return lxb_css_parser_failed(parser);
-    }
-
-    shadow.inset = inset;
-    shadow.offset_x = lengths[0];
-    shadow.offset_y = lengths[1];
-
-    if (length_count > 2) {
-        shadow.blur_radius = lengths[2];
-    }
-
-    if (length_count > 3) {
-        shadow.spread_radius = lengths[3];
+    if (shadow.layer_count != 0) {
+        shadow.layer = shadow.layers[0];
     }
 
     *((lxb_css_property_box_shadow_t *) declar->u.user) = shadow;
@@ -2804,6 +2834,54 @@ lxb_css_property_state_border_collapse(lxb_css_parser_t *parser,
     return lxb_css_parser_failed(parser);
 }
 
+bool
+lxb_css_property_state_list_style_type(lxb_css_parser_t *parser,
+                                       const lxb_css_syntax_token_t *token, void *ctx)
+{
+    lxb_css_value_type_t type;
+    lxb_css_rule_declaration_t *declar = ctx;
+    lxb_css_property_list_style_type_t *out = declar->u.list_style_type;
+
+    if (token->type != LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        return lxb_css_parser_failed(parser);
+    }
+
+    type = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                 lxb_css_syntax_token_ident(token)->length);
+    if (lxb_css_property_state_is_global(type)) {
+        out->type = type;
+        lxb_css_syntax_parser_consume(parser);
+        return lxb_css_parser_success(parser);
+    }
+
+    const lxb_css_syntax_token_ident_t *ident = lxb_css_syntax_token_ident(token);
+    if (ident->length == 4 &&
+        lexbor_str_data_ncasecmp(ident->data, (const lxb_char_t *) "disc", 4)) {
+        out->type = LXB_CSS_LIST_STYLE_TYPE_DISC;
+    }
+    else if (ident->length == 6 &&
+        lexbor_str_data_ncasecmp(ident->data, (const lxb_char_t *) "circle", 6)) {
+        out->type = LXB_CSS_LIST_STYLE_TYPE_CIRCLE;
+    }
+    else if (ident->length == 6 &&
+        lexbor_str_data_ncasecmp(ident->data, (const lxb_char_t *) "square", 6)) {
+        out->type = LXB_CSS_LIST_STYLE_TYPE_SQUARE;
+    }
+    else if (ident->length == 7 &&
+        lexbor_str_data_ncasecmp(ident->data, (const lxb_char_t *) "decimal", 7)) {
+        out->type = LXB_CSS_LIST_STYLE_TYPE_DECIMAL;
+    }
+    else if (type == LXB_CSS_VALUE_NONE) {
+        out->type = LXB_CSS_LIST_STYLE_TYPE_NONE;
+    }
+    else {
+        return lxb_css_parser_failed(parser);
+    }
+
+    lxb_css_syntax_parser_consume(parser);
+    return lxb_css_parser_success(parser);
+}
+
 static void
 lxb_css_property_state_border_radius_set_global(
     lxb_css_property_border_radius_corner_t *corner, lxb_css_value_type_t type)
@@ -3126,6 +3204,212 @@ lxb_css_property_state_skip_to_r_paren(lxb_css_parser_t *parser)
     }
 }
 
+static bool
+lxb_css_property_state_is_gradient_stop_position(
+    const lxb_css_syntax_token_t *token)
+{
+    if (token == NULL) return false;
+
+    switch (token->type) {
+        case LXB_CSS_SYNTAX_TOKEN_DIMENSION:
+        case LXB_CSS_SYNTAX_TOKEN_NUMBER:
+        case LXB_CSS_SYNTAX_TOKEN_PERCENTAGE:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+static bool
+lxb_css_property_state_ident_is(const lxb_css_syntax_token_t *token,
+                                const char *name, size_t length)
+{
+    return token != NULL
+        && token->type == LXB_CSS_SYNTAX_TOKEN_IDENT
+        && lxb_css_syntax_token_ident(token)->length == length
+        && lexbor_str_data_ncasecmp(lxb_css_syntax_token_ident(token)->data,
+                                    (const lxb_char_t *) name, length);
+}
+
+static bool
+lxb_css_property_state_take_gradient_stop_pct(lxb_css_parser_t *parser,
+                                              double *pct_out)
+{
+    const lxb_css_syntax_token_t *token;
+    bool has_pct = false;
+
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    if (!lxb_css_property_state_is_gradient_stop_position(token)) {
+        return false;
+    }
+
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_PERCENTAGE) {
+        *pct_out = lxb_css_syntax_token_percentage(token)->num;
+        has_pct = true;
+    }
+
+    lxb_css_syntax_parser_consume(parser);
+
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    if (lxb_css_property_state_is_gradient_stop_position(token)) {
+        lxb_css_syntax_parser_consume(parser);
+    }
+
+    return has_pct;
+}
+
+static bool
+lxb_css_property_state_gradient_position_component(
+    lxb_css_parser_t *parser, const lxb_css_syntax_token_t *token,
+    double *pct_out)
+{
+    if (token == NULL) return false;
+
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_PERCENTAGE) {
+        *pct_out = lxb_css_syntax_token_percentage(token)->num;
+        lxb_css_syntax_parser_consume(parser);
+        return true;
+    }
+
+    if (lxb_css_property_state_ident_is(token, "center", 6)) {
+        *pct_out = 50.0;
+    }
+    else if (lxb_css_property_state_ident_is(token, "left", 4)
+             || lxb_css_property_state_ident_is(token, "top", 3))
+    {
+        *pct_out = 0.0;
+    }
+    else if (lxb_css_property_state_ident_is(token, "right", 5)
+             || lxb_css_property_state_ident_is(token, "bottom", 6))
+    {
+        *pct_out = 100.0;
+    }
+    else {
+        return false;
+    }
+
+    lxb_css_syntax_parser_consume(parser);
+    return true;
+}
+
+static bool
+lxb_css_property_state_radial_position(lxb_css_parser_t *parser,
+                                       lxb_css_property_gradient_t *gradient)
+{
+    double x = 50.0, y = 50.0;
+    const lxb_css_syntax_token_t *token;
+
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    if (!lxb_css_property_state_ident_is(token, "at", 2)) {
+        return true;
+    }
+
+    lxb_css_syntax_parser_consume(parser);
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    if (!lxb_css_property_state_gradient_position_component(parser, token, &x)) {
+        return false;
+    }
+
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    if (token != NULL && token->type != LXB_CSS_SYNTAX_TOKEN_COMMA) {
+        if (!lxb_css_property_state_gradient_position_component(parser, token, &y)) {
+            return false;
+        }
+    }
+
+    gradient->center_x_pct = x;
+    gradient->center_y_pct = y;
+    return true;
+}
+
+static bool
+lxb_css_property_state_radial_prelude_start(
+    const lxb_css_syntax_token_t *token)
+{
+    if (token == NULL) return false;
+
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_PERCENTAGE
+        || token->type == LXB_CSS_SYNTAX_TOKEN_DIMENSION
+        || token->type == LXB_CSS_SYNTAX_TOKEN_NUMBER)
+    {
+        return true;
+    }
+
+    if (token->type != LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        return false;
+    }
+
+    return lxb_css_property_state_ident_is(token, "at", 2)
+        || lxb_css_property_state_ident_is(token, "circle", 6)
+        || lxb_css_property_state_ident_is(token, "ellipse", 7)
+        || lxb_css_property_state_ident_is(token, "closest-side", 12)
+        || lxb_css_property_state_ident_is(token, "closest-corner", 14)
+        || lxb_css_property_state_ident_is(token, "farthest-side", 13)
+        || lxb_css_property_state_ident_is(token, "farthest-corner", 15);
+}
+
+static bool
+lxb_css_property_state_radial_prelude(lxb_css_parser_t *parser,
+                                      lxb_css_property_gradient_t *gradient)
+{
+    const lxb_css_syntax_token_t *token;
+    double x = 50.0, y = 50.0;
+    bool saw_prelude = false;
+
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    if (!lxb_css_property_state_radial_prelude_start(token)) {
+        return true;
+    }
+
+    while (token != NULL && token->type != LXB_CSS_SYNTAX_TOKEN_COMMA
+           && token->type != LXB_CSS_SYNTAX_TOKEN_R_PARENTHESIS
+           && token->type != LXB_CSS_SYNTAX_TOKEN__END)
+    {
+        if (lxb_css_property_state_ident_is(token, "at", 2)) {
+            saw_prelude = true;
+            lxb_css_syntax_parser_consume(parser);
+
+            token = lxb_css_syntax_parser_token_wo_ws(parser);
+            if (!lxb_css_property_state_gradient_position_component(
+                    parser, token, &x))
+            {
+                return false;
+            }
+
+            token = lxb_css_syntax_parser_token_wo_ws(parser);
+            if (token != NULL && token->type != LXB_CSS_SYNTAX_TOKEN_COMMA) {
+                if (!lxb_css_property_state_gradient_position_component(
+                        parser, token, &y))
+                {
+                    return false;
+                }
+            }
+
+            gradient->center_x_pct = x;
+            gradient->center_y_pct = y;
+        }
+        else if (lxb_css_property_state_radial_prelude_start(token)) {
+            saw_prelude = true;
+            lxb_css_syntax_parser_consume(parser);
+        }
+        else {
+            return false;
+        }
+
+        token = lxb_css_syntax_parser_token_wo_ws(parser);
+    }
+
+    if (saw_prelude) {
+        if (token == NULL || token->type != LXB_CSS_SYNTAX_TOKEN_COMMA) {
+            return false;
+        }
+        lxb_css_syntax_parser_consume(parser);
+    }
+
+    return true;
+}
+
 /*
  * Parse the interior of linear-gradient() or radial-gradient().
  *
@@ -3152,6 +3436,12 @@ lxb_css_property_state_gradient_args(lxb_css_parser_t *parser,
 
     gradient->kind      = kind;
     gradient->angle_deg = 180.0; /* CSS default: `to bottom` */
+    gradient->center_x_pct = 50.0;
+    gradient->center_y_pct = 50.0;
+    gradient->stop0_pos_pct = 0.0;
+    gradient->stop1_pos_pct = 100.0;
+    gradient->has_stop0_pos_pct = false;
+    gradient->has_stop1_pos_pct = false;
     gradient->stop0.type = LXB_CSS_VALUE__UNDEF;
     gradient->stop1.type = LXB_CSS_VALUE__UNDEF;
 
@@ -3218,8 +3508,14 @@ lxb_css_property_state_gradient_args(lxb_css_parser_t *parser,
         }
     }
     else { /* RADIAL */
+        if (!lxb_css_property_state_radial_prelude(parser, gradient)) {
+            return false;
+        }
+        token = lxb_css_syntax_parser_token_wo_ws(parser);
+        if (token == NULL) return false;
+
         /* Optional: `circle` keyword */
-        if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        if (false && token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
             /* `circle` is not in the CSS value enum table; compare directly. */
             const lxb_char_t *kw  = lxb_css_syntax_token_ident(token)->data;
             size_t            kwl = lxb_css_syntax_token_ident(token)->length;
@@ -3227,6 +3523,9 @@ lxb_css_property_state_gradient_args(lxb_css_parser_t *parser,
                 && lexbor_str_data_ncasecmp(kw, (const lxb_char_t *)"circle", 6))
             {
                 lxb_css_syntax_parser_consume(parser);
+                if (!lxb_css_property_state_radial_position(parser, gradient)) {
+                    return false;
+                }
 
                 /* Expect comma */
                 token = lxb_css_syntax_parser_token_wo_ws(parser);
@@ -3246,6 +3545,9 @@ lxb_css_property_state_gradient_args(lxb_css_parser_t *parser,
                                                &gradient->stop0, &status)) {
         return false;
     }
+    gradient->has_stop0_pos_pct =
+        lxb_css_property_state_take_gradient_stop_pct(
+            parser, &gradient->stop0_pos_pct);
 
     /* Expect comma */
     token = lxb_css_syntax_parser_token_wo_ws(parser);
@@ -3261,9 +3563,56 @@ lxb_css_property_state_gradient_args(lxb_css_parser_t *parser,
                                                &gradient->stop1, &status)) {
         return false;
     }
+    gradient->has_stop1_pos_pct =
+        lxb_css_property_state_take_gradient_stop_pct(
+            parser, &gradient->stop1_pos_pct);
 
     /* Expect `)` */
     token = lxb_css_syntax_parser_token_wo_ws(parser);
+    if (kind == LXB_CSS_GRADIENT_LINEAR
+        && token != NULL && token->type == LXB_CSS_SYNTAX_TOKEN_COMMA)
+    {
+        if (gradient->has_stop0_pos_pct && gradient->has_stop1_pos_pct
+            && gradient->stop0_pos_pct == gradient->stop1_pos_pct)
+        {
+            gradient->kind = LXB_CSS_GRADIENT_LINEAR_STRIPES;
+            lxb_css_property_state_skip_to_r_paren(parser);
+            return true;
+        }
+
+        while (token != NULL && token->type == LXB_CSS_SYNTAX_TOKEN_COMMA) {
+            lxb_css_syntax_parser_consume(parser);
+            token = lxb_css_syntax_parser_token_wo_ws(parser);
+            if (token == NULL) return false;
+
+            if (!lxb_css_property_state_color_handler(parser, token,
+                                                       &gradient->stop1, &status)) {
+                return false;
+            }
+            gradient->has_stop1_pos_pct =
+                lxb_css_property_state_take_gradient_stop_pct(
+                    parser, &gradient->stop1_pos_pct);
+            token = lxb_css_syntax_parser_token_wo_ws(parser);
+        }
+    }
+
+    if (kind == LXB_CSS_GRADIENT_RADIAL) {
+        while (token != NULL && token->type == LXB_CSS_SYNTAX_TOKEN_COMMA) {
+            lxb_css_syntax_parser_consume(parser);
+            token = lxb_css_syntax_parser_token_wo_ws(parser);
+            if (token == NULL) return false;
+
+            if (!lxb_css_property_state_color_handler(parser, token,
+                                                       &gradient->stop1, &status)) {
+                return false;
+            }
+            gradient->has_stop1_pos_pct =
+                lxb_css_property_state_take_gradient_stop_pct(
+                    parser, &gradient->stop1_pos_pct);
+            token = lxb_css_syntax_parser_token_wo_ws(parser);
+        }
+    }
+
     if (token == NULL || token->type != LXB_CSS_SYNTAX_TOKEN_R_PARENTHESIS) {
         return false;
     }
@@ -3277,7 +3626,23 @@ lxb_css_property_state_gradient_args(lxb_css_parser_t *parser,
  * tokenizer normalizes CSS function names to lowercase).
  */
 static const lxb_char_t lxb_css_str_linear_gradient[] = "linear-gradient";
+static const lxb_char_t lxb_css_str_repeating_linear_gradient[] =
+    "repeating-linear-gradient";
 static const lxb_char_t lxb_css_str_radial_gradient[] = "radial-gradient";
+static const lxb_char_t lxb_css_str_var[] = "var";
+
+static bool
+lxb_css_property_state_is_function_named(const lxb_css_syntax_token_t *token,
+                                         const lxb_char_t *name, size_t length)
+{
+    if (token == NULL || token->type != LXB_CSS_SYNTAX_TOKEN_FUNCTION) {
+        return false;
+    }
+
+    return lxb_css_syntax_token_function(token)->length == length
+        && lexbor_str_data_ncasecmp(lxb_css_syntax_token_function(token)->data,
+                                    name, length);
+}
 
 bool
 lxb_css_property_state_background(lxb_css_parser_t *parser,
@@ -3306,6 +3671,13 @@ lxb_css_property_state_background(lxb_css_parser_t *parser,
             const lxb_char_t *fname = lxb_css_syntax_token_function(token)->data;
             size_t            flen  = lxb_css_syntax_token_function(token)->length;
             lxb_css_gradient_kind_t gkind = LXB_CSS_GRADIENT_NONE;
+            bool repeating_linear = false;
+
+            if (lxb_css_property_state_is_function_named(token, lxb_css_str_var,
+                    sizeof(lxb_css_str_var) - 1))
+            {
+                return lxb_css_parser_failed(parser);
+            }
 
             if (flen == sizeof(lxb_css_str_linear_gradient) - 1
                 && lexbor_str_data_ncasecmp(fname,
@@ -3313,6 +3685,14 @@ lxb_css_property_state_background(lxb_css_parser_t *parser,
                        sizeof(lxb_css_str_linear_gradient) - 1))
             {
                 gkind = LXB_CSS_GRADIENT_LINEAR;
+            }
+            else if (flen == sizeof(lxb_css_str_repeating_linear_gradient) - 1
+                     && lexbor_str_data_ncasecmp(fname,
+                            lxb_css_str_repeating_linear_gradient,
+                            sizeof(lxb_css_str_repeating_linear_gradient) - 1))
+            {
+                gkind = LXB_CSS_GRADIENT_LINEAR;
+                repeating_linear = true;
             }
             else if (flen == sizeof(lxb_css_str_radial_gradient) - 1
                      && lexbor_str_data_ncasecmp(fname,
@@ -3323,18 +3703,26 @@ lxb_css_property_state_background(lxb_css_parser_t *parser,
             }
 
             if (gkind != LXB_CSS_GRADIENT_NONE) {
+                lxb_css_property_gradient_t gradient;
+
                 /* Consume the function token (the `(` is part of it). */
                 lxb_css_syntax_parser_consume(parser);
 
                 if (lxb_css_property_state_gradient_args(parser, gkind,
-                        &declar->u.background->gradient))
+                        &gradient))
                 {
+                    if (repeating_linear) {
+                        gradient.kind = LXB_CSS_GRADIENT_LINEAR_STRIPES;
+                    }
+                    declar->u.background->gradient = gradient;
+                    if (declar->u.background->layer_count < 3) {
+                        declar->u.background->layers[
+                            declar->u.background->layer_count++] = gradient;
+                    }
                     /* Successfully parsed — no solid color from this token. */
                 }
                 else {
-                    /* Gradient parse failed; clear and skip to `)`. */
-                    declar->u.background->gradient.kind = LXB_CSS_GRADIENT_NONE;
-                    lxb_css_property_state_skip_to_r_paren(parser);
+                    return lxb_css_parser_failed(parser);
                 }
 
                 token = lxb_css_syntax_parser_token_wo_ws(parser);
@@ -3371,6 +3759,98 @@ lxb_css_property_state_background_color(lxb_css_parser_t *parser,
     return lxb_css_property_state_color(parser, token, ctx);
 }
 
+static bool
+lxb_css_property_state_background_size_component(lxb_css_parser_t *parser,
+                                                 const lxb_css_syntax_token_t *token,
+                                                 lxb_css_value_length_percentage_t *out,
+                                                 bool allow_global)
+{
+    lxb_css_value_type_t type;
+
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        type = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                     lxb_css_syntax_token_ident(token)->length);
+
+        if (type == LXB_CSS_VALUE_AUTO
+            || (allow_global && lxb_css_property_state_is_global(type)))
+        {
+            out->type = type;
+            lxb_css_syntax_parser_consume(parser);
+            return true;
+        }
+
+        return false;
+    }
+
+    return lxb_css_property_state_length_percentage(parser, token, out);
+}
+
+bool
+lxb_css_property_state_background_size(lxb_css_parser_t *parser,
+                                       const lxb_css_syntax_token_t *token, void *ctx)
+{
+    lxb_css_rule_declaration_t *declar = ctx;
+    lxb_css_background_size_layer_t layer;
+
+    declar->u.background_size->layer_count = 0;
+
+    while (token->type != LXB_CSS_SYNTAX_TOKEN__END) {
+        layer.width.type = LXB_CSS_VALUE_AUTO;
+        layer.height.type = LXB_CSS_VALUE_AUTO;
+
+        if (!lxb_css_property_state_background_size_component(
+                parser, token, &layer.width, true))
+        {
+            return lxb_css_parser_failed(parser);
+        }
+
+        if (lxb_css_property_state_is_global(layer.width.type)) {
+            layer.height.type = layer.width.type;
+            token = lxb_css_syntax_parser_token_wo_ws(parser);
+            lxb_css_property_state_check_token(parser, token);
+            if (token->type != LXB_CSS_SYNTAX_TOKEN__END) {
+                return lxb_css_parser_failed(parser);
+            }
+        }
+        else {
+            token = lxb_css_syntax_parser_token_wo_ws(parser);
+            lxb_css_property_state_check_token(parser, token);
+
+            if (token->type != LXB_CSS_SYNTAX_TOKEN__END
+                && token->type != LXB_CSS_SYNTAX_TOKEN_COMMA)
+            {
+                if (!lxb_css_property_state_background_size_component(
+                        parser, token, &layer.height, false))
+                {
+                    return lxb_css_parser_failed(parser);
+                }
+
+                token = lxb_css_syntax_parser_token_wo_ws(parser);
+                lxb_css_property_state_check_token(parser, token);
+            }
+        }
+
+        if (declar->u.background_size->layer_count < 3) {
+            declar->u.background_size->layers[
+                declar->u.background_size->layer_count++] = layer;
+        }
+
+        if (token->type == LXB_CSS_SYNTAX_TOKEN__END) {
+            return lxb_css_parser_success(parser);
+        }
+
+        if (token->type != LXB_CSS_SYNTAX_TOKEN_COMMA) {
+            return lxb_css_parser_failed(parser);
+        }
+
+        lxb_css_syntax_parser_consume(parser);
+        token = lxb_css_syntax_parser_token_wo_ws(parser);
+        lxb_css_property_state_check_token(parser, token);
+    }
+
+    return lxb_css_parser_success(parser);
+}
+
 bool
 lxb_css_property_state_color(lxb_css_parser_t *parser,
                              const lxb_css_syntax_token_t *token, void *ctx)
@@ -3405,6 +3885,49 @@ lxb_css_property_state_color(lxb_css_parser_t *parser,
     if (!res) {
         return lxb_css_parser_failed(parser);
     }
+
+    return lxb_css_parser_success(parser);
+}
+
+bool
+lxb_css_property_state_content(lxb_css_parser_t *parser,
+                               const lxb_css_syntax_token_t *token, void *ctx)
+{
+    lxb_css_value_type_t type;
+    lxb_css_rule_declaration_t *declar = ctx;
+    lxb_css_property_content_t *content = declar->u.content;
+
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_STRING) {
+        content->type = LXB_CSS_CONTENT_STRING;
+        lxb_css_parser_string_dup_m(parser, token, &content->value,
+                                    parser->memory->mraw);
+
+        lxb_css_syntax_parser_consume(parser);
+        return lxb_css_parser_success(parser);
+    }
+
+    if (token->type != LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        return lxb_css_parser_failed(parser);
+    }
+
+    type = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                 lxb_css_syntax_token_ident(token)->length);
+    switch (type) {
+        /* Global. */
+        case LXB_CSS_VALUE_INITIAL:
+        case LXB_CSS_VALUE_INHERIT:
+        case LXB_CSS_VALUE_UNSET:
+        case LXB_CSS_VALUE_REVERT:
+        case LXB_CSS_VALUE_NORMAL:
+        case LXB_CSS_VALUE_NONE:
+            content->type = type;
+            break;
+
+        default:
+            return lxb_css_parser_failed(parser);
+    }
+
+    lxb_css_syntax_parser_consume(parser);
 
     return lxb_css_parser_success(parser);
 }
@@ -3448,6 +3971,868 @@ lxb_css_property_state_opacity(lxb_css_parser_t *parser,
     return lxb_css_parser_success(parser);
 }
 
+static bool
+lxb_css_transform_function_is(const lxb_css_syntax_token_t *token,
+                              const char *name, size_t length)
+{
+    return token->type == LXB_CSS_SYNTAX_TOKEN_FUNCTION
+        && lxb_css_syntax_token_function(token)->length == length
+        && lexbor_str_data_ncasecmp(lxb_css_syntax_token_function(token)->data,
+                                    (const lxb_char_t *) name, length);
+}
+
+static void
+lxb_css_transform_set_zero_length(lxb_css_value_length_percentage_t *value)
+{
+    value->type = LXB_CSS_VALUE__NUMBER;
+    value->u.length.num = 0;
+    value->u.length.is_float = false;
+    value->u.length.unit = LXB_CSS_UNIT__UNDEF;
+}
+
+static bool
+lxb_css_transform_consume_comma(lxb_css_parser_t *parser,
+                                const lxb_css_syntax_token_t **token)
+{
+    *token = lxb_css_syntax_parser_token_wo_ws(parser);
+    lxb_css_property_state_check_token(parser, *token);
+
+    if ((*token)->type != LXB_CSS_SYNTAX_TOKEN_COMMA) {
+        return false;
+    }
+
+    lxb_css_syntax_parser_consume(parser);
+    return true;
+}
+
+static bool
+lxb_css_transform_expect_rparen(lxb_css_parser_t *parser)
+{
+    const lxb_css_syntax_token_t *token;
+
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    lxb_css_property_state_check_token(parser, token);
+
+    if (token->type != LXB_CSS_SYNTAX_TOKEN_R_PARENTHESIS) {
+        return false;
+    }
+
+    lxb_css_syntax_parser_consume(parser);
+    return true;
+}
+
+static bool
+lxb_css_transform_parse_translate(lxb_css_parser_t *parser,
+                                  lxb_css_transform_function_t *fn,
+                                  lxb_css_transform_function_type_t type)
+{
+    bool res;
+    const lxb_css_syntax_token_t *token;
+
+    fn->type = type;
+    lxb_css_transform_set_zero_length(&fn->x);
+    lxb_css_transform_set_zero_length(&fn->y);
+
+    lxb_css_syntax_parser_consume(parser);
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    lxb_css_property_state_check_token(parser, token);
+
+    if (type == LXB_CSS_TRANSFORM_FUNCTION_TRANSLATE_Y) {
+        res = lxb_css_property_state_length_percentage(parser, token, &fn->y);
+        return res && lxb_css_transform_expect_rparen(parser);
+    }
+
+    res = lxb_css_property_state_length_percentage(parser, token, &fn->x);
+    if (!res) return false;
+
+    if (type == LXB_CSS_TRANSFORM_FUNCTION_TRANSLATE_X) {
+        return lxb_css_transform_expect_rparen(parser);
+    }
+
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    lxb_css_property_state_check_token(parser, token);
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_R_PARENTHESIS) {
+        lxb_css_syntax_parser_consume(parser);
+        return true;
+    }
+
+    (void) lxb_css_transform_consume_comma(parser, &token);
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    lxb_css_property_state_check_token(parser, token);
+
+    res = lxb_css_property_state_length_percentage(parser, token, &fn->y);
+    return res && lxb_css_transform_expect_rparen(parser);
+}
+
+static bool
+lxb_css_transform_parse_scale(lxb_css_parser_t *parser,
+                              lxb_css_transform_function_t *fn,
+                              lxb_css_transform_function_type_t type)
+{
+    bool res;
+    const lxb_css_syntax_token_t *token;
+
+    fn->type = type;
+    fn->numbers[0].num = 1;
+    fn->numbers[0].is_float = false;
+    fn->numbers[1].num = 1;
+    fn->numbers[1].is_float = false;
+
+    lxb_css_syntax_parser_consume(parser);
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    lxb_css_property_state_check_token(parser, token);
+
+    if (type == LXB_CSS_TRANSFORM_FUNCTION_SCALE_Y) {
+        res = lxb_css_property_state_number(parser, token, &fn->numbers[1]);
+        return res && lxb_css_transform_expect_rparen(parser);
+    }
+
+    res = lxb_css_property_state_number(parser, token, &fn->numbers[0]);
+    if (!res) return false;
+
+    if (type == LXB_CSS_TRANSFORM_FUNCTION_SCALE_X) {
+        return lxb_css_transform_expect_rparen(parser);
+    }
+
+    fn->numbers[1] = fn->numbers[0];
+
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    lxb_css_property_state_check_token(parser, token);
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_R_PARENTHESIS) {
+        lxb_css_syntax_parser_consume(parser);
+        return true;
+    }
+
+    (void) lxb_css_transform_consume_comma(parser, &token);
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    lxb_css_property_state_check_token(parser, token);
+
+    res = lxb_css_property_state_number(parser, token, &fn->numbers[1]);
+    return res && lxb_css_transform_expect_rparen(parser);
+}
+
+static bool
+lxb_css_transform_parse_rotate(lxb_css_parser_t *parser,
+                               lxb_css_transform_function_t *fn)
+{
+    bool res;
+    const lxb_css_syntax_token_t *token;
+
+    fn->type = LXB_CSS_TRANSFORM_FUNCTION_ROTATE;
+
+    lxb_css_syntax_parser_consume(parser);
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    lxb_css_property_state_check_token(parser, token);
+
+    res = lxb_css_property_state_angle(parser, token, &fn->angle);
+    return res && lxb_css_transform_expect_rparen(parser);
+}
+
+static bool
+lxb_css_transform_parse_matrix(lxb_css_parser_t *parser,
+                               lxb_css_transform_function_t *fn)
+{
+    bool res;
+    size_t i;
+    const lxb_css_syntax_token_t *token;
+
+    fn->type = LXB_CSS_TRANSFORM_FUNCTION_MATRIX;
+
+    lxb_css_syntax_parser_consume(parser);
+    for (i = 0; i < 6; i++) {
+        token = lxb_css_syntax_parser_token_wo_ws(parser);
+        lxb_css_property_state_check_token(parser, token);
+
+        res = lxb_css_property_state_number(parser, token, &fn->numbers[i]);
+        if (!res) return false;
+
+        if (i + 1 < 6) {
+            (void) lxb_css_transform_consume_comma(parser, &token);
+        }
+    }
+
+    return lxb_css_transform_expect_rparen(parser);
+}
+
+bool
+lxb_css_property_state_transform(lxb_css_parser_t *parser,
+                                 const lxb_css_syntax_token_t *token,
+                                 void *ctx)
+{
+    lxb_css_value_type_t type;
+    lxb_css_rule_declaration_t *declar = ctx;
+    lxb_css_property_transform_t *transform = declar->u.transform;
+
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        type = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                     lxb_css_syntax_token_ident(token)->length);
+        switch (type) {
+            case LXB_CSS_VALUE_INITIAL:
+            case LXB_CSS_VALUE_INHERIT:
+            case LXB_CSS_VALUE_UNSET:
+            case LXB_CSS_VALUE_REVERT:
+            case LXB_CSS_VALUE_NONE:
+                transform->type = LXB_CSS_TRANSFORM_VALUE_NONE;
+                transform->count = 0;
+                lxb_css_syntax_parser_consume(parser);
+                return lxb_css_parser_success(parser);
+
+            default:
+                return lxb_css_parser_failed(parser);
+        }
+    }
+
+    transform->type = LXB_CSS_TRANSFORM_VALUE_LIST;
+    transform->count = 0;
+
+    while (token->type == LXB_CSS_SYNTAX_TOKEN_FUNCTION) {
+        lxb_css_transform_function_t *fn;
+
+        if (transform->count >= 8) {
+            return lxb_css_parser_failed(parser);
+        }
+
+        fn = &transform->functions[transform->count];
+
+        if (lxb_css_transform_function_is(token, "translate", 9)) {
+            if (!lxb_css_transform_parse_translate(parser, fn,
+                    LXB_CSS_TRANSFORM_FUNCTION_TRANSLATE)) {
+                return lxb_css_parser_failed(parser);
+            }
+        }
+        else if (lxb_css_transform_function_is(token, "translatex", 10)) {
+            if (!lxb_css_transform_parse_translate(parser, fn,
+                    LXB_CSS_TRANSFORM_FUNCTION_TRANSLATE_X)) {
+                return lxb_css_parser_failed(parser);
+            }
+        }
+        else if (lxb_css_transform_function_is(token, "translatey", 10)) {
+            if (!lxb_css_transform_parse_translate(parser, fn,
+                    LXB_CSS_TRANSFORM_FUNCTION_TRANSLATE_Y)) {
+                return lxb_css_parser_failed(parser);
+            }
+        }
+        else if (lxb_css_transform_function_is(token, "scale", 5)) {
+            if (!lxb_css_transform_parse_scale(parser, fn,
+                    LXB_CSS_TRANSFORM_FUNCTION_SCALE)) {
+                return lxb_css_parser_failed(parser);
+            }
+        }
+        else if (lxb_css_transform_function_is(token, "scalex", 6)) {
+            if (!lxb_css_transform_parse_scale(parser, fn,
+                    LXB_CSS_TRANSFORM_FUNCTION_SCALE_X)) {
+                return lxb_css_parser_failed(parser);
+            }
+        }
+        else if (lxb_css_transform_function_is(token, "scaley", 6)) {
+            if (!lxb_css_transform_parse_scale(parser, fn,
+                    LXB_CSS_TRANSFORM_FUNCTION_SCALE_Y)) {
+                return lxb_css_parser_failed(parser);
+            }
+        }
+        else if (lxb_css_transform_function_is(token, "rotate", 6)) {
+            if (!lxb_css_transform_parse_rotate(parser, fn)) {
+                return lxb_css_parser_failed(parser);
+            }
+        }
+        else if (lxb_css_transform_function_is(token, "matrix", 6)) {
+            if (!lxb_css_transform_parse_matrix(parser, fn)) {
+                return lxb_css_parser_failed(parser);
+            }
+        }
+        else {
+            return lxb_css_parser_failed(parser);
+        }
+
+        transform->count++;
+        token = lxb_css_syntax_parser_token_wo_ws(parser);
+        lxb_css_property_state_check_token(parser, token);
+    }
+
+    if (transform->count == 0) {
+        return lxb_css_parser_failed(parser);
+    }
+
+    return lxb_css_parser_success(parser);
+}
+
+static void
+lxb_css_transform_origin_set_pct(lxb_css_value_length_percentage_t *out,
+                                 double pct)
+{
+    out->type = LXB_CSS_VALUE__PERCENTAGE;
+    out->u.percentage.num = pct;
+    out->u.percentage.is_float = false;
+}
+
+static bool
+lxb_css_transform_origin_keyword(const lxb_css_syntax_token_t *token,
+                                 lxb_css_value_type_t *type)
+{
+    if (token->type != LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        return false;
+    }
+
+    *type = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                  lxb_css_syntax_token_ident(token)->length);
+    switch (*type) {
+        case LXB_CSS_VALUE_LEFT:
+        case LXB_CSS_VALUE_RIGHT:
+        case LXB_CSS_VALUE_TOP:
+        case LXB_CSS_VALUE_BOTTOM:
+        case LXB_CSS_VALUE_CENTER:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool
+lxb_css_transform_origin_keyword_to_axis(lxb_css_value_type_t type,
+                                         bool *is_x,
+                                         lxb_css_value_length_percentage_t *out)
+{
+    switch (type) {
+        case LXB_CSS_VALUE_LEFT:
+            *is_x = true;
+            lxb_css_transform_origin_set_pct(out, 0);
+            return true;
+        case LXB_CSS_VALUE_RIGHT:
+            *is_x = true;
+            lxb_css_transform_origin_set_pct(out, 100);
+            return true;
+        case LXB_CSS_VALUE_TOP:
+            *is_x = false;
+            lxb_css_transform_origin_set_pct(out, 0);
+            return true;
+        case LXB_CSS_VALUE_BOTTOM:
+            *is_x = false;
+            lxb_css_transform_origin_set_pct(out, 100);
+            return true;
+        case LXB_CSS_VALUE_CENTER:
+            lxb_css_transform_origin_set_pct(out, 50);
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool
+lxb_css_property_state_transform_origin(lxb_css_parser_t *parser,
+                                        const lxb_css_syntax_token_t *token,
+                                        void *ctx)
+{
+    bool have_x, have_y, kw_is_x;
+    lxb_css_value_type_t type;
+    lxb_css_value_length_percentage_t first, second, kw_value;
+    lxb_css_rule_declaration_t *declar = ctx;
+    lxb_css_property_transform_origin_t *origin = declar->u.transform_origin;
+
+    lxb_css_transform_origin_set_pct(&origin->x, 50);
+    lxb_css_transform_origin_set_pct(&origin->y, 50);
+
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        type = lxb_css_value_by_name(lxb_css_syntax_token_ident(token)->data,
+                                     lxb_css_syntax_token_ident(token)->length);
+        switch (type) {
+            case LXB_CSS_VALUE_INITIAL:
+            case LXB_CSS_VALUE_INHERIT:
+            case LXB_CSS_VALUE_UNSET:
+            case LXB_CSS_VALUE_REVERT:
+                lxb_css_syntax_parser_consume(parser);
+                return lxb_css_parser_success(parser);
+            default:
+                break;
+        }
+    }
+
+    have_x = false;
+    have_y = false;
+
+    if (lxb_css_property_state_length_percentage(parser, token, &first)) {
+        origin->x = first;
+        have_x = true;
+    }
+    else if (lxb_css_transform_origin_keyword(token, &type)) {
+        if (!lxb_css_transform_origin_keyword_to_axis(type, &kw_is_x,
+                                                      &kw_value)) {
+            return lxb_css_parser_failed(parser);
+        }
+
+        if (type == LXB_CSS_VALUE_CENTER) {
+            origin->x = kw_value;
+            origin->y = kw_value;
+            have_x = true;
+            have_y = true;
+        }
+        else if (kw_is_x) {
+            origin->x = kw_value;
+            have_x = true;
+        }
+        else {
+            origin->y = kw_value;
+            have_y = true;
+        }
+
+        lxb_css_syntax_parser_consume(parser);
+    }
+    else {
+        return lxb_css_parser_failed(parser);
+    }
+
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    lxb_css_property_state_check_token(parser, token);
+    if (token->type == LXB_CSS_SYNTAX_TOKEN__END) {
+        return lxb_css_parser_success(parser);
+    }
+
+    if (lxb_css_property_state_length_percentage(parser, token, &second)) {
+        if (have_y) {
+            return lxb_css_parser_failed(parser);
+        }
+        origin->y = second;
+        have_y = true;
+    }
+    else if (lxb_css_transform_origin_keyword(token, &type)) {
+        if (!lxb_css_transform_origin_keyword_to_axis(type, &kw_is_x,
+                                                      &kw_value)) {
+            return lxb_css_parser_failed(parser);
+        }
+
+        if (type == LXB_CSS_VALUE_CENTER) {
+            if (!have_x) {
+                origin->x = kw_value;
+                have_x = true;
+            }
+            else if (!have_y) {
+                origin->y = kw_value;
+                have_y = true;
+            }
+            else {
+                return lxb_css_parser_failed(parser);
+            }
+        }
+        else if (kw_is_x) {
+            if (have_x) return lxb_css_parser_failed(parser);
+            origin->x = kw_value;
+            have_x = true;
+        }
+        else {
+            if (have_y) return lxb_css_parser_failed(parser);
+            origin->y = kw_value;
+            have_y = true;
+        }
+
+        lxb_css_syntax_parser_consume(parser);
+    }
+    else {
+        return lxb_css_parser_failed(parser);
+    }
+
+    token = lxb_css_syntax_parser_token_wo_ws(parser);
+    lxb_css_property_state_check_token(parser, token);
+    if (token->type != LXB_CSS_SYNTAX_TOKEN__END) {
+        return lxb_css_parser_failed(parser);
+    }
+
+    (void) have_x;
+    (void) have_y;
+    return lxb_css_parser_success(parser);
+}
+
+static bool
+lxb_css_animation_ident_is(const lxb_css_syntax_token_t *token,
+                           const char *name, size_t length)
+{
+    return token->type == LXB_CSS_SYNTAX_TOKEN_IDENT
+        && lxb_css_syntax_token_ident(token)->length == length
+        && lexbor_str_data_ncasecmp(lxb_css_syntax_token_ident(token)->data,
+                                    (const lxb_char_t *) name, length);
+}
+
+static bool
+lxb_css_animation_parse_time(lxb_css_parser_t *parser,
+                             const lxb_css_syntax_token_t *token,
+                             double *seconds)
+{
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_DIMENSION) {
+        const lxb_css_syntax_token_dimension_t *dim;
+
+        dim = lxb_css_syntax_token_dimension(token);
+        if (dim->str.length == 1 &&
+            lexbor_str_data_ncasecmp(dim->str.data, (const lxb_char_t *) "s", 1)) {
+            *seconds = dim->num.num;
+        }
+        else if (dim->str.length == 2 &&
+                 lexbor_str_data_ncasecmp(dim->str.data, (const lxb_char_t *) "ms", 2)) {
+            *seconds = dim->num.num / 1000.0;
+        }
+        else {
+            return false;
+        }
+
+        lxb_css_syntax_parser_consume(parser);
+        return true;
+    }
+
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_NUMBER &&
+        lxb_css_syntax_token_number(token)->num == 0.0) {
+        *seconds = 0.0;
+        lxb_css_syntax_parser_consume(parser);
+        return true;
+    }
+
+    return false;
+}
+
+static bool
+lxb_css_animation_parse_timing(const lxb_css_syntax_token_t *token,
+                               lxb_css_animation_timing_function_type_t *timing)
+{
+    if (lxb_css_animation_ident_is(token, "ease", 4)) {
+        *timing = LXB_CSS_ANIMATION_TIMING_EASE;
+        return true;
+    }
+    if (lxb_css_animation_ident_is(token, "linear", 6)) {
+        *timing = LXB_CSS_ANIMATION_TIMING_LINEAR;
+        return true;
+    }
+    if (lxb_css_animation_ident_is(token, "ease-in", 7)) {
+        *timing = LXB_CSS_ANIMATION_TIMING_EASE_IN;
+        return true;
+    }
+    if (lxb_css_animation_ident_is(token, "ease-out", 8)) {
+        *timing = LXB_CSS_ANIMATION_TIMING_EASE_OUT;
+        return true;
+    }
+    if (lxb_css_animation_ident_is(token, "ease-in-out", 11)) {
+        *timing = LXB_CSS_ANIMATION_TIMING_EASE_IN_OUT;
+        return true;
+    }
+    if (lxb_css_animation_ident_is(token, "step-start", 10)) {
+        *timing = LXB_CSS_ANIMATION_TIMING_STEP_START;
+        return true;
+    }
+    if (lxb_css_animation_ident_is(token, "step-end", 8)) {
+        *timing = LXB_CSS_ANIMATION_TIMING_STEP_END;
+        return true;
+    }
+    return false;
+}
+
+static bool
+lxb_css_animation_parse_direction(const lxb_css_syntax_token_t *token,
+                                  lxb_css_animation_direction_type_t *direction)
+{
+    if (lxb_css_animation_ident_is(token, "normal", 6)) {
+        *direction = LXB_CSS_ANIMATION_DIRECTION_NORMAL;
+        return true;
+    }
+    if (lxb_css_animation_ident_is(token, "reverse", 7)) {
+        *direction = LXB_CSS_ANIMATION_DIRECTION_REVERSE;
+        return true;
+    }
+    if (lxb_css_animation_ident_is(token, "alternate", 9)) {
+        *direction = LXB_CSS_ANIMATION_DIRECTION_ALTERNATE;
+        return true;
+    }
+    if (lxb_css_animation_ident_is(token, "alternate-reverse", 17)) {
+        *direction = LXB_CSS_ANIMATION_DIRECTION_ALTERNATE_REVERSE;
+        return true;
+    }
+    return false;
+}
+
+static bool
+lxb_css_animation_parse_fill_mode(const lxb_css_syntax_token_t *token,
+                                  lxb_css_animation_fill_mode_type_t *fill)
+{
+    if (lxb_css_animation_ident_is(token, "none", 4)) {
+        *fill = LXB_CSS_ANIMATION_FILL_MODE_NONE;
+        return true;
+    }
+    if (lxb_css_animation_ident_is(token, "forwards", 8)) {
+        *fill = LXB_CSS_ANIMATION_FILL_MODE_FORWARDS;
+        return true;
+    }
+    if (lxb_css_animation_ident_is(token, "backwards", 9)) {
+        *fill = LXB_CSS_ANIMATION_FILL_MODE_BACKWARDS;
+        return true;
+    }
+    if (lxb_css_animation_ident_is(token, "both", 4)) {
+        *fill = LXB_CSS_ANIMATION_FILL_MODE_BOTH;
+        return true;
+    }
+    return false;
+}
+
+static bool
+lxb_css_animation_parse_play_state(const lxb_css_syntax_token_t *token,
+                                   lxb_css_animation_play_state_type_t *state)
+{
+    if (lxb_css_animation_ident_is(token, "running", 7)) {
+        *state = LXB_CSS_ANIMATION_PLAY_STATE_RUNNING;
+        return true;
+    }
+    if (lxb_css_animation_ident_is(token, "paused", 6)) {
+        *state = LXB_CSS_ANIMATION_PLAY_STATE_PAUSED;
+        return true;
+    }
+    return false;
+}
+
+static bool
+lxb_css_animation_parse_name(lxb_css_parser_t *parser,
+                             const lxb_css_syntax_token_t *token,
+                             lxb_css_property_animation_t *animation)
+{
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+        if (lxb_css_animation_ident_is(token, "none", 4)) {
+            animation->has_name = false;
+            lxb_css_syntax_parser_consume(parser);
+            return true;
+        }
+        lxb_css_parser_string_dup_m(parser, token, &animation->name,
+                                    parser->memory->mraw);
+        animation->has_name = true;
+        lxb_css_syntax_parser_consume(parser);
+        return true;
+    }
+
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_STRING) {
+        lxb_css_parser_string_dup_m(parser, token, &animation->name,
+                                    parser->memory->mraw);
+        animation->has_name = true;
+        lxb_css_syntax_parser_consume(parser);
+        return true;
+    }
+
+    return false;
+}
+
+bool
+lxb_css_property_state_animation(lxb_css_parser_t *parser,
+                                 const lxb_css_syntax_token_t *token,
+                                 void *ctx)
+{
+    bool consumed = false;
+    bool duration_set = false;
+    bool delay_set = false;
+    bool timing_set = false;
+    bool iteration_set = false;
+    bool direction_set = false;
+    bool fill_set = false;
+    bool play_set = false;
+    bool name_set = false;
+    lxb_css_rule_declaration_t *declar = ctx;
+    lxb_css_property_animation_t *animation = declar->u.animation;
+
+    while (token != NULL) {
+        double seconds = 0.0;
+
+        if (!duration_set &&
+            lxb_css_animation_parse_time(parser, token, &seconds)) {
+            animation->duration_s = seconds;
+            duration_set = true;
+            consumed = true;
+            token = lxb_css_syntax_parser_token_wo_ws(parser);
+            continue;
+        }
+        if (duration_set && !delay_set &&
+            lxb_css_animation_parse_time(parser, token, &seconds)) {
+            animation->delay_s = seconds;
+            delay_set = true;
+            consumed = true;
+            token = lxb_css_syntax_parser_token_wo_ws(parser);
+            continue;
+        }
+
+        if (token->type == LXB_CSS_SYNTAX_TOKEN_NUMBER && !iteration_set) {
+            animation->iteration_count = lxb_css_syntax_token_number(token)->num;
+            iteration_set = true;
+            consumed = true;
+            lxb_css_syntax_parser_consume(parser);
+            token = lxb_css_syntax_parser_token_wo_ws(parser);
+            continue;
+        }
+
+        if (token->type == LXB_CSS_SYNTAX_TOKEN_IDENT) {
+            if (!timing_set &&
+                lxb_css_animation_parse_timing(token, &animation->timing)) {
+                timing_set = true;
+                consumed = true;
+                lxb_css_syntax_parser_consume(parser);
+            }
+            else if (!iteration_set &&
+                     lxb_css_animation_ident_is(token, "infinite", 8)) {
+                animation->iteration_count = 0.0;
+                iteration_set = true;
+                consumed = true;
+                lxb_css_syntax_parser_consume(parser);
+            }
+            else if (!direction_set &&
+                     lxb_css_animation_parse_direction(token, &animation->direction)) {
+                direction_set = true;
+                consumed = true;
+                lxb_css_syntax_parser_consume(parser);
+            }
+            else if (!fill_set &&
+                     lxb_css_animation_parse_fill_mode(token, &animation->fill_mode)) {
+                fill_set = true;
+                consumed = true;
+                lxb_css_syntax_parser_consume(parser);
+            }
+            else if (!play_set &&
+                     lxb_css_animation_parse_play_state(token, &animation->play_state)) {
+                play_set = true;
+                consumed = true;
+                lxb_css_syntax_parser_consume(parser);
+            }
+            else if (!name_set &&
+                     lxb_css_animation_parse_name(parser, token, animation)) {
+                name_set = true;
+                consumed = true;
+            }
+            else {
+                break;
+            }
+
+            token = lxb_css_syntax_parser_token_wo_ws(parser);
+            continue;
+        }
+
+        if (!name_set &&
+            token->type == LXB_CSS_SYNTAX_TOKEN_STRING &&
+            lxb_css_animation_parse_name(parser, token, animation)) {
+            name_set = true;
+            consumed = true;
+            token = lxb_css_syntax_parser_token_wo_ws(parser);
+            continue;
+        }
+
+        break;
+    }
+
+    if (consumed && (token == NULL
+            || token->type == LXB_CSS_SYNTAX_TOKEN__END))
+    {
+        return lxb_css_parser_success(parser);
+    }
+
+    return lxb_css_parser_failed(parser);
+}
+
+bool
+lxb_css_property_state_animation_name(lxb_css_parser_t *parser,
+                                      const lxb_css_syntax_token_t *token,
+                                      void *ctx)
+{
+    lxb_css_rule_declaration_t *declar = ctx;
+    return lxb_css_animation_parse_name(parser, token, declar->u.animation_name)
+        ? lxb_css_parser_success(parser)
+        : lxb_css_parser_failed(parser);
+}
+
+bool
+lxb_css_property_state_animation_duration(lxb_css_parser_t *parser,
+                                          const lxb_css_syntax_token_t *token,
+                                          void *ctx)
+{
+    lxb_css_rule_declaration_t *declar = ctx;
+    return lxb_css_animation_parse_time(parser, token,
+                                        &declar->u.animation_duration->duration_s)
+        ? lxb_css_parser_success(parser)
+        : lxb_css_parser_failed(parser);
+}
+
+bool
+lxb_css_property_state_animation_timing_function(lxb_css_parser_t *parser,
+                                                const lxb_css_syntax_token_t *token,
+                                                void *ctx)
+{
+    lxb_css_rule_declaration_t *declar = ctx;
+    if (!lxb_css_animation_parse_timing(
+            token, &declar->u.animation_timing_function->timing)) {
+        return lxb_css_parser_failed(parser);
+    }
+    lxb_css_syntax_parser_consume(parser);
+    return lxb_css_parser_success(parser);
+}
+
+bool
+lxb_css_property_state_animation_delay(lxb_css_parser_t *parser,
+                                       const lxb_css_syntax_token_t *token,
+                                       void *ctx)
+{
+    lxb_css_rule_declaration_t *declar = ctx;
+    return lxb_css_animation_parse_time(parser, token,
+                                        &declar->u.animation_delay->delay_s)
+        ? lxb_css_parser_success(parser)
+        : lxb_css_parser_failed(parser);
+}
+
+bool
+lxb_css_property_state_animation_iteration_count(lxb_css_parser_t *parser,
+                                                const lxb_css_syntax_token_t *token,
+                                                void *ctx)
+{
+    lxb_css_rule_declaration_t *declar = ctx;
+    if (token->type == LXB_CSS_SYNTAX_TOKEN_NUMBER) {
+        declar->u.animation_iteration_count->iteration_count =
+            lxb_css_syntax_token_number(token)->num;
+        lxb_css_syntax_parser_consume(parser);
+        return lxb_css_parser_success(parser);
+    }
+    if (lxb_css_animation_ident_is(token, "infinite", 8)) {
+        declar->u.animation_iteration_count->iteration_count = 0.0;
+        lxb_css_syntax_parser_consume(parser);
+        return lxb_css_parser_success(parser);
+    }
+    return lxb_css_parser_failed(parser);
+}
+
+bool
+lxb_css_property_state_animation_direction(lxb_css_parser_t *parser,
+                                           const lxb_css_syntax_token_t *token,
+                                           void *ctx)
+{
+    lxb_css_rule_declaration_t *declar = ctx;
+    if (!lxb_css_animation_parse_direction(
+            token, &declar->u.animation_direction->direction)) {
+        return lxb_css_parser_failed(parser);
+    }
+    lxb_css_syntax_parser_consume(parser);
+    return lxb_css_parser_success(parser);
+}
+
+bool
+lxb_css_property_state_animation_fill_mode(lxb_css_parser_t *parser,
+                                           const lxb_css_syntax_token_t *token,
+                                           void *ctx)
+{
+    lxb_css_rule_declaration_t *declar = ctx;
+    if (!lxb_css_animation_parse_fill_mode(
+            token, &declar->u.animation_fill_mode->fill_mode)) {
+        return lxb_css_parser_failed(parser);
+    }
+    lxb_css_syntax_parser_consume(parser);
+    return lxb_css_parser_success(parser);
+}
+
+bool
+lxb_css_property_state_animation_play_state(lxb_css_parser_t *parser,
+                                            const lxb_css_syntax_token_t *token,
+                                            void *ctx)
+{
+    lxb_css_rule_declaration_t *declar = ctx;
+    if (!lxb_css_animation_parse_play_state(
+            token, &declar->u.animation_play_state->play_state)) {
+        return lxb_css_parser_failed(parser);
+    }
+    lxb_css_syntax_parser_consume(parser);
+    return lxb_css_parser_success(parser);
+}
+
 bool
 lxb_css_property_state_position(lxb_css_parser_t *parser,
                                 const lxb_css_syntax_token_t *token, void *ctx)
@@ -3483,6 +4868,13 @@ lxb_css_property_state_position(lxb_css_parser_t *parser,
     lxb_css_syntax_parser_consume(parser);
 
     return lxb_css_parser_success(parser);
+}
+
+bool
+lxb_css_property_state_inset(lxb_css_parser_t *parser,
+                             const lxb_css_syntax_token_t *token, void *ctx)
+{
+    return lxb_css_property_state_mp(parser, token, ctx, true);
 }
 
 bool
@@ -5406,6 +6798,14 @@ lxb_css_property_state_flex_grow_basis(lxb_css_parser_t *parser,
     return false;
 }
 
+lxb_inline void
+lxb_css_property_state_flex_set_basis_zero_pct(lxb_css_property_flex_t *flex)
+{
+    flex->basis.type = LXB_CSS_VALUE__PERCENTAGE;
+    flex->basis.u.percentage.num = 0.0;
+    flex->basis.u.percentage.is_float = false;
+}
+
 bool
 lxb_css_property_state_flex(lxb_css_parser_t *parser,
                             const lxb_css_syntax_token_t *token, void *ctx)
@@ -5443,6 +6843,11 @@ lxb_css_property_state_flex(lxb_css_parser_t *parser,
                 return lxb_css_parser_failed(parser);
             }
         }
+        else if (!res) {
+            /* flex: <number> and flex: <number> <number> expand to
+             * flex-basis: 0% per the shorthand grammar. */
+            lxb_css_property_state_flex_set_basis_zero_pct(flex);
+        }
 
         return lxb_css_parser_success(parser);
     }
@@ -5450,6 +6855,15 @@ lxb_css_property_state_flex(lxb_css_parser_t *parser,
         res = lxb_css_property_state_flex_grow_basis(parser, token, flex);
 
         if (res) {
+            /* flex: <basis> expands to 1 1 <basis>; flex-basis longhand
+             * remains available when the author needs only the basis. */
+            flex->grow.type = LXB_CSS_FLEX_GROW__NUMBER;
+            flex->grow.number.num = 1.0;
+            flex->grow.number.is_float = false;
+            flex->shrink.type = LXB_CSS_FLEX_SHRINK__NUMBER;
+            flex->shrink.number.num = 1.0;
+            flex->shrink.number.is_float = false;
+
             token = lxb_css_syntax_parser_token_wo_ws(parser);
             lxb_css_property_state_check_token(parser, token);
 
@@ -5642,6 +7056,8 @@ lxb_css_property_state_justify_content(lxb_css_parser_t *parser,
         case LXB_CSS_VALUE_UNSET:
         case LXB_CSS_VALUE_REVERT:
         /* Local. */
+        case LXB_CSS_VALUE_START:
+        case LXB_CSS_VALUE_END:
         case LXB_CSS_JUSTIFY_CONTENT_FLEX_START:
         case LXB_CSS_JUSTIFY_CONTENT_FLEX_END:
         case LXB_CSS_JUSTIFY_CONTENT_CENTER:
@@ -5680,6 +7096,8 @@ lxb_css_property_state_align_items(lxb_css_parser_t *parser,
         case LXB_CSS_VALUE_UNSET:
         case LXB_CSS_VALUE_REVERT:
         /* Local. */
+        case LXB_CSS_VALUE_START:
+        case LXB_CSS_VALUE_END:
         case LXB_CSS_ALIGN_ITEMS_FLEX_START:
         case LXB_CSS_ALIGN_ITEMS_FLEX_END:
         case LXB_CSS_ALIGN_ITEMS_CENTER:
@@ -5717,6 +7135,8 @@ lxb_css_property_state_align_self(lxb_css_parser_t *parser,
         case LXB_CSS_VALUE_UNSET:
         case LXB_CSS_VALUE_REVERT:
         /* Local. */
+        case LXB_CSS_VALUE_START:
+        case LXB_CSS_VALUE_END:
         case LXB_CSS_ALIGN_SELF_AUTO:
         case LXB_CSS_ALIGN_SELF_FLEX_START:
         case LXB_CSS_ALIGN_SELF_FLEX_END:
@@ -5755,6 +7175,8 @@ lxb_css_property_state_align_content(lxb_css_parser_t *parser,
         case LXB_CSS_VALUE_UNSET:
         case LXB_CSS_VALUE_REVERT:
         /* Local. */
+        case LXB_CSS_VALUE_START:
+        case LXB_CSS_VALUE_END:
         case LXB_CSS_ALIGN_CONTENT_FLEX_START:
         case LXB_CSS_ALIGN_CONTENT_FLEX_END:
         case LXB_CSS_ALIGN_CONTENT_CENTER:

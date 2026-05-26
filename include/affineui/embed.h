@@ -148,6 +148,12 @@ struct FrameTarget {
     /// so sub-rect panels ignore `clear` and rely on the body background.)
     bool  clear = true;
 
+    /// Commit the sokol_gfx frame after drawing. Embedded hosts normally
+    /// leave this true. Windowing adapters that need to draw native overlays
+    /// after AffineUI can set false, issue their extra passes, then call
+    /// sg_commit() once at the end of the frame.
+    bool  commit = true;
+
     /// Optional sub-rect of the target to draw into, in pixels. All-zero =
     /// the whole target. Lets you place a panel at x,y of size w×h (the
     /// document lays out at w×h). See docs/EMBEDDING_DESIGN.md §2.2.

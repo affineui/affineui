@@ -16,6 +16,11 @@ renderer — coordinate systems, units, allocation policies, layout
 incrementalism — being underspecified. By owning both sides of every
 seam, we keep the engine small *and* keep it ours.
 
+The graphics-side retained renderer and compositor pipeline is documented
+separately in [RENDERER_COMPOSITOR.md](RENDERER_COMPOSITOR.md). That doc
+is the source of truth for display-list caching, dirty rects, root-layer
+raster, composition, and the path toward compositor-only animation.
+
 ## Two front-ends, one engine
 
 AffineUI exposes **two equivalent front-ends** that converge on the same

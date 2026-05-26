@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #ffffff; }
+  .stage { position: relative; width: 520px; height: 300px; background: #f8f9fa; }
+  .row { position: relative; height: 56px; margin-left: 42px; width: 420px; }
+  .rail { position: absolute; left: 0; top: 26px; width: 320px; height: 8px; background: #d3d9df; }
+  .target {
+    position: absolute; left: 0; top: 9px; width: 50px; height: 42px;
+    background: #0d6efd;
+    animation-name: delayed_move;
+    animation-duration: 1000ms;
+    animation-timing-function: linear;
+    animation-iteration-count: 1;
+    animation-fill-mode: both;
+  }
+  .d0 .target { animation-delay: 0ms; background: #0d6efd; }
+  .d250 .target { animation-delay: -250ms; background: #198754; }
+  .d500 .target { animation-delay: -500ms; background: #dc3545; }
+  .d750 .target { animation-delay: -750ms; background: #6f42c1; }
+  .d1250 .target { animation-delay: -1250ms; background: #fd7e14; }
+  @keyframes delayed_move {
+    from { transform: translateX(0); opacity: .35; }
+    to   { transform: translateX(250px); opacity: 1; }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="row d0"><div class="rail"></div><div class="target"></div></div>
+    <div class="row d250"><div class="rail"></div><div class="target"></div></div>
+    <div class="row d500"><div class="rail"></div><div class="target"></div></div>
+    <div class="row d750"><div class="rail"></div><div class="target"></div></div>
+    <div class="row d1250"><div class="rail"></div><div class="target"></div></div>
+  </div>
+</body>
+</html>

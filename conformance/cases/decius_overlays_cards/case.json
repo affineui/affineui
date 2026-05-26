@@ -1,0 +1,11 @@
+{
+  "width": 1000,
+  "height": 650,
+  "dpi": 1.0,
+  "tolerance": 2,
+  "threshold": 5.0,
+  "steps": [
+    { "animation_time_ms": 120 },
+    { "snapshot": "default" }
+  ]
+}

@@ -4,9 +4,14 @@
 #include "internal/display_list.h"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstdint>
+#include <limits>
 
 namespace affineui::detail {
+
+inline void prepare_replay_metadata(DisplayList& list);
 
 /// A Painter that records all calls into a DisplayList instead of
 /// emitting GL draw commands. The Document calls this just like any
@@ -48,6 +53,7 @@ public:
     }
     void end_frame() override {
         list_.finalize_hash();
+        prepare_replay_metadata(list_);
     }
 
     // ── Recording calls ────────────────────────────────────────────
@@ -175,6 +181,12 @@ public:
         list_.ops.push_back(op);
     }
 
+    void fill_rounded_rect_ring(const Rect& r, float radius,
+                                float thickness, Color c) override {
+        fill_box_shadow(r, radius, c, 0.0f, 0.0f, 0.0f, thickness,
+                        /*inset=*/true);
+    }
+
     void fill_linear_gradient_rect(const Rect& r, float angle_deg,
                                    Color stop0, Color stop1,
                                    float tl = 0, float tr = 0,
@@ -200,7 +212,10 @@ public:
     void fill_radial_gradient_rect(const Rect& r,
                                    Color stop0, Color stop1,
                                    float tl = 0, float tr = 0,
-                                   float br = 0, float bl = 0) override {
+                                   float br = 0, float bl = 0,
+                                   float center_x_pct = 50,
+                                   float center_y_pct = 50,
+                                   float stop1_pos_pct = 100) override {
         PaintOp op{};
         op.kind = PaintOpKind::FillRadialGradientRect;
         auto& g = op.p.fill_radial_gradient;
@@ -212,9 +227,61 @@ public:
         g.tr         = static_cast<std::uint8_t>(std::clamp(tr, 0.f, 255.f));
         g.br         = static_cast<std::uint8_t>(std::clamp(br, 0.f, 255.f));
         g.bl         = static_cast<std::uint8_t>(std::clamp(bl, 0.f, 255.f));
+        g.center_x_pct = static_cast<std::uint8_t>(
+            std::clamp(std::round(center_x_pct), 0.f, 100.f));
+        g.center_y_pct = static_cast<std::uint8_t>(
+            std::clamp(std::round(center_y_pct), 0.f, 100.f));
+        g.stop1_pos_pct = static_cast<std::uint8_t>(
+            std::clamp(std::round(stop1_pos_pct), 1.f, 100.f));
         g.pad_       = 0;
         g.stop0_rgba = pack(stop0);
         g.stop1_rgba = pack(stop1);
+        list_.ops.push_back(op);
+    }
+
+    void fill_linear_stripes_rect(const Rect& r, float angle_deg,
+                                  Color stripe, float tile_size,
+                                  float tl = 0, float tr = 0,
+                                  float br = 0, float bl = 0) override {
+        PaintOp op{};
+        op.kind = PaintOpKind::FillLinearStripesRect;
+        auto& g = op.p.fill_linear_stripes;
+        g.x = static_cast<std::int16_t>(r.x);
+        g.y = static_cast<std::int16_t>(r.y);
+        g.w = static_cast<std::int16_t>(r.w);
+        g.h = static_cast<std::int16_t>(r.h);
+        g.angle_deg = static_cast<std::int16_t>(angle_deg);
+        g.tile_size = static_cast<std::uint16_t>(
+            std::clamp(tile_size, 1.0f, 65535.0f));
+        g.tl = static_cast<std::uint8_t>(std::clamp(tl, 0.f, 255.f));
+        g.tr = static_cast<std::uint8_t>(std::clamp(tr, 0.f, 255.f));
+        g.br = static_cast<std::uint8_t>(std::clamp(br, 0.f, 255.f));
+        g.bl = static_cast<std::uint8_t>(std::clamp(bl, 0.f, 255.f));
+        g.stripe_rgba = pack(stripe);
+        g.pad_ = 0;
+        list_.ops.push_back(op);
+    }
+
+    void fill_grid_rect(const Rect& r, Color line, float tile_size,
+                        float line_width, float tl = 0, float tr = 0,
+                        float br = 0, float bl = 0) override {
+        PaintOp op{};
+        op.kind = PaintOpKind::FillGridRect;
+        auto& g = op.p.fill_grid;
+        g.x = static_cast<std::int16_t>(r.x);
+        g.y = static_cast<std::int16_t>(r.y);
+        g.w = static_cast<std::int16_t>(r.w);
+        g.h = static_cast<std::int16_t>(r.h);
+        g.tile_size = static_cast<std::uint16_t>(
+            std::clamp(tile_size, 1.0f, 65535.0f));
+        g.line_width = static_cast<std::uint16_t>(
+            std::clamp(line_width, 1.0f, 65535.0f));
+        g.tl = static_cast<std::uint8_t>(std::clamp(tl, 0.f, 255.f));
+        g.tr = static_cast<std::uint8_t>(std::clamp(tr, 0.f, 255.f));
+        g.br = static_cast<std::uint8_t>(std::clamp(br, 0.f, 255.f));
+        g.bl = static_cast<std::uint8_t>(std::clamp(bl, 0.f, 255.f));
+        g.line_rgba = pack(line);
+        g.pad_ = 0;
         list_.ops.push_back(op);
     }
 
@@ -244,6 +311,14 @@ public:
         return font_resolver_
                  ? font_resolver_->resolve_font(family, size_px, weight, italic)
                  : 0u;
+    }
+
+    bool register_font_face(std::string_view family, int weight, bool italic,
+                            std::string_view bytes) override {
+        return font_resolver_
+                 ? font_resolver_->register_font_face(family, weight, italic,
+                                                      bytes)
+                 : false;
     }
 
     int measure_text(std::uint32_t font, std::string_view text) override {
@@ -354,6 +429,23 @@ public:
         list_.ops.push_back(op);
     }
 
+    void push_transform(const Mat2x3& m) override {
+        PaintOp op{};
+        op.kind = PaintOpKind::PushTransform;
+        op.p.push_transform.a  = m.a;
+        op.p.push_transform.b  = m.b;
+        op.p.push_transform.c  = m.c;
+        op.p.push_transform.d  = m.d;
+        op.p.push_transform.tx = m.tx;
+        op.p.push_transform.ty = m.ty;
+        list_.ops.push_back(op);
+    }
+    void pop_transform() override {
+        PaintOp op{};
+        op.kind = PaintOpKind::PopTransform;
+        list_.ops.push_back(op);
+    }
+
 private:
     static std::uint32_t pack(Color c) {
         return (std::uint32_t(c.r) << 24)
@@ -370,7 +462,8 @@ private:
 /// time to actually emit nvg* calls. begin_frame / end_frame on the
 /// target Painter are the caller's responsibility — replay() only
 /// emits content ops.
-inline void replay(const DisplayList& list, Painter& target) {
+inline void replay_op(const DisplayList& list, const PaintOp& op,
+                      Painter& target) {
     static const auto unpack = [](std::uint32_t v) {
         return Color{
             static_cast<std::uint8_t>((v >> 24) & 0xFF),
@@ -379,8 +472,7 @@ inline void replay(const DisplayList& list, Painter& target) {
             static_cast<std::uint8_t>( v        & 0xFF),
         };
     };
-    for (const auto& op : list.ops) {
-        switch (op.kind) {
+    switch (op.kind) {
             case PaintOpKind::FillRect: {
                 const auto& r = op.p.fill_rect;
                 target.fill_rect(Rect{r.x, r.y, r.w, r.h}, unpack(r.rgba));
@@ -457,6 +549,31 @@ inline void replay(const DisplayList& list, Painter& target) {
                     Rect{g.x, g.y, g.w, g.h},
                     unpack(g.stop0_rgba), unpack(g.stop1_rgba),
                     static_cast<float>(g.tl), static_cast<float>(g.tr),
+                    static_cast<float>(g.br), static_cast<float>(g.bl),
+                    static_cast<float>(g.center_x_pct),
+                    static_cast<float>(g.center_y_pct),
+                    static_cast<float>(g.stop1_pos_pct));
+                break;
+            }
+            case PaintOpKind::FillLinearStripesRect: {
+                const auto& g = op.p.fill_linear_stripes;
+                target.fill_linear_stripes_rect(
+                    Rect{g.x, g.y, g.w, g.h},
+                    static_cast<float>(g.angle_deg),
+                    unpack(g.stripe_rgba),
+                    static_cast<float>(g.tile_size),
+                    static_cast<float>(g.tl), static_cast<float>(g.tr),
+                    static_cast<float>(g.br), static_cast<float>(g.bl));
+                break;
+            }
+            case PaintOpKind::FillGridRect: {
+                const auto& g = op.p.fill_grid;
+                target.fill_grid_rect(
+                    Rect{g.x, g.y, g.w, g.h},
+                    unpack(g.line_rgba),
+                    static_cast<float>(g.tile_size),
+                    static_cast<float>(g.line_width),
+                    static_cast<float>(g.tl), static_cast<float>(g.tr),
                     static_cast<float>(g.br), static_cast<float>(g.bl));
                 break;
             }
@@ -509,7 +626,451 @@ inline void replay(const DisplayList& list, Painter& target) {
             case PaintOpKind::PopAlpha:
                 target.pop_alpha();
                 break;
+            case PaintOpKind::PushTransform: {
+                const auto& m = op.p.push_transform;
+                target.push_transform(Mat2x3{m.a, m.b, m.c, m.d, m.tx, m.ty});
+                break;
+            }
+            case PaintOpKind::PopTransform:
+                target.pop_transform();
+                break;
         }
+}
+
+struct ReplayClipStats {
+    std::uint32_t emitted{0};
+    std::uint32_t culled{0};
+};
+
+inline bool replay_rect_valid(const Rect& r) {
+    return r.w > 0 && r.h > 0;
+}
+
+inline bool replay_rect_intersects(const Rect& a, const Rect& b) {
+    return replay_rect_valid(a) && replay_rect_valid(b) &&
+           a.x < b.x + b.w && b.x < a.x + a.w &&
+           a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+inline Rect replay_inflate_rect(Rect r, int pad) {
+    r.x -= pad;
+    r.y -= pad;
+    r.w += pad * 2;
+    r.h += pad * 2;
+    return r;
+}
+
+inline bool replay_op_bounds(const PaintOp& op, Rect& out) {
+    switch (op.kind) {
+        case PaintOpKind::FillRect: {
+            const auto& r = op.p.fill_rect;
+            out = Rect{r.x, r.y, r.w, r.h};
+            return true;
+        }
+        case PaintOpKind::StrokeRect: {
+            const auto& r = op.p.stroke_rect;
+            out = replay_inflate_rect(Rect{r.x, r.y, r.w, r.h},
+                                      static_cast<int>(std::ceil(r.thickness)));
+            return true;
+        }
+        case PaintOpKind::StrokeLine: {
+            const auto& ln = op.p.stroke_line;
+            const int pad = static_cast<int>(std::ceil(ln.thickness)) + 1;
+            const int x0 = static_cast<int>(std::floor(std::min(ln.x0, ln.x1))) - pad;
+            const int y0 = static_cast<int>(std::floor(std::min(ln.y0, ln.y1))) - pad;
+            const int x1 = static_cast<int>(std::ceil(std::max(ln.x0, ln.x1))) + pad;
+            const int y1 = static_cast<int>(std::ceil(std::max(ln.y0, ln.y1))) + pad;
+            out = Rect{x0, y0, x1 - x0, y1 - y0};
+            return true;
+        }
+        case PaintOpKind::FillCircle: {
+            const auto& c = op.p.fill_circle;
+            const int x0 = static_cast<int>(std::floor(c.cx - c.radius)) - 1;
+            const int y0 = static_cast<int>(std::floor(c.cy - c.radius)) - 1;
+            const int x1 = static_cast<int>(std::ceil(c.cx + c.radius)) + 1;
+            const int y1 = static_cast<int>(std::ceil(c.cy + c.radius)) + 1;
+            out = Rect{x0, y0, x1 - x0, y1 - y0};
+            return true;
+        }
+        case PaintOpKind::StrokeArc: {
+            const auto& a = op.p.stroke_arc;
+            const float rr = a.radius + a.thickness + 1.0f;
+            const int x0 = static_cast<int>(std::floor(a.cx - rr));
+            const int y0 = static_cast<int>(std::floor(a.cy - rr));
+            const int x1 = static_cast<int>(std::ceil(a.cx + rr));
+            const int y1 = static_cast<int>(std::ceil(a.cy + rr));
+            out = Rect{x0, y0, x1 - x0, y1 - y0};
+            return true;
+        }
+        case PaintOpKind::FillRoundedRect: {
+            const auto& r = op.p.fill_rounded;
+            out = Rect{r.x, r.y, r.w, r.h};
+            return true;
+        }
+        case PaintOpKind::StrokeRoundedRect: {
+            const auto& r = op.p.stroke_rounded;
+            out = replay_inflate_rect(Rect{r.x, r.y, r.w, r.h},
+                                      static_cast<int>(std::ceil(r.thickness)));
+            return true;
+        }
+        case PaintOpKind::FillRoundedRectVarying: {
+            const auto& r = op.p.fill_rounded_varying;
+            out = Rect{r.x, r.y, r.w, r.h};
+            return true;
+        }
+        case PaintOpKind::StrokeRoundedRectVarying: {
+            const auto& r = op.p.stroke_rounded_varying;
+            out = replay_inflate_rect(Rect{r.x, r.y, r.w, r.h},
+                                      static_cast<int>(std::ceil(r.thickness)));
+            return true;
+        }
+        case PaintOpKind::FillLinearGradientRect: {
+            const auto& r = op.p.fill_linear_gradient;
+            out = Rect{r.x, r.y, r.w, r.h};
+            return true;
+        }
+        case PaintOpKind::FillRadialGradientRect: {
+            const auto& r = op.p.fill_radial_gradient;
+            out = Rect{r.x, r.y, r.w, r.h};
+            return true;
+        }
+        case PaintOpKind::FillLinearStripesRect: {
+            const auto& r = op.p.fill_linear_stripes;
+            out = Rect{r.x, r.y, r.w, r.h};
+            return true;
+        }
+        case PaintOpKind::FillGridRect: {
+            const auto& r = op.p.fill_grid;
+            out = Rect{r.x, r.y, r.w, r.h};
+            return true;
+        }
+        case PaintOpKind::FillBoxShadow: {
+            const auto& s = op.p.fill_box_shadow;
+            const int spread = std::max(0, static_cast<int>(s.spread));
+            const int blur = std::max(0, static_cast<int>(s.blur));
+            const int pad = spread + blur + 2;
+            out = Rect{s.x + static_cast<int>(s.offset_x) - pad,
+                       s.y + static_cast<int>(s.offset_y) - pad,
+                       s.w + pad * 2,
+                       s.h + pad * 2};
+            return true;
+        }
+        case PaintOpKind::DrawImage: {
+            const auto& r = op.p.draw_image;
+            out = Rect{r.x, r.y, r.w, r.h};
+            return true;
+        }
+        case PaintOpKind::PushClip: {
+            const auto& c = op.p.clip;
+            out = Rect{c.x, c.y, c.w, c.h};
+            return true;
+        }
+        case PaintOpKind::DrawText:
+        case PaintOpKind::DrawTextBox:
+        case PaintOpKind::PopClip:
+        case PaintOpKind::PushAlpha:
+        case PaintOpKind::PopAlpha:
+        case PaintOpKind::PushTransform:
+        case PaintOpKind::PopTransform:
+            return false;
+    }
+    return false;
+}
+
+inline Rect replay_transform_bounds(const Rect& r, const Mat2x3& m) {
+    if (m.is_identity()) return r;
+    const Vec2 p0 = m.apply(Vec2{static_cast<float>(r.x),
+                                 static_cast<float>(r.y)});
+    const Vec2 p1 = m.apply(Vec2{static_cast<float>(r.x + r.w),
+                                 static_cast<float>(r.y)});
+    const Vec2 p2 = m.apply(Vec2{static_cast<float>(r.x),
+                                 static_cast<float>(r.y + r.h)});
+    const Vec2 p3 = m.apply(Vec2{static_cast<float>(r.x + r.w),
+                                 static_cast<float>(r.y + r.h)});
+    const float min_x = std::min({p0.x, p1.x, p2.x, p3.x});
+    const float min_y = std::min({p0.y, p1.y, p2.y, p3.y});
+    const float max_x = std::max({p0.x, p1.x, p2.x, p3.x});
+    const float max_y = std::max({p0.y, p1.y, p2.y, p3.y});
+    const int x0 = static_cast<int>(std::floor(min_x)) - 1;
+    const int y0 = static_cast<int>(std::floor(min_y)) - 1;
+    const int x1 = static_cast<int>(std::ceil(max_x)) + 1;
+    const int y1 = static_cast<int>(std::ceil(max_y)) + 1;
+    return Rect{x0, y0, x1 - x0, y1 - y0};
+}
+
+inline Mat2x3 replay_transform_from_op(const PaintOp& op) {
+    const auto& m = op.p.push_transform;
+    return Mat2x3{m.a, m.b, m.c, m.d, m.tx, m.ty};
+}
+
+inline Rect replay_union_rect(const Rect& a, const Rect& b) {
+    if (!replay_rect_valid(a)) return b;
+    if (!replay_rect_valid(b)) return a;
+    const int x0 = std::min(a.x, b.x);
+    const int y0 = std::min(a.y, b.y);
+    const int x1 = std::max(a.x + a.w, b.x + b.w);
+    const int y1 = std::max(a.y + a.h, b.y + b.h);
+    return Rect{x0, y0, x1 - x0, y1 - y0};
+}
+
+inline std::size_t replay_matching_transform_pop(const DisplayList& list,
+                                                 std::size_t push_index) {
+    int depth = 1;
+    for (std::size_t i = push_index + 1; i < list.ops.size(); ++i) {
+        if (list.ops[i].kind == PaintOpKind::PushTransform) ++depth;
+        if (list.ops[i].kind == PaintOpKind::PopTransform) {
+            --depth;
+            if (depth == 0) return i;
+        }
+    }
+    return list.ops.size();
+}
+
+inline bool replay_range_bounds(const DisplayList& list,
+                                std::size_t begin,
+                                std::size_t end,
+                                Mat2x3 current_transform,
+                                Rect& out) {
+    std::array<Mat2x3, 64> transform_stack{};
+    int transform_depth = 0;
+    int transform_overflow_depth = 0;
+    out = {};
+
+    for (std::size_t i = begin; i < end; ++i) {
+        const PaintOp& op = list.ops[i];
+        if (op.kind == PaintOpKind::PushTransform) {
+            if (transform_overflow_depth > 0 ||
+                transform_depth >= static_cast<int>(transform_stack.size())) {
+                ++transform_overflow_depth;
+            } else {
+                transform_stack[static_cast<std::size_t>(transform_depth)] =
+                    current_transform;
+                ++transform_depth;
+                current_transform =
+                    current_transform.then(replay_transform_from_op(op));
+            }
+            continue;
+        }
+        if (op.kind == PaintOpKind::PopTransform) {
+            if (transform_overflow_depth > 0) {
+                --transform_overflow_depth;
+            } else if (transform_depth > 0) {
+                --transform_depth;
+                current_transform =
+                    transform_stack[static_cast<std::size_t>(transform_depth)];
+            }
+            continue;
+        }
+        if (op.kind == PaintOpKind::DrawText ||
+            op.kind == PaintOpKind::DrawTextBox ||
+            transform_overflow_depth > 0) {
+            return false;
+        }
+
+        Rect bounds{};
+        if (!replay_op_bounds(op, bounds)) continue;
+        if (op.kind == PaintOpKind::PushClip) continue;
+        out = replay_union_rect(out, replay_transform_bounds(bounds,
+                                                             current_transform));
+    }
+    return true;
+}
+
+inline void prepare_replay_metadata(DisplayList& list) {
+    list.transform_ranges.clear();
+    list.clip_ranges.clear();
+    list.transform_ranges.resize(list.ops.size());
+    list.clip_ranges.resize(list.ops.size());
+
+    std::array<std::size_t, 64> clip_stack{};
+    int clip_depth = 0;
+    int clip_overflow_depth = 0;
+
+    for (std::size_t i = 0; i < list.ops.size(); ++i) {
+        if (list.ops[i].kind == PaintOpKind::PushClip) {
+            if (clip_overflow_depth > 0 ||
+                clip_depth >= static_cast<int>(clip_stack.size())) {
+                ++clip_overflow_depth;
+            } else {
+                clip_stack[static_cast<std::size_t>(clip_depth)] = i;
+                ++clip_depth;
+            }
+            continue;
+        }
+        if (list.ops[i].kind == PaintOpKind::PopClip) {
+            if (clip_overflow_depth > 0) {
+                --clip_overflow_depth;
+            } else if (clip_depth > 0) {
+                --clip_depth;
+                const std::size_t push_index =
+                    clip_stack[static_cast<std::size_t>(clip_depth)];
+                if (i <= std::numeric_limits<std::uint32_t>::max()) {
+                    list.clip_ranges[push_index].pop_index =
+                        static_cast<std::uint32_t>(i);
+                }
+            }
+            continue;
+        }
+
+        if (list.ops[i].kind == PaintOpKind::PushTransform) {
+            const std::size_t matching_pop = replay_matching_transform_pop(list, i);
+            if (matching_pop >= list.ops.size() ||
+                matching_pop > std::numeric_limits<std::uint32_t>::max()) {
+                continue;
+            }
+
+            auto& range = list.transform_ranges[i];
+            range.pop_index = static_cast<std::uint32_t>(matching_pop);
+
+            Rect bounds{};
+            if (replay_range_bounds(list, i + 1, matching_pop,
+                                    replay_transform_from_op(list.ops[i]),
+                                    bounds)) {
+                range.bounds = bounds;
+                range.bounds_known = 1;
+            }
+        }
+    }
+}
+
+inline const DisplayListTransformRange* replay_transform_range_at(
+    const DisplayList& list,
+    std::size_t index) {
+    if (index >= list.transform_ranges.size()) return nullptr;
+    const auto& range = list.transform_ranges[index];
+    if (range.pop_index == std::numeric_limits<std::uint32_t>::max()) {
+        return nullptr;
+    }
+    return &range;
+}
+
+inline const DisplayListClipRange* replay_clip_range_at(
+    const DisplayList& list,
+    std::size_t index) {
+    if (index >= list.clip_ranges.size()) return nullptr;
+    const auto& range = list.clip_ranges[index];
+    if (range.pop_index == std::numeric_limits<std::uint32_t>::max()) {
+        return nullptr;
+    }
+    return &range;
+}
+
+inline ReplayClipStats replay_clipped(const DisplayList& list,
+                                      Painter& target,
+                                      const Rect& clip) {
+    ReplayClipStats stats{};
+    std::array<Mat2x3, 64> transform_stack{};
+    int transform_depth = 0;
+    int transform_overflow_depth = 0;
+    Mat2x3 current_transform = Mat2x3::identity();
+    int skip_clip_depth = 0;
+    for (std::size_t i = 0; i < list.ops.size(); ) {
+        const auto& op = list.ops[i];
+        if (skip_clip_depth > 0) {
+            if (op.kind == PaintOpKind::PushClip) ++skip_clip_depth;
+            if (op.kind == PaintOpKind::PopClip) --skip_clip_depth;
+            ++stats.culled;
+            ++i;
+            continue;
+        }
+
+        if (op.kind == PaintOpKind::PushTransform) {
+            const auto next_transform =
+                current_transform.then(replay_transform_from_op(op));
+            std::size_t matching_pop = list.ops.size();
+            bool used_prepared_bounds = false;
+            if (transform_overflow_depth == 0) {
+                if (const auto* range = replay_transform_range_at(list, i)) {
+                    matching_pop = range->pop_index;
+                    if (range->bounds_known) {
+                        used_prepared_bounds = true;
+                        const Rect subtree_bounds =
+                            replay_transform_bounds(range->bounds,
+                                                    current_transform);
+                        if (!replay_rect_intersects(subtree_bounds, clip)) {
+                            stats.culled += static_cast<std::uint32_t>(
+                                matching_pop - i + 1);
+                            i = matching_pop + 1;
+                            continue;
+                        }
+                    }
+                } else {
+                    matching_pop = replay_matching_transform_pop(list, i);
+                }
+                if (!used_prepared_bounds && matching_pop < list.ops.size()) {
+                    Rect subtree_bounds{};
+                    if (replay_range_bounds(list, i + 1, matching_pop,
+                                            next_transform, subtree_bounds) &&
+                        !replay_rect_intersects(subtree_bounds, clip)) {
+                        stats.culled += static_cast<std::uint32_t>(
+                            matching_pop - i + 1);
+                        i = matching_pop + 1;
+                        continue;
+                    }
+                }
+            }
+
+            if (transform_overflow_depth > 0 ||
+                transform_depth >= static_cast<int>(transform_stack.size())) {
+                ++transform_overflow_depth;
+            } else {
+                transform_stack[static_cast<std::size_t>(transform_depth)] =
+                    current_transform;
+                ++transform_depth;
+                current_transform = next_transform;
+            }
+            replay_op(list, op, target);
+            ++stats.emitted;
+            ++i;
+            continue;
+        }
+        if (op.kind == PaintOpKind::PopTransform) {
+            if (transform_overflow_depth > 0) {
+                --transform_overflow_depth;
+            } else if (transform_depth > 0) {
+                --transform_depth;
+                current_transform =
+                    transform_stack[static_cast<std::size_t>(transform_depth)];
+            }
+            replay_op(list, op, target);
+            ++stats.emitted;
+            ++i;
+            continue;
+        }
+
+        Rect bounds{};
+        if (transform_overflow_depth == 0 && replay_op_bounds(op, bounds)) {
+            bounds = replay_transform_bounds(bounds, current_transform);
+            if (!replay_rect_intersects(bounds, clip)) {
+                if (op.kind == PaintOpKind::PushClip) {
+                    if (const auto* range = replay_clip_range_at(list, i)) {
+                        const std::size_t matching_pop = range->pop_index;
+                        stats.culled += static_cast<std::uint32_t>(
+                            matching_pop - i + 1);
+                        i = matching_pop + 1;
+                        continue;
+                    }
+                    skip_clip_depth = 1;
+                }
+                ++stats.culled;
+                ++i;
+                continue;
+            }
+        }
+
+        replay_op(list, op, target);
+        ++stats.emitted;
+        ++i;
+    }
+    return stats;
+}
+
+/// Replay a recorded DisplayList through a Painter. Used at rasterize
+/// time to actually emit nvg* calls. begin_frame / end_frame on the
+/// target Painter are the caller's responsibility.
+inline void replay(const DisplayList& list, Painter& target) {
+    for (const auto& op : list.ops) {
+        replay_op(list, op, target);
     }
 }
 

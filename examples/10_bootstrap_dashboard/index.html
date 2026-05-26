@@ -1,0 +1,104 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>AffineUI - Bootstrap dashboard</title>
+  <link rel="stylesheet" href="../frameworks/css/bootstrap-5.3.8.min.css">
+  <style>
+body { margin: 0; background-color: #f4f6f9; }
+.navbar-brand { font-weight: 700; letter-spacing: .02em; }
+.form-control-dark { color: #fff; background-color: rgba(255,255,255,.08); }
+.sidebar { min-height: calc(100vh - 44px); box-shadow: inset -1px 0 0 rgba(0,0,0,.08); }
+.sidebar .nav-link { color: #495057; font-weight: 500; }
+.sidebar .nav-link.active { color: #0d6efd; }
+.dashboard-main { min-height: calc(100vh - 44px); }
+.metric-card { border-radius: 10px; }
+.chart-grid { height: 250px; display: flex; align-items: end; gap: 18px; padding: 24px 12px 4px; border-bottom: 1px solid #dee2e6; }
+.chart-bar { width: 100%; min-width: 32px; border-radius: 6px 6px 0 0; opacity: .88; }
+.region-dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
+.table > :not(caption) > * > * { padding-top: .8rem; padding-bottom: .8rem; }
+.table-sm > :not(caption) > * > * { padding-top: .45rem; padding-bottom: .45rem; }
+  </style>
+</head>
+<body>
+<div class="app-shell">
+  <nav class="navbar navbar-dark sticky-top bg-dark flex-md-nowrap p-0 shadow">
+    <a class="navbar-brand col-md-3 col-lg-2 me-0 px-3 fs-6" href="#">Northwind Console</a>
+    <input class="form-control form-control-dark w-100 rounded-0 border-0" value="Search orders, accounts, or SKUs">
+    <div class="navbar-nav flex-row">
+      <button id="refresh" class="btn btn-dark px-3">Refresh</button>
+      <button id="export" class="btn btn-primary px-3">Export</button>
+    </div>
+  </nav>
+  <div class="container-fluid">
+    <div class="row">
+      <nav class="col-md-3 col-lg-2 d-md-block bg-body-tertiary sidebar collapse">
+        <div class="position-sticky pt-3 sidebar-sticky">
+          <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-3 mb-1 text-body-secondary text-uppercase"><span>Workspace</span><span class="badge text-bg-success">Live</span></h6>
+          <ul class="nav flex-column">
+            <li class="nav-item"><a class="nav-link active" href="#">Dashboard</a></li>
+            <li class="nav-item"><a class="nav-link" href="#">Orders</a></li>
+            <li class="nav-item"><a class="nav-link" href="#">Customers</a></li>
+            <li class="nav-item"><a class="nav-link" href="#">Inventory</a></li>
+            <li class="nav-item"><a class="nav-link" href="#">Reports</a></li>
+          </ul>
+          <h6 class="sidebar-heading px-3 mt-4 mb-1 text-body-secondary text-uppercase">Saved views</h6>
+          <ul class="nav flex-column mb-auto">
+            <li class="nav-item"><a class="nav-link" href="#">Current month</a></li>
+            <li class="nav-item"><a class="nav-link" href="#">Enterprise pipeline</a></li>
+            <li class="nav-item"><a class="nav-link" href="#">Renewal risk</a></li>
+          </ul>
+        </div>
+      </nav>
+      <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 dashboard-main">
+        <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-4 pb-3 mb-3 border-bottom">
+          <div><h1 class="h2 mb-1">Dashboard</h1><div class="text-secondary">Quarter close command center. Last refresh <span id="refresh-count">0</span>.</div></div>
+          <div class="btn-toolbar gap-2"><button id="density" class="btn btn-sm btn-outline-secondary">Density</button><button class="btn btn-sm btn-outline-secondary">This week</button></div>
+        </div>
+        <div class="row row-cols-1 row-cols-xl-4 g-3 mb-4">
+          <div class="col"><div class="card h-100 border-0 shadow-sm metric-card border-start border-4 border-success"><div class="card-body"><div class="text-uppercase text-secondary small fw-semibold">Revenue</div><div class="d-flex align-items-baseline justify-content-between mt-2"><div class="display-6 fw-semibold">$184.2k</div><span class="badge text-bg-success">+12.8%</span></div></div></div></div>
+          <div class="col"><div class="card h-100 border-0 shadow-sm metric-card border-start border-4 border-primary"><div class="card-body"><div class="text-uppercase text-secondary small fw-semibold">Orders</div><div class="d-flex align-items-baseline justify-content-between mt-2"><div class="display-6 fw-semibold">1,428</div><span class="badge text-bg-primary">+8.1%</span></div></div></div></div>
+          <div class="col"><div class="card h-100 border-0 shadow-sm metric-card border-start border-4 border-info"><div class="card-body"><div class="text-uppercase text-secondary small fw-semibold">Margin</div><div class="d-flex align-items-baseline justify-content-between mt-2"><div class="display-6 fw-semibold">38.4%</div><span class="badge text-bg-info">+2.4%</span></div></div></div></div>
+          <div class="col"><div class="card h-100 border-0 shadow-sm metric-card border-start border-4 border-warning"><div class="card-body"><div class="text-uppercase text-secondary small fw-semibold">Risk</div><div class="d-flex align-items-baseline justify-content-between mt-2"><div class="display-6 fw-semibold">17</div><span class="badge text-bg-warning">-4</span></div></div></div></div>
+        </div>
+        <div class="row g-3 mb-4">
+          <div class="col-xl-8"><div class="card border-0 shadow-sm"><div class="card-header bg-white d-flex justify-content-between align-items-center"><span class="fw-semibold">Revenue forecast</span><span class="text-secondary small">Actual vs target</span></div><div class="card-body"><div class="chart-grid"><div class="chart-bar bg-primary" style="height:44%"></div><div class="chart-bar bg-primary" style="height:58%"></div><div class="chart-bar bg-primary" style="height:52%"></div><div class="chart-bar bg-primary" style="height:74%"></div><div class="chart-bar bg-primary" style="height:68%"></div><div class="chart-bar bg-success" style="height:82%"></div><div class="chart-bar bg-success" style="height:76%"></div><div class="chart-bar bg-success" style="height:88%"></div></div></div></div></div>
+          <div class="col-xl-4"><div class="card border-0 shadow-sm h-100"><div class="card-header bg-white fw-semibold">Region mix</div><div class="card-body"><div class="d-flex align-items-center mb-2"><div class="region-dot bg-primary"></div><div class="flex-fill">North America</div><strong>47%</strong></div><div class="progress mb-3"><div class="progress-bar" style="width:47%"></div></div><div class="d-flex align-items-center mb-2"><div class="region-dot bg-info"></div><div class="flex-fill">Europe</div><strong>31%</strong></div><div class="progress mb-3"><div class="progress-bar bg-info" style="width:31%"></div></div><div class="d-flex align-items-center mb-2"><div class="region-dot bg-success"></div><div class="flex-fill">APAC</div><strong>22%</strong></div><div class="progress"><div class="progress-bar bg-success" style="width:22%"></div></div></div></div></div>
+        </div>
+        <div class="card border-0 shadow-sm">
+          <div class="card-header bg-white d-flex justify-content-between align-items-center"><span class="fw-semibold">Enterprise pipeline</span><span id="density-badge" class="badge text-bg-light">Comfortable</span></div>
+          <div class="table-responsive">
+            <table id="pipeline-table" class="table table-hover align-middle mb-0">
+              <thead><tr><th></th><th>Account</th><th>Owner</th><th>Stage</th><th class="text-end">Value</th><th></th></tr></thead>
+              <tbody>
+                <tr class="table-primary"><td><input class="form-check-input" type="checkbox" checked></td><td class="fw-semibold">Aster Freight</td><td>Morgan</td><td><span class="badge rounded-pill text-bg-success">Commit</span></td><td class="text-end font-monospace">$42,600</td><td class="text-end"><button id="region-0" class="btn btn-sm btn-outline-primary">Open</button></td></tr>
+                <tr><td><input class="form-check-input" type="checkbox"></td><td class="fw-semibold">Orbit Labs</td><td>Iris</td><td><span class="badge rounded-pill text-bg-primary">Legal</span></td><td class="text-end font-monospace">$31,200</td><td class="text-end"><button id="region-1" class="btn btn-sm btn-outline-primary">Open</button></td></tr>
+                <tr><td><input class="form-check-input" type="checkbox"></td><td class="fw-semibold">Vertex Medical</td><td>Sam</td><td><span class="badge rounded-pill text-bg-warning">Security</span></td><td class="text-end font-monospace">$27,900</td><td class="text-end"><button id="region-2" class="btn btn-sm btn-outline-primary">Open</button></td></tr>
+                <tr><td><input class="form-check-input" type="checkbox"></td><td class="fw-semibold">Canopy Retail</td><td>Noah</td><td><span class="badge rounded-pill text-bg-info">Trial</span></td><td class="text-end font-monospace">$18,400</td><td class="text-end"><button id="region-3" class="btn btn-sm btn-outline-primary">Open</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</div>
+<script>
+let refreshCount = 0;
+document.getElementById("refresh").addEventListener("click", () => {
+  document.getElementById("refresh-count").textContent = String(++refreshCount);
+});
+document.getElementById("density").addEventListener("click", () => {
+  const table = document.getElementById("pipeline-table");
+  const compact = table.classList.toggle("table-sm");
+  document.getElementById("density-badge").textContent = compact ? "Compact" : "Comfortable";
+});
+document.querySelectorAll("button[id^='region-']").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#pipeline-table tbody tr").forEach(tr => tr.classList.remove("table-primary"));
+    btn.closest("tr").classList.add("table-primary");
+  });
+});
+</script>
+</body>
+</html>

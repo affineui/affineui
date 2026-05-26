@@ -13,7 +13,10 @@
 // extensible — agents add new step types (named DOM interactions, keys, etc.)
 // to this dispatch and the browser's as they go. Unknown step types are
 // skipped, so a newer script degrades gracefully on an older tool. Starter set:
-//   {"click":[x,y]} {"hover":[x,y]} {"wait_ms":N} {"snapshot":"name"}
+//   {"click":[x,y]} {"hover":[x,y]} {"mouse_path":[[x,y],...]}
+//   {"mouse_recording":[{"type":"move|down|up","x":N,"y":N},...]}
+//   {"wait_ms":N}
+//   {"animation_time_ms":N} {"snapshot":"name"}
 // Coordinates are CSS pixels (== device px at dpi 1), matching the browser.
 
 #include <affineui/affineui.h>
@@ -25,7 +28,9 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <chrono>
 #include <string>
+#include <thread>
 #include <vector>
 
 #pragma comment(lib, "d3d11.lib")
@@ -33,9 +38,15 @@
 namespace {
 
 struct Step {
-    enum Kind { Click, Hover, Wait, Snapshot } kind;
+    enum Kind { Click, Hover, MousePath, MouseRecording, Wait, AnimationTime, Snapshot } kind;
+    enum MouseKind { Move, Down, Up };
+    struct MouseEvent {
+        MouseKind kind{Move};
+        affineui::Point pos{};
+    };
     int x = 0, y = 0, ms = 0;
     std::string name;
+    std::vector<MouseEvent> path;
 };
 
 struct Args {
@@ -97,7 +108,47 @@ bool load_case(Args& a) {
         for (const cjson::Value& s : *steps->arr) {
             if (const cjson::Value* c = s.find("click"))    { a.steps.push_back({Step::Click, c->at_int(0), c->at_int(1)}); }
             else if (const cjson::Value* h = s.find("hover")) { a.steps.push_back({Step::Hover, h->at_int(0), h->at_int(1)}); }
+            else if (const cjson::Value* p = s.find("mouse_path")) {
+                Step st{Step::MousePath};
+                if (p->type == cjson::Value::Arr && p->arr) {
+                    for (const cjson::Value& pt : *p->arr) {
+                        st.path.push_back({Step::Move, {pt.at_int(0), pt.at_int(1)}});
+                    }
+                }
+                if (const cjson::Value* step_ms = s.find("step_ms")) {
+                    st.ms = static_cast<int>(step_ms->as_num());
+                }
+                if (const cjson::Value* prefix = s.find("snapshot_prefix")) {
+                    st.name = prefix->as_str();
+                }
+                a.steps.push_back(std::move(st));
+            }
+            else if (const cjson::Value* p = s.find("mouse_recording")) {
+                Step st{Step::MouseRecording};
+                if (p->type == cjson::Value::Arr && p->arr) {
+                    for (const cjson::Value& ev : *p->arr) {
+                        Step::MouseKind kind = Step::Move;
+                        if (const cjson::Value* type = ev.find("type")) {
+                            const std::string t = type->as_str("move");
+                            if (t == "down") kind = Step::Down;
+                            else if (t == "up") kind = Step::Up;
+                        }
+                        int x = ev.at_int(0), y = ev.at_int(1);
+                        if (const cjson::Value* vx = ev.find("x")) x = static_cast<int>(vx->as_num());
+                        if (const cjson::Value* vy = ev.find("y")) y = static_cast<int>(vy->as_num());
+                        st.path.push_back({kind, {x, y}});
+                    }
+                }
+                if (const cjson::Value* step_ms = s.find("step_ms")) {
+                    st.ms = static_cast<int>(step_ms->as_num());
+                }
+                if (const cjson::Value* prefix = s.find("snapshot_prefix")) {
+                    st.name = prefix->as_str();
+                }
+                a.steps.push_back(std::move(st));
+            }
             else if (const cjson::Value* w = s.find("wait_ms")) { Step st{Step::Wait}; st.ms = (int)w->as_num(); a.steps.push_back(st); }
+            else if (const cjson::Value* t = s.find("animation_time_ms")) { Step st{Step::AnimationTime}; st.ms = (int)t->as_num(); a.steps.push_back(st); }
             else if (const cjson::Value* n = s.find("snapshot")) { Step st{Step::Snapshot}; st.name = n->as_str(); a.steps.push_back(st); }
             // else: unknown step type — skip (agents add new types to both drivers).
         }
@@ -114,6 +165,34 @@ bool write_ppm(const std::string& path, const uint8_t* rgb, int w, int h) {
     std::fwrite(rgb, 1, (size_t)w * h * 3, f);
     std::fclose(f);
     return true;
+}
+
+void blend_pixel(std::vector<uint8_t>& rgb, int w, int h,
+                 int x, int y, uint8_t r, uint8_t g, uint8_t b,
+                 uint8_t a) {
+    if (x < 0 || y < 0 || x >= w || y >= h) return;
+    uint8_t* px = rgb.data() + (static_cast<size_t>(y) * w + x) * 3;
+    const int ia = 255 - a;
+    px[0] = static_cast<uint8_t>((r * a + px[0] * ia) / 255);
+    px[1] = static_cast<uint8_t>((g * a + px[1] * ia) / 255);
+    px[2] = static_cast<uint8_t>((b * a + px[2] * ia) / 255);
+}
+
+void draw_click_crosshair(std::vector<uint8_t>& rgb, int w, int h,
+                          affineui::Point p) {
+    constexpr int arm = 18;
+    constexpr int gap = 4;
+    for (int d = -arm; d <= arm; ++d) {
+        if (d < -gap || d > gap) {
+            blend_pixel(rgb, w, h, p.x + d, p.y, 90, 180, 255, 190);
+            blend_pixel(rgb, w, h, p.x, p.y + d, 90, 180, 255, 190);
+        }
+    }
+    for (int y = p.y - 2; y <= p.y + 2; ++y) {
+        for (int x = p.x - 2; x <= p.x + 2; ++x) {
+            blend_pixel(rgb, w, h, x, y, 90, 180, 255, 95);
+        }
+    }
 }
 
 }  // namespace
@@ -177,7 +256,9 @@ int main(int argc, char** argv) {
 
     ui.render(target);  // warm-up (layout + font atlas upload)
 
-    auto capture = [&](const std::string& snap) -> bool {
+    auto capture = [&](const std::string& snap,
+                       bool click_pulse = false,
+                       affineui::Point pulse_pos = {}) -> bool {
         ui.render(target);
         ctx->CopyResource(staging, color);
         D3D11_MAPPED_SUBRESOURCE map{};
@@ -191,6 +272,9 @@ int main(int argc, char** argv) {
                 dst[x*3+0] = px[2]; dst[x*3+1] = px[1]; dst[x*3+2] = px[0]; }
         }
         ctx->Unmap(staging, 0);
+        if (click_pulse) {
+            draw_click_crosshair(rgb, W, H, pulse_pos);
+        }
         const std::string path = args.out_dir + "/" + args.test + ".affineui." + snap + ".ppm";
         const bool ok = write_ppm(path, rgb.data(), W, H);
         if (ok) std::fprintf(stderr, "wrote %s\n", path.c_str());
@@ -205,13 +289,48 @@ int main(int argc, char** argv) {
     auto hover = [&](int x, int y) {
         affineui::Event e; e.pos = {x, y}; e.type = affineui::EventType::MouseMove; ui.dispatch(e);
     };
+    auto dispatch_mouse = [&](const Step::MouseEvent& ev) {
+        affineui::Event e; e.pos = ev.pos; e.button = affineui::MouseButton::Left;
+        if (ev.kind == Step::Down) e.type = affineui::EventType::MouseDown;
+        else if (ev.kind == Step::Up) e.type = affineui::EventType::MouseUp;
+        else e.type = affineui::EventType::MouseMove;
+        ui.dispatch(e);
+    };
+    auto indexed_snap = [](const std::string& prefix, int index) {
+        char buf[32]{};
+        std::snprintf(buf, sizeof(buf), "_%03d", index);
+        return prefix + buf;
+    };
 
     bool ok = true, took_any = false;
     for (const auto& st : args.steps) {
         switch (st.kind) {
             case Step::Click:    click(st.x, st.y); break;
             case Step::Hover:    hover(st.x, st.y); break;
-            case Step::Wait:     break;  // no host clock here; animations are a TODO
+            case Step::MousePath:
+            case Step::MouseRecording:
+                for (int i = 0; i < static_cast<int>(st.path.size()); ++i) {
+                    const auto& ev = st.path[static_cast<std::size_t>(i)];
+                    dispatch_mouse(ev);
+                    if (st.ms > 0) {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(st.ms));
+                    }
+                    if (!st.name.empty()) {
+                        ok = capture(indexed_snap(st.name, i),
+                                     ev.kind == Step::Down, ev.pos) && ok;
+                        took_any = true;
+                    }
+                }
+                break;
+            case Step::Wait:
+                if (st.ms > 0) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(st.ms));
+                }
+                break;
+            case Step::AnimationTime:
+                ui.document().set_animation_time_for_testing(
+                    static_cast<double>(st.ms) / 1000.0);
+                break;
             case Step::Snapshot: ok = capture(st.name) && ok; took_any = true; break;
         }
     }

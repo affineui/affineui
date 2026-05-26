@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../_decius/css/decius.bundle.min.css">
+<style>
+body{margin:0;background:#14161c;padding:16px}
+.app{height:668px;border:1px solid var(--dcs-line);background:var(--dcs-bg-app);display:flex;flex-direction:column}
+.center{display:flex;gap:1px;flex:1;min-height:0;background:var(--dcs-line)}
+.center>aside:first-child{flex:0 0 230px}
+.center>main{flex:1 1 0;min-width:0}
+.center>aside:last-child{flex:0 0 320px}
+.viewport-grid{height:100%;background:linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),radial-gradient(circle at 52% 42%,#495064,#171a22 72%);background-size:24px 24px,24px 24px,auto}
+</style>
+</head>
+<body class="dcs" data-dcs-density="compact">
+  <div class="app">
+    <div class="dcs-menubar">
+      <div class="dcs-menubar__brand"><i class="di di-decius"></i> Decius Studio</div>
+      <button class="dcs-menubar__item">File</button>
+      <button class="dcs-menubar__item">Edit</button>
+      <button class="dcs-menubar__item">Render</button>
+      <button class="dcs-menubar__item">Window</button>
+      <div class="dcs-menubar__spacer"></div>
+      <div class="dcs-menubar__meta">60.0 fps</div>
+    </div>
+    <div class="center">
+      <aside class="dcs-dockpane">
+        <div class="dcs-dockpane__tabs">
+          <button class="dcs-dockpane__tab" aria-selected="true"><i class="di di-folder"></i> Scene</button>
+        </div>
+        <div class="dcs-dockpane__body">
+          <div class="dcs-tree">
+            <div class="dcs-tree__row"><span class="dcs-tree__chevron dcs-tree__chevron--open"><i class="di di-chevron-right"></i></span><i class="di di-cube dcs-tree__icon"></i><span class="dcs-tree__label">Collection</span><span class="dcs-tree__meta">8</span></div>
+            <div class="dcs-tree__row" aria-selected="true" style="padding-left:24px"><span class="dcs-tree__chevron"></span><i class="di di-sphere dcs-tree__icon"></i><span class="dcs-tree__label">Hero_mesh_high</span><span class="dcs-tree__meta">42k</span></div>
+            <div class="dcs-tree__row" style="padding-left:24px"><span class="dcs-tree__chevron"></span><i class="di di-light dcs-tree__icon"></i><span class="dcs-tree__label">Key light</span><span class="dcs-tree__meta">1</span></div>
+            <div class="dcs-tree__row" style="padding-left:24px"><span class="dcs-tree__chevron"></span><i class="di di-camera dcs-tree__icon"></i><span class="dcs-tree__label">Camera</span><span class="dcs-tree__meta">1</span></div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="dcs-dockpane">
+        <div class="dcs-dockpane__tabs">
+          <button class="dcs-dockpane__tab" aria-selected="true"><i class="di di-view-lit"></i> Viewport</button>
+          <button class="dcs-dockpane__tab"><i class="di di-curve"></i> Curves</button>
+          <div class="dcs-dockpane__tools"><button class="dcs-btn dcs-btn--icon dcs-btn--sm"><i class="di di-fullscreen"></i></button></div>
+        </div>
+        <div class="dcs-dockpane__body dcs-viewport">
+          <div class="viewport-grid"></div>
+          <div class="dcs-viewport__overlay dcs-viewport__overlay--tl">
+            <div class="dcs-viewport__floater">
+              <button class="dcs-btn dcs-btn--icon dcs-btn--sm" aria-pressed="true"><i class="di di-select"></i></button>
+              <button class="dcs-btn dcs-btn--icon dcs-btn--sm"><i class="di di-move"></i></button>
+              <button class="dcs-btn dcs-btn--icon dcs-btn--sm"><i class="di di-rotate"></i></button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <aside class="dcs-dockpane">
+        <div class="dcs-dockpane__tabs">
+          <button class="dcs-dockpane__tab" aria-selected="true"><i class="di di-cog"></i> Inspector</button>
+        </div>
+        <div class="dcs-dockpane__body" style="padding:10px">
+          <table class="dcs-table dcs-table--mono">
+            <thead><tr><th>Pass</th><th>Samples</th><th>Time</th><th>VRAM</th></tr></thead>
+            <tbody>
+              <tr aria-selected="true"><td>Diffuse</td><td>128</td><td>4.82</td><td>812</td></tr>
+              <tr><td>Specular</td><td>96</td><td>3.10</td><td>476</td></tr>
+              <tr><td>Volume</td><td>32</td><td>1.44</td><td>288</td></tr>
+              <tr><td>Composite</td><td>1</td><td>0.18</td><td>64</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </aside>
+    </div>
+    <div class="dcs-statusbar"><div class="dcs-statusbar__item dcs-statusbar__item--ok">READY</div><div class="dcs-statusbar__sep"></div><div class="dcs-statusbar__item">Frame 1042</div><div class="dcs-statusbar__spacer"></div><div class="dcs-statusbar__item dcs-statusbar__item--accent">GPU 42%</div></div>
+  </div>
+</body>
+</html>

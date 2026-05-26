@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #ffffff; }
+  .stage { position: relative; width: 360px; height: 220px; background: #f8f9fa; }
+  .guide { position: absolute; left: 94px; top: 54px; width: 112px; height: 112px; background: #dde7f0; }
+  .target {
+    position: absolute; left: 110px; top: 70px; width: 80px; height: 80px;
+    background: #dc3545;
+    animation-name: scale_linear;
+    animation-duration: 1000ms;
+    animation-timing-function: linear;
+    animation-iteration-count: 1;
+    animation-fill-mode: both;
+  }
+  .target .mark { width: 26px; height: 26px; background: #ffc107; }
+  @keyframes scale_linear {
+    from { transform: scale(.5); }
+    to   { transform: scale(1.45); }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="guide"></div>
+    <div class="target"><div class="mark"></div></div>
+  </div>
+</body>
+</html>

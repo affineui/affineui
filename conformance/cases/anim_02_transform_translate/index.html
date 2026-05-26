@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #ffffff; }
+  .stage { position: relative; width: 460px; height: 180px; background: #f8f9fa; }
+  .track { position: absolute; left: 36px; top: 86px; width: 320px; height: 10px; background: #cfd8dc; }
+  .target {
+    position: absolute; left: 36px; top: 58px; width: 72px; height: 64px;
+    background: #198754;
+    animation: translate_linear 1000ms linear 1 both;
+  }
+  @keyframes translate_linear {
+    from { transform: translateX(0); }
+    to   { transform: translateX(220px); }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="track"></div>
+    <div class="target"></div>
+  </div>
+</body>
+</html>

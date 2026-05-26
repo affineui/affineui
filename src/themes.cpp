@@ -36,7 +36,9 @@ std::string_view ua_default() {
         "a{color:#0366d6;text-decoration:underline}"
         "strong,b{font-weight:bold}"
         "em,i{font-style:italic}"
-        "ul,ol{padding-left:40px;margin:1em 0}"
+        "ul{padding-left:40px;margin:1em 0;list-style-type:disc}"
+        "ol{padding-left:40px;margin:1em 0;list-style-type:decimal}"
+        "li{display:list-item}"
         "img{display:inline-block}"
         // Form controls default to inline-block (HTML5 UA stylesheet).
         "button,input,select,textarea{font:inherit;display:inline-block}"

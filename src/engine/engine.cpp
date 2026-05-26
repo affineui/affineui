@@ -108,6 +108,7 @@ FrameStats Engine::tick_no_composite(SizeF viewport_px, float dpi_scale, double 
     if (impl_->animations.active_count() > 0) {
         stats.active_animations = impl_->animations.sample(impl_->layers, time_seconds);
         if (stats.active_animations > 0) dirty_ |= DB_Composite;
+        impl_->animations.gc_finished();
     }
     if (dirty_ & DB_Rasterize) {
         stats.rasterize = impl_->rasterizer.rasterize_pass(impl_->layers, dpi_scale);

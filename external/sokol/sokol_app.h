@@ -9693,7 +9693,18 @@ _SOKOL_PRIVATE LRESULT CALLBACK _sapp_win32_wndproc(HWND hWnd, UINT uMsg, WPARAM
                 break;
             case WM_TIMER:
                 _sapp_timing_update(&_sapp.timing, 0.0);
+#if defined(SOKOL_WIN32_LIVE_RESIZE)
+                if (_sapp_win32_update_dimensions()) {
+                    #if defined(SOKOL_D3D11)
+                    _sapp_d3d11_resize_default_render_target();
+                    #elif defined(SOKOL_WGPU)
+                    _sapp_wgpu_swapchain_size_changed();
+                    #endif
+                    _sapp_win32_app_event(SAPP_EVENTTYPE_RESIZED);
+                }
+#endif
                 _sapp_win32_frame(true);
+#if !defined(SOKOL_WIN32_LIVE_RESIZE)
                 /*
                 * NOTE: resizing each frame explodes memory usage
                 *
@@ -9706,6 +9717,7 @@ _SOKOL_PRIVATE LRESULT CALLBACK _sapp_win32_wndproc(HWND hWnd, UINT uMsg, WPARAM
                     _sapp_win32_app_event(SAPP_EVENTTYPE_RESIZED);
                 }
                 */
+#endif
                 break;
             case WM_NCLBUTTONDOWN:
                 /* workaround for half-second pause when starting to move window

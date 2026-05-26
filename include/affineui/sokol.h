@@ -22,8 +22,12 @@
 //
 //   • affineui::sokol::render(Ui&)
 //       Render the UI into the current sokol_gfx pass, querying
-//       framebuffer dimensions + DPI from sokol_app itself. Call once
-//       per sokol frame callback.
+//       framebuffer dimensions + DPI from sokol_app itself. This is the
+//       low-level helper for mixed renderers that already own the pass.
+//
+//   • affineui::sokol::render_frame(Ui&)
+//       Render the UI into sokol_app's swapchain with AffineUI owning the
+//       pass. This path can use retained root-layer caching.
 //
 //   • affineui::sokol::wire(sapp_desc&, Ui&)
 //       Wire frame_userdata_cb / event_userdata_cb / cleanup_userdata_cb
@@ -41,7 +45,25 @@
 #include <sokol_glue.h>
 #include <sokol_log.h>
 
+#include <cstdio>
+#include <algorithm>
+#include <array>
+#include <filesystem>
+#include <ctime>
+#include <cstdint>
+#include <span>
 #include <string>
+#include <system_error>
+#include <vector>
+#if defined(_WIN32)
+#    if !defined(WIN32_LEAN_AND_MEAN)
+#        define WIN32_LEAN_AND_MEAN
+#    endif
+#    if !defined(NOMINMAX)
+#        define NOMINMAX
+#    endif
+#    include <windows.h>
+#endif
 
 namespace affineui::sokol {
 
@@ -132,6 +154,9 @@ inline Event translate(const sapp_event* ev) {
             out.type = EventType::TextInput;
             out.text = utf8_from_codepoint(ev->char_code);
             return out;
+        case SAPP_EVENTTYPE_RESIZED:
+            out.type = EventType::Resize;
+            return out;
         default:
             return out;  // type stays None → caller skips
     }
@@ -180,9 +205,172 @@ inline void render(Ui& ui) {
     ui.render(sapp_width(), sapp_height(), sapp_dpi_scale());
 }
 
+/// Render the UI into sokol_app's swapchain. Unlike render(), this owns the
+/// pass, so the renderer can rasterize dirty layers before compositing.
+inline FrameTarget frame_target(bool clear = true, bool commit = true) {
+    const sg_swapchain sc = sglue_swapchain();
+    FrameTarget target{};
+    target.width = sapp_width();
+    target.height = sapp_height();
+    target.dpi_scale = sapp_dpi_scale();
+    target.sample_count = sc.sample_count > 0 ? sc.sample_count : 1;
+    target.clear = clear;
+    target.commit = commit;
+    target.metal.current_drawable = sc.metal.current_drawable;
+    target.metal.depth_stencil_texture = sc.metal.depth_stencil_texture;
+    target.metal.msaa_color_texture = sc.metal.msaa_color_texture;
+    target.d3d11.render_view = sc.d3d11.render_view;
+    target.d3d11.resolve_view = sc.d3d11.resolve_view;
+    target.d3d11.depth_stencil_view = sc.d3d11.depth_stencil_view;
+    target.wgpu.render_view = sc.wgpu.render_view;
+    target.wgpu.resolve_view = sc.wgpu.resolve_view;
+    target.wgpu.depth_stencil_view = sc.wgpu.depth_stencil_view;
+    target.gl.framebuffer = sc.gl.framebuffer;
+    return target;
+}
+
+inline void render_frame(Ui& ui, bool clear = true, bool commit = true) {
+    ui.render(frame_target(clear, commit));
+}
+
 // ── One-call wire-up ────────────────────────────────────────────────
 
 namespace detail {
+struct RecordedMouseEvent {
+    const char* type{"move"};
+    int x{0};
+    int y{0};
+};
+
+struct PerfHudState {
+    Ui*    ui{nullptr};
+    bool   enabled{false};
+    double accum_s{0.0};
+    int    frames{0};
+    double ms{0.0};
+    double fps{0.0};
+    std::array<float, 64> ms_history{};
+    int history_head{0};
+    int history_count{0};
+    char   text[384]{};
+    std::uint64_t last_render_epoch{0};
+    std::uint64_t last_html_epoch{0};
+    std::uint64_t render_count{0};
+    std::uint64_t html_count{0};
+    int    last_w{-1};
+    int    last_h{-1};
+    float  last_dpi{-1.0f};
+    std::vector<RecordedMouseEvent> mouse_path;
+    RecordedMouseEvent              last_mouse_point{};
+    bool                            has_last_mouse_point{false};
+    std::uint32_t                   recording_serial{0};
+    std::filesystem::path           recording_dir;
+};
+
+inline void trim_mouse_path(PerfHudState& state) {
+    if (state.mouse_path.size() > 24000) {
+        state.mouse_path.erase(state.mouse_path.begin(),
+                               state.mouse_path.begin() + 8000);
+    }
+}
+
+inline void record_mouse_event(PerfHudState& state, const Event& e) {
+    if (e.pos.x < 0 || e.pos.y < 0) {
+        return;
+    }
+    const char* type = nullptr;
+    if (e.type == EventType::MouseMove) {
+        type = "move";
+    } else if (e.type == EventType::MouseDown &&
+               e.button == MouseButton::Left) {
+        type = "down";
+    } else if (e.type == EventType::MouseUp &&
+               e.button == MouseButton::Left) {
+        type = "up";
+    } else {
+        return;
+    }
+    constexpr int min_distance_px = 2;
+    if (e.type == EventType::MouseMove && state.has_last_mouse_point) {
+        const int dx = e.pos.x - state.last_mouse_point.x;
+        const int dy = e.pos.y - state.last_mouse_point.y;
+        if (dx * dx + dy * dy < min_distance_px * min_distance_px) {
+            return;
+        }
+    }
+    state.mouse_path.push_back(RecordedMouseEvent{type, e.pos.x, e.pos.y});
+    if (e.type == EventType::MouseMove) {
+        state.last_mouse_point = RecordedMouseEvent{"move", e.pos.x, e.pos.y};
+        state.has_last_mouse_point = true;
+    }
+    trim_mouse_path(state);
+}
+
+inline std::filesystem::path default_recording_dir() {
+#if defined(_WIN32)
+    std::array<wchar_t, 32768> exe_path{};
+    const unsigned long n = GetModuleFileNameW(
+        nullptr, exe_path.data(),
+        static_cast<unsigned long>(exe_path.size()));
+    if (n > 0 && static_cast<std::size_t>(n) < exe_path.size()) {
+        std::filesystem::path exe{exe_path.data()};
+        if (exe.has_parent_path()) return exe.parent_path();
+    }
+#endif
+    std::error_code ec;
+    auto cwd = std::filesystem::current_path(ec);
+    if (!ec && !cwd.empty()) return cwd;
+    return std::filesystem::path{"."};
+}
+
+inline bool write_mouse_path_file(const PerfHudState& state,
+                                  const std::filesystem::path& path) {
+    std::FILE* f = std::fopen(path.string().c_str(), "wb");
+    if (!f) {
+        std::fprintf(stderr,
+                      "[affineui] mouse path recorder: could not open %s\n",
+                     path.string().c_str());
+        return false;
+    }
+    std::fprintf(f, "{\n  \"mouse_recording\": [\n");
+    for (std::size_t i = 0; i < state.mouse_path.size(); ++i) {
+        const auto& ev = state.mouse_path[i];
+        std::fprintf(f,
+                     "    { \"type\": \"%s\", \"x\": %d, \"y\": %d }%s\n",
+                     ev.type, ev.x, ev.y,
+                     i + 1 == state.mouse_path.size() ? "" : ",");
+    }
+    std::fprintf(f,
+                 "  ],\n"
+                 "  \"step_ms\": 0,\n"
+                  "  \"snapshot_prefix\": \"path\"\n"
+                  "}\n");
+    std::fclose(f);
+    return true;
+}
+
+inline void save_mouse_path(PerfHudState& state) {
+    if (state.mouse_path.empty()) return;
+    const std::time_t now = std::time(nullptr);
+    char name[96]{};
+    std::snprintf(name, sizeof(name), "affineui_mouse_path_%lld_%u.json",
+                  static_cast<long long>(now), ++state.recording_serial);
+    const auto dir = state.recording_dir.empty()
+        ? default_recording_dir()
+        : state.recording_dir;
+    const auto timestamped = dir / name;
+    const auto latest = dir / "affineui_mouse_path_latest.json";
+    const bool wrote = write_mouse_path_file(state, timestamped);
+    if (wrote) {
+        write_mouse_path_file(state, latest);
+        std::fprintf(stderr,
+                     "[affineui] mouse path recorder: wrote %s (%zu points)\n",
+                     timestamped.string().c_str(), state.mouse_path.size());
+    }
+    state.mouse_path.clear();
+    state.has_last_mouse_point = false;
+}
+
 inline void cb_init_(void* user) {
     (void)user;
     // Bring up sokol_gfx against the swapchain sokol_app created. NanoVG
@@ -193,33 +381,128 @@ inline void cb_init_(void* user) {
     sg_setup(&d);
 }
 inline void cb_frame_(void* user) {
-    auto& ui = *static_cast<Ui*>(user);
-    const Color c = ui.clear_color();
-    sg_pass pass{};
-    pass.action.colors[0].load_action = SG_LOADACTION_CLEAR;
-    pass.action.colors[0].clear_value.r = c.r / 255.0f;
-    pass.action.colors[0].clear_value.g = c.g / 255.0f;
-    pass.action.colors[0].clear_value.b = c.b / 255.0f;
-    pass.action.colors[0].clear_value.a = c.a / 255.0f;
-    pass.action.depth.load_action   = SG_LOADACTION_CLEAR;
-    pass.action.depth.clear_value   = 1.0f;
-    pass.action.stencil.load_action = SG_LOADACTION_CLEAR;
-    pass.action.stencil.clear_value = 0;
-    pass.swapchain = sglue_swapchain();
+    auto& state = *static_cast<PerfHudState*>(user);
+    auto& ui = *state.ui;
+    const int   w   = sapp_width();
+    const int   h   = sapp_height();
+    const float dpi = sapp_dpi_scale();
+    const bool viewport_changed =
+        w != state.last_w || h != state.last_h || dpi != state.last_dpi;
+    if (!state.enabled && !ui.needs_update() && !viewport_changed) {
+        return;
+    }
+    state.last_w = w;
+    state.last_h = h;
+    state.last_dpi = dpi;
 
-    sg_begin_pass(&pass);
-    affineui::sokol::render(ui);
-    sg_end_pass();
-    sg_commit();
+    if (state.enabled) {
+        const double dt = sapp_frame_duration_unfiltered();
+        if (dt > 0.0) {
+            state.ms_history[static_cast<std::size_t>(state.history_head)] =
+                static_cast<float>(dt * 1000.0);
+            state.history_head =
+                (state.history_head + 1) %
+                static_cast<int>(state.ms_history.size());
+            state.history_count = std::min(
+                state.history_count + 1,
+                static_cast<int>(state.ms_history.size()));
+            state.accum_s += dt;
+            state.frames += 1;
+            if (state.accum_s >= 0.5) {
+                state.fps = static_cast<double>(state.frames) / state.accum_s;
+                state.ms = 1000.0 / std::max(1.0, state.fps);
+                const auto& stats = state.ui->renderer().stats();
+                std::snprintf(state.text, sizeof(state.text),
+                              "%.1f ms/frame  %.1f fps\nrender %llu  html %llu\nDL rec %llu chg %llu same %llu\nroot rast %llu part %llu comp %llu dir %llu\nops %u culled %u rects %u dirty %u.%02u%%\nflags %c%c%c%c%c%c%c",
+                              state.ms, state.fps,
+                              static_cast<unsigned long long>(state.render_count),
+                              static_cast<unsigned long long>(state.html_count),
+                              static_cast<unsigned long long>(stats.display_list_records),
+                              static_cast<unsigned long long>(stats.display_list_changes),
+                              static_cast<unsigned long long>(stats.display_list_unchanged),
+                              static_cast<unsigned long long>(stats.root_layer_rasterizes),
+                              static_cast<unsigned long long>(stats.root_layer_partial_rasterizes),
+                              static_cast<unsigned long long>(stats.root_layer_composites),
+                              static_cast<unsigned long long>(stats.root_layer_direct_composites),
+                              stats.cached_ops,
+                              stats.display_list_ops_culled_this_frame,
+                              stats.dirty_rects,
+                              stats.dirty_area_pct_x100 / 100,
+                              stats.dirty_area_pct_x100 % 100,
+                              stats.recorded_this_frame ? 'R' : '-',
+                              stats.display_list_changed_this_frame ? 'D' : '-',
+                              stats.root_layer_partial_this_frame ? 'p' : '-',
+                              stats.root_layer_direct_this_frame ? 'q' : '-',
+                              stats.layout_dirty ? 'L' : '-',
+                              stats.paint_dirty ? 'P' : '-',
+                              stats.animations_active ? 'A' : '-');
+                state.accum_s = 0.0;
+                state.frames = 0;
+            }
+        }
+    }
+
+    affineui::sokol::render_frame(ui, true, !state.enabled);
+    if (state.enabled) {
+        const auto render_epoch = ui.render_epoch();
+        const auto html_epoch = ui.html_epoch();
+        state.render_count += render_epoch - state.last_render_epoch;
+        state.html_count += html_epoch - state.last_html_epoch;
+        state.last_render_epoch = render_epoch;
+        state.last_html_epoch = html_epoch;
+    }
+    if (state.enabled) {
+        std::array<float, 64> ordered{};
+        const int n = state.history_count;
+        for (int i = 0; i < n; ++i) {
+            const int src =
+                (state.history_head - n + i +
+                 static_cast<int>(state.ms_history.size())) %
+                static_cast<int>(state.ms_history.size());
+            ordered[static_cast<std::size_t>(i)] =
+                state.ms_history[static_cast<std::size_t>(src)];
+        }
+        sg_pass pass{};
+        pass.action.colors[0].load_action = SG_LOADACTION_LOAD;
+        pass.action.depth.load_action   = SG_LOADACTION_CLEAR;
+        pass.action.depth.clear_value   = 1.0f;
+        pass.action.stencil.load_action = SG_LOADACTION_CLEAR;
+        pass.action.stencil.clear_value = 0;
+        pass.swapchain = sglue_swapchain();
+
+        sg_begin_pass(&pass);
+        ui.renderer().draw_debug_overlay(
+            state.text,
+            std::span<const float>(ordered.data(), static_cast<std::size_t>(n)),
+            w, h, dpi);
+        sg_end_pass();
+        sg_commit();
+    }
 }
 inline void cb_event_(const sapp_event* ev, void* user) {
-    auto& ui = *static_cast<Ui*>(user);
-    affineui::sokol::dispatch(ui, ev);
+    auto& state = *static_cast<PerfHudState*>(user);
+    auto& ui = *state.ui;
+    if (ev && ev->type == SAPP_EVENTTYPE_KEY_DOWN &&
+        ev->key_code == SAPP_KEYCODE_R) {
+        save_mouse_path(state);
+        return;
+    }
+    const auto e = affineui::sokol::translate(ev);
+    record_mouse_event(state, e);
+    if (e.type == EventType::None) return;
+    const bool consumed = ui.dispatch(e);
+    (void)consumed;
+    if (e.type == EventType::MouseMove) {
+        sapp_set_mouse_cursor(cursor_to_sokol(ui.hovered_cursor()));
+    }
 }
 inline void cb_cleanup_(void* user) {
-    auto& ui = *static_cast<Ui*>(user);
+    auto* state = static_cast<PerfHudState*>(user);
+    auto& ui = *state->ui;
+    save_mouse_path(*state);
     ui.renderer().shutdown();
     sg_shutdown();
+    delete state;
 }
 }  // namespace detail
 
@@ -231,8 +514,12 @@ inline void cb_cleanup_(void* user) {
 /// menus). For mixed games (game + UI overlay), write your own
 /// callbacks and call `render(ui)` / `dispatch(ui, ev)` explicitly
 /// from inside them.
-inline void wire(sapp_desc& desc, Ui& ui) {
-    desc.user_data           = &ui;
+inline void wire(sapp_desc& desc, Ui& ui, bool perf_hud = false) {
+    auto* state = new detail::PerfHudState{};
+    state->ui = &ui;
+    state->enabled = perf_hud;
+    state->recording_dir = detail::default_recording_dir();
+    desc.user_data           = state;
     desc.init_userdata_cb    = detail::cb_init_;
     desc.frame_userdata_cb   = detail::cb_frame_;
     desc.event_userdata_cb   = detail::cb_event_;

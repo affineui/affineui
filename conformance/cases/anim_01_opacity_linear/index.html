@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #ffffff; }
+  .stage { position: relative; width: 420px; height: 180px; background: #f8f9fa; }
+  .rail { position: absolute; left: 32px; top: 64px; width: 280px; height: 56px; background: #d7e3f4; }
+  .target {
+    position: absolute; left: 48px; top: 48px; width: 180px; height: 88px;
+    background: #0d6efd;
+    animation-name: fade_linear;
+    animation-duration: 1000ms;
+    animation-timing-function: linear;
+    animation-iteration-count: 1;
+    animation-fill-mode: both;
+  }
+  @keyframes fade_linear {
+    from { opacity: .15; }
+    to   { opacity: 1; }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="rail"></div>
+    <div class="target"></div>
+  </div>
+</body>
+</html>

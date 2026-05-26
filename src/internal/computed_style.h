@@ -37,9 +37,12 @@ struct ComputedStyle {
     // the cascade splits them out. The four radii correspond to the
     // CSS shorthand `border-radius: <tl> <tr> <br> <bl>`; CSS pairing
     // rules (1/2/3-value forms) are applied in the gap-fill scanner.
-    // Setting `border_radius_*_px` to the same value across all four
-    // corners recovers the previous uniform behavior; the painter
-    // uses NanoVG's nvgRoundedRectVarying when corners differ.
+    // `border_radius_*` stores a compact CSS radius value:
+    //   >= 0: absolute px
+    //   <  0: percentage encoded as -(percent * 100)
+    // The painter resolves percentages against the used border-box size.
+    // Setting all four corners to the same value recovers the uniform
+    // path; the painter uses nvgRoundedRectVarying when corners differ.
     //
     // Radii strictly speaking don't affect layout — they only change
     // rasterization — so they could live in AnimatedStyle. Parking
@@ -47,6 +50,14 @@ struct ComputedStyle {
     // border-radius animations become a hot path.
     enum class BorderStyle : std::uint8_t {
         None = 0, Solid = 1, Dashed = 2, Dotted = 3, Double = 4,
+    };
+    enum BorderSide : std::uint8_t {
+        BorderTopSide    = 1 << 0,
+        BorderRightSide  = 1 << 1,
+        BorderBottomSide = 1 << 2,
+        BorderLeftSide   = 1 << 3,
+        BorderAllSides   = BorderTopSide | BorderRightSide |
+                           BorderBottomSide | BorderLeftSide,
     };
     // Uniform border style for all four sides. Per-side style variation
     // (e.g. `border-left: dashed; border-right: dotted`) is deferred —
@@ -69,15 +80,17 @@ struct ComputedStyle {
         Visible = 0, Hidden = 1, Collapse = 2,
     };
     Visibility   visibility                {Visibility::Visible};
-    std::int16_t border_radius_top_left_px {0};
-    std::int16_t border_radius_top_right_px{0};
-    std::int16_t border_radius_bot_right_px{0};
-    std::int16_t border_radius_bot_left_px {0};
+    std::int16_t border_radius_top_left {0};
+    std::int16_t border_radius_top_right{0};
+    std::int16_t border_radius_bot_right{0};
+    std::int16_t border_radius_bot_left {0};
 
     // ── Layout sizing (10 bytes) ──────────────────────────────────
     std::int16_t width     {-1};  // -1 = auto
     std::int16_t height    {-1};
-    std::int16_t min_width {0};
+    // -1 = CSS `auto`. For ordinary block flow that resolves like 0, but
+    // flex items use it for the spec's automatic minimum size.
+    std::int16_t min_width {-1};
     std::int16_t max_width {-1};
     std::int16_t min_height{0};
 
@@ -89,7 +102,8 @@ struct ComputedStyle {
     // explicit length, so the adapter only pushes the edges that were
     // actually specified. Yoga treats the rest as undefined / auto,
     // which is the correct CSS behaviour for absolute anchoring and a
-    // no-op for relative.
+    // no-op for relative. Percent positions reuse the inset_* value
+    // slots as percent x100 and set the matching *_pct bit.
     std::int16_t inset_top   {0};
     std::int16_t inset_right {0};
     std::int16_t inset_bottom{0};
@@ -109,6 +123,9 @@ struct ComputedStyle {
     // letter-spacing in 1/100 px (signed). 0 = normal. Max useful
     // value is a few hundred px; int16 range is ±327.67 px, plenty.
     std::int16_t letter_spacing_x100{0};
+    // CSS `text-indent` (inherited). Lengths store px; percentages store
+    // percent x100 and set text_indent_is_pct below.
+    std::int16_t text_indent_value{0};
 
     // white-space: controls whitespace collapsing and wrapping.
     enum class WhiteSpace : std::uint8_t {
@@ -126,19 +143,26 @@ struct ComputedStyle {
     };
     TextTransform text_transform{TextTransform::None};
 
+    enum TextDecorationLine : std::uint8_t {
+        DecorationNone        = 0,
+        DecorationUnderline   = 1 << 0,
+        DecorationOverline    = 1 << 1,
+        DecorationLineThrough = 1 << 2,
+    };
+
     // 4-byte pad to keep struct on an even boundary (letter_spacing
     // is int16 + 2 enums = 4 bytes, so no explicit pad needed here).
     // Struct size stays at ~74 bytes after this addition.
 
     // ── Display + flex + position (4 bytes) ───────────────────────
     enum class Display : std::uint8_t {
-        Block, Inline, InlineBlock, Flex, None,
+        Block, Inline, InlineBlock, Flex, InlineFlex, Grid, InlineGrid, None,
         // CSS table model. Table stacks its row-groups/rows vertically;
         // TableRowGroup (thead/tbody/tfoot) is a transparent vertical
         // grouping; TableRow lays its cells horizontally; TableCell is a
         // sized item. Column widths are aligned across rows by a pre-pass
         // in the layout engine (see Document::layout).
-        Table, TableRowGroup, TableRow, TableCell,
+        Table, TableRowGroup, TableRow, TableCell, ListItem,
     };
     enum class Position : std::uint8_t {
         Static, Relative, Absolute, Fixed,
@@ -150,7 +174,7 @@ struct ComputedStyle {
     Display       display       {Display::Block};
     Position      position      {Position::Static};
     FlexDirection flex_direction{FlexDirection::Row};
-    std::uint8_t  font_style    {0};  // 0=normal, 1=italic, 2=oblique
+    std::uint8_t  font_style : 2 {0};  // 0=normal, 1=italic, 2=oblique
 
     // Cursor enum — drives sapp_set_mouse_cursor when this element is
     // under the pointer. Default = the OS default arrow. Pointer = the
@@ -159,7 +183,7 @@ struct ComputedStyle {
         Default = 0, Pointer, Text, Crosshair, Move,
         NotAllowed, ResizeEW, ResizeNS,
     };
-    Cursor cursor{Cursor::Default};
+    Cursor cursor : 3 {Cursor::Default};
 
     // CSS `text-align`. Controls horizontal alignment of inline content
     // within the block. Inherited (like `color`), so block children
@@ -170,7 +194,14 @@ struct ComputedStyle {
     enum class TextAlign : std::uint8_t {
         Left = 0, Center, Right, Justify,
     };
-    TextAlign     text_align{TextAlign::Left};
+    TextAlign     text_align : 2 {TextAlign::Left};
+
+    // CSS `list-style-type` (inherited). Only list-item boxes paint markers;
+    // other elements may carry the value for inheritance through ul/ol.
+    enum class ListStyleType : std::uint8_t {
+        Disc = 0, Circle, Square, Decimal, None,
+    };
+    ListStyleType list_style_type : 3 {ListStyleType::Disc};
 
     // CSS `overflow-y`. Determines whether children of this block can
     // be scrolled when content exceeds the box. Visible is the CSS
@@ -180,7 +211,30 @@ struct ComputedStyle {
     enum class Overflow : std::uint8_t {
         Visible = 0, Hidden, Clip, Scroll, Auto,
     };
-    Overflow      overflow_y{Overflow::Visible};
+    Overflow      overflow_y : 3 {Overflow::Visible};
+
+    // CSS `box-sizing`. ContentBox (the CSS default) means width/height
+    // size the content box and padding+border add on top; BorderBox
+    // means width/height size the border box (padding+border eat into it).
+    enum class BoxSizing : std::uint8_t {
+        ContentBox = 0, BorderBox,
+    };
+
+    // CSS `vertical-align`. It is non-inherited and only affects inline-level
+    // and table-cell layout; the Yoga adapter consumes it only when a node is
+    // inside one of Document's synthetic inline line boxes.
+    enum class VerticalAlign : std::uint8_t {
+        Baseline = 0, Middle, Top, Bottom, TextTop, TextBottom,
+    };
+    enum class Float : std::uint8_t {
+        None = 0, Left, Right,
+    };
+    VerticalAlign vertical_align : 3 {VerticalAlign::Baseline};
+    BoxSizing     box_sizing : 1 {BoxSizing::ContentBox};
+    std::uint8_t  text_decoration_line : 3 {DecorationNone};
+    Float         css_float : 2 {Float::None};
+    std::uint8_t  text_indent_is_pct : 1 {0};
+    std::uint8_t  border_style_sides : 4 {0};
 
     // Presence bits for the positioned-layout insets below. An inset
     // that the author left at its `auto` initial value keeps its bit
@@ -193,6 +247,10 @@ struct ComputedStyle {
         std::uint8_t right  : 1 {};
         std::uint8_t bottom : 1 {};
         std::uint8_t left   : 1 {};
+        std::uint8_t top_pct    : 1 {};
+        std::uint8_t right_pct  : 1 {};
+        std::uint8_t bottom_pct : 1 {};
+        std::uint8_t left_pct   : 1 {};
     } inset_has{};
 
     // Margin auto bits. When `margin-left:auto` / `margin-right:auto`
@@ -204,18 +262,7 @@ struct ComputedStyle {
         std::uint8_t right : 1 {};
     } margin_auto{};
 
-    // CSS `box-sizing`. ContentBox (the CSS default) means width/height
-    // size the content box and padding+border add on top; BorderBox
-    // means width/height size the border box (padding+border eat into
     // it). The Yoga adapter maps this onto YGBoxSizing — Yoga's own
-    // default is border-box, so the adapter explicitly pushes whichever
-    // value the cascade resolved. Lives in what used to be cursor
-    // padding, so it costs no struct size.
-    enum class BoxSizing : std::uint8_t {
-        ContentBox = 0, BorderBox,
-    };
-    BoxSizing     box_sizing{BoxSizing::ContentBox};
-
     // ── Flex container + item properties (12 bytes) ───────────────
     // CSS flex enums collapsed to our minimum-needed sets. Each maps
     // directly onto a Yoga YGAlign/YGJustify/YGWrap enum in the
@@ -264,18 +311,35 @@ struct ComputedStyle {
     // after the other fields to avoid disturbing existing alignment.
     std::int16_t  width_pct_x100{-1};
 
-    // ── Inheritance presence bitset (4 bytes, plenty of room) ─────
+    // ── Inheritance presence bitset (1 byte) ───────────────────────
     // Only inherited properties care about presence; non-inherited
     // properties default to their CSS initial value and never need
     // a "use parent's" path.
     struct InheritedHas {
-        std::uint32_t color       : 1 {};
-        std::uint32_t font_family : 1 {};
-        std::uint32_t font_size   : 1 {};
-        std::uint32_t font_weight : 1 {};
-        std::uint32_t font_style  : 1 {};
-        std::uint32_t text_align  : 1 {};
+        std::uint8_t color       : 1 {};
+        std::uint8_t font_family : 1 {};
+        std::uint8_t font_size   : 1 {};
+        std::uint8_t font_weight : 1 {};
+        std::uint8_t font_style  : 1 {};
+        std::uint8_t text_align  : 1 {};
     } has{};
+
+    bool border_side_has_style(std::uint8_t side) const noexcept {
+        return border_style != BorderStyle::None &&
+               (border_style_sides & side) != 0;
+    }
+    std::int16_t used_border_top() const noexcept {
+        return border_side_has_style(BorderTopSide) ? border_top : 0;
+    }
+    std::int16_t used_border_right() const noexcept {
+        return border_side_has_style(BorderRightSide) ? border_right : 0;
+    }
+    std::int16_t used_border_bottom() const noexcept {
+        return border_side_has_style(BorderBottomSide) ? border_bottom : 0;
+    }
+    std::int16_t used_border_left() const noexcept {
+        return border_side_has_style(BorderLeftSide) ? border_left : 0;
+    }
 
     // Roughly ~92 bytes after flex, positioned-layout insets, and
     // percentage-sizing fields (width_pct_x100, height_pct, flex_basis_pct,
@@ -316,6 +380,29 @@ inline float effective_line_height_mult(const ComputedStyle& cs) {
         return static_cast<float>(-cs.line_height_x100)
              / static_cast<float>(cs.font_size_px);
     return kNormalLineHeight;  // unset → CSS `normal` (font-derived)
+}
+
+inline constexpr std::int16_t encode_border_radius_pct_x100(int pct_x100) {
+    return static_cast<std::int16_t>(
+        pct_x100 <= 0 ? 0 : (pct_x100 > 32767 ? -32767 : -pct_x100));
+}
+
+inline bool border_radius_is_percent(std::int16_t radius) {
+    return radius < 0;
+}
+
+inline float resolve_border_radius_px(std::int16_t radius,
+                                      int width_px,
+                                      int height_px) {
+    if (radius >= 0) return static_cast<float>(radius);
+
+    // AffineUI's current painter model stores one circular radius per
+    // corner. CSS percentage radii have horizontal/vertical components,
+    // so use the limiting side for the scalar radius. Square 50% boxes
+    // become exact circles, and pill-like UI still clamps to the short side.
+    const int short_side = width_px < height_px ? width_px : height_px;
+    return static_cast<float>(short_side) *
+           static_cast<float>(-radius) / 10000.0f;
 }
 
 }  // namespace affineui::detail

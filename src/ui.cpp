@@ -77,14 +77,18 @@ struct UiImpl {
     Renderer renderer;
 
     // Advisory "needs repaint" flag (see Ui::needs_update). Starts true so
-    // the first frame always paints. TODO(embed §5): keep true while a CSS
-    // animation is in flight so an on-demand host renders until it settles.
+    // the first frame always paints; CSS animations are queried separately
+    // so an on-demand host renders only while they are actually active.
     bool dirty{true};
+    bool animations_active{false};
+    std::uint64_t html_epoch{0};
+    std::uint64_t render_epoch{0};
 
     // Click handlers, in insertion order. A single click can fire
     // multiple handlers if multiple selectors match (mirrors DOM
     // event bubbling intuitively at the registration site).
     std::vector<std::pair<std::string, std::function<void()>>> click_handlers;
+    std::vector<Ui::EventHandler> event_handlers;
 };
 
 // ── Internal log sink (embed_log.h) ─────────────────────────────────
@@ -121,12 +125,15 @@ Ui& Ui::operator=(Ui&&) noexcept = default;
 
 void Ui::html(std::string_view source) {
     impl_->document.set_html(source);
+    ++impl_->html_epoch;
     impl_->dirty = true;
+    impl_->animations_active = false;
 }
 
 void Ui::css(std::string_view source) {
     impl_->document.set_user_stylesheet(source);
     impl_->dirty = true;
+    impl_->animations_active = false;
 }
 
 bool Ui::load(std::string_view path) {
@@ -166,11 +173,13 @@ bool Ui::load(std::string_view path) {
 void Ui::mount(std::function<void()> view_fn) {
     impl_->document.set_imm_view(std::move(view_fn));
     impl_->dirty = true;
+    impl_->animations_active = false;
 }
 
 void Ui::invalidate() {
     impl_->document.invalidate_imm();
     impl_->dirty = true;
+    impl_->animations_active = false;
 }
 
 // ── Embedding (host-owned GPU) ───────────────────────────────────────
@@ -189,6 +198,7 @@ void Ui::init(const InitDesc& desc) {
         impl_->renderer.init_embedded(*desc.gpu, desc.allocator);
     }
     impl_->dirty = true;
+    impl_->animations_active = false;
 }
 
 // ── Rendering ───────────────────────────────────────────────────────
@@ -199,23 +209,69 @@ void Ui::render(int fb_w, int fb_h, float dpi_scale) {
     // inside tick_imm so layout/paint see the new tree.
     impl_->document.tick_imm();
     impl_->renderer.render(impl_->document, fb_w, fb_h, dpi_scale);
+    ++impl_->render_epoch;
+    impl_->animations_active = impl_->renderer.stats().animations_active;
     impl_->dirty = false;
 }
 
 void Ui::render(const FrameTarget& target) {
     impl_->document.tick_imm();
     impl_->renderer.render_to(impl_->document, target);
+    ++impl_->render_epoch;
+    impl_->animations_active = impl_->renderer.stats().animations_active;
     impl_->dirty = false;
 }
 
 // ── Update scheduling ───────────────────────────────────────────────
 
 bool Ui::needs_update() const {
-    return impl_->dirty || impl_->document.imm_dirty();
+    return impl_->dirty || impl_->document.imm_dirty() ||
+           impl_->animations_active;
 }
 
 void Ui::mark_dirty() {
     impl_->dirty = true;
+    impl_->animations_active = false;
+}
+
+bool Ui::set_attr(std::string_view elem_id, std::string_view name,
+                  std::string_view value) {
+    const bool changed = impl_->document.set_attribute_by_id(elem_id, name, value);
+    if (changed) {
+        impl_->dirty = true;
+        impl_->animations_active = false;
+    }
+    return changed;
+}
+
+bool Ui::remove_attr(std::string_view elem_id, std::string_view name) {
+    const bool changed = impl_->document.remove_attribute_by_id(elem_id, name);
+    if (changed) {
+        impl_->dirty = true;
+        impl_->animations_active = false;
+    }
+    return changed;
+}
+
+bool Ui::set_text(std::string_view elem_id, std::string_view text) {
+    const bool changed = impl_->document.set_text_by_id(elem_id, text);
+    if (changed) {
+        impl_->dirty = true;
+        impl_->animations_active = false;
+    }
+    return changed;
+}
+
+std::vector<Rect> Ui::take_dirty_rects() {
+    return impl_->document.take_dirty_rects();
+}
+
+std::uint64_t Ui::html_epoch() const {
+    return impl_->html_epoch;
+}
+
+std::uint64_t Ui::render_epoch() const {
+    return impl_->render_epoch;
 }
 
 void Ui::reset() {
@@ -223,7 +279,9 @@ void Ui::reset() {
     impl_->document.set_user_stylesheet("");  // clear user CSS
     impl_->document.set_html("");             // clear DOM
     impl_->click_handlers.clear();
+    impl_->event_handlers.clear();
     impl_->dirty = true;
+    impl_->animations_active = false;
     // TODO(embed §7): also release cached GPU resources + the asset cache
     // once those subsystems exist.
 }
@@ -231,30 +289,46 @@ void Ui::reset() {
 // ── Input ───────────────────────────────────────────────────────────
 
 bool Ui::dispatch(const Event& e) {
+    if (e.type == EventType::Resize) {
+        impl_->dirty = true;
+    }
     const auto result = impl_->document.dispatch(e);
     if (result.redraw_requested || result.invalidate_view) {
         impl_->dirty = true;  // a hover/focus/state change needs a repaint
     }
 
+    const auto chain = impl_->document.hovered_info_chain();
+    bool event_consumed = false;
+    for (const auto& cb : impl_->event_handlers) {
+        event_consumed = cb(e, chain) || event_consumed;
+    }
+    if (event_consumed) return true;
+
     // Click routing: on MouseUp, check (1) user-registered selectors
-    // via on_click, then (2) imm-mode handlers for elements stamped
-    // with `aui-imm-{hash}` ids. The user-handler path runs first so
-    // explicitly-bound handlers (e.g. retained-mode UI atop an imm-
-    // mode island) override.
+    // via on_click across the hovered ancestor chain, then (2) imm-mode
+    // handlers for elements stamped with `aui-imm-{hash}` ids. The
+    // user-handler path runs first so explicitly-bound handlers (e.g.
+    // retained-mode UI atop an imm-mode island) override.
     if (e.type == EventType::MouseUp && e.button == MouseButton::Left) {
-        const auto info = impl_->document.hovered_info();
-        if (info.valid) {
+        if (!chain.empty()) {
             bool consumed = false;
             for (const auto& [selector, cb] : impl_->click_handlers) {
-                if (matches_selector_list(selector, info)) {
+                const bool matched = std::any_of(
+                    chain.begin(), chain.end(),
+                    [&](const Document::HoverInfo& info) {
+                        return matches_selector_list(selector, info);
+                    });
+                if (matched) {
                     cb();
                     consumed = true;
                 }
             }
             if (consumed) return true;
             // imm-mode handler hit?
-            if (impl_->document.invoke_imm_click(info.elem_id)) {
-                return true;
+            for (const auto& info : chain) {
+                if (impl_->document.invoke_imm_click(info.elem_id)) {
+                    return true;
+                }
             }
         }
     }
@@ -265,10 +339,18 @@ int Ui::hovered_cursor() const {
     return impl_->document.hovered_cursor();
 }
 
+std::vector<Document::HoverInfo> Ui::hovered_info_chain() const {
+    return impl_->document.hovered_info_chain();
+}
+
 // ── Handlers ────────────────────────────────────────────────────────
 
 void Ui::on_click(std::string_view selector, std::function<void()> cb) {
     impl_->click_handlers.emplace_back(std::string(selector), std::move(cb));
+}
+
+void Ui::on_event(EventHandler cb) {
+    impl_->event_handlers.emplace_back(std::move(cb));
 }
 
 // ── Config ──────────────────────────────────────────────────────────

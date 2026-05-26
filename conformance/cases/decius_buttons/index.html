@@ -1,0 +1,71 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../_decius/css/decius.bundle.min.css">
+<style>
+body{margin:0;background:#14161c;padding:18px}
+.fixture{display:flex;gap:14px}
+.fixture>.dcs-panel{flex:1 1 0;min-width:0}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.stack{display:flex;flex-direction:column;gap:12px}
+</style>
+</head>
+<body class="dcs" data-dcs-density="comfortable">
+  <div class="fixture">
+    <section class="dcs-panel dcs-panel--bordered">
+      <div class="dcs-panel__header">
+        <div class="dcs-panel__title"><i class="di di-cube"></i><span>Button Variants</span></div>
+      </div>
+      <div class="dcs-panel__body stack">
+        <div class="row">
+          <button class="dcs-btn">Default</button>
+          <button class="dcs-btn dcs-btn--primary">Primary</button>
+          <button class="dcs-btn dcs-btn--danger">Danger</button>
+          <button class="dcs-btn dcs-btn--ghost">Ghost</button>
+          <button class="dcs-btn" disabled>Disabled</button>
+        </div>
+        <div class="row">
+          <button class="dcs-btn dcs-btn--sm"><i class="di di-check"></i> Small</button>
+          <button class="dcs-btn"><i class="di di-render"></i> Render</button>
+          <button class="dcs-btn dcs-btn--lg"><i class="di di-rocket"></i> Large</button>
+        </div>
+        <div class="row">
+          <button class="dcs-btn dcs-btn--icon" aria-label="Save"><i class="di di-save"></i></button>
+          <button class="dcs-btn dcs-btn--icon" aria-label="Undo"><i class="di di-undo"></i></button>
+          <button class="dcs-btn dcs-btn--icon" aria-label="Redo" aria-pressed="true"><i class="di di-redo"></i></button>
+          <button class="dcs-btn dcs-btn--icon dcs-btn--sm" aria-label="Close"><i class="di di-close"></i></button>
+        </div>
+      </div>
+    </section>
+
+    <section class="dcs-panel dcs-panel--bordered" data-dcs-style="3d">
+      <div class="dcs-panel__header">
+        <div class="dcs-panel__title"><i class="di di-gizmo"></i><span>Grouped Tools</span></div>
+      </div>
+      <div class="dcs-panel__body stack">
+        <div class="row">
+          <div class="dcs-btn-group">
+            <button class="dcs-btn" aria-pressed="true"><i class="di di-select"></i></button>
+            <button class="dcs-btn"><i class="di di-move"></i></button>
+            <button class="dcs-btn"><i class="di di-rotate"></i></button>
+            <button class="dcs-btn"><i class="di di-scale"></i></button>
+          </div>
+          <div class="dcs-btn-group">
+            <button class="dcs-btn">Local</button>
+            <button class="dcs-btn" aria-pressed="true">World</button>
+            <button class="dcs-btn">View</button>
+          </div>
+        </div>
+        <div class="dcs-toolbar">
+          <button class="dcs-btn dcs-btn--icon" aria-pressed="true"><i class="di di-grid"></i></button>
+          <button class="dcs-btn dcs-btn--icon"><i class="di di-snap"></i></button>
+          <button class="dcs-btn dcs-btn--icon"><i class="di di-magnet"></i></button>
+          <span class="dcs-toolbar__spacer"></span>
+          <button class="dcs-btn dcs-btn--primary"><i class="di di-play"></i> Preview</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

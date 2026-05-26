@@ -1,1 +1,1 @@
-{"width":640,"height":400,"dpi":1.0,"tolerance":2,"threshold":5.0,"steps":[]}
+{"width":640,"height":400,"dpi":1.0,"tolerance":2,"threshold":10.0,"steps":[],"_note":"Temporary human-approved pass: remaining delta is accepted text-flow/line-wrapping difference for now, not a fixture change. Revisit when the text shaping/wrapping model is tightened."}

@@ -1,0 +1,82 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>AffineUI - Decius skeuomorphic synth</title>
+  <link rel="stylesheet" href="../frameworks/css/decius-css-0.4.1.bundle.min.css">
+  <style>
+body{margin:0;background:#101219}
+.bench{min-height:100vh;background:radial-gradient(circle at 48% -20%,#34302a,#0e1015 72%);padding:24px;overflow:hidden}
+.case{position:relative;height:820px;border-radius:18px;background:linear-gradient(180deg,#211b16,#110e0c);box-shadow:inset 0 2px 0 rgba(255,255,255,.08),inset 0 -8px 24px rgba(0,0,0,.65),0 28px 70px rgba(0,0,0,.65);padding:28px;display:flex;gap:18px}
+.module{position:relative;flex:1;padding:28px 20px 20px}
+.module-wide{flex:1.35}.module-narrow{flex:.78}
+.mod-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.grid{display:flex;flex-wrap:wrap;gap:18px;align-items:center}.fader-bank{display:flex;gap:22px;align-items:center;justify-content:center;margin-top:20px}
+.jack-row{display:flex;gap:14px;margin-top:22px}.jack{width:28px;height:28px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#0b0c0f,#30333a 56%,#050608 100%);box-shadow:inset 0 2px 3px rgba(0,0,0,.9),0 1px 0 rgba(255,255,255,.18)}
+.mini-actions{display:flex;gap:8px;align-items:center}.mini-actions .dcs-btn{min-height:28px;padding:4px 9px}
+.cable{position:absolute;height:8px;border-radius:999px;background:linear-gradient(180deg,#6ee7ff,#1686d9);box-shadow:0 8px 18px rgba(0,0,0,.45);transform-origin:left center;animation:swing 2200ms ease-in-out infinite alternate;z-index:4}
+.c1{left:240px;top:610px;width:440px;transform:rotate(-10deg)}.c2{left:620px;top:646px;width:320px;background:linear-gradient(180deg,#ffcb6b,#d96b16);transform:rotate(8deg);animation-delay:300ms}.c3{left:900px;top:610px;width:260px;background:linear-gradient(180deg,#88ffbb,#1aaa68);transform:rotate(-14deg);animation-delay:620ms}
+@keyframes swing{from{filter:brightness(.96)}to{filter:brightness(1.12)}}
+.led{width:14px;height:14px;border-radius:50%;background:#45ff9c;box-shadow:0 0 18px #45ff9c,0 0 2px #fff;animation:blink 900ms steps(2,end) infinite}.led.red{background:#ff5d65;box-shadow:0 0 18px #ff5d65,0 0 2px #fff;animation-delay:250ms}.led.dim{opacity:.28;animation:none;box-shadow:0 0 4px rgba(69,255,156,.4)}
+@keyframes blink{50%{opacity:.35}}
+.readout{font-family:var(--dcs-font-mono);font-size:28px;letter-spacing:.12em;color:#ff6b55;background:#1a0806;border:1px solid rgba(255,107,85,.38);border-radius:6px;padding:8px 14px;text-shadow:0 0 14px rgba(255,107,85,.9);box-shadow:inset 0 2px 10px rgba(0,0,0,.8)}
+  </style>
+</head>
+<body class="dcs" data-dcs-density="comfortable" data-dcs-style="3d" data-dcs-accent="orange">
+<div class="bench"><div class="case">
+  <section class="module module-wide dcs-hw dcs-hw--brushed"><span class="dcs-hw__screw dcs-hw__screw--tl"></span><span class="dcs-hw__screw dcs-hw__screw--tr"></span><span class="dcs-hw__screw dcs-hw__screw--bl"></span><span class="dcs-hw__screw dcs-hw__screw--br"></span>
+    <div class="mod-title"><span class="dcs-hw__label">dual oscillator</span><div class="mini-actions"><button id="bank" class="dcs-btn"><i class="di di-sliders"></i> bank 3</button><div class="led"></div></div></div>
+    <fieldset class="dcs-silk"><legend>waves</legend><div class="grid">
+      <div id="saw" data-dcs-knob data-min="0" data-max="1" data-value=".62" class="dcs-knob" style="--knob-size:82px"><svg class="dcs-knob__ring" viewBox="0 0 24 24"><path d="M 4.58 4.58 A 10.5 10.5 0 1 1 19.42 19.42" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="1.5" stroke-linecap="round"></path><path id="saw__arc" class="dcs-knob__arc" d="M 4.58 4.58 A 10.5 10.5 0 0 1 20.58 16.96" fill="none" stroke="var(--dcs-accent)" stroke-width="1.75" stroke-linecap="round"></path></svg><div class="dcs-knob__cap"></div><div id="saw__indicator" class="dcs-knob__indicator" style="--angle:32.4deg"></div><div class="dcs-knob__label">Saw</div><div id="saw__value" class="dcs-knob__value">0.62</div></div>
+      <div id="pwm" data-dcs-knob data-min="0" data-max="1" data-value=".38" class="dcs-knob" style="--knob-size:82px"><svg class="dcs-knob__ring" viewBox="0 0 24 24"><path d="M 4.58 4.58 A 10.5 10.5 0 1 1 19.42 19.42" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="1.5" stroke-linecap="round"></path><path id="pwm__arc" class="dcs-knob__arc" d="M 4.58 4.58 A 10.5 10.5 0 0 1 8.95 21.99" fill="none" stroke="var(--dcs-accent)" stroke-width="1.75" stroke-linecap="round"></path></svg><div class="dcs-knob__cap"></div><div id="pwm__indicator" class="dcs-knob__indicator" style="--angle:-32.4deg"></div><div class="dcs-knob__label">PWM</div><div id="pwm__value" class="dcs-knob__value">0.38</div></div>
+      <div id="fine" data-dcs-knob data-min="-1" data-max="1" data-value="-.2" data-bipolar class="dcs-knob" style="--knob-size:82px"><svg class="dcs-knob__ring" viewBox="0 0 24 24"><path d="M 4.58 4.58 A 10.5 10.5 0 1 1 19.42 19.42" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="1.5" stroke-linecap="round"></path><path id="fine__arc" class="dcs-knob__arc" d="M 12 1.5 A 10.5 10.5 0 0 0 7.13 2.7" fill="none" stroke="var(--dcs-accent)" stroke-width="1.75" stroke-linecap="round"></path></svg><div class="dcs-knob__cap"></div><div id="fine__indicator" class="dcs-knob__indicator" style="--angle:-27deg"></div><div class="dcs-knob__label">Fine</div><div id="fine__value" class="dcs-knob__value">-0.2</div></div>
+    </div></fieldset>
+    <div class="jack-row"><div class="jack"></div><div class="jack"></div><div class="jack"></div><div class="jack"></div></div>
+  </section>
+  <section class="module dcs-hw dcs-hw--cream"><span class="dcs-hw__screw dcs-hw__screw--tl"></span><span class="dcs-hw__screw dcs-hw__screw--tr"></span><span class="dcs-hw__screw dcs-hw__screw--bl"></span><span class="dcs-hw__screw dcs-hw__screw--br"></span>
+    <div class="mod-title"><span class="dcs-hw__label">filter bank</span><div class="led red"></div></div>
+    <fieldset class="dcs-silk"><legend>ladder</legend><div class="grid">
+      <div id="cut" data-dcs-knob data-min="0" data-max="1" data-value=".74" class="dcs-knob" style="--knob-size:88px"><svg class="dcs-knob__ring" viewBox="0 0 24 24"><path d="M 4.58 4.58 A 10.5 10.5 0 1 1 19.42 19.42" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="1.5" stroke-linecap="round"></path><path id="cut__arc" class="dcs-knob__arc" d="M 4.58 4.58 A 10.5 10.5 0 1 1 22.44 11.34" fill="none" stroke="var(--dcs-accent)" stroke-width="1.75" stroke-linecap="round"></path></svg><div class="dcs-knob__cap"></div><div id="cut__indicator" class="dcs-knob__indicator" style="--angle:64.8deg"></div><div class="dcs-knob__label">Cut</div><div id="cut__value" class="dcs-knob__value">0.74</div></div>
+      <div id="res" data-dcs-knob data-min="0" data-max="1" data-value=".56" class="dcs-knob" style="--knob-size:88px"><svg class="dcs-knob__ring" viewBox="0 0 24 24"><path d="M 4.58 4.58 A 10.5 10.5 0 1 1 19.42 19.42" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="1.5" stroke-linecap="round"></path><path id="res__arc" class="dcs-knob__arc" d="M 4.58 4.58 A 10.5 10.5 0 0 1 18.03 20.98" fill="none" stroke="var(--dcs-accent)" stroke-width="1.75" stroke-linecap="round"></path></svg><div class="dcs-knob__cap"></div><div id="res__indicator" class="dcs-knob__indicator" style="--angle:16.2deg"></div><div class="dcs-knob__label">Res</div><div id="res__value" class="dcs-knob__value">0.56</div></div>
+      <div id="filter-send" data-dcs-slider data-min="0" data-max="1" data-value=".64" class="dcs-slider"><div class="dcs-slider__track"><div class="dcs-slider__tick" style="left:25%"></div><div class="dcs-slider__tick" style="left:50%"></div><div class="dcs-slider__tick" style="left:75%"></div><div id="filter-send__fill" class="dcs-slider__fill" style="width:64%"></div><div id="filter-send__thumb" class="dcs-slider__thumb" style="left:64%"></div></div></div>
+    </div></fieldset>
+    <div class="jack-row"><div class="jack"></div><div class="jack"></div><div class="jack"></div></div>
+  </section>
+  <section class="module module-narrow dcs-hw dcs-hw--red"><span class="dcs-hw__screw dcs-hw__screw--tl"></span><span class="dcs-hw__screw dcs-hw__screw--tr"></span><span class="dcs-hw__screw dcs-hw__screw--bl"></span><span class="dcs-hw__screw dcs-hw__screw--br"></span>
+    <div class="mod-title"><span class="dcs-hw__label">vca</span><div class="mini-actions"><button id="drive" class="dcs-btn dcs-btn--danger" aria-pressed="true"><i class="di di-zap"></i> hot</button></div></div>
+    <div id="readout" class="readout">7.42</div>
+    <div class="fader-bank"><div id="drive-a" data-dcs-fader data-min="0" data-max="1" data-value=".38" class="dcs-fader" style="--pos:38%"><div class="dcs-fader__track"></div><div class="dcs-fader__tick" style="top:25%"></div><div class="dcs-fader__tick" style="top:50%"></div><div class="dcs-fader__tick" style="top:75%"></div><div id="drive-a__thumb" class="dcs-fader__thumb"></div></div><div id="drive-b" data-dcs-fader data-min="0" data-max="1" data-value=".68" class="dcs-fader" style="--pos:68%"><div class="dcs-fader__track"></div><div class="dcs-fader__tick" style="top:25%"></div><div class="dcs-fader__tick" style="top:50%"></div><div class="dcs-fader__tick" style="top:75%"></div><div id="drive-b__thumb" class="dcs-fader__thumb"></div></div></div>
+    <div class="jack-row"><div class="jack"></div><div class="jack"></div></div>
+  </section>
+  <section class="module module-wide dcs-hw dcs-hw--lacquer"><span class="dcs-hw__screw dcs-hw__screw--tl"></span><span class="dcs-hw__screw dcs-hw__screw--tr"></span><span class="dcs-hw__screw dcs-hw__screw--bl"></span><span class="dcs-hw__screw dcs-hw__screw--br"></span>
+    <div class="mod-title"><span class="dcs-hw__label">envelope / modulation</span><div class="led"></div></div>
+    <fieldset class="dcs-silk"><legend>adsr</legend><div class="fader-bank"><div id="env-a" data-dcs-fader data-min="0" data-max="1" data-value=".18" class="dcs-fader" style="--pos:18%"><div class="dcs-fader__track"></div><div class="dcs-fader__tick" style="top:25%"></div><div class="dcs-fader__tick" style="top:50%"></div><div class="dcs-fader__tick" style="top:75%"></div><div id="env-a__thumb" class="dcs-fader__thumb"></div></div><div id="env-d" data-dcs-fader data-min="0" data-max="1" data-value=".42" class="dcs-fader" style="--pos:42%"><div class="dcs-fader__track"></div><div class="dcs-fader__tick" style="top:25%"></div><div class="dcs-fader__tick" style="top:50%"></div><div class="dcs-fader__tick" style="top:75%"></div><div id="env-d__thumb" class="dcs-fader__thumb"></div></div><div id="env-s" data-dcs-fader data-min="0" data-max="1" data-value=".71" class="dcs-fader" style="--pos:71%"><div class="dcs-fader__track"></div><div class="dcs-fader__tick" style="top:25%"></div><div class="dcs-fader__tick" style="top:50%"></div><div class="dcs-fader__tick" style="top:75%"></div><div id="env-s__thumb" class="dcs-fader__thumb"></div></div><div id="env-r" data-dcs-fader data-min="0" data-max="1" data-value=".56" class="dcs-fader" style="--pos:56%"><div class="dcs-fader__track"></div><div class="dcs-fader__tick" style="top:25%"></div><div class="dcs-fader__tick" style="top:50%"></div><div class="dcs-fader__tick" style="top:75%"></div><div id="env-r__thumb" class="dcs-fader__thumb"></div></div></div></fieldset>
+    <div class="jack-row"><div class="jack"></div><div class="jack"></div><div class="jack"></div><div class="jack"></div></div>
+  </section>
+  <div class="cable c1"></div><div class="cable c2"></div><div class="cable c3"></div>
+</div></div>
+<script src="../common/decius_demo_interactions.js"></script>
+<script>
+let bank = 3;
+document.getElementById("bank").addEventListener("click", ev => {
+  bank = bank % 8 + 1;
+  ev.currentTarget.innerHTML = `<i class="di di-sliders"></i> bank ${bank}`;
+});
+document.getElementById("drive").addEventListener("click", ev => {
+  const btn = ev.currentTarget;
+  const hot = btn.getAttribute("aria-pressed") !== "true";
+  if (hot) {
+    btn.setAttribute("aria-pressed", "true");
+    btn.classList.add("dcs-btn--danger");
+    btn.innerHTML = '<i class="di di-zap"></i> hot';
+    document.getElementById("readout").textContent = "7.42";
+  } else {
+    btn.removeAttribute("aria-pressed");
+    btn.classList.remove("dcs-btn--danger");
+    btn.innerHTML = '<i class="di di-zap"></i> idle';
+    document.getElementById("readout").textContent = "2.18";
+  }
+});
+</script>
+</body>
+</html>

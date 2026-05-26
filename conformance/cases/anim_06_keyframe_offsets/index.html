@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #ffffff; }
+  .stage { position: relative; width: 460px; height: 220px; background: #f8f9fa; }
+  .track { position: absolute; left: 44px; top: 102px; width: 300px; height: 12px; background: #d3d9df; }
+  .target {
+    position: absolute; left: 44px; top: 76px; width: 72px; height: 64px;
+    background: #0d6efd;
+    animation: offset_motion 1000ms linear 1 both;
+  }
+  @keyframes offset_motion {
+    0%   { transform: translateX(0); opacity: .35; }
+    30%  { transform: translateX(150px); opacity: 1; }
+    70%  { transform: translateX(90px); opacity: .55; }
+    100% { transform: translateX(240px); opacity: .9; }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="track"></div>
+    <div class="target"></div>
+  </div>
+</body>
+</html>

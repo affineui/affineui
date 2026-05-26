@@ -1,0 +1,63 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../_decius/css/decius.bundle.min.css">
+<style>
+body{margin:0;background:#14161c;padding:18px}
+.rack{display:flex;flex-wrap:wrap;gap:18px;width:538px}
+.hw{height:132px;padding:22px 18px 16px}
+.label-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.silk-grid{display:flex;gap:12px;align-items:center}
+.silk-grid .dcs-btn{min-width:60px}
+</style>
+</head>
+<body class="dcs" data-dcs-density="comfortable">
+  <div class="rack">
+    <section class="hw dcs-hw dcs-hw--brushed">
+      <span class="dcs-hw__screw dcs-hw__screw--tl"></span>
+      <span class="dcs-hw__screw dcs-hw__screw--tr"></span>
+      <span class="dcs-hw__screw dcs-hw__screw--bl"></span>
+      <span class="dcs-hw__screw dcs-hw__screw--br"></span>
+      <div class="label-row"><span class="dcs-hw__label">brushed</span><span class="dcs-badge dcs-badge--dot">sync</span></div>
+      <fieldset class="dcs-silk">
+        <legend>oscillator</legend>
+        <div class="silk-grid"><button class="dcs-btn dcs-btn--sm">Saw</button><button class="dcs-btn dcs-btn--sm">PWM</button></div>
+      </fieldset>
+    </section>
+    <section class="hw dcs-hw dcs-hw--lacquer">
+      <span class="dcs-hw__screw dcs-hw__screw--tl"></span>
+      <span class="dcs-hw__screw dcs-hw__screw--tr"></span>
+      <span class="dcs-hw__screw dcs-hw__screw--bl"></span>
+      <span class="dcs-hw__screw dcs-hw__screw--br"></span>
+      <div class="label-row"><span class="dcs-hw__label">lacquer</span><span class="dcs-badge dcs-badge--accent">armed</span></div>
+      <fieldset class="dcs-silk">
+        <legend>filter</legend>
+        <div class="silk-grid"><button class="dcs-btn dcs-btn--sm dcs-btn--primary">LP</button><button class="dcs-btn dcs-btn--sm">BP</button></div>
+      </fieldset>
+    </section>
+    <section class="hw dcs-hw dcs-hw--cream">
+      <span class="dcs-hw__screw dcs-hw__screw--tl"></span>
+      <span class="dcs-hw__screw dcs-hw__screw--tr"></span>
+      <span class="dcs-hw__screw dcs-hw__screw--bl"></span>
+      <span class="dcs-hw__screw dcs-hw__screw--br"></span>
+      <div class="label-row"><span class="dcs-hw__label">cream</span><span class="dcs-badge dcs-badge--warning">warm</span></div>
+      <fieldset class="dcs-silk">
+        <legend>envelope</legend>
+        <div class="silk-grid"><button class="dcs-btn dcs-btn--sm">Fast</button><button class="dcs-btn dcs-btn--sm">Slow</button></div>
+      </fieldset>
+    </section>
+    <section class="hw dcs-hw dcs-hw--red">
+      <span class="dcs-hw__screw dcs-hw__screw--tl"></span>
+      <span class="dcs-hw__screw dcs-hw__screw--tr"></span>
+      <span class="dcs-hw__screw dcs-hw__screw--bl"></span>
+      <span class="dcs-hw__screw dcs-hw__screw--br"></span>
+      <div class="label-row"><span class="dcs-hw__label">red</span><span class="dcs-badge dcs-badge--danger">peak</span></div>
+      <fieldset class="dcs-silk">
+        <legend>drive</legend>
+        <div class="silk-grid"><button class="dcs-btn dcs-btn--sm">Soft</button><button class="dcs-btn dcs-btn--sm dcs-btn--danger">Hard</button></div>
+      </fieldset>
+    </section>
+  </div>
+</body>
+</html>

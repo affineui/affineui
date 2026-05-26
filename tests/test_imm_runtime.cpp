@@ -29,7 +29,8 @@ public:
     void fill_linear_gradient_rect(const affineui::Rect&, float, affineui::Color, affineui::Color,
                                    float, float, float, float) override {}
     void fill_radial_gradient_rect(const affineui::Rect&, affineui::Color, affineui::Color,
-                                   float, float, float, float) override {}
+                                   float, float, float, float,
+                                   float = 50, float = 50, float = 100) override {}
     void fill_box_shadow(const affineui::Rect&, float, affineui::Color,
                          float, float, float, float, bool) override {}
     std::uint32_t resolve_font(std::string_view, int, int, bool) override { return 1; }

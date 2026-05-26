@@ -45,6 +45,35 @@ point. Interaction is driven by **synthetic input**: AffineUI dispatches
 `MouseMove/Down/Up`; the browser uses Playwright's `page.mouse` (the standard
 Chrome DevTools Protocol `Input.*` path).
 
+`mouse_path [[x,y], ...]` replays a simple pointer trace in addition to the
+basic `click`, `hover`, and `wait_ms` steps. `mouse_recording` replays the
+full demo recorder format, including `move`, `down`, and `up` events:
+
+```json
+{
+  "mouse_recording": [
+    { "type": "move", "x": 120, "y": 80 },
+    { "type": "down", "x": 120, "y": 80 },
+    { "type": "up",   "x": 120, "y": 80 }
+  ],
+  "snapshot_prefix": "path"
+}
+```
+
+If either trace step has
+`"snapshot_prefix": "path"`, both drivers capture a snapshot after each point
+as `path_000`, `path_001`, ...; the runner then builds browser/AffineUI/diff
+filmstrips. This is the preferred way to turn an observed hover/drag repaint
+bug into a deterministic regression test. Playback annotates mouse-down frames
+with a transparent blue click crosshair so the filmstrip shows where the user
+clicked without modifying the tested UI.
+
+The Sokol demo adapter continuously records mouse movement in CSS pixels.
+Press `R` to flush the current trace, or just exit the demo; cleanup writes
+`affineui_mouse_path_<timestamp>_<n>.json` in the process working directory. Paste
+that JSON object into a conformance case's `steps` array to replay the exact
+movement.
+
 ### Extending the step vocabulary
 The step set is intentionally **small and extensible** — we don't need every
 interaction type up front; **agents add new ones as they go**. To add a step

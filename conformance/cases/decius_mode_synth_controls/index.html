@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../_decius/css/decius.bundle.min.css">
+<style>
+body{margin:0;background:#14161c;padding:18px}
+.module{width:620px;height:260px;padding:26px 24px 18px}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.controls{display:flex;align-items:flex-start;gap:28px}
+.faders{display:flex;align-items:center;gap:18px;margin-left:auto}
+.slot{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--dcs-text-dim);font-size:var(--dcs-fs-xs);font-family:var(--dcs-font-mono)}
+.knob-row{display:flex;gap:26px}
+</style>
+</head>
+<body class="dcs" data-dcs-density="comfortable" data-dcs-style="3d">
+  <section class="module dcs-hw dcs-hw--brushed">
+    <span class="dcs-hw__screw dcs-hw__screw--tl"></span>
+    <span class="dcs-hw__screw dcs-hw__screw--tr"></span>
+    <span class="dcs-hw__screw dcs-hw__screw--bl"></span>
+    <span class="dcs-hw__screw dcs-hw__screw--br"></span>
+    <div class="top"><span class="dcs-hw__label">voice control</span><span class="dcs-badge dcs-badge--accent">synth</span></div>
+    <div class="controls">
+      <div class="knob-row">
+        <div data-dcs-knob data-min="0" data-max="100" data-value="18" data-label="Atk"></div>
+        <div data-dcs-knob data-min="0" data-max="100" data-value="42" data-label="Dec"></div>
+        <div data-dcs-knob data-min="0" data-max="100" data-value="71" data-label="Rel"></div>
+      </div>
+      <div class="faders">
+        <div class="slot">
+          <div class="dcs-fader" style="--pos:28%">
+            <div class="dcs-fader__track"></div>
+            <div class="dcs-fader__tick" style="top:25%"></div>
+            <div class="dcs-fader__tick" style="top:50%"></div>
+            <div class="dcs-fader__tick" style="top:75%"></div>
+            <div class="dcs-fader__thumb"></div>
+          </div>
+          <span>OSC</span>
+        </div>
+        <div class="slot">
+          <div class="dcs-fader" style="--pos:58%">
+            <div class="dcs-fader__track"></div>
+            <div class="dcs-fader__tick" style="top:25%"></div>
+            <div class="dcs-fader__tick" style="top:50%"></div>
+            <div class="dcs-fader__tick" style="top:75%"></div>
+            <div class="dcs-fader__thumb"></div>
+          </div>
+          <span>VCF</span>
+        </div>
+        <div class="slot">
+          <div class="dcs-fader" style="--pos:76%">
+            <div class="dcs-fader__track"></div>
+            <div class="dcs-fader__tick" style="top:25%"></div>
+            <div class="dcs-fader__tick" style="top:50%"></div>
+            <div class="dcs-fader__tick" style="top:75%"></div>
+            <div class="dcs-fader__thumb"></div>
+          </div>
+          <span>OUT</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

@@ -144,6 +144,9 @@ LXB_API bool
 lxb_css_property_state_border_collapse(lxb_css_parser_t *parser,
                                        const lxb_css_syntax_token_t *token, void *ctx);
 LXB_API bool
+lxb_css_property_state_list_style_type(lxb_css_parser_t *parser,
+                                       const lxb_css_syntax_token_t *token, void *ctx);
+LXB_API bool
 lxb_css_property_state_border_radius(lxb_css_parser_t *parser,
                                      const lxb_css_syntax_token_t *token, void *ctx);
 LXB_API bool
@@ -165,14 +168,57 @@ LXB_API bool
 lxb_css_property_state_background_color(lxb_css_parser_t *parser,
                                         const lxb_css_syntax_token_t *token, void *ctx);
 LXB_API bool
+lxb_css_property_state_background_size(lxb_css_parser_t *parser,
+                                       const lxb_css_syntax_token_t *token, void *ctx);
+LXB_API bool
 lxb_css_property_state_color(lxb_css_parser_t *parser,
                              const lxb_css_syntax_token_t *token, void *ctx);
+LXB_API bool
+lxb_css_property_state_content(lxb_css_parser_t *parser,
+                               const lxb_css_syntax_token_t *token, void *ctx);
 LXB_API bool
 lxb_css_property_state_opacity(lxb_css_parser_t *parser,
                                const lxb_css_syntax_token_t *token, void *ctx);
 LXB_API bool
+lxb_css_property_state_transform(lxb_css_parser_t *parser,
+                                 const lxb_css_syntax_token_t *token, void *ctx);
+LXB_API bool
+lxb_css_property_state_transform_origin(lxb_css_parser_t *parser,
+                                        const lxb_css_syntax_token_t *token,
+                                        void *ctx);
+LXB_API bool
+lxb_css_property_state_animation(lxb_css_parser_t *parser,
+                                 const lxb_css_syntax_token_t *token, void *ctx);
+LXB_API bool
+lxb_css_property_state_animation_name(lxb_css_parser_t *parser,
+                                      const lxb_css_syntax_token_t *token, void *ctx);
+LXB_API bool
+lxb_css_property_state_animation_duration(lxb_css_parser_t *parser,
+                                          const lxb_css_syntax_token_t *token, void *ctx);
+LXB_API bool
+lxb_css_property_state_animation_timing_function(lxb_css_parser_t *parser,
+                                                const lxb_css_syntax_token_t *token, void *ctx);
+LXB_API bool
+lxb_css_property_state_animation_delay(lxb_css_parser_t *parser,
+                                       const lxb_css_syntax_token_t *token, void *ctx);
+LXB_API bool
+lxb_css_property_state_animation_iteration_count(lxb_css_parser_t *parser,
+                                                const lxb_css_syntax_token_t *token, void *ctx);
+LXB_API bool
+lxb_css_property_state_animation_direction(lxb_css_parser_t *parser,
+                                           const lxb_css_syntax_token_t *token, void *ctx);
+LXB_API bool
+lxb_css_property_state_animation_fill_mode(lxb_css_parser_t *parser,
+                                           const lxb_css_syntax_token_t *token, void *ctx);
+LXB_API bool
+lxb_css_property_state_animation_play_state(lxb_css_parser_t *parser,
+                                            const lxb_css_syntax_token_t *token, void *ctx);
+LXB_API bool
 lxb_css_property_state_position(lxb_css_parser_t *parser,
                                 const lxb_css_syntax_token_t *token, void *ctx);
+LXB_API bool
+lxb_css_property_state_inset(lxb_css_parser_t *parser,
+                             const lxb_css_syntax_token_t *token, void *ctx);
 LXB_API bool
 lxb_css_property_state_top(lxb_css_parser_t *parser,
                            const lxb_css_syntax_token_t *token, void *ctx);

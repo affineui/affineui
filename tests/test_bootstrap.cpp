@@ -73,7 +73,8 @@ public:
     }
     void fill_radial_gradient_rect(const affineui::Rect& rect,
                                    affineui::Color c0, affineui::Color,
-                                   float, float, float, float) override {
+                                   float, float, float, float,
+                                   float = 50, float = 50, float = 100) override {
         fills.push_back({rect, c0});
     }
     void fill_box_shadow(const affineui::Rect& rect, float, affineui::Color c,

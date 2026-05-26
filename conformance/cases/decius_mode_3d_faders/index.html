@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../_decius/css/decius.bundle.min.css">
+<style>
+body{margin:0;background:#14161c;padding:18px}
+.fixture{width:260px}
+.row{display:flex;align-items:center;gap:28px}
+.slot{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--dcs-text-dim);font-size:var(--dcs-fs-xs);font-family:var(--dcs-font-mono)}
+</style>
+</head>
+<body class="dcs" data-dcs-density="comfortable" data-dcs-style="3d">
+  <section class="fixture dcs-panel dcs-panel--bordered">
+    <div class="dcs-panel__header">
+      <div class="dcs-panel__title"><i class="di di-track-a"></i><span>3D Faders</span></div>
+    </div>
+    <div class="dcs-panel__body row">
+      <div class="slot">
+        <div class="dcs-fader" style="--pos:24%">
+          <div class="dcs-fader__track"></div>
+          <div class="dcs-fader__tick" style="top:25%"></div>
+          <div class="dcs-fader__tick" style="top:50%"></div>
+          <div class="dcs-fader__tick" style="top:75%"></div>
+          <div class="dcs-fader__thumb"></div>
+        </div>
+        <span>AUX</span>
+      </div>
+      <div class="slot">
+        <div class="dcs-fader" style="--pos:50%">
+          <div class="dcs-fader__track"></div>
+          <div class="dcs-fader__tick" style="top:25%"></div>
+          <div class="dcs-fader__tick" style="top:50%"></div>
+          <div class="dcs-fader__tick" style="top:75%"></div>
+          <div class="dcs-fader__thumb"></div>
+        </div>
+        <span>BUS</span>
+      </div>
+      <div class="slot">
+        <div class="dcs-fader" style="--pos:76%">
+          <div class="dcs-fader__track"></div>
+          <div class="dcs-fader__tick" style="top:25%"></div>
+          <div class="dcs-fader__tick" style="top:50%"></div>
+          <div class="dcs-fader__tick" style="top:75%"></div>
+          <div class="dcs-fader__thumb"></div>
+        </div>
+        <span>OUT</span>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

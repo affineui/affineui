@@ -53,12 +53,42 @@ handler now detects `linear-gradient()` and `radial-gradient()` FUNCTION tokens
 and dispatches to a new `lxb_css_property_state_gradient_args()` parser that
 handles:
   - `linear-gradient([ <angle> | to <side> ]?, <color>, <color>)`
-  - `radial-gradient([ circle ]?, <color>, <color>)`
+  - `radial-gradient([ circle ]? [ at <position> ]?, <color>, <color>[, ...])`
 The `to` and `circle` keywords are matched by direct string comparison (they
 are not in the CSS value enum table). Angle units (deg, rad, turn, grad) are
 converted to CSS degrees using `lxb_css_unit_angel_by_name` against the correct
 `LXB_CSS_UNIT_DEG / LXB_CSS_UNIT_RAD / LXB_CSS_UNIT_TURN / LXB_CSS_UNIT_GRAD`
-enum values. Error recovery skips to `)` on parse failure.
+enum values. `background` values that contain `var()` are preserved as typed
+undefined declarations instead of being silently consumed, so AffineUI can
+substitute custom properties per element and re-parse the resolved shorthand.
+Radial gradients preserve percentage centers for CSS `at <position>` and keep
+the first and last parsed color stops for AffineUI's current 2-stop paint
+primitive.
+
+### css: content property for generated pseudo-elements
+
+Adds `content` to the property table with typed support for string values
+plus the standard `normal` / `none` keywords. Unsupported forms such as
+`var(--x, "...")` are preserved as typed undefined declarations so AffineUI
+can resolve custom properties per matched pseudo-element during layout.
+
+### css: transform property for animation targets
+
+Adds `transform` to the property table with typed support for the common 2D
+functions AffineUI can currently resolve: `translate`, `translateX`,
+`translateY`, `scale`, `scaleX`, `scaleY`, `rotate`, and `matrix`. The
+Lexbor value preserves an ordered transform-function list; AffineUI's cascade
+maps the subset that fits its current `AnimatedStyle` decomposition.
+
+### css: animation shorthand and core longhands
+
+Adds typed support for single-animation `animation` shorthand plus the core
+longhands (`animation-name`, `animation-duration`,
+`animation-timing-function`, `animation-delay`,
+`animation-iteration-count`, `animation-direction`,
+`animation-fill-mode`, and `animation-play-state`). This covers Bootstrap's
+spinner shorthand shape and gives AffineUI enough resolved metadata to schedule
+animations once `@keyframes` collection is wired in.
 
 ## Syncing Into AffineUI
 

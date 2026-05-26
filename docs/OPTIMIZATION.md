@@ -3,7 +3,10 @@
 The performance shape of AffineUI is the central architectural pressure
 on every other decision. Read [DESIGN.md § Real-time render
 architecture](DESIGN.md#real-time-render-architecture) first for the
-high-level pipeline; this document is the concrete playbook.
+high-level pipeline and
+[RENDERER_COMPOSITOR.md](RENDERER_COMPOSITOR.md) for the current retained
+renderer/compositor implementation; this document is the concrete
+playbook.
 
 The headline claim:
 
@@ -375,8 +378,11 @@ the optimizations above can be retrofitted without a rewrite.
 
 - **ComputedStyle is a value type, refcountable, ~256 B.** Sharing is
   a future drop-in; the type doesn't change.
-- **Display list is a `vector<PaintOp>` + bbox + rolling hash.**
-  Hashing is opt-in; consumers read the hash or ignore it.
+- **Display list is compact paint ops plus derived replay metadata.**
+  `vector<PaintOp>` and the text pool define the content hash; prepared
+  bounds and jumps such as transformed-range and clip-range metadata are
+  derived after recording and may be ignored by consumers that do not
+  need culling.
 - **Layer owns one texture handle + one transform matrix + one
   opacity.** Animation is "update the matrix/opacity uniform."
 - **Style invalidation flows through a `restyle_queue` not direct

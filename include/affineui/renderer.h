@@ -29,11 +29,42 @@
 #include "affineui/embed.h"
 #include "affineui/types.h"
 
+#include <cstdint>
 #include <memory>
+#include <span>
+#include <string_view>
 
 namespace affineui {
 
 class Document;
+
+struct RenderStats {
+    std::uint64_t frames{0};
+    std::uint64_t display_list_records{0};
+    std::uint64_t display_list_replays{0};
+    std::uint64_t display_list_ops_culled{0};
+    std::uint64_t display_list_changes{0};
+    std::uint64_t display_list_unchanged{0};
+    std::uint64_t root_layer_rasterizes{0};
+    std::uint64_t root_layer_partial_rasterizes{0};
+    std::uint64_t root_layer_composites{0};
+    std::uint64_t root_layer_direct_composites{0};
+    std::uint32_t cached_ops{0};
+    std::uint32_t dirty_rects{0};
+    std::uint32_t dirty_area_px{0};
+    std::uint32_t dirty_area_pct_x100{0};
+    std::uint32_t display_list_ops_culled_this_frame{0};
+    bool          recorded_this_frame{false};
+    bool          display_list_changed_this_frame{false};
+    bool          root_layer_rasterized_this_frame{false};
+    bool          root_layer_partial_this_frame{false};
+    bool          root_layer_direct_this_frame{false};
+    bool          root_layer_reused_this_frame{false};
+    bool          viewport_changed{false};
+    bool          layout_dirty{false};
+    bool          paint_dirty{false};
+    bool          animations_active{false};
+};
 
 namespace detail { struct RendererImpl; }
 
@@ -89,11 +120,25 @@ public:
     /// from inside your render pass.
     void render(Document& doc, int fb_w, int fb_h, float dpi_scale);
 
+    /// Draw a lightweight native debug overlay into the current render
+    /// pass. This intentionally bypasses the document tree so perf
+    /// instrumentation does not force HTML reparsing or affect layout.
+    void draw_debug_overlay(std::string_view text,
+                            std::span<const float> frame_ms,
+                            int fb_w,
+                            int fb_h,
+                            float dpi_scale);
+
     /// Background color (RGBA) applied to the default framebuffer
     /// before the document quad is composited on top. Default is the
     /// catppuccin Base #1e1e2e.
     void set_clear_color(Color c);
     Color clear_color() const;
+
+    /// Lightweight counters for profiling retained rendering. A frame
+    /// can replay the cached display list without recording document
+    /// paint; `recorded_this_frame` tells those paths apart.
+    const RenderStats& stats() const noexcept;
 
 private:
     std::unique_ptr<detail::RendererImpl> impl_;

@@ -1,0 +1,1 @@
+affineui_add_sokol_example(decius_game_editor main.cpp)

@@ -1,5 +1,6 @@
 #include "layout/yoga_adapter.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdlib>
 #include <vector>
@@ -15,10 +16,12 @@ namespace affineui::detail {
 void layout_blocks_with_yoga(int /*viewport_width_px*/,
                              std::span<const BlockLayoutInput> /*inputs*/,
                              std::span<Rect> out_bounds,
-                             Painter* /*measurer*/) {
+                             Painter* /*measurer*/,
+                             std::span<RectF> out_float_bounds) {
     // Stub: zero everything out. Real layout requires Yoga which is
     // not linked in this build configuration.
     for (auto& r : out_bounds) r = Rect{};
+    for (auto& r : out_float_bounds) r = RectF{};
 }
 
 #else  // !AFFINEUI_STUB_BUILD
@@ -88,8 +91,23 @@ inline YGPositionType to_yg(ComputedStyle::Position p) noexcept {
     return YGPositionTypeStatic;
 }
 
+inline bool is_flex_container(ComputedStyle::Display d) noexcept {
+    return d == ComputedStyle::Display::Flex ||
+           d == ComputedStyle::Display::InlineFlex;
+}
+
+inline bool is_row_flex_direction(ComputedStyle::FlexDirection d) noexcept {
+    return d == ComputedStyle::FlexDirection::Row ||
+           d == ComputedStyle::FlexDirection::RowReverse;
+}
+
 void apply_style(YGNodeRef node, const ComputedStyle& cs,
-                 int intrinsic_w, int intrinsic_h) {
+                 int intrinsic_w, int intrinsic_h, int auto_min_w,
+                 bool inline_parent,
+                 bool flex_parent,
+                 ComputedStyle::FlexDirection parent_flex_direction,
+                 bool percent_width_indefinite,
+                 bool percent_height_indefinite) {
     // ── Box-sizing ─────────────────────────────────────────────────
     // Yoga's *default* is border-box, but the CSS default is
     // content-box (width/height size the content; padding+border add
@@ -115,14 +133,41 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
     // negative, so set them verbatim rather than via to_yoga_edge.
     if (cs.position != ComputedStyle::Position::Static) {
         YGNodeStyleSetPositionType(node, to_yg(cs.position));
-        if (cs.inset_has.top)
-            YGNodeStyleSetPosition(node, YGEdgeTop,    static_cast<float>(cs.inset_top));
-        if (cs.inset_has.right)
-            YGNodeStyleSetPosition(node, YGEdgeRight,  static_cast<float>(cs.inset_right));
-        if (cs.inset_has.bottom)
-            YGNodeStyleSetPosition(node, YGEdgeBottom, static_cast<float>(cs.inset_bottom));
-        if (cs.inset_has.left)
-            YGNodeStyleSetPosition(node, YGEdgeLeft,   static_cast<float>(cs.inset_left));
+        if (cs.inset_has.top) {
+            if (cs.inset_has.top_pct)
+                YGNodeStyleSetPositionPercent(node, YGEdgeTop,
+                    static_cast<float>(cs.inset_top) / 100.0f);
+            else
+                YGNodeStyleSetPosition(node, YGEdgeTop,
+                    static_cast<float>(cs.inset_top));
+        }
+        if (cs.inset_has.right) {
+            if (cs.inset_has.right_pct)
+                YGNodeStyleSetPositionPercent(node, YGEdgeRight,
+                    static_cast<float>(cs.inset_right) / 100.0f);
+            else
+                YGNodeStyleSetPosition(node, YGEdgeRight,
+                    static_cast<float>(cs.inset_right));
+        }
+        if (cs.inset_has.bottom) {
+            if (cs.inset_has.bottom_pct)
+                YGNodeStyleSetPositionPercent(node, YGEdgeBottom,
+                    static_cast<float>(cs.inset_bottom) / 100.0f);
+            else
+                YGNodeStyleSetPosition(node, YGEdgeBottom,
+                    static_cast<float>(cs.inset_bottom));
+        }
+        if (cs.inset_has.left) {
+            if (cs.inset_has.left_pct)
+                YGNodeStyleSetPositionPercent(node, YGEdgeLeft,
+                    static_cast<float>(cs.inset_left) / 100.0f);
+            else
+                YGNodeStyleSetPosition(node, YGEdgeLeft,
+                    static_cast<float>(cs.inset_left));
+        }
+    }
+    if (cs.css_float != ComputedStyle::Float::None && !flex_parent) {
+        YGNodeStyleSetPositionType(node, YGPositionTypeAbsolute);
     }
 
     // ── display:none ───────────────────────────────────────────────
@@ -141,11 +186,22 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
     // (Yoga's column-stretch shape) the values still get pushed —
     // Yoga ignores most of them when there's a single child column.
     // Pushing them universally keeps the adapter branch-free.
-    if (cs.display == ComputedStyle::Display::Flex) {
+    const bool is_grid_container =
+        cs.display == ComputedStyle::Display::Grid ||
+        cs.display == ComputedStyle::Display::InlineGrid;
+    if (is_flex_container(cs.display)) {
         YGNodeStyleSetFlexDirection (node, to_yg(cs.flex_direction));
         YGNodeStyleSetJustifyContent(node, to_yg(cs.justify_content));
         YGNodeStyleSetAlignItems    (node, to_yg(cs.align_items));
         YGNodeStyleSetFlexWrap      (node, to_yg(cs.flex_wrap));
+        if (cs.row_gap    > 0) YGNodeStyleSetGap(node, YGGutterRow,    static_cast<float>(cs.row_gap));
+        if (cs.column_gap > 0) YGNodeStyleSetGap(node, YGGutterColumn, static_cast<float>(cs.column_gap));
+    } else if (is_grid_container) {
+        // Minimal CSS grid support: model auto-placed grid items as a
+        // single stretched column. This matches Bootstrap's `.d-grid`
+        // button stacks and keeps gap semantics in the layout layer.
+        YGNodeStyleSetFlexDirection(node, YGFlexDirectionColumn);
+        YGNodeStyleSetAlignItems   (node, YGAlignStretch);
         if (cs.row_gap    > 0) YGNodeStyleSetGap(node, YGGutterRow,    static_cast<float>(cs.row_gap));
         if (cs.column_gap > 0) YGNodeStyleSetGap(node, YGGutterColumn, static_cast<float>(cs.column_gap));
     } else if (cs.display == ComputedStyle::Display::TableRow) {
@@ -177,25 +233,66 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
     // mixed button + text rows.
     if (cs.display == ComputedStyle::Display::Inline ||
         cs.display == ComputedStyle::Display::InlineBlock ||
+        cs.display == ComputedStyle::Display::InlineFlex ||
+        cs.display == ComputedStyle::Display::InlineGrid ||
         cs.display == ComputedStyle::Display::TableCell) {
         // A table cell keeps the column width the layout pre-pass assigned
         // it — don't let Yoga shrink it to fit the row.
         YGNodeStyleSetFlexShrink (node, 0.0f);
     }
+    const bool forced_no_shrink_item =
+        (inline_parent &&
+         (cs.display == ComputedStyle::Display::Inline ||
+          cs.display == ComputedStyle::Display::InlineBlock ||
+          cs.display == ComputedStyle::Display::InlineFlex ||
+          cs.display == ComputedStyle::Display::InlineGrid)) ||
+        cs.display == ComputedStyle::Display::TableCell;
+
+    // CSS vertical-align applies to inline-level boxes, not to ordinary flex
+    // items. Document models each inline run as a synthetic flex row, so this
+    // is the narrow point where inline vertical alignment can be translated to
+    // Yoga without leaking into real author flex containers.
+    if (inline_parent) {
+        switch (cs.vertical_align) {
+            case ComputedStyle::VerticalAlign::Middle:
+                YGNodeStyleSetAlignSelf(node, YGAlignCenter);
+                break;
+            case ComputedStyle::VerticalAlign::Top:
+            case ComputedStyle::VerticalAlign::TextTop:
+                YGNodeStyleSetAlignSelf(node, YGAlignFlexStart);
+                break;
+            case ComputedStyle::VerticalAlign::Bottom:
+            case ComputedStyle::VerticalAlign::TextBottom:
+                YGNodeStyleSetAlignSelf(node, YGAlignFlexEnd);
+                break;
+            case ComputedStyle::VerticalAlign::Baseline:
+            default:
+                break;
+        }
+    }
 
     // ── Flex item properties ───────────────────────────────────────
-    // These apply to the node when its *parent* is a flex container.
-    // Yoga reads them only when relevant, so it's safe to push them
-    // unconditionally.
-    if (cs.flex_grow   != 0) YGNodeStyleSetFlexGrow  (node, static_cast<float>(cs.flex_grow));
-    if (cs.flex_shrink != 1) YGNodeStyleSetFlexShrink(node, static_cast<float>(cs.flex_shrink));
-    // flex-basis: percentage takes priority over px value.
-    // flex_basis_pct is int8_t (0..100), flex_basis is px (int16_t).
-    if (cs.flex_basis_pct >= 0) {
-        YGNodeStyleSetFlexBasisPercent(
-            node, static_cast<float>(cs.flex_basis_pct));
-    } else if (cs.flex_basis >= 0) {
-        YGNodeStyleSetFlexBasis(node, static_cast<float>(cs.flex_basis));
+    // These apply only when the node's *parent* establishes an author flex
+    // formatting context. Plain block flow is implemented with Yoga columns,
+    // but CSS flex item properties must not leak into that emulation: a
+    // fixed-height block child inside a fixed-height block parent keeps its
+    // used height and overflows; it does not flex-shrink to fit.
+    if (flex_parent) {
+        if (cs.flex_grow != 0) {
+            YGNodeStyleSetFlexGrow(node, static_cast<float>(cs.flex_grow));
+        }
+        YGNodeStyleSetFlexShrink(
+            node, forced_no_shrink_item ? 0.0f : static_cast<float>(cs.flex_shrink));
+        // flex-basis: percentage takes priority over px value.
+        // flex_basis_pct is int8_t (0..100), flex_basis is px (int16_t).
+        if (cs.flex_basis_pct >= 0) {
+            YGNodeStyleSetFlexBasisPercent(
+                node, static_cast<float>(cs.flex_basis_pct));
+        } else if (cs.flex_basis >= 0) {
+            YGNodeStyleSetFlexBasis(node, static_cast<float>(cs.flex_basis));
+        }
+    } else {
+        YGNodeStyleSetFlexShrink(node, 0.0f);
     }
 
     // ── Margin (Yoga handles this; we do NOT pre-walk margins
@@ -241,10 +338,19 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
         (cs.display == ComputedStyle::Display::Table ||
          cs.display == ComputedStyle::Display::TableRowGroup ||
          cs.display == ComputedStyle::Display::TableRow);
-    YGNodeStyleSetBorder(node, YGEdgeTop,    collapse_container ? 0.0f : to_yoga_edge(cs.border_top));
-    YGNodeStyleSetBorder(node, YGEdgeRight,  collapse_container ? 0.0f : to_yoga_edge(cs.border_right));
-    YGNodeStyleSetBorder(node, YGEdgeBottom, collapse_container ? 0.0f : to_yoga_edge(cs.border_bottom));
-    YGNodeStyleSetBorder(node, YGEdgeLeft,   collapse_container ? 0.0f : to_yoga_edge(cs.border_left));
+    YGNodeStyleSetBorder(node, YGEdgeTop,    collapse_container ? 0.0f : to_yoga_edge(cs.used_border_top()));
+    YGNodeStyleSetBorder(node, YGEdgeRight,  collapse_container ? 0.0f : to_yoga_edge(cs.used_border_right()));
+    YGNodeStyleSetBorder(node, YGEdgeBottom, collapse_container ? 0.0f : to_yoga_edge(cs.used_border_bottom()));
+    YGNodeStyleSetBorder(node, YGEdgeLeft,   collapse_container ? 0.0f : to_yoga_edge(cs.used_border_left()));
+
+    const bool flex_basis_set =
+        flex_parent && (cs.flex_basis_pct >= 0 || cs.flex_basis >= 0);
+    const bool parent_main_axis_row =
+        is_row_flex_direction(parent_flex_direction);
+    const bool width_from_flex_basis =
+        flex_basis_set && parent_main_axis_row;
+    const bool height_from_flex_basis =
+        flex_basis_set && !parent_main_axis_row;
 
     // ── Intrinsic content size ─────────────────────────────────────
     // Phase 2C: we pre-measure text height (font_size + a small line-h
@@ -252,81 +358,111 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
     // align-items:stretch fills the cross axis. When real inline /
     // text-wrap arrives, this becomes a YGMeasureFunc that gives Yoga
     // a "given width W, what height H?" answer.
-    if (intrinsic_h > 0) {
+    if (intrinsic_h > 0 && !height_from_flex_basis) {
         YGNodeStyleSetHeight(node, static_cast<float>(intrinsic_h));
     }
-    if (intrinsic_w > 0) {
+    if (intrinsic_w > 0 && !width_from_flex_basis) {
         YGNodeStyleSetWidth(node, static_cast<float>(intrinsic_w));
     }
 
     // Min/max sizing from ComputedStyle (sentinel -1 means "unset" —
     // skip).
-    if (cs.min_width  > 0)  YGNodeStyleSetMinWidth (node, static_cast<float>(cs.min_width));
+    if (cs.min_width  > 0) {
+        YGNodeStyleSetMinWidth(node, static_cast<float>(cs.min_width));
+    } else if (flex_parent && cs.min_width < 0 && auto_min_w > 0) {
+        int used_auto_min_w = auto_min_w;
+        if (!width_from_flex_basis && cs.width > 0) {
+            const int definite_w =
+                cs.box_sizing == ComputedStyle::BoxSizing::BorderBox
+                    ? cs.width
+                    : cs.width + cs.padding_left + cs.padding_right +
+                          cs.used_border_left() + cs.used_border_right();
+            used_auto_min_w = std::min(used_auto_min_w, definite_w);
+        }
+        YGNodeStyleSetMinWidth(node, static_cast<float>(used_auto_min_w));
+    }
     if (cs.max_width  > 0)  YGNodeStyleSetMaxWidth (node, static_cast<float>(cs.max_width));
     if (cs.min_height > 0)  YGNodeStyleSetMinHeight(node, static_cast<float>(cs.min_height));
 
     // Width/height: percentage takes priority over px value.
     // width_pct_x100 stores pct × 100 (e.g. 33.33% → 3333), int16_t.
     // height_pct stores integer percent (0..100), int8_t.
-    if (cs.width_pct_x100 >= 0) {
+    if (!width_from_flex_basis &&
+        cs.width_pct_x100 >= 0 && !percent_width_indefinite) {
         YGNodeStyleSetWidthPercent(
             node, static_cast<float>(cs.width_pct_x100) / 100.0f);
-    } else if (cs.width > 0) {
+    } else if (!width_from_flex_basis && cs.width > 0) {
         YGNodeStyleSetWidth(node, static_cast<float>(cs.width));
     }
-    if (cs.height_pct >= 0) {
+    if (!height_from_flex_basis &&
+        cs.height_pct >= 0 && !percent_height_indefinite) {
         YGNodeStyleSetHeightPercent(
             node, static_cast<float>(cs.height_pct));
-    } else if (cs.height > 0) {
+    } else if (!height_from_flex_basis && cs.height > 0) {
         YGNodeStyleSetHeight(node, static_cast<float>(cs.height));
     }
 }
 
 }  // namespace
 
-// Per-text-leaf context handed to Yoga's measure callback via
+// Per-node context handed to Yoga's measure/baseline callbacks via
 // YGNodeSetContext. Lives in a side vector for the duration of the
 // layout call.
-struct MeasureCtx {
+struct NodeCtx {
     Painter*      painter;
     const char*   text_data;
     std::size_t   text_size;
     std::uint32_t font;
+    float         baseline_px;
     float         line_height_mult;
     float         letter_spacing_px;
+    float         text_indent_px;
     bool          nowrap;
 };
 
 YGSize measure_text_cb(YGNodeConstRef node,
                        float width, YGMeasureMode width_mode,
                        float /*height*/, YGMeasureMode /*height_mode*/) {
-    auto* ctx = static_cast<const MeasureCtx*>(YGNodeGetContext(node));
+    auto* ctx = static_cast<const NodeCtx*>(YGNodeGetContext(node));
     if (!ctx || !ctx->painter || ctx->font == 0) return {0.0f, 0.0f};
     // If width is unconstrained OR white-space: nowrap, pass a large
     // wrap width so text measures as a single line of its natural width.
+    const float positive_indent = std::max(0.0f, ctx->text_indent_px);
     const float wrap_w =
         (ctx->nowrap ||
          width_mode == YGMeasureModeUndefined || width <= 0.0f) ? 1e6f : width;
     const auto sz = ctx->painter->measure_text_box(
         ctx->font,
         std::string_view(ctx->text_data, ctx->text_size),
-        wrap_w,
+        std::max(1.0f, wrap_w - positive_indent),
         ctx->line_height_mult,
         ctx->letter_spacing_px);
     return YGSize{
-        static_cast<float>(sz.width),
+        static_cast<float>(sz.width) + positive_indent,
         static_cast<float>(sz.height),
     };
+}
+
+float baseline_cb(YGNodeConstRef node, float /*width*/, float height) {
+    auto* ctx = static_cast<const NodeCtx*>(YGNodeGetContext(node));
+    if (!ctx || ctx->baseline_px <= 0.0f) return height;
+    if (ctx->baseline_px > height) return height;
+    return ctx->baseline_px;
 }
 
 void layout_blocks_with_yoga(int viewport_width_px,
                              std::span<const BlockLayoutInput> inputs,
                              std::span<Rect> out_bounds,
-                             Painter* measurer) {
+                             Painter* measurer,
+                             std::span<RectF> out_float_bounds) {
     assert(inputs.size() == out_bounds.size());
+    assert(out_float_bounds.empty() || out_float_bounds.size() == inputs.size());
+
+    YGConfigRef config = YGConfigNew();
+    YGConfigSetPointScaleFactor(config, 0.0f);
 
     // Synthetic root. Stack children vertically (CSS block flow shape).
-    YGNodeRef root = YGNodeNew();
+    YGNodeRef root = YGNodeNewWithConfig(config);
     YGNodeStyleSetBoxSizing(root, YGBoxSizingContentBox);
     YGNodeStyleSetFlexDirection(root, YGFlexDirectionColumn);
     YGNodeStyleSetAlignItems(root, YGAlignStretch);
@@ -338,34 +474,99 @@ void layout_blocks_with_yoga(int viewport_width_px,
     // child of its parent (or the synthetic root for top-level
     // blocks).
     //
-    // Per-leaf measure contexts live in a parallel vector so the
-    // raw `MeasureCtx*` pointers we hand to Yoga remain stable for
+    // Per-node callback contexts live in a parallel vector so the
+    // raw `NodeCtx*` pointers we hand to Yoga remain stable for
     // the duration of YGNodeCalculateLayout.
-    std::vector<YGNodeRef>  nodes;
-    std::vector<MeasureCtx> measure_ctxs(inputs.size());
+    std::vector<YGNodeRef> nodes;
+    std::vector<NodeCtx>   node_ctxs(inputs.size());
     nodes.reserve(inputs.size());
     for (std::size_t i = 0; i < inputs.size(); ++i) {
-        YGNodeRef n = YGNodeNew();
+        YGNodeRef n = YGNodeNewWithConfig(config);
+        const auto* parent_style_for_flex =
+            (inputs[i].parent_idx >= 0)
+                ? inputs[static_cast<std::size_t>(inputs[i].parent_idx)].style
+                : nullptr;
+        const bool flex_parent =
+            inputs[i].parent_idx >= 0 &&
+            !inputs[i].inline_parent &&
+            parent_style_for_flex &&
+            is_flex_container(parent_style_for_flex->display);
+        const auto parent_flex_direction = parent_style_for_flex
+            ? parent_style_for_flex->flex_direction
+            : ComputedStyle::FlexDirection::Row;
+        bool percent_width_indefinite = false;
+        if (inputs[i].style && inputs[i].style->width_pct_x100 >= 0 &&
+            inputs[i].parent_idx >= 0) {
+            const auto parent_idx =
+                static_cast<std::size_t>(inputs[i].parent_idx);
+            const auto* parent_style = inputs[parent_idx].style;
+            if (parent_style &&
+                is_flex_container(parent_style->display) &&
+                parent_style->flex_direction == ComputedStyle::FlexDirection::Row &&
+                parent_style->width <= 0 &&
+                parent_style->width_pct_x100 < 0 &&
+                parent_style->flex_grow == 0 &&
+                parent_style->flex_basis < 0 &&
+                parent_style->flex_basis_pct < 0 &&
+                inputs[parent_idx].parent_idx >= 0) {
+                const auto grandparent_idx =
+                    static_cast<std::size_t>(inputs[parent_idx].parent_idx);
+                const auto* grandparent_style = inputs[grandparent_idx].style;
+                percent_width_indefinite =
+                    grandparent_style &&
+                    is_flex_container(grandparent_style->display);
+            }
+        }
+        bool percent_height_indefinite = false;
+        if (inputs[i].style && inputs[i].style->height_pct >= 0 &&
+            inputs[i].parent_idx >= 0) {
+            const auto parent_idx =
+                static_cast<std::size_t>(inputs[i].parent_idx);
+            const auto* parent_style = inputs[parent_idx].style;
+            percent_height_indefinite =
+                parent_style &&
+                parent_style->height <= 0 &&
+                parent_style->min_height <= 0 &&
+                parent_style->height_pct < 0 &&
+                parent_style->flex_basis < 0 &&
+                parent_style->flex_basis_pct < 0;
+        }
         apply_style(n, *inputs[i].style,
                     inputs[i].intrinsic_w_px,
-                    inputs[i].intrinsic_h_px);
+                    inputs[i].intrinsic_h_px,
+                    inputs[i].auto_min_w_px,
+                    inputs[i].inline_parent,
+                    flex_parent,
+                    parent_flex_direction,
+                    percent_width_indefinite,
+                    percent_height_indefinite);
 
         // Wire the measure callback for text-bearing leaves. Yoga
         // will call back during layout with the constraint width;
         // the callback runs nvgTextBoxBounds to compute the actual
         // wrapped rendered size for that width.
-        if (measurer != nullptr && !inputs[i].text.empty() && inputs[i].font != 0) {
-            measure_ctxs[i] = MeasureCtx{
+        const bool has_text_measure =
+            measurer != nullptr && !inputs[i].text.empty() && inputs[i].font != 0;
+        const bool has_baseline = inputs[i].baseline_px > 0.0f;
+        if (has_text_measure || has_baseline) {
+            node_ctxs[i] = NodeCtx{
                 measurer,
                 inputs[i].text.data(),
                 inputs[i].text.size(),
                 inputs[i].font,
+                inputs[i].baseline_px,
                 inputs[i].style ? effective_line_height_mult(*inputs[i].style) : 1.0f,
                 inputs[i].letter_spacing_px,
+                inputs[i].text_indent_px,
                 inputs[i].nowrap,
             };
-            YGNodeSetContext(n, &measure_ctxs[i]);
+            YGNodeSetContext(n, &node_ctxs[i]);
+        }
+        if (has_text_measure) {
             YGNodeSetMeasureFunc(n, measure_text_cb);
+        }
+        if (has_baseline) {
+            YGNodeSetBaselineFunc(n, baseline_cb);
         }
 
         YGNodeRef parent = (inputs[i].parent_idx < 0)
@@ -395,11 +596,18 @@ void layout_blocks_with_yoga(int viewport_width_px,
         const float w       = YGNodeLayoutGetWidth(n);
         const float h       = YGNodeLayoutGetHeight(n);
         int dx = 0, dy = 0;
+        float fdx = 0.0f, fdy = 0.0f;
         if (inputs[i].parent_idx >= 0) {
-            const auto& parent_rect = out_bounds[
-                static_cast<std::size_t>(inputs[i].parent_idx)];
+            const auto parent_idx =
+                static_cast<std::size_t>(inputs[i].parent_idx);
+            const auto& parent_rect = out_bounds[parent_idx];
             dx = parent_rect.x;
             dy = parent_rect.y;
+            if (!out_float_bounds.empty()) {
+                const auto& parent_float = out_float_bounds[parent_idx];
+                fdx = parent_float.x;
+                fdy = parent_float.y;
+            }
         }
         out_bounds[i] = Rect{
             dx + static_cast<int>(local_x + 0.5f),
@@ -407,11 +615,20 @@ void layout_blocks_with_yoga(int viewport_width_px,
             static_cast<int>(w + 0.5f),
             static_cast<int>(h + 0.5f),
         };
+        if (!out_float_bounds.empty()) {
+            out_float_bounds[i] = RectF{
+                fdx + local_x,
+                fdy + local_y,
+                w,
+                h,
+            };
+        }
     }
 
     // Detach + free all nodes. YGNodeFreeRecursive walks the children;
     // calling it on root cleans up everything in one pass.
     YGNodeFreeRecursive(root);
+    YGConfigFree(config);
 }
 
 #endif  // AFFINEUI_STUB_BUILD

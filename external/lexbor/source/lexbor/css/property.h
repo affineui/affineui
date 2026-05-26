@@ -66,13 +66,22 @@ typedef struct {
 lxb_css_property_box_sizing_t;
 
 typedef struct {
-    lxb_css_box_shadow_type_t  type;
     lxb_css_value_length_type_t offset_x;
     lxb_css_value_length_type_t offset_y;
     lxb_css_value_length_type_t blur_radius;
     lxb_css_value_length_type_t spread_radius;
     lxb_css_value_color_t       color;
     bool                        inset;
+}
+lxb_css_property_box_shadow_layer_t;
+
+#define LXB_CSS_BOX_SHADOW_LAYER_MAX 4
+
+typedef struct {
+    lxb_css_box_shadow_type_t           type;
+    lxb_css_property_box_shadow_layer_t layer;
+    uint8_t                             layer_count;
+    lxb_css_property_box_shadow_layer_t layers[LXB_CSS_BOX_SHADOW_LAYER_MAX];
 }
 lxb_css_property_box_shadow_t;
 
@@ -91,6 +100,8 @@ typedef struct {
     lxb_css_property_padding_left_t   left;
 }
 lxb_css_property_padding_t;
+
+typedef lxb_css_property_margin_t lxb_css_property_inset_t;
 
 typedef struct {
     lxb_css_value_length_percentage_t row;
@@ -153,6 +164,12 @@ typedef lxb_css_value_length_type_t lxb_css_property_border_left_width_t;
 /* border-collapse: a single keyword (collapse | separate). */
 typedef lxb_css_value_type_t lxb_css_property_border_collapse_t;
 
+/* list-style-type: disc | circle | square | decimal | none. */
+typedef struct {
+    lxb_css_list_style_type_t type;
+}
+lxb_css_property_list_style_type_t;
+
 typedef struct {
     lxb_css_value_length_percentage_t h;
     lxb_css_value_length_percentage_t v;
@@ -182,16 +199,25 @@ lxb_css_property_border_bottom_left_radius_t;
  * kind: 0=none, 1=linear-gradient, 2=radial-gradient.
  * angle_deg: CSS angle in degrees (0=upward, clockwise).
  *   `to right` => 90 deg.  Unused for radial (set 0).
+ * center_*_pct: radial-gradient position in percentages. Defaults to
+ *   50/50 (`center`) and is ignored for linear gradients.
  */
 typedef enum {
     LXB_CSS_GRADIENT_NONE   = 0,
     LXB_CSS_GRADIENT_LINEAR = 1,
-    LXB_CSS_GRADIENT_RADIAL = 2
+    LXB_CSS_GRADIENT_RADIAL = 2,
+    LXB_CSS_GRADIENT_LINEAR_STRIPES = 3
 } lxb_css_gradient_kind_t;
 
 typedef struct {
     lxb_css_gradient_kind_t kind;
     double                  angle_deg;  /* linear: CSS angle degrees */
+    double                  center_x_pct;
+    double                  center_y_pct;
+    double                  stop0_pos_pct;
+    double                  stop1_pos_pct;
+    bool                    has_stop0_pos_pct;
+    bool                    has_stop1_pos_pct;
     lxb_css_value_color_t   stop0;
     lxb_css_value_color_t   stop1;
 } lxb_css_property_gradient_t;
@@ -199,13 +225,130 @@ typedef struct {
 typedef struct {
     lxb_css_value_color_t      color;
     lxb_css_property_gradient_t gradient; /* kind=NONE when no gradient */
+    lxb_css_property_gradient_t layers[3];
+    unsigned int                layer_count;
 }
 lxb_css_property_background_t;
 
+typedef lxb_css_property_background_t lxb_css_property_background_image_t;
 typedef lxb_css_value_color_t lxb_css_property_background_color_t;
 
+typedef struct {
+    lxb_css_value_length_percentage_t width;
+    lxb_css_value_length_percentage_t height;
+}
+lxb_css_background_size_layer_t;
+
+typedef struct {
+    lxb_css_background_size_layer_t layers[3];
+    unsigned int                    layer_count;
+}
+lxb_css_property_background_size_t;
+
 typedef lxb_css_value_color_t lxb_css_property_color_t;
+
+typedef struct {
+    lxb_css_content_type_t type;
+    lexbor_str_t          value;
+}
+lxb_css_property_content_t;
+
 typedef lxb_css_value_number_percentage_t lxb_css_property_opacity_t;
+
+typedef enum {
+    LXB_CSS_TRANSFORM_VALUE_NONE = 0,
+    LXB_CSS_TRANSFORM_VALUE_LIST = 1
+}
+lxb_css_transform_value_type_t;
+
+typedef enum {
+    LXB_CSS_TRANSFORM_FUNCTION_MATRIX = 0,
+    LXB_CSS_TRANSFORM_FUNCTION_TRANSLATE,
+    LXB_CSS_TRANSFORM_FUNCTION_TRANSLATE_X,
+    LXB_CSS_TRANSFORM_FUNCTION_TRANSLATE_Y,
+    LXB_CSS_TRANSFORM_FUNCTION_SCALE,
+    LXB_CSS_TRANSFORM_FUNCTION_SCALE_X,
+    LXB_CSS_TRANSFORM_FUNCTION_SCALE_Y,
+    LXB_CSS_TRANSFORM_FUNCTION_ROTATE
+}
+lxb_css_transform_function_type_t;
+
+typedef struct {
+    lxb_css_transform_function_type_t type;
+    lxb_css_value_length_percentage_t x;
+    lxb_css_value_length_percentage_t y;
+    lxb_css_value_number_t            numbers[6];
+    lxb_css_value_angle_t             angle;
+}
+lxb_css_transform_function_t;
+
+typedef struct {
+    lxb_css_transform_value_type_t type;
+    uint8_t                        count;
+    lxb_css_transform_function_t   functions[8];
+}
+lxb_css_property_transform_t;
+
+typedef struct {
+    lxb_css_value_length_percentage_t x;
+    lxb_css_value_length_percentage_t y;
+}
+lxb_css_property_transform_origin_t;
+
+typedef enum {
+    LXB_CSS_ANIMATION_TIMING_EASE = 0,
+    LXB_CSS_ANIMATION_TIMING_LINEAR,
+    LXB_CSS_ANIMATION_TIMING_EASE_IN,
+    LXB_CSS_ANIMATION_TIMING_EASE_OUT,
+    LXB_CSS_ANIMATION_TIMING_EASE_IN_OUT,
+    LXB_CSS_ANIMATION_TIMING_STEP_START,
+    LXB_CSS_ANIMATION_TIMING_STEP_END
+}
+lxb_css_animation_timing_function_type_t;
+
+typedef enum {
+    LXB_CSS_ANIMATION_DIRECTION_NORMAL = 0,
+    LXB_CSS_ANIMATION_DIRECTION_REVERSE,
+    LXB_CSS_ANIMATION_DIRECTION_ALTERNATE,
+    LXB_CSS_ANIMATION_DIRECTION_ALTERNATE_REVERSE
+}
+lxb_css_animation_direction_type_t;
+
+typedef enum {
+    LXB_CSS_ANIMATION_FILL_MODE_NONE = 0,
+    LXB_CSS_ANIMATION_FILL_MODE_FORWARDS,
+    LXB_CSS_ANIMATION_FILL_MODE_BACKWARDS,
+    LXB_CSS_ANIMATION_FILL_MODE_BOTH
+}
+lxb_css_animation_fill_mode_type_t;
+
+typedef enum {
+    LXB_CSS_ANIMATION_PLAY_STATE_RUNNING = 0,
+    LXB_CSS_ANIMATION_PLAY_STATE_PAUSED
+}
+lxb_css_animation_play_state_type_t;
+
+typedef struct {
+    lexbor_str_t                              name;
+    double                                    duration_s;
+    double                                    delay_s;
+    double                                    iteration_count; /* 0 = infinite */
+    lxb_css_animation_timing_function_type_t  timing;
+    lxb_css_animation_direction_type_t        direction;
+    lxb_css_animation_fill_mode_type_t        fill_mode;
+    lxb_css_animation_play_state_type_t       play_state;
+    bool                                      has_name;
+}
+lxb_css_property_animation_t;
+
+typedef lxb_css_property_animation_t lxb_css_property_animation_name_t;
+typedef lxb_css_property_animation_t lxb_css_property_animation_duration_t;
+typedef lxb_css_property_animation_t lxb_css_property_animation_timing_function_t;
+typedef lxb_css_property_animation_t lxb_css_property_animation_delay_t;
+typedef lxb_css_property_animation_t lxb_css_property_animation_iteration_count_t;
+typedef lxb_css_property_animation_t lxb_css_property_animation_direction_t;
+typedef lxb_css_property_animation_t lxb_css_property_animation_fill_mode_t;
+typedef lxb_css_property_animation_t lxb_css_property_animation_play_state_t;
 
 typedef struct {
     lxb_css_position_type_t type;
@@ -1092,6 +1235,18 @@ LXB_API lxb_status_t
 lxb_css_property_border_collapse_serialize(const void *style,
                                            lexbor_serialize_cb_f cb, void *ctx);
 
+/* List-style-type. */
+
+LXB_API void *
+lxb_css_property_list_style_type_create(lxb_css_memory_t *memory);
+
+LXB_API void *
+lxb_css_property_list_style_type_destroy(lxb_css_memory_t *memory,
+                                         void *style, bool self_destroy);
+LXB_API lxb_status_t
+lxb_css_property_list_style_type_serialize(const void *style,
+                                           lexbor_serialize_cb_f cb, void *ctx);
+
 /* Border-radius. */
 
 LXB_API void *
@@ -1180,6 +1335,17 @@ LXB_API lxb_status_t
 lxb_css_property_background_color_serialize(const void *style,
                                             lexbor_serialize_cb_f cb, void *ctx);
 
+LXB_API void *
+lxb_css_property_background_size_create(lxb_css_memory_t *memory);
+
+LXB_API void *
+lxb_css_property_background_size_destroy(lxb_css_memory_t *memory,
+                                         void *style, bool self_destroy);
+
+LXB_API lxb_status_t
+lxb_css_property_background_size_serialize(const void *style,
+                                           lexbor_serialize_cb_f cb, void *ctx);
+
 /* Color. */
 
 LXB_API void *
@@ -1191,6 +1357,18 @@ lxb_css_property_color_destroy(lxb_css_memory_t *memory,
 LXB_API lxb_status_t
 lxb_css_property_color_serialize(const void *style,
                                  lexbor_serialize_cb_f cb, void *ctx);
+
+/* Content. */
+
+LXB_API void *
+lxb_css_property_content_create(lxb_css_memory_t *memory);
+
+LXB_API void *
+lxb_css_property_content_destroy(lxb_css_memory_t *memory,
+                                 void *style, bool self_destroy);
+LXB_API lxb_status_t
+lxb_css_property_content_serialize(const void *style,
+                                   lexbor_serialize_cb_f cb, void *ctx);
 
 /* Opacity. */
 
@@ -1204,6 +1382,42 @@ LXB_API lxb_status_t
 lxb_css_property_opacity_serialize(const void *style,
                                    lexbor_serialize_cb_f cb, void *ctx);
 
+/* Transform. */
+
+LXB_API void *
+lxb_css_property_transform_create(lxb_css_memory_t *memory);
+
+LXB_API void *
+lxb_css_property_transform_destroy(lxb_css_memory_t *memory,
+                                   void *style, bool self_destroy);
+LXB_API lxb_status_t
+lxb_css_property_transform_serialize(const void *style,
+                                     lexbor_serialize_cb_f cb, void *ctx);
+
+/* Transform-origin. */
+
+LXB_API void *
+lxb_css_property_transform_origin_create(lxb_css_memory_t *memory);
+
+LXB_API void *
+lxb_css_property_transform_origin_destroy(lxb_css_memory_t *memory,
+                                          void *style, bool self_destroy);
+LXB_API lxb_status_t
+lxb_css_property_transform_origin_serialize(const void *style,
+                                            lexbor_serialize_cb_f cb, void *ctx);
+
+/* Animation. */
+
+LXB_API void *
+lxb_css_property_animation_create(lxb_css_memory_t *memory);
+
+LXB_API void *
+lxb_css_property_animation_destroy(lxb_css_memory_t *memory,
+                                   void *style, bool self_destroy);
+LXB_API lxb_status_t
+lxb_css_property_animation_serialize(const void *style,
+                                     lexbor_serialize_cb_f cb, void *ctx);
+
 /* Position. */
 
 LXB_API void *
@@ -1215,6 +1429,18 @@ lxb_css_property_position_destroy(lxb_css_memory_t *memory,
 LXB_API lxb_status_t
 lxb_css_property_position_serialize(const void *style,
                                     lexbor_serialize_cb_f cb, void *ctx);
+
+/* Inset. */
+
+LXB_API void *
+lxb_css_property_inset_create(lxb_css_memory_t *memory);
+
+LXB_API void *
+lxb_css_property_inset_destroy(lxb_css_memory_t *memory,
+                               void *style, bool self_destroy);
+LXB_API lxb_status_t
+lxb_css_property_inset_serialize(const void *style,
+                                 lexbor_serialize_cb_f cb, void *ctx);
 
 /* Top. */
 

@@ -146,10 +146,23 @@ mutation. Public surface (`mount`, `use_state`, `on_click`,
 
 ## Phase 4 — Polish & performance
 
+- [x] Retained root-layer renderer/compositor documented in
+      [RENDERER_COMPOSITOR.md](RENDERER_COMPOSITOR.md): display-list
+      caching, dirty rects, partial raster, direct root-layer
+      composition with NanoVG fallback, prepared transformed/clip range
+      replay culling, stats, and the next multi-layer compositor
+      direction.
+- [ ] Multi-layer compositor promotion: split stable transformed,
+      opacity, scrolling, and animation-heavy subtrees into retained
+      layer textures, then animate transform/opacity at composite time
+      without document paint or root-layer raster.
 - [ ] `border-radius` per-corner correctness (currently uniform only)
 - [ ] `box-shadow` (drop + inset)
 - [ ] CSS transitions reaching the painter (driven by retained DOM,
       no imm re-render)
+- [ ] Core Decius/Bootstrap widget conformance before broadening SVG:
+      panels, buttons, forms, generated content, icon fonts, gradients,
+      shadows, layout, and animation filmstrips.
 - [ ] Background image: `cover`, `contain`, `repeat-x/y`, `no-repeat`
 - [ ] Form widgets: `<input type=text|button|checkbox|radio>`
 - [ ] DPI-aware text rendering corrections (we plumb fb pixels vs
@@ -162,6 +175,9 @@ mutation. Public surface (`mount`, `use_state`, `on_click`,
 ## Phase 5 — Reach
 
 - [ ] Material Design 3 sample (`examples/02_material`)
+- [ ] Scoped SVG rendering per [SVG_ARCHITECTURE.md](SVG_ARCHITECTURE.md):
+      retained scenes, stable raster cache, dynamic vector data, Decius
+      jacks/LCD/knobs/cables/graphs first; no broad SVG engine.
 - [ ] CSS hot-reload tool (`tools/ui-preview` watches files)
 - [ ] WebGPU backend wired through sokol_gfx
 - [ ] C ABI completed and documented (skeleton lives in
@@ -175,7 +191,9 @@ mutation. Public surface (`mount`, `use_state`, `on_click`,
 Things that *could* land if there's demand. None are committed:
 
 - [ ] CSS Grid (filling lexbor gaps, possibly upstreaming)
-- [ ] SVG inline rendering (NanoVG handles paths; just need parsing)
+- [ ] Broader SVG beyond the scoped UI subset (filters, masks,
+      markers, text-in-SVG, scripting-adjacent APIs only if a real
+      target requires them)
 - [ ] Accessibility tree → platform AX bridges
 - [ ] Embedded JS via QuickJS (one possible direction; controversial)
 

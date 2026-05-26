@@ -144,7 +144,30 @@ enum {
     LXB_CSS_PROPERTY_BORDER_LEFT_WIDTH          = 0x0079,
     /* border-collapse (added by AffineUI patch). */
     LXB_CSS_PROPERTY_BORDER_COLLAPSE            = 0x007a,
-    LXB_CSS_PROPERTY__LAST_ENTRY                = 0x007b
+    /* list-style and list-style-type (added by AffineUI patch). */
+    LXB_CSS_PROPERTY_LIST_STYLE_TYPE            = 0x007b,
+    LXB_CSS_PROPERTY_LIST_STYLE                 = 0x007c,
+    /* background-image (added by AffineUI patch). */
+    LXB_CSS_PROPERTY_BACKGROUND_IMAGE           = 0x007d,
+    /* content (added by AffineUI patch). */
+    LXB_CSS_PROPERTY_CONTENT                    = 0x007e,
+    LXB_CSS_PROPERTY_TRANSFORM                  = 0x007f,
+    LXB_CSS_PROPERTY_ANIMATION                  = 0x0080,
+    LXB_CSS_PROPERTY_ANIMATION_NAME             = 0x0081,
+    LXB_CSS_PROPERTY_ANIMATION_DURATION         = 0x0082,
+    LXB_CSS_PROPERTY_ANIMATION_TIMING_FUNCTION  = 0x0083,
+    LXB_CSS_PROPERTY_ANIMATION_DELAY            = 0x0084,
+    LXB_CSS_PROPERTY_ANIMATION_ITERATION_COUNT  = 0x0085,
+    LXB_CSS_PROPERTY_ANIMATION_DIRECTION        = 0x0086,
+    LXB_CSS_PROPERTY_ANIMATION_FILL_MODE        = 0x0087,
+    LXB_CSS_PROPERTY_ANIMATION_PLAY_STATE       = 0x0088,
+    /* inset shorthand (added by AffineUI patch). */
+    LXB_CSS_PROPERTY_INSET                      = 0x0089,
+    /* background-size (added by AffineUI patch). */
+    LXB_CSS_PROPERTY_BACKGROUND_SIZE            = 0x008a,
+    /* transform-origin (added by AffineUI patch). */
+    LXB_CSS_PROPERTY_TRANSFORM_ORIGIN           = 0x008b,
+    LXB_CSS_PROPERTY__LAST_ENTRY                = 0x008c
 };
 typedef uintptr_t lxb_css_property_type_t;
 
@@ -564,6 +587,13 @@ enum {
     LXB_CSS_COLUMN_GAP__PERCENTAGE = LXB_CSS_VALUE__PERCENTAGE
 };
 typedef unsigned int lxb_css_column_gap_type_t;
+
+enum {
+    LXB_CSS_CONTENT_NORMAL  = LXB_CSS_VALUE_NORMAL,
+    LXB_CSS_CONTENT_NONE    = LXB_CSS_VALUE_NONE,
+    LXB_CSS_CONTENT_STRING  = 0x10000
+};
+typedef unsigned int lxb_css_content_type_t;
 
 enum {
     LXB_CSS_DIRECTION_LTR = LXB_CSS_VALUE_LTR,
@@ -1135,6 +1165,15 @@ enum {
     LXB_CSS_TEXT_DECORATION_STYLE_WAVY   = LXB_CSS_VALUE_WAVY
 };
 typedef unsigned int lxb_css_text_decoration_style_type_t;
+
+enum {
+    LXB_CSS_LIST_STYLE_TYPE_DISC    = 0x2000,
+    LXB_CSS_LIST_STYLE_TYPE_CIRCLE  = 0x2001,
+    LXB_CSS_LIST_STYLE_TYPE_SQUARE  = 0x2002,
+    LXB_CSS_LIST_STYLE_TYPE_DECIMAL = 0x2003,
+    LXB_CSS_LIST_STYLE_TYPE_NONE    = LXB_CSS_VALUE_NONE
+};
+typedef unsigned int lxb_css_list_style_type_t;
 
 enum {
     LXB_CSS_TEXT_INDENT__LENGTH     = LXB_CSS_VALUE__LENGTH,

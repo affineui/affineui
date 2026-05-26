@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string_view>
 #include <vector>
 
@@ -31,6 +32,8 @@ enum class PaintOpKind : std::uint8_t {
     StrokeRoundedRectVarying,
     FillLinearGradientRect,
     FillRadialGradientRect,
+    FillLinearStripesRect,
+    FillGridRect,
     FillBoxShadow,
     DrawText,
     DrawTextBox,
@@ -39,6 +42,8 @@ enum class PaintOpKind : std::uint8_t {
     PopClip,
     PushAlpha,
     PopAlpha,
+    PushTransform,
+    PopTransform,
 };
 
 struct PaintOp {
@@ -166,10 +171,31 @@ struct PaintOp {
         struct {
             std::int16_t  x, y, w, h;       // 8
             std::uint8_t  tl, tr, br, bl;   // 4
-            std::uint32_t pad_;             // 4
+            std::uint8_t  center_x_pct;      // 1
+            std::uint8_t  center_y_pct;      // 1
+            std::uint8_t  stop1_pos_pct;     // 1
+            std::uint8_t  pad_;              // 1
             std::uint32_t stop0_rgba;        // 4
             std::uint32_t stop1_rgba;        // 4
         } fill_radial_gradient;              // = 24 bytes
+
+        struct {
+            std::int16_t  x, y, w, h;       // 8
+            std::int16_t  angle_deg;         // 2
+            std::uint16_t tile_size;         // 2
+            std::uint8_t  tl, tr, br, bl;   // 4
+            std::uint32_t stripe_rgba;       // 4
+            std::uint32_t pad_;              // 4
+        } fill_linear_stripes;               // = 24 bytes
+
+        struct {
+            std::int16_t  x, y, w, h;       // 8
+            std::uint16_t tile_size;         // 2
+            std::uint16_t line_width;        // 2
+            std::uint8_t  tl, tr, br, bl;   // 4
+            std::uint32_t line_rgba;         // 4
+            std::uint32_t pad_;              // 4
+        } fill_grid;                         // = 24 bytes
 
         // CSS box-shadow. Border box (x,y,w,h) + colour + offset + blur
         // + spread + a single corner radius; `inset` selects the inner
@@ -201,6 +227,10 @@ struct PaintOp {
             std::uint32_t pad4_;
         } push_alpha;
 
+        struct {
+            float a, b, c, d, tx, ty;
+        } push_transform;
+
         std::uint8_t raw[28];
     } p{};
 };
@@ -210,6 +240,18 @@ struct PaintOp {
 static_assert(sizeof(PaintOp) == 32, "PaintOp must stay compact");
 static_assert(std::is_trivially_copyable_v<PaintOp>,
               "PaintOp must be trivially copyable for byte-hashing");
+
+struct DisplayListTransformRange {
+    std::uint32_t pop_index{std::numeric_limits<std::uint32_t>::max()};
+    Rect          bounds{};
+    std::uint8_t  bounds_known{0};
+    std::uint8_t  pad0{0};
+    std::uint16_t pad1{0};
+};
+
+struct DisplayListClipRange {
+    std::uint32_t pop_index{std::numeric_limits<std::uint32_t>::max()};
+};
 
 /// A frame's worth of paint commands.
 ///
@@ -225,11 +267,15 @@ static_assert(std::is_trivially_copyable_v<PaintOp>,
 struct DisplayList {
     std::vector<PaintOp>   ops;
     std::vector<char>      text_pool;  // contiguous text storage
+    std::vector<DisplayListTransformRange> transform_ranges;
+    std::vector<DisplayListClipRange>      clip_ranges;
     std::uint64_t          content_hash{0};
 
     void clear() {
         ops.clear();
         text_pool.clear();
+        transform_ranges.clear();
+        clip_ranges.clear();
         content_hash = 0;
     }
 

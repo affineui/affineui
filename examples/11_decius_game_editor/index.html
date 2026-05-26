@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>AffineUI - Decius game editor</title>
+  <link rel="stylesheet" href="../frameworks/css/decius-css-0.4.1.bundle.min.css">
+  <style>
+body{margin:0;background:#14161c}
+.app{height:100vh;background:var(--dcs-bg-app);display:flex;flex-direction:column;overflow:hidden}
+.center{flex:1;min-height:0;display:flex;gap:1px;background:var(--dcs-line)}
+.left{flex:0 0 260px}.right{flex:0 0 340px}.main{flex:1;min-width:0}
+.viewport-grid{height:100%;position:relative;background:linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),radial-gradient(circle at 52% 42%,#4b5368,#171a22 72%);background-size:24px 24px,24px 24px,auto}
+.gizmo{position:absolute;left:46%;top:35%;width:180px;height:120px;border:1px solid rgba(77,159,255,.75);box-shadow:0 0 0 1px rgba(77,159,255,.18),0 12px 32px rgba(0,0,0,.45)}
+.gizmo:before{content:"";position:absolute;left:42px;top:-26px;width:94px;height:170px;border:1px dashed rgba(255,255,255,.25)}
+.gizmo-axis{position:absolute;background:var(--dcs-accent)}.gx{left:-30px;top:58px;width:240px;height:2px}.gy{left:88px;top:-38px;width:2px;height:196px}
+.prop-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}.prop-row span{flex:0 0 92px;color:var(--dcs-text-mute);font-size:var(--dcs-fs-xs);text-transform:uppercase;letter-spacing:.08em}.prop-row .dcs-input{flex:1}
+.asset-strip{display:flex;gap:8px;padding:10px;overflow:hidden}.asset{width:88px;height:68px;background:var(--dcs-well);border:1px solid var(--dcs-line-soft);border-radius:var(--dcs-r-2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+.asset i{font-size:20px;color:var(--dcs-accent)}
+  </style>
+</head>
+<body class="dcs" data-dcs-density="compact" data-dcs-style="3d">
+<div class="app">
+  <div class="dcs-menubar">
+    <div class="dcs-menubar__brand"><i class="di di-decius"></i> Decius Forge</div>
+    <button class="dcs-menubar__item">File</button><button class="dcs-menubar__item">Edit</button><button class="dcs-menubar__item">Build</button>
+    <div class="dcs-menubar__spacer"></div>
+    <div class="dcs-menubar__meta">Scene: ruins_arena_03</div>
+  </div>
+  <div class="center">
+    <aside class="left dcs-dockpane">
+      <div class="dcs-dockpane__tabs"><button class="dcs-dockpane__tab" aria-selected="true"><i class="di di-folder"></i> Hierarchy</button></div>
+      <div class="dcs-dockpane__body">
+        <div class="dcs-tree">
+          <div id="object-0" class="dcs-tree__row"><span class="dcs-tree__chevron"></span><i class="di di-cube"></i><span class="dcs-tree__label">WorldRoot</span><span class="dcs-tree__meta">12</span></div>
+          <div id="object-1" class="dcs-tree__row" aria-selected="true"><span class="dcs-tree__chevron"></span><i class="di di-sphere"></i><span class="dcs-tree__label">Hero_mesh_high</span><span class="dcs-tree__meta">42k</span></div>
+          <div id="object-2" class="dcs-tree__row"><span class="dcs-tree__chevron"></span><i class="di di-light"></i><span class="dcs-tree__label">KeyLight</span><span class="dcs-tree__meta">8k</span></div>
+          <div id="object-3" class="dcs-tree__row"><span class="dcs-tree__chevron"></span><i class="di di-spline"></i><span class="dcs-tree__label">SplineRig</span><span class="dcs-tree__meta">16</span></div>
+        </div>
+      </div>
+    </aside>
+    <main class="main dcs-dockpane">
+      <div class="dcs-dockpane__tabs">
+        <button class="dcs-dockpane__tab" aria-selected="true"><i class="di di-view-lit"></i> Lit View</button>
+        <button class="dcs-dockpane__tab"><i class="di di-view-wire"></i> Wire</button>
+        <div class="dcs-dockpane__tools">
+          <button class="dcs-btn dcs-btn--icon dcs-btn--sm" aria-pressed="true"><i class="di di-select"></i></button>
+          <button class="dcs-btn dcs-btn--icon dcs-btn--sm"><i class="di di-move"></i></button>
+          <button class="dcs-btn dcs-btn--icon dcs-btn--sm"><i class="di di-rotate"></i></button>
+          <button class="dcs-btn dcs-btn--icon dcs-btn--sm"><i class="di di-scale"></i></button>
+        </div>
+      </div>
+      <div class="dcs-dockpane__body dcs-viewport">
+        <div class="viewport-grid"><div class="gizmo"><div class="gizmo-axis gx"></div><div class="gizmo-axis gy"></div></div></div>
+        <div class="dcs-viewport__overlay dcs-viewport__overlay--tl"><div class="dcs-viewport__floater">
+          <button id="play" class="dcs-btn dcs-btn--primary"><i class="di di-play"></i> Play</button>
+          <button id="snap" class="dcs-btn dcs-btn--icon" aria-pressed="true"><i class="di di-snap"></i></button>
+          <button class="dcs-btn dcs-btn--icon" aria-pressed="true"><i class="di di-grid"></i></button>
+        </div></div>
+      </div>
+    </main>
+    <aside class="right dcs-dockpane">
+      <div class="dcs-dockpane__tabs"><button class="dcs-dockpane__tab" aria-selected="true"><i class="di di-cog"></i> Inspector</button></div>
+      <div class="dcs-dockpane__body" style="padding:12px">
+        <h3 id="inspector-title" style="margin:0 0 12px;font-size:16px">Hero_mesh_high</h3>
+        <div class="prop-row"><span>Name</span><input class="dcs-input" value="Hero_mesh_high"></div>
+        <div class="prop-row"><span>Position</span><input class="dcs-input" value="12.0, 4.2, -8.5"></div>
+        <div class="prop-row"><span>Rotation</span><input class="dcs-input" value="0, 45, 0"></div>
+        <div class="prop-row"><span>Material</span><input class="dcs-input" value="M_hero_worn"></div>
+        <div style="margin:14px 0"><div id="roughness" data-dcs-slider data-min="0" data-max="1" data-value=".62" class="dcs-slider"><div class="dcs-slider__track"><div class="dcs-slider__tick" style="left:25%"></div><div class="dcs-slider__tick" style="left:50%"></div><div class="dcs-slider__tick" style="left:75%"></div><div id="roughness__fill" class="dcs-slider__fill" style="width:62%"></div><div id="roughness__thumb" class="dcs-slider__thumb" style="left:62%"></div></div></div></div>
+        <div id="cast-shadows" class="dcs-check" aria-checked="true"><div class="dcs-check__box"><i class="di di-check"></i></div><span>Cast shadows</span></div>
+        <div class="dcs-row"><div id="gpu-skinning" class="dcs-switch" aria-checked="true"></div><span>GPU skinning</span></div>
+      </div>
+    </aside>
+  </div>
+  <div class="dcs-dockpane" style="height:118px;flex:0 0 118px">
+    <div class="dcs-dockpane__tabs"><button class="dcs-dockpane__tab" aria-selected="true"><i class="di di-image"></i> Assets</button></div>
+    <div class="asset-strip">
+      <div class="asset"><i class="di di-mesh"></i><span>Hero</span></div>
+      <div class="asset"><i class="di di-texture"></i><span>Albedo</span></div>
+      <div class="asset"><i class="di di-curve"></i><span>Rig</span></div>
+      <div class="asset"><i class="di di-camera"></i><span>Shot A</span></div>
+    </div>
+  </div>
+  <div class="dcs-statusbar"><div class="dcs-statusbar__item dcs-statusbar__item--ok">READY</div><div class="dcs-statusbar__sep"></div><div class="dcs-statusbar__item">60.0 FPS</div><div class="dcs-statusbar__spacer"></div><div class="dcs-statusbar__item dcs-statusbar__item--accent">GPU 42%</div></div>
+</div>
+<script src="../common/decius_demo_interactions.js"></script>
+<script>
+(() => {
+  const names = ["WorldRoot", "Hero_mesh_high", "KeyLight", "SplineRig"];
+  document.querySelectorAll(".dcs-tree__row[id]").forEach((row, index) => {
+    row.addEventListener("click", () => {
+      document.querySelectorAll(".dcs-tree__row[aria-selected]").forEach(el => el.removeAttribute("aria-selected"));
+      row.setAttribute("aria-selected", "true");
+      document.getElementById("inspector-title").textContent = names[index];
+    });
+  });
+  document.getElementById("play").addEventListener("click", (ev) => {
+    const btn = ev.currentTarget;
+    const playing = btn.textContent.includes("Play");
+    btn.innerHTML = playing ? '<i class="di di-pause"></i> Pause' : '<i class="di di-play"></i> Play';
+  });
+  document.getElementById("snap").addEventListener("click", (ev) => {
+    const btn = ev.currentTarget;
+    if (btn.getAttribute("aria-pressed") === "true") btn.removeAttribute("aria-pressed");
+    else btn.setAttribute("aria-pressed", "true");
+  });
+})();
+</script>
+</body>
+</html>

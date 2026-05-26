@@ -45,6 +45,10 @@ struct AppImpl {
     bool                  quit_requested{false};
     int                   exit_code{0};
     int                   last_cursor{-1};  // last sapp cursor we set
+    bool                  dirty{true};
+    bool                  animations_active{false};
+    int                   last_w{-1};
+    int                   last_h{-1};
     float                 last_dpi{1.0f};   // updated each frame for event→pt conversion
 };
 
@@ -66,11 +70,11 @@ App::~App() = default;
 App::App(App&&) noexcept            = default;
 App& App::operator=(App&&) noexcept = default;
 
-void App::load_html(std::string_view html)     { impl_->document.set_html(html); }
+void App::load_html(std::string_view html)     { impl_->document.set_html(html); impl_->dirty = true; impl_->animations_active = false; }
 bool App::load_html_file(std::string_view)     { return false; }
-void App::set_stylesheet(std::string_view css) { impl_->document.set_user_stylesheet(css); }
-void App::mount(std::function<void()> view_fn) { impl_->view_fn = std::move(view_fn); }
-void App::invalidate() {}
+void App::set_stylesheet(std::string_view css) { impl_->document.set_user_stylesheet(css); impl_->dirty = true; impl_->animations_active = false; }
+void App::mount(std::function<void()> view_fn) { impl_->view_fn = std::move(view_fn); impl_->dirty = true; impl_->animations_active = false; }
+void App::invalidate() { impl_->dirty = true; impl_->animations_active = false; }
 
 #if defined(AFFINEUI_STUB_BUILD)
 
@@ -124,26 +128,38 @@ void cb_init(void* user) {
 void cb_frame(void* user) {
     auto* impl = static_cast<detail::AppImpl*>(user);
     impl->last_dpi = sapp_dpi_scale();
+    const int w = sapp_width();
+    const int h = sapp_height();
+    const bool viewport_changed =
+        w != impl->last_w || h != impl->last_h;
+    if (!impl->dirty && !impl->animations_active && !viewport_changed) {
+        if (impl->quit_requested) sapp_request_quit();
+        return;
+    }
+    impl->last_w = w;
+    impl->last_h = h;
 
-    const Color c = impl->config.clear_color;
-    sg_pass pass{};
-    pass.action.colors[0].load_action = SG_LOADACTION_CLEAR;
-    pass.action.colors[0].clear_value.r = c.r / 255.0f;
-    pass.action.colors[0].clear_value.g = c.g / 255.0f;
-    pass.action.colors[0].clear_value.b = c.b / 255.0f;
-    pass.action.colors[0].clear_value.a = c.a / 255.0f;
-    pass.action.depth.load_action   = SG_LOADACTION_CLEAR;
-    pass.action.depth.clear_value   = 1.0f;
-    pass.action.stencil.load_action = SG_LOADACTION_CLEAR;
-    pass.action.stencil.clear_value = 0;
-    pass.swapchain = sglue_swapchain();
-
-    sg_begin_pass(&pass);
-    impl->renderer.render(impl->document,
-                          sapp_width(), sapp_height(),
-                          impl->last_dpi);
-    sg_end_pass();
-    sg_commit();
+    const sg_swapchain sc = sglue_swapchain();
+    FrameTarget target{};
+    target.width = w;
+    target.height = h;
+    target.dpi_scale = impl->last_dpi;
+    target.sample_count = sc.sample_count > 0 ? sc.sample_count : 1;
+    target.clear = true;
+    target.commit = true;
+    target.metal.current_drawable = sc.metal.current_drawable;
+    target.metal.depth_stencil_texture = sc.metal.depth_stencil_texture;
+    target.metal.msaa_color_texture = sc.metal.msaa_color_texture;
+    target.d3d11.render_view = sc.d3d11.render_view;
+    target.d3d11.resolve_view = sc.d3d11.resolve_view;
+    target.d3d11.depth_stencil_view = sc.d3d11.depth_stencil_view;
+    target.wgpu.render_view = sc.wgpu.render_view;
+    target.wgpu.resolve_view = sc.wgpu.resolve_view;
+    target.wgpu.depth_stencil_view = sc.wgpu.depth_stencil_view;
+    target.gl.framebuffer = sc.gl.framebuffer;
+    impl->renderer.render_to(impl->document, target);
+    impl->animations_active = impl->renderer.stats().animations_active;
+    impl->dirty = impl->animations_active;
 
     if (impl->quit_requested) sapp_request_quit();
 }
@@ -166,10 +182,17 @@ void cb_event(const sapp_event* ev, void* user) {
         case SAPP_EVENTTYPE_MOUSE_MOVE:  aui_ev.type = EventType::MouseMove; break;
         case SAPP_EVENTTYPE_MOUSE_DOWN:  aui_ev.type = EventType::MouseDown; break;
         case SAPP_EVENTTYPE_MOUSE_UP:    aui_ev.type = EventType::MouseUp;   break;
+        case SAPP_EVENTTYPE_RESIZED:
+            aui_ev.type = EventType::Resize;
+            impl->document.dispatch(aui_ev);
+            impl->dirty = true;
+            return;
         case SAPP_EVENTTYPE_MOUSE_LEAVE:
             aui_ev.type = EventType::MouseMove;
             aui_ev.pos  = Point{-1, -1};
-            impl->document.dispatch(aui_ev);
+            if (impl->document.dispatch(aui_ev).redraw_requested) {
+                impl->dirty = true;
+            }
             return;
         default:
             return;
@@ -188,7 +211,10 @@ void cb_event(const sapp_event* ev, void* user) {
         }
     }
 
-    impl->document.dispatch(aui_ev);
+    const auto result = impl->document.dispatch(aui_ev);
+    if (result.redraw_requested || result.invalidate_view) {
+        impl->dirty = true;
+    }
 
     // Cursor must be applied synchronously inside the macOS mouse-
     // event handler — calling sapp_set_mouse_cursor later from the

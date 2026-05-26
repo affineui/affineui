@@ -1,0 +1,19 @@
+{
+  "width": 460,
+  "height": 220,
+  "dpi": 1.0,
+  "tolerance": 2,
+  "threshold": 7.0,
+  "steps": [
+    { "animation_time_ms": 0 },
+    { "snapshot": "t000" },
+    { "animation_time_ms": 300 },
+    { "snapshot": "t300" },
+    { "animation_time_ms": 500 },
+    { "snapshot": "t500" },
+    { "animation_time_ms": 700 },
+    { "snapshot": "t700" },
+    { "animation_time_ms": 1000 },
+    { "snapshot": "t1000" }
+  ]
+}

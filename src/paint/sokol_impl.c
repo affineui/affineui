@@ -17,6 +17,13 @@
 #    endif
 
 #    define SOKOL_IMPL
+     /*
+      * AffineUI is a retained UI renderer, so stale framebuffer dimensions
+      * during Win32's modal resize loop are immediately visible as frozen
+      * layout. Enable the local sokol_app opt-in below so the swapchain is
+      * resized before each resize-loop frame.
+      */
+#    define SOKOL_WIN32_LIVE_RESIZE
 #    include "sokol_log.h"
 #    include "sokol_gfx.h"
 #    include "sokol_app.h"

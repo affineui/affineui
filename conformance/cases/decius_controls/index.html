@@ -1,0 +1,81 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../_decius/css/decius.bundle.min.css">
+<style>
+body{margin:0;background:#14161c;padding:18px}
+.fixture{display:flex;gap:14px}
+.fixture>.dcs-panel:first-child{flex:0 0 340px}
+.fixture>.dcs-panel:last-child{flex:1 1 0;min-width:0}
+.row{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.stack{display:flex;flex-direction:column;gap:12px}
+</style>
+</head>
+<body class="dcs" data-dcs-density="comfortable">
+  <div class="fixture">
+    <section class="dcs-panel dcs-panel--bordered">
+      <div class="dcs-panel__header">
+        <div class="dcs-panel__title"><i class="di di-gain"></i><span>Inspector Fields</span></div>
+      </div>
+      <div class="dcs-panel__body">
+        <div class="dcs-props">
+          <label class="dcs-field"><span class="dcs-field__label">Name</span><input class="dcs-input" value="Cylinder.042"></label>
+          <label class="dcs-field"><span class="dcs-field__label">Mode</span><select class="dcs-select"><option>Object</option></select></label>
+          <div class="dcs-field">
+            <span class="dcs-field__label">Strength</span>
+            <div class="dcs-combo" style="--fill:62%">
+              <div class="dcs-combo__fill"></div>
+              <div class="dcs-combo__label">dB</div>
+              <div class="dcs-combo__value">0.62</div>
+            </div>
+          </div>
+          <div class="dcs-field">
+            <span class="dcs-field__label">Mix</span>
+            <div data-dcs-slider data-min="0" data-max="1" data-value="0.68"></div>
+          </div>
+          <div class="dcs-field">
+            <span class="dcs-field__label">Phase</span>
+            <div data-dcs-slider data-min="-1" data-max="1" data-value="0.28" data-bipolar></div>
+          </div>
+          <label class="dcs-field"><span class="dcs-field__label">Notes</span><textarea class="dcs-textarea dcs-field__fill" rows="3">Dense native UI, browser semantics.</textarea></label>
+        </div>
+      </div>
+    </section>
+
+    <section class="dcs-panel dcs-panel--bordered" data-dcs-style="3d">
+      <div class="dcs-panel__header">
+        <div class="dcs-panel__title"><i class="di di-wave-sine"></i><span>Controls</span></div>
+      </div>
+      <div class="dcs-panel__body stack">
+        <div class="row">
+          <div class="dcs-check" aria-checked="true"><div class="dcs-check__box"><i class="di di-check"></i></div><span>Snap</span></div>
+          <div class="dcs-check"><div class="dcs-check__box"><i class="di di-check"></i></div><span>Live</span></div>
+          <div class="dcs-check dcs-radio" aria-checked="true"><div class="dcs-check__box"></div><span>Local</span></div>
+          <div class="dcs-check dcs-radio"><div class="dcs-check__box"></div><span>World</span></div>
+          <div class="dcs-row"><div class="dcs-switch" aria-checked="true"></div><span>GPU</span></div>
+          <div class="dcs-row"><div class="dcs-switch"></div><span>Sync</span></div>
+        </div>
+        <div class="row" style="padding-top:16px">
+          <div data-dcs-knob data-min="0" data-max="100" data-value="32" data-label="Cut"></div>
+          <div data-dcs-knob data-min="0" data-max="1" data-value="0.63" data-label="Drive"></div>
+          <div class="dcs-fader" style="--pos:34%">
+            <div class="dcs-fader__track"></div>
+            <div class="dcs-fader__tick" style="top:25%"></div>
+            <div class="dcs-fader__tick" style="top:50%"></div>
+            <div class="dcs-fader__tick" style="top:75%"></div>
+            <div class="dcs-fader__thumb"></div>
+          </div>
+          <div class="dcs-fader" style="--pos:66%">
+            <div class="dcs-fader__track"></div>
+            <div class="dcs-fader__tick" style="top:25%"></div>
+            <div class="dcs-fader__tick" style="top:50%"></div>
+            <div class="dcs-fader__tick" style="top:75%"></div>
+            <div class="dcs-fader__thumb"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

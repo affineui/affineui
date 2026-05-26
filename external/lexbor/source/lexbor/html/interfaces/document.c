@@ -1141,10 +1141,12 @@ lxb_html_document_event_remove_attribute(lxb_dom_node_t *node)
 
     context.doc = doc;
 
-    status = lexbor_avl_foreach(doc->css.styles, &el->style,
-                                lxb_html_document_style_remove_my_cb, &context);
-    if (status != LXB_STATUS_OK) {
-        return status;
+    if (el->style != NULL) {
+        status = lexbor_avl_foreach(doc->css.styles, &el->style,
+                                    lxb_html_document_style_remove_my_cb, &context);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
     }
 
     el->list->first = NULL;
@@ -1254,7 +1256,7 @@ lxb_html_document_event_set_value(lxb_dom_node_t *node,
         return status;
     }
 
-    return lxb_html_element_style_parse(lxb_html_interface_element(node),
+    return lxb_html_element_style_parse(lxb_html_interface_element(attr->owner),
                                         value, length);
 }
 

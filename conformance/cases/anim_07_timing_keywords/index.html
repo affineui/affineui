@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #ffffff; }
+  .stage { position: relative; width: 520px; height: 300px; background: #f8f9fa; }
+  .row { position: relative; height: 52px; margin-left: 36px; width: 420px; }
+  .rail { position: absolute; left: 0; top: 24px; width: 340px; height: 8px; background: #d3d9df; }
+  .target { position: absolute; left: 0; top: 8px; width: 44px; height: 40px; background: #0d6efd; animation: timing_move 1000ms 1 both; }
+  .linear .target { animation-timing-function: linear; background: #0d6efd; }
+  .ease .target { animation-timing-function: ease; background: #198754; }
+  .in .target { animation-timing-function: ease-in; background: #dc3545; }
+  .out .target { animation-timing-function: ease-out; background: #fd7e14; }
+  .inout .target { animation-timing-function: ease-in-out; background: #6f42c1; }
+  @keyframes timing_move {
+    from { transform: translateX(0); }
+    to   { transform: translateX(280px); }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="row linear"><div class="rail"></div><div class="target"></div></div>
+    <div class="row ease"><div class="rail"></div><div class="target"></div></div>
+    <div class="row in"><div class="rail"></div><div class="target"></div></div>
+    <div class="row out"><div class="rail"></div><div class="target"></div></div>
+    <div class="row inout"><div class="rail"></div><div class="target"></div></div>
+  </div>
+</body>
+</html>

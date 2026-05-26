@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #ffffff; }
+  .stage { position: relative; width: 360px; height: 240px; background: #f8f9fa; }
+  .target {
+    position: absolute; left: 128px; top: 84px; width: 104px; height: 48px;
+    background: #6f42c1;
+    animation: rotate_linear 1000ms linear 1 both;
+  }
+  .target .mark { width: 28px; height: 48px; background: #20c997; }
+  @keyframes rotate_linear {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(180deg); }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="target"><div class="mark"></div></div>
+  </div>
+</body>
+</html>

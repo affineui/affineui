@@ -8,9 +8,12 @@
 #include "internal/paint_internal.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -18,6 +21,7 @@
 
 #if !defined(AFFINEUI_STUB_BUILD)
 #    include "nanovg.h"
+#    include "stb_image.h"
 #    if defined(AFFINEUI_HAVE_EMBEDDED_FONTS)
 // Byte arrays generated at build time from assets/fonts/*.ttf by bin2c.
 #        include "roboto_regular.h"
@@ -47,7 +51,8 @@ public:
     void fill_linear_gradient_rect(const Rect&, float, Color, Color,
                                    float, float, float, float) override {}
     void fill_radial_gradient_rect(const Rect&, Color, Color,
-                                   float, float, float, float) override {}
+                                   float, float, float, float,
+                                   float, float, float) override {}
     void fill_box_shadow(const Rect&, float, Color, float, float, float, float,
                          bool) override {}
     std::uint32_t resolve_font(std::string_view, int, int, bool) override { return 0; }
@@ -63,6 +68,8 @@ public:
     void pop_clip() override {}
     void push_alpha(float) override {}
     void pop_alpha() override {}
+    void push_transform(const Mat2x3&) override {}
+    void pop_transform() override {}
 };
 
 namespace detail {
@@ -81,19 +88,332 @@ inline NVGcolor to_nvg(Color c) {
     return nvgRGBA(c.r, c.g, c.b, c.a);
 }
 
-// Synthetic-medium weight draws the glyphs twice (offset by half a
-// pixel) to thicken strokes. For a fully opaque colour that's fine, but
-// for a semi-transparent colour the two passes composite on top of each
-// other and darken the text (rgba(.,.,.,.75) drawn twice ≈ alpha .94).
-// Split the alpha across the two passes so they composite back to the
-// intended alpha: with a' = 1 - sqrt(1 - a), 1 - (1 - a')^2 == a. Opaque
-// text (a == 255) is unchanged.
-inline Color synth_bold_pass_color(Color c) {
-    if (c.a == 255) return c;
-    const float a = c.a / 255.0f;
-    const float a_pass = 1.0f - std::sqrt(1.0f - a);
-    c.a = static_cast<std::uint8_t>(std::lround(a_pass * 255.0f));
-    return c;
+bool is_raw_sfnt_font(std::string_view bytes) {
+    if (bytes.size() < 4) return false;
+    const unsigned char* p =
+        reinterpret_cast<const unsigned char*>(bytes.data());
+    const std::uint32_t tag =
+        (static_cast<std::uint32_t>(p[0]) << 24) |
+        (static_cast<std::uint32_t>(p[1]) << 16) |
+        (static_cast<std::uint32_t>(p[2]) << 8)  |
+        (static_cast<std::uint32_t>(p[3]));
+    return tag == 0x00010000u || // TrueType
+           tag == 0x4F54544Fu || // "OTTO" OpenType/CFF
+           tag == 0x74746366u || // "ttcf" collection
+           tag == 0x74727565u || // "true"
+           tag == 0x74797031u;   // "typ1"
+}
+
+std::uint16_t read_be16(const unsigned char* p) {
+    return static_cast<std::uint16_t>(
+        (static_cast<std::uint16_t>(p[0]) << 8) |
+         static_cast<std::uint16_t>(p[1]));
+}
+
+std::uint32_t read_be32(const unsigned char* p) {
+    return (static_cast<std::uint32_t>(p[0]) << 24) |
+           (static_cast<std::uint32_t>(p[1]) << 16) |
+           (static_cast<std::uint32_t>(p[2]) << 8)  |
+            static_cast<std::uint32_t>(p[3]);
+}
+
+void write_be16(unsigned char* p, std::uint16_t v) {
+    p[0] = static_cast<unsigned char>((v >> 8) & 0xFFu);
+    p[1] = static_cast<unsigned char>(v & 0xFFu);
+}
+
+void write_be32(unsigned char* p, std::uint32_t v) {
+    p[0] = static_cast<unsigned char>((v >> 24) & 0xFFu);
+    p[1] = static_cast<unsigned char>((v >> 16) & 0xFFu);
+    p[2] = static_cast<unsigned char>((v >> 8) & 0xFFu);
+    p[3] = static_cast<unsigned char>(v & 0xFFu);
+}
+
+std::uint32_t align4(std::uint32_t v) {
+    return (v + 3u) & ~3u;
+}
+
+bool is_woff1_font(std::string_view bytes) {
+    if (bytes.size() < 4) return false;
+    const auto* p = reinterpret_cast<const unsigned char*>(bytes.data());
+    return read_be32(p) == 0x774F4646u; // "wOFF"
+}
+
+std::string decode_woff1_to_sfnt(std::string_view bytes) {
+    if (bytes.size() < 44 || !is_woff1_font(bytes)) return {};
+    const auto* src = reinterpret_cast<const unsigned char*>(bytes.data());
+    const std::uint32_t length = read_be32(src + 8);
+    const std::uint16_t num_tables = read_be16(src + 12);
+    const std::uint32_t total_sfnt_size = read_be32(src + 16);
+    if (length > bytes.size() || num_tables == 0 ||
+        44u + static_cast<std::uint32_t>(num_tables) * 20u > length ||
+        total_sfnt_size < 12u + static_cast<std::uint32_t>(num_tables) * 16u) {
+        return {};
+    }
+
+    struct Entry {
+        std::uint32_t tag{0};
+        std::uint32_t offset{0};
+        std::uint32_t comp_len{0};
+        std::uint32_t orig_len{0};
+        std::uint32_t checksum{0};
+        std::uint32_t out_offset{0};
+    };
+
+    std::vector<Entry> entries;
+    entries.reserve(num_tables);
+    std::uint32_t out_offset =
+        12u + static_cast<std::uint32_t>(num_tables) * 16u;
+    for (std::uint16_t i = 0; i < num_tables; ++i) {
+        const unsigned char* rec = src + 44u + static_cast<std::uint32_t>(i) * 20u;
+        Entry e;
+        e.tag      = read_be32(rec + 0);
+        e.offset   = read_be32(rec + 4);
+        e.comp_len = read_be32(rec + 8);
+        e.orig_len = read_be32(rec + 12);
+        e.checksum = read_be32(rec + 16);
+        if (e.offset > length || e.comp_len > length - e.offset ||
+            e.orig_len > total_sfnt_size) {
+            return {};
+        }
+        e.out_offset = out_offset;
+        out_offset = align4(out_offset + e.orig_len);
+        if (out_offset > total_sfnt_size + 3u) return {};
+        entries.push_back(e);
+    }
+
+    std::string out(total_sfnt_size, '\0');
+    auto* dst = reinterpret_cast<unsigned char*>(out.data());
+    write_be32(dst + 0, read_be32(src + 4)); // sfntVersion/flavor
+    write_be16(dst + 4, num_tables);
+
+    std::uint16_t max_pow2 = 1;
+    std::uint16_t entry_selector = 0;
+    while (static_cast<std::uint16_t>(max_pow2 * 2u) <= num_tables) {
+        max_pow2 = static_cast<std::uint16_t>(max_pow2 * 2u);
+        ++entry_selector;
+    }
+    const std::uint16_t search_range =
+        static_cast<std::uint16_t>(max_pow2 * 16u);
+    write_be16(dst + 6, search_range);
+    write_be16(dst + 8, entry_selector);
+    write_be16(dst + 10,
+               static_cast<std::uint16_t>(num_tables * 16u - search_range));
+
+    for (std::uint16_t i = 0; i < num_tables; ++i) {
+        const Entry& e = entries[i];
+        unsigned char* rec = dst + 12u + static_cast<std::uint32_t>(i) * 16u;
+        write_be32(rec + 0, e.tag);
+        write_be32(rec + 4, e.checksum);
+        write_be32(rec + 8, e.out_offset);
+        write_be32(rec + 12, e.orig_len);
+
+        auto* table_dst = dst + e.out_offset;
+        const auto* table_src = reinterpret_cast<const char*>(src + e.offset);
+        if (e.comp_len == e.orig_len) {
+            std::memcpy(table_dst, table_src, e.orig_len);
+        } else {
+            const int decoded = stbi_zlib_decode_buffer(
+                reinterpret_cast<char*>(table_dst),
+                static_cast<int>(e.orig_len),
+                table_src,
+                static_cast<int>(e.comp_len));
+            if (decoded != static_cast<int>(e.orig_len)) return {};
+        }
+    }
+    return out;
+}
+
+std::string font_face_key(std::string_view family, int weight, bool italic) {
+    std::string key;
+    key.reserve(family.size() + 16);
+    key.append(family);
+    key.push_back('|');
+    key.append(std::to_string(weight));
+    key.push_back('|');
+    key.push_back(italic ? 'i' : 'n');
+    return key;
+}
+
+std::string trim_ascii_ws(std::string_view value) {
+    while (!value.empty() &&
+           std::isspace(static_cast<unsigned char>(value.front()))) {
+        value.remove_prefix(1);
+    }
+    while (!value.empty() &&
+           std::isspace(static_cast<unsigned char>(value.back()))) {
+        value.remove_suffix(1);
+    }
+    return std::string(value);
+}
+
+std::string strip_css_quotes(std::string value) {
+    if (value.size() >= 2) {
+        const char first = value.front();
+        if ((first == '"' || first == '\'') && value.back() == first) {
+            return value.substr(1, value.size() - 2);
+        }
+    }
+    return value;
+}
+
+std::vector<std::string> split_font_family_list(std::string_view family) {
+    std::vector<std::string> out;
+    char quote = '\0';
+    std::size_t start = 0;
+    for (std::size_t i = 0; i <= family.size(); ++i) {
+        const char c = i < family.size() ? family[i] : ',';
+        if (quote != '\0') {
+            if (c == quote) quote = '\0';
+            continue;
+        }
+        if (c == '"' || c == '\'') {
+            quote = c;
+            continue;
+        }
+        if (c != ',') continue;
+        auto item = strip_css_quotes(trim_ascii_ws(family.substr(start, i - start)));
+        if (!item.empty()) out.push_back(std::move(item));
+        start = i + 1;
+    }
+    return out;
+}
+
+bool ascii_equal_ci(std::string_view a, std::string_view b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (std::tolower(static_cast<unsigned char>(a[i])) !=
+            std::tolower(static_cast<unsigned char>(b[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool is_generic_sans_family(std::string_view family) {
+    return ascii_equal_ci(family, "sans") ||
+           ascii_equal_ci(family, "sans-serif") ||
+           ascii_equal_ci(family, "ui-sans-serif") ||
+           ascii_equal_ci(family, "system-ui");
+}
+
+bool is_generic_mono_family(std::string_view family) {
+    return ascii_equal_ci(family, "monospace") ||
+           ascii_equal_ci(family, "ui-monospace");
+}
+
+bool is_unavailable_platform_alias(std::string_view family) {
+#if defined(_WIN32)
+    return ascii_equal_ci(family, "-apple-system") ||
+           ascii_equal_ci(family, "BlinkMacSystemFont");
+#elif defined(__APPLE__)
+    (void)family;
+    return false;
+#else
+    return ascii_equal_ci(family, "-apple-system") ||
+           ascii_equal_ci(family, "BlinkMacSystemFont");
+#endif
+}
+
+int create_font_if_absent(NVGcontext* vg, const char* name, const char* path) {
+    if (!name || !path || nvgFindFont(vg, name) >= 0) return nvgFindFont(vg, name);
+    return nvgCreateFont(vg, name, path);
+}
+
+void register_font_alias_family(NVGcontext* vg,
+                                const char* family,
+                                const char* regular,
+                                const char* bold,
+                                const char* italic,
+                                const char* bold_italic) {
+    if (!family || !regular) return;
+    create_font_if_absent(vg, family, regular);
+    std::string suffix;
+    if (bold) {
+        suffix = std::string(family) + "-bold";
+        create_font_if_absent(vg, suffix.c_str(), bold);
+    }
+    if (italic) {
+        suffix = std::string(family) + "-italic";
+        create_font_if_absent(vg, suffix.c_str(), italic);
+    }
+    if (bold_italic) {
+        suffix = std::string(family) + "-bold-italic";
+        create_font_if_absent(vg, suffix.c_str(), bold_italic);
+    }
+}
+
+void register_platform_font_aliases(NVGcontext* vg) {
+#if defined(_WIN32)
+    constexpr const char* kSegoe = "C:/Windows/Fonts/segoeui.ttf";
+    constexpr const char* kSegoeBold = "C:/Windows/Fonts/segoeuib.ttf";
+    constexpr const char* kSegoeItalic = "C:/Windows/Fonts/segoeuii.ttf";
+    constexpr const char* kSegoeBoldItalic = "C:/Windows/Fonts/segoeuiz.ttf";
+    register_font_alias_family(vg, "Segoe UI", kSegoe, kSegoeBold,
+                               kSegoeItalic, kSegoeBoldItalic);
+    register_font_alias_family(vg, "system-ui", kSegoe, kSegoeBold,
+                               kSegoeItalic, kSegoeBoldItalic);
+    register_font_alias_family(vg, "ui-sans-serif", kSegoe, kSegoeBold,
+                               kSegoeItalic, kSegoeBoldItalic);
+    register_font_alias_family(vg, "Arial", "C:/Windows/Fonts/arial.ttf",
+                               "C:/Windows/Fonts/arialbd.ttf",
+                               "C:/Windows/Fonts/ariali.ttf",
+                               "C:/Windows/Fonts/arialbi.ttf");
+    constexpr const char* kConsolas = "C:/Windows/Fonts/consola.ttf";
+    constexpr const char* kConsolasBold = "C:/Windows/Fonts/consolab.ttf";
+    constexpr const char* kConsolasItalic = "C:/Windows/Fonts/consolai.ttf";
+    constexpr const char* kConsolasBoldItalic = "C:/Windows/Fonts/consolaz.ttf";
+    register_font_alias_family(vg, "Consolas", kConsolas, kConsolasBold,
+                               kConsolasItalic, kConsolasBoldItalic);
+    register_font_alias_family(vg, "monospace", kConsolas, kConsolasBold,
+                               kConsolasItalic, kConsolasBoldItalic);
+    register_font_alias_family(vg, "ui-monospace", kConsolas, kConsolasBold,
+                               kConsolasItalic, kConsolasBoldItalic);
+    register_font_alias_family(vg, "Courier New", "C:/Windows/Fonts/cour.ttf",
+                               "C:/Windows/Fonts/courbd.ttf",
+                               "C:/Windows/Fonts/couri.ttf",
+                               "C:/Windows/Fonts/courbi.ttf");
+#elif defined(__APPLE__)
+    constexpr const char* kHelvetica = "/System/Library/Fonts/Helvetica.ttc";
+    register_font_alias_family(vg, "-apple-system", kHelvetica, nullptr,
+                               nullptr, nullptr);
+    register_font_alias_family(vg, "BlinkMacSystemFont", kHelvetica, nullptr,
+                               nullptr, nullptr);
+    register_font_alias_family(vg, "system-ui", kHelvetica, nullptr,
+                               nullptr, nullptr);
+    register_font_alias_family(vg, "ui-sans-serif", kHelvetica, nullptr,
+                               nullptr, nullptr);
+    constexpr const char* kMenlo = "/System/Library/Fonts/Menlo.ttc";
+    register_font_alias_family(vg, "Menlo", kMenlo, nullptr, nullptr,
+                               nullptr);
+    register_font_alias_family(vg, "monospace", kMenlo, nullptr, nullptr,
+                               nullptr);
+    register_font_alias_family(vg, "ui-monospace", kMenlo, nullptr, nullptr,
+                               nullptr);
+#else
+    register_font_alias_family(
+        vg, "system-ui", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf");
+    register_font_alias_family(
+        vg, "ui-sans-serif", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf");
+    register_font_alias_family(
+        vg, "monospace",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Oblique.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-BoldOblique.ttf");
+    register_font_alias_family(
+        vg, "ui-monospace",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Oblique.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-BoldOblique.ttf");
+#endif
 }
 
 class NanoVGPainter final : public Painter {
@@ -174,6 +494,366 @@ public:
         return radius < maxr ? radius : maxr;
     }
 
+    void clamp_radii(const Rect& r, float& tl, float& tr,
+                     float& br, float& bl) const {
+        const float maxr = 0.5f * static_cast<float>(std::min(r.w, r.h));
+        tl = std::min(tl, maxr);
+        tr = std::min(tr, maxr);
+        br = std::min(br, maxr);
+        bl = std::min(bl, maxr);
+    }
+
+    void path_rounded_rect(float x, float y, float w, float h,
+                           float radius) {
+        if (radius > 0.0f) nvgRoundedRect(vg_, x, y, w, h, radius);
+        else               nvgRect(vg_, x, y, w, h);
+    }
+
+    bool snap_rect_to_pixel_grid(float& x, float& y, float& w, float& h) {
+        float xform[6]{};
+        nvgCurrentTransform(vg_, xform);
+        constexpr float eps = 1e-4f;
+        if (std::abs(xform[0] - 1.0f) > eps ||
+            std::abs(xform[1]) > eps ||
+            std::abs(xform[2]) > eps ||
+            std::abs(xform[3] - 1.0f) > eps) {
+            return false;
+        }
+
+        const float tx = xform[4];
+        const float ty = xform[5];
+        const float x0 = std::round(x + tx) - tx;
+        const float y0 = std::round(y + ty) - ty;
+        const float x1 = std::round(x + w + tx) - tx;
+        const float y1 = std::round(y + h + ty) - ty;
+        x = x0;
+        y = y0;
+        w = std::max(0.0f, x1 - x0);
+        h = std::max(0.0f, y1 - y0);
+        return true;
+    }
+
+    void fill_hard_inset_shadow(const Rect& r, float radius, Color color,
+                                float offset_x, float offset_y,
+                                float spread) {
+        const float bx = static_cast<float>(r.x);
+        const float by = static_cast<float>(r.y);
+        const float bw = static_cast<float>(r.w);
+        const float bh = static_cast<float>(r.h);
+        const float ix = bx + offset_x + spread;
+        const float iy = by + offset_y + spread;
+        const float iw = bw - spread * 2.0f;
+        const float ih = bh - spread * 2.0f;
+        const float ir = std::max(0.0f, radius - spread);
+
+        nvgBeginPath(vg_);
+        path_rounded_rect(bx, by, bw, bh, radius);
+        if (iw > 0.0f && ih > 0.0f) {
+            path_rounded_rect(ix, iy, iw, ih, ir);
+            nvgPathWinding(vg_, NVG_HOLE);
+        }
+        nvgFillColor(vg_, to_nvg(color));
+        nvgFill(vg_);
+    }
+
+    bool fill_axis_aligned_hard_inset_shadow(const Rect& r, float radius,
+                                             Color color, float offset_x,
+                                             float offset_y, float spread) {
+        if (spread != 0.0f) return false;
+        if ((offset_x == 0.0f) == (offset_y == 0.0f)) return false;
+
+        const float bx = static_cast<float>(r.x);
+        const float by = static_cast<float>(r.y);
+        const float bw = static_cast<float>(r.w);
+        const float bh = static_cast<float>(r.h);
+        if (bw <= 0.0f || bh <= 0.0f) return true;
+
+        float x = bx;
+        float y = by;
+        float w = bw;
+        float h = bh;
+        float tl = 0.0f;
+        float tr = 0.0f;
+        float br = 0.0f;
+        float bl = 0.0f;
+
+        if (offset_y > 0.0f) {
+            h = std::min(offset_y, bh);
+            tl = radius;
+            tr = radius;
+        } else if (offset_y < 0.0f) {
+            h = std::min(-offset_y, bh);
+            y = by + bh - h;
+            br = radius;
+            bl = radius;
+        } else if (offset_x > 0.0f) {
+            w = std::min(offset_x, bw);
+            tl = radius;
+            bl = radius;
+        } else {
+            w = std::min(-offset_x, bw);
+            x = bx + bw - w;
+            tr = radius;
+            br = radius;
+        }
+
+        if (w <= 0.0f || h <= 0.0f) return true;
+        snap_rect_to_pixel_grid(x, y, w, h);
+        const float maxr = 0.5f * std::min(w, h);
+        tl = std::min(tl, maxr);
+        tr = std::min(tr, maxr);
+        br = std::min(br, maxr);
+        bl = std::min(bl, maxr);
+
+        nvgBeginPath(vg_);
+        if (tl == 0.0f && tr == 0.0f && br == 0.0f && bl == 0.0f) {
+            nvgRect(vg_, x, y, w, h);
+        } else {
+            nvgRoundedRectVarying(vg_, x, y, w, h, tl, tr, br, bl);
+        }
+        nvgFillColor(vg_, to_nvg(color));
+        nvgFill(vg_);
+        return true;
+    }
+
+    void fill_hard_outset_shadow(const Rect& r, float radius, Color color,
+                                 float offset_x, float offset_y,
+                                 float spread) {
+        const float bx = static_cast<float>(r.x);
+        const float by = static_cast<float>(r.y);
+        const float bw = static_cast<float>(r.w);
+        const float bh = static_cast<float>(r.h);
+        const float sx = bx + offset_x - spread;
+        const float sy = by + offset_y - spread;
+        const float sw = bw + spread * 2.0f;
+        const float sh = bh + spread * 2.0f;
+        const float sr = std::max(0.0f, radius + spread);
+        if (sw <= 0.0f || sh <= 0.0f) return;
+
+        nvgBeginPath(vg_);
+        path_rounded_rect(sx, sy, sw, sh, sr);
+        path_rounded_rect(bx, by, bw, bh, radius);
+        nvgPathWinding(vg_, NVG_HOLE);
+        nvgFillColor(vg_, to_nvg(color));
+        nvgFill(vg_);
+    }
+
+    static bool point_in_rounded_rect(float px, float py,
+                                      float x, float y, float w, float h,
+                                      float radius) {
+        if (w <= 0.0f || h <= 0.0f) return false;
+        if (px < x || py < y || px >= x + w || py >= y + h) return false;
+        radius = std::max(0.0f, std::min(radius, 0.5f * std::min(w, h)));
+        if (radius <= 0.0f) return true;
+        const float cx = std::clamp(px, x + radius, x + w - radius);
+        const float cy = std::clamp(py, y + radius, y + h - radius);
+        const float dx = px - cx;
+        const float dy = py - cy;
+        return dx * dx + dy * dy <= radius * radius;
+    }
+
+    static void blur_mask(std::vector<float>& mask, int w, int h, float sigma) {
+        if (w <= 0 || h <= 0 || sigma <= 0.0f) return;
+        const int radius = std::max(1, static_cast<int>(std::ceil(sigma * 3.0f)));
+        std::vector<float> kernel(static_cast<std::size_t>(radius * 2 + 1));
+        float sum = 0.0f;
+        for (int i = -radius; i <= radius; ++i) {
+            const float v = std::exp(-(static_cast<float>(i * i)) /
+                                     (2.0f * sigma * sigma));
+            kernel[static_cast<std::size_t>(i + radius)] = v;
+            sum += v;
+        }
+        if (sum <= 0.0f) return;
+        for (float& v : kernel) v /= sum;
+
+        std::vector<float> tmp(mask.size(), 0.0f);
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                float acc = 0.0f;
+                for (int k = -radius; k <= radius; ++k) {
+                    const int sx = std::clamp(x + k, 0, w - 1);
+                    acc += mask[static_cast<std::size_t>(y * w + sx)] *
+                           kernel[static_cast<std::size_t>(k + radius)];
+                }
+                tmp[static_cast<std::size_t>(y * w + x)] = acc;
+            }
+        }
+
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                float acc = 0.0f;
+                for (int k = -radius; k <= radius; ++k) {
+                    const int sy = std::clamp(y + k, 0, h - 1);
+                    acc += tmp[static_cast<std::size_t>(sy * w + x)] *
+                           kernel[static_cast<std::size_t>(k + radius)];
+                }
+                mask[static_cast<std::size_t>(y * w + x)] = acc;
+            }
+        }
+    }
+
+    static void hash_mix(std::uint64_t& h, std::uint64_t v) {
+        h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+    }
+
+    static int quantize64(float v) {
+        return static_cast<int>(std::lround(v * 64.0f));
+    }
+
+    bool fill_raster_box_shadow(const Rect& r, float radius, Color color,
+                                float offset_x, float offset_y,
+                                float blur, float spread, bool inset) {
+        if (blur <= 0.0f || color.a == 0) return false;
+
+        const float bx = static_cast<float>(r.x);
+        const float by = static_cast<float>(r.y);
+        const float bw = static_cast<float>(r.w);
+        const float bh = static_cast<float>(r.h);
+        const float sigma = blur * 0.5f;
+        const float padf = std::ceil(blur * 2.0f);
+        const int pad = static_cast<int>(std::max(1.0f, padf));
+
+        float origin_x = bx;
+        float origin_y = by;
+        int img_w = std::max(1, r.w);
+        int img_h = std::max(1, r.h);
+
+        float shadow_x = 0.0f;
+        float shadow_y = 0.0f;
+        float shadow_w = bw;
+        float shadow_h = bh;
+        float shadow_radius = radius;
+        float clip_x = 0.0f;
+        float clip_y = 0.0f;
+        float clip_w = bw;
+        float clip_h = bh;
+        float clip_radius = radius;
+
+        if (!inset) {
+            shadow_x = offset_x - spread;
+            shadow_y = offset_y - spread;
+            shadow_w = bw + spread * 2.0f;
+            shadow_h = bh + spread * 2.0f;
+            shadow_radius = std::max(0.0f, radius + spread);
+            if (shadow_w <= 0.0f || shadow_h <= 0.0f) return false;
+
+            origin_x = std::floor(bx + shadow_x - static_cast<float>(pad));
+            origin_y = std::floor(by + shadow_y - static_cast<float>(pad));
+            img_w = std::max(1, static_cast<int>(
+                std::ceil(shadow_w + static_cast<float>(pad * 2))));
+            img_h = std::max(1, static_cast<int>(
+                std::ceil(shadow_h + static_cast<float>(pad * 2))));
+
+            shadow_x = bx + shadow_x - origin_x;
+            shadow_y = by + shadow_y - origin_y;
+            clip_x = bx - origin_x;
+            clip_y = by - origin_y;
+        } else {
+            shadow_x = offset_x + spread;
+            shadow_y = offset_y + spread;
+            shadow_w = bw - spread * 2.0f;
+            shadow_h = bh - spread * 2.0f;
+            shadow_radius = std::max(0.0f, radius - spread);
+        }
+
+        if (img_w > 1024 || img_h > 1024) return false;
+
+        std::uint64_t key = inset ? 0x9f46e997b4a7c15ull
+                                  : 0x6a09e667f3bcc909ull;
+        hash_mix(key, static_cast<std::uint32_t>(img_w));
+        hash_mix(key, static_cast<std::uint32_t>(img_h));
+        hash_mix(key, static_cast<std::uint32_t>(color.r) << 24 |
+                      static_cast<std::uint32_t>(color.g) << 16 |
+                      static_cast<std::uint32_t>(color.b) << 8 |
+                      static_cast<std::uint32_t>(color.a));
+        hash_mix(key, static_cast<std::uint32_t>(quantize64(radius)));
+        hash_mix(key, static_cast<std::uint32_t>(quantize64(offset_x)));
+        hash_mix(key, static_cast<std::uint32_t>(quantize64(offset_y)));
+        hash_mix(key, static_cast<std::uint32_t>(quantize64(blur)));
+        hash_mix(key, static_cast<std::uint32_t>(quantize64(spread)));
+        hash_mix(key, static_cast<std::uint32_t>(quantize64(shadow_x)));
+        hash_mix(key, static_cast<std::uint32_t>(quantize64(shadow_y)));
+        hash_mix(key, static_cast<std::uint32_t>(quantize64(shadow_w)));
+        hash_mix(key, static_cast<std::uint32_t>(quantize64(shadow_h)));
+
+        int image = 0;
+        if (auto it = shadow_cache_.find(key); it != shadow_cache_.end()) {
+            image = it->second;
+        } else {
+            std::vector<float> mask(
+                static_cast<std::size_t>(img_w * img_h), 0.0f);
+            for (int y = 0; y < img_h; ++y) {
+                for (int x = 0; x < img_w; ++x) {
+                    const float px = static_cast<float>(x) + 0.5f;
+                    const float py = static_cast<float>(y) + 0.5f;
+                    const bool in_shadow = point_in_rounded_rect(
+                        px, py, shadow_x, shadow_y, shadow_w, shadow_h,
+                        shadow_radius);
+                    if (!inset) {
+                        mask[static_cast<std::size_t>(y * img_w + x)] =
+                            in_shadow ? 1.0f : 0.0f;
+                    } else {
+                        const bool in_clip = point_in_rounded_rect(
+                            px, py, clip_x, clip_y, clip_w, clip_h,
+                            clip_radius);
+                        mask[static_cast<std::size_t>(y * img_w + x)] =
+                            (in_clip && !in_shadow) ? 1.0f : 0.0f;
+                    }
+                }
+            }
+
+            blur_mask(mask, img_w, img_h, sigma);
+
+            std::vector<unsigned char> pixels(
+                static_cast<std::size_t>(img_w * img_h * 4), 0);
+            for (int y = 0; y < img_h; ++y) {
+                for (int x = 0; x < img_w; ++x) {
+                    const float px = static_cast<float>(x) + 0.5f;
+                    const float py = static_cast<float>(y) + 0.5f;
+                    if (!inset && point_in_rounded_rect(
+                            px, py, clip_x, clip_y, clip_w, clip_h,
+                            clip_radius)) {
+                        continue;
+                    }
+                    if (inset && !point_in_rounded_rect(
+                            px, py, clip_x, clip_y, clip_w, clip_h,
+                            clip_radius)) {
+                        continue;
+                    }
+                    const std::size_t mi =
+                        static_cast<std::size_t>(y * img_w + x);
+                    const std::uint8_t a = static_cast<std::uint8_t>(
+                        std::clamp(std::lround(mask[mi] *
+                                               static_cast<float>(color.a)),
+                                   0l, 255l));
+                    const std::size_t off = mi * 4;
+                    pixels[off + 0] = color.r;
+                    pixels[off + 1] = color.g;
+                    pixels[off + 2] = color.b;
+                    pixels[off + 3] = a;
+                }
+            }
+
+            image = nvgCreateImageRGBA(vg_, img_w, img_h, 0, pixels.data());
+            if (image <= 0) return false;
+            shadow_cache_[key] = image;
+        }
+
+        NVGpaint paint = nvgImagePattern(
+            vg_, origin_x, origin_y, static_cast<float>(img_w),
+            static_cast<float>(img_h), 0.0f, image, 1.0f);
+        nvgBeginPath(vg_);
+        if (inset) {
+            path_rounded_rect(bx, by, bw, bh, radius);
+        } else {
+            nvgRect(vg_, origin_x, origin_y, static_cast<float>(img_w),
+                    static_cast<float>(img_h));
+        }
+        nvgFillPaint(vg_, paint);
+        nvgFill(vg_);
+        return true;
+    }
+
     void fill_rounded_rect(const Rect& r, float radius, Color c) override {
         radius = clamp_radius(radius, r.w, r.h);
         nvgBeginPath(vg_);
@@ -196,9 +876,7 @@ public:
     void fill_rounded_rect_varying(const Rect& r,
                                    float tl, float tr, float br, float bl,
                                    Color c) override {
-        const float m = 0.5f * static_cast<float>(std::min(r.w, r.h));
-        tl = std::min(tl, m); tr = std::min(tr, m);
-        br = std::min(br, m); bl = std::min(bl, m);
+        clamp_radii(r, tl, tr, br, bl);
         nvgBeginPath(vg_);
         nvgRoundedRectVarying(vg_,
             static_cast<float>(r.x), static_cast<float>(r.y),
@@ -211,9 +889,7 @@ public:
     void stroke_rounded_rect_varying(const Rect& r,
                                      float tl, float tr, float br, float bl,
                                      Color c, float w) override {
-        const float m = 0.5f * static_cast<float>(std::min(r.w, r.h));
-        tl = std::min(tl, m); tr = std::min(tr, m);
-        br = std::min(br, m); bl = std::min(bl, m);
+        clamp_radii(r, tl, tr, br, bl);
         nvgBeginPath(vg_);
         nvgRoundedRectVarying(vg_,
             static_cast<float>(r.x), static_cast<float>(r.y),
@@ -224,9 +900,18 @@ public:
         nvgStroke(vg_);
     }
 
+    void fill_rounded_rect_ring(const Rect& r, float radius,
+                                float thickness, Color color) override {
+        if (thickness <= 0.0f) return;
+        radius = clamp_radius(radius, r.w, r.h);
+        fill_hard_inset_shadow(r, radius, color, 0.0f, 0.0f, thickness);
+    }
+
     void fill_linear_gradient_rect(const Rect& r, float angle_deg,
                                    Color stop0, Color stop1,
                                    float tl, float tr, float br, float bl) override {
+        clamp_radii(r, tl, tr, br, bl);
+
         // Convert CSS angle to gradient start/end points.
         // CSS: 0deg = upward, 90deg = rightward, 180deg = downward.
         // We derive a start point and end point spanning the bounding box.
@@ -275,20 +960,165 @@ public:
 
     void fill_radial_gradient_rect(const Rect& r,
                                    Color stop0, Color stop1,
-                                   float tl, float tr, float br, float bl) override {
+                                   float tl, float tr, float br, float bl,
+                                   float center_x_pct, float center_y_pct,
+                                   float stop1_pos_pct) override {
+        clamp_radii(r, tl, tr, br, bl);
+
         const float fx = static_cast<float>(r.x);
         const float fy = static_cast<float>(r.y);
         const float fw = static_cast<float>(r.w);
         const float fh = static_cast<float>(r.h);
-        // Center the gradient on the box center.
-        const float cx = fx + fw * 0.5f;
-        const float cy = fy + fh * 0.5f;
-        // Outer radius: CSS `farthest-corner` default for `circle`.
-        // Half-diagonal of the box is the radius to the farthest corner.
-        const float outer_r = std::sqrt(fw * fw + fh * fh) * 0.5f;
+        const float cx = fx + fw * (std::clamp(center_x_pct, 0.0f, 100.0f) / 100.0f);
+        const float cy = fy + fh * (std::clamp(center_y_pct, 0.0f, 100.0f) / 100.0f);
+        // CSS `farthest-corner`: radius reaches the farthest corner from
+        // the requested center point.
+        const float dx = std::max(cx - fx, fx + fw - cx);
+        const float dy = std::max(cy - fy, fy + fh - cy);
+        const float farthest_r = std::sqrt(dx * dx + dy * dy);
+        const float outer_r = farthest_r *
+            (std::clamp(stop1_pos_pct, 1.0f, 100.0f) / 100.0f);
 
         NVGpaint paint = nvgRadialGradient(vg_, cx, cy, 0.0f, outer_r,
                                            to_nvg(stop0), to_nvg(stop1));
+        nvgBeginPath(vg_);
+        const bool all_same = (tl == tr && tr == br && br == bl);
+        if (all_same && tl == 0.0f) {
+            nvgRect(vg_, fx, fy, fw, fh);
+        } else if (all_same) {
+            nvgRoundedRect(vg_, fx, fy, fw, fh, tl);
+        } else {
+            nvgRoundedRectVarying(vg_, fx, fy, fw, fh, tl, tr, br, bl);
+        }
+        nvgFillPaint(vg_, paint);
+        nvgFill(vg_);
+    }
+
+    void fill_linear_stripes_rect(const Rect& r, float angle_deg,
+                                  Color stripe, float tile_size,
+                                  float tl, float tr, float br, float bl) override {
+        clamp_radii(r, tl, tr, br, bl);
+
+        const int tile = std::clamp(
+            static_cast<int>(std::round(tile_size)), 1, 128);
+        const int angle_bucket =
+            ((static_cast<int>(std::round(angle_deg)) % 360) + 360) % 360;
+        const std::uint32_t rgba =
+            (std::uint32_t(stripe.r) << 24) |
+            (std::uint32_t(stripe.g) << 16) |
+            (std::uint32_t(stripe.b) << 8) |
+            std::uint32_t(stripe.a);
+        const std::uint64_t key =
+            (std::uint64_t(tile) << 48) |
+            (std::uint64_t(angle_bucket) << 32) |
+            std::uint64_t(rgba);
+
+        int image = 0;
+        if (auto it = stripe_cache_.find(key); it != stripe_cache_.end()) {
+            image = it->second;
+        } else {
+            std::vector<unsigned char> pixels(
+                static_cast<std::size_t>(tile * tile * 4), 0);
+            const float rad = static_cast<float>(angle_bucket) *
+                (3.14159265358979323846f / 180.0f);
+            const float dx = std::sin(rad);
+            const float dy = -std::cos(rad);
+            for (int y = 0; y < tile; ++y) {
+                for (int x = 0; x < tile; ++x) {
+                    float phase = (static_cast<float>(x) * dx +
+                                   static_cast<float>(y) * dy) /
+                                  static_cast<float>(tile);
+                    phase -= std::floor(phase);
+                    const bool on =
+                        phase < 0.25f || (phase >= 0.5f && phase < 0.75f);
+                    if (!on) continue;
+                    const std::size_t off =
+                        static_cast<std::size_t>((y * tile + x) * 4);
+                    pixels[off + 0] = stripe.r;
+                    pixels[off + 1] = stripe.g;
+                    pixels[off + 2] = stripe.b;
+                    pixels[off + 3] = stripe.a;
+                }
+            }
+            image = nvgCreateImageRGBA(vg_, tile, tile,
+                                       NVG_IMAGE_REPEATX | NVG_IMAGE_REPEATY,
+                                       pixels.data());
+            if (image <= 0) return;
+            stripe_cache_[key] = image;
+        }
+
+        const float fx = static_cast<float>(r.x);
+        const float fy = static_cast<float>(r.y);
+        const float fw = static_cast<float>(r.w);
+        const float fh = static_cast<float>(r.h);
+        NVGpaint paint = nvgImagePattern(vg_, fx, fy,
+                                         static_cast<float>(tile),
+                                         static_cast<float>(tile),
+                                         0.0f, image, 1.0f);
+        nvgBeginPath(vg_);
+        const bool all_same = (tl == tr && tr == br && br == bl);
+        if (all_same && tl == 0.0f) {
+            nvgRect(vg_, fx, fy, fw, fh);
+        } else if (all_same) {
+            nvgRoundedRect(vg_, fx, fy, fw, fh, tl);
+        } else {
+            nvgRoundedRectVarying(vg_, fx, fy, fw, fh, tl, tr, br, bl);
+        }
+        nvgFillPaint(vg_, paint);
+        nvgFill(vg_);
+    }
+
+    void fill_grid_rect(const Rect& r, Color line, float tile_size,
+                        float line_width, float tl, float tr,
+                        float br, float bl) override {
+        clamp_radii(r, tl, tr, br, bl);
+
+        const int tile = std::clamp(
+            static_cast<int>(std::round(tile_size)), 1, 256);
+        const int lw = std::clamp(
+            static_cast<int>(std::round(line_width)), 1, tile);
+        const std::uint32_t rgba =
+            (std::uint32_t(line.r) << 24) |
+            (std::uint32_t(line.g) << 16) |
+            (std::uint32_t(line.b) << 8) |
+            std::uint32_t(line.a);
+        const std::uint64_t key =
+            (std::uint64_t(tile) << 48) |
+            (std::uint64_t(lw) << 32) |
+            std::uint64_t(rgba);
+
+        int image = 0;
+        if (auto it = grid_cache_.find(key); it != grid_cache_.end()) {
+            image = it->second;
+        } else {
+            std::vector<unsigned char> pixels(
+                static_cast<std::size_t>(tile * tile * 4), 0);
+            for (int y = 0; y < tile; ++y) {
+                for (int x = 0; x < tile; ++x) {
+                    if (x >= lw && y >= lw) continue;
+                    const std::size_t off =
+                        static_cast<std::size_t>((y * tile + x) * 4);
+                    pixels[off + 0] = line.r;
+                    pixels[off + 1] = line.g;
+                    pixels[off + 2] = line.b;
+                    pixels[off + 3] = line.a;
+                }
+            }
+            image = nvgCreateImageRGBA(vg_, tile, tile,
+                                       NVG_IMAGE_REPEATX | NVG_IMAGE_REPEATY,
+                                       pixels.data());
+            if (image <= 0) return;
+            grid_cache_[key] = image;
+        }
+
+        const float fx = static_cast<float>(r.x);
+        const float fy = static_cast<float>(r.y);
+        const float fw = static_cast<float>(r.w);
+        const float fh = static_cast<float>(r.h);
+        NVGpaint paint = nvgImagePattern(vg_, fx, fy,
+                                         static_cast<float>(tile),
+                                         static_cast<float>(tile),
+                                         0.0f, image, 1.0f);
         nvgBeginPath(vg_);
         const bool all_same = (tl == tr && tr == br && br == bl);
         if (all_same && tl == 0.0f) {
@@ -311,14 +1141,29 @@ public:
         const float bh = static_cast<float>(r.h);
         const NVGcolor solid = to_nvg(color);
         const NVGcolor clear = nvgRGBA(color.r, color.g, color.b, 0);
-        // NanoVG's box gradient needs a positive feather. CSS blur:0 is a
-        // sharp shadow — give it a hairline feather so the edge is crisp
-        // without a divide-by-zero. A CSS Gaussian blur of radius `blur`
-        // spreads visibly further than NanoVG's linear box-gradient
-        // falloff of the same width, so widen the feather to approximate
-        // the softer Gaussian tail (empirically the closest match to
-        // Chrome on the html_box_shadow corpus).
-        const float feather = blur > 0.0f ? blur * 1.5f : 0.5f;
+        radius = clamp_radius(radius, r.w, r.h);
+
+        if (blur <= 0.0f) {
+            if (inset) {
+                if (!fill_axis_aligned_hard_inset_shadow(
+                        r, radius, color, offset_x, offset_y, spread)) {
+                    fill_hard_inset_shadow(r, radius, color, offset_x,
+                                           offset_y, spread);
+                }
+            } else {
+                fill_hard_outset_shadow(r, radius, color, offset_x,
+                                        offset_y, spread);
+            }
+            return;
+        }
+        if (fill_raster_box_shadow(r, radius, color, offset_x, offset_y,
+                                   blur, spread, inset)) {
+            return;
+        }
+        // CSS blur:0 is a hard-edged shadow. Blurred shadows still use
+        // NanoVG's box gradient; widen its linear falloff to approximate
+        // the softer browser Gaussian tail.
+        const float feather = blur * 1.5f;
 
         if (!inset) {
             // Outset drop shadow: the shadow box is the border box shifted
@@ -364,43 +1209,101 @@ public:
                                bool              italic) override {
         // NanoVG addresses fonts by face id + a per-frame size. We pack
         // (face_id, size) into a handle so draw_text/measure_text can
-        // reconstitute it without another lookup. Top bit of `size`
-        // = the synthetic-bold flag (see below).
+        // reconstitute it without another lookup.
         //
-        // Weight selection three-tier:
-        //   < 500   →  regular face, no synth
-        //   500-599 →  regular face + synthetic bold (double-draw at
-        //              +0.5px to thicken strokes — matches what
-        //              browsers do when no Medium variant is available)
-        //   >= 600  →  the bold face if loaded, regular otherwise
+        // With only regular(400) and bold(700) faces available, browsers
+        // resolve CSS weight 500 to the regular face. Synthetic emboldening
+        // here made Bootstrap's 500-weight headings visibly heavier than
+        // the browser reference, so only 600+ selects the bold face.
         //
         // Italic falls back through (italic + bold) → italic → bold →
         // regular. Each combo is its own face — if a system lacks an
         // italic variant the cascade silently uses the upright form
         // (NanoVG has no synthetic-oblique path either).
-        const std::string family_str(family);
-        const bool        prefer_bold = weight >= 600;
-        const bool        synth_bold  = (weight >= 500 && weight < 600);
+        const bool prefer_bold = weight >= 600;
+
+        auto resolve_one = [&](const std::string& family_str) -> int {
+            if (family_str.empty() ||
+                is_unavailable_platform_alias(family_str)) {
+                return -1;
+            }
+
+            int face = find_registered_font_face(family_str, weight, italic);
+            if (face < 0 && italic && prefer_bold) {
+                face = nvgFindFont(vg_, (family_str + "-bold-italic").c_str());
+                if (face < 0 && is_generic_sans_family(family_str) &&
+                    bold_italic_face_ >= 0) {
+                    face = bold_italic_face_;
+                }
+            }
+            if (face < 0 && italic) {
+                face = nvgFindFont(vg_, (family_str + "-italic").c_str());
+                if (face < 0 && is_generic_sans_family(family_str) &&
+                    italic_face_ >= 0) {
+                    face = italic_face_;
+                }
+            }
+            if (face < 0 && prefer_bold) {
+                face = nvgFindFont(vg_, (family_str + "-bold").c_str());
+                if (face < 0 && is_generic_sans_family(family_str) &&
+                    bold_face_ >= 0) {
+                    face = bold_face_;
+                }
+            }
+            if (face < 0) face = nvgFindFont(vg_, family_str.c_str());
+            if (face < 0 && is_generic_mono_family(family_str)) {
+                face = nvgFindFont(vg_, "monospace");
+            }
+            if (face < 0 && is_generic_sans_family(family_str)) {
+                face = default_face_;
+            }
+            return face;
+        };
 
         int face = -1;
-        if (italic && prefer_bold) {
-            face = nvgFindFont(vg_, (family_str + "-bold-italic").c_str());
-            if (face < 0 && bold_italic_face_ >= 0) face = bold_italic_face_;
+        for (const auto& candidate : split_font_family_list(family)) {
+            face = resolve_one(candidate);
+            if (face >= 0) break;
         }
-        if (italic && face < 0) {
-            face = nvgFindFont(vg_, (family_str + "-italic").c_str());
-            if (face < 0 && italic_face_ >= 0) face = italic_face_;
-        }
-        if (face < 0 && prefer_bold) {
-            face = nvgFindFont(vg_, (family_str + "-bold").c_str());
-            if (face < 0 && bold_face_ >= 0) face = bold_face_;
-        }
-        if (face < 0) face = nvgFindFont(vg_, family_str.c_str());
         if (face < 0) face = default_face_;
         if (face < 0) return 0;
         return pack_handle(static_cast<std::uint16_t>(face),
-                           static_cast<std::uint16_t>(size_px),
-                           synth_bold);
+                           static_cast<std::uint16_t>(size_px));
+    }
+
+    bool register_font_face(std::string_view family,
+                            int weight,
+                            bool italic,
+                            std::string_view bytes) override {
+        if (family.empty() || bytes.empty()) return false;
+        std::string decoded;
+        std::string_view font_bytes = bytes;
+        if (!is_raw_sfnt_font(font_bytes)) {
+            decoded = decode_woff1_to_sfnt(bytes);
+            if (decoded.empty()) return false;
+            font_bytes = decoded;
+        }
+
+        weight = std::clamp(weight, 1, 1000);
+        const auto key = font_face_key(family, weight, italic);
+        if (registered_face_ids_.find(key) != registered_face_ids_.end())
+            return true;
+
+        auto copy = std::make_unique<unsigned char[]>(font_bytes.size());
+        std::memcpy(copy.get(), font_bytes.data(), font_bytes.size());
+
+        std::string nvg_name{"__aui_css_font_"};
+        nvg_name.append(key);
+        const int id = nvgCreateFontMem(
+            vg_, nvg_name.c_str(), copy.get(),
+            static_cast<int>(font_bytes.size()), /*freeData=*/0);
+        if (id < 0) return false;
+
+        registered_face_buffers_.push_back(std::move(copy));
+        registered_face_ids_[key] = id;
+        registered_faces_.push_back(
+            RegisteredFontFace{std::string(family), weight, italic, id});
+        return true;
     }
 
     int measure_text(std::uint32_t handle, std::string_view text) override {
@@ -434,17 +1337,10 @@ public:
                    Color           color) override {
         if (handle == 0) return;
         apply_handle(handle);
-        if (handle_is_synth_bold(handle)) color = synth_bold_pass_color(color);
         nvgFillColor(vg_, to_nvg(color));
         const float fx = static_cast<float>(pos.x);
         const float fy = static_cast<float>(pos.y);
         nvgText(vg_, fx, fy, text.data(), text.data() + text.size());
-        if (handle_is_synth_bold(handle)) {
-            // Synthetic medium: a second pass offset by half a pixel
-            // thickens strokes without doubling them. Cheap and gives
-            // a visible "between regular and bold" weight.
-            nvgText(vg_, fx + 0.5f, fy, text.data(), text.data() + text.size());
-        }
     }
 
     Size measure_text_box(std::uint32_t handle,
@@ -459,12 +1355,30 @@ public:
         const float css_line_h =
             css_line_height_px(handle, line_height_mult, natural_line_h);
 
+        const bool has_newline = text.find('\n') != std::string_view::npos;
+
+        // Natural single-line sizing is based on text advances, not ink
+        // bounds. Browsers lay out inline content from advances; using
+        // nvgTextBoxBounds here includes glyph overhangs and makes compact
+        // inline-blocks such as Bootstrap badges several pixels too wide.
+        if (!has_newline && max_width >= 60000.0f) {
+            float bounds[4] = {0, 0, 0, 0};
+            const float advance = nvgTextBounds(
+                vg_, 0.0f, 0.0f,
+                text.data(), text.data() + text.size(),
+                bounds);
+            nvgTextLetterSpacing(vg_, 0.0f);
+            return Size{
+                static_cast<int>(advance + 0.5f),
+                static_cast<int>(std::ceil(css_line_h)),
+            };
+        }
+
         // Pre-formatted text (max_width >= 60000 + has '\n'): measure each
         // line individually so that leading spaces in indented lines are
         // counted rather than skipped by nvgTextBoxBounds's word-wrap logic.
         // NOTE: 60000 is chosen so that the sentinel 65535 stored in the
         // display-list's uint16 max_width field also triggers this path.
-        const bool has_newline = text.find('\n') != std::string_view::npos;
         if (has_newline && max_width >= 60000.0f) {
             float max_line_w = 0.0f;
             int   line_count = 0;
@@ -483,8 +1397,7 @@ public:
                 p = nl + 1;
             }
             if (line_count == 0) line_count = 1;
-            const float leading = line_box_leading(css_line_h, natural_line_h);
-            const float total_h = css_line_h * static_cast<float>(line_count) + leading;
+            const float total_h = css_line_h * static_cast<float>(line_count);
             nvgTextLetterSpacing(vg_, 0.0f);
             return Size{
                 static_cast<int>(std::ceil(max_line_w)),
@@ -493,21 +1406,28 @@ public:
         }
 
         nvgTextLineHeight(vg_, nvg_line_height_mult(css_line_h, natural_line_h));
-        // nvgTextBoxBounds returns [xmin, ymin, xmax, ymax] for the
-        // rendered text wrapped at `breakRowWidth`. The bounds are in
-        // the same local coords as the (x,y) we passed (we pass 0,0).
-        //
-        // CEIL (not round-to-nearest) on the way out. Yoga sizes the
-        // box to whatever we report. At paint time we pass that same
-        // width as `breakRowWidth` to nvgTextBox; if measure rounded
-        // DOWN by .5, the paint-side wrap would see "actual > width
         // by epsilon" and break the word onto a new line — invisible
-        // wrap on what was supposed to be a single-line box.
-        float bounds[4] = {0, 0, 0, 0};
-        nvgTextBoxBounds(vg_, 0.0f, 0.0f, max_width,
-                         text.data(), text.data() + text.size(), bounds);
+        // Layout consumes CSS line boxes, not ink bounds. Count the rows that
+        // NanoVG will paint at this width, then use row_count * css_line_h for
+        // height so a single constrained line does not leave empty block space
+        // below it.
+        float max_row_w = 0.0f;
+        int line_count = 0;
+        const char* cursor = text.data();
+        const char* const text_end = text.data() + text.size();
+        NVGtextRow rows[8];
+        while (cursor < text_end) {
+            const int n = nvgTextBreakLines(vg_, cursor, text_end,
+                                            max_width, rows, 8);
+            if (n == 0) break;
+            for (int i = 0; i < n; ++i) {
+                if (rows[i].width > max_row_w) max_row_w = rows[i].width;
+                ++line_count;
+            }
+            cursor = rows[n - 1].next;
+        }
         const bool whitespace_only = text_is_whitespace_only(text);
-        int width = static_cast<int>(std::ceil(bounds[2] - bounds[0]));
+        int width = static_cast<int>(std::ceil(max_row_w));
         if (width == 0 && whitespace_only) {
             float line_bounds[4] = {0, 0, 0, 0};
             const float advance = nvgTextBounds(
@@ -515,13 +1435,9 @@ public:
                 line_bounds);
             width = static_cast<int>(std::ceil(advance));
         }
-        float measured_h = bounds[3] - bounds[1];
-        if (measured_h <= 0.0f && whitespace_only) measured_h = natural_line_h;
-        const float leading = line_box_leading(css_line_h, natural_line_h);
-        int height = static_cast<int>(std::ceil(measured_h + leading));
-        if (height < static_cast<int>(std::ceil(css_line_h))) {
-            height = static_cast<int>(std::ceil(css_line_h));
-        }
+        if (line_count == 0 && whitespace_only) line_count = 1;
+        int height = static_cast<int>(
+            std::ceil(css_line_h * static_cast<float>(std::max(line_count, 1))));
         // Reset letter spacing to default so subsequent draws are unaffected.
         nvgTextLetterSpacing(vg_, 0.0f);
         return Size{
@@ -544,7 +1460,6 @@ public:
         const float natural_line_h = natural_line_height_px(handle);
         const float css_line_h =
             css_line_height_px(handle, line_height_mult, natural_line_h);
-        if (handle_is_synth_bold(handle)) color = synth_bold_pass_color(color);
         nvgFillColor(vg_, to_nvg(color));
 
         // nvgTextBox reads `state->textAlign` for halign before entering
@@ -594,8 +1509,6 @@ public:
                     std::memchr(p, '\n', static_cast<std::size_t>(end - p)));
                 const char* line_end = nl ? nl : end;
                 nvgText(vg_, fx, cy, p, line_end);
-                if (handle_is_synth_bold(handle))
-                    nvgText(vg_, fx + 0.5f, cy, p, line_end);
                 cy += lh;
                 if (!nl) break;
                 p = nl + 1;
@@ -608,7 +1521,6 @@ public:
             // / paragraph-final line stays left-aligned (CSS semantics).
             const auto draw_run = [&](float x, float y, const char* s, const char* e) {
                 nvgText(vg_, x, y, s, e);
-                if (handle_is_synth_bold(handle)) nvgText(vg_, x + 0.5f, y, s, e);
             };
             struct Row { const char* start; const char* end; const char* next; };
             std::vector<Row> rows;
@@ -664,10 +1576,6 @@ public:
             nvgTextLineHeight(vg_, nvg_line_height_mult(css_line_h, natural_line_h));
             nvgTextBox(vg_, fx, fy, max_width,
                        text.data(), text.data() + text.size());
-            if (handle_is_synth_bold(handle)) {
-                nvgTextBox(vg_, fx + 0.5f, fy, max_width,
-                           text.data(), text.data() + text.size());
-            }
         }
         // Reset letter spacing to default so subsequent draws are unaffected.
         nvgTextLetterSpacing(vg_, 0.0f);
@@ -721,6 +1629,13 @@ public:
 
     void pop_alpha() override { nvgRestore(vg_); }
 
+    void push_transform(const Mat2x3& m) override {
+        nvgSave(vg_);
+        nvgTransform(vg_, m.a, m.b, m.c, m.d, m.tx, m.ty);
+    }
+
+    void pop_transform() override { nvgRestore(vg_); }
+
     void set_default_face    (int face) { default_face_     = face; }
     void set_bold_face       (int face) { bold_face_        = face; }
     void set_italic_face     (int face) { italic_face_      = face; }
@@ -729,20 +1644,40 @@ public:
 private:
     // Handle bit layout (32 bits):
     //   [31..16]  face id (16 bits)
-    //   [15]      synth-bold flag (1 bit)
-    //   [14..0]   size px (15 bits — max 32767, plenty for any UI)
+    //   [15..0]   size px (16 bits)
     static constexpr std::uint32_t pack_handle(std::uint16_t face,
-                                               std::uint16_t size,
-                                               bool synth_bold = false) {
-        const std::uint32_t s = (static_cast<std::uint32_t>(size) & 0x7FFFu)
-                              | (synth_bold ? 0x8000u : 0u);
-        return (static_cast<std::uint32_t>(face) << 16) | s;
-    }
-    static constexpr bool handle_is_synth_bold(std::uint32_t handle) {
-        return (handle & 0x8000u) != 0u;
+                                               std::uint16_t size) {
+        return (static_cast<std::uint32_t>(face) << 16)
+             | static_cast<std::uint32_t>(size);
     }
     static constexpr int handle_size_px(std::uint32_t handle) {
-        return static_cast<int>(handle & 0x7FFFu);
+        return static_cast<int>(handle & 0xFFFFu);
+    }
+    struct RegisteredFontFace {
+        std::string family;
+        int         weight{400};
+        bool        italic{false};
+        int         face{-1};
+    };
+    int find_registered_font_face(const std::string& family,
+                                  int weight,
+                                  bool italic) const {
+        const auto exact = registered_face_ids_.find(
+            font_face_key(family, weight, italic));
+        if (exact != registered_face_ids_.end()) return exact->second;
+
+        int best_face = -1;
+        int best_score = std::numeric_limits<int>::max();
+        for (const auto& face : registered_faces_) {
+            if (face.family != family) continue;
+            const int italic_penalty = face.italic == italic ? 0 : 2000;
+            const int score = italic_penalty + std::abs(face.weight - weight);
+            if (score < best_score) {
+                best_score = score;
+                best_face = face.face;
+            }
+        }
+        return best_face;
     }
     static bool text_is_whitespace_only(std::string_view text) {
         for (char c : text) {
@@ -764,13 +1699,13 @@ private:
                                     float natural_line_h) {
         const float requested =
             static_cast<float>(handle_size_px(handle)) * line_height_mult;
-        return std::max({requested, natural_line_h, 1.0f});
+        return std::max(requested, 1.0f);
     }
     static float nvg_line_height_mult(float css_line_h, float natural_line_h) {
         return natural_line_h > 0.0f ? css_line_h / natural_line_h : 1.0f;
     }
     static float line_box_leading(float css_line_h, float natural_line_h) {
-        return std::max(0.0f, css_line_h - natural_line_h);
+        return css_line_h - natural_line_h;
     }
     void apply_handle(std::uint32_t handle) {
         const int face = static_cast<int>((handle >> 16) & 0xFFFF);
@@ -791,6 +1726,12 @@ private:
     int                                          italic_face_{-1};
     int                                          bold_italic_face_{-1};
     std::unordered_map<std::string, int>         image_cache_;
+    std::unordered_map<std::uint64_t, int>       stripe_cache_;
+    std::unordered_map<std::uint64_t, int>       grid_cache_;
+    std::unordered_map<std::uint64_t, int>       shadow_cache_;
+    std::vector<RegisteredFontFace>              registered_faces_;
+    std::unordered_map<std::string, int>         registered_face_ids_;
+    std::vector<std::unique_ptr<unsigned char[]>> registered_face_buffers_;
 };
 
 }  // namespace
@@ -827,11 +1768,16 @@ std::string_view register_default_font(NVGcontext* vg) {
                          static_cast<int>(affineui_font_roboto_regular_len), 0) >= 0) {
         nvgCreateFontMem(vg, "sans-serif", affineui_font_roboto_regular,
                          static_cast<int>(affineui_font_roboto_regular_len), 0);
+        nvgCreateFontMem(vg, "Roboto", affineui_font_roboto_regular,
+                         static_cast<int>(affineui_font_roboto_regular_len), 0);
         if (nvgCreateFontMem(vg, "sans-bold", affineui_font_roboto_bold,
                              static_cast<int>(affineui_font_roboto_bold_len), 0) >= 0) {
             nvgCreateFontMem(vg, "sans-serif-bold", affineui_font_roboto_bold,
                              static_cast<int>(affineui_font_roboto_bold_len), 0);
+            nvgCreateFontMem(vg, "Roboto-bold", affineui_font_roboto_bold,
+                             static_cast<int>(affineui_font_roboto_bold_len), 0);
         }
+        register_platform_font_aliases(vg);
         // NOTE: italic / bold-italic faces aren't vendored yet, so emphasized
         // text falls back to the upright form (see assets/fonts/NOTICE.md).
         return "sans";
@@ -960,6 +1906,7 @@ std::string_view register_default_font(NVGcontext* vg) {
             break;
         }
     }
+    register_platform_font_aliases(vg);
     return registered_regular;
 }
 

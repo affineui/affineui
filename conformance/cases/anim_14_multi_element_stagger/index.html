@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #ffffff; }
+  .stage { position: relative; width: 520px; height: 260px; background: #f8f9fa; }
+  .dot {
+    position: absolute; left: 42px; width: 48px; height: 40px;
+    background: #0d6efd;
+    animation-name: stagger_move;
+    animation-duration: 600ms;
+    animation-timing-function: linear;
+    animation-iteration-count: 1;
+    animation-fill-mode: both;
+  }
+  .dot:nth-child(1) { top: 28px; animation-delay: 0ms; background: #0d6efd; }
+  .dot:nth-child(2) { top: 72px; animation-delay: 100ms; background: #198754; }
+  .dot:nth-child(3) { top: 116px; animation-delay: 200ms; background: #dc3545; }
+  .dot:nth-child(4) { top: 160px; animation-delay: 300ms; background: #6f42c1; }
+  .dot:nth-child(5) { top: 204px; animation-delay: 400ms; background: #fd7e14; }
+  @keyframes stagger_move {
+    from { transform: translateX(0); opacity: .25; }
+    to   { transform: translateX(260px); opacity: 1; }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="dot"></div>
+    <div class="dot"></div>
+    <div class="dot"></div>
+    <div class="dot"></div>
+    <div class="dot"></div>
+  </div>
+</body>
+</html>

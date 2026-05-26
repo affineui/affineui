@@ -1,0 +1,10 @@
+{
+  "width": 700,
+  "height": 330,
+  "dpi": 1.0,
+  "tolerance": 2,
+  "threshold": 5.0,
+  "hydrate_with_browser": true,
+  "browser_scripts": ["../_decius/js/decius.min.js"],
+  "steps": []
+}

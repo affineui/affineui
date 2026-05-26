@@ -1,0 +1,17 @@
+{
+  "width": 460,
+  "height": 220,
+  "dpi": 1.0,
+  "tolerance": 2,
+  "threshold": 7.0,
+  "steps": [
+    { "snapshot": "rest" },
+    { "hover": [190, 102] },
+    { "animation_time_ms": 0 },
+    { "snapshot": "hover_t000" },
+    { "animation_time_ms": 500 },
+    { "snapshot": "hover_t500" },
+    { "animation_time_ms": 1000 },
+    { "snapshot": "hover_t1000" }
+  ]
+}

@@ -30,7 +30,9 @@
 
 #include <functional>
 #include <memory>
+#include <cstdint>
 #include <string_view>
+#include <vector>
 
 namespace affineui {
 
@@ -96,14 +98,30 @@ public:
 
     /// Whether the UI changed since the last render and should be
     /// repainted. A host that renders on demand can skip render() when
-    /// this is false. (Advisory; render() is always safe to call.)
-    /// NOTE: animation-driven dirtiness is a TODO — until then a host
-    /// running CSS animations should render every frame.
+    /// this is false. CSS animations keep this true while they are active.
+    /// (Advisory; render() is always safe to call.)
     bool needs_update() const;
 
     /// Force needs_update() true — call when host-side state the UI
     /// depends on changed outside AffineUI's knowledge.
     void mark_dirty();
+
+    /// Live DOM mutation helpers. These are the retained-mode analog of
+    /// small JS state updates: mutate one element, invalidate only the
+    /// affected subtree, and keep the parsed document intact.
+    bool set_attr(std::string_view elem_id, std::string_view name,
+                  std::string_view value);
+    bool remove_attr(std::string_view elem_id, std::string_view name);
+    bool set_text(std::string_view elem_id, std::string_view text);
+
+    /// Drain dirty document rectangles reported by live mutations.
+    std::vector<Rect> take_dirty_rects();
+
+    /// Monotonic counters useful for perf instrumentation. `html_epoch`
+    /// increments on every retained DOM replacement; `render_epoch`
+    /// increments after every document render pass.
+    std::uint64_t html_epoch() const;
+    std::uint64_t render_epoch() const;
 
     /// Drop all content state (DOM, user CSS, click handlers, imm view)
     /// and return to a clean, reusable state, keeping the GPU/device
@@ -134,6 +152,11 @@ public:
     /// handler). If true, your game should suppress its own handling.
     bool dispatch(const Event& e);
 
+    /// Current hovered element chain, deepest first. Native widgets use
+    /// this to implement browser-like pointer capture against their own
+    /// state while still letting AffineUI own hit-testing and CSS state.
+    std::vector<Document::HoverInfo> hovered_info_chain() const;
+
     /// Cursor the OS should display under the last hovered position.
     /// Maps onto your windowing toolkit's cursor enum.
     ///   0 = default, 1 = pointer, 2 = text, 3 = crosshair, 4 = move,
@@ -150,6 +173,16 @@ public:
     ///   "a,b"   — comma-separated list (any matches)
     /// Compound selectors (`div.card`) and combinators are Phase 3.
     void on_click(std::string_view selector, std::function<void()> cb);
+
+    using EventHandler = std::function<bool(
+        const Event&, const std::vector<Document::HoverInfo>&)>;
+
+    /// Register a low-level native event handler. The handler receives
+    /// the already-hit-tested hover chain, deepest first, after CSS
+    /// hover/active state has been updated. This is the C++ analog of
+    /// the small Decius JS behavior layer: controls can capture pointer
+    /// drags and mutate native state without reparsing event targets.
+    void on_event(EventHandler cb);
 
     // ── Configuration ──────────────────────────────────────────────
 

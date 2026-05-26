@@ -1,10 +1,10 @@
-// affineui::Document — Phase 2A.
+// affineui::Document â€” Phase 2A.
 //
 // Parses HTML with lexbor, attaches stylesheets (user-agent + user +
 // any embedded `<style>` blocks) through lexbor's cascade, then for
 // each block-level element collects a `ResolvedStyle` (ComputedStyle
 // + AnimatedStyle) via the StyleResolver. The Phase 1 `style_for(tag)`
-// fallback is gone — real CSS now drives every visible attribute we
+// fallback is gone â€” real CSS now drives every visible attribute we
 // expose this phase.
 //
 // Lifetime: the lxb_html_document_t and the resolver live for the
@@ -31,16 +31,23 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cstdio>
+#include <chrono>
+#include <cmath>
+#include <cstdlib>
+#include <limits>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 #if !defined(AFFINEUI_STUB_BUILD)
 #    include <lexbor/css/css.h>
+#    include <lexbor/css/declaration.h>
 #    include <lexbor/dom/dom.h>
+#    include <lexbor/dom/interfaces/attr.h>
 #    include <lexbor/html/html.h>
+#    include <lexbor/html/serialize.h>
 #endif
 
 namespace affineui {
@@ -54,7 +61,7 @@ namespace {
 // `parent_idx` is the index into Document::blocks of this block's
 // containing block (or -1 for top-level). Blocks are appended in DFS
 // order during collect_blocks(), so a parent always has a lower index
-// than its children — that lets paint walk the vector linearly and
+// than its children â€” that lets paint walk the vector linearly and
 // hit parents before children (correct z-order for the box-bg-then-
 // text emit pattern).
 struct Block {
@@ -62,14 +69,16 @@ struct Block {
     std::string       tag;
     std::string       elem_id;     // value of the `id` attribute (for "#x" selectors)
     std::vector<std::string> classes;  // tokenized `class` attribute
+    std::vector<std::pair<std::string, std::string>> attrs;
     std::string       text;
     std::string       image_src;
     std::string       placeholder;
     int               parent_idx{-1};
     Rect              bounds{};
+    RectF             bounds_f{};
     // Scroll state. Only meaningful when ComputedStyle.overflow_y is
     // Scroll or Auto. content_h is the total height of descendant
-    // content measured from this block's bounds.y — i.e. how far the
+    // content measured from this block's bounds.y â€” i.e. how far the
     // user can scroll before the bottom of the deepest descendant
     // clears the visible window.
     int               scroll_y{0};
@@ -78,7 +87,7 @@ struct Block {
     // collect_blocks around runs of inline / inline-block siblings.
     // No DOM element backs it; paint skips bg/border/text (it's
     // transparent above its children). Click routing + hit-test
-    // treat it normally — children sit on top anyway.
+    // treat it normally â€” children sit on top anyway.
     bool              synthetic{false};
     bool              text_control{false};
     bool              placeholder_visible{false};
@@ -88,22 +97,29 @@ struct Block {
     std::string       role_attr;        // "switch" etc.
     bool              is_checked{false};
     bool              is_disabled{false};
+    std::shared_ptr<const detail::CustomPropMap> custom_props;
+    std::shared_ptr<const detail::BoxShadowList> box_shadows;
+    detail::AnimatedStyle base_animated{};
+    detail::ResolvedStyle::CssAnimation animation{};
+    std::chrono::steady_clock::time_point animation_epoch{
+        std::chrono::steady_clock::now()};
 };
 
 #if !defined(AFFINEUI_STUB_BUILD)
 // CSS pseudo-class side-table entry, parsed out of attached
 // stylesheets by scan_pseudo_rules(). Each compound is the AND of
-// one-or-more simple identifiers (tag/class/id). The chain is
-// `target` (must match the hovered/active element) plus zero-or-more
-// `ancestors` walked deepest → root with descendant-combinator gaps.
+// one-or-more simple identifiers (tag/class/id/attribute). The chain is
+// `target` (the element receiving declarations) plus zero-or-more
+// `ancestors` walked deepest â†’ root with descendant-combinator gaps.
 //
 // Today's grammar: simple selectors + descendant combinator only.
-// `>`, `+`, `~`, attribute selectors, and functional pseudos are
-// silently skipped at scan time.
+// `>`, `+`, `~`, and functional pseudos are silently skipped at scan time.
 struct SimpleSelector {
-    enum class Kind : std::uint8_t { Tag, Class, Id };
+    enum class Kind : std::uint8_t { Tag, Class, Id, Attr };
     Kind        kind;
     std::string name;
+    std::string value;
+    bool        attr_value_set{false};
 };
 
 struct CompoundSelector {
@@ -114,7 +130,9 @@ struct PseudoRule {
     enum class Pseudo : std::uint8_t { Hover, Active, Focus };
     Pseudo                                        pseudo;
     CompoundSelector                              target;
-    std::vector<CompoundSelector>                 ancestors;  // nearest → root
+    std::vector<CompoundSelector>                 ancestors;  // nearest â†’ root
+    CompoundSelector                              state_target;
+    bool                                          state_on_target{true};
     const lxb_css_rule_declaration_list_t*        decls;
 };
 
@@ -134,6 +152,42 @@ struct RuleFill {
     std::uint8_t                  state_bit{0};
 };
 
+// Generated-content rules for `::before` / `::after`. Lexbor owns the
+// declaration parsing; this side table records pseudo-element selectors so
+// collect_blocks can materialize generated inline boxes into normal layout.
+struct GeneratedContentRule {
+    enum class Position : std::uint8_t { Before, After };
+
+    Position                       position{Position::Before};
+    CompoundSelector               target;
+    std::vector<CompoundSelector>  ancestors;
+    bool                           has_previous_adjacent{false};
+    CompoundSelector               previous_adjacent;
+    lxb_css_selector_specificity_t specificity{0};
+    std::uint32_t                  source_order{0};
+    std::string                    content_value;
+    std::string                    color_value;
+    std::string                    background_value;
+    std::string                    background_color_value;
+    std::string                    padding_left_value;
+    std::string                    padding_right_value;
+    const lxb_css_rule_declaration_list_t* decls{nullptr};
+};
+
+struct FontFaceSource {
+    std::string url;
+    std::string format;
+};
+
+struct FontFaceRule {
+    std::string                 family;
+    int                         weight{400};
+    bool                        italic{false};
+    std::vector<FontFaceSource> sources;
+    bool                        loaded{false};
+    bool                        attempted{false};
+};
+
 // Per-element state bits in StyleStore::state_bits().
 constexpr std::uint8_t kHoverStateBit  = 1u << 0;
 constexpr std::uint8_t kActiveStateBit = 1u << 1;
@@ -143,7 +197,7 @@ constexpr std::uint8_t kFocusStateBit  = 1u << 2;
 // width satisfies the (min-width)/(max-width) constraints. Both
 // min_width_px and max_width_px use -1 to mean "unset / unconstrained".
 // block_css is the raw text of the rules inside the braces (not including
-// the braces themselves) — ready to pass to lxb_css_stylesheet_parse as
+// the braces themselves) â€” ready to pass to lxb_css_stylesheet_parse as
 // a standalone stylesheet.
 struct MediaBlock {
     int         min_width_px{-1};
@@ -156,6 +210,20 @@ struct MediaBlock {
         return true;
     }
 };
+
+struct KeyframeStep {
+    float offset{0.0f};
+    const lxb_css_rule_declaration_list_t* decls{nullptr};
+};
+
+struct KeyframeBlock {
+    std::uint32_t name_hash{0};
+    std::vector<KeyframeStep> steps;
+};
+
+void scan_font_face_rules(std::string_view css,
+                          std::string_view stylesheet_base_url,
+                          std::vector<FontFaceRule>& out);
 #endif
 
 }  // namespace
@@ -169,11 +237,13 @@ struct DocumentImpl {
     Size                      content_size{0, 0};
     std::vector<Block>        blocks;
     bool                      paint_dirty{true};  // Phase 2C flips this
+    std::vector<Rect>         dirty_rects;
+    std::vector<int>          pending_dirty_roots;
 
     // Interaction state. -1 = no block (off-window or pointer not down).
     // Updated by Document::dispatch; read by App to drive cursor +
     // :hover / :active and click routing. The *_chain vectors hold the
-    // deepest → root block indices for the currently-hovered (resp.
+    // deepest â†’ root block indices for the currently-hovered (resp.
     // -pressed) element. Recomputed on every relevant event; diffed
     // against the previous chain to toggle the pseudo state bit per
     // affected element.
@@ -184,7 +254,7 @@ struct DocumentImpl {
     std::vector<int>          active_chain;
     Point                     last_mouse_pos{};
 
-    // Immediate-mode runtime — lazily created on the first
+    // Immediate-mode runtime â€” lazily created on the first
     // set_imm_view() call. Holds state slots, click handlers, and the
     // view function across re-renders.
     std::unique_ptr<ImmRuntime> imm;
@@ -193,35 +263,45 @@ struct DocumentImpl {
     // calls; reset() inside set_html() recycles capacity.
     StyleStore                style_store;
 
-    // Viewport width used for @media query evaluation. 0 = unknown
-    // (no media rules evaluated). Updated by layout() before calling
-    // set_html() when the width changes. Stored here so attach_stylesheet
-    // can read it during the re-parse triggered by layout().
+    // Viewport dimensions used for @media query evaluation and viewport
+    // units (`vw`, `vh`, `vmin`, `vmax`). 0 = unknown. Updated by
+    // layout() before calling set_html() when the viewport changes, so
+    // attach_stylesheet() and the resolver see the current CSS viewport
+    // during the re-parse triggered by layout().
     int                       media_viewport_width_px{0};
+    int                       media_viewport_height_px{0};
 
 #if !defined(AFFINEUI_STUB_BUILD)
     lxb_html_document_t*               doc{nullptr};
     std::vector<lxb_css_stylesheet_t*> sheets;
-    // :hover / :active overlay rules — populated by scan_pseudo_rules()
+    // :hover / :active overlay rules â€” populated by scan_pseudo_rules()
     // during attach. Pointers in `decls` reference rule data owned by
     // the document's CSS memory pool; valid for the document's lifetime.
     std::vector<PseudoRule>            pseudo_rules;
     // Font-family fill rules populated by scan_rule_fills() from the raw
     // CSS source at attach time.
     std::vector<RuleFill>              rule_fills;
+    // Generated ::before / ::after content rules populated from the raw
+    // CSS source and matched during DOM block collection.
+    std::vector<GeneratedContentRule>   generated_content_rules;
+    std::vector<FontFaceRule>           font_faces;
     // @media blocks collected during attach_stylesheet. Evaluated against
     // media_viewport_width_px; matching blocks are re-attached as extra
     // stylesheets so their rules participate in the normal cascade.
     std::vector<MediaBlock>            media_blocks;
+    std::vector<KeyframeBlock>         keyframes;
     std::unique_ptr<StyleResolver>     resolver;
     ResolvedStyle                      root_style{};  // inheritance root
 #endif
+    std::chrono::steady_clock::time_point animation_epoch{
+        std::chrono::steady_clock::now()};
+    std::uint32_t              animation_candidate_count{0};
 
     ~DocumentImpl() {
 #if !defined(AFFINEUI_STUB_BUILD)
         resolver.reset();
         // Stylesheets are owned by the document's CSS memory pool once
-        // attached — destroying the document tears them down. Just drop
+        // attached â€” destroying the document tears them down. Just drop
         // our tracking refs.
         sheets.clear();
         if (doc) lxb_html_document_destroy(doc);
@@ -235,7 +315,7 @@ namespace {
 
 #if !defined(AFFINEUI_STUB_BUILD)
 
-// ── DOM utilities ───────────────────────────────────────────────────
+// â”€â”€ DOM utilities â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 bool is_html_ws(unsigned char c) {
     return c == ' ' || c == '\t' || c == '\n' ||
@@ -273,7 +353,7 @@ std::string node_text(lxb_dom_node_t* node,
         for (std::size_t i = 0; i < len; ++i) {
             const auto c = static_cast<unsigned char>(raw[i]);
             if (c == '\r') {
-                // CR or CRLF → LF (normalize line endings).
+                // CR or CRLF â†’ LF (normalize line endings).
                 out.push_back('\n');
                 if (i + 1 < len && raw[i + 1] == '\n') ++i;
             } else if (c == '\t') {
@@ -305,7 +385,7 @@ std::string node_text(lxb_dom_node_t* node,
 }
 
 // Apply text-transform to a string. All transforms operate on
-// ASCII letters only — full Unicode case-mapping is out of scope.
+// ASCII letters only â€” full Unicode case-mapping is out of scope.
 // Capitalize uppercases the first character of each whitespace-
 // delimited word (matching CSS spec word boundary definition for
 // ASCII content).
@@ -360,6 +440,7 @@ bool node_is_collapsible_whitespace(lxb_dom_node_t* node) {
 detail::ResolvedStyle anonymous_text_style(const detail::ResolvedStyle& parent) {
     detail::ResolvedStyle rs{};
     rs.animated.color_rgba           = parent.animated.color_rgba;
+    rs.animated.text_decoration_rgba = parent.animated.text_decoration_rgba;
     rs.computed.font_size_px         = parent.computed.font_size_px;
     rs.computed.font_weight          = parent.computed.font_weight;
     rs.computed.font_style           = parent.computed.font_style;
@@ -371,10 +452,14 @@ detail::ResolvedStyle anonymous_text_style(const detail::ResolvedStyle& parent) 
     // correctly on inline content.
     rs.computed.text_align           = parent.computed.text_align;
     rs.computed.display              = detail::ComputedStyle::Display::Inline;
-    // Inherited text features — propagate from parent.
+    // Inherited text features â€” propagate from parent.
     rs.computed.letter_spacing_x100  = parent.computed.letter_spacing_x100;
+    rs.computed.text_indent_value    = parent.computed.text_indent_value;
+    rs.computed.text_indent_is_pct   = parent.computed.text_indent_is_pct;
     rs.computed.white_space          = parent.computed.white_space;
     rs.computed.text_transform       = parent.computed.text_transform;
+    rs.computed.text_decoration_line = parent.computed.text_decoration_line;
+    rs.custom_props                  = parent.custom_props;
     return rs;
 }
 
@@ -396,10 +481,16 @@ void append_anonymous_inline_text(detail::DocumentImpl& impl,
     b.tag        = "#text";
     b.text       = std::move(text);
     b.parent_idx = parent_idx;
+    b.box_shadows = rs.box_shadows;
+    b.base_animated = rs.animated;
+    b.animation = rs.animation;
+    b.animation_epoch = impl.animation_epoch;
     impl.blocks.push_back(std::move(b));
 }
 
-int ensure_inline_run(detail::DocumentImpl& impl, int parent_idx,
+int ensure_inline_run(detail::DocumentImpl& impl,
+                      const detail::ResolvedStyle& parent_style,
+                      int parent_idx,
                       int& open_synth_idx) {
     if (open_synth_idx >= 0) return open_synth_idx;
 
@@ -410,12 +501,27 @@ int ensure_inline_run(detail::DocumentImpl& impl, int parent_idx,
     synth_cs.display        = Display::Flex;
     synth_cs.flex_direction = detail::ComputedStyle::FlexDirection::Row;
     synth_cs.flex_wrap      = detail::ComputedStyle::FlexWrap::Wrap;
-    // Browser inline FFC aligns siblings at the text baseline. Yoga
-    // supports YGAlignBaseline but only when each item exposes a baseline
-    // via YGNodeSetBaselineFunc; our text leaves don't, so use Center until
-    // the painter exposes per-font ascender/descender data for a real
-    // baseline callback.
-    synth_cs.align_items    = detail::ComputedStyle::AlignItems::Center;
+    switch (parent_style.computed.text_align) {
+        case detail::ComputedStyle::TextAlign::Center:
+            synth_cs.justify_content =
+                detail::ComputedStyle::JustifyContent::Center;
+            break;
+        case detail::ComputedStyle::TextAlign::Right:
+            synth_cs.justify_content =
+                detail::ComputedStyle::JustifyContent::End;
+            break;
+        case detail::ComputedStyle::TextAlign::Left:
+        case detail::ComputedStyle::TextAlign::Justify:
+        default:
+            synth_cs.justify_content =
+                detail::ComputedStyle::JustifyContent::Start;
+            break;
+    }
+    // Synthetic inline runs approximate a CSS line box. Inline-level boxes
+    // align on their baselines by default; Yoga gets text baselines from the
+    // adapter's metric callback, while inline-block containers synthesize
+    // theirs from their first line.
+    synth_cs.align_items    = detail::ComputedStyle::AlignItems::Baseline;
 
     Block synth;
     synth.id         = sid;
@@ -444,6 +550,31 @@ std::string attr_string(lxb_dom_element_t* elem, std::string_view name) {
     return std::string(reinterpret_cast<const char*>(v), len);
 }
 
+const lxb_char_t* as_lxb(std::string_view s) {
+    return reinterpret_cast<const lxb_char_t*>(s.data());
+}
+
+std::vector<std::pair<std::string, std::string>>
+element_attrs(lxb_dom_element_t* elem) {
+    std::vector<std::pair<std::string, std::string>> out;
+    if (!elem) return out;
+    for (auto* attr = lxb_dom_element_first_attribute(elem);
+         attr != nullptr; attr = lxb_dom_element_next_attribute(attr)) {
+        size_t name_len = 0;
+        const lxb_char_t* name = lxb_dom_attr_local_name(attr, &name_len);
+        if (!name || name_len == 0) continue;
+
+        size_t value_len = 0;
+        const lxb_char_t* value = lxb_dom_attr_value(attr, &value_len);
+        out.emplace_back(
+            std::string(reinterpret_cast<const char*>(name), name_len),
+            value && value_len
+                ? std::string(reinterpret_cast<const char*>(value), value_len)
+                : std::string{});
+    }
+    return out;
+}
+
 // True if a (possibly value-less, boolean) attribute is present.
 bool has_attr(lxb_dom_element_t* elem, std::string_view name) {
     return lxb_dom_element_has_attribute(
@@ -451,8 +582,8 @@ bool has_attr(lxb_dom_element_t* elem, std::string_view name) {
 }
 
 // The text a closed <select> shows: the `selected` <option>'s text, or
-// the first option if none is marked. We render no popup/list — only the
-// chosen option — matching a closed native control.
+// the first option if none is marked. We render no popup/list â€” only the
+// chosen option â€” matching a closed native control.
 std::string select_display_text(lxb_dom_element_t* select) {
     lxb_dom_node_t* first = nullptr;
     for (auto* c = lxb_dom_node_first_child(lxb_dom_interface_node(select));
@@ -492,28 +623,53 @@ std::vector<std::string> split_classes(std::string_view s) {
     return out;
 }
 
+bool block_has_class(const Block& block, std::string_view cls) {
+    return std::find(block.classes.begin(), block.classes.end(), cls) !=
+           block.classes.end();
+}
+
+const std::string* block_attr_value(const Block& block, std::string_view name) {
+    for (const auto& [attr_name, attr_value] : block.attrs) {
+        if (attr_name == name) return &attr_value;
+    }
+    return nullptr;
+}
+
+int nearest_block_with_tag(const std::vector<Block>& blocks,
+                           int idx,
+                           std::string_view tag) {
+    while (idx >= 0 && static_cast<std::size_t>(idx) < blocks.size()) {
+        const auto& block = blocks[static_cast<std::size_t>(idx)];
+        if (block.tag == tag) return idx;
+        idx = block.parent_idx;
+    }
+    return -1;
+}
+
 bool is_block_tag(const std::string& tag) {
     return tag == "h1" || tag == "h2" || tag == "h3" ||
            tag == "h4" || tag == "h5" || tag == "h6" ||
            tag == "p"  || tag == "div" ||
            tag == "section" || tag == "article" || tag == "header" ||
            tag == "footer"  || tag == "main"    || tag == "nav" ||
+           tag == "aside"   || tag == "figure"  || tag == "figcaption" ||
            // Form-ish + a few common containers. We treat them as
-           // block-level for layout — Phase 3 inline layout splits
+           // block-level for layout â€” Phase 3 inline layout splits
            // these into their proper inline / inline-block flow.
            tag == "button" || tag == "input"  || tag == "textarea" ||
            tag == "select" || tag == "label"  || tag == "form" ||
+           tag == "fieldset" || tag == "legend" ||
            tag == "ul"     || tag == "ol" ||
            tag == "li"     || tag == "a"      || tag == "span" ||
            tag == "img"    ||
-           // CSS table model — each produces a box (display is set by the
+           // CSS table model â€” each produces a box (display is set by the
            // UA stylesheet); the layout engine gives them table semantics.
            tag == "table"  || tag == "thead"  || tag == "tbody" ||
            tag == "tfoot"  || tag == "tr"     || tag == "td"    ||
            tag == "th"     || tag == "caption";
 }
 
-// ── Stylesheet extraction ──────────────────────────────────────────
+// â”€â”€ Stylesheet extraction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // Walk the parsed DOM looking for author stylesheets and collect them
 // in document order. Inline `<style>` blocks append their text. Linked
@@ -533,8 +689,14 @@ bool rel_includes_stylesheet(std::string_view rel) {
     return token == "stylesheet";
 }
 
+std::string stylesheet_base_url(std::string_view href) {
+    const auto slash = href.find_last_of("/\\");
+    if (slash == std::string_view::npos) return {};
+    return std::string(href.substr(0, slash + 1));
+}
+
 void collect_author_stylesheets(lxb_dom_node_t* node,
-                                const detail::DocumentImpl& impl,
+                                detail::DocumentImpl& impl,
                                 std::string& out) {
     for (auto* c = lxb_dom_node_first_child(node); c;
          c = lxb_dom_node_next(c)) {
@@ -544,7 +706,10 @@ void collect_author_stylesheets(lxb_dom_node_t* node,
             if (tag == "style") {
                 size_t len = 0;
                 if (auto* t = lxb_dom_node_text_content(c, &len); t && len) {
-                    out.append(reinterpret_cast<const char*>(t), len);
+                    std::string_view css{
+                        reinterpret_cast<const char*>(t), len};
+                    scan_font_face_rules(css, {}, impl.font_faces);
+                    out.append(css);
                     out.push_back('\n');
                 }
                 continue;  // skip <style>'s descendants
@@ -554,6 +719,8 @@ void collect_author_stylesheets(lxb_dom_node_t* node,
                 const auto href = attr_string(el, "href");
                 if (!href.empty() && rel_includes_stylesheet(rel)) {
                     if (auto css = impl.resource_loader(href); !css.empty()) {
+                        scan_font_face_rules(
+                            css, stylesheet_base_url(href), impl.font_faces);
                         out.append(css);
                         out.push_back('\n');
                     }
@@ -572,14 +739,16 @@ void collect_author_stylesheets(lxb_dom_node_t* node,
 //   - one or more compounds joined by descendant combinator
 //   - each compound is one or more simple selectors (tag/class/id) AND'd
 //   - exactly one :hover or :active pseudo in the LAST compound (the
-//     "target" — the element whose state flips the rule on)
+//     "target" â€” the element whose state flips the rule on)
 // Anything else (`>`, `+`, `~`, attribute selectors, functional
 // pseudos, the pseudo on a non-target compound) is silently skipped.
 // One compound matches when every one of its simples matches.
 bool compound_matches(const CompoundSelector& compound,
                       std::string_view tag,
                       std::string_view elem_id,
-                      const std::vector<std::string>& classes) {
+                      const std::vector<std::string>& classes,
+                      const std::vector<std::pair<std::string, std::string>>*
+                          attrs = nullptr) {
     for (const auto& s : compound.simples) {
         switch (s.kind) {
             case SimpleSelector::Kind::Tag:
@@ -590,14 +759,147 @@ bool compound_matches(const CompoundSelector& compound,
                 if (std::find(classes.begin(), classes.end(), s.name)
                     == classes.end()) return false;
                 break;
+            case SimpleSelector::Kind::Attr: {
+                if (!attrs) return false;
+                const auto it = std::find_if(
+                    attrs->begin(), attrs->end(),
+                    [&](const auto& a) { return a.first == s.name; });
+                if (it == attrs->end()) return false;
+                if (s.attr_value_set && it->second != s.value) return false;
+                break;
+            }
         }
     }
     return true;
 }
 
+int collapse_vertical_margins(int a, int b) {
+    if (a >= 0 && b >= 0) return std::max(a, b);
+    if (a <= 0 && b <= 0) return std::min(a, b);
+    return a + b;
+}
+
+std::int16_t clamp_css_px(int value) {
+    return static_cast<std::int16_t>(std::clamp(
+        value,
+        static_cast<int>(std::numeric_limits<std::int16_t>::min()),
+        static_cast<int>(std::numeric_limits<std::int16_t>::max())));
+}
+
+bool is_block_flow_box(const Block& block,
+                       const detail::ComputedStyle& style) {
+    return !block.synthetic &&
+           (style.display == detail::ComputedStyle::Display::Block ||
+            style.display == detail::ComputedStyle::Display::ListItem);
+}
+
+bool is_flex_container_display(detail::ComputedStyle::Display display) {
+    return display == detail::ComputedStyle::Display::Flex ||
+           display == detail::ComputedStyle::Display::InlineFlex;
+}
+
+bool is_block_level_margin_box(const Block& block,
+                               const detail::ComputedStyle& style) {
+    return !block.synthetic &&
+           (style.display == detail::ComputedStyle::Display::Block ||
+            style.display == detail::ComputedStyle::Display::ListItem ||
+            style.display == detail::ComputedStyle::Display::Flex ||
+            style.display == detail::ComputedStyle::Display::Grid);
+}
+
+bool can_collapse_first_child_top_margin(
+    const Block& parent_block,
+    const detail::ComputedStyle& parent_style,
+    const Block& child_block,
+    const detail::ComputedStyle& child_style) {
+    return is_block_flow_box(parent_block, parent_style) &&
+           is_block_level_margin_box(child_block, child_style) &&
+           parent_style.used_border_top() == 0 &&
+           parent_style.padding_top == 0;
+}
+
+bool can_collapse_last_child_bottom_margin(
+    const Block& parent_block,
+    const detail::ComputedStyle& parent_style,
+    const Block& child_block,
+    const detail::ComputedStyle& child_style) {
+    return is_block_flow_box(parent_block, parent_style) &&
+           is_block_level_margin_box(child_block, child_style) &&
+           parent_style.used_border_bottom() == 0 &&
+           parent_style.padding_bottom == 0 &&
+           parent_style.height < 0 &&
+           parent_style.min_height == 0;
+}
+
+void collapse_block_flow_vertical_margins(
+    const std::vector<std::vector<int>>& child_indices,
+    const std::vector<Block>& blocks,
+    std::vector<detail::ComputedStyle>& styles) {
+    for (int pi = static_cast<int>(blocks.size()) - 1; pi >= 0; --pi) {
+        const auto& kids = child_indices[static_cast<std::size_t>(pi)];
+        if (kids.empty()) continue;
+
+        const int first = kids.front();
+        auto& parent_style = styles[static_cast<std::size_t>(pi)];
+        auto& child_style = styles[static_cast<std::size_t>(first)];
+        if (can_collapse_first_child_top_margin(
+                blocks[static_cast<std::size_t>(pi)], parent_style,
+                blocks[static_cast<std::size_t>(first)], child_style)) {
+            parent_style.margin_top = clamp_css_px(collapse_vertical_margins(
+                parent_style.margin_top, child_style.margin_top));
+            child_style.margin_top = 0;
+        }
+
+        const int last = kids.back();
+        auto& last_child_style = styles[static_cast<std::size_t>(last)];
+        if (can_collapse_last_child_bottom_margin(
+                blocks[static_cast<std::size_t>(pi)], parent_style,
+                blocks[static_cast<std::size_t>(last)], last_child_style)) {
+            parent_style.margin_bottom = clamp_css_px(collapse_vertical_margins(
+                parent_style.margin_bottom, last_child_style.margin_bottom));
+            last_child_style.margin_bottom = 0;
+        }
+    }
+
+    auto collapse_sibling_run = [&](const std::vector<int>& kids) {
+        int previous = -1;
+        for (const int child : kids) {
+            const auto child_idx = static_cast<std::size_t>(child);
+            if (!is_block_level_margin_box(blocks[child_idx], styles[child_idx])) {
+                previous = -1;
+                continue;
+            }
+
+            if (previous >= 0) {
+                auto& current_style = styles[child_idx];
+                const auto& previous_style =
+                    styles[static_cast<std::size_t>(previous)];
+                const int collapsed = collapse_vertical_margins(
+                    previous_style.margin_bottom, current_style.margin_top);
+                current_style.margin_top = clamp_css_px(
+                    collapsed - previous_style.margin_bottom);
+            }
+            previous = child;
+        }
+    };
+
+    std::vector<int> root_children;
+    root_children.reserve(blocks.size());
+    for (std::size_t i = 0; i < blocks.size(); ++i) {
+        if (blocks[i].parent_idx < 0) root_children.push_back(static_cast<int>(i));
+    }
+    collapse_sibling_run(root_children);
+
+    for (std::size_t pi = 0; pi < blocks.size(); ++pi) {
+        const auto& parent_style = styles[pi];
+        if (!is_block_flow_box(blocks[pi], parent_style)) continue;
+        collapse_sibling_run(child_indices[pi]);
+    }
+}
+
 // Walk up `parent_idx` through `blocks`, greedy-matching each ancestor
 // compound in order. Returns true when all ancestors have been
-// satisfied (gaps are allowed — descendant combinator semantics).
+// satisfied (gaps are allowed â€” descendant combinator semantics).
 bool ancestor_chain_matches(const std::vector<CompoundSelector>& ancestors,
                             int parent_idx,
                             const std::vector<Block>& blocks) {
@@ -605,12 +907,69 @@ bool ancestor_chain_matches(const std::vector<CompoundSelector>& ancestors,
     int idx = parent_idx;
     while (i < ancestors.size() && idx >= 0) {
         const auto& a = blocks[static_cast<std::size_t>(idx)];
-        if (compound_matches(ancestors[i], a.tag, a.elem_id, a.classes)) {
+        if (compound_matches(ancestors[i], a.tag, a.elem_id, a.classes,
+                             &a.attrs)) {
             ++i;
         }
         idx = a.parent_idx;
     }
     return i == ancestors.size();
+}
+
+std::uint8_t pseudo_state_bit(PseudoRule::Pseudo pseudo) {
+    switch (pseudo) {
+        case PseudoRule::Pseudo::Hover:  return kHoverStateBit;
+        case PseudoRule::Pseudo::Active: return kActiveStateBit;
+        case PseudoRule::Pseudo::Focus:  return kFocusStateBit;
+        default:                         return 0;
+    }
+}
+
+bool block_has_state(const detail::DocumentImpl& impl, const Block& block,
+                     const CompoundSelector& state_target, std::uint8_t bit) {
+    if (bit == 0) return false;
+    if (!compound_matches(state_target, block.tag, block.elem_id,
+                          block.classes, &block.attrs)) {
+        return false;
+    }
+    return (impl.style_store.state_bits(block.id) & bit) != 0;
+}
+
+bool ancestor_has_state(const detail::DocumentImpl& impl, int parent_idx,
+                        const CompoundSelector& state_target,
+                        std::uint8_t bit) {
+    if (bit == 0) return false;
+    for (int idx = parent_idx; idx >= 0; ) {
+        const auto& a = impl.blocks[static_cast<std::size_t>(idx)];
+        if (compound_matches(state_target, a.tag, a.elem_id, a.classes,
+                             &a.attrs) &&
+            (impl.style_store.state_bits(a.id) & bit) != 0) {
+            return true;
+        }
+        idx = a.parent_idx;
+    }
+    return false;
+}
+
+void apply_font_family_fills(detail::DocumentImpl& impl,
+                             std::string_view tag,
+                             std::string_view elem_id,
+                             const std::vector<std::string>& classes,
+                             int parent_idx,
+                             std::uint8_t state_bits,
+                             detail::ResolvedStyle& rs) {
+    for (const auto& rf : impl.rule_fills) {
+        // Pseudo-scoped fills only apply when the state bit is set.
+        // Unscoped fills (state_bit == 0) always apply.
+        if (rf.state_bit && !(state_bits & rf.state_bit)) continue;
+        if (!compound_matches(rf.target, tag, elem_id, classes)) continue;
+        if (!ancestor_chain_matches(rf.ancestors, parent_idx, impl.blocks))
+            continue;
+        if (!rf.font_family.empty()) {
+            rs.computed.font_id = impl.style_store.intern_font_family(
+                rf.font_family);
+        }
+    }
 }
 
 void scan_pseudo_rules(lxb_css_stylesheet_t* sst,
@@ -622,14 +981,14 @@ void scan_pseudo_rules(lxb_css_stylesheet_t* sst,
         auto* style = lxb_css_rule_style(r);
 
         // `selector` is a comma-separated chain of compound chains;
-        // walk each group independently — each becomes its own rule.
+        // walk each group independently â€” each becomes its own rule.
         for (auto* sl = style->selector; sl != nullptr; sl = sl->next) {
             // Build the chain of compounds for this group.
             std::vector<CompoundSelector> compounds;
             CompoundSelector              current;
             PseudoRule::Pseudo            pseudo{};
             bool                          has_pseudo  = false;
-            bool                          pseudo_seen_in_last = false;
+            std::size_t                   pseudo_compound_index = 0;
             bool                          ok          = true;
 
             for (auto* sel = sl->first; sel != nullptr; sel = sel->next) {
@@ -638,11 +997,7 @@ void scan_pseudo_rules(lxb_css_stylesheet_t* sst,
                     (sel->combinator != LXB_CSS_SELECTOR_COMBINATOR_CLOSE);
                 if (starts_new_compound) {
                     if (sel->combinator != LXB_CSS_SELECTOR_COMBINATOR_DESCENDANT) {
-                        // `>`, `+`, `~` — not in MVP grammar.
-                        ok = false; break;
-                    }
-                    if (pseudo_seen_in_last) {
-                        // pseudo must be in the last compound only.
+                        // `>`, `+`, `~` â€” not in MVP grammar.
                         ok = false; break;
                     }
                     compounds.push_back(std::move(current));
@@ -654,31 +1009,53 @@ void scan_pseudo_rules(lxb_css_stylesheet_t* sst,
                     switch (sel->u.pseudo.type) {
                         case LXB_CSS_SELECTOR_PSEUDO_CLASS_HOVER:
                             pseudo = PseudoRule::Pseudo::Hover;
-                            has_pseudo = true; pseudo_seen_in_last = true; break;
+                            has_pseudo = true;
+                            pseudo_compound_index = compounds.size();
+                            break;
                         case LXB_CSS_SELECTOR_PSEUDO_CLASS_ACTIVE:
                             pseudo = PseudoRule::Pseudo::Active;
-                            has_pseudo = true; pseudo_seen_in_last = true; break;
+                            has_pseudo = true;
+                            pseudo_compound_index = compounds.size();
+                            break;
                         case LXB_CSS_SELECTOR_PSEUDO_CLASS_FOCUS:
                             pseudo = PseudoRule::Pseudo::Focus;
-                            has_pseudo = true; pseudo_seen_in_last = true; break;
+                            has_pseudo = true;
+                            pseudo_compound_index = compounds.size();
+                            break;
                         default:
                             ok = false; break;
                     }
                     if (!ok) break;
                 } else if (sel->type == LXB_CSS_SELECTOR_TYPE_ELEMENT ||
                            sel->type == LXB_CSS_SELECTOR_TYPE_CLASS   ||
-                           sel->type == LXB_CSS_SELECTOR_TYPE_ID) {
+                           sel->type == LXB_CSS_SELECTOR_TYPE_ID      ||
+                           sel->type == LXB_CSS_SELECTOR_TYPE_ATTRIBUTE) {
                     SimpleSelector s;
                     switch (sel->type) {
                         case LXB_CSS_SELECTOR_TYPE_ELEMENT: s.kind = SimpleSelector::Kind::Tag;   break;
                         case LXB_CSS_SELECTOR_TYPE_CLASS:   s.kind = SimpleSelector::Kind::Class; break;
                         case LXB_CSS_SELECTOR_TYPE_ID:      s.kind = SimpleSelector::Kind::Id;    break;
+                        case LXB_CSS_SELECTOR_TYPE_ATTRIBUTE:
+                            s.kind = SimpleSelector::Kind::Attr;
+                            if (sel->u.attribute.match !=
+                                LXB_CSS_SELECTOR_MATCH_EQUAL) {
+                                ok = false;
+                            }
+                            break;
                         default: ok = false; break;
                     }
                     if (!ok) break;
                     s.name.assign(
                         reinterpret_cast<const char*>(sel->name.data),
                         sel->name.length);
+                    if (sel->type == LXB_CSS_SELECTOR_TYPE_ATTRIBUTE &&
+                        sel->u.attribute.value.data != nullptr) {
+                        s.value.assign(
+                            reinterpret_cast<const char*>(
+                                sel->u.attribute.value.data),
+                            sel->u.attribute.value.length);
+                        s.attr_value_set = true;
+                    }
                     current.simples.push_back(std::move(s));
                 } else {
                     ok = false; break;
@@ -687,18 +1064,25 @@ void scan_pseudo_rules(lxb_css_stylesheet_t* sst,
 
             if (!ok || !has_pseudo) continue;
             // The current compound is the target. It must have at
-            // least one identifier — `:hover { ... }` (universal)
+            // least one identifier â€” `:hover { ... }` (universal)
             // alone is not supported in MVP.
             if (current.simples.empty()) continue;
             compounds.push_back(std::move(current));
+            if (pseudo_compound_index >= compounds.size() ||
+                compounds[pseudo_compound_index].simples.empty()) {
+                continue;
+            }
 
             PseudoRule pr;
             pr.pseudo = pseudo;
+            pr.state_target = compounds[pseudo_compound_index];
+            pr.state_on_target =
+                (pseudo_compound_index == compounds.size() - 1);
             pr.target = std::move(compounds.back());
             compounds.pop_back();
             // compounds left over are the ancestor constraints, with
             // the OUTERMOST first in CSS source order. We want them
-            // nearest → root (reverse).
+            // nearest â†’ root (reverse).
             pr.ancestors.reserve(compounds.size());
             for (auto it = compounds.rbegin(); it != compounds.rend(); ++it) {
                 pr.ancestors.push_back(std::move(*it));
@@ -709,7 +1093,7 @@ void scan_pseudo_rules(lxb_css_stylesheet_t* sst,
     }
 }
 
-// ── Font-family fill scanner ──────────────────────────────────────
+// â”€â”€ Font-family fill scanner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // AffineUI keeps font-family names in a local registry. Until the main
 // resolver maps lexbor's font-family values into that registry, this
@@ -735,7 +1119,7 @@ std::string_view trim_css_ws(std::string_view s) { return ltrim_ws(rtrim_ws(s));
 
 // Chunk raw CSS into (selector, decls) rules. Handles `/* ... */`
 // comments and skips `@`-prefixed at-rules. Doesn't try to validate
-// the body — it's just collecting the source range so other helpers
+// the body â€” it's just collecting the source range so other helpers
 // can scan inside it for the properties we care about.
 struct RawRule { std::string_view selector; std::string_view decls; };
 
@@ -792,14 +1176,54 @@ std::vector<RawRule> split_css_rules(std::string_view src) {
     return out;
 }
 
-// Parse a static (no `>` / `+` / `~`, no attribute selector) selector
-// text into a target compound + ancestor chain matching the shape
+// Parse a static (no `>` / `+` / `~`) selector text into a target compound
+// + ancestor chain matching the shape
 // scan_pseudo_rules builds. A single trailing pseudo-class
 // (:hover / :active / :focus) on the last compound is allowed and
 // returned via `out_state_bit`; any other pseudo (including anywhere
 // but the last compound) causes a parse failure. Returns false on
 // anything we don't support (the rule's other properties still apply
 // through lexbor; we just won't fill the missing ones).
+bool parse_attribute_simple(std::string_view sel,
+                            std::size_t& i,
+                            CompoundSelector& compound) {
+    if (i >= sel.size() || sel[i] != '[') return false;
+    const std::size_t close = sel.find(']', i + 1);
+    if (close == std::string_view::npos) return false;
+
+    auto body = trim_css_ws(sel.substr(i + 1, close - i - 1));
+    if (body.empty()) return false;
+
+    SimpleSelector s;
+    s.kind = SimpleSelector::Kind::Attr;
+
+    const auto eq = body.find('=');
+    if (eq == std::string_view::npos) {
+        s.name = std::string(trim_css_ws(body));
+    } else {
+        const auto name = trim_css_ws(body.substr(0, eq));
+        auto value = trim_css_ws(body.substr(eq + 1));
+        if (name.empty() || value.empty()) return false;
+        s.name = std::string(name);
+        if (value.size() >= 2 &&
+            ((value.front() == '"' && value.back() == '"') ||
+             (value.front() == '\'' && value.back() == '\''))) {
+            value.remove_prefix(1);
+            value.remove_suffix(1);
+        }
+        s.value = std::string(value);
+        s.attr_value_set = true;
+    }
+    if (s.name.empty() ||
+        s.name.find_first_of("~|^$* \t\r\n\f") != std::string::npos) {
+        return false;
+    }
+
+    compound.simples.push_back(std::move(s));
+    i = close + 1;
+    return true;
+}
+
 bool parse_static_selector(std::string_view sel,
                            CompoundSelector& target,
                            std::vector<CompoundSelector>& ancestors,
@@ -817,10 +1241,12 @@ bool parse_static_selector(std::string_view sel,
         if (pseudo_seen) return false;  // pseudo must be on last compound
         CompoundSelector compound;
         // Optional leading tag (anything not starting with . # or :).
-        if (sel[i] != '.' && sel[i] != '#' && sel[i] != ':') {
+        if (sel[i] != '.' && sel[i] != '#' && sel[i] != ':' &&
+            sel[i] != '[') {
             const std::size_t s = i;
             while (i < sel.size() && sel[i] != '.' && sel[i] != '#' &&
-                   sel[i] != ':' && !is_css_ws(sel[i])) ++i;
+                   sel[i] != ':' && sel[i] != '[' &&
+                   !is_css_ws(sel[i])) ++i;
             if (s == i) return false;
             compound.simples.push_back(
                 {SimpleSelector::Kind::Tag, std::string(sel.substr(s, i - s))});
@@ -828,12 +1254,17 @@ bool parse_static_selector(std::string_view sel,
         // Then any number of `.name` / `#name` segments, optionally
         // followed by a single `:pseudo` recognized below.
         while (i < sel.size() && !is_css_ws(sel[i])) {
+            if (sel[i] == '[') {
+                if (!parse_attribute_simple(sel, i, compound)) return false;
+                continue;
+            }
             if (sel[i] == ':') {
                 if (pseudo_seen) return false;
                 ++i;
                 const std::size_t s = i;
                 while (i < sel.size() && sel[i] != '.' && sel[i] != '#' &&
-                       sel[i] != ':' && !is_css_ws(sel[i])) ++i;
+                       sel[i] != ':' && sel[i] != '[' &&
+                       !is_css_ws(sel[i])) ++i;
                 const auto name = sel.substr(s, i - s);
                 if      (name == "hover")  out_state_bit = kHoverStateBit;
                 else if (name == "active") out_state_bit = kActiveStateBit;
@@ -849,7 +1280,8 @@ bool parse_static_selector(std::string_view sel,
             ++i;
             const std::size_t s = i;
             while (i < sel.size() && sel[i] != '.' && sel[i] != '#' &&
-                   sel[i] != ':' && !is_css_ws(sel[i])) ++i;
+                   sel[i] != ':' && sel[i] != '[' &&
+                   !is_css_ws(sel[i])) ++i;
             if (s == i) return false;
             compound.simples.push_back(
                 {kind, std::string(sel.substr(s, i - s))});
@@ -867,11 +1299,11 @@ bool parse_static_selector(std::string_view sel,
     return true;
 }
 
-// Find `key: <token>` and return the first comma/semicolon-delimited
-// token, with surrounding whitespace and any wrapping ' or " stripped.
-// Used to extract the first family name from `font-family: <list>`.
-std::string find_decl_first_ident(std::string_view decls,
-                                  std::string_view key) {
+// Find `key: <value>` in a declaration list and return the full value
+// up to the declaration semicolon. Parentheses and strings are honored
+// so values like `var(--font, system-ui, sans-serif)` stay intact.
+std::string find_decl_value(std::string_view decls,
+                            std::string_view key) {
     std::size_t pos = 0;
     while (pos < decls.size()) {
         const auto kp = decls.find(key, pos);
@@ -883,19 +1315,512 @@ std::string find_decl_first_ident(std::string_view decls,
         rest = ltrim_ws(rest);
         if (rest.empty() || rest.front() != ':') { pos = kp + 1; continue; }
         rest = ltrim_ws(rest.substr(1));
+
         std::size_t end = 0;
-        while (end < rest.size() && rest[end] != ',' && rest[end] != ';')
+        int depth = 0;
+        char quote = '\0';
+        while (end < rest.size()) {
+            const char c = rest[end];
+            if (quote != '\0') {
+                if (c == quote) quote = '\0';
+                ++end;
+                continue;
+            }
+            if (c == '"' || c == '\'') {
+                quote = c;
+            } else if (c == '(') {
+                ++depth;
+            } else if (c == ')' && depth > 0) {
+                --depth;
+            } else if (c == ';' && depth == 0) {
+                break;
+            }
             ++end;
-        std::string tok(trim_css_ws(rest.substr(0, end)));
-        // Strip a wrapping pair of quotes (matching).
-        if (tok.size() >= 2 &&
-            ((tok.front() == '"'  && tok.back() == '"') ||
-             (tok.front() == '\'' && tok.back() == '\''))) {
-            tok = tok.substr(1, tok.size() - 2);
         }
-        return tok;
+        return std::string(trim_css_ws(rest.substr(0, end)));
     }
     return {};
+}
+
+std::string strip_css_quotes(std::string tok) {
+    if (tok.size() >= 2 &&
+        ((tok.front() == '"'  && tok.back() == '"') ||
+         (tok.front() == '\'' && tok.back() == '\''))) {
+        tok = tok.substr(1, tok.size() - 2);
+    }
+    return tok;
+}
+
+int css_string_hex_digit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+    if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+    return -1;
+}
+
+void append_utf8_codepoint(std::string& out, std::uint32_t cp) {
+    if (cp == 0 || cp > 0x10FFFFu ||
+        (cp >= 0xD800u && cp <= 0xDFFFu)) {
+        cp = 0xFFFDu;
+    }
+    if (cp <= 0x7Fu) {
+        out.push_back(static_cast<char>(cp));
+    } else if (cp <= 0x7FFu) {
+        out.push_back(static_cast<char>(0xC0u | (cp >> 6)));
+        out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+    } else if (cp <= 0xFFFFu) {
+        out.push_back(static_cast<char>(0xE0u | (cp >> 12)));
+        out.push_back(static_cast<char>(0x80u | ((cp >> 6) & 0x3Fu)));
+        out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+    } else {
+        out.push_back(static_cast<char>(0xF0u | (cp >> 18)));
+        out.push_back(static_cast<char>(0x80u | ((cp >> 12) & 0x3Fu)));
+        out.push_back(static_cast<char>(0x80u | ((cp >> 6) & 0x3Fu)));
+        out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+    }
+}
+
+std::string decode_css_string_escapes(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        const char c = s[i];
+        if (c != '\\') {
+            out.push_back(c);
+            continue;
+        }
+        if (++i >= s.size()) break;
+
+        char escaped = s[i];
+        if (escaped == '\r' || escaped == '\n' || escaped == '\f') {
+            if (escaped == '\r' && i + 1 < s.size() && s[i + 1] == '\n')
+                ++i;
+            continue;
+        }
+
+        int digit = css_string_hex_digit(escaped);
+        if (digit < 0) {
+            out.push_back(escaped);
+            continue;
+        }
+
+        std::uint32_t cp = static_cast<std::uint32_t>(digit);
+        int count = 1;
+        while (count < 6 && i + 1 < s.size()) {
+            digit = css_string_hex_digit(s[i + 1]);
+            if (digit < 0) break;
+            cp = (cp << 4) | static_cast<std::uint32_t>(digit);
+            ++i;
+            ++count;
+        }
+
+        if (i + 1 < s.size() && is_css_ws(s[i + 1])) {
+            ++i;
+            if (s[i] == '\r' && i + 1 < s.size() && s[i + 1] == '\n')
+                ++i;
+        }
+        append_utf8_codepoint(out, cp);
+    }
+    return out;
+}
+
+std::size_t find_top_level_comma(std::string_view s) {
+    int depth = 0;
+    char quote = '\0';
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        const char c = s[i];
+        if (quote != '\0') {
+            if (c == quote) quote = '\0';
+            continue;
+        }
+        if (c == '"' || c == '\'') quote = c;
+        else if (c == '(') ++depth;
+        else if (c == ')' && depth > 0) --depth;
+        else if (c == ',' && depth == 0) return i;
+    }
+    return std::string_view::npos;
+}
+
+std::string first_font_family(std::string_view value) {
+    value = trim_css_ws(value);
+    const auto comma = find_top_level_comma(value);
+    if (comma != std::string_view::npos) value = value.substr(0, comma);
+    const auto important = value.find('!');
+    if (important != std::string_view::npos) {
+        value = trim_css_ws(value.substr(0, important));
+    }
+    return strip_css_quotes(std::string(trim_css_ws(value)));
+}
+
+bool starts_with_ascii_ci(std::string_view s, std::string_view prefix) {
+    if (s.size() < prefix.size()) return false;
+    for (std::size_t i = 0; i < prefix.size(); ++i) {
+        const auto a = static_cast<unsigned char>(s[i]);
+        const auto b = static_cast<unsigned char>(prefix[i]);
+        if (std::tolower(a) != std::tolower(b)) return false;
+    }
+    return true;
+}
+
+std::size_t find_ascii_ci(std::string_view s, std::string_view needle,
+                          std::size_t pos = 0) {
+    if (needle.empty()) return pos <= s.size() ? pos : std::string_view::npos;
+    for (; pos + needle.size() <= s.size(); ++pos) {
+        if (starts_with_ascii_ci(s.substr(pos), needle)) return pos;
+    }
+    return std::string_view::npos;
+}
+
+bool is_absolute_resource_url(std::string_view url) {
+    return url.find("://") != std::string_view::npos ||
+           starts_with_ascii_ci(url, "data:") ||
+           starts_with_ascii_ci(url, "file:") ||
+           (!url.empty() && (url.front() == '/' || url.front() == '\\')) ||
+           (url.size() >= 2 && std::isalpha(static_cast<unsigned char>(url[0]))
+                            && url[1] == ':');
+}
+
+std::string resolve_css_url(std::string_view stylesheet_base_url,
+                            std::string_view url) {
+    url = trim_css_ws(url);
+    if (url.empty() || stylesheet_base_url.empty() ||
+        is_absolute_resource_url(url)) {
+        return std::string(url);
+    }
+    std::string out{stylesheet_base_url};
+    out.append(url);
+    return out;
+}
+
+std::size_t find_matching_paren(std::string_view s, std::size_t open);
+
+std::string parse_css_function_arg(std::string_view s,
+                                   std::string_view fn_name) {
+    const auto fn = find_ascii_ci(s, fn_name);
+    if (fn == std::string_view::npos) return {};
+    std::size_t open = fn + fn_name.size();
+    while (open < s.size() && is_css_ws(s[open])) ++open;
+    if (open >= s.size() || s[open] != '(') return {};
+    const auto close = find_matching_paren(s, open);
+    if (close == std::string_view::npos || close <= open) return {};
+    auto arg = trim_css_ws(s.substr(open + 1, close - open - 1));
+    return strip_css_quotes(std::string(arg));
+}
+
+int parse_font_face_weight(std::string_view value) {
+    value = trim_css_ws(value);
+    if (value.empty() || value == "normal") return 400;
+    if (value == "bold") return 700;
+    int weight = 0;
+    for (char c : value) {
+        if (c < '0' || c > '9') break;
+        weight = weight * 10 + (c - '0');
+    }
+    return weight > 0 ? std::clamp(weight, 1, 1000) : 400;
+}
+
+bool parse_font_face_style(std::string_view value) {
+    return find_ascii_ci(value, "italic") != std::string_view::npos ||
+           find_ascii_ci(value, "oblique") != std::string_view::npos;
+}
+
+std::vector<FontFaceSource> parse_font_face_sources(
+    std::string_view src,
+    std::string_view stylesheet_base_url) {
+    std::vector<FontFaceSource> out;
+    while (!src.empty()) {
+        const auto comma = find_top_level_comma(src);
+        const auto item = trim_css_ws(src.substr(
+            0, comma == std::string_view::npos ? src.size() : comma));
+        if (!item.empty()) {
+            auto url = parse_css_function_arg(item, "url");
+            if (!url.empty()) {
+                FontFaceSource source;
+                source.url = resolve_css_url(stylesheet_base_url, url);
+                source.format = parse_css_function_arg(item, "format");
+                out.push_back(std::move(source));
+            }
+        }
+        if (comma == std::string_view::npos) break;
+        src = src.substr(comma + 1);
+    }
+    return out;
+}
+
+std::size_t find_matching_brace(std::string_view s, std::size_t open) {
+    int depth = 0;
+    char quote = '\0';
+    for (std::size_t i = open; i < s.size(); ++i) {
+        const char c = s[i];
+        if (quote != '\0') {
+            if (c == quote) quote = '\0';
+            continue;
+        }
+        if (c == '"' || c == '\'') quote = c;
+        else if (c == '{') ++depth;
+        else if (c == '}' && --depth == 0) return i;
+    }
+    return std::string_view::npos;
+}
+
+void scan_font_face_rules(std::string_view css,
+                          std::string_view stylesheet_base_url,
+                          std::vector<FontFaceRule>& out) {
+    std::size_t pos = 0;
+    while ((pos = find_ascii_ci(css, "@font-face", pos))
+           != std::string_view::npos) {
+        const auto open = css.find('{', pos);
+        if (open == std::string_view::npos) break;
+        const auto close = find_matching_brace(css, open);
+        if (close == std::string_view::npos) break;
+
+        const auto decls = css.substr(open + 1, close - open - 1);
+        FontFaceRule face;
+        face.family = first_font_family(find_decl_value(decls, "font-family"));
+        face.weight = parse_font_face_weight(find_decl_value(decls, "font-weight"));
+        face.italic = parse_font_face_style(find_decl_value(decls, "font-style"));
+        face.sources = parse_font_face_sources(
+            find_decl_value(decls, "src"), stylesheet_base_url);
+        if (!face.family.empty() && !face.sources.empty()) {
+            out.push_back(std::move(face));
+        }
+        pos = close + 1;
+    }
+}
+
+std::string lower_ascii(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        out.push_back(static_cast<char>(
+            std::tolower(static_cast<unsigned char>(c))));
+    }
+    return out;
+}
+
+bool font_source_is_backend_supported(const FontFaceSource& source) {
+    const auto format = lower_ascii(source.format);
+    if (format == "truetype" || format == "opentype" ||
+        format == "ttf" || format == "otf" || format == "collection" ||
+        format == "woff") {
+        return true;
+    }
+
+    const auto query = source.url.find_first_of("?#");
+    const auto path = lower_ascii(source.url.substr(
+        0, query == std::string_view::npos ? source.url.size() : query));
+    return (path.size() >= 4 &&
+            (path.rfind(".ttf") == path.size() - 4 ||
+             path.rfind(".otf") == path.size() - 4 ||
+             path.rfind(".ttc") == path.size() - 4)) ||
+           (path.size() >= 5 &&
+            path.rfind(".woff") == path.size() - 5);
+}
+
+std::string ttf_companion_url(std::string_view url) {
+    if (url.empty() || starts_with_ascii_ci(url, "data:")) return {};
+    const auto query = url.find_first_of("?#");
+    const auto path = url.substr(0, query);
+    const auto dot = path.find_last_of('.');
+    const auto slash = path.find_last_of("/\\");
+    if (dot == std::string_view::npos ||
+        (slash != std::string_view::npos && dot < slash)) {
+        return {};
+    }
+    auto ext = lower_ascii(path.substr(dot));
+    if (ext == ".ttf" || ext == ".otf" || ext == ".ttc") return {};
+
+    std::string out;
+    out.reserve(url.size());
+    out.append(url.substr(0, dot));
+    out.append(".ttf");
+    if (query != std::string_view::npos) out.append(url.substr(query));
+    return out;
+}
+
+void ensure_font_faces_registered(detail::DocumentImpl& impl,
+                                  Painter& painter) {
+    if (!impl.resource_loader) return;
+
+    for (auto& face : impl.font_faces) {
+        if (face.loaded || face.attempted) continue;
+
+        std::vector<FontFaceSource> sources;
+        sources.reserve(face.sources.size() * 2);
+        for (const auto& source : face.sources) {
+            if (font_source_is_backend_supported(source)) sources.push_back(source);
+        }
+
+        // NanoVG/fontstash consumes raw SFNT data; the painter converts WOFF1
+        // before registration. Some first-party icon bundles also ship the
+        // same generated face as a sibling TTF for native renderer paths, so
+        // keep that as a final fallback after declared backend-supported URLs.
+        for (const auto& source : face.sources) {
+            auto companion = ttf_companion_url(source.url);
+            if (!companion.empty()) {
+                FontFaceSource fallback;
+                fallback.url = std::move(companion);
+                fallback.format = "truetype";
+                sources.push_back(std::move(fallback));
+            }
+        }
+
+        for (const auto& source : sources) {
+            if (source.url.empty()) continue;
+            auto bytes = impl.resource_loader(source.url);
+            if (bytes.empty()) continue;
+            if (painter.register_font_face(face.family, face.weight,
+                                           face.italic, bytes)) {
+                face.loaded = true;
+                break;
+            }
+        }
+        face.attempted = !face.loaded;
+    }
+}
+
+bool selector_list_contains_root(std::string_view selector) {
+    while (!selector.empty()) {
+        const auto comma = find_top_level_comma(selector);
+        const auto group = trim_css_ws(selector.substr(
+            0,
+            comma == std::string_view::npos ? selector.size() : comma));
+        if (group == ":root") return true;
+        if (comma == std::string_view::npos) break;
+        selector = selector.substr(comma + 1);
+    }
+    return false;
+}
+
+std::string read_declaration_value(std::string_view decls,
+                                   std::size_t& pos) {
+    pos = decls.find(':', pos);
+    if (pos == std::string_view::npos) return {};
+    ++pos;
+    while (pos < decls.size() && is_css_ws(decls[pos])) ++pos;
+
+    const std::size_t start = pos;
+    int depth = 0;
+    char quote = '\0';
+    while (pos < decls.size()) {
+        const char c = decls[pos];
+        if (quote != '\0') {
+            if (c == quote) quote = '\0';
+            ++pos;
+            continue;
+        }
+        if (c == '"' || c == '\'') quote = c;
+        else if (c == '(') ++depth;
+        else if (c == ')' && depth > 0) --depth;
+        else if (c == ';' && depth == 0) break;
+        ++pos;
+    }
+    return std::string(trim_css_ws(decls.substr(start, pos - start)));
+}
+
+std::unordered_map<std::string, std::string>
+collect_root_custom_properties(const std::vector<RawRule>& rules) {
+    std::unordered_map<std::string, std::string> out;
+    for (const auto& raw : rules) {
+        if (!selector_list_contains_root(raw.selector)) continue;
+
+        std::size_t pos = 0;
+        while (pos < raw.decls.size()) {
+            while (pos < raw.decls.size() &&
+                   (is_css_ws(raw.decls[pos]) || raw.decls[pos] == ';')) {
+                ++pos;
+            }
+            if (pos >= raw.decls.size()) break;
+            if (pos + 1 >= raw.decls.size() ||
+                raw.decls[pos] != '-' || raw.decls[pos + 1] != '-') {
+                pos = raw.decls.find(';', pos);
+                if (pos == std::string_view::npos) break;
+                ++pos;
+                continue;
+            }
+
+            const std::size_t name_start = pos;
+            while (pos < raw.decls.size() &&
+                   raw.decls[pos] != ':' &&
+                   !is_css_ws(raw.decls[pos])) {
+                ++pos;
+            }
+            const auto name = std::string(
+                raw.decls.substr(name_start, pos - name_start));
+            while (pos < raw.decls.size() && is_css_ws(raw.decls[pos])) ++pos;
+            if (pos >= raw.decls.size() || raw.decls[pos] != ':') {
+                pos = raw.decls.find(';', pos);
+                if (pos == std::string_view::npos) break;
+                ++pos;
+                continue;
+            }
+
+            auto value = read_declaration_value(raw.decls, pos);
+            if (!name.empty() && !value.empty()) out[name] = std::move(value);
+            if (pos < raw.decls.size() && raw.decls[pos] == ';') ++pos;
+        }
+    }
+    return out;
+}
+
+std::size_t find_matching_paren(std::string_view s, std::size_t open) {
+    int depth = 0;
+    char quote = '\0';
+    for (std::size_t i = open; i < s.size(); ++i) {
+        const char c = s[i];
+        if (quote != '\0') {
+            if (c == quote) quote = '\0';
+            continue;
+        }
+        if (c == '"' || c == '\'') quote = c;
+        else if (c == '(') ++depth;
+        else if (c == ')' && --depth == 0) return i;
+    }
+    return std::string_view::npos;
+}
+
+std::string substitute_root_vars(
+    std::string_view value,
+    const std::unordered_map<std::string, std::string>& vars,
+    int depth = 0) {
+    if (depth > 12 || value.find("var(") == std::string_view::npos)
+        return std::string(value);
+
+    std::string out;
+    std::size_t pos = 0;
+    while (pos < value.size()) {
+        const auto var_pos = value.find("var(", pos);
+        if (var_pos == std::string_view::npos) {
+            out.append(value.substr(pos));
+            break;
+        }
+
+        out.append(value.substr(pos, var_pos - pos));
+        const auto close = find_matching_paren(value, var_pos + 3);
+        if (close == std::string_view::npos) {
+            out.append(value.substr(var_pos));
+            break;
+        }
+
+        const auto args = trim_css_ws(
+            value.substr(var_pos + 4, close - (var_pos + 4)));
+        const auto comma = find_top_level_comma(args);
+        const auto name = std::string(trim_css_ws(args.substr(
+            0,
+            comma == std::string_view::npos ? args.size() : comma)));
+
+        const auto found = vars.find(name);
+        if (found != vars.end()) {
+            out.append(substitute_root_vars(found->second, vars, depth + 1));
+        } else if (comma != std::string_view::npos) {
+            out.append(substitute_root_vars(
+                trim_css_ws(args.substr(comma + 1)), vars, depth + 1));
+        } else {
+            out.append(value.substr(var_pos, close - var_pos + 1));
+        }
+        pos = close + 1;
+    }
+    return out;
 }
 
 // Walk the raw CSS source for each rule's font-family declaration.
@@ -913,19 +1838,28 @@ void scan_rule_fills(lxb_css_stylesheet_t* sst,
         }
     }
 
+    const auto raw_rules = split_css_rules(css);
+    const auto root_vars = collect_root_custom_properties(raw_rules);
+
     std::size_t raw_rule_index = 0;
-    for (const auto& raw : split_css_rules(css)) {
+    for (const auto& raw : raw_rules) {
         const lxb_css_rule_style_t* parsed_style =
             raw_rule_index < parsed_styles.size()
                 ? parsed_styles[raw_rule_index]
                 : nullptr;
         ++raw_rule_index;
 
-        // font-family — only the first family name is honored. Real
-        // browsers walk the fallback list and pick the first family
-        // that has a face installed; our resolver does a similar
-        // fallback inside resolve_font when the name doesn't match.
-        const auto ff = find_decl_first_ident(raw.decls, "font-family");
+        // font-family fallback follows browser-style first-installed wins.
+        // Preserve the full fallback list; the painter picks the first
+        // installed face, matching browser font fallback semantics.
+        const auto ff_value = find_decl_value(raw.decls, "font-family");
+        auto ff = std::string(
+            trim_css_ws(substitute_root_vars(ff_value, root_vars)));
+        const auto important = ff.find('!');
+        if (important != std::string::npos) {
+            ff = std::string(trim_css_ws(
+                std::string_view(ff).substr(0, important)));
+        }
         if (ff.empty()) continue;
 
         // Each comma-separated group becomes its own RuleFill.
@@ -970,7 +1904,7 @@ void scan_rule_fills(lxb_css_stylesheet_t* sst,
         });
 }
 
-// ── @media query support ────────────────────────────────────────────
+// â”€â”€ @media query support â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // lexbor recognises the `@media` at-keyword but its state handler returns
 // `failed`, so every media rule ends up stored as LXB_CSS_AT_RULE__UNDEF
@@ -982,6 +1916,577 @@ void scan_rule_fills(lxb_css_stylesheet_t* sst,
 // We walk the rule list here to collect those blocks and parse the
 // min-width / max-width constraints from the prelude so layout() can
 // later evaluate them against the known viewport width.
+
+std::size_t find_top_level_char(std::string_view s, char needle) {
+    int depth = 0;
+    char quote = '\0';
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        const char c = s[i];
+        if (quote != '\0') {
+            if (c == quote) quote = '\0';
+            continue;
+        }
+        if (c == '"' || c == '\'') quote = c;
+        else if (c == '(') ++depth;
+        else if (c == ')' && depth > 0) --depth;
+        else if (c == needle && depth == 0) return i;
+    }
+    return std::string_view::npos;
+}
+
+bool ends_with(std::string_view s, std::string_view suffix) {
+    return s.size() >= suffix.size() &&
+           s.substr(s.size() - suffix.size()) == suffix;
+}
+
+bool parse_single_compound_selector(std::string_view sel,
+                                    CompoundSelector& out) {
+    CompoundSelector target;
+    std::vector<CompoundSelector> ancestors;
+    std::uint8_t state_bit = 0;
+    if (!parse_static_selector(sel, target, ancestors, state_bit)) return false;
+    if (!ancestors.empty() || state_bit != 0) return false;
+    out = std::move(target);
+    return true;
+}
+
+bool strip_generated_pseudo(std::string_view& selector,
+                            GeneratedContentRule::Position& position) {
+    selector = trim_css_ws(selector);
+    if (ends_with(selector, "::before")) {
+        selector.remove_suffix(8);
+        position = GeneratedContentRule::Position::Before;
+    } else if (ends_with(selector, ":before")) {
+        selector.remove_suffix(7);
+        position = GeneratedContentRule::Position::Before;
+    } else if (ends_with(selector, "::after")) {
+        selector.remove_suffix(7);
+        position = GeneratedContentRule::Position::After;
+    } else if (ends_with(selector, ":after")) {
+        selector.remove_suffix(6);
+        position = GeneratedContentRule::Position::After;
+    } else {
+        return false;
+    }
+    selector = trim_css_ws(selector);
+    return !selector.empty();
+}
+
+bool parse_generated_selector(std::string_view selector,
+                              GeneratedContentRule& rule) {
+    selector = trim_css_ws(selector);
+    if (!strip_generated_pseudo(selector, rule.position)) return false;
+
+    const auto plus = find_top_level_char(selector, '+');
+    if (plus != std::string_view::npos) {
+        const auto previous = trim_css_ws(selector.substr(0, plus));
+        const auto target = trim_css_ws(selector.substr(plus + 1));
+        if (previous.empty() || target.empty()) return false;
+        if (!parse_single_compound_selector(previous,
+                                            rule.previous_adjacent)) {
+            return false;
+        }
+        rule.has_previous_adjacent = true;
+        std::uint8_t state_bit = 0;
+        if (!parse_static_selector(target, rule.target, rule.ancestors,
+                                   state_bit)) {
+            return false;
+        }
+        return state_bit == 0;
+    }
+
+    std::uint8_t state_bit = 0;
+    if (!parse_static_selector(selector, rule.target, rule.ancestors,
+                               state_bit)) {
+        return false;
+    }
+    return state_bit == 0;
+}
+
+lxb_css_selector_specificity_t generated_selector_specificity(
+    const GeneratedContentRule& rule) {
+    unsigned ids = 0;
+    unsigned classes_attrs = 0;
+    unsigned tags = 1;  // ::before / ::after count like a type selector.
+
+    auto add_compound = [&](const CompoundSelector& compound) {
+        for (const auto& simple : compound.simples) {
+            switch (simple.kind) {
+                case SimpleSelector::Kind::Id:
+                    ++ids;
+                    break;
+                case SimpleSelector::Kind::Class:
+                case SimpleSelector::Kind::Attr:
+                    ++classes_attrs;
+                    break;
+                case SimpleSelector::Kind::Tag:
+                    if (simple.name != "*") ++tags;
+                    break;
+            }
+        }
+    };
+
+    add_compound(rule.target);
+    for (const auto& ancestor : rule.ancestors) add_compound(ancestor);
+    if (rule.has_previous_adjacent) add_compound(rule.previous_adjacent);
+
+    ids = std::min(ids, 511u);
+    classes_attrs = std::min(classes_attrs, 511u);
+    tags = std::min(tags, 511u);
+    return static_cast<lxb_css_selector_specificity_t>(
+        (ids << 18) | (classes_attrs << 9) | tags);
+}
+
+std::string substitute_style_vars(
+    std::string_view value,
+    const detail::ResolvedStyle& style) {
+    static const detail::CustomPropMap kEmpty;
+    return substitute_root_vars(
+        value,
+        style.custom_props ? *style.custom_props : kEmpty);
+}
+
+std::string generated_content_text(std::string value,
+                                   const detail::ResolvedStyle& style) {
+    value = std::string(trim_css_ws(substitute_style_vars(value, style)));
+    if (value.empty() || value == "normal" || value == "none") return {};
+    return decode_css_string_escapes(strip_css_quotes(std::move(value)));
+}
+
+bool generated_content_enabled(std::string value,
+                               const detail::ResolvedStyle& style) {
+    value = std::string(trim_css_ws(substitute_style_vars(value, style)));
+    return !value.empty() && value != "normal" && value != "none";
+}
+
+int parse_generated_length_px(std::string value,
+                              const detail::ResolvedStyle& style) {
+    value = std::string(trim_css_ws(substitute_style_vars(value, style)));
+    if (value.empty()) return 0;
+
+    char* end = nullptr;
+    const double number = std::strtod(value.c_str(), &end);
+    if (end == value.c_str()) return 0;
+    while (*end != '\0' && is_css_ws(*end)) ++end;
+
+    std::string_view unit(end);
+    if (unit.empty() || unit == "px") {
+        return static_cast<int>(std::lround(number));
+    }
+    if (unit == "em") {
+        return static_cast<int>(std::lround(
+            number * static_cast<double>(style.computed.font_size_px)));
+    }
+    if (unit == "rem") {
+        return static_cast<int>(std::lround(number * 16.0));
+    }
+    return 0;
+}
+
+int hex_digit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+    if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+    return -1;
+}
+
+bool parse_hex_color(std::string_view value, std::uint32_t& out) {
+    if (value.empty() || value.front() != '#') return false;
+    value.remove_prefix(1);
+    auto byte_pair = [](int hi, int lo) {
+        return static_cast<std::uint8_t>((hi << 4) | lo);
+    };
+    if (value.size() == 3 || value.size() == 4) {
+        int r = hex_digit(value[0]);
+        int g = hex_digit(value[1]);
+        int b = hex_digit(value[2]);
+        int a = value.size() == 4 ? hex_digit(value[3]) : 0xF;
+        if (r < 0 || g < 0 || b < 0 || a < 0) return false;
+        out = detail::pack_rgba(Color{
+            byte_pair(r, r), byte_pair(g, g), byte_pair(b, b),
+            byte_pair(a, a)});
+        return true;
+    }
+    if (value.size() == 6 || value.size() == 8) {
+        int digits[8] = {};
+        for (std::size_t i = 0; i < value.size(); ++i) {
+            digits[i] = hex_digit(value[i]);
+            if (digits[i] < 0) return false;
+        }
+        out = detail::pack_rgba(Color{
+            byte_pair(digits[0], digits[1]),
+            byte_pair(digits[2], digits[3]),
+            byte_pair(digits[4], digits[5]),
+            value.size() == 8 ? byte_pair(digits[6], digits[7])
+                              : static_cast<std::uint8_t>(0xFF)});
+        return true;
+    }
+    return false;
+}
+
+std::string ascii_lower(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        out.push_back(static_cast<char>(
+            std::tolower(static_cast<unsigned char>(c))));
+    }
+    return out;
+}
+
+bool parse_number_list(std::string_view s, std::vector<double>& out) {
+    std::size_t pos = 0;
+    while (pos < s.size()) {
+        while (pos < s.size() &&
+               (is_css_ws(s[pos]) || s[pos] == ',' || s[pos] == '/')) {
+            ++pos;
+        }
+        if (pos >= s.size()) break;
+        std::string tail(s.substr(pos));
+        char* end = nullptr;
+        const double number = std::strtod(tail.c_str(), &end);
+        if (end == tail.c_str()) return false;
+        out.push_back(number);
+        pos += static_cast<std::size_t>(end - tail.c_str());
+        while (pos < s.size() && is_css_ws(s[pos])) ++pos;
+        if (pos < s.size() && s[pos] == '%') ++pos;
+    }
+    return !out.empty();
+}
+
+std::uint8_t alpha_to_u8(double alpha) {
+    if (alpha <= 0.0) return 0;
+    if (alpha <= 1.0) {
+        return static_cast<std::uint8_t>(std::lround(alpha * 255.0));
+    }
+    if (alpha >= 255.0) return 255;
+    return static_cast<std::uint8_t>(std::lround(alpha));
+}
+
+std::uint8_t channel_to_u8(double channel) {
+    if (channel <= 0.0) return 0;
+    if (channel >= 255.0) return 255;
+    return static_cast<std::uint8_t>(std::lround(channel));
+}
+
+bool parse_function_color(std::string_view value, std::uint32_t& out) {
+    const auto open = value.find('(');
+    if (open == std::string_view::npos || value.back() != ')') return false;
+    const auto name = ascii_lower(trim_css_ws(value.substr(0, open)));
+    if (name != "rgb" && name != "rgba") return false;
+
+    std::vector<double> components;
+    if (!parse_number_list(value.substr(open + 1,
+                                        value.size() - open - 2),
+                           components) ||
+        components.size() < 3) {
+        return false;
+    }
+
+    out = detail::pack_rgba(Color{
+        channel_to_u8(components[0]),
+        channel_to_u8(components[1]),
+        channel_to_u8(components[2]),
+        components.size() >= 4 ? alpha_to_u8(components[3])
+                               : static_cast<std::uint8_t>(0xFF)});
+    return true;
+}
+
+bool parse_generated_color(std::string value,
+                           const detail::ResolvedStyle& style,
+                           std::uint32_t& out) {
+    value = std::string(trim_css_ws(substitute_style_vars(value, style)));
+    const auto lower = ascii_lower(value);
+    if (lower.empty()) return false;
+    if (lower == "currentcolor") {
+        out = style.animated.color_rgba;
+        return true;
+    }
+    if (lower == "transparent") {
+        out = 0x00000000u;
+        return true;
+    }
+    if (lower == "black") {
+        out = detail::pack_rgba(Color{0, 0, 0, 255});
+        return true;
+    }
+    if (lower == "white") {
+        out = detail::pack_rgba(Color{255, 255, 255, 255});
+        return true;
+    }
+    if (lower == "gray" || lower == "grey") {
+        out = detail::pack_rgba(Color{128, 128, 128, 255});
+        return true;
+    }
+    return parse_hex_color(value, out) || parse_function_color(value, out);
+}
+
+struct SvgArcPath {
+    double x1{0.0};
+    double y1{0.0};
+    double rx{0.0};
+    double ry{0.0};
+    double x_axis_rotation{0.0};
+    bool   large_arc{false};
+    bool   sweep{false};
+    double x2{0.0};
+    double y2{0.0};
+};
+
+std::string svg_path_number_stream(std::string_view d) {
+    std::string out;
+    out.reserve(d.size());
+    for (char ch : d) {
+        switch (ch) {
+            case 'M': case 'm': case 'A': case 'a': case 'L': case 'l':
+            case 'H': case 'h': case 'V': case 'v': case 'C': case 'c':
+            case 'S': case 's': case 'Q': case 'q': case 'T': case 't':
+            case 'Z': case 'z':
+                out.push_back(' ');
+                break;
+            default:
+                out.push_back(ch);
+                break;
+        }
+    }
+    return out;
+}
+
+bool parse_svg_arc_path(std::string_view d, SvgArcPath& out) {
+    if (d.empty()) return false;
+    std::vector<double> n;
+    if (!parse_number_list(svg_path_number_stream(d), n) || n.size() < 9) {
+        return false;
+    }
+    out.x1 = n[0];
+    out.y1 = n[1];
+    out.rx = std::abs(n[2]);
+    out.ry = std::abs(n[3]);
+    out.x_axis_rotation = n[4];
+    out.large_arc = std::abs(n[5]) > 0.5;
+    out.sweep = std::abs(n[6]) > 0.5;
+    out.x2 = n[7];
+    out.y2 = n[8];
+    return out.rx > 0.0 && out.ry > 0.0;
+}
+
+bool parse_svg_viewbox(std::string_view view_box,
+                       double& x, double& y, double& w, double& h) {
+    std::vector<double> n;
+    if (!parse_number_list(view_box, n) || n.size() < 4) return false;
+    x = n[0];
+    y = n[1];
+    w = n[2];
+    h = n[3];
+    return w > 0.0 && h > 0.0;
+}
+
+bool parse_svg_stroke_width(std::string_view value, float& out) {
+    if (value.empty()) {
+        out = 1.0f;
+        return true;
+    }
+    std::string s(trim_css_ws(value));
+    char* end = nullptr;
+    const double n = std::strtod(s.c_str(), &end);
+    if (end == s.c_str() || n <= 0.0) return false;
+    out = static_cast<float>(n);
+    return true;
+}
+
+double angle_from_top_clockwise(double x, double y, double cx, double cy) {
+    constexpr double kRadToDeg = 180.0 / 3.14159265358979323846;
+    return std::atan2(x - cx, cy - y) * kRadToDeg;
+}
+
+void normalize_clockwise_arc(double& start_deg, double& end_deg, bool large_arc) {
+    while (end_deg <= start_deg) end_deg += 360.0;
+    const double delta = end_deg - start_deg;
+    if (large_arc && delta < 180.0) {
+        end_deg += 360.0;
+    } else if (!large_arc && delta > 180.0) {
+        end_deg -= 360.0;
+        if (end_deg <= start_deg) end_deg += 360.0;
+    }
+}
+
+bool svg_arc_center(const SvgArcPath& arc, double& cx, double& cy, double& r) {
+    // First slice: circular, unrotated arcs. This covers Decius knob rings
+    // and maps directly onto the Painter stroke_arc primitive.
+    if (std::abs(arc.rx - arc.ry) > 0.01 ||
+        std::abs(arc.x_axis_rotation) > 0.01) {
+        return false;
+    }
+    r = arc.rx;
+    const double dx = (arc.x1 - arc.x2) * 0.5;
+    const double dy = (arc.y1 - arc.y2) * 0.5;
+    const double d2 = dx * dx + dy * dy;
+    if (d2 <= 1e-9) return false;
+    const double chord_half = std::sqrt(d2);
+    if (r < chord_half) r = chord_half;
+    double factor = std::sqrt(std::max(0.0, (r * r) / d2 - 1.0));
+    if (arc.large_arc == arc.sweep) factor = -factor;
+    cx = (arc.x1 + arc.x2) * 0.5 + factor * dy;
+    cy = (arc.y1 + arc.y2) * 0.5 - factor * dx;
+    return true;
+}
+
+#if !defined(AFFINEUI_STUB_BUILD)
+void paint_inline_svg(const Block& b,
+                      const Rect& eff,
+                      const detail::ComputedStyle& cs,
+                      const detail::AnimatedStyle& an,
+                      Painter& painter,
+                      lxb_dom_element_t* svg_elem) {
+    double vb_x = 0.0;
+    double vb_y = 0.0;
+    double vb_w = static_cast<double>(std::max(1, eff.w));
+    double vb_h = static_cast<double>(std::max(1, eff.h));
+    (void) parse_svg_viewbox(attr_string(svg_elem, "viewBox"),
+                             vb_x, vb_y, vb_w, vb_h);
+    const double sx = static_cast<double>(eff.w) / vb_w;
+    const double sy = static_cast<double>(eff.h) / vb_h;
+    const double sr = (sx + sy) * 0.5;
+
+    detail::ResolvedStyle svg_style{};
+    svg_style.computed = cs;
+    svg_style.animated = an;
+    svg_style.custom_props = b.custom_props;
+
+    for (auto* node = lxb_dom_node_first_child(lxb_dom_interface_node(svg_elem));
+         node != nullptr; node = lxb_dom_node_next(node)) {
+        if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* path_elem = lxb_dom_interface_element(node);
+        if (tag_name(path_elem) != "path") continue;
+
+        SvgArcPath arc;
+        if (!parse_svg_arc_path(attr_string(path_elem, "d"), arc)) continue;
+
+        std::string stroke_value =
+            std::string(trim_css_ws(attr_string(path_elem, "stroke")));
+        if (stroke_value.empty() || ascii_lower(stroke_value) == "none") {
+            continue;
+        }
+
+        std::uint32_t stroke_rgba = 0;
+        if (!parse_generated_color(stroke_value, svg_style, stroke_rgba) ||
+            (stroke_rgba & 0xFFu) == 0) {
+            continue;
+        }
+
+        float stroke_width = 1.0f;
+        if (!parse_svg_stroke_width(attr_string(path_elem, "stroke-width"),
+                                    stroke_width)) {
+            continue;
+        }
+
+        double cx = 0.0;
+        double cy = 0.0;
+        double r = 0.0;
+        if (!svg_arc_center(arc, cx, cy, r)) continue;
+
+        double start = angle_from_top_clockwise(arc.x1, arc.y1, cx, cy);
+        double end = angle_from_top_clockwise(arc.x2, arc.y2, cx, cy);
+        if (!arc.sweep) std::swap(start, end);
+        normalize_clockwise_arc(start, end, arc.large_arc);
+
+        const float px_cx = static_cast<float>(
+            static_cast<double>(eff.x) + (cx - vb_x) * sx);
+        const float px_cy = static_cast<float>(
+            static_cast<double>(eff.y) + (cy - vb_y) * sy);
+        const float px_r = static_cast<float>(r * sr);
+        const float px_w = std::max(0.5f, stroke_width * static_cast<float>(sr));
+
+        painter.stroke_arc(px_cx, px_cy, px_r,
+                           static_cast<float>(start),
+                           static_cast<float>(end),
+                           detail::unpack_rgba(stroke_rgba), px_w);
+    }
+}
+
+void paint_direct_child_svgs(const Block& b,
+                             const Rect& eff,
+                             const detail::ComputedStyle& cs,
+                             const detail::AnimatedStyle& an,
+                             Painter& painter,
+                             lxb_dom_element_t* parent_elem) {
+    for (auto* node = lxb_dom_node_first_child(lxb_dom_interface_node(parent_elem));
+         node != nullptr; node = lxb_dom_node_next(node)) {
+        if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* elem = lxb_dom_interface_element(node);
+        if (tag_name(elem) == "svg") {
+            paint_inline_svg(b, eff, cs, an, painter, elem);
+        }
+    }
+}
+#endif
+
+void scan_generated_content_rules(lxb_css_parser_t* parser,
+                                  lxb_css_memory_t* memory,
+                                  std::string_view css,
+                                  std::vector<GeneratedContentRule>& out) {
+    const auto raw_rules = split_css_rules(css);
+    for (const auto& raw : raw_rules) {
+        const auto content_value = find_decl_value(raw.decls, "content");
+        const auto color_value = find_decl_value(raw.decls, "color");
+        const auto background_value =
+            find_decl_value(raw.decls, "background");
+        const auto background_color_value =
+            find_decl_value(raw.decls, "background-color");
+        const auto padding_left_value =
+            find_decl_value(raw.decls, "padding-left");
+        const auto padding_right_value =
+            find_decl_value(raw.decls, "padding-right");
+
+        std::string_view sel_text = trim_css_ws(raw.selector);
+        const lxb_css_rule_declaration_list_t* parsed_decls = nullptr;
+        bool parsed_decls_attempted = false;
+        auto decls_for_raw_rule = [&]() -> const lxb_css_rule_declaration_list_t* {
+            if (!parsed_decls_attempted) {
+                parsed_decls_attempted = true;
+                if (parser && memory) {
+                    parsed_decls = lxb_css_declaration_list_parse(
+                        parser, memory,
+                        reinterpret_cast<const lxb_char_t*>(raw.decls.data()),
+                        raw.decls.size());
+                }
+            }
+            return parsed_decls;
+        };
+
+        while (!sel_text.empty()) {
+            const auto comma = find_top_level_comma(sel_text);
+            const auto group = trim_css_ws(sel_text.substr(
+                0,
+                comma == std::string_view::npos ? sel_text.size() : comma));
+            if (!group.empty()) {
+                GeneratedContentRule rule;
+                if (parse_generated_selector(group, rule)) {
+                    rule.specificity = generated_selector_specificity(rule);
+                    rule.source_order =
+                        static_cast<std::uint32_t>(out.size());
+                    rule.content_value = content_value;
+                    rule.color_value = color_value;
+                    rule.background_value = background_value;
+                    rule.background_color_value = background_color_value;
+                    rule.padding_left_value = padding_left_value;
+                    rule.padding_right_value = padding_right_value;
+                    rule.decls = decls_for_raw_rule();
+                    out.push_back(std::move(rule));
+                }
+            }
+            if (comma == std::string_view::npos) break;
+            sel_text = trim_css_ws(sel_text.substr(comma + 1));
+        }
+    }
+
+    std::stable_sort(out.begin(), out.end(),
+        [](const GeneratedContentRule& a, const GeneratedContentRule& b) {
+            if (a.specificity != b.specificity)
+                return a.specificity < b.specificity;
+            return a.source_order < b.source_order;
+        });
+}
 
 // Parse a dimension value `NNNpx` (only `px` units are relevant for
 // min/max-width media features) from a string_view. Returns -1 if the
@@ -1011,7 +2516,7 @@ static int parse_media_px(std::string_view s, std::string_view key) {
                                  (s[i+1] == 'x' || s[i+1] == 'X')) {
             double val = 0.0;
             for (std::size_t k = num_start; k < i; ++k) {
-                if (s[k] == '.') { /* skip – no sub-px needed */ }
+                if (s[k] == '.') { /* skip â€“ no sub-px needed */ }
                 else val = val * 10.0 + (s[k] - '0');
             }
             return static_cast<int>(val);
@@ -1057,6 +2562,156 @@ void scan_media_blocks(lxb_css_stylesheet_t* sst,
     }
 }
 
+std::uint32_t fnv1a_32(std::string_view s) {
+    std::uint32_t h = 2166136261u;
+    for (unsigned char c : s) {
+        h ^= c;
+        h *= 16777619u;
+    }
+    return h;
+}
+
+bool parse_keyframe_offset(std::string_view token, float& out) {
+    token = trim_css_ws(token);
+    if (token == "from") {
+        out = 0.0f;
+        return true;
+    }
+    if (token == "to") {
+        out = 1.0f;
+        return true;
+    }
+    if (token.empty() || token.back() != '%') return false;
+    token.remove_suffix(1);
+    token = trim_css_ws(token);
+    if (token.empty()) return false;
+
+    std::string tmp(token);
+    char* end = nullptr;
+    const double pct = std::strtod(tmp.c_str(), &end);
+    if (end == tmp.c_str()) return false;
+    while (*end != '\0' && is_css_ws(*end)) ++end;
+    if (*end != '\0') return false;
+    out = static_cast<float>(std::clamp(pct / 100.0, 0.0, 1.0));
+    return true;
+}
+
+std::vector<float> parse_keyframe_selector_offsets(std::string_view selector) {
+    std::vector<float> offsets;
+    selector = trim_css_ws(selector);
+    while (!selector.empty()) {
+        const auto comma = find_top_level_comma(selector);
+        const auto piece = trim_css_ws(selector.substr(
+            0, comma == std::string_view::npos ? selector.size() : comma));
+        float offset = 0.0f;
+        if (parse_keyframe_offset(piece, offset)) offsets.push_back(offset);
+        if (comma == std::string_view::npos) break;
+        selector = trim_css_ws(selector.substr(comma + 1));
+    }
+    return offsets;
+}
+
+void scan_keyframe_blocks(lxb_css_stylesheet_t* sst,
+                          lxb_css_parser_t* parser,
+                          lxb_css_memory_t* memory,
+                          std::vector<KeyframeBlock>& out) {
+    if (!sst || !sst->root || !parser || !memory) return;
+    auto* rule_list = lxb_css_rule_list(sst->root);
+    for (auto* r = rule_list->first; r != nullptr; r = r->next) {
+        if (r->type != LXB_CSS_RULE_AT_RULE) continue;
+        auto* at = lxb_css_rule_at(r);
+        if (at->type != LXB_CSS_AT_RULE__CUSTOM || !at->u.custom) continue;
+
+        const auto* custom = at->u.custom;
+        const std::string at_name = ascii_lower(std::string_view(
+            reinterpret_cast<const char*>(custom->name.data),
+            custom->name.length));
+        if (at_name != "keyframes" && at_name != "-webkit-keyframes") continue;
+        if (!custom->block.data || custom->block.length == 0) continue;
+
+        auto name = strip_css_quotes(std::string(trim_css_ws(std::string_view(
+            reinterpret_cast<const char*>(custom->prelude.data),
+            custom->prelude.length))));
+        if (name.empty() || name == "none") continue;
+
+        std::string_view body(
+            reinterpret_cast<const char*>(custom->block.data),
+            custom->block.length);
+        KeyframeBlock block;
+        block.name_hash = fnv1a_32(name);
+
+        std::size_t i = 0;
+        auto skip_ws_and_comments = [&] {
+            for (;;) {
+                while (i < body.size() && is_css_ws(body[i])) ++i;
+                if (i + 1 < body.size() && body[i] == '/' && body[i + 1] == '*') {
+                    i += 2;
+                    while (i + 1 < body.size() &&
+                           !(body[i] == '*' && body[i + 1] == '/')) ++i;
+                    if (i + 1 < body.size()) i += 2;
+                } else {
+                    break;
+                }
+            }
+        };
+
+        while (i < body.size()) {
+            skip_ws_and_comments();
+            if (i >= body.size()) break;
+            const std::size_t selector_start = i;
+            while (i < body.size() && body[i] != '{') ++i;
+            if (i >= body.size()) break;
+            const auto selector = body.substr(selector_start, i - selector_start);
+            ++i;
+            const std::size_t decl_start = i;
+            int depth = 1;
+            char quote = '\0';
+            while (i < body.size() && depth > 0) {
+                const char c = body[i];
+                if (quote != '\0') {
+                    if (c == quote) quote = '\0';
+                    ++i;
+                    continue;
+                }
+                if (c == '"' || c == '\'') quote = c;
+                else if (c == '{') ++depth;
+                else if (c == '}' && --depth == 0) break;
+                ++i;
+            }
+            if (i > body.size()) break;
+            const auto decls = body.substr(decl_start, i - decl_start);
+            if (i < body.size() && body[i] == '}') ++i;
+
+            const auto offsets = parse_keyframe_selector_offsets(selector);
+            if (offsets.empty()) continue;
+            auto* list = lxb_css_declaration_list_parse(
+                parser, memory,
+                reinterpret_cast<const lxb_char_t*>(decls.data()),
+                decls.size());
+            if (!list) continue;
+            for (float offset : offsets) {
+                block.steps.push_back({offset, list});
+            }
+        }
+
+        if (block.steps.empty()) continue;
+        std::stable_sort(block.steps.begin(), block.steps.end(),
+            [](const KeyframeStep& a, const KeyframeStep& b) {
+                return a.offset < b.offset;
+            });
+
+        auto existing = std::find_if(out.begin(), out.end(),
+            [&](const KeyframeBlock& kf) {
+                return kf.name_hash == block.name_hash;
+            });
+        if (existing != out.end()) {
+            *existing = std::move(block);
+        } else {
+            out.push_back(std::move(block));
+        }
+    }
+}
+
 void attach_stylesheet(detail::DocumentImpl& impl, std::string_view css) {
     if (css.empty()) return;
     // Parse via the document's own CSS parser (pre-wired with the
@@ -1077,6 +2732,12 @@ void attach_stylesheet(detail::DocumentImpl& impl, std::string_view css) {
         // author CSS is a local that's destroyed when set_html returns,
         // but RuleFill values copy what they need).
         scan_rule_fills(sst, css, impl.rule_fills);
+        scan_font_face_rules(css, {}, impl.font_faces);
+        scan_generated_content_rules(impl.doc->css.parser,
+                                     impl.doc->css.memory, css,
+                                     impl.generated_content_rules);
+        scan_keyframe_blocks(sst, impl.doc->css.parser, impl.doc->css.memory,
+                             impl.keyframes);
         // Collect @media blocks for later evaluation in layout().
         scan_media_blocks(sst, impl.media_blocks);
     } else {
@@ -1112,7 +2773,7 @@ std::string scan_inline_keyword(lxb_dom_element_t* elem, std::string_view key) {
     return std::string(rest.substr(0, end));
 }
 
-// Map a `cursor` keyword onto our enum. Unknown values → Default.
+// Map a `cursor` keyword onto our enum. Unknown values â†’ Default.
 detail::ComputedStyle::Cursor parse_cursor_keyword(std::string_view kw) {
     using C = detail::ComputedStyle::Cursor;
     if (kw == "pointer")     return C::Pointer;
@@ -1124,6 +2785,222 @@ detail::ComputedStyle::Cursor parse_cursor_keyword(std::string_view kw) {
     if (kw == "ns-resize" || kw == "row-resize") return C::ResizeNS;
     return C::Default;
 }
+
+lxb_dom_element_t* previous_element_sibling(lxb_dom_node_t* node) {
+    for (auto* prev = lxb_dom_node_prev(node); prev;
+         prev = lxb_dom_node_prev(prev)) {
+        if (prev->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+            return lxb_dom_interface_element(prev);
+        }
+    }
+    return nullptr;
+}
+
+lxb_dom_element_t* parent_element(lxb_dom_element_t* elem) {
+    if (!elem) return nullptr;
+    for (auto* parent = lxb_dom_node_parent(lxb_dom_interface_node(elem));
+         parent; parent = lxb_dom_node_parent(parent)) {
+        if (parent->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+            return lxb_dom_interface_element(parent);
+        }
+    }
+    return nullptr;
+}
+
+bool element_matches_compound(lxb_dom_element_t* elem,
+                              const CompoundSelector& compound) {
+    if (!elem) return false;
+    const auto tag = tag_name(elem);
+    const auto id = attr_string(elem, "id");
+    const auto classes = split_classes(attr_string(elem, "class"));
+    const auto attrs = element_attrs(elem);
+    return compound_matches(compound, tag, id, classes, &attrs);
+}
+
+bool dom_ancestor_chain_matches(const std::vector<CompoundSelector>& ancestors,
+                                lxb_dom_element_t* elem) {
+    std::size_t i = 0;
+    auto* ancestor = parent_element(elem);
+    while (i < ancestors.size() && ancestor) {
+        if (element_matches_compound(ancestor, ancestors[i])) {
+            ++i;
+        }
+        ancestor = parent_element(ancestor);
+    }
+    return i == ancestors.size();
+}
+
+bool generated_rule_matches(const detail::DocumentImpl& impl,
+                            const GeneratedContentRule& rule,
+                            lxb_dom_element_t* elem,
+                            int selector_parent_idx) {
+    (void) impl;
+    (void) selector_parent_idx;
+    if (!element_matches_compound(elem, rule.target)) return false;
+    if (!dom_ancestor_chain_matches(rule.ancestors, elem)) return false;
+    if (rule.has_previous_adjacent) {
+        auto* prev = previous_element_sibling(lxb_dom_interface_node(elem));
+        if (!element_matches_compound(prev, rule.previous_adjacent)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void append_generated_inline_text(detail::DocumentImpl& impl,
+                                  const detail::ResolvedStyle& parent_style,
+                                  int parent_idx,
+                                  std::string text,
+                                  int padding_left,
+                                  int padding_right,
+                                  bool has_color,
+                                  std::uint32_t color_rgba,
+                                  GeneratedContentRule::Position position) {
+    text = apply_text_transform(std::move(text),
+                                parent_style.computed.text_transform);
+    if (text.empty()) return;
+
+    const auto id = impl.style_store.acquire_synthetic();
+    auto rs = anonymous_text_style(parent_style);
+    rs.computed.padding_left = clamp_css_px(padding_left);
+    rs.computed.padding_right = clamp_css_px(padding_right);
+    if (has_color) rs.animated.color_rgba = color_rgba;
+
+    impl.style_store.computed(id) = rs.computed;
+    impl.style_store.animated(id) = rs.animated;
+    impl.style_store.dirty(id) &=
+        static_cast<std::uint8_t>(~detail::StyleStore::DirtyStyle);
+
+    Block b;
+    b.id         = id;
+    b.tag        = position == GeneratedContentRule::Position::Before
+                     ? "#before"
+                     : "#after";
+    b.text       = std::move(text);
+    b.parent_idx = parent_idx;
+    b.box_shadows = rs.box_shadows;
+    b.base_animated = rs.animated;
+    b.animation = rs.animation;
+    b.animation_epoch = impl.animation_epoch;
+    impl.blocks.push_back(std::move(b));
+}
+
+void append_generated_box(detail::DocumentImpl& impl,
+                          detail::ResolvedStyle rs,
+                          int parent_idx,
+                          GeneratedContentRule::Position position) {
+    const auto id = impl.style_store.acquire_synthetic();
+    impl.style_store.computed(id) = rs.computed;
+    impl.style_store.animated(id) = rs.animated;
+    impl.style_store.dirty(id) &=
+        static_cast<std::uint8_t>(~detail::StyleStore::DirtyStyle);
+
+    Block b;
+    b.id         = id;
+    b.tag        = position == GeneratedContentRule::Position::Before
+                     ? "#before"
+                     : "#after";
+    b.parent_idx = parent_idx;
+    b.box_shadows = rs.box_shadows;
+    b.base_animated = rs.animated;
+    b.animation = rs.animation;
+    b.animation_epoch = impl.animation_epoch;
+    impl.blocks.push_back(std::move(b));
+}
+
+void append_generated_content_for_element(
+    detail::DocumentImpl& impl,
+    lxb_dom_element_t* elem,
+    const detail::ResolvedStyle& elem_style,
+    int generated_parent_idx,
+    int selector_parent_idx,
+    GeneratedContentRule::Position position,
+    int& open_synth_idx,
+    bool& pending_inline_space) {
+    if (!elem || impl.generated_content_rules.empty()) return;
+
+    bool has_content = false;
+    bool has_color = false;
+    bool has_padding_left = false;
+    bool has_padding_right = false;
+    std::string content_value;
+    std::uint32_t color_rgba = elem_style.animated.color_rgba;
+    int padding_left = 0;
+    int padding_right = 0;
+    auto pseudo_style = impl.resolver
+        ? impl.resolver->resolve(nullptr, elem_style)
+        : elem_style;
+
+    for (const auto& rule : impl.generated_content_rules) {
+        if (rule.position != position) continue;
+        if (!generated_rule_matches(impl, rule, elem, selector_parent_idx))
+            continue;
+        if (rule.decls && impl.resolver) {
+            impl.resolver->apply_decl_list(rule.decls, pseudo_style);
+        }
+        if (!rule.content_value.empty()) {
+            has_content = true;
+            content_value = rule.content_value;
+        }
+        if (!rule.color_value.empty()) {
+            std::uint32_t parsed = color_rgba;
+            if (parse_generated_color(rule.color_value, elem_style, parsed)) {
+                has_color = true;
+                color_rgba = parsed;
+                pseudo_style.animated.color_rgba = parsed;
+            }
+        }
+        if (!rule.background_value.empty()) {
+            std::uint32_t parsed = pseudo_style.animated.background_rgba;
+            if (parse_generated_color(rule.background_value, elem_style,
+                                      parsed)) {
+                pseudo_style.animated.background_rgba = parsed;
+            }
+        }
+        if (!rule.background_color_value.empty()) {
+            std::uint32_t parsed = pseudo_style.animated.background_rgba;
+            if (parse_generated_color(rule.background_color_value, elem_style,
+                                      parsed)) {
+                pseudo_style.animated.background_rgba = parsed;
+            }
+        }
+        if (!rule.padding_left_value.empty()) {
+            has_padding_left = true;
+            padding_left =
+                parse_generated_length_px(rule.padding_left_value, elem_style);
+        }
+        if (!rule.padding_right_value.empty()) {
+            has_padding_right = true;
+            padding_right =
+                parse_generated_length_px(rule.padding_right_value, elem_style);
+        }
+    }
+
+    if (!has_content) return;
+    if (!generated_content_enabled(content_value, elem_style)) return;
+    auto text = generated_content_text(std::move(content_value), elem_style);
+    if (text.empty()) {
+        append_generated_box(impl, std::move(pseudo_style),
+                             generated_parent_idx, position);
+        return;
+    }
+
+    const int inline_parent_idx =
+        ensure_inline_run(impl, elem_style, generated_parent_idx,
+                          open_synth_idx);
+    if (pending_inline_space) {
+        append_anonymous_inline_text(impl, elem_style, inline_parent_idx, " ");
+        pending_inline_space = false;
+    }
+    append_generated_inline_text(
+        impl, elem_style, inline_parent_idx, std::move(text),
+        has_padding_left ? padding_left : 0,
+        has_padding_right ? padding_right : 0,
+        has_color, color_rgba, position);
+}
+
+void apply_pseudo_overlay(detail::DocumentImpl& impl, const Block& block,
+                          detail::ResolvedStyle& rs);
 
 // Recursive DFS collector. Walks the DOM, creates one Block per
 // block-level element, links it to its parent, and wraps inline text
@@ -1142,6 +3019,20 @@ void collect_blocks(detail::DocumentImpl& impl,
     // non-inline child resets back to the actual parent.
     int  open_synth_idx = -1;
     bool pending_inline_space = false;
+    auto* current_elem = node && node->type == LXB_DOM_NODE_TYPE_ELEMENT
+        ? lxb_dom_interface_element(node)
+        : nullptr;
+    const int current_selector_parent_idx =
+        current_elem && parent_idx >= 0
+            ? impl.blocks[static_cast<std::size_t>(parent_idx)].parent_idx
+            : -1;
+    if (current_elem) {
+        append_generated_content_for_element(
+            impl, current_elem, parent_style, parent_idx,
+            current_selector_parent_idx,
+            GeneratedContentRule::Position::Before, open_synth_idx,
+            pending_inline_space);
+    }
 
     for (auto* child = lxb_dom_node_first_child(node); child;
          child = lxb_dom_node_next(child)) {
@@ -1153,7 +3044,7 @@ void collect_blocks(detail::DocumentImpl& impl,
         if (child->type == LXB_DOM_NODE_TYPE_TEXT) {
             // Capture source leading/trailing whitespace BEFORE node_text
             // collapse-trims it. Between inline-level boxes CSS keeps one
-            // collapsed space — so a text node's boundary whitespace is a
+            // collapsed space â€” so a text node's boundary whitespace is a
             // real inter-inline gap (e.g. "Heading <span class=badge>New"),
             // not something to drop. Only the line-box *edges* trim, which
             // falls out naturally: leading ws at run start (open_synth_idx
@@ -1169,7 +3060,8 @@ void collect_blocks(detail::DocumentImpl& impl,
             if (!text.empty()) {
                 if (lead_ws && open_synth_idx >= 0) pending_inline_space = true;
                 const int inline_parent_idx =
-                    ensure_inline_run(impl, parent_idx, open_synth_idx);
+                    ensure_inline_run(impl, parent_style, parent_idx,
+                                      open_synth_idx);
                 if (pending_inline_space) {
                     append_anonymous_inline_text(impl, parent_style,
                                                  inline_parent_idx, " ");
@@ -1191,29 +3083,62 @@ void collect_blocks(detail::DocumentImpl& impl,
             tag == "meta" || tag == "link"   || tag == "title")
             continue;
 
-        // <option>/<optgroup> are not flow content — a <select> renders
+        // <option>/<optgroup> are not flow content â€” a <select> renders
         // only its chosen option's text (handled as the select's leaf
         // text below), so don't flatten every option into the box.
+        if (tag == "svg")
+            continue;
+
         if (tag == "option" || tag == "optgroup")
             continue;
 
         if (!is_block_tag(tag)) {
             auto rs_inline = impl.resolver->resolve(elem, parent_style);
-            auto text = apply_text_transform(
-                node_text(child, rs_inline.computed.white_space),
-                rs_inline.computed.text_transform);
-            if (!text.empty()) {
-                const int inline_parent_idx =
-                    ensure_inline_run(impl, parent_idx, open_synth_idx);
-                if (pending_inline_space) {
-                    append_anonymous_inline_text(impl, parent_style,
-                                                 inline_parent_idx, " ");
-                    pending_inline_space = false;
+            const auto elem_id_attr = attr_string(elem, "id");
+            const auto cls_attr = split_classes(attr_string(elem, "class"));
+            apply_font_family_fills(impl, tag, elem_id_attr, cls_attr,
+                                    parent_idx,
+                                    /*state_bits=*/0,
+                                    rs_inline);
+
+            using Display = detail::ComputedStyle::Display;
+            using CssFloat = detail::ComputedStyle::Float;
+            const bool parent_blockifies_inline_children =
+                is_flex_container_display(parent_style.computed.display) ||
+                parent_style.computed.display == Display::Grid ||
+                parent_style.computed.display == Display::InlineGrid;
+            const bool flatten_as_inline_text =
+                !parent_blockifies_inline_children &&
+                rs_inline.computed.css_float == CssFloat::None &&
+                rs_inline.computed.display == Display::Inline;
+
+            if (flatten_as_inline_text) {
+                append_generated_content_for_element(
+                    impl, elem, rs_inline, parent_idx, parent_idx,
+                    GeneratedContentRule::Position::Before, open_synth_idx,
+                    pending_inline_space);
+                auto text = apply_text_transform(
+                    node_text(child, rs_inline.computed.white_space),
+                    rs_inline.computed.text_transform);
+                if (!text.empty()) {
+                    const int inline_parent_idx =
+                        ensure_inline_run(impl, parent_style, parent_idx,
+                                          open_synth_idx);
+                    if (pending_inline_space) {
+                        append_anonymous_inline_text(impl, parent_style,
+                                                     inline_parent_idx, " ");
+                        pending_inline_space = false;
+                    }
+                    append_anonymous_inline_text(impl, rs_inline,
+                                                 inline_parent_idx,
+                                                 std::move(text));
                 }
-                append_anonymous_inline_text(impl, rs_inline, inline_parent_idx,
-                                             std::move(text));
+                append_generated_content_for_element(
+                    impl, elem, rs_inline, parent_idx, parent_idx,
+                    GeneratedContentRule::Position::After, open_synth_idx,
+                    pending_inline_space);
+                continue;
             }
-            continue;
         }
 
         // Resolve this element's style under the parent's resolved
@@ -1221,51 +3146,35 @@ void collect_blocks(detail::DocumentImpl& impl,
         const auto id = impl.style_store.acquire(elem);
         auto rs = impl.resolver->resolve(elem, parent_style);
 
-        // Pseudo-class overlay (:hover, :active) — at collect time the
+        // Pseudo-class overlay (:hover, :active) â€” at collect time the
         // bits are preserved from any prior interaction state (they
         // survive reset/acquire). dispatch() re-resolves affected
         // blocks when chains change, so collect-time work is the
         // steady-state path. The block's parent_idx is `parent_idx`
         // (function arg), and impl.blocks already contains everything
-        // up to but not including this element — exactly what
+        // up to but not including this element â€” exactly what
         // ancestor_chain_matches needs to walk.
         const auto sb_at_collect = impl.style_store.state_bits(id);
         const auto elem_id_attr  = attr_string(elem, "id");
         const auto cls_attr      = split_classes(attr_string(elem, "class"));
+        const auto elem_attrs    = element_attrs(elem);
 
-        if (sb_at_collect != 0 && !impl.pseudo_rules.empty()) {
-            for (const auto& pr : impl.pseudo_rules) {
-                std::uint8_t bit;
-                switch (pr.pseudo) {
-                    case PseudoRule::Pseudo::Hover:  bit = kHoverStateBit;  break;
-                    case PseudoRule::Pseudo::Active: bit = kActiveStateBit; break;
-                    case PseudoRule::Pseudo::Focus:  bit = kFocusStateBit;  break;
-                    default: continue;
-                }
-                if (!(sb_at_collect & bit)) continue;
-                if (!compound_matches(pr.target, tag, elem_id_attr, cls_attr))
-                    continue;
-                if (!ancestor_chain_matches(pr.ancestors, parent_idx,
-                                            impl.blocks)) continue;
-                impl.resolver->apply_decl_list(pr.decls, rs);
-            }
+        if (!impl.pseudo_rules.empty()) {
+            Block pseudo_block;
+            pseudo_block.id = id;
+            pseudo_block.tag = tag;
+            pseudo_block.elem_id = elem_id_attr;
+            pseudo_block.classes = cls_attr;
+            pseudo_block.attrs = elem_attrs;
+            pseudo_block.parent_idx = parent_idx;
+            apply_pseudo_overlay(impl, pseudo_block, rs);
         }
 
         // Font-family fill overlay. Same selector grammar as pseudo
         // overlay; later rules win (the scan is in attach order, which
         // matches CSS source order).
-        for (const auto& rf : impl.rule_fills) {
-            // Pseudo-scoped fills only apply when the state bit is set.
-            // Unscoped fills (state_bit == 0) always apply.
-            if (rf.state_bit && !(sb_at_collect & rf.state_bit)) continue;
-            if (!compound_matches(rf.target, tag, elem_id_attr, cls_attr))
-                continue;
-            if (!ancestor_chain_matches(rf.ancestors, parent_idx,
-                                        impl.blocks)) continue;
-            if (!rf.font_family.empty())
-                rs.computed.font_id = impl.style_store.intern_font_family(
-                    rf.font_family);
-        }
+        apply_font_family_fills(impl, tag, elem_id_attr, cls_attr,
+                                parent_idx, sb_at_collect, rs);
 
         impl.style_store.computed(id) = rs.computed;
         impl.style_store.animated(id) = rs.animated;
@@ -1282,23 +3191,35 @@ void collect_blocks(detail::DocumentImpl& impl,
         // block-level sibling breaks the run; the next inline
         // sibling opens a fresh line-box.
         //
-        // Flex-item blockification (CSS Flexbox §4): the children of a
+        // Flex-item blockification (CSS Flexbox Â§4): the children of a
         // flex container are flex items, and an inline-level flex item is
         // blockified. So when the parent establishes a flex formatting
-        // context we DON'T group inline children into a line-box — each
+        // context we DON'T group inline children into a line-box â€” each
         // becomes a direct block-level flex item. This is what makes an
         // `<a class="nav-link">` inside a `display:flex` navbar lay out as
         // a flex item rather than collapsing into an inline run.
         using Display = detail::ComputedStyle::Display;
+        using CssFloat = detail::ComputedStyle::Float;
         const bool parent_is_flex =
-            parent_style.computed.display == Display::Flex;
+            is_flex_container_display(parent_style.computed.display);
+        const bool parent_is_grid =
+            parent_style.computed.display == Display::Grid ||
+            parent_style.computed.display == Display::InlineGrid;
+        const bool parent_blockifies_inline_children =
+            parent_is_flex || parent_is_grid;
+        const bool child_is_float =
+            !parent_blockifies_inline_children &&
+            rs.computed.css_float != CssFloat::None;
         const bool child_is_inline =
-            !parent_is_flex &&
+            !parent_blockifies_inline_children &&
+            !child_is_float &&
             (rs.computed.display == Display::Inline ||
-             rs.computed.display == Display::InlineBlock);
+             rs.computed.display == Display::InlineBlock ||
+             rs.computed.display == Display::InlineFlex ||
+             rs.computed.display == Display::InlineGrid);
         int effective_parent_idx;
         if (child_is_inline) {
-            ensure_inline_run(impl, parent_idx, open_synth_idx);
+            ensure_inline_run(impl, parent_style, parent_idx, open_synth_idx);
             if (pending_inline_space) {
                 append_anonymous_inline_text(impl, parent_style,
                                              open_synth_idx, " ");
@@ -1315,8 +3236,11 @@ void collect_blocks(detail::DocumentImpl& impl,
         Block b;
         b.id         = id;
         b.tag        = std::move(tag);
-        b.elem_id    = attr_string(elem, "id");
-        b.classes    = split_classes(attr_string(elem, "class"));
+        b.elem_id    = elem_id_attr;
+        b.classes    = cls_attr;
+        b.attrs      = elem_attrs;
+        b.custom_props = rs.custom_props;
+        b.box_shadows = rs.box_shadows;
         if (b.tag == "img") {
             b.image_src = attr_string(elem, "src");
         }
@@ -1331,9 +3255,19 @@ void collect_blocks(detail::DocumentImpl& impl,
             b.is_disabled = has_attr(elem, "disabled");
         }
         b.parent_idx = effective_parent_idx;
+        b.base_animated = rs.animated;
+        b.animation = rs.animation;
+        b.animation_epoch = impl.animation_epoch;
         impl.blocks.push_back(std::move(b));
 
-        // Recurse — children get my_idx as their parent. Track whether
+        // SVG child elements live in SVG's own presentation tree, not the
+        // HTML box tree. Keep them out of the HTML style/layout resolver and
+        // let the SVG paint helper walk the foreign-content subtree directly.
+        if (impl.blocks[static_cast<std::size_t>(my_idx)].tag == "svg") {
+            continue;
+        }
+
+        // Recurse â€” children get my_idx as their parent. Track whether
         // any blocks were appended; if not, this block is a leaf and
         // gets the concatenated descendant text.
         const std::size_t before = impl.blocks.size();
@@ -1363,6 +3297,14 @@ void collect_blocks(detail::DocumentImpl& impl,
                     rs.computed.text_transform);
             }
         }
+    }
+
+    if (current_elem) {
+        append_generated_content_for_element(
+            impl, current_elem, parent_style, parent_idx,
+            current_selector_parent_idx,
+            GeneratedContentRule::Position::After, open_synth_idx,
+            pending_inline_space);
     }
 }
 
@@ -1436,7 +3378,7 @@ bool assign_table_column_widths(std::vector<detail::BlockLayoutInput>& inputs,
         const auto& tcs = *inputs[t].style;
         const int table_w = natural[static_cast<std::size_t>(t)].w
                           - tcs.padding_left - tcs.padding_right
-                          - tcs.border_left - tcs.border_right;
+                          - tcs.used_border_left() - tcs.used_border_right();
         long long sum = 0;
         for (int w : colw) sum += w;
         if (table_w > 0 && sum > 0) {
@@ -1453,10 +3395,10 @@ bool assign_table_column_widths(std::vector<detail::BlockLayoutInput>& inputs,
         // columns line up. intrinsic_w_px feeds YGNodeStyleSetWidth, whose
         // meaning depends on the cell's box-sizing:
         //   border-box (Bootstrap's `*{box-sizing:border-box}`): the width
-        //     IS the border box — pin colw[j] directly. (Subtracting
+        //     IS the border box â€” pin colw[j] directly. (Subtracting
         //     padding+border here is the bug that left every cell ~18px too
         //     narrow, summing to a phantom empty column on the table's right.)
-        //   content-box: Yoga adds padding+border back — pin the content box.
+        //   content-box: Yoga adds padding+border back â€” pin the content box.
         using BoxSizing = detail::ComputedStyle::BoxSizing;
         for (const auto& cells : row_cells) {
             for (std::size_t j = 0; j < cells.size(); ++j) {
@@ -1464,7 +3406,7 @@ bool assign_table_column_widths(std::vector<detail::BlockLayoutInput>& inputs,
                 int w = (ccs.box_sizing == BoxSizing::BorderBox)
                     ? colw[j]
                     : colw[j] - ccs.padding_left - ccs.padding_right
-                              - ccs.border_left - ccs.border_right;
+                              - ccs.used_border_left() - ccs.used_border_right();
                 if (w < 0) w = 0;
                 inputs[static_cast<std::size_t>(cells[j])].intrinsic_w_px = w;
             }
@@ -1489,6 +3431,9 @@ void Document::set_html(std::string_view html) {
     impl_->style_store.reset();
     impl_->paint_dirty = true;
     impl_->content_size = Size{0, 0};
+    impl_->dirty_rects.clear();
+    impl_->pending_dirty_roots.clear();
+    impl_->animation_candidate_count = 0;
 
 #if !defined(AFFINEUI_STUB_BUILD)
     // Tear down the previous document; its CSS pool owns the
@@ -1497,11 +3442,16 @@ void Document::set_html(std::string_view html) {
     impl_->sheets.clear();
     impl_->pseudo_rules.clear();
     impl_->rule_fills.clear();
+    impl_->generated_content_rules.clear();
+    impl_->font_faces.clear();
     impl_->media_blocks.clear();
+    impl_->keyframes.clear();
     impl_->hovered_chain.clear();
     impl_->active_chain.clear();
+    impl_->hovered_idx = -1;
     impl_->active_idx = -1;
     impl_->focused_idx = -1;
+    impl_->animation_epoch = std::chrono::steady_clock::now();
     if (impl_->doc) {
         lxb_html_document_destroy(impl_->doc);
         impl_->doc = nullptr;
@@ -1523,7 +3473,7 @@ void Document::set_html(std::string_view html) {
         return;
     }
 
-    // Cascade order (lower → higher specificity, ties to last):
+    // Cascade order (lower â†’ higher specificity, ties to last):
     //   1. User-agent baseline
     //   2. Author <style> blocks from the page
     //   3. Matching @media blocks (viewport-conditional sub-rules from 1 & 2)
@@ -1545,7 +3495,7 @@ void Document::set_html(std::string_view html) {
             if (mb.matches(impl_->media_viewport_width_px)) {
                 // Attach the block's CSS as a standalone stylesheet. We must
                 // NOT call scan_media_blocks on this sheet to avoid duplicate
-                // (and in theory nested) media block entries — pass a flag via
+                // (and in theory nested) media block entries â€” pass a flag via
                 // a direct lxb_css_stylesheet_parse + attach path.
                 auto* sst_media = lxb_css_stylesheet_parse(
                     impl_->doc->css.parser,
@@ -1557,6 +3507,14 @@ void Document::set_html(std::string_view html) {
                         impl_->sheets.push_back(sst_media);
                         scan_pseudo_rules(sst_media, impl_->pseudo_rules);
                         scan_rule_fills(sst_media, mb.block_css, impl_->rule_fills);
+                        scan_font_face_rules(mb.block_css, {}, impl_->font_faces);
+                        scan_generated_content_rules(
+                            impl_->doc->css.parser,
+                            impl_->doc->css.memory, mb.block_css,
+                            impl_->generated_content_rules);
+                        scan_keyframe_blocks(
+                            sst_media, impl_->doc->css.parser,
+                            impl_->doc->css.memory, impl_->keyframes);
                         // Do NOT call scan_media_blocks here: nested @media is
                         // not in scope for this implementation.
                     } else {
@@ -1570,10 +3528,12 @@ void Document::set_html(std::string_view html) {
     attach_stylesheet(*impl_, impl_->user_stylesheet);
 
     // Resolver runs against the now fully-cascade-attached document.
-    impl_->resolver = detail::make_lexbor_resolver(impl_->doc);
+    impl_->resolver = detail::make_lexbor_resolver(
+        impl_->doc, impl_->media_viewport_width_px,
+        impl_->media_viewport_height_px);
 
     // Establish a root inheritance baseline. Reasonable initial values
-    // for the implicit document root — anything not overridden by CSS
+    // for the implicit document root â€” anything not overridden by CSS
     // gets these. AnimatedStyle's foreground defaults to near-white
     // (#dcdce6) so unstyled docs are readable on the dark clear color.
     impl_->root_style                       = detail::ResolvedStyle{};
@@ -1602,34 +3562,52 @@ void Document::set_html(std::string_view html) {
             html_style = impl_->resolver->resolve(
                 lxb_dom_interface_element(body_node->parent), impl_->root_style);
         }
-        impl_->root_style = impl_->resolver->resolve(
-            lxb_dom_interface_element(body_node), html_style);
+        auto* body_elem = lxb_dom_interface_element(body_node);
+        impl_->root_style = impl_->resolver->resolve(body_elem, html_style);
+        apply_font_family_fills(*impl_, "body", attr_string(body_elem, "id"),
+                                split_classes(attr_string(body_elem, "class")),
+                                /*parent_idx=*/-1,
+                                /*state_bits=*/0,
+                                impl_->root_style);
     }
     collect_blocks(*impl_,
                    body ? lxb_dom_interface_node(body)
                         : lxb_dom_interface_node(impl_->doc),
                    impl_->root_style,
                    /*parent_idx=*/-1);
+    for (const auto& b : impl_->blocks) {
+        if (b.animation.active && b.animation.name_hash != 0) {
+            ++impl_->animation_candidate_count;
+        }
+    }
 #endif
 }
 
 void Document::set_user_stylesheet(std::string_view css) {
     impl_->user_stylesheet.assign(css);
-    // Re-cascade on next set_html. Live mutation of the attached
-    // stylesheet without a full re-parse is a Phase 2E hot-reload
-    // refinement.
-    impl_->paint_dirty = true;
+    if (!impl_->html.empty()) {
+        set_html(impl_->html);
+    } else {
+        impl_->paint_dirty = true;
+    }
 }
 
 void Document::reload_stylesheets() {
     if (!impl_->html.empty()) set_html(impl_->html);
 }
 
+namespace {
+#if !defined(AFFINEUI_STUB_BUILD)
+void add_dirty_rect(detail::DocumentImpl& impl, const Rect& r);
+Rect subtree_visual_rect(const detail::DocumentImpl& impl, int root_idx);
+#endif
+}  // namespace
+
 void Document::layout(int viewport_width, int viewport_height,
                       Painter* measurer) {
     // Layout delegates to Yoga via src/layout/yoga_adapter. Text
     // leaves get a Yoga measure callback that calls nvgTextBoxBounds
-    // — Yoga asks "given width W, what height?" and we return the
+    // â€” Yoga asks "given width W, what height?" and we return the
     // *actually rendered* wrapped bbox. No metric heuristics; the
     // top/bottom padding ends up symmetric for free because the
     // content area matches what the painter will draw into.
@@ -1639,19 +3617,24 @@ void Document::layout(int viewport_width, int viewport_height,
     // demos or applications that want a gutter author it explicitly.
 
 #if !defined(AFFINEUI_STUB_BUILD)
-    // @media evaluation: if we have collected media blocks from the last
-    // set_html() call and the viewport width has changed (or was unknown),
-    // re-parse the HTML so the matching @media rules participate in the
-    // cascade. This is the one call site that knows the real viewport
-    // width. We update media_viewport_width_px BEFORE calling set_html so
-    // the re-parse picks up the new width.
+    // Viewport-dependent cascade: this is the one call site that knows
+    // the real CSS viewport. Re-parse when either dimension changes so
+    // @media rules and viewport units (`vw`, `vh`, `vmin`, `vmax`) are
+    // resolved against the same dimensions layout is about to use.
     if (!impl_->html.empty() &&
-        !impl_->media_blocks.empty() &&
-        viewport_width != impl_->media_viewport_width_px) {
+        (viewport_width != impl_->media_viewport_width_px ||
+         viewport_height != impl_->media_viewport_height_px)) {
         impl_->media_viewport_width_px = viewport_width;
+        impl_->media_viewport_height_px = viewport_height;
         set_html(impl_->html);
         // set_html resets everything; fall through to the normal layout path
         // with the newly resolved blocks.
+    }
+#endif
+
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (measurer != nullptr) {
+        ensure_font_faces_registered(*impl_, *measurer);
     }
 #endif
 
@@ -1670,14 +3653,92 @@ void Document::layout(int viewport_width, int viewport_height,
     }
 #endif
 
+    std::vector<std::vector<int>> child_indices(impl_->blocks.size());
+    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
+        const int parent = impl_->blocks[i].parent_idx;
+        if (parent >= 0) child_indices[static_cast<std::size_t>(parent)]
+            .push_back(static_cast<int>(i));
+    }
+
+    std::vector<float> block_baselines(impl_->blocks.size(), 0.0f);
+    if (measurer != nullptr) {
+        for (int i = static_cast<int>(impl_->blocks.size()) - 1; i >= 0; --i) {
+            const auto& b = impl_->blocks[static_cast<std::size_t>(i)];
+            const auto& cs = impl_->style_store.computed(b.id);
+
+            if (!b.text.empty()) {
+                const auto font = measurer->resolve_font(
+                    impl_->style_store.font_family_of(cs.font_id),
+                    cs.font_size_px, cs.font_weight, cs.font_style != 0);
+                const auto tm = measurer->text_metrics(font);
+                const float css_line_h = std::max(
+                    static_cast<float>(cs.font_size_px) *
+                        detail::effective_line_height_mult(cs),
+                    1.0f);
+                if (tm.ascender > 0.0f && tm.line_height > 0.0f) {
+                    const float leading = css_line_h - tm.line_height;
+                    block_baselines[static_cast<std::size_t>(i)] =
+                        static_cast<float>(cs.used_border_top() + cs.padding_top) +
+                        leading * 0.5f + tm.ascender;
+                } else {
+                    block_baselines[static_cast<std::size_t>(i)] =
+                        static_cast<float>(cs.used_border_top() + cs.padding_top) +
+                        css_line_h;
+                }
+                continue;
+            }
+
+            const auto& kids = child_indices[static_cast<std::size_t>(i)];
+            if (b.synthetic) {
+                float baseline = 0.0f;
+                for (const int child : kids) {
+                    baseline = std::max(
+                        baseline,
+                        block_baselines[static_cast<std::size_t>(child)]);
+                }
+                block_baselines[static_cast<std::size_t>(i)] = baseline;
+                continue;
+            }
+
+            using D = detail::ComputedStyle::Display;
+            if (cs.display == D::InlineBlock || cs.display == D::Inline ||
+                cs.display == D::TableCell) {
+                for (auto it = kids.rbegin(); it != kids.rend(); ++it) {
+                    const float child_baseline =
+                        block_baselines[static_cast<std::size_t>(*it)];
+                    if (child_baseline > 0.0f) {
+                        block_baselines[static_cast<std::size_t>(i)] =
+                            static_cast<float>(cs.used_border_top() + cs.padding_top) +
+                            child_baseline;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    std::vector<detail::ComputedStyle> layout_styles;
+    layout_styles.reserve(impl_->blocks.size());
+    for (const auto& b : impl_->blocks) {
+        layout_styles.push_back(impl_->style_store.computed(b.id));
+    }
+
+    collapse_block_flow_vertical_margins(child_indices, impl_->blocks,
+                                         layout_styles);
+
     std::vector<detail::BlockLayoutInput> inputs;
     inputs.reserve(impl_->blocks.size());
-    for (auto& b : impl_->blocks) {
-        const auto& cs = impl_->style_store.computed(b.id);
+    for (std::size_t bi = 0; bi < impl_->blocks.size(); ++bi) {
+        auto& b = impl_->blocks[bi];
+        const auto& cs = layout_styles[bi];
         detail::BlockLayoutInput in{};
         in.style          = &cs;
         in.parent_idx     = b.parent_idx;
         in.intrinsic_w_px = 0;  // let parent stretch on cross axis
+        in.inline_parent  =
+            b.parent_idx >= 0 &&
+            impl_->blocks[static_cast<std::size_t>(b.parent_idx)].synthetic;
+        in.baseline_px    = block_baselines[bi];
 
         if (!b.image_src.empty()) {
             if (measurer != nullptr) {
@@ -1700,7 +3761,7 @@ void Document::layout(int viewport_width, int viewport_height,
             continue;
         }
 
-        // Container blocks (no direct text — wrap child blocks) leave
+        // Container blocks (no direct text â€” wrap child blocks) leave
         // intrinsic_h at 0 so Yoga sizes them from their children's
         // resolved heights + their own padding/border.
         if (b.text.empty()) {
@@ -1717,10 +3778,46 @@ void Document::layout(int viewport_width, int viewport_height,
                 impl_->style_store.font_family_of(cs.font_id), cs.font_size_px, cs.font_weight, cs.font_style != 0);
             in.text = b.text;
             in.letter_spacing_px = static_cast<float>(cs.letter_spacing_x100) / 100.0f;
+            if (cs.min_width < 0 &&
+                b.parent_idx >= 0 &&
+                static_cast<std::size_t>(b.parent_idx) < impl_->blocks.size()) {
+                const auto& parent_style =
+                    layout_styles[static_cast<std::size_t>(b.parent_idx)];
+                if (is_flex_container_display(parent_style.display) &&
+                    (parent_style.flex_direction ==
+                         detail::ComputedStyle::FlexDirection::Row ||
+                     parent_style.flex_direction ==
+                         detail::ComputedStyle::FlexDirection::RowReverse)) {
+                    in.auto_min_w_px =
+                        std::max(1, measurer->measure_text(in.font, b.text))
+                        + cs.padding_left + cs.padding_right
+                        + cs.used_border_left() + cs.used_border_right();
+                }
+            }
+            const bool in_synthetic_inline_parent =
+                b.parent_idx >= 0 &&
+                static_cast<std::size_t>(b.parent_idx) < impl_->blocks.size() &&
+                impl_->blocks[static_cast<std::size_t>(b.parent_idx)].synthetic;
+            const bool first_in_synthetic_inline_parent =
+                in_synthetic_inline_parent &&
+                !child_indices[static_cast<std::size_t>(b.parent_idx)].empty() &&
+                child_indices[static_cast<std::size_t>(b.parent_idx)].front() ==
+                    static_cast<int>(bi);
+            if ((!in_synthetic_inline_parent || first_in_synthetic_inline_parent) &&
+                !cs.text_indent_is_pct) {
+                in.text_indent_px = static_cast<float>(cs.text_indent_value);
+            }
+            if (b.text_control &&
+                b.input_type != "checkbox" && b.input_type != "radio") {
+                const int ch = std::max(1, measurer->measure_text(in.font, "0"));
+                in.intrinsic_w_px = ch * 20
+                    + cs.padding_left + cs.padding_right
+                    + cs.used_border_left() + cs.used_border_right();
+            }
             using WS = detail::ComputedStyle::WhiteSpace;
             in.nowrap = (cs.white_space == WS::Nowrap ||
                          cs.white_space == WS::Pre);
-            // Leave intrinsic_h_px = 0 — the measure callback supplies
+            // Leave intrinsic_h_px = 0 â€” the measure callback supplies
             // the height instead.
         } else {
             in.intrinsic_h_px = cs.font_size_px;
@@ -1728,13 +3825,83 @@ void Document::layout(int viewport_width, int viewport_height,
         inputs.push_back(in);
     }
 
+    if (measurer != nullptr) {
+        std::vector<int> min_content_w(impl_->blocks.size(), 0);
+        for (std::size_t ri = impl_->blocks.size(); ri-- > 0; ) {
+            const auto& b = impl_->blocks[ri];
+            const auto& cs = layout_styles[ri];
+            int content_w = 0;
+
+            if (!b.text.empty() && inputs[ri].font != 0) {
+                content_w = std::max(
+                    content_w,
+                    std::max(1, measurer->measure_text(inputs[ri].font, b.text)));
+            }
+
+            const auto& kids = child_indices[ri];
+            if (!kids.empty()) {
+                int children_w = 0;
+                const bool row_flex =
+                    is_flex_container_display(cs.display) &&
+                    (cs.flex_direction ==
+                         detail::ComputedStyle::FlexDirection::Row ||
+                     cs.flex_direction ==
+                         detail::ComputedStyle::FlexDirection::RowReverse);
+                if (row_flex && cs.flex_wrap == detail::ComputedStyle::FlexWrap::NoWrap) {
+                    for (const int child : kids) {
+                        children_w += min_content_w[static_cast<std::size_t>(child)];
+                    }
+                    if (kids.size() > 1 && cs.column_gap > 0) {
+                        children_w += static_cast<int>(kids.size() - 1) * cs.column_gap;
+                    }
+                } else {
+                    for (const int child : kids) {
+                        children_w = std::max(
+                            children_w,
+                            min_content_w[static_cast<std::size_t>(child)]);
+                    }
+                }
+                content_w = std::max(content_w, children_w);
+            }
+
+            if (content_w > 0) {
+                min_content_w[ri] =
+                    content_w + cs.padding_left + cs.padding_right +
+                    cs.used_border_left() + cs.used_border_right();
+            }
+        }
+
+        for (std::size_t bi = 0; bi < impl_->blocks.size(); ++bi) {
+            const auto& cs = layout_styles[bi];
+            if (cs.min_width >= 0 || min_content_w[bi] <= 0 ||
+                impl_->blocks[bi].parent_idx < 0) {
+                continue;
+            }
+            const auto parent_idx =
+                static_cast<std::size_t>(impl_->blocks[bi].parent_idx);
+            const auto& parent_style = layout_styles[parent_idx];
+            const bool row_flex_parent =
+                is_flex_container_display(parent_style.display) &&
+                (parent_style.flex_direction ==
+                     detail::ComputedStyle::FlexDirection::Row ||
+                 parent_style.flex_direction ==
+                     detail::ComputedStyle::FlexDirection::RowReverse);
+            if (row_flex_parent) {
+                inputs[bi].auto_min_w_px =
+                    std::max(inputs[bi].auto_min_w_px, min_content_w[bi]);
+            }
+        }
+    }
+
     std::vector<Rect> out(impl_->blocks.size());
+    std::vector<RectF> out_f(impl_->blocks.size());
     // Yoga's root has no per-block padding of its own. We bake body's
     // padding in by shrinking the viewport handed to Yoga and
     // shifting frames back out below. Cleaner future: a real Box
     // tree where body is its own Yoga node.
     const int inner_w = viewport_width - pad_l - pad_r;
-    detail::layout_blocks_with_yoga(inner_w, inputs, out, measurer);
+    detail::layout_blocks_with_yoga(
+        inner_w, inputs, out, measurer, out_f);
 
     // Table column alignment. Yoga lays each row out independently, so
     // cells in column N of different rows wouldn't line up. Using the
@@ -1743,15 +3910,61 @@ void Document::layout(int viewport_width, int viewport_height,
     // every cell to it via intrinsic_w_px, and re-run layout so columns
     // align. No-op (returns false) when the document has no tables.
     if (assign_table_column_widths(inputs, out)) {
-        detail::layout_blocks_with_yoga(inner_w, inputs, out, measurer);
+        detail::layout_blocks_with_yoga(
+            inner_w, inputs, out, measurer, out_f);
     }
 
-    int max_bottom = 0;
     for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
         out[i].x += pad_l;
         out[i].y += pad_t;
+        out_f[i].x += static_cast<float>(pad_l);
+        out_f[i].y += static_cast<float>(pad_t);
         impl_->blocks[i].bounds = out[i];
-        const int bottom = out[i].y + out[i].h;
+        impl_->blocks[i].bounds_f = out_f[i];
+    }
+    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
+        const auto& cs = layout_styles[i];
+        if (cs.css_float == detail::ComputedStyle::Float::None ||
+            impl_->blocks[i].parent_idx < 0) {
+            continue;
+        }
+
+        const auto& parent =
+            impl_->blocks[static_cast<std::size_t>(impl_->blocks[i].parent_idx)];
+        const auto& parent_style =
+            layout_styles[static_cast<std::size_t>(impl_->blocks[i].parent_idx)];
+        auto& r = out[i];
+        if (cs.width > 0) {
+            r.w = cs.box_sizing == detail::ComputedStyle::BoxSizing::BorderBox
+                ? cs.width
+                : cs.width + cs.padding_left + cs.padding_right +
+                    cs.used_border_left() + cs.used_border_right();
+        }
+        if (cs.height > 0) {
+            r.h = cs.box_sizing == detail::ComputedStyle::BoxSizing::BorderBox
+                ? cs.height
+                : cs.height + cs.padding_top + cs.padding_bottom +
+                    cs.used_border_top() + cs.used_border_bottom();
+        }
+        const int parent_left = parent.bounds.x + parent_style.used_border_left() +
+                                parent_style.padding_left;
+        const int parent_right = parent.bounds.x + parent.bounds.w -
+                                 parent_style.used_border_right() -
+                                 parent_style.padding_right;
+        if (cs.css_float == detail::ComputedStyle::Float::Right) {
+            r.x = parent_right - r.w - cs.margin_right;
+        } else {
+            r.x = parent_left + cs.margin_left;
+        }
+        r.y = parent.bounds.y + parent_style.used_border_top() +
+              parent_style.padding_top + cs.margin_top;
+        impl_->blocks[i].bounds = r;
+        impl_->blocks[i].bounds_f = to_float(r);
+    }
+
+    int max_bottom = 0;
+    for (const auto& b : impl_->blocks) {
+        const int bottom = b.bounds.y + b.bounds.h;
         if (bottom > max_bottom) max_bottom = bottom;
     }
     // content_size = max(natural body height, viewport floor). The
@@ -1777,9 +3990,21 @@ void Document::layout(int viewport_width, int viewport_height,
         if (child_bottom_in_parent > parent.content_h)
             parent.content_h = child_bottom_in_parent;
     }
+
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (!impl_->pending_dirty_roots.empty()) {
+        for (const int root_idx : impl_->pending_dirty_roots) {
+            if (root_idx >= 0 &&
+                root_idx < static_cast<int>(impl_->blocks.size())) {
+                add_dirty_rect(*impl_, subtree_visual_rect(*impl_, root_idx));
+            }
+        }
+        impl_->pending_dirty_roots.clear();
+    }
+#endif
 }
 
-// Forward decls — definitions live in the anonymous namespace below,
+// Forward decls â€” definitions live in the anonymous namespace below,
 // alongside the dispatch helpers. Used by Document::draw to compute
 // scroll offsets + clip rects for the paint walk.
 namespace {
@@ -1788,18 +4013,238 @@ bool block_is_scrollable_y(const detail::DocumentImpl& impl, int idx);
 bool block_clips_overflow(const detail::DocumentImpl& impl, int idx);
 int  scroll_offset_y_for(const std::vector<Block>& blocks,
                          const detail::StyleStore& styles, int idx);
+const KeyframeBlock* find_keyframes(const detail::DocumentImpl& impl,
+                                    std::uint32_t name_hash);
 #endif
 }  // namespace
 
+#if !defined(AFFINEUI_STUB_BUILD)
+float clamp01(float v) {
+    return std::clamp(v, 0.0f, 1.0f);
+}
+
+float solve_cubic_bezier(float x1, float y1, float x2, float y2, float x) {
+    auto sample = [](float a1, float a2, float t) {
+        const float inv = 1.0f - t;
+        return 3.0f * inv * inv * t * a1 +
+               3.0f * inv * t * t * a2 +
+               t * t * t;
+    };
+    auto derivative = [](float a1, float a2, float t) {
+        const float inv = 1.0f - t;
+        return 3.0f * inv * inv * a1 +
+               6.0f * inv * t * (a2 - a1) +
+               3.0f * t * t * (1.0f - a2);
+    };
+
+    float t = clamp01(x);
+    for (int i = 0; i < 8; ++i) {
+        const float dx = sample(x1, x2, t) - x;
+        const float d = derivative(x1, x2, t);
+        if (std::fabs(d) < 1e-5f) break;
+        t = clamp01(t - dx / d);
+    }
+    return sample(y1, y2, t);
+}
+
+float ease_animation_progress(detail::ResolvedStyle::CssAnimation::Timing timing,
+                              float t) {
+    t = clamp01(t);
+    switch (timing) {
+        case detail::ResolvedStyle::CssAnimation::Timing::Linear:
+            return t;
+        case detail::ResolvedStyle::CssAnimation::Timing::EaseIn:
+            return solve_cubic_bezier(0.42f, 0.0f, 1.0f, 1.0f, t);
+        case detail::ResolvedStyle::CssAnimation::Timing::EaseOut:
+            return solve_cubic_bezier(0.0f, 0.0f, 0.58f, 1.0f, t);
+        case detail::ResolvedStyle::CssAnimation::Timing::EaseInOut:
+            return solve_cubic_bezier(0.42f, 0.0f, 0.58f, 1.0f, t);
+        case detail::ResolvedStyle::CssAnimation::Timing::StepStart:
+            return t > 0.0f ? 1.0f : 0.0f;
+        case detail::ResolvedStyle::CssAnimation::Timing::StepEnd:
+            return t >= 1.0f ? 1.0f : 0.0f;
+        case detail::ResolvedStyle::CssAnimation::Timing::Ease:
+        default:
+            return solve_cubic_bezier(0.25f, 0.1f, 0.25f, 1.0f, t);
+    }
+}
+
+bool animation_progress_at(const detail::ResolvedStyle::CssAnimation& anim,
+                           double elapsed_s,
+                           float& out_t,
+                           bool& out_applies) {
+    out_t = 0.0f;
+    out_applies = false;
+    if (!anim.active || anim.duration_s <= 0.0f || anim.name_hash == 0) {
+        return false;
+    }
+
+    const bool paused =
+        anim.play_state == detail::ResolvedStyle::CssAnimation::PlayState::Paused;
+    const double timeline_s = paused ? 0.0 : elapsed_s;
+    const double active_s = timeline_s - static_cast<double>(anim.delay_s);
+    const bool fills_back =
+        anim.fill_mode == detail::ResolvedStyle::CssAnimation::FillMode::Backwards ||
+        anim.fill_mode == detail::ResolvedStyle::CssAnimation::FillMode::Both;
+    const bool fills_forward =
+        anim.fill_mode == detail::ResolvedStyle::CssAnimation::FillMode::Forwards ||
+        anim.fill_mode == detail::ResolvedStyle::CssAnimation::FillMode::Both;
+    auto directed = [&](float local, long long iteration) {
+        using Direction = detail::ResolvedStyle::CssAnimation::Direction;
+        const bool odd = (iteration & 1ll) != 0;
+        switch (anim.direction) {
+            case Direction::Reverse:
+                return 1.0f - local;
+            case Direction::Alternate:
+                return odd ? 1.0f - local : local;
+            case Direction::AlternateReverse:
+                return odd ? local : 1.0f - local;
+            case Direction::Normal:
+            default:
+                return local;
+        }
+    };
+    if (active_s < 0.0) {
+        if (fills_back) {
+            out_applies = true;
+            out_t = ease_animation_progress(anim.timing, directed(0.0f, 0));
+        }
+        return !paused;
+    }
+
+    const bool infinite = anim.iteration_count == 0.0f;
+    const double total_s = static_cast<double>(anim.duration_s) *
+                           static_cast<double>(anim.iteration_count);
+    if (!infinite && active_s >= total_s) {
+        if (fills_forward) {
+            const double count = std::max(0.0, static_cast<double>(anim.iteration_count));
+            const double whole = std::floor(count);
+            const double frac = count - whole;
+            const bool fractional = frac > 1e-6;
+            const long long final_iteration = fractional
+                ? static_cast<long long>(whole)
+                : std::max<long long>(0, static_cast<long long>(whole) - 1);
+            const float local = fractional ? static_cast<float>(frac) : 1.0f;
+            out_applies = true;
+            out_t = ease_animation_progress(anim.timing,
+                                            directed(local, final_iteration));
+        }
+        return false;
+    }
+
+    const double duration = static_cast<double>(anim.duration_s);
+    double iteration = std::floor(active_s / duration);
+    float local = static_cast<float>((active_s - iteration * duration) / duration);
+    out_applies = true;
+    out_t = ease_animation_progress(
+        anim.timing, directed(local, static_cast<long long>(iteration)));
+    return !paused;
+}
+
+detail::AnimatedStyle animated_at_keyframe(
+    detail::DocumentImpl& impl,
+    const Block& block,
+    const KeyframeStep* step) {
+    if (!step || !step->decls || !impl.resolver) return block.base_animated;
+    detail::ResolvedStyle rs;
+    rs.computed = impl.style_store.computed(block.id);
+    rs.animated = block.base_animated;
+    impl.resolver->apply_decl_list(step->decls, rs);
+    return rs.animated;
+}
+
+float lerp_float(float a, float b, float t) {
+    return a + (b - a) * t;
+}
+
+detail::AnimatedStyle interpolate_animated(detail::AnimatedStyle a,
+                                           const detail::AnimatedStyle& b,
+                                           float t) {
+    a.opacity  = lerp_float(a.opacity,  b.opacity,  t);
+    a.tx       = lerp_float(a.tx,       b.tx,       t);
+    a.ty       = lerp_float(a.ty,       b.ty,       t);
+    a.tx_pct   = lerp_float(a.tx_pct,   b.tx_pct,   t);
+    a.ty_pct   = lerp_float(a.ty_pct,   b.ty_pct,   t);
+    a.scale_x  = lerp_float(a.scale_x,  b.scale_x,  t);
+    a.scale_y  = lerp_float(a.scale_y,  b.scale_y,  t);
+    a.rotation = lerp_float(a.rotation, b.rotation, t);
+    return a;
+}
+
+detail::AnimatedStyle sample_keyframes(detail::DocumentImpl& impl,
+                                       const Block& block,
+                                       float t) {
+    const auto* kf = find_keyframes(impl, block.animation.name_hash);
+    if (!kf || kf->steps.empty()) return block.base_animated;
+
+    const KeyframeStep* left = nullptr;
+    const KeyframeStep* right = nullptr;
+    for (const auto& step : kf->steps) {
+        if (step.offset <= t + 1e-6f) left = &step;
+        if (right == nullptr && step.offset >= t - 1e-6f) right = &step;
+    }
+
+    const float left_offset = left ? left->offset : 0.0f;
+    const float right_offset = right ? right->offset : 1.0f;
+    const auto left_style = animated_at_keyframe(impl, block, left);
+    if (!right || std::abs(right_offset - left_offset) < 1e-6f) {
+        return left_style;
+    }
+    const auto right_style = animated_at_keyframe(impl, block, right);
+    const float local = clamp01((t - left_offset) / (right_offset - left_offset));
+    return interpolate_animated(left_style, right_style, local);
+}
+
+Mat2x3 local_transform_for(const detail::AnimatedStyle& an, const RectF& r) {
+    if (an.tx == 0.0f && an.ty == 0.0f &&
+        an.tx_pct == 0.0f && an.ty_pct == 0.0f &&
+        an.scale_x == 1.0f && an.scale_y == 1.0f &&
+        an.rotation == 0.0f) {
+        return Mat2x3::identity();
+    }
+    const float ox = r.x + an.origin_x + r.w * an.origin_x_pct * 0.01f;
+    const float oy = r.y + an.origin_y + r.h * an.origin_y_pct * 0.01f;
+    const float tx = an.tx + r.w * an.tx_pct * 0.01f;
+    const float ty = an.ty + r.h * an.ty_pct * 0.01f;
+    return Mat2x3::translate(-ox, -oy)
+        .then(Mat2x3::scale(an.scale_x, an.scale_y))
+        .then(Mat2x3::rotate(an.rotation))
+        .then(Mat2x3::translate(tx, ty))
+        .then(Mat2x3::translate(ox, oy));
+}
+
+Mat2x3 effective_transform_for(const detail::DocumentImpl& impl, int idx) {
+    std::vector<int> chain;
+    for (int cur = idx; cur >= 0; ) {
+        chain.push_back(cur);
+        cur = impl.blocks[static_cast<std::size_t>(cur)].parent_idx;
+    }
+    Mat2x3 combined = Mat2x3::identity();
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        const auto& b = impl.blocks[static_cast<std::size_t>(*it)];
+        const int dy = scroll_offset_y_for(impl.blocks, impl.style_store, *it);
+        const RectF eff{
+            b.bounds_f.x,
+            b.bounds_f.y - static_cast<float>(dy),
+            b.bounds_f.w,
+            b.bounds_f.h,
+        };
+        combined = local_transform_for(
+            impl.style_store.animated(b.id), eff).then(combined);
+    }
+    return combined;
+}
+#endif
+
 void Document::draw(Painter& painter) {
-    // Document::draw paints through *any* Painter — could be the real
+    // Document::draw paints through *any* Painter â€” could be the real
     // NanoVGPainter, could be a DisplayListBuilder that records into
     // a DisplayList. The App layer decides which.
     //
     // This is the "paint" stage of the five-stage pipeline. It walks
     // the box tree, fetches per-element ResolvedStyle from the
     // StyleStore, and emits Painter calls. No GL calls happen here
-    // directly — that's the rasterize stage's job.
+    // directly â€” that's the rasterize stage's job.
     //
     // Scroll: per-block, sum ancestor scroll_y to get the effective
     // draw position. If any ancestor is a scrollable container, push
@@ -1809,9 +4254,11 @@ void Document::draw(Painter& painter) {
     // Body background fills the page. <body> is the implicit root
     // and isn't in the block list (collect_blocks starts walking its
     // children), so its bg needs an explicit pre-pass. The clear
-    // color is the window's, not the page's — without this, body's
-    // bg-color silently does nothing.
+    // color is the window's, not the page's â€” without this, body's
+// bg-color silently does nothing.
 #if !defined(AFFINEUI_STUB_BUILD)
+    ensure_font_faces_registered(*impl_, painter);
+
     if (impl_->doc) {
         auto* body = lxb_html_document_body_element(impl_->doc);
         if (body && impl_->resolver) {
@@ -1828,22 +4275,57 @@ void Document::draw(Painter& painter) {
     }
 #endif
 
+    std::vector<int> child_counts(impl_->blocks.size(), 0);
+    std::vector<int> first_child_indices(impl_->blocks.size(), -1);
+    for (std::size_t child_idx = 0; child_idx < impl_->blocks.size(); ++child_idx) {
+        const auto& b = impl_->blocks[child_idx];
+        if (b.parent_idx >= 0 &&
+            static_cast<std::size_t>(b.parent_idx) < child_counts.size()) {
+            const auto parent_idx = static_cast<std::size_t>(b.parent_idx);
+            if (first_child_indices[parent_idx] < 0) {
+                first_child_indices[parent_idx] = static_cast<int>(child_idx);
+            }
+            ++child_counts[parent_idx];
+        }
+    }
+
+    std::vector<int> list_ordinals(impl_->blocks.size(), 0);
+    std::unordered_map<int, int> list_counts_by_parent;
+    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
+        const auto& b = impl_->blocks[i];
+        const auto& cs = impl_->style_store.computed(b.id);
+        if (cs.display == detail::ComputedStyle::Display::ListItem) {
+            list_ordinals[i] = ++list_counts_by_parent[b.parent_idx];
+        }
+    }
+
     for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
         const auto& b  = impl_->blocks[i];
         // Synthetic line-boxes are layout-only. They don't carry
-        // any visual style — skip the whole draw stanza.
+        // any visual style â€” skip the whole draw stanza.
         if (b.synthetic) continue;
         const auto& cs = impl_->style_store.computed(b.id);
+#if !defined(AFFINEUI_STUB_BUILD)
+        auto current_an = b.base_animated;
+        float anim_t = 0.0f;
+        bool anim_applies = false;
+        const double elapsed_s = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - b.animation_epoch).count();
+        (void) animation_progress_at(b.animation, elapsed_s, anim_t,
+                                     anim_applies);
+        if (anim_applies) current_an = sample_keyframes(*impl_, b, anim_t);
+        impl_->style_store.animated(b.id) = current_an;
+#endif
         const auto& an = impl_->style_store.animated(b.id);
 
         // CSS `display:none` removes the element from layout AND from
-        // paint — nothing is drawn, no space is reserved.
+        // paint â€” nothing is drawn, no space is reserved.
         if (cs.display == detail::ComputedStyle::Display::None) {
             continue;
         }
 
         // CSS `visibility:hidden` (or collapse): the box keeps its
-        // layout space but paints nothing — neither this element nor
+        // layout space but paints nothing â€” neither this element nor
         // its descendants (unless a descendant re-asserts
         // visibility:visible, in which case that block's own
         // cs.visibility will be Visible and it will paint normally).
@@ -1856,72 +4338,142 @@ void Document::draw(Painter& painter) {
                                            static_cast<int>(i));
         const Rect eff{b.bounds.x, b.bounds.y - dy, b.bounds.w, b.bounds.h};
 
+#if !defined(AFFINEUI_STUB_BUILD)
+        const Mat2x3 paint_transform =
+            effective_transform_for(*impl_, static_cast<int>(i));
+        const bool has_transform = !paint_transform.is_identity();
+        if (has_transform) painter.push_transform(paint_transform);
+#else
+        const bool has_transform = false;
+#endif
+
         // Find the nearest ancestor whose overflow clips children
-        // (overflow: hidden | clip | scroll | auto). Push its bounds as
-        // the scissor rect so overflowing descendants are masked.
+        // (overflow: hidden | clip | scroll | auto). CSS clips descendant
+        // paint to the padding box, not the border box, so the ancestor's
+        // own border remains visible above clipped children.
         int clip_idx = b.parent_idx;
         while (clip_idx >= 0 && !block_clips_overflow(*impl_, clip_idx)) {
             clip_idx = impl_->blocks[static_cast<std::size_t>(clip_idx)].parent_idx;
         }
         const bool clipped = (clip_idx >= 0);
+        Rect active_clip_rect{};
         if (clipped) {
-            painter.push_clip(impl_->blocks[
-                static_cast<std::size_t>(clip_idx)].bounds);
+            const auto& cb = impl_->blocks[static_cast<std::size_t>(clip_idx)];
+            const auto& ccs = impl_->style_store.computed(cb.id);
+            const int clip_dy = scroll_offset_y_for(
+                impl_->blocks, impl_->style_store, clip_idx);
+            active_clip_rect = Rect{
+                cb.bounds.x + ccs.used_border_left(),
+                cb.bounds.y - clip_dy + ccs.used_border_top(),
+                std::max(0, cb.bounds.w - ccs.used_border_left() - ccs.used_border_right()),
+                std::max(0, cb.bounds.h - ccs.used_border_top() - ccs.used_border_bottom()),
+            };
+            painter.push_clip(active_clip_rect);
         }
 
-        // CSS `opacity` — composite this element's entire subtree at a
+        // CSS `opacity` â€” composite this element's entire subtree at a
         // group alpha. NanoVG's nvgGlobalAlpha multiplies onto whatever
         // alpha is currently set, so save/restore gives clean isolation.
-        const bool has_opacity = (an.opacity < 1.0f - 1e-5f);
-        if (has_opacity) painter.push_alpha(an.opacity);
+        float effective_opacity = an.opacity;
+        for (int ai = b.parent_idx; ai >= 0; ) {
+            const auto& ab = impl_->blocks[static_cast<std::size_t>(ai)];
+            effective_opacity *= impl_->style_store.animated(ab.id).opacity;
+            ai = ab.parent_idx;
+        }
+        const bool has_opacity = (effective_opacity < 1.0f - 1e-5f);
+        if (has_opacity) painter.push_alpha(effective_opacity);
 
-        const float r_tl = static_cast<float>(cs.border_radius_top_left_px);
-        const float r_tr = static_cast<float>(cs.border_radius_top_right_px);
-        const float r_br = static_cast<float>(cs.border_radius_bot_right_px);
-        const float r_bl = static_cast<float>(cs.border_radius_bot_left_px);
+        const float r_tl = detail::resolve_border_radius_px(
+            cs.border_radius_top_left, eff.w, eff.h);
+        const float r_tr = detail::resolve_border_radius_px(
+            cs.border_radius_top_right, eff.w, eff.h);
+        const float r_br = detail::resolve_border_radius_px(
+            cs.border_radius_bot_right, eff.w, eff.h);
+        const float r_bl = detail::resolve_border_radius_px(
+            cs.border_radius_bot_left, eff.w, eff.h);
         const bool any_radius  = (r_tl > 0 || r_tr > 0 || r_br > 0 || r_bl > 0);
         const bool uniform_r   = (r_tl == r_tr && r_tr == r_br && r_br == r_bl);
-        // Background: a gradient (if present) wins over the solid color.
+        float bg_r_tl = r_tl;
+        float bg_r_tr = r_tr;
+        float bg_r_br = r_br;
+        float bg_r_bl = r_bl;
+        if (clipped) {
+            const auto& cb = impl_->blocks[static_cast<std::size_t>(clip_idx)];
+            const auto& ccs = impl_->style_store.computed(cb.id);
+            const float clip_tl = std::max(0.0f, detail::resolve_border_radius_px(
+                ccs.border_radius_top_left, cb.bounds.w, cb.bounds.h)
+                - static_cast<float>(std::max(ccs.used_border_left(), ccs.used_border_top())));
+            const float clip_tr = std::max(0.0f, detail::resolve_border_radius_px(
+                ccs.border_radius_top_right, cb.bounds.w, cb.bounds.h)
+                - static_cast<float>(std::max(ccs.used_border_right(), ccs.used_border_top())));
+            const float clip_br = std::max(0.0f, detail::resolve_border_radius_px(
+                ccs.border_radius_bot_right, cb.bounds.w, cb.bounds.h)
+                - static_cast<float>(std::max(ccs.used_border_right(), ccs.used_border_bottom())));
+            const float clip_bl = std::max(0.0f, detail::resolve_border_radius_px(
+                ccs.border_radius_bot_left, cb.bounds.w, cb.bounds.h)
+                - static_cast<float>(std::max(ccs.used_border_left(), ccs.used_border_bottom())));
+            constexpr float eps = 0.5f;
+            const float eff_r = static_cast<float>(eff.x + eff.w);
+            const float eff_b = static_cast<float>(eff.y + eff.h);
+            const float clip_r = static_cast<float>(active_clip_rect.x + active_clip_rect.w);
+            const float clip_b = static_cast<float>(active_clip_rect.y + active_clip_rect.h);
+            const bool touches_left = eff.x <= active_clip_rect.x + eps;
+            const bool touches_top = eff.y <= active_clip_rect.y + eps;
+            const bool touches_right = eff_r >= clip_r - eps;
+            const bool touches_bottom = eff_b >= clip_b - eps;
+            if (touches_left && touches_top) bg_r_tl = std::max(bg_r_tl, clip_tl);
+            if (touches_right && touches_top) bg_r_tr = std::max(bg_r_tr, clip_tr);
+            if (touches_right && touches_bottom) bg_r_br = std::max(bg_r_br, clip_br);
+            if (touches_left && touches_bottom) bg_r_bl = std::max(bg_r_bl, clip_bl);
+        }
+        const bool bg_any_radius =
+            (bg_r_tl > 0 || bg_r_tr > 0 || bg_r_br > 0 || bg_r_bl > 0);
+        const bool bg_uniform_r =
+            (bg_r_tl == bg_r_tr && bg_r_tr == bg_r_br && bg_r_br == bg_r_bl);
+        // Background color paints first; background images/gradients layer over it.
         const bool has_gradient =
             (an.gradient_kind != detail::AnimatedStyle::GradientKind::None);
-        const bool has_bg = !has_gradient && (an.background_rgba & 0xFFu) != 0;
+        const bool has_grid =
+            ((an.background_grid_rgba & 0xFFu) != 0 &&
+             an.background_grid_size_px != 0);
+        const bool has_bg = (an.background_rgba & 0xFFu) != 0;
 
-        // Resolve effective per-side border color. When the per-side
-        // override (set by `border-{side}:` shorthands) is non-zero,
-        // use it; otherwise fall back to the uniform border_rgba (set by
-        // the `border:` shorthand).
+        // Resolve effective per-side border color. Explicit transparent is a
+        // valid override, so use AnimatedStyle's side bitmask rather than the
+        // color value itself as the "is set" marker.
         using BS = detail::ComputedStyle::BorderStyle;
         auto side_rgba = [&](std::uint32_t per_side_rgba,
+                             std::uint8_t side_bit,
                              std::uint32_t fallback_rgba) -> std::uint32_t {
-            return (per_side_rgba != 0) ? per_side_rgba : fallback_rgba;
+            return (an.border_color_set & side_bit) ? per_side_rgba
+                                                    : fallback_rgba;
         };
 
-        const std::uint32_t c_top    = side_rgba(an.border_top_rgba,    an.border_rgba);
-        const std::uint32_t c_right  = side_rgba(an.border_right_rgba,  an.border_rgba);
-        const std::uint32_t c_bottom = side_rgba(an.border_bottom_rgba, an.border_rgba);
-        const std::uint32_t c_left   = side_rgba(an.border_left_rgba,   an.border_rgba);
+        const std::uint32_t c_top    = side_rgba(an.border_top_rgba,
+            detail::AnimatedStyle::BorderTopColorSet, an.border_rgba);
+        const std::uint32_t c_right  = side_rgba(an.border_right_rgba,
+            detail::AnimatedStyle::BorderRightColorSet, an.border_rgba);
+        const std::uint32_t c_bottom = side_rgba(an.border_bottom_rgba,
+            detail::AnimatedStyle::BorderBottomColorSet, an.border_rgba);
+        const std::uint32_t c_left   = side_rgba(an.border_left_rgba,
+            detail::AnimatedStyle::BorderLeftColorSet, an.border_rgba);
+        const int used_border_top    = cs.used_border_top();
+        const int used_border_right  = cs.used_border_right();
+        const int used_border_bottom = cs.used_border_bottom();
+        const int used_border_left   = cs.used_border_left();
 
-        // A side is visible if the element's border_style is non-None,
-        // the side has a non-zero width, and its effective color is opaque.
-        const bool style_active = cs.border_style != BS::None;
-        auto side_visible = [&](int w, std::uint32_t rgba) -> bool {
-            return style_active && w > 0 && (rgba & 0xFFu) != 0;
+        // A side is visible if that side's border-style is non-None, the
+        // side has a non-zero used width, and its effective color is opaque.
+        auto side_visible = [&](int used_w, std::uint32_t rgba) -> bool {
+            return used_w > 0 && (rgba & 0xFFu) != 0;
         };
 
-        const bool vis_top    = side_visible(cs.border_top,    c_top);
-        const bool vis_right  = side_visible(cs.border_right,  c_right);
-        const bool vis_bottom = side_visible(cs.border_bottom, c_bottom);
-        const bool vis_left   = side_visible(cs.border_left,   c_left);
+        const bool vis_top    = side_visible(used_border_top,    c_top);
+        const bool vis_right  = side_visible(used_border_right,  c_right);
+        const bool vis_bottom = side_visible(used_border_bottom, c_bottom);
+        const bool vis_left   = side_visible(used_border_left,   c_left);
 
         const bool has_border = vis_top || vis_right || vis_bottom || vis_left;
-
-        // spinner-border uses CSS border-color to set the ring color, but its
-        // CSS border draws as a square (border-radius: 50% doesn't work with
-        // percentage values in our cascade yet). Suppress the CSS border draw
-        // for spinner-border elements; the arc is drawn in the UA spinner block
-        // below. spinner-grow doesn't use border at all so no check needed.
-        const bool is_spinner_border = std::find(b.classes.begin(),
-            b.classes.end(), "spinner-border") != b.classes.end();
 
         // True when all visible sides share identical color and width, enabling
         // the fast-path stroke_rect / stroke_rounded_rect for the Solid style.
@@ -1929,8 +4481,9 @@ void Document::draw(Painter& painter) {
             has_border
             && cs.border_style == BS::Solid
             && c_top == c_right && c_right == c_bottom && c_bottom == c_left
-            && cs.border_top == cs.border_right && cs.border_right == cs.border_bottom
-            && cs.border_bottom == cs.border_left;
+            && used_border_top == used_border_right &&
+               used_border_right == used_border_bottom &&
+               used_border_bottom == used_border_left;
         const bool has_shadow = (an.shadow_rgba & 0xFFu) != 0
             && (an.shadow_blur != 0 || an.shadow_spread != 0 ||
                 an.shadow_offset_x != 0 || an.shadow_offset_y != 0);
@@ -1939,8 +4492,55 @@ void Document::draw(Painter& painter) {
         // the largest corner; per-corner shadow radii are not a thing).
         const float shadow_radius = any_radius
             ? std::max({r_tl, r_tr, r_br, r_bl}) : 0.0f;
+        auto shadow_visible = [](const detail::BoxShadowLayer& layer) {
+            return (layer.rgba & 0xFFu) != 0 &&
+                (layer.blur != 0 || layer.spread != 0 ||
+                 layer.offset_x != 0 || layer.offset_y != 0);
+        };
+        auto adjust_inset_shadow_geometry = [&](Rect& shadow_rect,
+                                                float& layer_radius,
+                                                bool inset) {
+            if (inset) {
+                const int border_l = std::max(0, used_border_left);
+                const int border_t = std::max(0, used_border_top);
+                const int border_r = std::max(0, used_border_right);
+                const int border_b = std::max(0, used_border_bottom);
+                shadow_rect = Rect{
+                    eff.x + border_l,
+                    eff.y + border_t,
+                    std::max(0, eff.w - border_l - border_r),
+                    std::max(0, eff.h - border_t - border_b),
+                };
+                if (shadow_rect.w <= 0 || shadow_rect.h <= 0) return;
+                const int border_for_radius =
+                    std::max({border_l, border_t, border_r, border_b});
+                layer_radius = std::max(
+                    0.0f, shadow_radius - static_cast<float>(border_for_radius));
+            }
+        };
+        auto paint_shadow_layer = [&](const detail::BoxShadowLayer& layer,
+                                      bool inset) {
+            Rect shadow_rect = eff;
+            float layer_radius = shadow_radius;
+            adjust_inset_shadow_geometry(shadow_rect, layer_radius, inset);
+            if (shadow_rect.w <= 0 || shadow_rect.h <= 0) return;
+            painter.fill_box_shadow(
+                shadow_rect, layer_radius, detail::unpack_rgba(layer.rgba),
+                static_cast<float>(layer.offset_x),
+                static_cast<float>(layer.offset_y),
+                static_cast<float>(layer.blur),
+                static_cast<float>(layer.spread),
+                inset);
+        };
         // Outset shadow paints BEHIND the background (CSS painting order).
-        if (has_shadow && !an.shadow_inset) {
+        if (b.box_shadows) {
+            for (auto it = b.box_shadows->rbegin();
+                 it != b.box_shadows->rend(); ++it) {
+                if (!it->inset && shadow_visible(*it)) {
+                    paint_shadow_layer(*it, false);
+                }
+            }
+        } else if (has_shadow && !an.shadow_inset) {
             painter.fill_box_shadow(
                 eff, shadow_radius, detail::unpack_rgba(an.shadow_rgba),
                 static_cast<float>(an.shadow_offset_x),
@@ -1952,10 +4552,11 @@ void Document::draw(Painter& painter) {
 
         if (has_bg) {
             const Color bg = detail::unpack_rgba(an.background_rgba);
-            if      (!any_radius)             painter.fill_rect(eff, bg);
-            else if (uniform_r)               painter.fill_rounded_rect(eff, r_tl, bg);
+            if      (!bg_any_radius)          painter.fill_rect(eff, bg);
+            else if (bg_uniform_r)            painter.fill_rounded_rect(eff, bg_r_tl, bg);
             else                              painter.fill_rounded_rect_varying(
-                                                  eff, r_tl, r_tr, r_br, r_bl, bg);
+                                                  eff, bg_r_tl, bg_r_tr,
+                                                  bg_r_br, bg_r_bl, bg);
         }
 
         if (has_gradient) {
@@ -1964,18 +4565,46 @@ void Document::draw(Painter& painter) {
             if (an.gradient_kind == detail::AnimatedStyle::GradientKind::Linear) {
                 painter.fill_linear_gradient_rect(
                     eff, static_cast<float>(an.gradient_angle_deg),
-                    s0, s1, r_tl, r_tr, r_br, r_bl);
-            } else {
+                    s0, s1, bg_r_tl, bg_r_tr, bg_r_br, bg_r_bl);
+            } else if (an.gradient_kind == detail::AnimatedStyle::GradientKind::Radial) {
                 painter.fill_radial_gradient_rect(
-                    eff, s0, s1, r_tl, r_tr, r_br, r_bl);
+                    eff, s0, s1, bg_r_tl, bg_r_tr, bg_r_br, bg_r_bl,
+                    static_cast<float>(an.gradient_center_x_pct),
+                    static_cast<float>(an.gradient_center_y_pct),
+                    static_cast<float>(an.gradient_stop1_pos_pct));
+            } else if (an.gradient_kind == detail::AnimatedStyle::GradientKind::LinearStripes) {
+                painter.fill_linear_stripes_rect(
+                    eff, static_cast<float>(an.gradient_angle_deg),
+                    s0, static_cast<float>(std::max(1, eff.h)),
+                    bg_r_tl, bg_r_tr, bg_r_br, bg_r_bl);
             }
+        }
+
+        if (has_grid) {
+            painter.fill_grid_rect(
+                eff, detail::unpack_rgba(an.background_grid_rgba),
+                static_cast<float>(an.background_grid_size_px),
+                static_cast<float>(std::max<std::uint8_t>(
+                    1, an.background_grid_line_px)),
+                bg_r_tl, bg_r_tr, bg_r_br, bg_r_bl);
         }
 
         // Inset shadow paints ON TOP of the background/gradient but under
         // the border and content (CSS painting order).
-        if (has_shadow && an.shadow_inset) {
+        if (b.box_shadows) {
+            for (auto it = b.box_shadows->rbegin();
+                 it != b.box_shadows->rend(); ++it) {
+                if (it->inset && shadow_visible(*it)) {
+                    paint_shadow_layer(*it, true);
+                }
+            }
+        } else if (has_shadow && an.shadow_inset) {
+            Rect shadow_rect = eff;
+            float layer_radius = shadow_radius;
+            adjust_inset_shadow_geometry(
+                shadow_rect, layer_radius, /*inset=*/true);
             painter.fill_box_shadow(
-                eff, shadow_radius, detail::unpack_rgba(an.shadow_rgba),
+                shadow_rect, layer_radius, detail::unpack_rgba(an.shadow_rgba),
                 static_cast<float>(an.shadow_offset_x),
                 static_cast<float>(an.shadow_offset_y),
                 static_cast<float>(an.shadow_blur),
@@ -1988,11 +4617,11 @@ void Document::draw(Painter& painter) {
             const auto sz = painter.image_size(image);
             if (image != 0 && sz.width > 0 && sz.height > 0) {
                 const Rect content_r{
-                    eff.x + cs.border_left + cs.padding_left,
-                    eff.y + cs.border_top + cs.padding_top,
-                    eff.w - cs.border_left - cs.border_right
+                    eff.x + used_border_left + cs.padding_left,
+                    eff.y + used_border_top + cs.padding_top,
+                    eff.w - used_border_left - used_border_right
                           - cs.padding_left - cs.padding_right,
-                    eff.h - cs.border_top - cs.border_bottom
+                    eff.h - used_border_top - used_border_bottom
                           - cs.padding_top - cs.padding_bottom,
                 };
                 if (content_r.w > 0 && content_r.h > 0) {
@@ -2002,29 +4631,82 @@ void Document::draw(Painter& painter) {
             }
         }
 
-        if (has_border && !is_spinner_border) {
-            if (uniform_border && !any_radius) {
-                // Fast path: uniform solid border, no radius. One NVG stroke
-                // (avoids 4 separate lineto calls).
-                const float thickness = static_cast<float>(cs.border_top);
-                const int   inset     = cs.border_top / 2;
-                const Rect  stroke_r{
-                    eff.x + inset, eff.y + inset,
-                    eff.w - 2 * inset, eff.h - 2 * inset,
-                };
-                painter.stroke_rect(stroke_r, detail::unpack_rgba(c_top), thickness);
+#if !defined(AFFINEUI_STUB_BUILD)
+        if (auto* elem = impl_->style_store.element_of(b.id)) {
+            paint_direct_child_svgs(b, eff, cs, an, painter, elem);
+        }
+#endif
+
+        if (has_border) {
+            const bool equal_border_widths =
+                used_border_top == used_border_right &&
+                used_border_right == used_border_bottom &&
+                used_border_bottom == used_border_left;
+            const float short_side =
+                static_cast<float>(std::min(eff.w, eff.h));
+            const bool circular_equal_border =
+                cs.border_style == BS::Solid && any_radius && uniform_r &&
+                equal_border_widths && short_side > 0.0f &&
+                std::abs(static_cast<float>(eff.w - eff.h)) <= 1.0f &&
+                r_tl >= short_side * 0.5f - 0.5f;
+
+            if (!uniform_border && circular_equal_border) {
+                // Equal-width circular borders with per-side colors are common
+                // in CSS spinners: each side owns one quadrant, with joins at
+                // 45-degree diagonals. This preserves transparent sides without
+                // a class-specific paint hook.
+                const float thickness = static_cast<float>(used_border_top);
+                const float radius = short_side * 0.5f - thickness * 0.5f;
+                if (radius > 0.0f) {
+                    const float cx = static_cast<float>(eff.x) +
+                                     static_cast<float>(eff.w) * 0.5f;
+                    const float cy = static_cast<float>(eff.y) +
+                                     static_cast<float>(eff.h) * 0.5f;
+                    if (vis_top) {
+                        painter.stroke_arc(cx, cy, radius, -45.0f, 45.0f,
+                                           detail::unpack_rgba(c_top),
+                                           thickness);
+                    }
+                    if (vis_right) {
+                        painter.stroke_arc(cx, cy, radius, 45.0f, 135.0f,
+                                           detail::unpack_rgba(c_right),
+                                           thickness);
+                    }
+                    if (vis_bottom) {
+                        painter.stroke_arc(cx, cy, radius, 135.0f, 225.0f,
+                                           detail::unpack_rgba(c_bottom),
+                                           thickness);
+                    }
+                    if (vis_left) {
+                        painter.stroke_arc(cx, cy, radius, 225.0f, 315.0f,
+                                           detail::unpack_rgba(c_left),
+                                           thickness);
+                    }
+                }
+            } else if (uniform_border && !any_radius) {
+                // CSS uniform solid border: fill the border area inside the
+                // border box. A centered vector stroke puts half of a 1px
+                // border outside the element and makes tiny controls mushy.
+                const float thickness = static_cast<float>(used_border_top);
+                painter.fill_rounded_rect_ring(
+                    eff, 0.0f, thickness, detail::unpack_rgba(c_top));
+            } else if (uniform_border && any_radius && uniform_r) {
+                // CSS uniform solid rounded border. The filled ring matches
+                // the border box / padding box geometry instead of stroking
+                // the centreline of the outer rounded rect.
+                const float thickness = static_cast<float>(used_border_top);
+                const Color bc = detail::unpack_rgba(c_top);
+                painter.fill_rounded_rect_ring(eff, r_tl, thickness, bc);
             } else if (uniform_border && any_radius) {
-                // Fast path: uniform solid border with border-radius.
-                const float thickness = static_cast<float>(cs.border_top);
-                const int   inset     = cs.border_top / 2;
+                const float thickness = static_cast<float>(used_border_top);
+                const int   inset     = used_border_top / 2;
                 const Rect  stroke_r{
                     eff.x + inset, eff.y + inset,
                     eff.w - 2 * inset, eff.h - 2 * inset,
                 };
                 const Color bc = detail::unpack_rgba(c_top);
-                if (uniform_r) painter.stroke_rounded_rect(stroke_r, r_tl, bc, thickness);
-                else           painter.stroke_rounded_rect_varying(
-                                   stroke_r, r_tl, r_tr, r_br, r_bl, bc, thickness);
+                painter.stroke_rounded_rect_varying(
+                    stroke_r, r_tl, r_tr, r_br, r_bl, bc, thickness);
             } else {
                 // General path: draw each visible side independently.
                 //
@@ -2035,7 +4717,7 @@ void Document::draw(Painter& painter) {
                 //
                 // Corner convention: horizontal edges own the full width
                 // including their corner squares; vertical edges span only
-                // between the outer horizontal edge endpoints — matching
+                // between the outer horizontal edge endpoints â€” matching
                 // the T-intersect rendering browsers produce for different
                 // side widths/colors.
                 //
@@ -2049,54 +4731,71 @@ void Document::draw(Painter& painter) {
                 const float ew = static_cast<float>(eff.w);
                 const float eh = static_cast<float>(eff.h);
 
+                auto fill_border_rect = [&](float x, float y, float w, float h,
+                                            Color color) {
+                    const int ix = static_cast<int>(std::round(x));
+                    const int iy = static_cast<int>(std::round(y));
+                    const int iw = static_cast<int>(std::round(w));
+                    const int ih = static_cast<int>(std::round(h));
+                    if (iw > 0 && ih > 0) {
+                        painter.fill_rect(Rect{ix, iy, iw, ih}, color);
+                    }
+                };
+
                 // Helper: draw one edge segment with a given border style.
-                // (ax,ay)→(bx,by) are the outer-edge start/end points.
+                // (ax,ay)â†’(bx,by) are the outer-edge start/end points.
                 // `w` is the border width in px; style and color are side-specific.
                 auto draw_edge = [&](float ax, float ay, float bx, float by,
                                      float w, BS style, Color color) {
                     if (w <= 0.0f) return;
+                    const float dx = bx - ax;
+                    const float dy = by - ay;
+                    const float len = std::sqrt(dx * dx + dy * dy);
+                    if (len <= 0.0f) return;
+                    const bool horiz = (std::abs(dy) < 0.5f);
+                    const float ux = dx / len;
+                    const float uy = dy / len;
                     // Centre of the border stripe, perpendicular to the edge.
                     // For horizontal edges: shift down by w/2. For vertical:
                     // shift right by w/2. Both are embedded in ax/ay already
-                    // for our usage — the caller passes midpoint coordinates.
+                    // for our usage â€” the caller passes midpoint coordinates.
                     switch (style) {
                         case BS::Solid: {
                             painter.stroke_line(ax, ay, bx, by, color, w);
                             break;
                         }
                         case BS::Dashed: {
-                            // CSS dashed: dash ≈ 3× border width, gap ≈ border width.
-                            const float dash   = std::max(w * 3.0f, 1.0f);
-                            const float gap    = std::max(w,         1.0f);
+                            // CSS dashed: dash ~= 3x border width, gap ~= border width.
+                            // Fill border-area rectangles so stroke caps do not erase the gap.
+                            const float dash = std::max(w * 3.0f, 1.0f);
+                            const float gap = std::max(w, 1.0f);
                             const float period = dash + gap;
-                            const float dx = bx - ax;
-                            const float dy = by - ay;
-                            const float len = std::sqrt(dx * dx + dy * dy);
-                            if (len <= 0.0f) break;
-                            const float ux = dx / len;
-                            const float uy = dy / len;
                             float t = 0.0f;
                             while (t < len) {
                                 const float dash_end = std::min(t + dash, len);
-                                painter.stroke_line(ax + ux * t,  ay + uy * t,
-                                                    ax + ux * dash_end,
-                                                    ay + uy * dash_end,
-                                                    color, w);
+                                const float seg_len = dash_end - t;
+                                if (horiz) {
+                                    fill_border_rect(ax + ux * t,
+                                                     ay - w * 0.5f,
+                                                     seg_len,
+                                                     w,
+                                                     color);
+                                } else {
+                                    fill_border_rect(ax - w * 0.5f,
+                                                     ay + uy * t,
+                                                     w,
+                                                     seg_len,
+                                                     color);
+                                }
                                 t += period;
                             }
                             break;
                         }
                         case BS::Dotted: {
                             // CSS dotted: circular dots, diameter = border width,
-                            // spaced at ~2× diameter (dot + equal gap).
+                            // spaced at ~2x diameter (dot + equal gap).
                             const float radius = w * 0.5f;
                             const float period = w * 2.0f;
-                            const float dx = bx - ax;
-                            const float dy = by - ay;
-                            const float len = std::sqrt(dx * dx + dy * dy);
-                            if (len <= 0.0f) break;
-                            const float ux = dx / len;
-                            const float uy = dy / len;
                             float t = radius;  // first dot centred at w/2 from edge
                             while (t <= len) {
                                 painter.fill_circle(ax + ux * t, ay + uy * t,
@@ -2106,36 +4805,16 @@ void Document::draw(Painter& painter) {
                             break;
                         }
                         case BS::Double: {
-                            // CSS double: outer stroke + gap + inner stroke.
-                            // Each stripe is w/3; gap is w/3.
-                            // Total border width w = outer(w/3) + gap(w/3) + inner(w/3).
-                            // The outer stripe is tangent to the outer edge of the
-                            // border box; the inner is tangent to the content box.
-                            // The caller passed midpoints of the overall border stripe;
-                            // to draw the outer/inner sub-stripes we need to offset
-                            // perpendicular to the edge by ±w/3.
-                            //
-                            // For simplicity we approximate using two parallel
-                            // stroke_lines at offsets computed from the edge direction.
-                            // Horizontal edge (ay == by): offset in Y.
-                            // Vertical edge (ax == bx): offset in X.
-                            const float sub_w = std::max(1.0f, w / 3.0f);
-                            const float offset = w / 3.0f;  // shift to outer / inner
-                            const bool horiz = (std::abs(by - ay) < 0.5f);
+                            // CSS double: outer stripe + gap + inner stripe.
+                            const float sub_w = std::max(1.0f, std::floor(w / 3.0f));
                             if (horiz) {
-                                // Outer stripe (closer to top outer edge)
-                                painter.stroke_line(ax, ay - offset, bx, by - offset,
-                                                    color, sub_w);
-                                // Inner stripe (closer to content area)
-                                painter.stroke_line(ax, ay + offset, bx, by + offset,
-                                                    color, sub_w);
+                                const float y = ay - w * 0.5f;
+                                fill_border_rect(ax, y, len, sub_w, color);
+                                fill_border_rect(ax, y + w - sub_w, len, sub_w, color);
                             } else {
-                                // Outer stripe (closer to left outer edge)
-                                painter.stroke_line(ax - offset, ay, bx - offset, by,
-                                                    color, sub_w);
-                                // Inner stripe
-                                painter.stroke_line(ax + offset, ay, bx + offset, by,
-                                                    color, sub_w);
+                                const float x = ax - w * 0.5f;
+                                fill_border_rect(x, ay, sub_w, len, color);
+                                fill_border_rect(x + w - sub_w, ay, sub_w, len, color);
                             }
                             break;
                         }
@@ -2144,10 +4823,10 @@ void Document::draw(Painter& painter) {
                 };
 
                 // All sides share the same style (per-side style variation
-                // is Phase 2C+ — see computed_style.h comment).
+                // is Phase 2C+ â€” see computed_style.h comment).
                 const BS bstyle = cs.border_style;
 
-                // border-collapse: collapse — adjacent cells share one border.
+                // border-collapse: collapse â€” adjacent cells share one border.
                 // Normally each edge sits half its width INSIDE the border box;
                 // two adjacent cells then draw the shared edge one stripe apart,
                 // doubling the interior grid line. In collapse mode we snap each
@@ -2155,55 +4834,148 @@ void Document::draw(Painter& painter) {
                 // pixel column/row just inside the boundary, and BOTH neighbours
                 // (cell right == next cell left; row bottom == next row top, which
                 // also coincides with the cells' base border-bottom) snap to that
-                // same pixel — a single crisp grid line instead of a double.
+                // same pixel â€” a single crisp grid line instead of a double.
                 const bool collapse = cs.border_collapse;
                 const float cwt = collapse ? -0.5f : 0.0f;  // half-pixel snap
 
                 // Top edge: runs full width from left edge to right edge.
                 if (vis_top) {
-                    const float wt = static_cast<float>(cs.border_top);
+                    const float wt = static_cast<float>(used_border_top);
                     const float my = collapse ? ey + cwt : ey + wt * 0.5f;
                     draw_edge(ex, my, ex + ew, my, wt, bstyle,
                               detail::unpack_rgba(c_top));
                 }
                 // Bottom edge: full width.
                 if (vis_bottom) {
-                    const float wb = static_cast<float>(cs.border_bottom);
+                    const float wb = static_cast<float>(used_border_bottom);
                     const float my = collapse ? ey + eh + cwt : ey + eh - wb * 0.5f;
                     draw_edge(ex, my, ex + ew, my, wb, bstyle,
                               detail::unpack_rgba(c_bottom));
                 }
                 // Left edge: between the top and bottom edges' outer boundaries.
                 if (vis_left) {
-                    const float wl  = static_cast<float>(cs.border_left);
+                    const float wl  = static_cast<float>(used_border_left);
                     const float mx  = collapse ? ex + cwt : ex + wl * 0.5f;
                     const float y0  = collapse ? ey + cwt
-                                      : ey + static_cast<float>(cs.border_top);
+                                      : ey + static_cast<float>(used_border_top);
                     const float y1  = collapse ? ey + eh + cwt
-                                      : ey + eh - static_cast<float>(cs.border_bottom);
+                                      : ey + eh - static_cast<float>(used_border_bottom);
                     draw_edge(mx, y0, mx, y1, wl, bstyle,
                               detail::unpack_rgba(c_left));
                 }
                 // Right edge: between top and bottom edges' outer boundaries.
                 if (vis_right) {
-                    const float wr  = static_cast<float>(cs.border_right);
+                    const float wr  = static_cast<float>(used_border_right);
                     const float mx  = collapse ? ex + ew + cwt : ex + ew - wr * 0.5f;
                     const float y0  = collapse ? ey + cwt
-                                      : ey + static_cast<float>(cs.border_top);
+                                      : ey + static_cast<float>(used_border_top);
                     const float y1  = collapse ? ey + eh + cwt
-                                      : ey + eh - static_cast<float>(cs.border_bottom);
+                                      : ey + eh - static_cast<float>(used_border_bottom);
                     draw_edge(mx, y0, mx, y1, wr, bstyle,
                               detail::unpack_rgba(c_right));
                 }
             }
         }
 
+        if (cs.display == detail::ComputedStyle::Display::ListItem &&
+            cs.list_style_type != detail::ComputedStyle::ListStyleType::None) {
+            const auto font = painter.resolve_font(
+                impl_->style_store.font_family_of(cs.font_id), cs.font_size_px,
+                cs.font_weight, cs.font_style != 0);
+            const Color marker_color = detail::unpack_rgba(an.color_rgba);
+            const int text_y = eff.y + used_border_top + cs.padding_top;
+            const auto metrics = painter.text_metrics(font);
+            const float natural_line_h = metrics.line_height > 0.0f
+                ? metrics.line_height
+                : static_cast<float>(cs.font_size_px);
+            const float css_line_h =
+                static_cast<float>(cs.font_size_px) *
+                detail::effective_line_height_mult(cs);
+            const float line_top =
+                static_cast<float>(text_y) + (css_line_h - natural_line_h) * 0.5f;
+            const float marker_cy = line_top + natural_line_h * 0.5f;
+            const float marker_cx = static_cast<float>(eff.x - 16);
+
+            using LT = detail::ComputedStyle::ListStyleType;
+            switch (cs.list_style_type) {
+                case LT::Disc:
+                case LT::Circle:
+                    painter.fill_circle(marker_cx, marker_cy, 3.0f,
+                                        marker_color);
+                    break;
+                case LT::Square:
+                    painter.fill_rect(
+                        Rect{static_cast<int>(std::round(marker_cx - 2.5f)),
+                             static_cast<int>(std::round(marker_cy - 2.5f)),
+                             5, 5},
+                        marker_color);
+                    break;
+                case LT::Decimal: {
+                    const auto marker =
+                        std::to_string(std::max(1, list_ordinals[i])) + ".";
+                    const float letter_spacing_px =
+                        static_cast<float>(cs.letter_spacing_x100) / 100.0f;
+                    painter.draw_text_box(
+                        font, Point{eff.x - 26, text_y}, marker, marker_color,
+                        20.0f, detail::effective_line_height_mult(cs),
+                        letter_spacing_px, Painter::TextAlign::Right);
+                    break;
+                }
+                case LT::None:
+                default:
+                    break;
+            }
+        }
+
         if (!b.text.empty()) {
             const auto font = painter.resolve_font(
                 impl_->style_store.font_family_of(cs.font_id), cs.font_size_px, cs.font_weight, cs.font_style != 0);
-            const int text_y = eff.y + cs.border_top  + cs.padding_top;
+            int text_y = eff.y + used_border_top  + cs.padding_top;
+            const bool single_line_text =
+                b.text.find('\n') == std::string::npos &&
+                b.text.find('\r') == std::string::npos;
+            if (single_line_text &&
+                (cs.display == detail::ComputedStyle::Display::Flex ||
+                 cs.display == detail::ComputedStyle::Display::InlineFlex)) {
+                const float content_h = static_cast<float>(
+                    eff.h - used_border_top - used_border_bottom
+                          - cs.padding_top - cs.padding_bottom);
+                const float css_line_h =
+                    static_cast<float>(cs.font_size_px) *
+                    detail::effective_line_height_mult(cs);
+                const float free_h = content_h - css_line_h;
+                if (free_h > 0.0f) {
+                    using AI = detail::ComputedStyle::AlignItems;
+                    if (cs.align_items == AI::Center) {
+                        text_y += static_cast<int>(free_h * 0.5f);
+                    } else if (cs.align_items == AI::End) {
+                        text_y += static_cast<int>(std::lround(free_h));
+                    }
+                }
+            }
 
-            // Map ComputedStyle::TextAlign → Painter::TextAlign.
+            // Map ComputedStyle::TextAlign â†’ Painter::TextAlign.
+            const int textarea_idx = nearest_block_with_tag(
+                impl_->blocks, static_cast<int>(i), "textarea");
+            if (textarea_idx >= 0) {
+                // Native textarea value text is painted by the control's
+                // inner edit viewport, not directly from the element content
+                // edge. Model that viewport from the authored padding/border
+                // so the adjustment follows the box instead of a fixture.
+                const auto& textarea_cs = impl_->style_store.computed(
+                    impl_->blocks[static_cast<std::size_t>(textarea_idx)].id);
+                text_y += std::max(
+                    0, textarea_cs.padding_top - textarea_cs.used_border_top());
+            } else if (b.tag == "input" &&
+                       b.input_type != "checkbox" &&
+                       b.input_type != "radio") {
+                // Single-line native text inputs also paint through an edit
+                // viewport inset from the painted border. CSS padding still
+                // controls the content origin; this accounts for the native
+                // control text viewport itself.
+                text_y += std::min<int>(1, used_border_top);
+            }
+
             Painter::TextAlign paint_align = Painter::TextAlign::Left;
             switch (cs.text_align) {
                 case detail::ComputedStyle::TextAlign::Left:
@@ -2225,13 +4997,57 @@ void Document::draw(Painter& painter) {
             // natural text width, so centering/right-aligning within it
             // is a no-op. Instead, walk up to the nearest non-synthetic
             // ancestor block and use its content geometry as the line box.
-            int text_x    = eff.x + cs.border_left + cs.padding_left;
+            int text_x    = eff.x + used_border_left + cs.padding_left;
             float content_w = static_cast<float>(
-                eff.w - cs.border_left - cs.border_right
+                eff.w - used_border_left - used_border_right
                       - cs.padding_left - cs.padding_right);
+            const bool native_select_text =
+                b.tag == "select" && !block_has_class(b, "form-select");
+            if (native_select_text) {
+                // Chrome's native closed select paints its value inside an
+                // internal edit field inset in addition to CSS padding. This
+                // inset is part of the platform control, not reflected in
+                // getComputedStyle(). Bootstrap's .form-select opts out with
+                // appearance:none and supplies its own SVG background.
+                constexpr int kNativeSelectTextInsetPx = 5;
+                text_x += kNativeSelectTextInsetPx;
+                content_w = std::max(
+                    1.0f,
+                    content_w - static_cast<float>(kNativeSelectTextInsetPx));
+            }
 
             const bool is_justify = (paint_align == Painter::TextAlign::Justify);
-            if (paint_align != Painter::TextAlign::Left && b.synthetic == false) {
+            const bool in_mixed_inline_run =
+                b.parent_idx >= 0 &&
+                static_cast<std::size_t>(b.parent_idx) < impl_->blocks.size() &&
+                impl_->blocks[static_cast<std::size_t>(b.parent_idx)].synthetic &&
+                static_cast<std::size_t>(b.parent_idx) < child_counts.size() &&
+                child_counts[static_cast<std::size_t>(b.parent_idx)] > 1;
+            const bool in_synthetic_inline_parent =
+                b.parent_idx >= 0 &&
+                static_cast<std::size_t>(b.parent_idx) < impl_->blocks.size() &&
+                impl_->blocks[static_cast<std::size_t>(b.parent_idx)].synthetic;
+            const bool first_in_synthetic_inline_parent =
+                in_synthetic_inline_parent &&
+                static_cast<std::size_t>(b.parent_idx) < first_child_indices.size() &&
+                first_child_indices[static_cast<std::size_t>(b.parent_idx)] ==
+                    static_cast<int>(i);
+            if (!in_synthetic_inline_parent || first_in_synthetic_inline_parent) {
+                int indent_px = cs.text_indent_value;
+                if (cs.text_indent_is_pct) {
+                    indent_px = static_cast<int>(std::lround(
+                        content_w * static_cast<float>(cs.text_indent_value) /
+                        10000.0f));
+                }
+                if (indent_px != 0) {
+                    text_x += indent_px;
+                    content_w = std::max(1.0f,
+                                         content_w - static_cast<float>(indent_px));
+                }
+            }
+            if (paint_align != Painter::TextAlign::Left &&
+                in_synthetic_inline_parent && b.synthetic == false &&
+                !in_mixed_inline_run) {
                 // Walk parent chain to find the first non-synthetic block.
                 int anc = b.parent_idx;
                 while (anc >= 0) {
@@ -2245,13 +5061,13 @@ void Document::draw(Painter& painter) {
                             ab.bounds.x, ab.bounds.y - anc_dy,
                             ab.bounds.w, ab.bounds.h,
                         };
-                        const int al = ae.x + acs.border_left + acs.padding_left;
+                        const int al = ae.x + acs.used_border_left() + acs.padding_left;
                         const float aw = static_cast<float>(
-                            ae.w - acs.border_left - acs.border_right
+                            ae.w - acs.used_border_left() - acs.used_border_right()
                                  - acs.padding_left - acs.padding_right);
                         // Use the ancestor geometry when it's meaningfully
                         // wider (the current block is narrower than the
-                        // container) — for center/right that's the line box.
+                        // container) â€” for center/right that's the line box.
                         // For JUSTIFY we must also clamp DOWN to the
                         // container when the leaf's natural (unwrapped) width
                         // overflows it, so the text wraps to the line box and
@@ -2280,7 +5096,7 @@ void Document::draw(Painter& painter) {
             // that measure said fits. A few pixels of slack covers
             // the gap for typical UI fonts at typical sizes.
             //
-            // white-space: nowrap / pre — suppress line-wrapping by
+            // white-space: nowrap / pre â€” suppress line-wrapping by
             // passing a very large max-width to both measure and draw.
             using WS = detail::ComputedStyle::WhiteSpace;
             const bool is_nowrap = (cs.white_space == WS::Nowrap ||
@@ -2288,7 +5104,7 @@ void Document::draw(Painter& painter) {
 
             // white-space:nowrap forces a single line, which we signal to
             // the painter with a huge wrap width. But nvgTextBox aligns
-            // center/right *within* that wrap width — at 1e6 it would fling
+            // center/right *within* that wrap width â€” at 1e6 it would fling
             // the glyphs ~500k px off-screen (the symptom: nowrap centered
             // text like progress-bar "%" labels and badges renders blank).
             // So resolve the alignment offset here against the real line box
@@ -2304,10 +5120,17 @@ void Document::draw(Painter& painter) {
                 paint_align = Painter::TextAlign::Left;
             }
 
-            // Justify fills exactly to the content edge — no wrap slack
+            // Justify fills exactly to the content edge â€” no wrap slack
             // (the +4 below would let justified lines spill 4px past it).
+            const bool aligned_text =
+                paint_align == Painter::TextAlign::Center ||
+                paint_align == Painter::TextAlign::Right;
+            const bool suppress_wrap_slack = b.text_control ||
+                b.tag == "select" || aligned_text;
+            const float wrap_slack = suppress_wrap_slack ? 0.0f : 4.0f;
             const float draw_max_w = is_nowrap ? 1e6f
-                                   : (is_justify ? content_w : content_w + 4.0f);
+                                   : (is_justify ? content_w
+                                                 : content_w + wrap_slack);
             const float letter_spacing_px =
                 static_cast<float>(cs.letter_spacing_x100) / 100.0f;
             painter.draw_text_box(font, Point{text_x, text_y}, b.text,
@@ -2316,65 +5139,83 @@ void Document::draw(Painter& painter) {
                                   detail::effective_line_height_mult(cs),
                                   letter_spacing_px,
                                   paint_align);
-        }
-
-        // <select> dropdown indicator: a small chevron at the right edge.
-        // Native selects draw one; Bootstrap's .form-select uses an SVG
-        // background we don't rasterize, so the UA supplies it here.
-        if (b.tag == "select") {
-            const float cx = static_cast<float>(eff.x + eff.w) - 17.0f;
-            const float cy = static_cast<float>(eff.y) +
-                             static_cast<float>(eff.h) * 0.5f;
-            const Color chev{0x34, 0x3a, 0x40, 0xFF};
-            painter.stroke_line(cx - 5.0f, cy - 2.5f, cx, cy + 2.5f, chev, 1.5f);
-            painter.stroke_line(cx, cy + 2.5f, cx + 5.0f, cy - 2.5f, chev, 1.5f);
-        }
-
-        // ── UA spinner drawing ─────────────────────────────────────────
-        // Bootstrap spinners use CSS animations and SVG-level drawing we
-        // can't rasterize. Draw a static approximation that matches
-        // Chrome's frozen-animation frame.
-        {
-            // Helper: class membership test.
-            auto has_cls = [&](std::string_view name) -> bool {
-                return std::find(b.classes.begin(), b.classes.end(), name)
-                       != b.classes.end();
-            };
-            // Foreground colour for the spinner ring / disc.
-            const Color fg = detail::unpack_rgba(an.color_rgba);
-
-            if (has_cls("spinner-border")) {
-                // spinner-border: a ring (open arc, ~270° visible) centred on
-                // the element's border box. Bootstrap's default spinner-border
-                // is 2rem (32px) with a 0.25em (4px) border-width. spinner-
-                // border-sm is 1rem (16px) with a 0.2em (≈3px) border.
-                const float cx = static_cast<float>(eff.x) + static_cast<float>(eff.w) * 0.5f;
-                const float cy = static_cast<float>(eff.y) + static_cast<float>(eff.h) * 0.5f;
-                // Border stroke width ≈ 12.5% of the element's shorter dimension
-                // (matches Bootstrap's 0.25em / 2rem ratio).
-                const float short_side = static_cast<float>(std::min(eff.w, eff.h));
-                const float stroke_w   = std::max(2.0f, short_side * 0.125f);
-                const float radius     = short_side * 0.5f - stroke_w * 0.5f;
-                if (radius > 0.0f) {
-                    // Draw 270° arc (0°→270° clockwise from top = 3/4 ring).
-                    // Chrome's frozen frame stops at ~270° (gap at bottom-right).
-                    painter.stroke_arc(cx, cy, radius, 0.0f, 270.0f, fg, stroke_w);
+            if (cs.text_decoration_line != detail::ComputedStyle::DecorationNone) {
+                const auto metrics = painter.text_metrics(font);
+                const float natural_line_h =
+                    metrics.line_height > 0.0f
+                        ? metrics.line_height
+                        : static_cast<float>(cs.font_size_px);
+                const float css_line_h =
+                    static_cast<float>(cs.font_size_px) *
+                    detail::effective_line_height_mult(cs);
+                const float line_top =
+                    static_cast<float>(text_y) +
+                    (css_line_h - natural_line_h) * 0.5f;
+                const float baseline = line_top + metrics.ascender;
+                const float tw = static_cast<float>(
+                    std::max(1, painter.measure_text(font, b.text)));
+                const float x0 = static_cast<float>(text_x);
+                const float x1 = x0 + tw;
+                const Color deco = an.text_decoration_rgba != 0
+                    ? detail::unpack_rgba(an.text_decoration_rgba)
+                    : detail::unpack_rgba(an.color_rgba);
+                const float thickness =
+                    std::max(1.0f, static_cast<float>(cs.font_size_px) / 16.0f);
+                if (cs.text_decoration_line &
+                    detail::ComputedStyle::DecorationUnderline) {
+                    painter.stroke_line(x0, baseline + thickness * 1.5f,
+                                        x1, baseline + thickness * 1.5f,
+                                        deco, thickness);
                 }
-            } else if (has_cls("spinner-grow")) {
-                // spinner-grow: a filled circle (Bootstrap's grow spinner is a
-                // solid disc that scales up; frozen at full size = filled circle).
-                const float cx = static_cast<float>(eff.x) + static_cast<float>(eff.w) * 0.5f;
-                const float cy = static_cast<float>(eff.y) + static_cast<float>(eff.h) * 0.5f;
-                const float radius = static_cast<float>(std::min(eff.w, eff.h)) * 0.5f;
-                if (radius > 0.0f) {
-                    painter.fill_circle(cx, cy, radius, fg);
+                if (cs.text_decoration_line &
+                    detail::ComputedStyle::DecorationOverline) {
+                    painter.stroke_line(x0, line_top + thickness * 0.5f,
+                                        x1, line_top + thickness * 0.5f,
+                                        deco, thickness);
+                }
+                if (cs.text_decoration_line &
+                    detail::ComputedStyle::DecorationLineThrough) {
+                    const float y = line_top + metrics.ascender * 0.55f;
+                    painter.stroke_line(x0, y, x1, y, deco, thickness);
                 }
             }
         }
 
-        // ── UA form-control drawing ────────────────────────────────────
+        // Closed single-row <select> controls expose an indicator supplied by
+        // either the native widget or a CSS background. We don't rasterize
+        // Bootstrap's data-URI SVG yet, so draw the same chevron geometry here.
+        if (b.tag == "select") {
+            const auto* size_attr = block_attr_value(b, "size");
+            const bool listbox =
+                block_attr_value(b, "multiple") != nullptr ||
+                (size_attr != nullptr && !size_attr->empty() && *size_attr != "1");
+            if (!listbox) {
+                const bool bootstrap_form_select =
+                    block_has_class(b, "form-select");
+                const float right = static_cast<float>(eff.x + eff.w);
+                const float cy = static_cast<float>(eff.y) +
+                                 static_cast<float>(eff.h) * 0.5f;
+                const float cx = bootstrap_form_select
+                    ? right - 20.5f
+                    : right - 9.75f;
+                const float half_w = bootstrap_form_select ? 4.0f : 3.75f;
+                const float half_h = 2.5f;
+                const float thickness = bootstrap_form_select ? 1.25f : 1.35f;
+                const Color chev = bootstrap_form_select
+                    ? Color{0x34, 0x3a, 0x40, 0xFF}
+                    : detail::unpack_rgba(an.color_rgba);
+                painter.stroke_line(cx - half_w, cy - half_h,
+                                    cx, cy + half_h,
+                                    chev, thickness);
+                painter.stroke_line(cx, cy + half_h,
+                                    cx + half_w, cy - half_h,
+                                    chev, thickness);
+            }
+        }
+
+        // â”€â”€ UA form-control drawing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // Bootstrap's form-check-input uses SVG data: URIs for its
-        // checkbox checkmark, radio dot, and switch knob — none of which
+        // checkbox checkmark, radio dot, and switch knob â€” none of which
         // we rasterize. Draw UA approximations for :checked / unchecked
         // states that match Chrome's static appearance. The box itself
         // (border + background) is already painted by the normal path above.
@@ -2391,21 +5232,27 @@ void Document::draw(Painter& painter) {
 
             if (b.input_type == "checkbox" && !is_switch) {
                 if (b.is_checked) {
-                    // White checkmark polyline (matches Bootstrap's SVG icon).
-                    // Proportional to the box: from ~20% to ~45% (bottom-left
-                    // of the tick) then to ~80%,20% (top-right).
+                    // Bootstrap's checkbox icon is a 20x20 SVG path:
+                    // m6 10 3 3 6-6, stroke-width 3, round caps/joins.
                     const float m = std::min(bw, bh);
-                    const float x0 = bx + m * 0.20f, y0 = by + m * 0.55f;
-                    const float x1 = bx + m * 0.40f, y1 = by + m * 0.80f;
-                    const float x2 = bx + m * 0.80f, y2 = by + m * 0.20f;
+                    const float s = m / 20.0f;
+                    const float x0 = bx + 6.0f  * s, y0 = by + 10.0f * s;
+                    const float x1 = bx + 9.0f  * s, y1 = by + 13.0f * s;
+                    const float x2 = bx + 15.0f * s, y2 = by + 7.0f  * s;
+                    const float sw = std::max(1.0f, 3.0f * s);
                     const Color white{0xFF, 0xFF, 0xFF, 0xFF};
-                    painter.stroke_line(x0, y0, x1, y1, white, 2.0f);
-                    painter.stroke_line(x1, y1, x2, y2, white, 2.0f);
+                    painter.stroke_line(x0, y0, x1, y1, white, sw);
+                    painter.stroke_line(x1, y1, x2, y2, white, sw);
+                    const float cap_r = sw * 0.5f;
+                    painter.fill_circle(x0, y0, cap_r, white);
+                    painter.fill_circle(x1, y1, cap_r, white);
+                    painter.fill_circle(x2, y2, cap_r, white);
                 }
             } else if (b.input_type == "radio") {
                 if (b.is_checked) {
-                    // Filled white center dot (Bootstrap radio checked icon).
-                    const float dot_r = std::min(bw, bh) * 0.22f;
+                    // Bootstrap's radio icon is a circle r=2 in an 8x8
+                    // viewBox, scaled to contain in the control box.
+                    const float dot_r = std::min(bw, bh) * 0.25f;
                     painter.fill_circle(cx, cy, dot_r, Color{0xFF, 0xFF, 0xFF, 0xFF});
                 }
             }
@@ -2419,16 +5266,20 @@ void Document::draw(Painter& painter) {
                 const float knob_cx  = b.is_checked
                     ? (bx + bw - knob_r - 2.0f)
                     : (bx      + knob_r + 2.0f);
+                const Color knob = b.is_checked
+                    ? Color{0xFF, 0xFF, 0xFF, 0xFF}
+                    : Color{0x00, 0x00, 0x00, 0x40};
                 painter.fill_circle(knob_cx, cy, knob_r,
-                                    Color{0xFF, 0xFF, 0xFF, 0xFF});
+                                    knob);
             }
         }
 
         if (has_opacity) painter.pop_alpha();
         if (clipped) painter.pop_clip();
+        if (has_transform) painter.pop_transform();
     }
 
-    // Scrollbar overlay — drawn last so it sits on top of any
+    // Scrollbar overlay â€” drawn last so it sits on top of any
     // clipped content. A simple right-side thumb showing how far
     // we've scrolled; track is transparent.
     for (const auto& b : impl_->blocks) {
@@ -2489,9 +5340,21 @@ int scroll_offset_y_for(const std::vector<Block>& blocks,
     return sum;
 }
 
+#if !defined(AFFINEUI_STUB_BUILD)
+const KeyframeBlock* find_keyframes(const detail::DocumentImpl& impl,
+                                    std::uint32_t name_hash) {
+    if (name_hash == 0) return nullptr;
+    auto it = std::find_if(impl.keyframes.begin(), impl.keyframes.end(),
+        [name_hash](const KeyframeBlock& kf) {
+            return kf.name_hash == name_hash;
+        });
+    return it == impl.keyframes.end() ? nullptr : &*it;
+}
+#endif
+
 // Deepest block whose effective border-box (after applying any
 // ancestor scroll offsets) contains (x, y), or -1 if none. Walk in
-// DFS order — parents before children — so the *last* match wins.
+// DFS order â€” parents before children â€” so the *last* match wins.
 int hit_test_blocks(const std::vector<Block>& blocks,
 #if !defined(AFFINEUI_STUB_BUILD)
                     const detail::StyleStore& styles,
@@ -2517,7 +5380,7 @@ int hit_test_blocks(const std::vector<Block>& blocks,
 
 namespace {
 #if !defined(AFFINEUI_STUB_BUILD)
-// Build the ancestor chain (deepest → root) for the block at `idx`.
+// Build the ancestor chain (deepest â†’ root) for the block at `idx`.
 // Walks parent_idx, which collect_blocks set up. Empty when idx == -1.
 std::vector<int> build_hover_chain(const std::vector<Block>& blocks, int idx) {
     std::vector<int> chain;
@@ -2538,6 +5401,7 @@ detail::ResolvedStyle parent_resolved(const detail::DocumentImpl& impl,
     detail::ResolvedStyle rs;
     rs.computed = impl.style_store.computed(pid);
     rs.animated = impl.style_store.animated(pid);
+    rs.custom_props = impl.blocks[static_cast<std::size_t>(p)].custom_props;
     return rs;
 }
 
@@ -2546,33 +5410,113 @@ detail::ResolvedStyle parent_resolved(const detail::DocumentImpl& impl,
 // path) and the equivalent collect-time path inline above.
 void apply_pseudo_overlay(detail::DocumentImpl& impl, const Block& block,
                           detail::ResolvedStyle& rs) {
-    const auto sb = impl.style_store.state_bits(block.id);
-    if (sb == 0) return;
     for (const auto& pr : impl.pseudo_rules) {
-        std::uint8_t bit;
-        switch (pr.pseudo) {
-            case PseudoRule::Pseudo::Hover:  bit = kHoverStateBit;  break;
-            case PseudoRule::Pseudo::Active: bit = kActiveStateBit; break;
-            case PseudoRule::Pseudo::Focus:  bit = kFocusStateBit;  break;
-            default: continue;
-        }
-        if (!(sb & bit)) continue;
+        const std::uint8_t bit = pseudo_state_bit(pr.pseudo);
+        if (bit == 0) continue;
         if (!compound_matches(pr.target, block.tag, block.elem_id,
-                              block.classes)) continue;
+                              block.classes, &block.attrs)) continue;
         if (!ancestor_chain_matches(pr.ancestors, block.parent_idx,
                                     impl.blocks)) continue;
+        const bool state_matches = pr.state_on_target
+            ? block_has_state(impl, block, pr.state_target, bit)
+            : ancestor_has_state(impl, block.parent_idx, pr.state_target, bit);
+        if (!state_matches) continue;
         impl.resolver->apply_decl_list(pr.decls, rs);
     }
 }
 
-// Re-resolve one block's style (paint-only properties), applying any
-// active pseudo overlays. We don't touch layout: pseudo overlays
-// affecting layout would require relayout-on-state, which lands with
-// the broader restyle queue in Phase 4. Bounds in the block stay put.
-void restyle_block(detail::DocumentImpl& impl, int idx) {
+bool same_animation(const detail::ResolvedStyle::CssAnimation& a,
+                    const detail::ResolvedStyle::CssAnimation& b) {
+    return a.name_hash == b.name_hash
+        && a.duration_s == b.duration_s
+        && a.delay_s == b.delay_s
+        && a.iteration_count == b.iteration_count
+        && a.timing == b.timing
+        && a.direction == b.direction
+        && a.fill_mode == b.fill_mode
+        && a.play_state == b.play_state
+        && a.active == b.active;
+}
+
+bool animation_candidate(const detail::ResolvedStyle::CssAnimation& a) {
+    return a.active && a.name_hash != 0;
+}
+
+bool computed_change_needs_layout(const detail::ComputedStyle& a,
+                                  const detail::ComputedStyle& b) {
+    return a.margin_top != b.margin_top ||
+        a.margin_right != b.margin_right ||
+        a.margin_bottom != b.margin_bottom ||
+        a.margin_left != b.margin_left ||
+        a.padding_top != b.padding_top ||
+        a.padding_right != b.padding_right ||
+        a.padding_bottom != b.padding_bottom ||
+        a.padding_left != b.padding_left ||
+        a.border_top != b.border_top ||
+        a.border_right != b.border_right ||
+        a.border_bottom != b.border_bottom ||
+        a.border_left != b.border_left ||
+        a.border_style != b.border_style ||
+        a.border_style_sides != b.border_style_sides ||
+        a.border_collapse != b.border_collapse ||
+        a.height_pct != b.height_pct ||
+        a.width != b.width ||
+        a.height != b.height ||
+        a.min_width != b.min_width ||
+        a.max_width != b.max_width ||
+        a.min_height != b.min_height ||
+        a.inset_top != b.inset_top ||
+        a.inset_right != b.inset_right ||
+        a.inset_bottom != b.inset_bottom ||
+        a.inset_left != b.inset_left ||
+        a.font_size_px != b.font_size_px ||
+        a.font_weight != b.font_weight ||
+        a.line_height_x100 != b.line_height_x100 ||
+        a.letter_spacing_x100 != b.letter_spacing_x100 ||
+        a.text_indent_value != b.text_indent_value ||
+        a.white_space != b.white_space ||
+        a.text_transform != b.text_transform ||
+        a.text_align != b.text_align ||
+        a.list_style_type != b.list_style_type ||
+        a.display != b.display ||
+        a.position != b.position ||
+        a.flex_direction != b.flex_direction ||
+        a.font_style != b.font_style ||
+        a.vertical_align != b.vertical_align ||
+        a.box_sizing != b.box_sizing ||
+        a.css_float != b.css_float ||
+        a.text_indent_is_pct != b.text_indent_is_pct ||
+        a.inset_has.top != b.inset_has.top ||
+        a.inset_has.right != b.inset_has.right ||
+        a.inset_has.bottom != b.inset_has.bottom ||
+        a.inset_has.left != b.inset_has.left ||
+        a.inset_has.top_pct != b.inset_has.top_pct ||
+        a.inset_has.right_pct != b.inset_has.right_pct ||
+        a.inset_has.bottom_pct != b.inset_has.bottom_pct ||
+        a.inset_has.left_pct != b.inset_has.left_pct ||
+        a.margin_auto.left != b.margin_auto.left ||
+        a.margin_auto.right != b.margin_auto.right ||
+        a.justify_content != b.justify_content ||
+        a.align_items != b.align_items ||
+        a.flex_wrap != b.flex_wrap ||
+        a.flex_basis_pct != b.flex_basis_pct ||
+        a.row_gap != b.row_gap ||
+        a.column_gap != b.column_gap ||
+        a.flex_grow != b.flex_grow ||
+        a.flex_shrink != b.flex_shrink ||
+        a.flex_basis != b.flex_basis ||
+        a.font_id != b.font_id ||
+        a.width_pct_x100 != b.width_pct_x100;
+}
+
+// Re-resolve one block's style, applying any active pseudo overlays.
+// Returns true if the computed layout fields changed and the caller
+// must schedule layout. Paint-only changes can stay inside the block's
+// visual rect and avoid a layout walk.
+bool restyle_block(detail::DocumentImpl& impl, int idx) {
     auto& block = impl.blocks[static_cast<std::size_t>(idx)];
     auto* elem  = impl.style_store.element_of(block.id);
-    if (!elem) return;
+    if (!elem) return false;
     auto parent = parent_resolved(impl, idx);
     auto rs     = impl.resolver->resolve(elem, parent);
     apply_pseudo_overlay(impl, block, rs);
@@ -2580,19 +5524,338 @@ void restyle_block(detail::DocumentImpl& impl, int idx) {
     // path (hover/active/focus toggles), and pseudo-scoped fills gate on
     // the matching state bit being set.
     const auto sb_rs = impl.style_store.state_bits(block.id);
-    for (const auto& rf : impl.rule_fills) {
-        if (rf.state_bit && !(sb_rs & rf.state_bit)) continue;
-        if (!compound_matches(rf.target, block.tag, block.elem_id, block.classes))
-            continue;
-        if (!ancestor_chain_matches(rf.ancestors, block.parent_idx, impl.blocks))
-            continue;
-        if (!rf.font_family.empty())
-            rs.computed.font_id = impl.style_store.intern_font_family(
-                rf.font_family);
-    }
+    apply_font_family_fills(impl, block.tag, block.elem_id, block.classes,
+                            block.parent_idx, sb_rs, rs);
+    const auto old_animation = block.animation;
+    const auto old_computed = impl.style_store.computed(block.id);
+    const bool needs_layout = computed_change_needs_layout(old_computed,
+                                                           rs.computed);
     impl.style_store.computed(block.id) = rs.computed;
     impl.style_store.animated(block.id) = rs.animated;
+    block.custom_props = rs.custom_props;
+    block.box_shadows = rs.box_shadows;
+    block.base_animated = rs.animated;
+    block.animation = rs.animation;
+    if (!same_animation(old_animation, block.animation)) {
+        const bool old_candidate = animation_candidate(old_animation);
+        const bool new_candidate = animation_candidate(block.animation);
+        if (old_candidate && !new_candidate && impl.animation_candidate_count > 0) {
+            --impl.animation_candidate_count;
+        } else if (!old_candidate && new_candidate) {
+            ++impl.animation_candidate_count;
+        }
+        block.animation_epoch = std::chrono::steady_clock::now();
+    }
+    return needs_layout;
+}
+
+bool is_descendant_of_or_self(const std::vector<Block>& blocks,
+                              int idx,
+                              int root_idx) {
+    for (int cur = idx; cur >= 0; ) {
+        if (cur == root_idx) return true;
+        cur = blocks[static_cast<std::size_t>(cur)].parent_idx;
+    }
+    return false;
+}
+
+bool restyle_subtree(detail::DocumentImpl& impl, int root_idx) {
+    if (root_idx < 0 || root_idx >= static_cast<int>(impl.blocks.size()))
+        return false;
+    bool needs_layout = false;
+    for (int idx = root_idx; idx < static_cast<int>(impl.blocks.size()); ++idx) {
+        if (is_descendant_of_or_self(impl.blocks, idx, root_idx)) {
+            needs_layout = restyle_block(impl, idx) || needs_layout;
+        }
+    }
+    return needs_layout;
+}
+
+bool subtree_contains_generated_pseudo(const detail::DocumentImpl& impl,
+                                       int root_idx) {
+    if (root_idx < 0 || root_idx >= static_cast<int>(impl.blocks.size()))
+        return false;
+    for (int idx = root_idx; idx < static_cast<int>(impl.blocks.size()); ++idx) {
+        if (!is_descendant_of_or_self(impl.blocks, idx, root_idx)) continue;
+        const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+        if (block.tag == "#before" || block.tag == "#after") return true;
+    }
+    return false;
+}
+
+bool starts_with(std::string_view value, std::string_view prefix) {
+    return value.size() >= prefix.size() &&
+           value.substr(0, prefix.size()) == prefix;
+}
+
+bool attribute_can_affect_selector_matching(std::string_view name) {
+    // Inline style changes are parsed as declarations on the element and
+    // SVG geometry attrs (e.g. path "d") should stay on the cheap paint path.
+    // These are the live attributes our framework/CSS selectors commonly
+    // depend on. The long-term version is a selector attribute-dependency
+    // index, but this keeps hot control drags from forcing a full cascade.
+    return name == "class" || name == "id" || name == "type" ||
+           name == "role" || name == "checked" || name == "disabled" ||
+           starts_with(name, "aria-") || starts_with(name, "data-");
+}
+
+lxb_status_t append_serialized_html(const lxb_char_t* data,
+                                    size_t len,
+                                    void* ctx) {
+    auto* out = static_cast<std::string*>(ctx);
+    out->append(reinterpret_cast<const char*>(data), len);
+    return LXB_STATUS_OK;
+}
+
+std::string serialize_current_document_html(detail::DocumentImpl& impl) {
+#if !defined(AFFINEUI_STUB_BUILD)
+    std::string out;
+    if (!impl.doc) return out;
+    auto* node = lxb_dom_interface_node(impl.doc);
+    if (!node) return out;
+    if (lxb_html_serialize_tree_cb(node, append_serialized_html, &out)
+        != LXB_STATUS_OK) {
+        out.clear();
+    }
+    return out;
+#else
+    (void)impl;
+    return {};
+#endif
+}
+
+void reset_dynamic_block_state(detail::DocumentImpl& impl) {
+    impl.hovered_idx = -1;
+    impl.active_idx = -1;
+    impl.focused_idx = -1;
+    impl.hovered_chain.clear();
+    impl.active_chain.clear();
+    impl.pending_dirty_roots.clear();
+    impl.content_size = Size{0, 0};
+}
+
+void recollect_blocks_from_current_dom(detail::DocumentImpl& impl) {
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (!impl.doc) return;
+
+    impl.blocks.clear();
+    impl.style_store.reset();
+    impl.animation_candidate_count = 0;
+    if (impl.resolver) impl.resolver->clear();
+
+    impl.root_style                       = detail::ResolvedStyle{};
+    impl.root_style.animated.color_rgba   = 0xDCDCE6FFu;
+    impl.root_style.computed.font_size_px = 16;
+    impl.root_style.computed.font_weight  = 400;
+
+    auto* body = lxb_html_document_body_element(impl.doc);
+    if (body && impl.resolver) {
+        detail::ResolvedStyle html_style = impl.root_style;
+        auto* body_node = lxb_dom_interface_node(body);
+        if (body_node->parent != nullptr &&
+            body_node->parent->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+            html_style = impl.resolver->resolve(
+                lxb_dom_interface_element(body_node->parent), impl.root_style);
+        }
+        auto* body_elem = lxb_dom_interface_element(body_node);
+        impl.root_style = impl.resolver->resolve(body_elem, html_style);
+        apply_font_family_fills(impl, "body", attr_string(body_elem, "id"),
+                                split_classes(attr_string(body_elem, "class")),
+                                /*parent_idx=*/-1,
+                                /*state_bits=*/0,
+                                impl.root_style);
+    }
+
+    collect_blocks(impl,
+                   body ? lxb_dom_interface_node(body)
+                        : lxb_dom_interface_node(impl.doc),
+                   impl.root_style,
+                   /*parent_idx=*/-1);
+    for (const auto& block : impl.blocks) {
+        if (block.animation.active && block.animation.name_hash != 0) {
+            ++impl.animation_candidate_count;
+        }
+    }
+
+    reset_dynamic_block_state(impl);
     impl.paint_dirty = true;
+#else
+    (void)impl;
+#endif
+}
+
+bool rect_valid(const Rect& r) {
+    return r.w > 0 && r.h > 0;
+}
+
+Rect union_rect(const Rect& a, const Rect& b) {
+    if (!rect_valid(a)) return b;
+    if (!rect_valid(b)) return a;
+    const int x0 = std::min(a.x, b.x);
+    const int y0 = std::min(a.y, b.y);
+    const int x1 = std::max(a.x + a.w, b.x + b.w);
+    const int y1 = std::max(a.y + a.h, b.y + b.h);
+    return Rect{x0, y0, x1 - x0, y1 - y0};
+}
+
+void add_dirty_rect(detail::DocumentImpl& impl, const Rect& r) {
+    if (!rect_valid(r)) return;
+    impl.dirty_rects.push_back(r);
+}
+
+Rect shadow_extent(const Rect& base,
+                   const detail::BoxShadowLayer& layer) {
+    if (layer.inset || (layer.rgba & 0xFFu) == 0) return base;
+    if (layer.blur == 0 && layer.spread == 0 &&
+        layer.offset_x == 0 && layer.offset_y == 0) {
+        return base;
+    }
+    const int out = std::max(0, static_cast<int>(layer.blur)) +
+                    std::max(0, static_cast<int>(layer.spread));
+    return Rect{
+        base.x + static_cast<int>(layer.offset_x) - out,
+        base.y + static_cast<int>(layer.offset_y) - out,
+        base.w + out * 2,
+        base.h + out * 2,
+    };
+}
+
+Rect block_visual_rect(const detail::DocumentImpl& impl, int idx) {
+    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return {};
+    const auto& b = impl.blocks[static_cast<std::size_t>(idx)];
+    Rect out = b.bounds;
+    if (b.box_shadows) {
+        for (const auto& layer : *b.box_shadows) {
+            out = union_rect(out, shadow_extent(b.bounds, layer));
+        }
+    } else {
+        const auto& an = impl.style_store.animated(b.id);
+        detail::BoxShadowLayer layer{};
+        layer.rgba = an.shadow_rgba;
+        layer.offset_x = an.shadow_offset_x;
+        layer.offset_y = an.shadow_offset_y;
+        layer.blur = an.shadow_blur;
+        layer.spread = an.shadow_spread;
+        layer.inset = an.shadow_inset;
+        out = union_rect(out, shadow_extent(b.bounds, layer));
+    }
+    return out;
+}
+
+Rect subtree_visual_rect(const detail::DocumentImpl& impl, int root_idx) {
+    Rect out{};
+    if (root_idx < 0 || root_idx >= static_cast<int>(impl.blocks.size()))
+        return out;
+    for (int idx = root_idx; idx < static_cast<int>(impl.blocks.size()); ++idx) {
+        if (!is_descendant_of_or_self(impl.blocks, idx, root_idx)) continue;
+        out = union_rect(out, block_visual_rect(impl, idx));
+    }
+    return out;
+}
+
+int find_block_by_elem_id(const detail::DocumentImpl& impl,
+                          std::string_view elem_id) {
+    if (elem_id.empty()) return -1;
+    for (std::size_t i = 0; i < impl.blocks.size(); ++i) {
+        if (impl.blocks[i].elem_id == elem_id) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+lxb_dom_element_t* find_dom_element_by_id(lxb_dom_node_t* root,
+                                          std::string_view elem_id) {
+    if (!root || elem_id.empty()) return nullptr;
+    if (root->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+        auto* elem = lxb_dom_interface_element(root);
+        if (has_attr(elem, "id") && attr_string(elem, "id") == elem_id) {
+            return elem;
+        }
+    }
+    for (auto* child = lxb_dom_node_first_child(root);
+         child != nullptr; child = lxb_dom_node_next(child)) {
+        if (auto* found = find_dom_element_by_id(child, elem_id)) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
+lxb_dom_element_t* find_dom_element_by_id(detail::DocumentImpl& impl,
+                                          std::string_view elem_id) {
+    const int block_idx = find_block_by_elem_id(impl, elem_id);
+    if (block_idx >= 0) {
+        return impl.style_store.element_of(
+            impl.blocks[static_cast<std::size_t>(block_idx)].id);
+    }
+    if (!impl.doc) return nullptr;
+    auto* body = lxb_html_document_body_element(impl.doc);
+    auto* root = body ? lxb_dom_interface_node(body)
+                      : lxb_dom_interface_node(impl.doc);
+    return find_dom_element_by_id(root, elem_id);
+}
+
+int block_index_for_element_or_ancestor(const detail::DocumentImpl& impl,
+                                        lxb_dom_element_t* elem) {
+    if (!elem) return -1;
+    for (auto* node = lxb_dom_interface_node(elem);
+         node != nullptr; node = node->parent) {
+        if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* cur_elem = lxb_dom_interface_element(node);
+        for (std::size_t i = 0; i < impl.blocks.size(); ++i) {
+            if (impl.style_store.element_of(impl.blocks[i].id) == cur_elem) {
+                return static_cast<int>(i);
+            }
+        }
+    }
+    return -1;
+}
+
+void refresh_block_metadata_from_element(Block& block,
+                                         lxb_dom_element_t* elem) {
+    if (!elem) return;
+    block.elem_id = attr_string(elem, "id");
+    block.classes = split_classes(attr_string(elem, "class"));
+    block.attrs = element_attrs(elem);
+    if (block.tag == "img") {
+        block.image_src = attr_string(elem, "src");
+    }
+    if (block.tag == "input" || block.tag == "textarea") {
+        block.placeholder = attr_string(elem, "placeholder");
+    }
+    if (block.tag == "input") {
+        block.input_type  = attr_string(elem, "type");
+        block.role_attr   = attr_string(elem, "role");
+        block.is_checked  = has_attr(elem, "checked");
+        block.is_disabled = has_attr(elem, "disabled");
+    }
+}
+
+bool element_has_element_child(lxb_dom_element_t* elem) {
+    if (!elem) return false;
+    for (auto* child = lxb_dom_node_first_child(lxb_dom_interface_node(elem));
+         child != nullptr; child = lxb_dom_node_next(child)) {
+        if (child->type == LXB_DOM_NODE_TYPE_ELEMENT) return true;
+    }
+    return false;
+}
+
+void mark_live_mutation_dirty(detail::DocumentImpl& impl,
+                              int dirty_root_idx,
+                              const Rect& old_rect,
+                              bool needs_layout) {
+    const auto dirty_count_before = impl.dirty_rects.size();
+    add_dirty_rect(impl, old_rect);
+    if (needs_layout) {
+        if (dirty_root_idx >= 0) {
+            impl.pending_dirty_roots.push_back(dirty_root_idx);
+        }
+        impl.content_size = Size{0, 0};
+    } else if (dirty_root_idx >= 0) {
+        add_dirty_rect(impl, subtree_visual_rect(impl, dirty_root_idx));
+    }
+    if (impl.dirty_rects.size() == dirty_count_before && !needs_layout) {
+        impl.paint_dirty = true;
+    }
 }
 
 // Generic chain-refresh helper used by both :hover (chain follows the
@@ -2609,19 +5872,34 @@ bool refresh_pseudo_chain(detail::DocumentImpl& impl,
     const auto in = [](int x, const std::vector<int>& v) {
         return std::find(v.begin(), v.end(), x) != v.end();
     };
+    std::vector<int> changed_roots;
     // Leaving blocks: clear bit + restyle.
     for (int old_idx : current_chain) {
         if (in(old_idx, new_chain)) continue;
         const auto id = impl.blocks[static_cast<std::size_t>(old_idx)].id;
         impl.style_store.state_bits(id) &= static_cast<std::uint8_t>(~bit);
-        restyle_block(impl, old_idx);
+        changed_roots.push_back(old_idx);
     }
     // Entering blocks: set bit + restyle.
     for (int new_idx : new_chain) {
         if (in(new_idx, current_chain)) continue;
         const auto id = impl.blocks[static_cast<std::size_t>(new_idx)].id;
         impl.style_store.state_bits(id) |= bit;
-        restyle_block(impl, new_idx);
+        changed_roots.push_back(new_idx);
+    }
+    for (int root_idx : changed_roots) {
+        bool covered_by_ancestor = false;
+        for (int other_idx : changed_roots) {
+            if (other_idx == root_idx) continue;
+            if (is_descendant_of_or_self(impl.blocks, root_idx, other_idx)) {
+                covered_by_ancestor = true;
+                break;
+            }
+        }
+        if (covered_by_ancestor) continue;
+        const Rect old_rect = subtree_visual_rect(impl, root_idx);
+        const bool needs_layout = restyle_subtree(impl, root_idx);
+        mark_live_mutation_dirty(impl, root_idx, old_rect, needs_layout);
     }
     current_chain = std::move(new_chain);
     return true;
@@ -2641,30 +5919,34 @@ bool refresh_active_chain(detail::DocumentImpl& impl) {
 // state bit on the leaving and entering elements, restyles each so
 // the :focus overlay takes effect on the next paint, and records the
 // new focused element. Unlike :hover / :active, focus is a single
-// element rather than a chain — there is no inheritance up the
+// element rather than a chain â€” there is no inheritance up the
 // ancestor list.
 bool set_focus(detail::DocumentImpl& impl, int target_idx) {
     if (target_idx == impl.focused_idx) return false;
     const int old_idx = impl.focused_idx;
     impl.focused_idx  = target_idx;
     if (old_idx >= 0 && old_idx < static_cast<int>(impl.blocks.size())) {
+        const Rect old_rect = subtree_visual_rect(impl, old_idx);
         const auto id = impl.blocks[static_cast<std::size_t>(old_idx)].id;
         impl.style_store.state_bits(id) &= static_cast<std::uint8_t>(~kFocusStateBit);
-        restyle_block(impl, old_idx);
+        const bool needs_layout = restyle_block(impl, old_idx);
+        mark_live_mutation_dirty(impl, old_idx, old_rect, needs_layout);
     }
     if (target_idx >= 0 && target_idx < static_cast<int>(impl.blocks.size())) {
+        const Rect old_rect = subtree_visual_rect(impl, target_idx);
         const auto id = impl.blocks[static_cast<std::size_t>(target_idx)].id;
         impl.style_store.state_bits(id) |= kFocusStateBit;
-        restyle_block(impl, target_idx);
+        const bool needs_layout = restyle_block(impl, target_idx);
+        mark_live_mutation_dirty(impl, target_idx, old_rect, needs_layout);
     }
     return true;
 }
 
 // Walk up from `idx` looking for the nearest focusable element. A tag
-// is focusable if it natively accepts keyboard input today — buttons,
+// is focusable if it natively accepts keyboard input today â€” buttons,
 // inputs, textareas, selects, and <a href>. Returns -1 when no such
 // ancestor exists; callers should treat that as "click outside any
-// focusable element → clear focus".
+// focusable element â†’ clear focus".
 int focusable_ancestor(const detail::DocumentImpl& impl, int idx) {
     while (idx >= 0) {
         const auto& b = impl.blocks[static_cast<std::size_t>(idx)];
@@ -2732,7 +6014,7 @@ void remove_last_utf8_codepoint(std::string& text) {
     }
     text.erase(pos);
 }
-#else  // stub build — no DOM, no pseudo / scroll bookkeeping
+#else  // stub build â€” no DOM, no pseudo / scroll bookkeeping
 bool refresh_hover_chain(detail::DocumentImpl&)  { return false; }
 bool refresh_active_chain(detail::DocumentImpl&) { return false; }
 bool set_focus(detail::DocumentImpl&, int)       { return false; }
@@ -2753,7 +6035,7 @@ DispatchResult Document::dispatch(const Event& ev) {
                 impl_->hovered_idx      = new_hover;
                 result.redraw_requested = true;
             }
-            // Refresh :hover chain even when hovered_idx didn't change —
+            // Refresh :hover chain even when hovered_idx didn't change â€”
             // mouse may have moved within the same leaf block (no-op
             // here) or the tree may have churned underneath us (rare,
             // but cheap to verify).
@@ -2783,7 +6065,7 @@ DispatchResult Document::dispatch(const Event& ev) {
         case EventType::MouseUp: {
             impl_->last_mouse_pos = ev.pos;
             impl_->hovered_idx    = hit_test_blocks(impl_->blocks, impl_->style_store, ev.pos.x, ev.pos.y);
-            // Clear :active on every MouseUp — the press is over. We
+            // Clear :active on every MouseUp â€” the press is over. We
             // don't try to be clever about "release outside the
             // pressed element" today; that nuance is part of the
             // click-state machinery to layer in later.
@@ -2802,6 +6084,8 @@ DispatchResult Document::dispatch(const Event& ev) {
             } else if (ev.key == Key::Backspace) {
                 Block* control = nullptr;
                 if (focused_text_control(*impl_, control)) {
+                    const int idx = impl_->focused_idx;
+                    const Rect old_rect = subtree_visual_rect(*impl_, idx);
                     if (control->placeholder_visible) {
                         control->text.clear();
                         control->placeholder_visible = false;
@@ -2812,8 +6096,8 @@ DispatchResult Document::dispatch(const Event& ev) {
                         control->text = control->placeholder;
                         control->placeholder_visible = true;
                     }
-                    impl_->content_size = Size{0, 0};
-                    impl_->paint_dirty = true;
+                    mark_live_mutation_dirty(*impl_, idx, old_rect,
+                                             /*needs_layout=*/true);
                     result.redraw_requested = true;
                 }
             }
@@ -2822,13 +6106,15 @@ DispatchResult Document::dispatch(const Event& ev) {
         case EventType::TextInput: {
             Block* control = nullptr;
             if (focused_text_control(*impl_, control) && !ev.text.empty()) {
+                const int idx = impl_->focused_idx;
+                const Rect old_rect = subtree_visual_rect(*impl_, idx);
                 if (control->placeholder_visible) {
                     control->text.clear();
                     control->placeholder_visible = false;
                 }
                 control->text += ev.text;
-                impl_->content_size = Size{0, 0};
-                impl_->paint_dirty = true;
+                mark_live_mutation_dirty(*impl_, idx, old_rect,
+                                         /*needs_layout=*/true);
                 result.redraw_requested = true;
             }
             break;
@@ -2850,8 +6136,9 @@ DispatchResult Document::dispatch(const Event& ev) {
             const int next       = std::clamp(sb.scroll_y + delta,
                                               0, max_scroll);
             if (next != sb.scroll_y) {
+                add_dirty_rect(*impl_, block_visual_rect(*impl_, target));
                 sb.scroll_y             = next;
-                impl_->paint_dirty      = true;
+                add_dirty_rect(*impl_, block_visual_rect(*impl_, target));
                 result.redraw_requested = true;
             }
             break;
@@ -2868,7 +6155,7 @@ namespace {
 // nearest non-default cursor. CSS-correct: a child without its own
 // cursor inherits from its parent. The cascade already does this for
 // ComputedStyle::cursor, but the *root* element with no inline
-// cursor returns Default — so this walk is mostly belt-and-braces.
+// cursor returns Default â€” so this walk is mostly belt-and-braces.
 detail::ComputedStyle::Cursor effective_cursor(
         const std::vector<Block>& blocks,
         const detail::StyleStore& styles,
@@ -2900,7 +6187,27 @@ Document::HoverInfo Document::hovered_info() const {
     info.tag     = b.tag;
     info.elem_id = b.elem_id;
     info.classes = b.classes;
+    info.attrs   = b.attrs;
+    info.bounds  = b.bounds;
     return info;
+}
+
+std::vector<Document::HoverInfo> Document::hovered_info_chain() const {
+    std::vector<HoverInfo> chain;
+    int idx = impl_->hovered_idx;
+    while (idx >= 0 && idx < static_cast<int>(impl_->blocks.size())) {
+        const auto& b = impl_->blocks[static_cast<std::size_t>(idx)];
+        HoverInfo info{};
+        info.valid   = true;
+        info.tag     = b.tag;
+        info.elem_id = b.elem_id;
+        info.classes = b.classes;
+        info.attrs   = b.attrs;
+        info.bounds  = b.bounds;
+        chain.push_back(std::move(info));
+        idx = b.parent_idx;
+    }
+    return chain;
 }
 
 void Document::set_resource_loader(ResourceLoader loader) {
@@ -2909,13 +6216,255 @@ void Document::set_resource_loader(ResourceLoader loader) {
 
 Size Document::content_size() const { return impl_->content_size; }
 
-// ── Immediate mode ──────────────────────────────────────────────────
+bool Document::set_attribute_by_id(std::string_view elem_id,
+                                   std::string_view name,
+                                   std::string_view value) {
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (!impl_->doc || name.empty()) return false;
+    auto* elem = find_dom_element_by_id(*impl_, elem_id);
+    if (!elem) return false;
+
+    const bool already_present = has_attr(elem, name);
+    if (already_present && attr_string(elem, name) == value) return true;
+
+    int target_idx = -1;
+    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
+        if (impl_->style_store.element_of(impl_->blocks[i].id) == elem) {
+            target_idx = static_cast<int>(i);
+            break;
+        }
+    }
+    const int dirty_root_idx =
+        target_idx >= 0 ? target_idx
+                        : block_index_for_element_or_ancestor(*impl_, elem);
+    const Rect old_rect = subtree_visual_rect(*impl_, dirty_root_idx);
+    const bool selector_affecting =
+        attribute_can_affect_selector_matching(name);
+    const bool recollect_generated_subtree =
+        target_idx >= 0 &&
+        ((!impl_->generated_content_rules.empty() && selector_affecting) ||
+         subtree_contains_generated_pseudo(*impl_, target_idx));
+
+    if (!lxb_dom_element_set_attribute(elem, as_lxb(name), name.size(),
+                                       as_lxb(value), value.size())) {
+        return false;
+    }
+
+    if (selector_affecting) {
+        const auto reparsed_html = serialize_current_document_html(*impl_);
+        if (!reparsed_html.empty()) {
+            set_html(reparsed_html);
+            return true;
+        }
+    }
+
+    bool needs_layout = false;
+    if (target_idx >= 0) {
+        impl_->resolver->invalidate(elem);
+        if (recollect_generated_subtree) {
+            add_dirty_rect(*impl_, old_rect);
+            recollect_blocks_from_current_dom(*impl_);
+            return true;
+        }
+        auto& block = impl_->blocks[static_cast<std::size_t>(target_idx)];
+        refresh_block_metadata_from_element(block, elem);
+        needs_layout = restyle_subtree(*impl_, target_idx);
+        if (block.tag == "img" && name == "src") needs_layout = true;
+    }
+    mark_live_mutation_dirty(*impl_, dirty_root_idx, old_rect, needs_layout);
+    return true;
+#else
+    (void)elem_id; (void)name; (void)value;
+    return false;
+#endif
+}
+
+bool Document::remove_attribute_by_id(std::string_view elem_id,
+                                      std::string_view name) {
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (!impl_->doc || name.empty()) return false;
+    auto* elem = find_dom_element_by_id(*impl_, elem_id);
+    if (!elem) return false;
+    if (!has_attr(elem, name)) return true;
+
+    int target_idx = -1;
+    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
+        if (impl_->style_store.element_of(impl_->blocks[i].id) == elem) {
+            target_idx = static_cast<int>(i);
+            break;
+        }
+    }
+    const int dirty_root_idx =
+        target_idx >= 0 ? target_idx
+                        : block_index_for_element_or_ancestor(*impl_, elem);
+    const Rect old_rect = subtree_visual_rect(*impl_, dirty_root_idx);
+    const bool selector_affecting =
+        attribute_can_affect_selector_matching(name);
+    const bool recollect_generated_subtree =
+        target_idx >= 0 &&
+        ((!impl_->generated_content_rules.empty() && selector_affecting) ||
+         subtree_contains_generated_pseudo(*impl_, target_idx));
+
+    if (lxb_dom_element_remove_attribute(elem, as_lxb(name), name.size())
+            != LXB_STATUS_OK) {
+        return false;
+    }
+
+    if (selector_affecting) {
+        const auto reparsed_html = serialize_current_document_html(*impl_);
+        if (!reparsed_html.empty()) {
+            set_html(reparsed_html);
+            return true;
+        }
+    }
+
+    bool needs_layout = false;
+    if (target_idx >= 0) {
+        impl_->resolver->invalidate(elem);
+        if (recollect_generated_subtree) {
+            add_dirty_rect(*impl_, old_rect);
+            recollect_blocks_from_current_dom(*impl_);
+            return true;
+        }
+        auto& block = impl_->blocks[static_cast<std::size_t>(target_idx)];
+        refresh_block_metadata_from_element(block, elem);
+        needs_layout = restyle_subtree(*impl_, target_idx);
+        if (block.tag == "img" && name == "src") needs_layout = true;
+    }
+    mark_live_mutation_dirty(*impl_, dirty_root_idx, old_rect, needs_layout);
+    return true;
+#else
+    (void)elem_id; (void)name;
+    return false;
+#endif
+}
+
+bool Document::set_text_by_id(std::string_view elem_id,
+                              std::string_view text) {
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (!impl_->doc) return false;
+    auto* elem = find_dom_element_by_id(*impl_, elem_id);
+    if (!elem || element_has_element_child(elem)) return false;
+
+    int target_idx = -1;
+    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
+        if (impl_->style_store.element_of(impl_->blocks[i].id) == elem) {
+            target_idx = static_cast<int>(i);
+            break;
+        }
+    }
+    if (target_idx < 0) return false;
+
+    auto& block = impl_->blocks[static_cast<std::size_t>(target_idx)];
+    int text_idx = -1;
+    bool has_unsupported_descendant = false;
+    for (int idx = target_idx + 1;
+         idx < static_cast<int>(impl_->blocks.size()); ++idx) {
+        if (!is_descendant_of_or_self(impl_->blocks, idx, target_idx)) continue;
+        const auto& child = impl_->blocks[static_cast<std::size_t>(idx)];
+        if (child.synthetic) continue;
+        if (child.tag == "#text") {
+            if (text_idx < 0) text_idx = idx;
+            continue;
+        }
+        has_unsupported_descendant = true;
+        break;
+    }
+    if (has_unsupported_descendant) return false;
+
+    if (text_idx < 0 && block.text == text) return true;
+    if (text_idx >= 0 &&
+        impl_->blocks[static_cast<std::size_t>(text_idx)].text == text) {
+        return true;
+    }
+
+    const Rect old_rect = subtree_visual_rect(*impl_, target_idx);
+    auto* node = lxb_dom_interface_node(elem);
+    if (lxb_dom_node_text_content_set(node, as_lxb(text), text.size())
+            != LXB_STATUS_OK) {
+        return false;
+    }
+
+    if (text_idx >= 0) {
+        auto& text_block = impl_->blocks[static_cast<std::size_t>(text_idx)];
+        const auto& cs = impl_->style_store.computed(text_block.id);
+        text_block.text = apply_text_transform(
+            node_text(node, cs.white_space), cs.text_transform);
+        for (int idx = text_idx + 1;
+             idx < static_cast<int>(impl_->blocks.size()); ++idx) {
+            if (!is_descendant_of_or_self(impl_->blocks, idx, target_idx))
+                continue;
+            auto& child = impl_->blocks[static_cast<std::size_t>(idx)];
+            if (child.tag == "#text") child.text.clear();
+        }
+    } else {
+        const auto& cs = impl_->style_store.computed(block.id);
+        block.text = apply_text_transform(
+            node_text(node, cs.white_space), cs.text_transform);
+        block.placeholder_visible = false;
+    }
+    mark_live_mutation_dirty(*impl_, target_idx, old_rect,
+                             /*needs_layout=*/true);
+    return true;
+#else
+    (void)elem_id; (void)text;
+    return false;
+#endif
+}
+
+std::vector<Rect> Document::take_dirty_rects() {
+    std::vector<Rect> out;
+    out.swap(impl_->dirty_rects);
+    return out;
+}
+
+bool Document::take_paint_dirty() {
+    const bool dirty = impl_->paint_dirty;
+    impl_->paint_dirty = false;
+    return dirty;
+}
+
+bool Document::has_active_animations() const {
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (impl_->animation_candidate_count == 0) return false;
+    const auto now = std::chrono::steady_clock::now();
+    for (const auto& b : impl_->blocks) {
+        if (!b.animation.active || !find_keyframes(*impl_, b.animation.name_hash))
+            continue;
+        const double elapsed_s = std::chrono::duration<double>(
+            now - b.animation_epoch).count();
+        float t = 0.0f;
+        bool applies = false;
+        if (animation_progress_at(b.animation, elapsed_s, t, applies)) {
+            return true;
+        }
+    }
+#endif
+    return false;
+}
+
+void Document::set_animation_time_for_testing(double seconds) {
+#if !defined(AFFINEUI_STUB_BUILD)
+    const double clamped = std::max(0.0, seconds);
+    const auto elapsed = std::chrono::duration_cast<
+        std::chrono::steady_clock::duration>(
+            std::chrono::duration<double>(clamped));
+    impl_->animation_epoch = std::chrono::steady_clock::now() - elapsed;
+    for (auto& b : impl_->blocks) {
+        b.animation_epoch = impl_->animation_epoch;
+    }
+#else
+    (void)seconds;
+#endif
+}
+
+// â”€â”€ Immediate mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 void Document::set_imm_view(std::function<void()> view_fn) {
     if (!impl_->imm) impl_->imm = std::make_unique<detail::ImmRuntime>();
 #if !defined(AFFINEUI_STUB_BUILD)
     if (!impl_->doc) {
-        // No DOM yet — establish a minimal empty document so the
+        // No DOM yet â€” establish a minimal empty document so the
         // runtime has a body to mutate. set_html("") goes through the
         // normal parse path and ends with an empty <body>.
         set_html("");
@@ -2938,44 +6487,14 @@ void Document::tick_imm() {
     if (!impl_->imm->dirty()) return;
 
 #if !defined(AFFINEUI_STUB_BUILD)
-    // 1. Run the view fn — it mutates lexbor's DOM directly via the
+    // 1. Run the view fn â€” it mutates lexbor's DOM directly via the
     //    runtime, replacing the body's children.
     impl_->imm->run_view_fn();
 
     // 2. Re-cascade + re-collect. This is the same tail as set_html
-    //    after parsing — minus the stylesheet re-attach (those are
+    //    after parsing â€” minus the stylesheet re-attach (those are
     //    still bound to impl_->doc from the original set_html).
-    impl_->blocks.clear();
-    impl_->style_store.reset();
-
-    impl_->root_style                       = detail::ResolvedStyle{};
-    impl_->root_style.animated.color_rgba   = 0xDCDCE6FFu;
-    impl_->root_style.computed.font_size_px = 16;
-    impl_->root_style.computed.font_weight  = 400;
-
-    auto* body = lxb_html_document_body_element(impl_->doc);
-    if (body && impl_->resolver) {
-        impl_->root_style = impl_->resolver->resolve(
-            lxb_dom_interface_element(lxb_dom_interface_node(body)),
-            impl_->root_style);
-    }
-    collect_blocks(*impl_,
-                   body ? lxb_dom_interface_node(body)
-                        : lxb_dom_interface_node(impl_->doc),
-                   impl_->root_style,
-                   /*parent_idx=*/-1);
-
-    // 3. Stale-state cleanup. Block indices have churned; hovered_idx
-    //    + the cached *_chain vectors all point into the old vector.
-    //    Reset; next MouseMove rebuilds correctly. (Without this, the
-    //    chain held indices that could land on a different block
-    //    after re-collect, leaving rows stuck on hover style.)
-    impl_->hovered_idx   = -1;
-    impl_->active_idx    = -1;
-    impl_->focused_idx   = -1;
-    impl_->hovered_chain.clear();
-    impl_->active_chain.clear();
-    impl_->content_size = Size{0, 0};   // forces relayout in Renderer
+    recollect_blocks_from_current_dom(*impl_);
 #endif
 }
 

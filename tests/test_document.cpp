@@ -2,8 +2,16 @@
 
 #include "affineui/document.h"
 #include "affineui/painter.h"
+#include "affineui/ui.h"
+#include "decius_interactions.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <unordered_map>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -12,67 +20,171 @@ namespace {
 
 class RecordingPainter final : public affineui::Painter {
 public:
+    struct TextDraw {
+        std::string text;
+        affineui::Point pos;
+        affineui::Color color;
+        float max_width{0.0f};
+        TextAlign align{TextAlign::Left};
+        float alpha{1.0f};
+    };
+    struct FillDraw {
+        affineui::Rect rect;
+        affineui::Color color;
+        affineui::Mat2x3 transform;
+    };
+    struct RoundedFillDraw {
+        affineui::Rect rect;
+        float tl{0.0f};
+        float tr{0.0f};
+        float br{0.0f};
+        float bl{0.0f};
+        affineui::Color color;
+    };
+    struct ArcDraw {
+        float cx{0.0f};
+        float cy{0.0f};
+        float radius{0.0f};
+        float start_deg{0.0f};
+        float end_deg{0.0f};
+        affineui::Color color;
+        float thickness{0.0f};
+    };
+    struct LinearGradientDraw {
+        affineui::Rect rect;
+        affineui::Color stop0;
+        affineui::Color stop1;
+        float tl{0.0f};
+        float tr{0.0f};
+        float br{0.0f};
+        float bl{0.0f};
+    };
+    struct StrokeLineDraw {
+        float x0{0.0f};
+        float y0{0.0f};
+        float x1{0.0f};
+        float y1{0.0f};
+        affineui::Color color;
+        float thickness{0.0f};
+    };
+    struct BorderRingDraw {
+        affineui::Rect rect;
+        float radius{0.0f};
+        float thickness{0.0f};
+        affineui::Color color;
+    };
+    struct ShadowDraw {
+        affineui::Rect rect;
+        float radius{0.0f};
+        affineui::Color color;
+        float offset_x{0.0f};
+        float offset_y{0.0f};
+        float blur{0.0f};
+        float spread{0.0f};
+        bool inset{false};
+    };
+
     std::vector<affineui::Color> fill_colors;
+    std::vector<FillDraw> fill_draws;
+    std::vector<RoundedFillDraw> rounded_fill_draws;
+    std::vector<ArcDraw> arc_draws;
+    std::vector<LinearGradientDraw> linear_gradient_draws;
+    std::vector<StrokeLineDraw> stroke_line_draws;
+    std::vector<BorderRingDraw> border_ring_draws;
     std::vector<affineui::Color> stroke_colors;
+    std::vector<std::string> font_requests;
     std::vector<std::string> text_runs;
+    std::vector<TextDraw> text_draws;
     std::vector<std::string> image_urls;
     std::vector<affineui::Rect> image_draws;
+    std::vector<affineui::Rect> clip_rects;
+    std::vector<bool> shadow_insets;
+    std::vector<ShadowDraw> shadow_draws;
+    std::vector<float> alpha_stack;
+    std::vector<affineui::Mat2x3> transform_stack;
+    affineui::Mat2x3 current_transform{};
+    float current_alpha{1.0f};
 
     void begin_frame(int, int, float) override {}
     void end_frame() override {}
-    void fill_rect(const affineui::Rect&, affineui::Color color) override {
+    void fill_rect(const affineui::Rect& rect, affineui::Color color) override {
         fill_colors.push_back(color);
+        fill_draws.push_back({rect, color, current_transform});
     }
     void stroke_rect(const affineui::Rect&, affineui::Color color, float) override {
         stroke_colors.push_back(color);
     }
-    void stroke_line(float, float, float, float, affineui::Color color, float) override {
+    void stroke_line(float x0, float y0, float x1, float y1,
+                     affineui::Color color, float thickness) override {
         stroke_colors.push_back(color);
+        stroke_line_draws.push_back({x0, y0, x1, y1, color, thickness});
     }
     void fill_circle(float, float, float, affineui::Color color) override {
         fill_colors.push_back(color);
     }
-    void stroke_arc(float, float, float, float, float,
-                    affineui::Color color, float) override {
+    void stroke_arc(float cx, float cy, float radius, float start_deg,
+                    float end_deg, affineui::Color color, float thickness) override {
         stroke_colors.push_back(color);
+        arc_draws.push_back({cx, cy, radius, start_deg, end_deg, color,
+                             thickness});
     }
-    void fill_rounded_rect(const affineui::Rect&, float,
+    void fill_rounded_rect(const affineui::Rect& rect, float radius,
                            affineui::Color color) override {
         fill_colors.push_back(color);
+        rounded_fill_draws.push_back({rect, radius, radius, radius, radius, color});
     }
     void stroke_rounded_rect(const affineui::Rect&, float, affineui::Color color, float) override {
         stroke_colors.push_back(color);
     }
-    void fill_rounded_rect_varying(const affineui::Rect&, float, float,
-                                   float, float,
+    void fill_rounded_rect_varying(const affineui::Rect& rect, float tl, float tr,
+                                   float br, float bl,
                                    affineui::Color color) override {
         fill_colors.push_back(color);
+        rounded_fill_draws.push_back({rect, tl, tr, br, bl, color});
     }
     void stroke_rounded_rect_varying(const affineui::Rect&, float, float, float, float,
                                      affineui::Color color, float) override {
         stroke_colors.push_back(color);
     }
-    void fill_linear_gradient_rect(const affineui::Rect&, float,
-                                   affineui::Color c0, affineui::Color,
-                                   float, float, float, float) override {
+    void fill_rounded_rect_ring(const affineui::Rect& rect, float radius,
+                                float thickness, affineui::Color color) override {
+        stroke_colors.push_back(color);
+        border_ring_draws.push_back({rect, radius, thickness, color});
+    }
+    void fill_linear_gradient_rect(const affineui::Rect& rect, float,
+                                   affineui::Color c0, affineui::Color c1,
+                                   float tl, float tr, float br, float bl) override {
         fill_colors.push_back(c0);
+        linear_gradient_draws.push_back({rect, c0, c1, tl, tr, br, bl});
     }
     void fill_radial_gradient_rect(const affineui::Rect&,
                                    affineui::Color c0, affineui::Color,
-                                   float, float, float, float) override {
+                                   float, float, float, float,
+                                   float = 50, float = 50, float = 100) override {
         fill_colors.push_back(c0);
     }
-    void fill_box_shadow(const affineui::Rect&, float, affineui::Color c,
-                         float, float, float, float, bool) override {
+    void fill_box_shadow(const affineui::Rect& rect, float radius,
+                         affineui::Color c, float offset_x, float offset_y,
+                         float blur, float spread, bool inset) override {
         fill_colors.push_back(c);
+        shadow_insets.push_back(inset);
+        shadow_draws.push_back(
+            {rect, radius, c, offset_x, offset_y, blur, spread, inset});
     }
-    std::uint32_t resolve_font(std::string_view, int, int, bool) override { return 1; }
+    std::uint32_t resolve_font(std::string_view family, int, int, bool) override {
+        font_requests.emplace_back(family);
+        return 1;
+    }
     int measure_text(std::uint32_t, std::string_view text) override {
         return static_cast<int>(text.size()) * 8;
     }
     TextMetrics text_metrics(std::uint32_t) override { return {12.0f, 4.0f, 18.0f}; }
-    void draw_text(std::uint32_t, const affineui::Point&, std::string_view,
-                   affineui::Color) override {}
+    void draw_text(std::uint32_t, const affineui::Point& pos,
+                   std::string_view text, affineui::Color color) override {
+        text_runs.emplace_back(text);
+        text_draws.push_back({std::string(text), pos, color, 0.0f,
+                              TextAlign::Left, current_alpha});
+    }
     affineui::Size measure_text_box(std::uint32_t, std::string_view text,
                                     float max_width, float, float) override {
         const int natural = static_cast<int>(text.size()) * 8;
@@ -81,9 +193,13 @@ public:
                     : static_cast<int>(max_width),
                 18};
     }
-    void draw_text_box(std::uint32_t, const affineui::Point&, std::string_view text,
-                       affineui::Color, float, float, float, TextAlign) override {
+    void draw_text_box(std::uint32_t, const affineui::Point& pos,
+                       std::string_view text, affineui::Color color,
+                       float max_width,
+                       float, float, TextAlign align) override {
         text_runs.emplace_back(text);
+        text_draws.push_back({std::string(text), pos, color, max_width, align,
+                              current_alpha});
     }
     std::uint32_t load_image(std::string_view url) override {
         image_urls.emplace_back(url);
@@ -96,10 +212,26 @@ public:
                     const affineui::Rect&) override {
         image_draws.push_back(dst);
     }
-    void push_clip(const affineui::Rect&) override {}
+    void push_clip(const affineui::Rect& rect) override { clip_rects.push_back(rect); }
     void pop_clip() override {}
-    void push_alpha(float) override {}
-    void pop_alpha() override {}
+    void push_alpha(float alpha) override {
+        alpha_stack.push_back(current_alpha);
+        current_alpha *= alpha;
+    }
+    void pop_alpha() override {
+        if (alpha_stack.empty()) return;
+        current_alpha = alpha_stack.back();
+        alpha_stack.pop_back();
+    }
+    void push_transform(const affineui::Mat2x3& transform) override {
+        transform_stack.push_back(current_transform);
+        current_transform = current_transform.then(transform);
+    }
+    void pop_transform() override {
+        if (transform_stack.empty()) return;
+        current_transform = transform_stack.back();
+        transform_stack.pop_back();
+    }
 };
 
 bool same_color(affineui::Color a, affineui::Color b) {
@@ -118,6 +250,56 @@ bool saw_fill(const RecordingPainter& painter, affineui::Color color) {
         if (same_color(fill, color)) return true;
     }
     return false;
+}
+
+const RecordingPainter::TextDraw* find_text_draw(
+    const RecordingPainter& painter,
+    std::string_view text) {
+    for (const auto& draw : painter.text_draws) {
+        if (draw.text == text) return &draw;
+    }
+    return nullptr;
+}
+
+const RecordingPainter::FillDraw* find_fill_draw(
+    const RecordingPainter& painter,
+    affineui::Color color) {
+    for (const auto& draw : painter.fill_draws) {
+        if (same_color(draw.color, color)) return &draw;
+    }
+    return nullptr;
+}
+
+const RecordingPainter::RoundedFillDraw* find_rounded_fill_draw(
+    const RecordingPainter& painter,
+    affineui::Color color,
+    int width = -1,
+    int height = -1) {
+    for (const auto& draw : painter.rounded_fill_draws) {
+        if (!same_color(draw.color, color)) continue;
+        if (width >= 0 && draw.rect.w != width) continue;
+        if (height >= 0 && draw.rect.h != height) continue;
+        return &draw;
+    }
+    return nullptr;
+}
+
+const RecordingPainter::BorderRingDraw* find_border_ring_left_of_text(
+    const RecordingPainter& painter,
+    std::string_view text,
+    int max_gap = 28) {
+    const auto* label = find_text_draw(painter, text);
+    if (!label) return nullptr;
+    for (const auto& ring : painter.border_ring_draws) {
+        const int ring_right = ring.rect.x + ring.rect.w;
+        if (ring_right > label->pos.x) continue;
+        if (label->pos.x - ring_right > max_gap) continue;
+        const int center_y = ring.rect.y + ring.rect.h / 2;
+        if (center_y < label->pos.y - 12 || center_y > label->pos.y + 22)
+            continue;
+        return &ring;
+    }
+    return nullptr;
 }
 
 affineui::Point find_hovered_tag(affineui::Document& doc, std::string_view tag) {
@@ -139,6 +321,32 @@ affineui::Point find_hovered_button(affineui::Document& doc) {
     return find_hovered_tag(doc, "button");
 }
 
+affineui::Point find_hovered_id(affineui::Document& doc,
+                                std::string_view elem_id,
+                                int width,
+                                int height) {
+    for (int y = 0; y < height; y += 4) {
+        for (int x = 0; x < width; x += 4) {
+            affineui::Event move{};
+            move.type = affineui::EventType::MouseMove;
+            move.pos = {x, y};
+            doc.dispatch(move);
+            if (doc.hovered_info().elem_id == elem_id) {
+                return {x, y};
+            }
+        }
+    }
+    return {-1, -1};
+}
+
+std::string read_test_file(const std::filesystem::path& path) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f.good()) return {};
+    std::stringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
 }  // namespace
 
 TEST_CASE("default-constructed document has zero content size") {
@@ -152,6 +360,651 @@ TEST_CASE("set_html accepts a string without crashing") {
     affineui::Document doc;
     doc.set_html("<h1>Hi</h1>");
     CHECK(true);
+}
+
+TEST_CASE("Ui on_click matches hovered ancestors") {
+    affineui::Ui ui;
+    RecordingPainter painter;
+    bool clicked = false;
+
+    ui.html(R"HTML(
+        <style>
+            body { margin: 0; padding: 0; }
+            button { display: block; width: 120px; height: 40px; padding: 0; }
+            span { display: block; width: 80px; height: 24px; }
+        </style>
+        <button id="outer"><span>Inner</span></button>
+    )HTML");
+    ui.document().layout(200, 80, &painter);
+    ui.on_click("#outer", [&] { clicked = true; });
+
+    const auto p = find_hovered_tag(ui.document(), "span");
+    REQUIRE(p.x >= 0);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = p;
+
+    CHECK(ui.dispatch(up));
+    CHECK(clicked);
+}
+
+TEST_CASE("set_html clears stale hover identity") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        #old { display: block; width: 80px; height: 32px; background: #222; }
+        </style>
+        <div id="old"></div>
+    )HTML");
+    doc.layout(120, 80, &painter);
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {8, 8};
+    doc.dispatch(move);
+    CHECK(doc.hovered_info().valid);
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        #new { display: block; width: 80px; height: 32px; background: #333; }
+        </style>
+        <div id="new"></div>
+    )HTML");
+
+    CHECK_FALSE(doc.hovered_info().valid);
+}
+
+TEST_CASE("Decius checkbox rerender preserves control box and generated check") {
+    affineui::Ui ui;
+    RecordingPainter painter;
+    bool checked = false;
+
+    const auto render = [&] {
+        std::string checked_attr = checked ? " aria-checked=\"true\"" : "";
+        return R"HTML(
+            <style>
+            body { margin: 0; padding: 0; font-size: 16px; line-height: 1; }
+            .dcs-check {
+              display: inline-flex;
+              align-items: center;
+              gap: 6px;
+              color: #dce6ff;
+              cursor: pointer;
+            }
+            .dcs-check__box {
+              width: 14px;
+              height: 14px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              background: #20232b;
+              color: transparent;
+              border: 1px solid #4b5568;
+            }
+            .dcs-check[aria-checked=true] .dcs-check__box {
+              background: #3dd68a;
+              color: #0a1220;
+              border-color: #3dd68a;
+            }
+            .di { font-family: decius-icons; display: inline-block; color: inherit; }
+            .di-check::before { content: "\e01b"; }
+            </style>
+            <div id="sync" class="dcs-check")HTML" + checked_attr + R"HTML(>
+              <div class="dcs-check__box"><i class="di di-check"></i></div>
+              <span>Hard sync</span>
+            </div>
+        )HTML";
+    };
+
+    auto rerender = [&] {
+        ui.html(render());
+        ui.mark_dirty();
+    };
+    rerender();
+    ui.on_click("#sync", [&] {
+        checked = !checked;
+        rerender();
+    });
+
+    ui.document().layout(180, 60, &painter);
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {7, 7};
+    ui.dispatch(move);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {7, 7};
+    ui.dispatch(down);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = {7, 7};
+    ui.dispatch(up);
+
+    REQUIRE(checked);
+    ui.document().layout(180, 60, &painter);
+
+    painter.fill_draws.clear();
+    painter.fill_colors.clear();
+    painter.rounded_fill_draws.clear();
+    painter.text_draws.clear();
+    painter.text_runs.clear();
+    ui.document().draw(painter);
+
+    const auto checked_fill = affineui::Color::rgb(0x3d, 0xd6, 0x8a);
+    CHECK((saw_fill(painter, checked_fill) ||
+           find_rounded_fill_draw(painter, checked_fill) != nullptr));
+
+    const auto* icon = find_text_draw(painter, "\xEE\x80\x9B");
+    REQUIRE(icon != nullptr);
+    CHECK(same_color(icon->color, affineui::Color::rgb(0x0a, 0x12, 0x20)));
+}
+
+TEST_CASE("real Decius checkbox remains visible after rerender and hover restyle") {
+    affineui::Ui ui;
+    RecordingPainter painter;
+    bool checked = false;
+
+    const auto examples_root =
+        std::filesystem::path{AFFINEUI_TEST_SOURCE_DIR} / "examples";
+    ui.document().set_resource_loader(
+        [examples_root](std::string_view url) -> std::string {
+            const std::filesystem::path rel{std::string(url)};
+            return read_test_file(examples_root / rel);
+        });
+
+    const auto render = [&] {
+        std::string checked_attr = checked ? " aria-checked=\"true\"" : "";
+        return R"HTML(
+            <!doctype html><html><head>
+            <link rel="stylesheet" href="frameworks/css/decius-css-0.4.1.bundle.min.css">
+            <style>body{margin:0;padding:0;background:#101219}</style>
+            </head><body class="dcs" data-dcs-density="comfortable" data-dcs-accent="green">
+              <div id="sync" class="dcs-check")HTML" + checked_attr + R"HTML(>
+                <div class="dcs-check__box"><i class="di di-check"></i></div>
+                <span>Hard sync</span>
+              </div>
+            </body></html>
+        )HTML";
+    };
+
+    auto rerender = [&] {
+        ui.html(render());
+        ui.mark_dirty();
+    };
+    rerender();
+    ui.on_click("#sync", [&] {
+        checked = !checked;
+        rerender();
+    });
+
+    ui.document().layout(220, 80, &painter);
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {8, 8};
+    ui.dispatch(move);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = move.pos;
+    ui.dispatch(down);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = move.pos;
+    ui.dispatch(up);
+    REQUIRE(checked);
+
+    ui.document().layout(220, 80, &painter);
+    ui.dispatch(move);
+
+    painter.fill_draws.clear();
+    painter.fill_colors.clear();
+    painter.rounded_fill_draws.clear();
+    painter.text_draws.clear();
+    painter.text_runs.clear();
+    ui.document().draw(painter);
+
+    const auto checked_fill = affineui::Color::rgb(0x3d, 0xd6, 0x8a);
+    CHECK((saw_fill(painter, checked_fill) ||
+           find_rounded_fill_draw(painter, checked_fill) != nullptr));
+    const auto* icon = find_text_draw(painter, "\xEE\x80\x9B");
+    REQUIRE(icon != nullptr);
+    CHECK(same_color(icon->color, affineui::Color::rgb(0x0a, 0x12, 0x20)));
+    CHECK(find_text_draw(painter, "Hard sync") != nullptr);
+}
+
+TEST_CASE("real Decius checkbox generated icon updates after live aria mutation") {
+    affineui::Ui ui;
+    RecordingPainter painter;
+
+    const auto examples_root =
+        std::filesystem::path{AFFINEUI_TEST_SOURCE_DIR} / "examples";
+    ui.document().set_resource_loader(
+        [examples_root](std::string_view url) -> std::string {
+            const std::filesystem::path rel{std::string(url)};
+            return read_test_file(examples_root / rel);
+        });
+
+    ui.html(R"HTML(
+        <!doctype html><html><head>
+        <link rel="stylesheet" href="frameworks/css/decius-css-0.4.1.bundle.min.css">
+        <style>body{margin:0;padding:0;background:#101219}</style>
+        </head><body class="dcs" data-dcs-density="comfortable" data-dcs-accent="green">
+          <div id="sync" class="dcs-check">
+            <div class="dcs-check__box"><i class="di di-check"></i></div>
+            <span>Hard sync</span>
+          </div>
+        </body></html>
+    )HTML");
+
+    ui.document().layout(220, 80, &painter);
+    REQUIRE(ui.set_attr("sync", "aria-checked", "true"));
+    ui.document().layout(220, 80, &painter);
+
+    painter.fill_draws.clear();
+    painter.fill_colors.clear();
+    painter.rounded_fill_draws.clear();
+    painter.text_draws.clear();
+    painter.text_runs.clear();
+    ui.document().draw(painter);
+
+    const auto checked_fill = affineui::Color::rgb(0x3d, 0xd6, 0x8a);
+    CHECK((saw_fill(painter, checked_fill) ||
+           find_rounded_fill_draw(painter, checked_fill) != nullptr));
+    const auto* icon = find_text_draw(painter, "\xEE\x80\x9B");
+    REQUIRE(icon != nullptr);
+    CHECK(same_color(icon->color, affineui::Color::rgb(0x0a, 0x12, 0x20)));
+    CHECK(find_text_draw(painter, "Hard sync") != nullptr);
+}
+
+TEST_CASE("real Decius checkbox survives unrelated live control mutation") {
+    affineui::Ui ui;
+    RecordingPainter painter;
+    bool checked = false;
+
+    const auto examples_root =
+        std::filesystem::path{AFFINEUI_TEST_SOURCE_DIR} / "examples";
+    ui.document().set_resource_loader(
+        [examples_root](std::string_view url) -> std::string {
+            const std::filesystem::path rel{std::string(url)};
+            return read_test_file(examples_root / rel);
+        });
+
+    const auto render = [&] {
+        std::string checked_attr = checked ? " aria-checked=\"true\"" : "";
+        return R"HTML(
+            <!doctype html><html><head>
+            <link rel="stylesheet" href="frameworks/css/decius-css-0.4.1.bundle.min.css">
+            <style>body{margin:0;padding:0;background:#101219}.row{display:flex;gap:18px}</style>
+            </head><body class="dcs" data-dcs-density="comfortable" data-dcs-accent="green">
+              <div class="row">
+                <div id="sync" class="dcs-check")HTML" + checked_attr + R"HTML(>
+                  <div class="dcs-check__box"><i class="di di-check"></i></div>
+                  <span>Hard sync</span>
+                </div>
+                <div id="gain" data-dcs-slider data-min="0" data-max="1" data-value=".4" class="dcs-slider">
+                  <div class="dcs-slider__track">
+                    <div id="gain__fill" class="dcs-slider__fill" style="width:40%"></div>
+                    <div id="gain__thumb" class="dcs-slider__thumb" style="left:40%"></div>
+                  </div>
+                </div>
+                <div id="shape" data-dcs-knob data-min="0" data-max="1" data-value=".4" class="dcs-knob">
+                  <svg class="dcs-knob__ring" viewBox="0 0 24 24">
+                    <path id="shape__arc" class="dcs-knob__arc" d="M 4.58 4.58 A 10.5 10.5 0 0 1 12 22.5" fill="none" stroke="var(--dcs-accent)" stroke-width="1.75" stroke-linecap="round"></path>
+                  </svg>
+                  <div class="dcs-knob__cap"></div>
+                  <div id="shape__indicator" class="dcs-knob__indicator" style="--angle:-27deg"></div>
+                  <div class="dcs-knob__label">Shape</div>
+                  <div id="shape__value" class="dcs-knob__value">0.40</div>
+                </div>
+              </div>
+            </body></html>
+        )HTML";
+    };
+
+    auto rerender = [&] {
+        ui.html(render());
+        ui.mark_dirty();
+    };
+    rerender();
+    ui.on_click("#sync", [&] {
+        checked = !checked;
+        rerender();
+    });
+
+    ui.document().layout(420, 100, &painter);
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {8, 8};
+    ui.dispatch(move);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = move.pos;
+    ui.dispatch(down);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = move.pos;
+    ui.dispatch(up);
+    REQUIRE(checked);
+
+    ui.document().layout(420, 100, &painter);
+    REQUIRE(ui.set_attr("gain__fill", "style", "width:68%"));
+    REQUIRE(ui.set_attr("gain__thumb", "style", "left:68%"));
+    REQUIRE(ui.set_attr("shape__indicator", "style", "--angle:48deg"));
+    REQUIRE(ui.set_text("shape__value", "0.68"));
+    ui.document().layout(420, 100, &painter);
+
+    painter.fill_draws.clear();
+    painter.fill_colors.clear();
+    painter.rounded_fill_draws.clear();
+    painter.text_draws.clear();
+    painter.text_runs.clear();
+    ui.document().draw(painter);
+
+    const auto checked_fill = affineui::Color::rgb(0x3d, 0xd6, 0x8a);
+    CHECK((saw_fill(painter, checked_fill) ||
+           find_rounded_fill_draw(painter, checked_fill) != nullptr));
+    const auto* icon = find_text_draw(painter, "\xEE\x80\x9B");
+    REQUIRE(icon != nullptr);
+    CHECK(same_color(icon->color, affineui::Color::rgb(0x0a, 0x12, 0x20)));
+    CHECK(find_text_draw(painter, "Hard sync") != nullptr);
+}
+
+TEST_CASE("dark synth checkbox survives real page live control interactions") {
+    affineui::Ui ui;
+    RecordingPainter painter;
+
+    const auto examples_root =
+        std::filesystem::path{AFFINEUI_TEST_SOURCE_DIR} / "examples";
+    ui.document().set_resource_loader(
+        [examples_root](std::string_view url) -> std::string {
+            const std::filesystem::path rel{std::string(url)};
+            return read_test_file(examples_root / "13_decius_synth_dark" / rel);
+        });
+
+    std::string html = read_test_file(examples_root /
+                                      "13_decius_synth_dark" / "index.html");
+    REQUIRE_FALSE(html.empty());
+    const std::string unchecked = R"HTML(<div id="sync" class="dcs-check">)HTML";
+    const auto pos = html.find(unchecked);
+    REQUIRE(pos != std::string::npos);
+    html.replace(pos, unchecked.size(),
+                 R"HTML(<div id="sync" class="dcs-check" aria-checked="true">)HTML");
+    ui.html(html);
+
+    constexpr int w = 1280;
+    constexpr int h = 860;
+    ui.document().layout(w, h, &painter);
+
+    const affineui::Point sub = find_hovered_id(ui.document(), "sub", w, h);
+    REQUIRE(sub.x >= 0);
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = sub;
+    ui.dispatch(down);
+
+    affineui::Event drag{};
+    drag.type = affineui::EventType::MouseMove;
+    drag.pos = {sub.x + 48, sub.y};
+    ui.dispatch(drag);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = drag.pos;
+    ui.dispatch(up);
+
+    REQUIRE(ui.set_attr("shape__indicator", "style", "--angle:48deg"));
+    REQUIRE(ui.set_text("shape__value", "0.68"));
+    ui.document().set_animation_time_for_testing(0.35);
+    ui.document().layout(w, h, &painter);
+
+    painter.fill_draws.clear();
+    painter.fill_colors.clear();
+    painter.rounded_fill_draws.clear();
+    painter.text_draws.clear();
+    painter.text_runs.clear();
+    ui.document().draw(painter);
+
+    const auto checked_fill = affineui::Color::rgb(0x3d, 0xd6, 0x8a);
+    CHECK((saw_fill(painter, checked_fill) ||
+           find_rounded_fill_draw(painter, checked_fill) != nullptr));
+    const auto* icon = find_text_draw(painter, "\xEE\x80\x9B");
+    REQUIRE(icon != nullptr);
+    CHECK(same_color(icon->color, affineui::Color::rgb(0x0a, 0x12, 0x20)));
+    CHECK(find_text_draw(painter, "Hard sync") != nullptr);
+}
+
+TEST_CASE("dark synth unchecked checkbox keeps its box after hover leave and drag") {
+    affineui::Ui ui;
+    RecordingPainter painter;
+
+    const auto examples_root =
+        std::filesystem::path{AFFINEUI_TEST_SOURCE_DIR} / "examples";
+    ui.document().set_resource_loader(
+        [examples_root](std::string_view url) -> std::string {
+            const std::filesystem::path rel{std::string(url)};
+            return read_test_file(examples_root / "13_decius_synth_dark" / rel);
+        });
+
+    const std::string html = read_test_file(
+        examples_root / "13_decius_synth_dark" / "index.html");
+    REQUIRE_FALSE(html.empty());
+    ui.html(html);
+
+    constexpr int w = 1280;
+    constexpr int h = 860;
+    ui.document().layout(w, h, &painter);
+
+    const affineui::Point sync = find_hovered_id(ui.document(), "sync", w, h);
+    REQUIRE(sync.x >= 0);
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = sync;
+    ui.dispatch(move);
+
+    const affineui::Point sub = find_hovered_id(ui.document(), "sub", w, h);
+    REQUIRE(sub.x >= 0);
+    move.pos = sub;
+    ui.dispatch(move);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = sub;
+    ui.dispatch(down);
+
+    affineui::Event drag{};
+    drag.type = affineui::EventType::MouseMove;
+    drag.pos = {sub.x + 48, sub.y};
+    ui.dispatch(drag);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = drag.pos;
+    ui.dispatch(up);
+
+    ui.document().layout(w, h, &painter);
+    painter.fill_draws.clear();
+    painter.fill_colors.clear();
+    painter.rounded_fill_draws.clear();
+    painter.border_ring_draws.clear();
+    painter.stroke_colors.clear();
+    painter.text_draws.clear();
+    painter.text_runs.clear();
+    ui.document().draw(painter);
+
+    const auto* box_ring = find_border_ring_left_of_text(painter, "Hard sync");
+    REQUIRE(box_ring != nullptr);
+    CHECK(box_ring->rect.w == 14);
+    CHECK(box_ring->rect.h == 14);
+    CHECK(same_color(box_ring->color,
+                     affineui::Color::rgb(0x5d, 0x65, 0x77)));
+}
+
+TEST_CASE("dark synth C++ value interactions keep checked checkbox visible") {
+    namespace dcs = demo::decius;
+
+    affineui::Ui ui;
+    RecordingPainter painter;
+
+    struct State {
+        bool sync{false};
+        bool armed{true};
+        std::unordered_map<std::string, float> values{
+            {"shape", 0.66f},
+            {"sub", 0.54f},
+            {"fader-a", 0.28f},
+        };
+    } state;
+
+    const auto examples_root =
+        std::filesystem::path{AFFINEUI_TEST_SOURCE_DIR} / "examples";
+    ui.document().set_resource_loader(
+        [examples_root](std::string_view url) -> std::string {
+            const std::filesystem::path rel{std::string(url)};
+            return read_test_file(examples_root / rel);
+        });
+
+    auto value = [&](std::string_view id) {
+        const auto it = state.values.find(std::string(id));
+        return it == state.values.end() ? 0.0f : it->second;
+    };
+
+    const auto render = [&] {
+        std::ostringstream h;
+        h << R"HTML(
+            <!doctype html><html><head><meta charset="utf-8">
+            <link rel="stylesheet" href="frameworks/css/decius-css-0.4.1.bundle.min.css">
+            <style>
+            body{margin:0;background:#101219}
+            .desk{padding:18px;background:#101219}
+            .module{display:flex;align-items:center;gap:22px;background:#20232b;padding:16px;border-radius:5px}
+            .slider-wrap{width:220px}
+            </style></head>
+            <body class="dcs" data-dcs-density="comfortable" data-dcs-accent="green">
+            <div class="desk"><div class="module">
+        )HTML"
+          << dcs::check("Hard sync", state.sync, false, "sync")
+          << R"HTML(<div class="slider-wrap">)HTML"
+          << dcs::slider(0, 1, value("sub"), false, true, "sub")
+          << R"HTML(</div>)HTML"
+          << dcs::fader(value("fader-a"), true, "fader-a")
+          << dcs::knob(0, 1, value("shape"), "Shape", false, 72, "shape")
+          << dcs::toggle("Voice armed", state.armed, "armed")
+          << R"HTML(</div></div></body></html>)HTML";
+        return h.str();
+    };
+
+    auto rerender = [&] {
+        ui.html(render());
+        ui.mark_dirty();
+    };
+    rerender();
+
+    ui.on_click("#sync", [&] {
+        state.sync = !state.sync;
+        rerender();
+    });
+    ui.on_click("#armed", [&] {
+        state.armed = !state.armed;
+        rerender();
+    });
+    dcs::install_value_interactions(ui, {
+        [&](std::string_view id) { return value(id); },
+        [&](std::string_view id, float v) {
+            state.values[std::string(id)] = v;
+        },
+        rerender,
+    });
+
+    constexpr int w = 520;
+    constexpr int h = 180;
+    auto send_mouse = [&](affineui::EventType type,
+                          affineui::Point pos,
+                          affineui::MouseButton button =
+                              affineui::MouseButton::Left) {
+        affineui::Event ev{};
+        ev.type = type;
+        ev.pos = pos;
+        ev.button = button;
+        ui.dispatch(ev);
+        ui.document().layout(w, h, &painter);
+    };
+
+    ui.document().layout(w, h, &painter);
+    const affineui::Point sync = find_hovered_id(ui.document(), "sync", w, h);
+    REQUIRE(sync.x >= 0);
+    send_mouse(affineui::EventType::MouseMove, sync);
+    send_mouse(affineui::EventType::MouseDown, sync,
+               affineui::MouseButton::Left);
+    send_mouse(affineui::EventType::MouseUp, sync,
+               affineui::MouseButton::Left);
+    REQUIRE(state.sync);
+
+    const affineui::Point sub = find_hovered_id(ui.document(), "sub", w, h);
+    REQUIRE(sub.x >= 0);
+    send_mouse(affineui::EventType::MouseMove, sub);
+    send_mouse(affineui::EventType::MouseDown, sub,
+               affineui::MouseButton::Left);
+    send_mouse(affineui::EventType::MouseMove, {sub.x + 74, sub.y});
+    send_mouse(affineui::EventType::MouseUp, {sub.x + 74, sub.y},
+               affineui::MouseButton::Left);
+
+    const affineui::Point fader =
+        find_hovered_id(ui.document(), "fader-a", w, h);
+    REQUIRE(fader.x >= 0);
+    send_mouse(affineui::EventType::MouseMove, fader);
+    send_mouse(affineui::EventType::MouseDown, fader,
+               affineui::MouseButton::Left);
+    send_mouse(affineui::EventType::MouseMove, {fader.x, fader.y + 38});
+    send_mouse(affineui::EventType::MouseUp, {fader.x, fader.y + 38},
+               affineui::MouseButton::Left);
+
+    const affineui::Point shape =
+        find_hovered_id(ui.document(), "shape", w, h);
+    REQUIRE(shape.x >= 0);
+    send_mouse(affineui::EventType::MouseMove, shape);
+    send_mouse(affineui::EventType::MouseDown, shape,
+               affineui::MouseButton::Left);
+    send_mouse(affineui::EventType::MouseMove, {shape.x, shape.y - 36});
+    send_mouse(affineui::EventType::MouseUp, {shape.x, shape.y - 36},
+               affineui::MouseButton::Left);
+
+    painter.fill_draws.clear();
+    painter.fill_colors.clear();
+    painter.rounded_fill_draws.clear();
+    painter.border_ring_draws.clear();
+    painter.stroke_colors.clear();
+    painter.text_draws.clear();
+    painter.text_runs.clear();
+    ui.document().draw(painter);
+
+    const auto checked_fill = affineui::Color::rgb(0x3d, 0xd6, 0x8a);
+    CHECK((saw_fill(painter, checked_fill) ||
+           find_rounded_fill_draw(painter, checked_fill) != nullptr));
+    const auto* icon = find_text_draw(painter, "\xEE\x80\x9B");
+    REQUIRE(icon != nullptr);
+    CHECK(same_color(icon->color, affineui::Color::rgb(0x0a, 0x12, 0x20)));
+    CHECK(find_text_draw(painter, "Hard sync") != nullptr);
 }
 
 TEST_CASE("common named HTML entities decode in compact entity mode") {
@@ -206,6 +1059,260 @@ TEST_CASE("linked stylesheet is loaded through resource loader") {
     CHECK(saw_stroke(painter, affineui::Color::rgb(0x12, 0x34, 0x56)));
 }
 
+TEST_CASE("uniform solid border paints the CSS border area") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .box {
+            box-sizing: border-box;
+            width: 14px;
+            height: 14px;
+            background: #4d9fff;
+            border: 1px solid #2f86ee;
+            border-radius: 2px;
+        }
+        </style>
+        <div class="box"></div>
+    )HTML");
+    doc.layout(64, 0, &painter);
+    doc.draw(painter);
+
+    REQUIRE_FALSE(painter.border_ring_draws.empty());
+    const auto& ring = painter.border_ring_draws.back();
+    CHECK(ring.rect.x == 0);
+    CHECK(ring.rect.y == 0);
+    CHECK(ring.rect.w == 14);
+    CHECK(ring.rect.h == 14);
+    CHECK(ring.radius == doctest::Approx(2.0f));
+    CHECK(ring.thickness == doctest::Approx(1.0f));
+    CHECK(same_color(ring.color, affineui::Color::rgb(0x2f, 0x86, 0xee)));
+}
+
+TEST_CASE("flex-centered slider track paints at explicit height") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .slider {
+          position: relative;
+          display: flex;
+          align-items: center;
+          width: 212px;
+          height: 22px;
+        }
+        .track {
+          position: relative;
+          width: 100%;
+          height: 4px;
+          background: #111111;
+          border-radius: 999px;
+        }
+        .fill {
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          left: 0;
+          width: 68%;
+          background: #4d9fff;
+          border-radius: 999px;
+        }
+        </style>
+        <div class="slider"><div class="track"><div class="fill"></div></div></div>
+    )HTML");
+    doc.layout(320, 0, &painter);
+    doc.draw(painter);
+
+    bool saw_blue_fill_at_track_height = false;
+    for (const auto& draw : painter.rounded_fill_draws) {
+        if (same_color(draw.color, affineui::Color::rgb(0x4d, 0x9f, 0xff)) &&
+            draw.rect.h == 4) {
+            saw_blue_fill_at_track_height = true;
+        }
+    }
+    CHECK(saw_blue_fill_at_track_height);
+}
+
+TEST_CASE("Decius property slider fill stays constrained to track height") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs, .dcs * { box-sizing: border-box; }
+        .dcs-field {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          min-height: 24px;
+        }
+        .dcs-field__label {
+          flex: 0 0 96px;
+        }
+        .dcs-props {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .dcs-props > .dcs-field {
+          height: 22px;
+          min-height: 22px;
+          justify-content: space-between;
+        }
+        .dcs-props > .dcs-field > .dcs-slider {
+          flex: 1;
+          min-width: 0;
+          height: 22px;
+        }
+        .dcs-slider {
+          position: relative;
+          display: flex;
+          align-items: center;
+          height: 24px;
+          width: 100%;
+          min-width: 80px;
+        }
+        .dcs-slider__track {
+          position: relative;
+          height: 4px;
+          width: 100%;
+          background: #20232b;
+          border: 1px solid #14161c;
+          border-radius: 999px;
+        }
+        .dcs-slider__fill {
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          left: 0;
+          width: 68%;
+          background: linear-gradient(90deg, #2f86ee, #4d9fff);
+          border-radius: 999px;
+        }
+        </style>
+        <div class="dcs">
+          <div class="dcs-props">
+            <div class="dcs-field">
+              <span class="dcs-field__label">Mix</span>
+              <div class="dcs-slider">
+                <div class="dcs-slider__track">
+                  <div class="dcs-slider__fill"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+    )HTML");
+    doc.layout(360, 0, &painter);
+    doc.draw(painter);
+
+    bool saw_gradient_at_track_height = false;
+    bool saw_track_at_track_height = false;
+    for (const auto& draw : painter.rounded_fill_draws) {
+        if (same_color(draw.color, affineui::Color::rgb(0x20, 0x23, 0x2b))) {
+            CAPTURE(draw.rect.x);
+            CAPTURE(draw.rect.y);
+            CAPTURE(draw.rect.w);
+            CAPTURE(draw.rect.h);
+            CHECK(draw.rect.h == 4);
+            saw_track_at_track_height = true;
+        }
+    }
+    CHECK(saw_track_at_track_height);
+    for (const auto& draw : painter.linear_gradient_draws) {
+        if (same_color(draw.stop0, affineui::Color::rgb(0x2f, 0x86, 0xee))) {
+            CAPTURE(draw.rect.x);
+            CAPTURE(draw.rect.y);
+            CAPTURE(draw.rect.w);
+            CAPTURE(draw.rect.h);
+            CHECK(draw.rect.h == 2);
+            saw_gradient_at_track_height = true;
+        }
+    }
+    CHECK(saw_gradient_at_track_height);
+}
+
+TEST_CASE("transparent side on circular border paints the missing quadrant") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .spin {
+          display: block;
+          width: 32px;
+          height: 32px;
+          --w: .25em;
+          color: #0d6efd;
+          border: var(--w) solid currentColor;
+          border-right-color: transparent;
+          border-radius: 50%;
+        }
+        </style>
+        <div class="spin"></div>
+    )HTML");
+    doc.layout(120, 0, &painter);
+    doc.draw(painter);
+
+    REQUIRE(painter.arc_draws.size() == 3);
+    auto has_arc = [&](float start, float end) {
+        for (const auto& arc : painter.arc_draws) {
+            if (arc.start_deg == doctest::Approx(start) &&
+                arc.end_deg == doctest::Approx(end)) {
+                CHECK(same_color(arc.color, affineui::Color::rgb(0x0D, 0x6E, 0xFD)));
+                return true;
+            }
+        }
+        return false;
+    };
+
+    CHECK(has_arc(-45.0f, 45.0f));
+    CHECK(has_arc(135.0f, 225.0f));
+    CHECK(has_arc(225.0f, 315.0f));
+}
+
+TEST_CASE("inline svg circular arc path paints with viewBox scaling and vars") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        :root { --dcs-accent: #4d9fff; }
+        body { margin: 0; padding: 0; }
+        .knob { display: block; width: 56px; height: 56px; }
+        </style>
+        <div class="knob">
+          <svg viewBox="0 0 24 24">
+            <path d="M 4.57537879754125 19.42462120245875 A 10.5 10.5 0 1 1 19.42462120245875 19.42462120245875"
+                  fill="none" stroke="rgba(255,255,255,.08)" stroke-width="1.5" stroke-linecap="round"></path>
+            <path d="M 4.57537879754125 19.42462120245875 A 10.5 10.5 0 0 1 4.123833768880174 5.056225414101656"
+                  fill="none" stroke="var(--dcs-accent)" stroke-width="1.75" stroke-linecap="round"></path>
+          </svg>
+        </div>
+    )HTML");
+    doc.layout(80, 0, &painter);
+    doc.draw(painter);
+
+    bool saw_accent_arc = false;
+    for (const auto& arc : painter.arc_draws) {
+        if (same_color(arc.color, affineui::Color::rgb(0x4d, 0x9f, 0xff))) {
+            saw_accent_arc = true;
+            CHECK(arc.cx == doctest::Approx(28.0f));
+            CHECK(arc.cy == doctest::Approx(28.0f));
+            CHECK(arc.radius == doctest::Approx(24.5f));
+            CHECK(arc.start_deg == doctest::Approx(-135.0f));
+            CHECK(arc.end_deg == doctest::Approx(-48.6f).epsilon(0.01));
+        }
+    }
+    CHECK(saw_accent_arc);
+}
+
 TEST_CASE("img element loads and draws through painter") {
     affineui::Document doc;
     RecordingPainter painter;
@@ -248,12 +1355,1110 @@ TEST_CASE("collapsed whitespace between inline-block siblings is rendered") {
     CHECK(saw_space);
 }
 
+TEST_CASE("mixed inline button text does not center into following badge") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        button { display: inline-block; text-align: center; padding: 0; }
+        span { display: inline-block; padding: 0; }
+        </style>
+        <button>Notifications <span>4</span></button>
+    )HTML");
+    doc.layout(320, 0, &painter);
+    doc.draw(painter);
+
+    const auto* label = find_text_draw(painter, "Notifications");
+    const auto* badge = find_text_draw(painter, "4");
+    REQUIRE(label != nullptr);
+    REQUIRE(badge != nullptr);
+
+    const int label_w = static_cast<int>(std::string_view("Notifications").size()) * 8;
+    CHECK(label->max_width <= static_cast<float>(label_w + 4));
+    CHECK(label->pos.x + label_w <= badge->pos.x);
+}
+
+TEST_CASE("right-aligned input text uses its own content box") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .field {
+          display: flex;
+          align-items: center;
+          width: 394px;
+          height: 22px;
+        }
+        .label { flex: 0 0 96px; }
+        input {
+          flex: 1;
+          min-width: 0;
+          box-sizing: border-box;
+          height: 22px;
+          border: 1px solid #000;
+          padding: 0 6px;
+          text-align: right;
+          font-size: 12px;
+          line-height: 1;
+        }
+        </style>
+        <label class="field"><span class="label">Scale</span><input value="1.000"></label>
+    )HTML");
+    doc.layout(480, 0, &painter);
+    doc.draw(painter);
+
+    const auto* value = find_text_draw(painter, "1.000");
+    REQUIRE(value != nullptr);
+
+    // The input occupies x=96..394. With border-box sizing, 1px border and
+    // 6px left/right padding, its content box starts at x=103 and is 284px
+    // wide. The old fallback aligned against the whole field row, passing
+    // x=0 and a ~394px line box to the painter. A later paint-only wrap
+    // slack bug widened the right-aligned line box by 4px and pushed the
+    // glyphs right, so keep the painted width exact for aligned controls.
+    CHECK(value->pos.x == 103);
+    CHECK(value->max_width == 284.0f);
+    CHECK(value->align == affineui::Painter::TextAlign::Right);
+}
+
+TEST_CASE("native select text uses platform inner inset") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        select {
+          display: flex;
+          align-items: center;
+          box-sizing: border-box;
+          width: 292px;
+          height: 22px;
+          border: 1px solid #000;
+          padding: 0 6px;
+          font-size: 12px;
+          line-height: normal;
+        }
+        </style>
+        <select><option>Object</option></select>
+    )HTML");
+    doc.layout(320, 0, &painter);
+    doc.draw(painter);
+
+    const auto* value = find_text_draw(painter, "Object");
+    REQUIRE(value != nullptr);
+
+    CHECK(value->pos.x == 12);
+    CHECK(value->max_width == 273.0f);
+}
+
+TEST_CASE("textarea text uses native edit viewport top inset") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        textarea {
+          display: flex;
+          box-sizing: border-box;
+          width: 292px;
+          height: 22px;
+          border: 1px solid #000;
+          padding: 6px;
+          font-size: 12px;
+          line-height: 1.45;
+        }
+        </style>
+        <textarea>Dense native UI, browser semantics.</textarea>
+    )HTML");
+    doc.layout(320, 0, &painter);
+    doc.draw(painter);
+
+    const auto* value =
+        find_text_draw(painter, "Dense native UI, browser semantics.");
+    REQUIRE(value != nullptr);
+
+    CHECK(value->pos.x == 7);
+    CHECK(value->pos.y == 12);
+}
+
+TEST_CASE("single-line flex text honors align-items center") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .box {
+          display: flex;
+          align-items: center;
+          width: 120px;
+          height: 22px;
+          font-size: 12px;
+          line-height: 1;
+        }
+        </style>
+        <div class="box">Value</div>
+    )HTML");
+    doc.layout(200, 0, &painter);
+    doc.draw(painter);
+
+    const auto* value = find_text_draw(painter, "Value");
+    REQUIRE(value != nullptr);
+    CHECK(value->pos.y > 0);
+}
+
+TEST_CASE("native select indicator uses inherited color and native inset") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        select {
+          display: block;
+          box-sizing: border-box;
+          width: 292px;
+          height: 22px;
+          color: #e7e9ee;
+          background: #20232b;
+          border: 1px solid #14161c;
+        }
+        </style>
+        <select><option>Object</option></select>
+    )HTML");
+    doc.layout(320, 0, &painter);
+    doc.draw(painter);
+
+    const auto chev = affineui::Color::rgb(0xe7, 0xe9, 0xee);
+    std::vector<RecordingPainter::StrokeLineDraw> lines;
+    for (const auto& line : painter.stroke_line_draws) {
+        if (same_color(line.color, chev)) lines.push_back(line);
+    }
+
+    REQUIRE(lines.size() == 2);
+    CHECK(lines[0].x1 == doctest::Approx(282.25f));
+    CHECK(lines[1].x0 == doctest::Approx(282.25f));
+    CHECK(lines[0].x0 == doctest::Approx(278.5f));
+    CHECK(lines[1].x1 == doctest::Approx(286.0f));
+    CHECK(lines[0].thickness == doctest::Approx(1.35f));
+}
+
+TEST_CASE("bootstrap form-select indicator follows SVG background placement") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .form-select {
+          display: block;
+          box-sizing: border-box;
+          width: 480px;
+          height: 40px;
+          color: #212529;
+          background: #fff;
+          border: 1px solid #dee2e6;
+        }
+        </style>
+        <select class="form-select"><option>Open this select menu</option></select>
+    )HTML");
+    doc.layout(520, 0, &painter);
+    doc.draw(painter);
+
+    const auto chev = affineui::Color::rgb(0x34, 0x3a, 0x40);
+    std::vector<RecordingPainter::StrokeLineDraw> lines;
+    for (const auto& line : painter.stroke_line_draws) {
+        if (same_color(line.color, chev)) lines.push_back(line);
+    }
+
+    REQUIRE(lines.size() == 2);
+    CHECK(lines[0].x1 == doctest::Approx(459.5f));
+    CHECK(lines[1].x0 == doctest::Approx(459.5f));
+    CHECK(lines[0].x0 == doctest::Approx(455.5f));
+    CHECK(lines[1].x1 == doctest::Approx(463.5f));
+    CHECK(lines[0].thickness == doctest::Approx(1.25f));
+}
+
+TEST_CASE("listbox selects do not draw a dropdown indicator") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        select {
+          display: block;
+          width: 120px;
+          height: 80px;
+          color: #e7e9ee;
+          border: 1px solid #14161c;
+        }
+        </style>
+        <select multiple><option>Object</option></select>
+    )HTML");
+    doc.layout(160, 0, &painter);
+    doc.draw(painter);
+
+    CHECK_FALSE(saw_stroke(painter, affineui::Color::rgb(0xe7, 0xe9, 0xee)));
+}
+
+TEST_CASE("generated before content participates in breadcrumb inline flow") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; font-size: 16px; line-height: 1; }
+        ol { display: flex; list-style: none; margin: 0; padding: 0; --gap: .5rem; }
+        .item + .item { padding-left: var(--gap); }
+        .item + .item::before {
+            content: var(--divider, "/");
+            padding-right: var(--gap);
+            color: rgba(33, 37, 41, .75);
+        }
+        </style>
+        <ol><li class="item">Home</li><li class="item">Library</li></ol>
+    )HTML");
+    doc.layout(320, 0, &painter);
+    doc.draw(painter);
+
+    const auto* slash = find_text_draw(painter, "/");
+    const auto* library = find_text_draw(painter, "Library");
+    REQUIRE(slash != nullptr);
+    REQUIRE(library != nullptr);
+
+    CHECK(slash->pos.x < library->pos.x);
+    CHECK(library->pos.x >= slash->pos.x + 16);
+}
+
+TEST_CASE("empty positioned generated content paints a box") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .host {
+          position: relative;
+          display: flex;
+          align-items: center;
+          width: 120px;
+          height: 32px;
+          padding: 0 10px;
+          border: 1px solid #3a3f4c;
+          overflow: hidden;
+          background: #20232b;
+        }
+        .host::before,
+        .host::after {
+          content: "";
+          position: absolute;
+          left: 0;
+          right: 0;
+          height: 1px;
+        }
+        .host::before {
+          top: 12px;
+          background: #4d9fff;
+        }
+        .host::after {
+          bottom: 10px;
+          background: #ef6b6b;
+        }
+        </style>
+        <div class="host"></div>
+    )HTML");
+    doc.layout(180, 0, &painter);
+    doc.draw(painter);
+
+    const auto* guide = find_fill_draw(
+        painter, affineui::Color::rgb(0x4d, 0x9f, 0xff));
+    REQUIRE(guide != nullptr);
+    CHECK(guide->rect.w == 140);
+    CHECK(guide->rect.h == 1);
+
+    const auto* lower = find_fill_draw(
+        painter, affineui::Color::rgb(0xef, 0x6b, 0x6b));
+    REQUIRE(lower != nullptr);
+    CHECK(lower->rect.w == 140);
+    CHECK(lower->rect.h == 1);
+}
+
+TEST_CASE("Decius empty generated control details paint") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .row { display: flex; align-items: center; gap: 12px; }
+        .dcs-switch {
+          position: relative;
+          width: 28px;
+          height: 16px;
+          background: #20232b;
+          border-radius: 999px;
+        }
+        .dcs-switch:after {
+          content: "";
+          position: absolute;
+          top: 1px;
+          left: 1px;
+          width: 12px;
+          height: 12px;
+          background: #767c8a;
+          border-radius: 50%;
+        }
+        .dcs-switch[aria-checked=true] {
+          background: #4d9fff;
+        }
+        .dcs-switch[aria-checked=true]:after {
+          transform: translateX(12px);
+          background: #0a1220;
+        }
+        .dcs-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          color: #aab0bd;
+        }
+        .dcs-badge--dot:before {
+          content: "";
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: currentColor;
+          opacity: .85;
+        }
+        .dcs-radio .dcs-check__box {
+          position: relative;
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+          background: #4d9fff;
+        }
+        .dcs-radio[aria-checked=true] .dcs-check__box:after {
+          content: "";
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: #0a1220;
+        }
+        </style>
+        <div class="row">
+          <div class="dcs-switch" aria-checked="true"></div>
+          <span class="dcs-badge dcs-badge--dot">armed</span>
+          <div class="dcs-radio" aria-checked="true"><div class="dcs-check__box"></div></div>
+        </div>
+    )HTML");
+    doc.layout(240, 0, &painter);
+    doc.draw(painter);
+
+    const auto* switch_thumb = find_rounded_fill_draw(
+        painter, affineui::Color::rgb(0x0a, 0x12, 0x20), 12, 12);
+    REQUIRE(switch_thumb != nullptr);
+    CHECK(switch_thumb->tl == doctest::Approx(6.0f));
+
+    const auto* radio_dot = find_rounded_fill_draw(
+        painter, affineui::Color::rgb(0x0a, 0x12, 0x20), 6, 6);
+    REQUIRE(radio_dot != nullptr);
+    CHECK(radio_dot->tl == doctest::Approx(3.0f));
+
+    const auto* badge_dot = find_rounded_fill_draw(
+        painter, affineui::Color::rgb(0xaa, 0xb0, 0xbd), 6, 6);
+    REQUIRE(badge_dot != nullptr);
+    CHECK(badge_dot->tl == doctest::Approx(3.0f));
+}
+
+TEST_CASE("generated pseudo-elements match body ancestor attributes") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .switch {
+          position: relative;
+          display: block;
+          width: 28px;
+          height: 16px;
+        }
+        .switch::after {
+          content: "";
+          position: absolute;
+          left: 1px;
+          top: 1px;
+          width: 12px;
+          height: 12px;
+          background: #111111;
+          border-radius: 50%;
+        }
+        [data-mode="3d"] .switch[aria-checked="true"]::after {
+          background: #eeeeee;
+        }
+        </style>
+        <body data-mode="3d">
+          <div class="switch" aria-checked="true"></div>
+        </body>
+    )HTML");
+    doc.layout(100, 0, &painter);
+    doc.draw(painter);
+
+    CHECK(saw_fill(painter, affineui::Color::rgb(0xee, 0xee, 0xee)));
+    CHECK_FALSE(saw_fill(painter, affineui::Color::rgb(0x11, 0x11, 0x11)));
+}
+
+TEST_CASE("linked stylesheet empty generated content keeps parsed declarations") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_resource_loader([](std::string_view url) -> std::string {
+        if (url == "decius.css") {
+            return R"CSS(
+                @font-face { font-family: ignored; src: url(ignored.woff); }
+                .dcs-switch {
+                  position: relative;
+                  width: 28px;
+                  height: 16px;
+                  background: #20232b;
+                  border-radius: 999px;
+                }
+                .dcs-switch:after {
+                  content: "";
+                  position: absolute;
+                  top: 1px;
+                  left: 1px;
+                  width: 12px;
+                  height: 12px;
+                  background: #767c8a;
+                  border-radius: 50%;
+                }
+                .dcs-switch[aria-checked=true]:after {
+                  transform: translateX(12px);
+                  background: #0a1220;
+                }
+            )CSS";
+        }
+        return {};
+    });
+    doc.set_html(R"HTML(
+        <link rel="stylesheet" href="decius.css">
+        <div class="dcs-switch" aria-checked="true"></div>
+    )HTML");
+    doc.layout(120, 0, &painter);
+    doc.draw(painter);
+
+    const auto* thumb = find_rounded_fill_draw(
+        painter, affineui::Color::rgb(0x0a, 0x12, 0x20), 12, 12);
+    REQUIRE(thumb != nullptr);
+    CHECK(thumb->tl == doctest::Approx(6.0f));
+}
+
+TEST_CASE("generated content decodes CSS string escapes") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; font-size: 16px; line-height: 1; }
+        .icon::before { content: "\e02b"; }
+        </style>
+        <span class="icon"></span>
+    )HTML");
+    doc.layout(160, 0, &painter);
+    doc.draw(painter);
+
+    const auto* icon = find_text_draw(painter, "\xEE\x80\xAB");
+    REQUIRE(icon != nullptr);
+    CHECK(find_text_draw(painter, "\\e02b") == nullptr);
+}
+
+TEST_CASE("inline generated icon content inherits recovered font family") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; font-size: 16px; line-height: 1; }
+        .di { font-family: decius-icons; display: inline-block; }
+        .di-check::before { content: "\e01b"; }
+        </style>
+        <span class="di di-check"></span>
+    )HTML");
+    doc.layout(160, 0, &painter);
+    doc.draw(painter);
+
+    const auto* icon = find_text_draw(painter, "\xEE\x80\x9B");
+    REQUIRE(icon != nullptr);
+
+    bool requested_icon_font = false;
+    for (const auto& family : painter.font_requests) {
+        if (family == "decius-icons") {
+            requested_icon_font = true;
+            break;
+        }
+    }
+    CHECK(requested_icon_font);
+}
+
+TEST_CASE("inline-block generated content contributes flex item width") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; font-size: 16px; line-height: 1; }
+        .strip { display: flex; gap: 14px; }
+        .icon { display: inline-block; }
+        .one::before { content: "A"; }
+        .two::before { content: "B"; }
+        </style>
+        <div class="strip"><i class="icon one"></i><i class="icon two"></i></div>
+    )HTML");
+    doc.layout(160, 0, &painter);
+    doc.draw(painter);
+
+    const auto* a = find_text_draw(painter, "A");
+    const auto* b = find_text_draw(painter, "B");
+    REQUIRE(a != nullptr);
+    REQUIRE(b != nullptr);
+
+    CHECK(b->pos.x >= a->pos.x + 22);
+}
+
+TEST_CASE("empty generated content paints an absolutely positioned box") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .host { position: relative; width: 28px; height: 16px; }
+        .host::after {
+            content: "";
+            position: absolute;
+            top: 1px;
+            left: 1px;
+            width: 12px;
+            height: 12px;
+            background: #ff0000;
+            border-radius: 50%;
+        }
+        </style>
+        <div class="host"></div>
+    )HTML");
+    doc.layout(160, 0, &painter);
+    doc.draw(painter);
+
+    bool saw_thumb = false;
+    for (const auto& draw : painter.fill_draws) {
+        if (same_color(draw.color, affineui::Color::rgb(0xff, 0x00, 0x00)) &&
+            draw.rect.x == 1 && draw.rect.y == 1 &&
+            draw.rect.w == 12 && draw.rect.h == 12) {
+            saw_thumb = true;
+        }
+    }
+    for (const auto& draw : painter.rounded_fill_draws) {
+        if (same_color(draw.color, affineui::Color::rgb(0xff, 0x00, 0x00)) &&
+            draw.rect.x == 1 && draw.rect.y == 1 &&
+            draw.rect.w == 12 && draw.rect.h == 12) {
+            saw_thumb = true;
+        }
+    }
+    CHECK(saw_thumb);
+}
+
+TEST_CASE("empty generated content honors percentage inset and subpixel translate") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .host { position: relative; width: 22px; height: 8px; }
+        .host::after {
+            content: "";
+            position: absolute;
+            left: 3px;
+            right: 3px;
+            top: 50%;
+            height: 1px;
+            background: #4d9fff;
+            transform: translateY(-.5px);
+        }
+        </style>
+        <div class="host"></div>
+    )HTML");
+    doc.layout(80, 40, &painter);
+    doc.draw(painter);
+
+    const RecordingPainter::FillDraw* rule = nullptr;
+    for (const auto& draw : painter.fill_draws) {
+        if (same_color(draw.color, affineui::Color::rgb(0x4d, 0x9f, 0xff))) {
+            rule = &draw;
+            break;
+        }
+    }
+
+    REQUIRE(rule != nullptr);
+    CHECK(rule->rect.x == 3);
+    CHECK(rule->rect.y == 4);
+    CHECK(rule->rect.w == 16);
+    CHECK(rule->rect.h == 1);
+    CHECK(rule->transform.ty == doctest::Approx(-0.5f));
+}
+
+TEST_CASE("fractional layout position does not synthesize a paint transform") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .host {
+            position: relative;
+            box-sizing: border-box;
+            width: 28px;
+            height: 140px;
+            border: 1px solid transparent;
+        }
+        .thumb {
+            position: absolute;
+            box-sizing: border-box;
+            top: 24%;
+            width: 22px;
+            height: 12px;
+            background: #ff0000;
+        }
+        </style>
+        <div class="host"><div class="thumb"></div></div>
+    )HTML");
+    doc.layout(80, 160, &painter);
+    doc.draw(painter);
+
+    const auto* thumb = find_fill_draw(
+        painter, affineui::Color::rgb(0xff, 0x00, 0x00));
+    REQUIRE(thumb != nullptr);
+    CHECK(thumb->rect.y == 34);
+    CHECK(thumb->transform.tx == doctest::Approx(0.0f));
+    CHECK(thumb->transform.ty == doctest::Approx(0.0f));
+}
+
+TEST_CASE("grid container blockifies and stretches inline-block buttons") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; font-size: 16px; line-height: 1.5; }
+        .grid { display: grid; width: 256px; gap: 8px; }
+        button {
+            display: inline-block;
+            text-align: center;
+            padding: 6px 12px;
+            border: 1px solid;
+        }
+        </style>
+        <div class="grid">
+            <button>Block A</button>
+            <button>Block B</button>
+        </div>
+    )HTML");
+    doc.layout(400, 0, &painter);
+    doc.draw(painter);
+
+    const auto* a = find_text_draw(painter, "Block A");
+    const auto* b = find_text_draw(painter, "Block B");
+    REQUIRE(a != nullptr);
+    REQUIRE(b != nullptr);
+
+    CHECK(a->max_width > 180.0f);
+    CHECK(b->max_width > 180.0f);
+    CHECK(b->pos.y > a->pos.y);
+}
+
+TEST_CASE("HTML5 aside participates as a block-level box") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        main { display: flex; width: 180px; height: 40px; }
+        aside { flex: 0 0 80px; height: 40px; background: #123456; }
+        section { flex: 1; height: 40px; background: #abcdef; }
+        </style>
+        <main><aside></aside><section></section></main>
+    )HTML");
+    doc.layout(200, 0, &painter);
+
+    const auto aside_pos = find_hovered_tag(doc, "aside");
+    CHECK(aside_pos.x >= 0);
+}
+
+TEST_CASE("text-indent shifts first line text origin") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 20px; }
+        p { margin: 0; font-size: 16px; line-height: 1.4; }
+        .ind { text-indent: 48px; }
+        </style>
+        <p>plain</p>
+        <p class="ind">indented</p>
+    )HTML");
+    doc.layout(320, 0, &painter);
+    doc.draw(painter);
+
+    const auto* plain = find_text_draw(painter, "plain");
+    const auto* ind = find_text_draw(painter, "indented");
+    REQUIRE(plain != nullptr);
+    REQUIRE(ind != nullptr);
+
+    CHECK(ind->pos.x == plain->pos.x + 48);
+}
+
+TEST_CASE("floated form-check input sits in the gutter without squeezing label") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; font-size: 16px; line-height: 1.5; }
+        .form-check { display: block; min-height: 24px; padding-left: 24px; }
+        .form-check .form-check-input { float: left; margin-left: -24px; }
+        .form-check-input {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            margin-top: 4px;
+            background: #0d6efd;
+        }
+        .form-check-label { display: inline-block; }
+        </style>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" checked>
+          <label class="form-check-label">Checked checkbox</label>
+        </div>
+    )HTML");
+    doc.layout(260, 0, &painter);
+    doc.draw(painter);
+
+    const auto* label = find_text_draw(painter, "Checked checkbox");
+    REQUIRE(label != nullptr);
+
+    const RecordingPainter::FillDraw* input_fill = nullptr;
+    for (const auto& fill : painter.fill_draws) {
+        if (same_color(fill.color, affineui::Color{0x0D, 0x6E, 0xFD, 0xFF})) {
+            input_fill = &fill;
+            break;
+        }
+    }
+    REQUIRE(input_fill != nullptr);
+    CHECK(input_fill->rect.x == 0);
+    CHECK(input_fill->rect.y == 4);
+    CHECK(input_fill->rect.w == 16);
+    CHECK(input_fill->rect.h == 16);
+
+    const int natural_label_w =
+        static_cast<int>(std::string_view("Checked checkbox").size()) * 8;
+    CHECK(label->pos.x >= 24);
+    CHECK(label->max_width >= static_cast<float>(natural_label_w));
+}
+
+TEST_CASE("parent opacity applies to anonymous text descendants") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        label { opacity: .5; }
+        </style>
+        <label>Dimmed label</label>
+    )HTML");
+    doc.layout(200, 0, &painter);
+    doc.draw(painter);
+
+    const auto* label = find_text_draw(painter, "Dimmed label");
+    REQUIRE(label != nullptr);
+    CHECK(label->alpha == doctest::Approx(0.5f));
+}
+
+TEST_CASE("font-family resolves root custom property variables") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        :root {
+            --ui-font: system-ui, serif;
+            --body-font: var(--ui-font);
+        }
+        body { margin: 0; padding: 0; font-family: var(--body-font); }
+        p { margin: 0; }
+        </style>
+        <p>Hello</p>
+    )HTML");
+    doc.layout(320, 0, &painter);
+    doc.draw(painter);
+
+    bool requested_system_ui = false;
+    for (const auto& family : painter.font_requests) {
+        if (family.find("system-ui") != std::string::npos) {
+            requested_system_ui = true;
+        }
+    }
+    CHECK(requested_system_ui);
+}
+
+TEST_CASE("font-family preserves browser fallback stacks") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        p { margin: 0; }
+        </style>
+        <p>Hello</p>
+    )HTML");
+    doc.layout(320, 0, &painter);
+    doc.draw(painter);
+
+    bool requested_segoe_stack = false;
+    for (const auto& family : painter.font_requests) {
+        if (family.find("-apple-system") != std::string::npos &&
+            family.find("Segoe UI") != std::string::npos &&
+            family.find("Roboto") != std::string::npos) {
+            requested_segoe_stack = true;
+        }
+    }
+    CHECK(requested_segoe_stack);
+}
+
+TEST_CASE("font-family preserves Bootstrap monospace fallback stacks") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: sans-serif;
+        }
+        code {
+            font-family: SFMono-Regular, Menlo, Monaco, Consolas,
+                         "Liberation Mono", "Courier New", monospace;
+        }
+        </style>
+        <code>$42,600</code>
+    )HTML");
+    doc.layout(320, 0, &painter);
+    doc.draw(painter);
+
+    bool requested_mono_stack = false;
+    for (const auto& family : painter.font_requests) {
+        if (family.find("SFMono-Regular") != std::string::npos &&
+            family.find("Consolas") != std::string::npos &&
+            family.find("monospace") != std::string::npos) {
+            requested_mono_stack = true;
+        }
+    }
+    CHECK(requested_mono_stack);
+}
+
+TEST_CASE("first child top margin collapses through a plain block parent") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; font-size: 16px; line-height: 16px; }
+        .parent { height: 80px; margin: 0; background: #010203; }
+        .child { margin: 20px 0 0 0; }
+        </style>
+        <div class="parent"><div class="child">hit</div></div>
+    )HTML");
+    doc.layout(320, 0, &painter);
+    doc.draw(painter);
+
+    const auto* parent_bg = find_fill_draw(
+        painter, affineui::Color{1, 2, 3, 255});
+    REQUIRE(parent_bg != nullptr);
+    CHECK(parent_bg->rect.y == 20);
+
+    const auto* draw = find_text_draw(painter, "hit");
+    REQUIRE(draw != nullptr);
+    CHECK(draw->pos.y == 20);
+}
+
+TEST_CASE("adjacent vertical block margins collapse to the larger margin") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; font-size: 16px; line-height: 16px; }
+        .before { height: 10px; margin: 0 0 24px 0; }
+        .parent { height: 80px; margin: 0; }
+        .child { margin: 20px 0 0 0; }
+        </style>
+        <div class="before"></div>
+        <div class="parent"><div class="child">hit</div></div>
+    )HTML");
+    doc.layout(320, 0, &painter);
+    doc.draw(painter);
+
+    const auto* draw = find_text_draw(painter, "hit");
+    REQUIRE(draw != nullptr);
+    CHECK(draw->pos.y == 34);
+}
+
+TEST_CASE("last child bottom margin collapses through a plain block parent") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>body{margin:0}</style>
+        <nav style="margin-bottom:24px">
+            <div style="display:flex;width:20px;height:10px;margin-bottom:16px;background:#0d6efd"></div>
+        </nav>
+        <div style="width:20px;height:10px;background:#198754"></div>
+    )HTML");
+    doc.layout(320, 200, &painter);
+    doc.draw(painter);
+
+    const auto green = affineui::Color::rgb(0x19, 0x87, 0x54);
+    bool saw_green_at_collapsed_y = false;
+    for (const auto& fill : painter.fill_draws) {
+        if (same_color(fill.color, green) && fill.rect.y == 34) {
+            saw_green_at_collapsed_y = true;
+        }
+    }
+    CHECK(saw_green_at_collapsed_y);
+}
+
 TEST_CASE("dispatch of a no-op event returns a quiescent result") {
     affineui::Document doc;
     affineui::Event ev{};
     auto r = doc.dispatch(ev);
     CHECK(r.redraw_requested == false);
     CHECK(r.invalidate_view == false);
+}
+
+TEST_CASE("hover restyle preserves inherited custom properties") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; --surface: #123456; }
+        .wrap { display: block; }
+        .btn {
+            display: block;
+            width: 40px;
+            height: 20px;
+            background-color: var(--surface);
+            border: 1px solid transparent;
+        }
+        .btn:hover { border-color: #ffffff; }
+        </style>
+        <div class="wrap"><button class="btn"></button></div>
+    )HTML");
+    doc.layout(120, 80, &painter);
+
+    const auto surface = affineui::Color::rgb(0x12, 0x34, 0x56);
+    painter.fill_colors.clear();
+    doc.draw(painter);
+    REQUIRE(saw_fill(painter, surface));
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {4, 4};
+    CHECK(doc.dispatch(move).redraw_requested);
+
+    painter.fill_colors.clear();
+    doc.draw(painter);
+    CHECK(saw_fill(painter, surface));
+}
+
+TEST_CASE("ancestor hover restyles matching descendants") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .card {
+            display: block;
+            width: 80px;
+            height: 50px;
+            background-color: #101010;
+        }
+        .thumb {
+            display: block;
+            width: 16px;
+            height: 16px;
+            background-color: #202020;
+        }
+        .card:hover .thumb { background-color: #445566; }
+        </style>
+        <div class="card"><div class="thumb"></div></div>
+    )HTML");
+    doc.layout(120, 80, &painter);
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {70, 40};
+    CHECK(doc.dispatch(move).redraw_requested);
+
+    painter.fill_colors.clear();
+    doc.draw(painter);
+    CHECK(saw_fill(painter, affineui::Color::rgb(0x44, 0x55, 0x66)));
+}
+
+TEST_CASE("hover overlay resolves var declarations against current scope") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; --hot: #445566; }
+        button {
+            display: block;
+            width: 40px;
+            height: 20px;
+            background-color: #202020;
+            border: 0;
+        }
+        button:hover { background-color: var(--hot); }
+        </style>
+        <button></button>
+    )HTML");
+    doc.layout(120, 80, &painter);
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {4, 4};
+    CHECK(doc.dispatch(move).redraw_requested);
+
+    painter.fill_colors.clear();
+    doc.draw(painter);
+    CHECK(saw_fill(painter, affineui::Color::rgb(0x44, 0x55, 0x66)));
 }
 
 TEST_CASE("focused button keeps higher-specificity recovered border color") {
@@ -350,6 +2555,73 @@ TEST_CASE("focused button paints parsed box-shadow") {
     CHECK(saw_fill(painter, affineui::Color::rgba(13, 110, 253, 64)));
 }
 
+TEST_CASE("multi-layer box-shadow paints outer and inset layers") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .panel {
+            display: block;
+            width: 40px;
+            height: 24px;
+            background: #222;
+            border-radius: 4px;
+            box-shadow:
+                inset 0 1px 0 rgba(255,255,255,.25),
+                0 2px 6px rgba(0,0,0,.4);
+        }
+        </style>
+        <div class="panel"></div>
+    )HTML");
+    doc.layout(120, 0, &painter);
+
+    painter.shadow_insets.clear();
+    doc.draw(painter);
+
+    REQUIRE(painter.shadow_insets.size() == 2);
+    CHECK_FALSE(painter.shadow_insets[0]);
+    CHECK(painter.shadow_insets[1]);
+}
+
+TEST_CASE("inset box-shadow is cast from the padding edge") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .panel {
+            display: block;
+            width: 40px;
+            height: 24px;
+            background: #222;
+            border: 2px solid #111;
+            border-radius: 6px;
+            box-shadow:
+                inset 0 1px 0 rgba(255,255,255,.25),
+                inset 0 -1px 0 rgba(0,0,0,.25);
+        }
+        </style>
+        <div class="panel"></div>
+    )HTML");
+    doc.layout(120, 0, &painter);
+
+    painter.shadow_draws.clear();
+    doc.draw(painter);
+
+    REQUIRE(painter.shadow_draws.size() == 2);
+    for (const auto& draw : painter.shadow_draws) {
+        CHECK(draw.inset);
+        CHECK(draw.rect.x == 2);
+        CHECK(draw.rect.y == 2);
+        CHECK(draw.rect.w == 40);
+        CHECK(draw.rect.h == 24);
+        CHECK(draw.radius == doctest::Approx(4.0f));
+    }
+}
+
 TEST_CASE("focused input accepts text input and backspace") {
     affineui::Document doc;
     RecordingPainter painter;
@@ -397,6 +2669,51 @@ TEST_CASE("focused input accepts text input and backspace") {
     doc.draw(painter);
     REQUIRE(!painter.text_runs.empty());
     CHECK(painter.text_runs.back() == "A");
+}
+
+TEST_CASE("overflow clipping uses padding box so borders remain visible") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <div style="width:140px;height:90px;border:2px solid #607d8b;overflow:hidden">
+            <div style="width:220px;height:160px;background:#ffe082"></div>
+        </div>
+    )HTML");
+    doc.layout(640, 320, &painter);
+    doc.draw(painter);
+
+    REQUIRE(!painter.clip_rects.empty());
+    CHECK(painter.clip_rects.front().x == 2);
+    CHECK(painter.clip_rects.front().y == 2);
+    CHECK(painter.clip_rects.front().w == 140);
+    CHECK(painter.clip_rects.front().h == 90);
+}
+
+TEST_CASE("rounded overflow clips descendant background corners") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <div style="width:100px;height:20px;border-radius:6px;overflow:hidden;background:#eeeeee">
+            <div style="width:40px;height:20px;background:#0d6efd"></div>
+        </div>
+    )HTML");
+    doc.layout(640, 320, &painter);
+    doc.draw(painter);
+
+    bool saw_child_left_clip = false;
+    for (const auto& draw : painter.rounded_fill_draws) {
+        if (draw.rect.w == 40 &&
+            same_color(draw.color, affineui::Color::rgb(0x0d, 0x6e, 0xfd))) {
+            saw_child_left_clip =
+                draw.tl == doctest::Approx(6.0f) &&
+                draw.tr == doctest::Approx(0.0f) &&
+                draw.br == doctest::Approx(0.0f) &&
+                draw.bl == doctest::Approx(6.0f);
+        }
+    }
+    CHECK(saw_child_left_clip);
 }
 
 // ── @media query tests ────────────────────────────────────────────────
@@ -498,4 +2815,270 @@ TEST_CASE("@media viewport re-evaluated on layout width change") {
     doc.draw(painter);
     CHECK(saw_fill(painter, affineui::Color::rgb(0x00, 0x00, 0xff)));
     CHECK(!saw_fill(painter, affineui::Color::rgb(0xff, 0x00, 0x00)));
+}
+
+TEST_CASE("CSS keyframes make document report active animations") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+            .box {
+                width: 20px;
+                height: 20px;
+                background: #ff0000;
+                animation: 1s linear infinite spin;
+            }
+        </style>
+        <div class="box"></div>
+    )HTML");
+    doc.layout(200, 200, &painter);
+
+    CHECK(doc.has_active_animations());
+}
+
+TEST_CASE("animation none disables matching keyframes") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+            .box {
+                width: 20px;
+                height: 20px;
+                background: #ff0000;
+                animation: 1s linear infinite spin;
+                animation: none !important;
+            }
+        </style>
+        <div class="box"></div>
+    )HTML");
+    doc.layout(200, 200, &painter);
+
+    CHECK(!doc.has_active_animations());
+}
+
+TEST_CASE("hover-created animation starts from the hover transition") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+            html, body { margin: 0; }
+            @keyframes fade {
+                to { opacity: 0; }
+            }
+            .box {
+                width: 20px;
+                height: 20px;
+                background: #ff0000;
+            }
+            .box:hover {
+                animation: 1s linear fade;
+            }
+        </style>
+        <div class="box"></div>
+    )HTML");
+    doc.layout(200, 200, &painter);
+    doc.set_animation_time_for_testing(10.0);
+    CHECK(!doc.has_active_animations());
+
+    affineui::Event ev{};
+    ev.type = affineui::EventType::MouseMove;
+    ev.pos = {1, 1};
+    doc.dispatch(ev);
+
+    CHECK(doc.has_active_animations());
+}
+
+TEST_CASE("nested transforms compose child local transform before ancestors") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+            html, body { margin: 0; }
+            .parent {
+                width: 100px;
+                height: 100px;
+                background: #0000ff;
+                transform: translate(100px, 0) scale(2);
+            }
+            .child {
+                width: 10px;
+                height: 10px;
+                background: #ff0000;
+                transform: translate(10px, 0);
+            }
+        </style>
+        <div class="parent"><div class="child"></div></div>
+    )HTML");
+    doc.layout(300, 200, &painter);
+
+    painter.fill_draws.clear();
+    doc.draw(painter);
+
+    const RecordingPainter::FillDraw* child_fill = nullptr;
+    for (const auto& draw : painter.fill_draws) {
+        if (same_color(draw.color, affineui::Color::rgb(0xff, 0x00, 0x00))) {
+            child_fill = &draw;
+            break;
+        }
+    }
+
+    REQUIRE(child_fill != nullptr);
+    CHECK(child_fill->transform.a == doctest::Approx(2.0f));
+    CHECK(child_fill->transform.d == doctest::Approx(2.0f));
+    CHECK(child_fill->transform.tx == doctest::Approx(70.0f));
+    CHECK(child_fill->transform.ty == doctest::Approx(-50.0f));
+}
+
+TEST_CASE("percentage translate resolves against the element box") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+            html, body { margin: 0; }
+            .thumb {
+                width: 12px;
+                height: 12px;
+                background: #ff0000;
+                transform: translate(-50%, -50%);
+            }
+        </style>
+        <div class="thumb"></div>
+    )HTML");
+    doc.layout(100, 100, &painter);
+
+    painter.fill_draws.clear();
+    doc.draw(painter);
+
+    const RecordingPainter::FillDraw* fill = nullptr;
+    for (const auto& draw : painter.fill_draws) {
+        if (same_color(draw.color, affineui::Color::rgb(0xff, 0x00, 0x00))) {
+            fill = &draw;
+            break;
+        }
+    }
+
+    REQUIRE(fill != nullptr);
+    CHECK(fill->transform.tx == doctest::Approx(-6.0f));
+    CHECK(fill->transform.ty == doctest::Approx(-6.0f));
+}
+
+TEST_CASE("transform-origin changes the transform pivot") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+            html, body { margin: 0; }
+            .needle {
+                position: absolute;
+                left: 50px;
+                top: 50px;
+                width: 2px;
+                height: 20px;
+                background: #ff0000;
+                transform-origin: 50% 100%;
+                transform: translate(-50%, -100%) rotate(90deg);
+            }
+        </style>
+        <div class="needle"></div>
+    )HTML");
+    doc.layout(100, 100, &painter);
+
+    painter.fill_draws.clear();
+    doc.draw(painter);
+
+    const RecordingPainter::FillDraw* fill = nullptr;
+    for (const auto& draw : painter.fill_draws) {
+        if (same_color(draw.color, affineui::Color::rgb(0xff, 0x00, 0x00))) {
+            fill = &draw;
+            break;
+        }
+    }
+
+    REQUIRE(fill != nullptr);
+
+    const auto pivot = fill->transform.apply({51.0f, 70.0f});
+    CHECK(pivot.x == doctest::Approx(50.0f));
+    CHECK(pivot.y == doctest::Approx(50.0f));
+}
+
+TEST_CASE("live style mutation restyles descendants and tracks dirty rects") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+            html, body { margin: 0; padding: 0; }
+            #box {
+                position: absolute;
+                left: var(--x);
+                top: 10px;
+                width: 10px;
+                height: 10px;
+                background: #112233;
+            }
+        </style>
+        <div id="root" style="--x:20px"><div id="box"></div></div>
+    )HTML");
+    doc.layout(100, 100, &painter);
+
+    painter.fill_draws.clear();
+    doc.draw(painter);
+    const auto* first = find_fill_draw(
+        painter, affineui::Color::rgb(0x11, 0x22, 0x33));
+    REQUIRE(first != nullptr);
+    CHECK(first->rect.x == 20);
+
+    REQUIRE(doc.set_attribute_by_id("root", "style", "--x:40px"));
+    doc.layout(100, 100, &painter);
+
+    painter.fill_draws.clear();
+    doc.draw(painter);
+    const auto* second = find_fill_draw(
+        painter, affineui::Color::rgb(0x11, 0x22, 0x33));
+    REQUIRE(second != nullptr);
+    CHECK(second->rect.x == 40);
+
+    const auto dirty = doc.take_dirty_rects();
+    bool saw_old = false;
+    bool saw_new = false;
+    for (const auto& r : dirty) {
+        if (r.x <= 20 && r.x + r.w >= 30) saw_old = true;
+        if (r.x <= 40 && r.x + r.w >= 50) saw_new = true;
+    }
+    CHECK(saw_old);
+    CHECK(saw_new);
+}
+
+TEST_CASE("live text mutation updates a leaf without reparsing") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+            html, body { margin: 0; padding: 0; }
+            #value { display: block; width: 120px; height: 24px; }
+        </style>
+        <div id="value">1.00</div>
+    )HTML");
+    doc.layout(160, 80, &painter);
+    REQUIRE(doc.set_text_by_id("value", "0.42"));
+    doc.layout(160, 80, &painter);
+
+    painter.text_runs.clear();
+    doc.draw(painter);
+    CHECK(std::find(painter.text_runs.begin(), painter.text_runs.end(),
+                    "0.42") != painter.text_runs.end());
+    CHECK_FALSE(doc.take_dirty_rects().empty());
 }

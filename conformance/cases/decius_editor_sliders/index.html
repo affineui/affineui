@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../_decius/css/decius.bundle.min.css">
+<style>
+body{margin:0;background:#14161c;padding:18px}
+.fixture{width:520px}
+.stack{display:flex;flex-direction:column;gap:16px}
+</style>
+</head>
+<body class="dcs" data-dcs-density="comfortable">
+  <section class="fixture dcs-panel dcs-panel--bordered">
+    <div class="dcs-panel__header">
+      <div class="dcs-panel__title"><i class="di di-gain"></i><span>Editor Sliders</span></div>
+    </div>
+    <div class="dcs-panel__body stack">
+      <div class="dcs-field">
+        <span class="dcs-field__label">Mix</span>
+        <div data-dcs-slider data-min="0" data-max="1" data-value="0.68"></div>
+      </div>
+      <div class="dcs-field">
+        <span class="dcs-field__label">Phase</span>
+        <div data-dcs-slider data-min="-1" data-max="1" data-value="0.28" data-bipolar></div>
+      </div>
+      <div class="dcs-field">
+        <span class="dcs-field__label">Wide</span>
+        <div data-dcs-slider data-min="0" data-max="1" data-value="0.42" class="dcs-slider">
+          <div class="dcs-slider__track"><div class="dcs-slider__tick" style="left:25%"></div><div class="dcs-slider__tick" style="left:50%"></div><div class="dcs-slider__tick" style="left:75%"></div><div class="dcs-slider__fill"></div><div class="dcs-slider__thumb"></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

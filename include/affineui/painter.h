@@ -1,5 +1,6 @@
 #pragma once
 
+#include "affineui/geom.h"
 #include "affineui/types.h"
 
 #include <string_view>
@@ -49,6 +50,15 @@ public:
     virtual void stroke_rounded_rect_varying(const Rect& r,
                                              float tl, float tr, float br, float bl,
                                              Color color, float w) = 0;
+    /// Fill the CSS border area for a uniform solid border. Unlike a normal
+    /// vector stroke, the painted ring lies inside the border box `r`.
+    virtual void fill_rounded_rect_ring(const Rect& r,
+                                        float radius,
+                                        float thickness,
+                                        Color color) {
+        if (thickness <= 0.0f) return;
+        stroke_rounded_rect(r, radius, color, thickness);
+    }
 
     // ── Gradient fills ──────────────────────────────────────────────
     /// CSS-convention angle: 0=upward, 90=right, 180=downward, 270=left.
@@ -58,12 +68,25 @@ public:
                                            Color stop0, Color stop1,
                                            float tl = 0, float tr = 0,
                                            float br = 0, float bl = 0) = 0;
-    /// Radial gradient centered on `r`. Inner radius = 0; outer radius
-    /// = farthest-corner distance (Chrome default for `circle`).
+    /// Radial gradient centered at a CSS `at <position>` percentage.
+    /// Inner radius = 0; outer radius = farthest-corner distance
+    /// (Chrome default for `circle`).
     virtual void fill_radial_gradient_rect(const Rect& r,
                                            Color stop0, Color stop1,
                                            float tl = 0, float tr = 0,
-                                           float br = 0, float bl = 0) = 0;
+                                           float br = 0, float bl = 0,
+                                           float center_x_pct = 50,
+                                           float center_y_pct = 50,
+                                           float stop1_pos_pct = 100) = 0;
+    virtual void fill_linear_stripes_rect(const Rect& r,
+                                          float angle_deg,
+                                          Color stripe,
+                                          float tile_size,
+                                          float tl = 0, float tr = 0,
+                                          float br = 0, float bl = 0) {
+        (void)r; (void)angle_deg; (void)stripe; (void)tile_size;
+        (void)tl; (void)tr; (void)br; (void)bl;
+    }
 
     // ── Box shadow ──────────────────────────────────────────────────
     /// Draw a CSS box-shadow for the border box `r` (corner radius
@@ -73,6 +96,16 @@ public:
     /// is true the shadow is painted inside the box; otherwise it is an
     /// outset drop shadow behind the box. Backends without a native
     /// feather (e.g. NanoVG's box gradient) approximate the Gaussian.
+    virtual void fill_grid_rect(const Rect& r,
+                                Color line,
+                                float tile_size,
+                                float line_width,
+                                float tl = 0, float tr = 0,
+                                float br = 0, float bl = 0) {
+        (void)r; (void)line; (void)tile_size; (void)line_width;
+        (void)tl; (void)tr; (void)br; (void)bl;
+    }
+
     virtual void fill_box_shadow(const Rect& r, float radius, Color color,
                                  float offset_x, float offset_y,
                                  float blur, float spread, bool inset) = 0;
@@ -84,6 +117,19 @@ public:
                                        int size_px,
                                        int weight,
                                        bool italic) = 0;
+    /// Register an author-provided font face discovered from CSS
+    /// `@font-face`. The byte buffer contains either a raw SFNT face
+    /// (.ttf/.otf/.ttc) or a backend-supported webfont container. Backends
+    /// that cannot consume the payload should return false. Implementations
+    /// are expected to make this idempotent for the same family/weight/style
+    /// tuple.
+    virtual bool register_font_face(std::string_view family,
+                                    int weight,
+                                    bool italic,
+                                    std::string_view bytes) {
+        (void)family; (void)weight; (void)italic; (void)bytes;
+        return false;
+    }
     virtual int  measure_text(std::uint32_t font, std::string_view text) = 0;
 
     /// Per-font-at-size vertical metrics. Used by layout to size text
@@ -164,6 +210,12 @@ public:
     /// combined alpha. Must be balanced by pop_alpha().
     virtual void push_alpha(float alpha) = 0;
     virtual void pop_alpha()             = 0;
+
+    // ── Transform stack ─────────────────────────────────────────────
+    /// Save the current transform and concatenate `m` for subsequent
+    /// drawing. Must be balanced by pop_transform().
+    virtual void push_transform(const Mat2x3& m) { (void)m; }
+    virtual void pop_transform() {}
 };
 
 }  // namespace affineui

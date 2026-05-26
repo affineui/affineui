@@ -198,6 +198,14 @@ typedef struct FONSttFontImpl FONSttFontImpl;
 #ifndef FONS_MAX_FALLBACKS
 #	define FONS_MAX_FALLBACKS 20
 #endif
+#ifndef FONS_GLYPH_ALPHA_EXPONENT
+// affineui: keep the cached atlas as linear coverage. Browser-like
+// gamma compensation is color dependent (light text on dark backgrounds
+// needs the opposite edge correction from dark text on light backgrounds),
+// so the NanoVG backend applies it at draw time instead of baking one
+// answer into every cached glyph.
+#	define FONS_GLYPH_ALPHA_EXPONENT 1.0f
+#endif
 
 static unsigned int fons__hashint(unsigned int a)
 {
@@ -943,7 +951,8 @@ error:
 
 int fonsAddFontMem(FONScontext* stash, const char* name, unsigned char* data, int dataSize, int freeData, int fontIndex)
 {
-	int i, ascent, descent, fh, lineGap;
+	int i, ascent, descent, lineGap;
+	float emScale;
 	FONSfont* font;
 
 	int idx = fons__allocFont(stash);
@@ -968,14 +977,17 @@ int fonsAddFontMem(FONScontext* stash, const char* name, unsigned char* data, in
 	stash->nscratch = 0;
 	if (!fons__tt_loadFont(stash, &font->font, data, dataSize, fontIndex)) goto error;
 
-	// Store normalized line height. The real line height is got
-	// by multiplying the lineh by font size.
+	// Store font vertical metrics in em units. Upstream fontstash
+	// normalizes these so lineh is always 1.0em; that is convenient for
+	// NanoVG demos, but wrong for CSS layout. Browsers keep the font's
+	// real ascender/descender/line-gap metrics and then apply CSS
+	// line-height leading around that box. Preserving em metrics here
+	// lets nvgTextMetrics() expose the same baseline inputs to AffineUI.
 	fons__tt_getFontVMetrics( &font->font, &ascent, &descent, &lineGap);
-	ascent += lineGap;
-	fh = ascent - descent;
-	font->ascender = (float)ascent / (float)fh;
-	font->descender = (float)descent / (float)fh;
-	font->lineh = font->ascender - font->descender;
+	emScale = fons__tt_getPixelHeightScale(&font->font, 1.0f);
+	font->ascender = (float)ascent * emScale;
+	font->descender = (float)descent * emScale;
+	font->lineh = (float)(ascent - descent + lineGap) * emScale;
 
 	return idx;
 
@@ -1071,6 +1083,25 @@ static void fons__blur(FONScontext* stash, unsigned char* dst, int w, int h, int
 	fons__blurCols(dst, w, h, dstStride, alpha);
 //	fons__blurrows(dst, w, h, dstStride, alpha);
 //	fons__blurcols(dst, w, h, dstStride, alpha);
+}
+
+static void fons__correctGlyphAlpha(unsigned char* dst, int w, int h, int dstStride)
+{
+	int x, y;
+	if (FONS_GLYPH_ALPHA_EXPONENT == 1.0f)
+		return;
+	for (y = 0; y < h; y++) {
+		unsigned char* row = dst + y * dstStride;
+		for (x = 0; x < w; x++) {
+			unsigned char a = row[x];
+			if (a != 0 && a != 255) {
+				float linear = (float)a / 255.0f;
+				float corrected = powf(linear, FONS_GLYPH_ALPHA_EXPONENT);
+				int out = (int)(corrected * 255.0f + 0.5f);
+				row[x] = (unsigned char)fons__mini(255, fons__maxi(0, out));
+			}
+		}
+	}
 }
 
 static FONSglyph* fons__getGlyph(FONScontext* stash, FONSfont* font, unsigned int codepoint,
@@ -1173,6 +1204,8 @@ static FONSglyph* fons__getGlyph(FONScontext* stash, FONSfont* font, unsigned in
 	// Rasterize
 	dst = &stash->texData[(glyph->x0+pad) + (glyph->y0+pad) * stash->params.width];
 	fons__tt_renderGlyphBitmap(&renderFont->font, dst, gw-pad*2,gh-pad*2, stash->params.width, scale, scale, g);
+	if (iblur == 0)
+		fons__correctGlyphAlpha(dst, gw-pad*2, gh-pad*2, stash->params.width);
 
 	// Make sure there is one pixel empty border.
 	dst = &stash->texData[glyph->x0 + glyph->y0 * stash->params.width];

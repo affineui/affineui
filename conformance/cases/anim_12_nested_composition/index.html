@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #ffffff; }
+  .stage { position: relative; width: 480px; height: 260px; background: #f8f9fa; }
+  .parent {
+    position: absolute; left: 70px; top: 76px; width: 150px; height: 90px;
+    background: #0d6efd;
+    animation: parent_motion 1000ms linear 1 both;
+  }
+  .child {
+    position: absolute; left: 24px; top: 18px; width: 54px; height: 54px;
+    background: #ffc107;
+    animation: child_motion 1000ms linear 1 both;
+  }
+  @keyframes parent_motion {
+    from { transform: translateX(0) scale(1); opacity: .55; }
+    to   { transform: translateX(180px) scale(1.2); opacity: .9; }
+  }
+  @keyframes child_motion {
+    from { transform: translateX(0) rotate(0deg); opacity: .4; }
+    to   { transform: translateX(54px) rotate(90deg); opacity: 1; }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="parent"><div class="child"></div></div>
+  </div>
+</body>
+</html>

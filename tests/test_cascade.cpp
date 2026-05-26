@@ -15,6 +15,7 @@
 #    include <lexbor/html/html.h>
 
 #    include <cstring>
+#    include <fstream>
 #    include <memory>
 #    include <string>
 #    include <vector>
@@ -57,8 +58,10 @@ struct CssEnv {
         sheets.push_back(sst);
     }
 
-    void build_resolver() {
-        resolver = affineui::detail::make_lexbor_resolver(doc);
+    void build_resolver(int viewport_width_px = 0,
+                        int viewport_height_px = 0) {
+        resolver = affineui::detail::make_lexbor_resolver(
+            doc, viewport_width_px, viewport_height_px);
         REQUIRE(resolver != nullptr);
     }
 
@@ -91,6 +94,13 @@ constexpr std::uint32_t rgba(std::uint8_t r, std::uint8_t g,
                              std::uint8_t b, std::uint8_t a = 0xFF) {
     return (std::uint32_t(r) << 24) | (std::uint32_t(g) << 16) |
            (std::uint32_t(b) <<  8) |  std::uint32_t(a);
+}
+
+std::string read_text_file(const char* path) {
+    std::ifstream in(path, std::ios::binary);
+    REQUIRE(in.good());
+    return std::string(std::istreambuf_iterator<char>(in),
+                       std::istreambuf_iterator<char>());
 }
 
 }  // namespace
@@ -145,6 +155,177 @@ TEST_CASE("a more-specific rule overrides a less-specific one") {
     CHECK(h1_rs.animated.color_rgba == rgba(0xF3, 0x8B, 0xA8));
 }
 
+TEST_CASE("class selectors match whole class tokens, not BEM prefixes") {
+    CssEnv env("<div class=\"dcs-slider__track\">x</div>");
+    env.attach(".dcs-slider { height: 24px; }");
+    env.build_resolver();
+
+    auto* html = env.find("html");
+    auto* body = env.find("body");
+    auto* div = env.find("div");
+    REQUIRE(html != nullptr);
+    REQUIRE(body != nullptr);
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto html_rs = env.resolver->resolve(html, parent);
+    const auto body_rs = env.resolver->resolve(body, html_rs);
+    const auto rs = env.resolver->resolve(div, body_rs);
+    CHECK(rs.computed.height == -1);
+}
+
+TEST_CASE("viewport units resolve against current CSS viewport") {
+    CssEnv env("<div class=\"panel\"></div>");
+    env.attach(
+        ".panel { width: 50vw; height: 50vh; min-height: 25vmin; "
+        "margin-left: calc(10vmax - 4px); }");
+    env.build_resolver(/*viewport_width_px=*/800,
+                       /*viewport_height_px=*/600);
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+    CHECK(rs.computed.width == 400);
+    CHECK(rs.computed.height == 300);
+    CHECK(rs.computed.min_height == 150);
+    CHECK(rs.computed.margin_left == 76);
+}
+
+TEST_CASE("Decius slider subpart keeps its explicit track height") {
+    CssEnv env("<div class=\"dcs-slider__track\"></div>");
+    env.attach(read_text_file(
+        AFFINEUI_TEST_SOURCE_DIR
+        "/conformance/cases/_decius/css/decius.bundle.min.css"));
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+    CHECK(rs.computed.height == 4);
+}
+
+TEST_CASE("Decius direct-child slider rule does not match slider subparts") {
+    CssEnv env(
+        "<section class=\"dcs-props\">"
+        "<main class=\"dcs-field\">"
+        "<aside class=\"dcs-slider\">"
+        "<div class=\"dcs-slider__track\"></div>"
+        "</aside>"
+        "</main>"
+        "</section>");
+    env.attach(
+        ".dcs-props > .dcs-field > .dcs-slider { display: flex; align-items: center; height: 22px; }"
+        ".dcs-slider__track { position: relative; height: 4px; }");
+    env.build_resolver();
+
+    auto* section = env.find("section");
+    auto* main = env.find("main");
+    auto* aside = env.find("aside");
+    auto* div = env.find("div");
+    REQUIRE(section != nullptr);
+    REQUIRE(main != nullptr);
+    REQUIRE(aside != nullptr);
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle root{};
+    const auto section_rs = env.resolver->resolve(section, root);
+    const auto main_rs = env.resolver->resolve(main, section_rs);
+    const auto aside_rs = env.resolver->resolve(aside, main_rs);
+    const auto track_rs = env.resolver->resolve(div, aside_rs);
+
+    CHECK(aside_rs.computed.height == 22);
+    CHECK(aside_rs.computed.display == affineui::detail::ComputedStyle::Display::Flex);
+    CHECK(aside_rs.computed.align_items == affineui::detail::ComputedStyle::AlignItems::Center);
+    CHECK(track_rs.computed.height == 4);
+    CHECK(track_rs.computed.position == affineui::detail::ComputedStyle::Position::Relative);
+}
+
+TEST_CASE("logical box alignment start and end values parse for flex") {
+    CssEnv env("<main><aside></aside></main>");
+    env.attach(
+        "main { display: flex; align-items: end; justify-content: end; }"
+        "aside { display: flex; align-items: start; }");
+    env.build_resolver();
+
+    auto* main = env.find("main");
+    auto* aside = env.find("aside");
+    REQUIRE(main != nullptr);
+    REQUIRE(aside != nullptr);
+
+    const affineui::detail::ResolvedStyle root{};
+    const auto main_rs = env.resolver->resolve(main, root);
+    const auto aside_rs = env.resolver->resolve(aside, main_rs);
+
+    using CS = affineui::detail::ComputedStyle;
+    CHECK(main_rs.computed.display == CS::Display::Flex);
+    CHECK(main_rs.computed.align_items == CS::AlignItems::End);
+    CHECK(main_rs.computed.justify_content == CS::JustifyContent::End);
+    CHECK(aside_rs.computed.align_items == CS::AlignItems::Start);
+}
+
+TEST_CASE("Decius combo fill keeps bottom-anchored two pixel height") {
+    CssEnv env("<div class=\"dcs-combo__fill\"></div>");
+    env.attach(read_text_file(
+        AFFINEUI_TEST_SOURCE_DIR
+        "/conformance/cases/_decius/css/decius.bundle.min.css"));
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+    CHECK(rs.computed.position == affineui::detail::ComputedStyle::Position::Absolute);
+    CHECK(rs.computed.height == 2);
+    CHECK(rs.computed.inset_has.bottom == 1);
+    CHECK(rs.computed.inset_bottom == 0);
+}
+
+TEST_CASE("overflow does not inherit into scroll container descendants") {
+    CssEnv env("<main><aside>child</aside></main>");
+    env.attach("main { overflow: auto; }");
+    env.build_resolver();
+
+    auto* main = env.find("main");
+    auto* aside = env.find("aside");
+    REQUIRE(main != nullptr);
+    REQUIRE(aside != nullptr);
+
+    const affineui::detail::ResolvedStyle root{};
+    const auto parent_rs = env.resolver->resolve(main, root);
+    const auto child_rs = env.resolver->resolve(aside, parent_rs);
+
+    using O = affineui::detail::ComputedStyle::Overflow;
+    CHECK(parent_rs.computed.overflow_y == O::Auto);
+    CHECK(child_rs.computed.overflow_y == O::Visible);
+}
+
+TEST_CASE("min and max sizing properties do not inherit") {
+    CssEnv env("<main><aside>child</aside></main>");
+    env.attach("main { min-width: 11px; max-width: 123px; min-height: 24px; }");
+    env.build_resolver();
+
+    auto* main = env.find("main");
+    auto* aside = env.find("aside");
+    REQUIRE(main != nullptr);
+    REQUIRE(aside != nullptr);
+
+    const affineui::detail::ResolvedStyle root{};
+    const auto parent_rs = env.resolver->resolve(main, root);
+    const auto child_rs = env.resolver->resolve(aside, parent_rs);
+
+    CHECK(parent_rs.computed.min_width == 11);
+    CHECK(parent_rs.computed.max_width == 123);
+    CHECK(parent_rs.computed.min_height == 24);
+    CHECK(child_rs.computed.min_width == -1);
+    CHECK(child_rs.computed.max_width == -1);
+    CHECK(child_rs.computed.min_height == 0);
+}
+
 TEST_CASE("lexbor counts simple pseudo-classes in selector specificity") {
     CssEnv env("<button class=\"btn\">hi</button>");
     env.attach(".btn {} .btn:focus {}");
@@ -176,6 +357,82 @@ TEST_CASE("border side color longhands reach the resolved border color") {
     // border-top-color sets only the top side; the paint path uses the
     // per-side color in preference to the unified border_rgba fallback.
     CHECK(rs.animated.border_top_rgba == rgba(0x44, 0x55, 0x66));
+}
+
+TEST_CASE("transparent border side color remains an explicit override") {
+    CssEnv env("<button>hi</button>");
+    env.attach("button { --w: .25em; color: #112233;"
+               "border: var(--w) solid currentColor;"
+               "border-right-color: transparent; }");
+    env.build_resolver();
+
+    auto* button = env.find("button");
+    REQUIRE(button != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(button, parent);
+    CHECK(rs.animated.border_rgba == rgba(0x11, 0x22, 0x33));
+    CHECK(rs.animated.border_right_rgba == rgba(0, 0, 0, 0));
+    CHECK((rs.animated.border_color_set &
+           affineui::detail::AnimatedStyle::BorderRightColorSet) != 0);
+}
+
+TEST_CASE("side border shorthand keeps only that side active after border-width utility") {
+    CssEnv env("<div class=\"card\"></div>");
+    env.attach(
+        ".card { border: 0; border-left: var(--bs-border-width) solid #198754; "
+        "border-width: 4px; }");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+
+    using CS = affineui::detail::ComputedStyle;
+    CHECK(rs.computed.border_top == 4);
+    CHECK(rs.computed.border_right == 4);
+    CHECK(rs.computed.border_bottom == 4);
+    CHECK(rs.computed.border_left == 4);
+    CHECK(rs.computed.used_border_top() == 0);
+    CHECK(rs.computed.used_border_right() == 0);
+    CHECK(rs.computed.used_border_bottom() == 0);
+    CHECK(rs.computed.used_border_left() == 4);
+    CHECK(rs.computed.border_style == CS::BorderStyle::Solid);
+    CHECK(rs.computed.border_style_sides == CS::BorderLeftSide);
+}
+
+TEST_CASE("background-color currentColor resolves against element color") {
+    CssEnv env("<div>hi</div>");
+    env.attach("div { color: #0d6efd; background-color: currentColor; }");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+    CHECK(rs.animated.background_rgba == rgba(0x0D, 0x6E, 0xFD));
+}
+
+TEST_CASE("background shorthand with var color resolves") {
+    CssEnv env("<div class=\"dcs\">hi</div>");
+    env.attach(":root { --dcs-bg: #2a2e38; }"
+               ".dcs { background: var(--dcs-bg); }");
+    env.build_resolver();
+
+    auto* html = env.find("html");
+    auto* body = env.find("body");
+    auto* div = env.find("div");
+    REQUIRE(html != nullptr);
+    REQUIRE(body != nullptr);
+    REQUIRE(div != nullptr);
+
+    const auto html_rs = env.resolver->resolve(html, {});
+    const auto body_rs = env.resolver->resolve(body, html_rs);
+    const auto rs = env.resolver->resolve(div, body_rs);
+    CHECK(rs.animated.background_rgba == rgba(0x2A, 0x2E, 0x38));
 }
 
 TEST_CASE("rgba colors resolve to packed alpha") {
@@ -210,6 +467,88 @@ TEST_CASE("box-shadow reaches the resolved animated style") {
     CHECK(rs.animated.shadow_spread == 4);
 }
 
+TEST_CASE("multi-layer box-shadow is preserved outside animated hot fields") {
+    CssEnv env("<button>hi</button>");
+    env.attach("button { box-shadow: inset 0 1px 0 rgba(255,255,255,.25), "
+               "0 2px 6px rgba(0,0,0,.4); }");
+    env.build_resolver();
+
+    auto* button = env.find("button");
+    REQUIRE(button != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(button, parent);
+
+    REQUIRE(rs.box_shadows != nullptr);
+    REQUIRE(rs.box_shadows->size() == 2);
+    CHECK((*rs.box_shadows)[0].inset);
+    CHECK((*rs.box_shadows)[0].offset_y == 1);
+    CHECK((*rs.box_shadows)[0].rgba == rgba(255, 255, 255, 64));
+    CHECK_FALSE((*rs.box_shadows)[1].inset);
+    CHECK((*rs.box_shadows)[1].offset_y == 2);
+    CHECK((*rs.box_shadows)[1].blur == 6);
+    CHECK((*rs.box_shadows)[1].rgba == rgba(0, 0, 0, 102));
+}
+
+TEST_CASE("box-shadow parses hsla alpha colors") {
+    CssEnv env("<div class=\"thumb\"></div>");
+    env.attach(".thumb { color: #aab0bd; "
+               "box-shadow: inset 0 1px 0 hsla(0,0%,100%,.07), "
+               "inset 0 -1px 0 rgba(0,0,0,.25), "
+               "0 2px 4px rgba(0,0,0,.4); }");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+
+    REQUIRE(rs.box_shadows != nullptr);
+    REQUIRE(rs.box_shadows->size() == 3);
+    CHECK((*rs.box_shadows)[0].rgba == rgba(255, 255, 255, 18));
+    CHECK((*rs.box_shadows)[1].rgba == rgba(0, 0, 0, 64));
+    CHECK((*rs.box_shadows)[2].rgba == rgba(0, 0, 0, 102));
+}
+
+TEST_CASE("box-shadow custom properties preserve hsla bevel colors") {
+    CssEnv env("<div class=\"thumb\"></div>");
+    env.attach(":root { --bevel-up: inset 0 1px 0 hsla(0,0%,100%,.07), "
+               "inset 0 -1px 0 rgba(0,0,0,.25); }"
+               ".thumb { color: #aab0bd; box-shadow: var(--bevel-up), "
+               "0 2px 4px rgba(0,0,0,.4); }");
+    env.build_resolver();
+
+    auto* html = env.find("html");
+    auto* body = env.find("body");
+    auto* div = env.find("div");
+    REQUIRE(html != nullptr);
+    REQUIRE(body != nullptr);
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto html_rs = env.resolver->resolve(html, parent);
+    const auto body_rs = env.resolver->resolve(body, html_rs);
+    const auto rs = env.resolver->resolve(div, body_rs);
+
+    REQUIRE(body_rs.custom_props != nullptr);
+    REQUIRE(body_rs.custom_props->count("--bevel-up") == 1);
+    CHECK(body_rs.custom_props->at("--bevel-up").find("hsla") !=
+          std::string::npos);
+    REQUIRE(rs.box_shadows != nullptr);
+    REQUIRE(rs.box_shadows->size() == 3);
+    CHECK((*rs.box_shadows)[0].inset);
+    CHECK((*rs.box_shadows)[0].offset_y == 1);
+    CHECK((*rs.box_shadows)[0].rgba == rgba(255, 255, 255, 18));
+    CHECK((*rs.box_shadows)[1].inset);
+    CHECK((*rs.box_shadows)[1].offset_y == -1);
+    CHECK((*rs.box_shadows)[1].rgba == rgba(0, 0, 0, 64));
+    CHECK_FALSE((*rs.box_shadows)[2].inset);
+    CHECK((*rs.box_shadows)[2].offset_y == 2);
+    CHECK((*rs.box_shadows)[2].blur == 4);
+    CHECK((*rs.box_shadows)[2].rgba == rgba(0, 0, 0, 102));
+}
+
 TEST_CASE("framework shorthands reach resolved style") {
     CssEnv env("<section><button class=\"btn\">hi</button></section>");
     env.attach("section { background: #fff url(example.png) right center / 8px 10px no-repeat; gap: 1.25rem 2rem; }"
@@ -228,10 +567,214 @@ TEST_CASE("framework shorthands reach resolved style") {
     CHECK(section_rs.animated.background_rgba == rgba(0xFF, 0xFF, 0xFF));
     CHECK(section_rs.computed.row_gap == 20);
     CHECK(section_rs.computed.column_gap == 32);
-    CHECK(button_rs.computed.border_radius_top_left_px == 4);
-    CHECK(button_rs.computed.border_radius_top_right_px == 4);
-    CHECK(button_rs.computed.border_radius_bot_right_px == 4);
-    CHECK(button_rs.computed.border_radius_bot_left_px == 4);
+    CHECK(button_rs.computed.border_radius_top_left == 4);
+    CHECK(button_rs.computed.border_radius_top_right == 4);
+    CHECK(button_rs.computed.border_radius_bot_right == 4);
+    CHECK(button_rs.computed.border_radius_bot_left == 4);
+}
+
+TEST_CASE("form control em sizing and float reach computed style") {
+    CssEnv env("<input type=\"checkbox\">");
+    env.attach("input { font-size: 16px; width: 1em; height: 1em; float: left; }");
+    env.build_resolver();
+
+    auto* input = env.find("input");
+    REQUIRE(input != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(input, parent);
+    CHECK(rs.computed.width == 16);
+    CHECK(rs.computed.height == 16);
+    CHECK(rs.computed.css_float == affineui::detail::ComputedStyle::Float::Left);
+}
+
+TEST_CASE("disabled input sibling selector reaches label") {
+    CssEnv env("<input class=\"form-check-input\" disabled><label class=\"form-check-label\">x</label>");
+    env.attach(".form-check-input[disabled] ~ .form-check-label { color: #999; opacity: .5; }");
+    env.build_resolver();
+
+    auto* label = env.find("label");
+    REQUIRE(label != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(label, parent);
+    CHECK(rs.animated.color_rgba == rgba(0x99, 0x99, 0x99));
+    CHECK(rs.animated.opacity == doctest::Approx(0.5f));
+}
+
+TEST_CASE("transform functions reach animated style") {
+    CssEnv env("<div class=\"mover\"></div>");
+    env.attach(".mover { transform: translate(12px, 0.5rem) "
+               "translate(-50%, 25%) scale(2, 3) rotate(90deg); }");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+
+    CHECK(rs.animated.tx == doctest::Approx(12.0f));
+    CHECK(rs.animated.ty == doctest::Approx(8.0f));
+    CHECK(rs.animated.tx_pct == doctest::Approx(-50.0f));
+    CHECK(rs.animated.ty_pct == doctest::Approx(25.0f));
+    CHECK(rs.animated.scale_x == doctest::Approx(2.0f));
+    CHECK(rs.animated.scale_y == doctest::Approx(3.0f));
+    CHECK(rs.animated.rotation == doctest::Approx(1.570796f));
+}
+
+TEST_CASE("transform-origin reaches animated style") {
+    CssEnv env("<div class=\"needle\"></div>");
+    env.attach(".needle { transform-origin: 50% 100%; }");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+
+    CHECK(rs.animated.origin_x == doctest::Approx(0.0f));
+    CHECK(rs.animated.origin_y == doctest::Approx(0.0f));
+    CHECK(rs.animated.origin_x_pct == doctest::Approx(50.0f));
+    CHECK(rs.animated.origin_y_pct == doctest::Approx(100.0f));
+}
+
+TEST_CASE("animation shorthand reaches resolved animation style") {
+    CssEnv env("<div class=\"spinner\"></div>");
+    env.attach(".spinner { animation: .75s linear infinite spinner-border; }");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+
+    CHECK(rs.animation.active);
+    CHECK(rs.animation.name_hash != 0u);
+    CHECK(rs.animation.duration_s == doctest::Approx(0.75f));
+    CHECK(rs.animation.iteration_count == doctest::Approx(0.0f));
+    CHECK(rs.animation.timing ==
+          affineui::detail::ResolvedStyle::CssAnimation::Timing::Linear);
+}
+
+TEST_CASE("animation shorthand resolves custom property pieces") {
+    CssEnv env("<html><body><div class=\"menu\"></div></body></html>");
+    env.attach(":root { --fast: 80ms ease-out; }"
+               ".menu { animation: menu-in var(--fast); }");
+    env.build_resolver();
+
+    auto* html = env.find("html");
+    auto* body = env.find("body");
+    auto* div = env.find("div");
+    REQUIRE(html != nullptr);
+    REQUIRE(body != nullptr);
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle root{};
+    const auto html_rs = env.resolver->resolve(html, root);
+    const auto body_rs = env.resolver->resolve(body, html_rs);
+    const auto rs = env.resolver->resolve(div, body_rs);
+
+    CHECK(rs.animation.active);
+    CHECK(rs.animation.name_hash != 0u);
+    CHECK(rs.animation.duration_s == doctest::Approx(0.08f));
+    CHECK(rs.animation.timing ==
+          affineui::detail::ResolvedStyle::CssAnimation::Timing::EaseOut);
+}
+
+TEST_CASE("animation longhands override shorthand pieces") {
+    CssEnv env("<div class=\"spinner\"></div>");
+    env.attach(".spinner { animation: 1s ease spin; animation-duration: 250ms;"
+               "animation-direction: alternate-reverse; animation-play-state: paused; }");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+
+    using Anim = affineui::detail::ResolvedStyle::CssAnimation;
+    CHECK(rs.animation.active);
+    CHECK(rs.animation.duration_s == doctest::Approx(0.25f));
+    CHECK(rs.animation.direction == Anim::Direction::AlternateReverse);
+    CHECK(rs.animation.play_state == Anim::PlayState::Paused);
+}
+
+TEST_CASE("background-image hard-stop gradient resolves as stripe pattern") {
+    CssEnv env("<div></div>");
+    env.attach(
+        "div {"
+        "  background-color: #dc3545;"
+        "  background-image: linear-gradient(45deg,"
+        "    rgba(255,255,255,.15) 25%, transparent 25%,"
+        "    transparent 50%, rgba(255,255,255,.15) 50%,"
+        "    rgba(255,255,255,.15) 75%, transparent 75%, transparent);"
+        "}");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+    CHECK(rs.animated.background_rgba == rgba(0xDC, 0x35, 0x45));
+    CHECK(rs.animated.gradient_kind ==
+          affineui::detail::AnimatedStyle::GradientKind::LinearStripes);
+    CHECK(rs.animated.gradient_angle_deg == 45);
+    CHECK(rs.animated.gradient_stop0_rgba == rgba(0xFF, 0xFF, 0xFF, 38));
+}
+
+TEST_CASE("radial gradient position and last color stop resolve") {
+    CssEnv env("<div></div>");
+    env.attach(
+        "div {"
+        "  background: radial-gradient(circle at 30% 25%,"
+        "    #111111, #222222 55%, #333333 100%);"
+        "}");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+    CHECK(rs.animated.gradient_kind ==
+          affineui::detail::AnimatedStyle::GradientKind::Radial);
+    CHECK(rs.animated.gradient_center_x_pct == 30);
+    CHECK(rs.animated.gradient_center_y_pct == 25);
+    CHECK(rs.animated.gradient_stop0_rgba == rgba(0x11, 0x11, 0x11));
+    CHECK(rs.animated.gradient_stop1_rgba == rgba(0x33, 0x33, 0x33));
+}
+
+TEST_CASE("layered background grid keeps tiled lines over base gradient") {
+    CssEnv env("<div></div>");
+    env.attach(
+        "div {"
+        "  background:"
+        "    linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px),"
+        "    linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px),"
+        "    radial-gradient(circle at 52% 42%, #495064, #171a22 72%);"
+        "  background-size: 24px 24px, 24px 24px, auto;"
+        "}");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+    CHECK(rs.animated.gradient_kind ==
+          affineui::detail::AnimatedStyle::GradientKind::Radial);
+    CHECK(rs.animated.gradient_center_x_pct == 52);
+    CHECK(rs.animated.gradient_center_y_pct == 42);
+    CHECK(rs.animated.gradient_stop0_rgba == rgba(0x49, 0x50, 0x64));
+    CHECK(rs.animated.gradient_stop1_rgba == rgba(0x17, 0x1A, 0x22));
+    CHECK(rs.animated.gradient_stop1_pos_pct == 72);
+    CHECK(rs.animated.background_grid_rgba == rgba(0xFF, 0xFF, 0xFF, 10));
+    CHECK(rs.animated.background_grid_size_px == 24);
 }
 
 TEST_CASE("a longhand reset overrides an equal-specificity shorthand") {
@@ -275,6 +818,46 @@ TEST_CASE("a more-specific longhand overrides a shorthand regardless of order") 
     CHECK(rs.computed.margin_top == 2);    // more-specific longhand won
     CHECK(rs.computed.margin_bottom == 16);
     CHECK(rs.computed.margin_left == 16);
+}
+
+TEST_CASE("margin shorthand mirrors auto onto both horizontal sides") {
+    CssEnv env("<div>x</div>");
+    env.attach("div { margin: 0 auto; }");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+    CHECK(rs.computed.margin_top == 0);
+    CHECK(rs.computed.margin_bottom == 0);
+    CHECK(rs.computed.margin_auto.left == 1);
+    CHECK(rs.computed.margin_auto.right == 1);
+}
+
+TEST_CASE("inset shorthand mirrors percentages and longhands override edges") {
+    CssEnv env("<div>x</div>");
+    env.attach("div { position: absolute; inset: 18%; left: 50%; bottom: auto; }");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+    CHECK(rs.computed.position == affineui::detail::ComputedStyle::Position::Absolute);
+    CHECK(rs.computed.inset_has.top == 1);
+    CHECK(rs.computed.inset_has.top_pct == 1);
+    CHECK(rs.computed.inset_top == 1800);
+    CHECK(rs.computed.inset_has.right == 1);
+    CHECK(rs.computed.inset_has.right_pct == 1);
+    CHECK(rs.computed.inset_right == 1800);
+    CHECK(rs.computed.inset_has.bottom == 0);
+    CHECK(rs.computed.inset_has.bottom_pct == 0);
+    CHECK(rs.computed.inset_has.left == 1);
+    CHECK(rs.computed.inset_has.left_pct == 1);
+    CHECK(rs.computed.inset_left == 5000);
 }
 
 TEST_CASE("var() color with alpha resolves through :root inheritance") {
@@ -327,6 +910,75 @@ TEST_CASE("calc() evaluates length arithmetic, including with var()") {
     CHECK(rs.computed.margin_right == 20);   // 16 + 4
 }
 
+TEST_CASE("calc() preserves pure percentage values for layout resolution") {
+    CssEnv env("<div class=\"sub\">x</div>");
+    env.attach(".sub { --fill: 28%; width: calc(var(--fill, 0%)); }");
+    env.build_resolver();
+
+    auto* sub = env.find("div");
+    REQUIRE(sub != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(sub, parent);
+    CHECK(rs.computed.width == -1);
+    CHECK(rs.computed.width_pct_x100 == 2800);
+}
+
+TEST_CASE("calc() resolves viewport width units when viewport is known") {
+    // Bootstrap headings use e.g. h4 { font-size: calc(1.275rem + .3vw); }.
+    // At 800px viewport width: 1.275rem = 20.4px and .3vw = 2.4px,
+    // rounded by the existing length path to 23px.
+    CssEnv env("<h4>Heading</h4>");
+    env.attach("h4 { font-size: calc(1.275rem + .3vw); }");
+    env.build_resolver(800);
+
+    auto* h4 = env.find("h4");
+    REQUIRE(h4 != nullptr);
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(h4, parent);
+    CHECK(rs.computed.font_size_px == 23);
+}
+
+TEST_CASE("grouped heading rule applies line-height to h4") {
+    CssEnv env("<h4>Heading</h4>");
+    env.attach("body{line-height:1.5}"
+               ".h1,.h2,.h3,.h4,.h5,.h6,h1,h2,h3,h4,h5,h6{line-height:1.2}");
+    env.build_resolver();
+
+    auto* h4 = env.find("h4");
+    REQUIRE(h4 != nullptr);
+
+    affineui::detail::ResolvedStyle body{};
+    body.computed.line_height_x100 = 150;
+    const auto rs = env.resolver->resolve(h4, body);
+    CHECK(rs.computed.line_height_x100 == 120);
+}
+
+TEST_CASE("Bootstrap heading line-height wins over body line-height") {
+    CssEnv env("<html><body><h4>Heading</h4></body></html>");
+    const auto css = read_text_file(
+        AFFINEUI_TEST_SOURCE_DIR
+        "/conformance/cases/_bootstrap/bootstrap.min.css");
+    env.attach(css);
+    env.build_resolver(800);
+
+    auto* html = env.find("html");
+    auto* body = env.find("body");
+    auto* h4   = env.find("h4");
+    REQUIRE(html != nullptr);
+    REQUIRE(body != nullptr);
+    REQUIRE(h4 != nullptr);
+
+    const affineui::detail::ResolvedStyle root{};
+    const auto html_rs = env.resolver->resolve(html, root);
+    const auto body_rs = env.resolver->resolve(body, html_rs);
+    const auto h4_rs   = env.resolver->resolve(h4, body_rs);
+
+    CHECK(body_rs.computed.line_height_x100 == 150);
+    CHECK(h4_rs.computed.font_size_px == 23);
+    CHECK(h4_rs.computed.line_height_x100 == 120);
+}
+
 TEST_CASE("calc() with an unsupported percentage is dropped, not misapplied") {
     CssEnv env("<div class=\"sub\">x</div>");
     env.attach(".sub { margin-top: calc(100% - 10px); }");
@@ -372,6 +1024,26 @@ TEST_CASE("universal selector grouped with pseudo-elements still applies (Reboot
           affineui::detail::ComputedStyle::BoxSizing::BorderBox);
 }
 
+TEST_CASE("vertical-align reaches computed style for inline layout") {
+    CssEnv env("<button>hi</button><span>new</span>");
+    env.attach("button { vertical-align: middle; }"
+               "span { vertical-align: text-top; }");
+    env.build_resolver();
+
+    auto* button = env.find("button");
+    auto* span   = env.find("span");
+    REQUIRE(button != nullptr);
+    REQUIRE(span != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto button_rs = env.resolver->resolve(button, parent);
+    const auto span_rs   = env.resolver->resolve(span, parent);
+
+    using VA = affineui::detail::ComputedStyle::VerticalAlign;
+    CHECK(button_rs.computed.vertical_align == VA::Middle);
+    CHECK(span_rs.computed.vertical_align == VA::TextTop);
+}
+
 TEST_CASE("selector list with pseudo-element members still applies to elements") {
     // A CSS selector list is non-forgiving, but ::before/::after are
     // VALID selectors — they just never match in an engine with no
@@ -404,8 +1076,126 @@ TEST_CASE("border-radius longhands reach computed style") {
 
     const affineui::detail::ResolvedStyle parent{};
     const auto rs = env.resolver->resolve(button, parent);
-    CHECK(rs.computed.border_radius_top_left_px == 8);
-    CHECK(rs.computed.border_radius_bot_right_px == 6);
+    CHECK(rs.computed.border_radius_top_left == 8);
+    CHECK(rs.computed.border_radius_bot_right == 6);
+}
+
+TEST_CASE("percentage border-radius is retained until box size is known") {
+    CssEnv env("<div class=\"circle\"></div>");
+    env.attach(".circle { border-radius: 50%; }");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+    CHECK(affineui::detail::border_radius_is_percent(
+        rs.computed.border_radius_top_left));
+    CHECK(affineui::detail::resolve_border_radius_px(
+        rs.computed.border_radius_top_left, 80, 80) == doctest::Approx(40.0f));
+}
+
+TEST_CASE("text-decoration line and color reach resolved style") {
+    CssEnv env("<a>link</a>");
+    env.attach("a { text-decoration: underline; text-decoration-color: #d32f2f; }");
+    env.build_resolver();
+
+    auto* link = env.find("a");
+    REQUIRE(link != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(link, parent);
+    CHECK((rs.computed.text_decoration_line &
+           affineui::detail::ComputedStyle::DecorationUnderline) != 0);
+    CHECK(rs.animated.text_decoration_rgba == rgba(0xd3, 0x2f, 0x2f));
+}
+
+TEST_CASE("list-style-type inherits to list-item boxes") {
+    CssEnv env("<ul class=\"square\"><li>one</li></ul>");
+    env.attach("li { display: list-item; } .square { list-style-type: square; }");
+    env.build_resolver();
+
+    auto* ul = env.find("ul");
+    auto* li = env.find("li");
+    REQUIRE(ul != nullptr);
+    REQUIRE(li != nullptr);
+
+    const affineui::detail::ResolvedStyle root{};
+    const auto ul_rs = env.resolver->resolve(ul, root);
+    const auto li_rs = env.resolver->resolve(li, ul_rs);
+
+    CHECK(ul_rs.computed.list_style_type ==
+          affineui::detail::ComputedStyle::ListStyleType::Square);
+    CHECK(li_rs.computed.list_style_type ==
+          affineui::detail::ComputedStyle::ListStyleType::Square);
+    CHECK(li_rs.computed.display ==
+          affineui::detail::ComputedStyle::Display::ListItem);
+}
+
+TEST_CASE("list-style shorthand sets marker type") {
+    CssEnv env("<ul class=\"plain\"><li>one</li></ul>");
+    env.attach("li { display: list-item; } .plain { list-style: none; }");
+    env.build_resolver();
+
+    auto* ul = env.find("ul");
+    auto* li = env.find("li");
+    REQUIRE(ul != nullptr);
+    REQUIRE(li != nullptr);
+
+    const affineui::detail::ResolvedStyle root{};
+    const auto ul_rs = env.resolver->resolve(ul, root);
+    const auto li_rs = env.resolver->resolve(li, ul_rs);
+
+    CHECK(ul_rs.computed.list_style_type ==
+          affineui::detail::ComputedStyle::ListStyleType::None);
+    CHECK(li_rs.computed.list_style_type ==
+          affineui::detail::ComputedStyle::ListStyleType::None);
+}
+
+TEST_CASE("grid and inline-flex display values reach computed style") {
+    CssEnv env(
+        "<div class=\"stack\"></div>"
+        "<span class=\"inline\"></span>"
+        "<nav class=\"tools\"></nav>");
+    env.attach(".stack { display: grid; }"
+               ".inline { display: inline-grid; }"
+               ".tools { display: inline-flex; }");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    auto* span = env.find("span");
+    auto* nav = env.find("nav");
+    REQUIRE(div != nullptr);
+    REQUIRE(span != nullptr);
+    REQUIRE(nav != nullptr);
+
+    const affineui::detail::ResolvedStyle root{};
+    const auto div_rs = env.resolver->resolve(div, root);
+    const auto span_rs = env.resolver->resolve(span, root);
+    const auto nav_rs = env.resolver->resolve(nav, root);
+
+    CHECK(div_rs.computed.display ==
+          affineui::detail::ComputedStyle::Display::Grid);
+    CHECK(span_rs.computed.display ==
+          affineui::detail::ComputedStyle::Display::InlineGrid);
+    CHECK(nav_rs.computed.display ==
+          affineui::detail::ComputedStyle::Display::InlineFlex);
+}
+
+TEST_CASE("text-indent length reaches computed style") {
+    CssEnv env("<p class=\"ind\">Indented</p>");
+    env.attach(".ind { text-indent: 48px; }");
+    env.build_resolver();
+
+    auto* p = env.find("p");
+    REQUIRE(p != nullptr);
+
+    const affineui::detail::ResolvedStyle root{};
+    const auto rs = env.resolver->resolve(p, root);
+
+    CHECK(rs.computed.text_indent_value == 48);
+    CHECK(rs.computed.text_indent_is_pct == 0);
 }
 
 TEST_CASE("flex sizing properties reach computed style") {
@@ -433,6 +1223,23 @@ TEST_CASE("flex sizing properties reach computed style") {
     // flex_basis_pct (0), leaving the px field unset (-1 = pct governs).
     CHECK(article_rs.computed.flex_basis_pct == 0);
     CHECK(article_rs.computed.flex_basis == -1);
+}
+
+TEST_CASE("single-number flex shorthand uses zero percent basis") {
+    CssEnv env("<main><section>one</section></main>");
+    env.attach("section { flex: 1; }");
+    env.build_resolver();
+
+    auto* section = env.find("section");
+    REQUIRE(section != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(section, parent);
+
+    CHECK(rs.computed.flex_grow == 1);
+    CHECK(rs.computed.flex_shrink == 1);
+    CHECK(rs.computed.flex_basis_pct == 0);
+    CHECK(rs.computed.flex_basis == -1);
 }
 
 TEST_CASE("font-size in px lands in ComputedStyle, not AnimatedStyle") {
@@ -551,6 +1358,63 @@ TEST_CASE("font shorthand without line-height sets font_size_px only") {
 }
 
 // ── Table cell selector matching diagnostics ─────────────────────────
+
+TEST_CASE("higher-specificity font inherit shorthand beats form longhands") {
+    CssEnv env("<body class=\"dcs\"><label><input class=\"dcs-input\"></label></body>");
+    env.attach(
+        ".dcs { font-size: 12px; line-height: 1.45; font-weight: 500; }"
+        ".dcs-input { font-size: 11px; font-weight: 400; }"
+        ".dcs input { font: inherit; }");
+    env.build_resolver();
+
+    auto* html = env.find("html");
+    auto* body = env.find("body");
+    auto* label = env.find("label");
+    auto* input = env.find("input");
+    REQUIRE(html != nullptr);
+    REQUIRE(body != nullptr);
+    REQUIRE(label != nullptr);
+    REQUIRE(input != nullptr);
+
+    const affineui::detail::ResolvedStyle root{};
+    const auto html_rs = env.resolver->resolve(html, root);
+    const auto body_rs = env.resolver->resolve(body, html_rs);
+    const auto label_rs = env.resolver->resolve(label, body_rs);
+    const auto input_rs = env.resolver->resolve(input, label_rs);
+
+    CHECK(input_rs.computed.font_size_px == 12);
+    CHECK(input_rs.computed.line_height_x100 == 145);
+    CHECK(input_rs.computed.font_weight == 500);
+}
+
+TEST_CASE("Decius form controls inherit the framework base font") {
+    CssEnv env("<body class=\"dcs\"><label><input class=\"dcs-input\"></label></body>");
+    env.attach(read_text_file(
+        AFFINEUI_TEST_SOURCE_DIR
+        "/conformance/cases/_decius/css/decius.bundle.min.css"));
+    env.build_resolver();
+
+    auto* html = env.find("html");
+    auto* body = env.find("body");
+    auto* label = env.find("label");
+    auto* input = env.find("input");
+    REQUIRE(html != nullptr);
+    REQUIRE(body != nullptr);
+    REQUIRE(label != nullptr);
+    REQUIRE(input != nullptr);
+
+    const affineui::detail::ResolvedStyle root{};
+    const auto html_rs = env.resolver->resolve(html, root);
+    const auto body_rs = env.resolver->resolve(body, html_rs);
+    const auto label_rs = env.resolver->resolve(label, body_rs);
+    const auto input_rs = env.resolver->resolve(input, label_rs);
+
+    CHECK(body_rs.computed.font_size_px == 12);
+    CHECK(body_rs.computed.line_height_x100 == 145);
+    CHECK(input_rs.computed.font_size_px == 12);
+    CHECK(input_rs.computed.line_height_x100 == 145);
+    CHECK(input_rs.computed.font_weight == 400);
+}
 
 // Helper: find a specific element with a given tag AND the Nth occurrence
 // (0-based) among same-tag elements in document order.
@@ -742,6 +1606,33 @@ TEST_CASE("em length uses element font-size, not root 16px") {
     CHECK(rs.computed.padding_bottom == 4);
 }
 
+TEST_CASE("letter-spacing preserves fractional em lengths") {
+    CssEnv env("<div class=\"badge\">ACTIVE</div>");
+    env.attach(".badge { font-size: 10px; letter-spacing: .04em; }");
+    env.build_resolver();
+
+    const affineui::detail::ResolvedStyle root{};
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+    const auto rs = env.resolver->resolve(div, root);
+
+    CHECK(rs.computed.font_size_px == 10);
+    CHECK(rs.computed.letter_spacing_x100 == 40);
+}
+
+TEST_CASE("letter-spacing preserves fractional px lengths") {
+    CssEnv env("<div class=\"badge\">ACTIVE</div>");
+    env.attach(".badge { letter-spacing: .25px; }");
+    env.build_resolver();
+
+    const affineui::detail::ResolvedStyle root{};
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+    const auto rs = env.resolver->resolve(div, root);
+
+    CHECK(rs.computed.letter_spacing_x100 == 25);
+}
+
 TEST_CASE("em font-size inherits parent font-size for nested elements") {
     // h1{font-size:2em} inside body{font-size:16px} → h1 = 32px.
     // p inside h1 with font-size:0.5em → 16px (half of h1's 32px).
@@ -772,6 +1663,41 @@ TEST_CASE("em font-size inherits parent font-size for nested elements") {
     CHECK(p_rs.computed.font_size_px == 16);
     // padding-top: 1em against own 16px = 16px
     CHECK(p_rs.computed.padding_top == 16);
+}
+
+TEST_CASE("lexbor parses content strings and preserves var content declarations") {
+    CssEnv env("<div class=\"item\">x</div>");
+    env.attach(".item::before { content: \"/\"; }"
+               ".item::after { content: var(--suffix, \"!\"); }");
+
+    auto* sheet = env.sheets.back();
+    auto* rules = lxb_css_rule_list(sheet->root);
+    REQUIRE(rules != nullptr);
+    REQUIRE(rules->first != nullptr);
+    REQUIRE(rules->first->next != nullptr);
+
+    auto* before_rule = lxb_css_rule_style(rules->first);
+    REQUIRE(before_rule != nullptr);
+    REQUIRE(before_rule->declarations != nullptr);
+    REQUIRE(before_rule->declarations->first != nullptr);
+    auto* before_decl = reinterpret_cast<lxb_css_rule_declaration_t*>(
+        before_rule->declarations->first);
+    CHECK(before_decl->type == LXB_CSS_PROPERTY_CONTENT);
+    REQUIRE(before_decl->u.content != nullptr);
+    CHECK(before_decl->u.content->type == LXB_CSS_CONTENT_STRING);
+    CHECK(before_decl->u.content->value.length == 1);
+    REQUIRE(before_decl->u.content->value.data != nullptr);
+    CHECK(before_decl->u.content->value.data[0] == '/');
+
+    auto* after_rule = lxb_css_rule_style(rules->first->next);
+    REQUIRE(after_rule != nullptr);
+    REQUIRE(after_rule->declarations != nullptr);
+    REQUIRE(after_rule->declarations->first != nullptr);
+    auto* after_decl = reinterpret_cast<lxb_css_rule_declaration_t*>(
+        after_rule->declarations->first);
+    CHECK(after_decl->type == LXB_CSS_PROPERTY__UNDEF);
+    REQUIRE(after_decl->u.undef != nullptr);
+    CHECK(after_decl->u.undef->type == LXB_CSS_PROPERTY_CONTENT);
 }
 
 #endif  // !AFFINEUI_STUB_BUILD

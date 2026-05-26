@@ -1,0 +1,45 @@
+{
+  "width": 760,
+  "height": 360,
+  "dpi": 1.0,
+  "tolerance": 2,
+  "threshold": 16.0,
+  "steps": [
+    { "snapshot": "initial" },
+    {
+      "mouse_recording": [
+        { "type": "move", "x": 70,  "y": 72 },
+        { "type": "move", "x": 140, "y": 74 },
+        { "type": "move", "x": 218, "y": 74 },
+        { "type": "move", "x": 302, "y": 74 },
+        { "type": "move", "x": 302, "y": 154 },
+        { "type": "move", "x": 220, "y": 154 },
+        { "type": "down", "x": 220, "y": 154 },
+        { "type": "up",   "x": 220, "y": 154 },
+        { "type": "move", "x": 140, "y": 154 },
+        { "type": "move", "x": 70,  "y": 154 },
+        { "type": "move", "x": 70,  "y": 238 },
+        { "type": "move", "x": 144, "y": 238 },
+        { "type": "move", "x": 224, "y": 238 },
+        { "type": "move", "x": 304, "y": 238 },
+        { "type": "move", "x": 424, "y": 72 },
+        { "type": "move", "x": 514, "y": 72 },
+        { "type": "move", "x": 606, "y": 72 },
+        { "type": "move", "x": 696, "y": 72 },
+        { "type": "move", "x": 696, "y": 154 },
+        { "type": "move", "x": 606, "y": 154 },
+        { "type": "down", "x": 606, "y": 154 },
+        { "type": "up",   "x": 606, "y": 154 },
+        { "type": "move", "x": 514, "y": 154 },
+        { "type": "move", "x": 424, "y": 154 },
+        { "type": "move", "x": 424, "y": 238 },
+        { "type": "move", "x": 514, "y": 238 },
+        { "type": "move", "x": 606, "y": 238 },
+        { "type": "move", "x": 696, "y": 238 }
+      ],
+      "step_ms": 0,
+      "snapshot_prefix": "path"
+    },
+    { "snapshot": "final" }
+  ]
+}

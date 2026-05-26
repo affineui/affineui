@@ -7,3 +7,8 @@ if(WIN32 AND AFFINEUI_BACKEND_RESOLVED STREQUAL "d3d11")
     set_target_properties(conformance_test PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tools/conformance")
 endif()
+
+add_executable(conformance_viewer viewer.cpp)
+target_link_libraries(conformance_viewer PRIVATE affineui::sokol)
+set_target_properties(conformance_viewer PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tools/conformance")

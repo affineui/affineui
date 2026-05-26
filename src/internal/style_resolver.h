@@ -4,8 +4,10 @@
 #include "internal/computed_style.h"
 
 #include <memory>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 // Forward declarations so callers don't drag in lexbor headers.
 struct lxb_html_document;
@@ -26,6 +28,17 @@ namespace affineui::detail {
 /// clones the map (copy-on-write).
 using CustomPropMap = std::unordered_map<std::string, std::string>;
 
+struct BoxShadowLayer {
+    std::uint32_t rgba{0x00000000u};
+    std::int16_t offset_x{0};
+    std::int16_t offset_y{0};
+    std::int16_t blur{0};
+    std::int16_t spread{0};
+    bool inset{false};
+};
+
+using BoxShadowList = std::vector<BoxShadowLayer>;
+
 /// The two-struct bundle the cascade resolves into. Splitting them
 /// pays off downstream: layout reads ComputedStyle only, paint reads
 /// AnimatedStyle only, composite reads only the transform/opacity
@@ -34,8 +47,36 @@ using CustomPropMap = std::unordered_map<std::string, std::string>;
 struct ResolvedStyle {
     ComputedStyle computed{};
     AnimatedStyle animated{};
+    struct CssAnimation {
+        enum class Timing : std::uint8_t {
+            Ease = 0, Linear, EaseIn, EaseOut, EaseInOut, StepStart, StepEnd,
+        };
+        enum class Direction : std::uint8_t {
+            Normal = 0, Reverse, Alternate, AlternateReverse,
+        };
+        enum class FillMode : std::uint8_t {
+            None = 0, Forwards, Backwards, Both,
+        };
+        enum class PlayState : std::uint8_t {
+            Running = 0, Paused,
+        };
+
+        std::uint32_t name_hash{0};
+        float         duration_s{0.0f};
+        float         delay_s{0.0f};
+        float         iteration_count{1.0f};  // 0 = infinite
+        Timing        timing{Timing::Ease};
+        Direction     direction{Direction::Normal};
+        FillMode      fill_mode{FillMode::None};
+        PlayState     play_state{PlayState::Running};
+        bool          active{false};
+    } animation{};
     /// Inherited custom-property scope (null = none in effect).
     std::shared_ptr<const CustomPropMap> custom_props;
+    /// Optional multi-layer box-shadow list. Most elements have no
+    /// shadow, and single-layer shadows stay in AnimatedStyle's compact
+    /// legacy fields; only stacked shadows allocate this list at resolve time.
+    std::shared_ptr<const BoxShadowList> box_shadows;
 };
 
 /// Abstract style resolver. Phase 2 ships one impl (lexbor-backed)
@@ -48,8 +89,9 @@ public:
     virtual ~StyleResolver() = default;
 
     /// Resolve the full style for `element`, merging in inherited
-    /// properties from `parent`. Phase 2 is uncached; Phase 3 adds
-    /// the dirty-bit caching described in DESIGN.md.
+    /// properties from `parent`. Implementations may cache the static
+    /// cascade result; callers must use `invalidate()` when DOM attributes
+    /// or styles that can affect matching are mutated.
     virtual ResolvedStyle resolve(lxb_dom_element_t* element,
                                   const ResolvedStyle& parent) = 0;
 
@@ -73,6 +115,9 @@ public:
 };
 
 /// Construct the default resolver, backed by lexbor's cascade.
-std::unique_ptr<StyleResolver> make_lexbor_resolver(lxb_html_document_t* doc);
+std::unique_ptr<StyleResolver> make_lexbor_resolver(
+    lxb_html_document_t* doc,
+    int viewport_width_px = 0,
+    int viewport_height_px = 0);
 
 }  // namespace affineui::detail

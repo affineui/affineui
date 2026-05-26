@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #ffffff; }
+  .stage { position: relative; width: 520px; height: 260px; background: #f8f9fa; }
+  .row { position: relative; height: 58px; margin-left: 40px; width: 420px; }
+  .rail { position: absolute; left: 0; top: 27px; width: 340px; height: 8px; background: #d3d9df; }
+  .target {
+    position: absolute; left: 0; top: 10px; width: 54px; height: 42px;
+    background: #0d6efd;
+    animation-name: direction_move;
+    animation-duration: 1000ms;
+    animation-timing-function: linear;
+    animation-iteration-count: 2;
+    animation-fill-mode: both;
+  }
+  .normal .target { animation-direction: normal; background: #0d6efd; }
+  .reverse .target { animation-direction: reverse; background: #198754; }
+  .alternate .target { animation-direction: alternate; background: #dc3545; }
+  .alternate-reverse .target { animation-direction: alternate-reverse; background: #6f42c1; }
+  @keyframes direction_move {
+    from { transform: translateX(0); }
+    to   { transform: translateX(260px); }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="row normal"><div class="rail"></div><div class="target"></div></div>
+    <div class="row reverse"><div class="rail"></div><div class="target"></div></div>
+    <div class="row alternate"><div class="rail"></div><div class="target"></div></div>
+    <div class="row alternate-reverse"><div class="rail"></div><div class="target"></div></div>
+  </div>
+</body>
+</html>

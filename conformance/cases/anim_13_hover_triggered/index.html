@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #ffffff; }
+  .stage { position: relative; width: 460px; height: 220px; background: #f8f9fa; }
+  .target {
+    position: absolute; left: 118px; top: 56px; width: 150px; height: 92px;
+    background: #6c757d;
+    opacity: .55;
+  }
+  .target:hover {
+    background: #0d6efd;
+    animation: hover_motion 1000ms linear 1 both;
+  }
+  @keyframes hover_motion {
+    from { transform: scale(.72); opacity: .35; }
+    to   { transform: scale(1.24); opacity: 1; }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="target"></div>
+  </div>
+</body>
+</html>

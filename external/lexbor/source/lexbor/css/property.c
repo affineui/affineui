@@ -19,6 +19,63 @@ lxb_css_property_by_name(const lxb_char_t *name, size_t length)
 {
     const lexbor_shs_entry_t *entry;
 
+    if (length == 15 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "list-style-type", 15)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_LIST_STYLE_TYPE];
+    }
+    if (length == 10 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "list-style", 10)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_LIST_STYLE];
+    }
+    if (length == 7 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "content", 7)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_CONTENT];
+    }
+    if (length == 9 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "transform", 9)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_TRANSFORM];
+    }
+    if (length == 16 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "transform-origin", 16)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_TRANSFORM_ORIGIN];
+    }
+    if (length == 9 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation", 9)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION];
+    }
+    if (length == 14 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-name", 14)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_NAME];
+    }
+    if (length == 18 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-duration", 18)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_DURATION];
+    }
+    if (length == 25 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-timing-function", 25)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_TIMING_FUNCTION];
+    }
+    if (length == 15 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-delay", 15)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_DELAY];
+    }
+    if (length == 25 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-iteration-count", 25)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_ITERATION_COUNT];
+    }
+    if (length == 19 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-direction", 19)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_DIRECTION];
+    }
+    if (length == 19 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-fill-mode", 19)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_FILL_MODE];
+    }
+    if (length == 20 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-play-state", 20)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_PLAY_STATE];
+    }
+
     entry = lexbor_shs_entry_get_lower_static(lxb_css_property_shs,
                                               name, length);
     if (entry == NULL) {
@@ -485,8 +542,10 @@ lxb_css_property_box_shadow_serialize(const void *property,
 {
     lxb_status_t status;
     const lxb_css_property_box_shadow_t *shadow = property;
+    const lxb_css_property_box_shadow_layer_t *layer;
 
     static const lexbor_str_t str_ws = lexbor_str(" ");
+    static const lexbor_str_t str_comma = lexbor_str(", ");
 
     switch (shadow->type) {
         case LXB_CSS_VALUE_INITIAL:
@@ -500,49 +559,59 @@ lxb_css_property_box_shadow_serialize(const void *property,
             break;
     }
 
-    if (shadow->inset) {
-        status = lxb_css_value_serialize(LXB_CSS_VALUE_INSET, cb, ctx);
+    for (uint8_t i = 0; i < shadow->layer_count; i++) {
+        layer = &shadow->layers[i];
+        if (i != 0) {
+            lexbor_serialize_write(cb, str_comma.data, str_comma.length, ctx, status);
+        }
+
+        if (layer->inset) {
+            status = lxb_css_value_serialize(LXB_CSS_VALUE_INSET, cb, ctx);
+            if (status != LXB_STATUS_OK) {
+                return status;
+            }
+
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        }
+
+        status = lxb_css_value_length_type_sr(&layer->offset_x, cb, ctx);
         if (status != LXB_STATUS_OK) {
             return status;
         }
 
         lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-    }
 
-    status = lxb_css_value_length_type_sr(&shadow->offset_x, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    status = lxb_css_value_length_type_sr(&shadow->offset_y, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    if (shadow->blur_radius.type != LXB_CSS_VALUE__UNDEF) {
-        lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-        status = lxb_css_value_length_type_sr(&shadow->blur_radius, cb, ctx);
+        status = lxb_css_value_length_type_sr(&layer->offset_y, cb, ctx);
         if (status != LXB_STATUS_OK) {
             return status;
         }
-    }
 
-    if (shadow->spread_radius.type != LXB_CSS_VALUE__UNDEF) {
-        lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        if (layer->blur_radius.type != LXB_CSS_VALUE__UNDEF) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
 
-        status = lxb_css_value_length_type_sr(&shadow->spread_radius, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
+            status = lxb_css_value_length_type_sr(&layer->blur_radius, cb, ctx);
+            if (status != LXB_STATUS_OK) {
+                return status;
+            }
         }
-    }
 
-    if (shadow->color.type != LXB_CSS_VALUE__UNDEF) {
-        lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        if (layer->spread_radius.type != LXB_CSS_VALUE__UNDEF) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
 
-        return lxb_css_value_color_serialize(&shadow->color, cb, ctx);
+            status = lxb_css_value_length_type_sr(&layer->spread_radius, cb, ctx);
+            if (status != LXB_STATUS_OK) {
+                return status;
+            }
+        }
+
+        if (layer->color.type != LXB_CSS_VALUE__UNDEF) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+            status = lxb_css_value_color_serialize(&layer->color, cb, ctx);
+            if (status != LXB_STATUS_OK) {
+                return status;
+            }
+        }
     }
 
     return LXB_STATUS_OK;
@@ -1397,6 +1466,50 @@ lxb_css_property_border_collapse_serialize(const void *style,
     return lxb_css_value_serialize(*bc, cb, ctx);
 }
 
+/* list-style-type: disc | circle | square | decimal | none. */
+
+void *
+lxb_css_property_list_style_type_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_list_style_type_t));
+}
+
+void *
+lxb_css_property_list_style_type_destroy(lxb_css_memory_t *memory,
+                                         void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_list_style_type_serialize(const void *style,
+                                           lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_list_style_type_t *lst =
+        (const lxb_css_property_list_style_type_t *) style;
+
+    switch (lst->type) {
+        case LXB_CSS_LIST_STYLE_TYPE_DISC:
+            lexbor_serialize_write(cb, "disc", 4, ctx, status);
+            return LXB_STATUS_OK;
+        case LXB_CSS_LIST_STYLE_TYPE_CIRCLE:
+            lexbor_serialize_write(cb, "circle", 6, ctx, status);
+            return LXB_STATUS_OK;
+        case LXB_CSS_LIST_STYLE_TYPE_SQUARE:
+            lexbor_serialize_write(cb, "square", 6, ctx, status);
+            return LXB_STATUS_OK;
+        case LXB_CSS_LIST_STYLE_TYPE_DECIMAL:
+            lexbor_serialize_write(cb, "decimal", 7, ctx, status);
+            return LXB_STATUS_OK;
+        case LXB_CSS_LIST_STYLE_TYPE_NONE:
+            lexbor_serialize_write(cb, "none", 4, ctx, status);
+            return LXB_STATUS_OK;
+        default:
+            return lxb_css_value_serialize(lst->type, cb, ctx);
+    }
+}
+
 static bool
 lxb_css_property_length_percentage_eq(const lxb_css_value_length_percentage_t *a,
                                       const lxb_css_value_length_percentage_t *b)
@@ -1765,6 +1878,33 @@ lxb_css_property_background_color_serialize(const void *style,
     return lxb_css_value_color_serialize(style, cb, ctx);
 }
 
+void *
+lxb_css_property_background_size_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_background_size_t));
+}
+
+void *
+lxb_css_property_background_size_destroy(lxb_css_memory_t *memory,
+                                         void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_background_size_serialize(const void *style,
+                                           lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_background_size_t *size = style;
+
+    if (size->layer_count == 0) {
+        return lxb_css_value_serialize(LXB_CSS_VALUE_AUTO, cb, ctx);
+    }
+
+    return lxb_css_property_width_serialize(&size->layers[0].width, cb, ctx);
+}
+
 /* Color. */
 
 void *
@@ -1788,6 +1928,32 @@ lxb_css_property_color_serialize(const void *property,
 }
 
 void *
+lxb_css_property_content_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_content_t));
+}
+
+void *
+lxb_css_property_content_destroy(lxb_css_memory_t *memory,
+                                 void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_content_serialize(const void *style,
+                                   lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_content_t *content = style;
+
+    if (content->type == LXB_CSS_CONTENT_STRING) {
+        return cb(content->value.data, content->value.length, ctx);
+    }
+
+    return lxb_css_value_serialize(content->type, cb, ctx);
+}
+
+void *
 lxb_css_property_opacity_create(lxb_css_memory_t *memory)
 {
     return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_opacity_t));
@@ -1805,6 +1971,101 @@ lxb_css_property_opacity_serialize(const void *style,
                                    lexbor_serialize_cb_f cb, void *ctx)
 {
     return lxb_css_value_number_percentage_sr(style, cb, ctx);
+}
+
+void *
+lxb_css_property_transform_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_transform_t));
+}
+
+void *
+lxb_css_property_transform_destroy(lxb_css_memory_t *memory,
+                                   void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_transform_serialize(const void *style,
+                                     lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_transform_t *transform = style;
+
+    if (transform == NULL || transform->type == LXB_CSS_TRANSFORM_VALUE_NONE) {
+        return lxb_css_value_serialize(LXB_CSS_VALUE_NONE, cb, ctx);
+    }
+
+    return cb((const lxb_char_t *) "transform-list", 14, ctx);
+}
+
+void *
+lxb_css_property_transform_origin_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_transform_origin_t));
+}
+
+void *
+lxb_css_property_transform_origin_destroy(lxb_css_memory_t *memory,
+                                          void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_transform_origin_serialize(const void *style,
+                                            lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+    const lxb_css_property_transform_origin_t *origin = style;
+
+    status = lxb_css_value_length_percentage_sr(&origin->x, cb, ctx);
+    if (status != LXB_STATUS_OK) return status;
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    return lxb_css_value_length_percentage_sr(&origin->y, cb, ctx);
+}
+
+void *
+lxb_css_property_animation_create(lxb_css_memory_t *memory)
+{
+    lxb_css_property_animation_t *animation;
+
+    animation = lexbor_mraw_calloc(memory->mraw,
+                                   sizeof(lxb_css_property_animation_t));
+    if (animation != NULL) {
+        animation->iteration_count = 1;
+        animation->timing = LXB_CSS_ANIMATION_TIMING_EASE;
+        animation->direction = LXB_CSS_ANIMATION_DIRECTION_NORMAL;
+        animation->fill_mode = LXB_CSS_ANIMATION_FILL_MODE_NONE;
+        animation->play_state = LXB_CSS_ANIMATION_PLAY_STATE_RUNNING;
+    }
+
+    return animation;
+}
+
+void *
+lxb_css_property_animation_destroy(lxb_css_memory_t *memory,
+                                   void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_animation_serialize(const void *style,
+                                     lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_animation_t *animation = style;
+
+    if (animation != NULL && animation->has_name &&
+        animation->name.data != NULL) {
+        return cb(animation->name.data, animation->name.length, ctx);
+    }
+
+    return lxb_css_value_serialize(LXB_CSS_VALUE_NONE, cb, ctx);
 }
 
 void *
@@ -1827,6 +2088,26 @@ lxb_css_property_position_serialize(const void *style,
     const lxb_css_property_position_t *position = style;
 
     return lxb_css_value_serialize(position->type, cb, ctx);
+}
+
+void *
+lxb_css_property_inset_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_inset_t));
+}
+
+void *
+lxb_css_property_inset_destroy(lxb_css_memory_t *memory,
+                               void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_inset_serialize(const void *style,
+                                 lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_margin_serialize(style, cb, ctx);
 }
 
 void *

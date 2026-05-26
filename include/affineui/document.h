@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace affineui {
@@ -68,6 +69,37 @@ public:
     /// Current document size after the last layout pass.
     Size content_size() const;
 
+    /// Mutate a live DOM attribute on the element with `id`.
+    /// Returns false when no such element exists. A successful mutation
+    /// marks the affected subtree dirty while preserving the parsed DOM
+    /// and stylesheet state.
+    bool set_attribute_by_id(std::string_view elem_id,
+                             std::string_view name,
+                             std::string_view value);
+
+    /// Remove a live DOM attribute on the element with `id`.
+    bool remove_attribute_by_id(std::string_view elem_id,
+                                std::string_view name);
+
+    /// Replace textContent for a leaf element with `id`.
+    bool set_text_by_id(std::string_view elem_id, std::string_view text);
+
+    /// Drain dirty document rectangles accumulated by live mutations.
+    std::vector<Rect> take_dirty_rects();
+
+    /// Drain the document-wide paint dirty bit. Most mutations report
+    /// precise dirty rects; this covers full-document/style invalidations
+    /// where the retained renderer must rebuild its display list.
+    bool take_paint_dirty();
+
+    /// True while CSS animations in the document need another frame.
+    bool has_active_animations() const;
+
+    /// Set the document animation clock to a deterministic elapsed time.
+    /// Intended for conformance/test harnesses that compare exact animation
+    /// phases against a browser.
+    void set_animation_time_for_testing(double seconds);
+
     /// Identity of the currently-hovered element, for click routing.
     /// `valid` is false when nothing is hovered. `tag` / `elem_id` /
     /// `classes` are populated from the element's HTML attributes —
@@ -77,8 +109,16 @@ public:
         std::string              tag;
         std::string              elem_id;
         std::vector<std::string> classes;
+        std::vector<std::pair<std::string, std::string>> attrs;
+        Rect                     bounds{};
     };
     HoverInfo hovered_info() const;
+
+    /// Hover identity chain for event routing, ordered from the
+    /// deepest hovered element to the document root. This lets Ui
+    /// implement DOM-like click bubbling while keeping the simple
+    /// selector grammar on Ui::on_click.
+    std::vector<HoverInfo> hovered_info_chain() const;
 
     // ── Immediate-mode view (Phase 2D — "clear and rebuild") ────────
 

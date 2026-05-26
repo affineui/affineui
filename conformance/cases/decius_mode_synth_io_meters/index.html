@@ -1,0 +1,106 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../_decius/css/decius.bundle.min.css">
+<style>
+body{margin:0;background:#14161c;padding:18px}
+.module{width:610px;height:250px;padding:26px 24px 18px}
+.title{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.grid{display:grid;grid-template-columns:1fr 170px 80px;gap:24px;align-items:center}
+.jacks{display:grid;grid-template-columns:repeat(4, 54px);gap:16px}
+.meter-bank{display:flex;flex-direction:column;gap:14px}
+.meter-bank .dcs-meter{height:18px}
+.v-meter{height:132px;width:24px;margin:auto}
+.dcs-meter--v .dcs-meter__seg{min-width:10px}
+</style>
+</head>
+<body class="dcs" data-dcs-density="comfortable">
+  <section class="module dcs-hw dcs-hw--red">
+    <span class="dcs-hw__screw dcs-hw__screw--tl"></span>
+    <span class="dcs-hw__screw dcs-hw__screw--tr"></span>
+    <span class="dcs-hw__screw dcs-hw__screw--bl"></span>
+    <span class="dcs-hw__screw dcs-hw__screw--br"></span>
+    <div class="title"><span class="dcs-hw__label">patch bay</span><span class="dcs-badge dcs-badge--danger">hot</span></div>
+    <div class="grid">
+      <div class="jacks">
+        <div class="dcs-jack">
+          <div class="dcs-jack__socket">
+            <svg viewBox="0 0 32 32" aria-hidden="true">
+              <circle cx="16" cy="16" r="14" fill="#101217" stroke="#07080b" stroke-width="2"/>
+              <circle cx="16" cy="16" r="9" fill="#252a34" stroke="#4e5563" stroke-width="1.5"/>
+              <circle cx="16" cy="16" r="4" fill="#050608"/>
+            </svg>
+          </div>
+          <span class="dcs-jack__label">in 1</span>
+        </div>
+        <div class="dcs-jack">
+          <div class="dcs-jack__socket">
+            <svg viewBox="0 0 32 32" aria-hidden="true">
+              <circle cx="16" cy="16" r="14" fill="#101217" stroke="#07080b" stroke-width="2"/>
+              <circle cx="16" cy="16" r="9" fill="#252a34" stroke="#4e5563" stroke-width="1.5"/>
+              <circle cx="16" cy="16" r="4" fill="#050608"/>
+            </svg>
+          </div>
+          <span class="dcs-jack__label">in 2</span>
+        </div>
+        <div class="dcs-jack">
+          <div class="dcs-jack__socket">
+            <svg viewBox="0 0 32 32" aria-hidden="true">
+              <circle cx="16" cy="16" r="14" fill="#101217" stroke="#07080b" stroke-width="2"/>
+              <circle cx="16" cy="16" r="9" fill="#252a34" stroke="#4e5563" stroke-width="1.5"/>
+              <circle cx="16" cy="16" r="4" fill="#050608"/>
+            </svg>
+          </div>
+          <span class="dcs-jack__label">aux</span>
+        </div>
+        <div class="dcs-jack">
+          <div class="dcs-jack__socket">
+            <svg viewBox="0 0 32 32" aria-hidden="true">
+              <circle cx="16" cy="16" r="14" fill="#101217" stroke="#07080b" stroke-width="2"/>
+              <circle cx="16" cy="16" r="9" fill="#252a34" stroke="#4e5563" stroke-width="1.5"/>
+              <circle cx="16" cy="16" r="4" fill="#050608"/>
+            </svg>
+          </div>
+          <span class="dcs-jack__label">out</span>
+        </div>
+      </div>
+      <div class="meter-bank">
+        <div class="dcs-meter">
+          <div class="dcs-meter__seg dcs-meter__seg--lit-ok"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--lit-ok"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--lit-ok"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--ok"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--warn"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--peak"></div>
+        </div>
+        <div class="dcs-meter">
+          <div class="dcs-meter__seg dcs-meter__seg--lit-ok"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--lit-ok"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--lit-warn"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--warn"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--peak"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--peak"></div>
+        </div>
+        <div class="dcs-meter">
+          <div class="dcs-meter__seg dcs-meter__seg--lit-ok"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--lit-ok"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--lit-warn"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--lit-peak"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--peak"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--peak"></div>
+        </div>
+      </div>
+      <div class="dcs-meter dcs-meter--v v-meter">
+        <div class="dcs-meter__seg dcs-meter__seg--lit-ok"></div>
+        <div class="dcs-meter__seg dcs-meter__seg--lit-ok"></div>
+        <div class="dcs-meter__seg dcs-meter__seg--lit-ok"></div>
+        <div class="dcs-meter__seg dcs-meter__seg--lit-warn"></div>
+        <div class="dcs-meter__seg dcs-meter__seg--warn"></div>
+        <div class="dcs-meter__seg dcs-meter__seg--peak"></div>
+        <div class="dcs-meter__seg dcs-meter__seg--peak"></div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

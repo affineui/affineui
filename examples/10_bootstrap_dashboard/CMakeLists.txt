@@ -1,0 +1,1 @@
+affineui_add_sokol_example(bootstrap_dashboard main.cpp)

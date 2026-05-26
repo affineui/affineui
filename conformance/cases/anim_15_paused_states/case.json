@@ -1,0 +1,12 @@
+{
+  "width": 480,
+  "height": 230,
+  "dpi": 1.0,
+  "tolerance": 2,
+  "threshold": 7.0,
+  "steps": [
+    { "snapshot": "initial" },
+    { "wait_ms": 300 },
+    { "snapshot": "after_wait" }
+  ]
+}

@@ -86,7 +86,7 @@ struct ActiveAnimation {
     AnimatedProperty property{AnimatedProperty::Opacity};
     EasingKind       easing{EasingKind::Linear};
     std::uint8_t     iteration_count{1};  // 0 = infinite
-    std::uint8_t     flags{0};            // bit 0: paused; bit 1: reverse; bit 2: alternate
+    std::uint8_t     flags{0};            // bit 0: paused; bit 1: reverse; bit 2: alternate; bit 3: finished
 
     KeyframeCurveId  curve{kInvalidCurve};
 

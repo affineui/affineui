@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../_decius/css/decius.bundle.min.css">
+<style>
+body{margin:0;background:#14161c;padding:18px}
+.fixture{display:flex;gap:16px}
+.fixture>section:first-child{flex:1 1 0;min-width:0}
+.fixture>section:last-child{flex:0 0 320px}
+.cards{display:flex;gap:10px}
+.cards>.dcs-card{flex:1 1 0;min-width:0}
+.swatch{height:76px;background:linear-gradient(135deg,#2b3345,#4d9fff)}
+.menu-slot{position:relative;height:250px}
+.dcs-menu,.dcs-popover{position:absolute}
+</style>
+</head>
+<body class="dcs" data-dcs-density="comfortable" data-dcs-accent="cyan">
+  <div class="fixture">
+    <section class="dcs-panel dcs-panel--bordered">
+      <div class="dcs-panel__header">
+        <div class="dcs-panel__title"><i class="di di-layer-mask"></i><span>Assets</span></div>
+      </div>
+      <div class="dcs-panel__body">
+        <div class="cards">
+          <article class="dcs-card" aria-selected="true">
+            <div class="dcs-card__media"><div class="swatch"></div></div>
+            <div class="dcs-card__body"><div class="dcs-card__title">Hero shader</div><div class="dcs-card__meta">MAT / 2.4 MB</div><div class="dcs-card__desc">Layered material with procedural masks.</div></div>
+            <div class="dcs-card__footer"><i class="di di-check-circle"></i> synced</div>
+          </article>
+          <article class="dcs-card">
+            <div class="dcs-card__media"><div class="swatch" style="background:linear-gradient(135deg,#312f44,#ff8a3a)"></div></div>
+            <div class="dcs-card__body"><div class="dcs-card__title">Dust volume</div><div class="dcs-card__meta">VDB / 18 MB</div><div class="dcs-card__desc">Viewport proxy ready for final render.</div></div>
+            <div class="dcs-card__footer"><i class="di di-info"></i> cached</div>
+          </article>
+          <article class="dcs-card">
+            <div class="dcs-card__media"><div class="swatch" style="background:linear-gradient(135deg,#263b32,#4ed18a)"></div></div>
+            <div class="dcs-card__body"><div class="dcs-card__title">Rig controls</div><div class="dcs-card__meta">CTRL / 96 KB</div><div class="dcs-card__desc">Compact control set for animation.</div></div>
+            <div class="dcs-card__footer"><i class="di di-lock"></i> read only</div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="dcs-panel dcs-panel--bordered">
+      <div class="dcs-panel__header">
+        <div class="dcs-panel__title"><i class="di di-menu"></i><span>Floating Layers</span></div>
+      </div>
+      <div class="dcs-panel__body menu-slot">
+        <div class="dcs-menu" style="left:10px;top:8px;width:230px">
+          <div class="dcs-menu__label">File</div>
+          <div class="dcs-menu__item"><span class="dcs-menu__icon"><i class="di di-file"></i></span><span class="dcs-menu__label-text">New Scene</span><span class="dcs-menu__shortcut">Ctrl+N</span></div>
+          <div class="dcs-menu__item dcs-menu__item--active"><span class="dcs-menu__icon"><i class="di di-folder-open"></i></span><span class="dcs-menu__label-text">Open...</span><span class="dcs-menu__shortcut">Ctrl+O</span></div>
+          <div class="dcs-menu__item"><span class="dcs-menu__check"><i class="di di-check"></i></span><span class="dcs-menu__label-text">Autosave</span></div>
+          <div class="dcs-menu__sep"></div>
+          <div class="dcs-menu__item dcs-menu__item--danger"><span class="dcs-menu__icon"><i class="di di-trash"></i></span><span class="dcs-menu__label-text">Delete Cache</span></div>
+        </div>
+        <div class="dcs-popover" data-dcs-pos="bottom" style="left:40px;top:170px;width:240px">
+          <div class="dcs-popover__header"><i class="di di-info"></i> Render target</div>
+          <div class="dcs-popover__body">Popover chrome, arrow geometry, shadow, and dense text layout.</div>
+          <div class="dcs-popover__arrow" style="left:28px"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

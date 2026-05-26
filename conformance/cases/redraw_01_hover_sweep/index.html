@@ -1,0 +1,90 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Redraw hover sweep</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 18px;
+    background: #151923;
+    color: #edf2ff;
+    font: 14px/1.35 sans-serif;
+  }
+  .stage { position: relative; width: 760px; height: 360px; }
+  .panel {
+    position: absolute;
+    top: 0;
+    width: 354px;
+    height: 304px;
+    padding: 16px;
+    border: 1px solid #2f3849;
+    border-radius: 8px;
+    background: #202737;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  }
+  .left { left: 0; }
+  .right { left: 372px; }
+  h1 {
+    margin: 0 0 12px;
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .tile {
+    position: absolute;
+    width: 154px;
+    height: 72px;
+    padding: 11px 12px;
+    border: 1px solid #39455c;
+    border-radius: 7px;
+    background: #293247;
+    color: #dce6ff;
+  }
+  .tile:hover {
+    border-color: #54a8ff;
+    background: #31415f;
+    box-shadow: 0 0 0 3px rgba(84, 168, 255, 0.22);
+  }
+  .tile strong {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 13px;
+  }
+  .tile span {
+    color: #aebbd3;
+    font-size: 12px;
+  }
+  .tile:hover span { color: #ffffff; }
+  .meter {
+    height: 9px;
+    margin-top: 10px;
+    border-radius: 999px;
+    background: #111722;
+    overflow: hidden;
+  }
+  .meter > i {
+    display: block;
+    width: 58%;
+    height: 100%;
+    background: #54a8ff;
+  }
+</style>
+<div class="stage">
+  <section class="panel left">
+    <h1>Input Bank</h1>
+    <div class="tile" style="left:16px;top:54px"><strong>Gain</strong><span>Hover changes only this card.</span><div class="meter"><i></i></div></div>
+    <div class="tile" style="left:184px;top:54px"><strong>Trim</strong><span>Sibling panels stay intact.</span><div class="meter"><i></i></div></div>
+    <div class="tile" style="left:16px;top:140px"><strong>Pan</strong><span>Text must not darken.</span><div class="meter"><i></i></div></div>
+    <div class="tile" style="left:184px;top:140px"><strong>Drive</strong><span>No cached surface holes.</span><div class="meter"><i></i></div></div>
+    <div class="tile" style="left:16px;top:226px"><strong>Bias</strong><span>Repeated hover is stable.</span><div class="meter"><i></i></div></div>
+    <div class="tile" style="left:184px;top:226px"><strong>Mix</strong><span>Filmstrip catches flashing.</span><div class="meter"><i></i></div></div>
+  </section>
+  <section class="panel right">
+    <h1>Output Bank</h1>
+    <div class="tile" style="left:16px;top:54px"><strong>Bus A</strong><span>This side should never erase.</span><div class="meter"><i></i></div></div>
+    <div class="tile" style="left:184px;top:54px"><strong>Bus B</strong><span>Retained pixels survive.</span><div class="meter"><i></i></div></div>
+    <div class="tile" style="left:16px;top:140px"><strong>Aux</strong><span>Only dirty regions repaint.</span><div class="meter"><i></i></div></div>
+    <div class="tile" style="left:184px;top:140px"><strong>Monitor</strong><span>One fresh text pass.</span><div class="meter"><i></i></div></div>
+    <div class="tile" style="left:16px;top:226px"><strong>Record</strong><span>Mouse replay is deterministic.</span><div class="meter"><i></i></div></div>
+    <div class="tile" style="left:184px;top:226px"><strong>Main</strong><span>Background cannot punch through.</span><div class="meter"><i></i></div></div>
+  </section>
+</div>

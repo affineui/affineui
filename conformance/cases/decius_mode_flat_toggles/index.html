@@ -1,0 +1,34 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../_decius/css/decius.bundle.min.css">
+<style>
+body{margin:0;background:#14161c;padding:18px}
+.fixture{width:560px}
+.rows{display:flex;flex-direction:column;gap:16px}
+.row{display:flex;align-items:center;gap:24px;flex-wrap:wrap}
+</style>
+</head>
+<body class="dcs" data-dcs-density="comfortable">
+  <section class="fixture dcs-panel dcs-panel--bordered">
+    <div class="dcs-panel__header">
+      <div class="dcs-panel__title"><i class="di di-check-circle"></i><span>Flat Toggles</span></div>
+    </div>
+    <div class="dcs-panel__body rows">
+      <div class="row">
+        <div class="dcs-check" aria-checked="true"><div class="dcs-check__box"><i class="di di-check"></i></div><span>Snap</span></div>
+        <div class="dcs-check"><div class="dcs-check__box"><i class="di di-check"></i></div><span>Live</span></div>
+        <div class="dcs-check dcs-radio" aria-checked="true"><div class="dcs-check__box"></div><span>Local</span></div>
+        <div class="dcs-check dcs-radio"><div class="dcs-check__box"></div><span>World</span></div>
+      </div>
+      <div class="row">
+        <div class="dcs-row"><div class="dcs-switch" aria-checked="true"></div><span>GPU</span></div>
+        <div class="dcs-row"><div class="dcs-switch"></div><span>Sync</span></div>
+        <span class="dcs-badge dcs-badge--dot">armed</span>
+        <span class="dcs-badge dcs-badge--accent">active</span>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

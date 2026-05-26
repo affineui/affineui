@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: #ffffff; }
+  .stage { position: relative; width: 520px; height: 270px; background: #f8f9fa; }
+  .row { position: relative; height: 58px; margin-left: 42px; width: 420px; }
+  .rail { position: absolute; left: 0; top: 27px; width: 300px; height: 8px; background: #d3d9df; }
+  .target {
+    position: absolute; left: 0; top: 10px; width: 54px; height: 42px;
+    background: #0d6efd;
+    transform: translateX(80px);
+    opacity: .45;
+    animation-name: fill_move;
+    animation-duration: 600ms;
+    animation-delay: 300ms;
+    animation-timing-function: linear;
+    animation-iteration-count: 1;
+  }
+  .none .target { animation-fill-mode: none; background: #0d6efd; }
+  .backwards .target { animation-fill-mode: backwards; background: #198754; }
+  .forwards .target { animation-fill-mode: forwards; background: #dc3545; }
+  .both .target { animation-fill-mode: both; background: #6f42c1; }
+  @keyframes fill_move {
+    from { transform: translateX(0); opacity: .2; }
+    to   { transform: translateX(220px); opacity: 1; }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="row none"><div class="rail"></div><div class="target"></div></div>
+    <div class="row backwards"><div class="rail"></div><div class="target"></div></div>
+    <div class="row forwards"><div class="rail"></div><div class="target"></div></div>
+    <div class="row both"><div class="rail"></div><div class="target"></div></div>
+  </div>
+</body>
+</html>

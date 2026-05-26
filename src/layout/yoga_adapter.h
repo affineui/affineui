@@ -22,6 +22,7 @@
 //   Side effects: none. All Yoga nodes allocated here are freed before
 //   return. The adapter is stateless across calls.
 
+#include "affineui/geom.h"
 #include "affineui/painter.h"
 #include "affineui/types.h"
 #include "internal/computed_style.h"
@@ -41,6 +42,7 @@ struct BlockLayoutInput {
     const ComputedStyle* style;          // not owned, must outlive the call
     int                  intrinsic_w_px; // (unused; reserved for future)
     int                  intrinsic_h_px; // explicit height; ignored when `text` is set
+    int                  auto_min_w_px{0};
     /// Index into the same `inputs` span of this block's parent block,
     /// or -1 for a top-level block (child of the synthetic root). Inputs
     /// MUST be in DFS order so every child's `parent_idx` is less than
@@ -57,8 +59,21 @@ struct BlockLayoutInput {
     std::string_view     text{};
     std::uint32_t        font{0};
 
+    /// Baseline offset from this node's border-box top, in CSS px.
+    /// Zero means "let Yoga synthesize a baseline". Text-bearing leaves
+    /// set this from the resolved font metrics so inline rows align by
+    /// baseline instead of by rectangle center/bottom.
+    float                baseline_px{0.0f};
+
+    /// True when this node's parent is Document's synthetic inline line box.
+    /// Only in that context does CSS vertical-align affect cross-axis layout;
+    /// ordinary flex items must ignore it.
+    bool                 inline_parent{false};
+
     /// CSS letter-spacing in pixels (0 = normal, no extra spacing).
     float                letter_spacing_px{0.0f};
+    /// CSS text-indent in pixels for the first rendered line.
+    float                text_indent_px{0.0f};
 
     /// When true, the text measure callback passes a very large wrap
     /// width so the text is never broken across lines (CSS
@@ -74,6 +89,7 @@ struct BlockLayoutInput {
 void layout_blocks_with_yoga(int viewport_width_px,
                              std::span<const BlockLayoutInput> inputs,
                              std::span<Rect> out_bounds,
-                             Painter* measurer = nullptr);
+                             Painter* measurer = nullptr,
+                             std::span<RectF> out_float_bounds = {});
 
 }  // namespace affineui::detail

@@ -14,13 +14,15 @@ Exit code is non-zero if any snapshot exceeds its test's threshold.
 from __future__ import annotations
 
 import argparse
+import html as html_lib
 import json
 import subprocess
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 from diff import diff_images
-from PIL import Image
+from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent           # conformance/
 REPO = ROOT.parent
@@ -28,6 +30,7 @@ CASES = ROOT / "cases"
 OUT = ROOT / "out"
 
 DEFAULTS = {"width": 1024, "height": 768, "dpi": 1.0, "tolerance": 2, "threshold": 5.0, "steps": []}
+RESAMPLE = getattr(Image, "Resampling", Image).LANCZOS
 
 
 def find_tool() -> Path:
@@ -47,7 +50,14 @@ def load_case(case_dir: Path) -> dict:
 
 
 def snapshot_names(steps: list[dict]) -> list[str]:
-    names = [s["snapshot"] for s in steps if "snapshot" in s]
+    names: list[str] = []
+    for step in steps:
+        if "snapshot" in step:
+            names.append(step["snapshot"])
+        elif (("mouse_path" in step) or ("mouse_recording" in step)) and step.get("snapshot_prefix"):
+            trace = step.get("mouse_recording", step.get("mouse_path", []))
+            count = len(trace) if isinstance(trace, list) else 0
+            names.extend(f'{step["snapshot_prefix"]}_{i:03d}' for i in range(count))
     return names or ["default"]
 
 
@@ -65,11 +75,24 @@ def run_test(name: str, tool: Path, channel: str) -> list[dict]:
                  "mean": 0.0, "max": 0, "threshold": cfg["threshold"], "error": reason,
                  "browser": "", "affineui": "", "diff": ""} for s in snaps]
 
+    html_for_affineui = None
+    if cfg.get("hydrate_with_browser"):
+        html_for_affineui = OUT / f"{name}.hydrated.html"
+        try:
+            subprocess.run(["node", str(ROOT / "browser" / "hydrate.js"), "--test", name,
+                            "--cases-dir", str(CASES), "--out-html", str(html_for_affineui),
+                            "--channel", channel],
+                           check=True, timeout=120)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            return err_rows(f"browser hydration failed: {e}")
+
     # Either driver may crash on a not-yet-supported feature — capture it as a
     # failure and keep going so one bad test never aborts the suite.
     try:
-        subprocess.run([str(tool), "--test", name, "--cases-dir", str(CASES), "--out-dir", str(OUT)],
-                       check=True, timeout=120)
+        aff_cmd = [str(tool), "--test", name, "--cases-dir", str(CASES), "--out-dir", str(OUT)]
+        if html_for_affineui is not None:
+            aff_cmd += ["--html", str(html_for_affineui)]
+        subprocess.run(aff_cmd, check=True, timeout=120)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         return err_rows(f"AffineUI render failed: {e}")
     try:
@@ -103,24 +126,92 @@ def run_test(name: str, tool: Path, channel: str) -> list[dict]:
     return results
 
 
+def make_filmstrip(test: str, rows: list[dict], kind: str, frame_size: tuple[int, int]) -> str:
+    frames = [r for r in rows if r.get(kind) and not r.get("error")]
+    if len(frames) <= 1:
+        return ""
+
+    label_h = 24
+    thumb_w, thumb_h = frame_size
+
+    strip = Image.new("RGB", (thumb_w * len(frames), label_h + thumb_h), (17, 17, 17))
+    draw = ImageDraw.Draw(strip)
+    for i, row in enumerate(frames):
+        x = i * thumb_w
+        draw.rectangle((x, 0, x + thumb_w - 1, label_h - 1), fill=(35, 35, 35))
+        draw.text((x + 6, 5), str(row["snapshot"]), fill=(225, 225, 225))
+        with Image.open(OUT / row[kind]) as im:
+            frame = im.convert("RGB").resize((thumb_w, thumb_h), RESAMPLE)
+        strip.paste(frame, (x, label_h))
+
+    out_name = f"{test}.{kind}.filmstrip.png"
+    strip.save(OUT / out_name)
+    return out_name
+
+
 def write_report(rows: list[dict]) -> Path:
-    def cell(p): return f'<td><img src="{p}" width="320"></td>'
+    def esc(value): return html_lib.escape(str(value), quote=True)
+    def cell(p): return f'<td><img src="{esc(p)}" width="320"></td>' if p else "<td></td>"
+
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for r in rows:
+        grouped[r["test"]].append(r)
+
+    film_trs = []
+    for test, group in grouped.items():
+        if len([r for r in group if not r.get("error")]) <= 1:
+            continue
+        first_image = next((r.get("browser") or r.get("affineui") or r.get("diff")
+                            for r in group if not r.get("error")), "")
+        if not first_image:
+            continue
+        with Image.open(OUT / first_image) as first:
+            aspect = first.height / first.width if first.width else 1.0
+        thumb_w = 240
+        frame_size = (thumb_w, max(1, round(thumb_w * aspect)))
+
+        strips = {kind: make_filmstrip(test, group, kind, frame_size) for kind in ("browser", "affineui", "diff")}
+        if not all(strips.values()):
+            continue
+        failed = [r for r in group if not r["passed"]]
+        color = "#1e8e3e" if not failed else "#d93025"
+        status = "PASS" if not failed else "FAIL"
+        worst = max(group, key=lambda r: r["pct"])
+        meta = f'{len(group)} frames<br>{worst["pct"]:.2f}% max &Delta;'
+        film_trs.append(
+            f'<tr><td><b>{esc(test)}</b><br>'
+            f'<span style="color:{color}">{status}</span><br>{meta}</td>'
+            f'<td class="timeline"><img src="{esc(strips["browser"])}"></td>'
+            f'<td class="timeline"><img src="{esc(strips["affineui"])}"></td>'
+            f'<td class="timeline"><img src="{esc(strips["diff"])}"></td></tr>')
+
     trs = []
     for r in rows:
         color = "#1e8e3e" if r["passed"] else "#d93025"
         err = r.get("error") or ""
         status = "PASS" if r["passed"] else ("ERROR" if err else "FAIL")
-        meta = (f'{r["pct"]:.2f}% Δ<br>mean {r["mean"]:.1f}<br>max {r["max"]}'
-                if not err else f'<i>{err}</i>')
+        meta = (f'{r["pct"]:.2f}% &Delta;<br>mean {r["mean"]:.1f}<br>max {r["max"]}'
+                if not err else f'<i>{esc(err)}</i>')
         trs.append(
-            f'<tr><td><b>{r["test"]}</b><br>{r["snapshot"]}<br>'
+            f'<tr><td><b>{esc(r["test"])}</b><br>{esc(r["snapshot"])}<br>'
             f'<span style="color:{color}">{status}</span><br>{meta}</td>'
             f'{cell(r["browser"])}{cell(r["affineui"])}{cell(r["diff"])}</tr>')
+
+    film_section = ""
+    if film_trs:
+        film_section = (
+            "<h2>Filmstrips</h2>"
+            "<p>Generated for tests with multiple snapshots. Browser, AffineUI, and diff strips use the same frame slots.</p>"
+            "<table><tr><th>test</th><th>browser timeline</th><th>AffineUI timeline</th><th>diff timeline</th></tr>"
+            + "".join(film_trs) + "</table>")
+
     html = ("<!doctype html><meta charset=utf-8><title>AffineUI conformance</title>"
             "<style>body{font-family:sans-serif;background:#111;color:#ddd}"
             "table{border-collapse:collapse}td{border:1px solid #333;padding:6px;vertical-align:top}"
-            "th{padding:6px}</style>"
+            "th{padding:6px}.timeline img{max-width:960px;width:100%;height:auto}</style>"
             "<h1>AffineUI conformance</h1>"
+            + film_section +
+            "<h2>Snapshots</h2>"
             "<table><tr><th>test</th><th>browser (Chrome)</th><th>AffineUI</th><th>diff</th></tr>"
             + "".join(trs) + "</table>")
     out = OUT / "report.html"

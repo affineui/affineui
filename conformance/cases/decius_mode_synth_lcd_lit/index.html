@@ -1,0 +1,116 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../_decius/css/decius.bundle.min.css">
+<style>
+body{margin:0;background:#14161c;padding:18px}
+.module{width:560px;height:250px;padding:24px}
+.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.body{display:flex;align-items:center;gap:28px}
+.lcd-row{display:flex;flex-direction:column;gap:12px}
+.buttons{display:grid;grid-template-columns:repeat(3, 48px);gap:12px}
+.meter-wrap{width:150px;display:flex;flex-direction:column;gap:16px}
+.meter-wrap .dcs-meter{height:20px}
+.dcs-lcd svg{overflow:visible}
+</style>
+</head>
+<body class="dcs" data-dcs-density="comfortable">
+  <section class="module dcs-hw dcs-hw--lacquer">
+    <span class="dcs-hw__screw dcs-hw__screw--tl"></span>
+    <span class="dcs-hw__screw dcs-hw__screw--tr"></span>
+    <span class="dcs-hw__screw dcs-hw__screw--bl"></span>
+    <span class="dcs-hw__screw dcs-hw__screw--br"></span>
+    <div class="top"><span class="dcs-hw__label">display bank</span><span class="dcs-badge dcs-badge--accent">css hardware</span></div>
+    <div class="body">
+      <div class="lcd-row">
+        <div class="dcs-lcd dcs-lcd--red dcs-lcd--lg">
+          <div class="dcs-lcd__digit">
+            <svg viewBox="0 0 24 40" aria-hidden="true">
+              <polygon class="dcs-lcd__seg-on" points="5,1 19,1 22,4 19,7 5,7 2,4"/>
+              <polygon class="dcs-lcd__seg-on" points="20,6 23,9 23,18 20,21 17,18 17,9"/>
+              <polygon class="dcs-lcd__seg-on" points="20,20 23,23 23,32 20,35 17,32 17,23"/>
+              <polygon class="dcs-lcd__seg-off" points="5,33 19,33 22,36 19,39 5,39 2,36"/>
+              <polygon class="dcs-lcd__seg-on" points="1,20 4,23 4,32 1,35 -2,32 -2,23"/>
+              <polygon class="dcs-lcd__seg-on" points="1,6 4,9 4,18 1,21 -2,18 -2,9"/>
+              <polygon class="dcs-lcd__seg-on" points="5,17 19,17 22,20 19,23 5,23 2,20"/>
+            </svg>
+          </div>
+          <div class="dcs-lcd__digit">
+            <svg viewBox="0 0 24 40" aria-hidden="true">
+              <polygon class="dcs-lcd__seg-on" points="5,1 19,1 22,4 19,7 5,7 2,4"/>
+              <polygon class="dcs-lcd__seg-on" points="20,6 23,9 23,18 20,21 17,18 17,9"/>
+              <polygon class="dcs-lcd__seg-off" points="20,20 23,23 23,32 20,35 17,32 17,23"/>
+              <polygon class="dcs-lcd__seg-on" points="5,33 19,33 22,36 19,39 5,39 2,36"/>
+              <polygon class="dcs-lcd__seg-on" points="1,20 4,23 4,32 1,35 -2,32 -2,23"/>
+              <polygon class="dcs-lcd__seg-off" points="1,6 4,9 4,18 1,21 -2,18 -2,9"/>
+              <polygon class="dcs-lcd__seg-on" points="5,17 19,17 22,20 19,23 5,23 2,20"/>
+            </svg>
+          </div>
+          <span class="dcs-lcd__dot dcs-lcd__dot--on"></span>
+          <div class="dcs-lcd__digit">
+            <svg viewBox="0 0 24 40" aria-hidden="true">
+              <polygon class="dcs-lcd__seg-on" points="5,1 19,1 22,4 19,7 5,7 2,4"/>
+              <polygon class="dcs-lcd__seg-on" points="20,6 23,9 23,18 20,21 17,18 17,9"/>
+              <polygon class="dcs-lcd__seg-on" points="20,20 23,23 23,32 20,35 17,32 17,23"/>
+              <polygon class="dcs-lcd__seg-on" points="5,33 19,33 22,36 19,39 5,39 2,36"/>
+              <polygon class="dcs-lcd__seg-off" points="1,20 4,23 4,32 1,35 -2,32 -2,23"/>
+              <polygon class="dcs-lcd__seg-off" points="1,6 4,9 4,18 1,21 -2,18 -2,9"/>
+              <polygon class="dcs-lcd__seg-on" points="5,17 19,17 22,20 19,23 5,23 2,20"/>
+            </svg>
+          </div>
+        </div>
+        <div class="dcs-lcd dcs-lcd--green dcs-lcd--sm">
+          <div class="dcs-lcd__digit">
+            <svg viewBox="0 0 24 40" aria-hidden="true">
+              <polygon class="dcs-lcd__seg-on" points="5,1 19,1 22,4 19,7 5,7 2,4"/>
+              <polygon class="dcs-lcd__seg-off" points="20,6 23,9 23,18 20,21 17,18 17,9"/>
+              <polygon class="dcs-lcd__seg-on" points="20,20 23,23 23,32 20,35 17,32 17,23"/>
+              <polygon class="dcs-lcd__seg-on" points="5,33 19,33 22,36 19,39 5,39 2,36"/>
+              <polygon class="dcs-lcd__seg-on" points="1,20 4,23 4,32 1,35 -2,32 -2,23"/>
+              <polygon class="dcs-lcd__seg-on" points="1,6 4,9 4,18 1,21 -2,18 -2,9"/>
+              <polygon class="dcs-lcd__seg-on" points="5,17 19,17 22,20 19,23 5,23 2,20"/>
+            </svg>
+          </div>
+          <span class="dcs-lcd__dot dcs-lcd__dot--on"></span>
+          <div class="dcs-lcd__digit">
+            <svg viewBox="0 0 24 40" aria-hidden="true">
+              <polygon class="dcs-lcd__seg-off" points="5,1 19,1 22,4 19,7 5,7 2,4"/>
+              <polygon class="dcs-lcd__seg-on" points="20,6 23,9 23,18 20,21 17,18 17,9"/>
+              <polygon class="dcs-lcd__seg-on" points="20,20 23,23 23,32 20,35 17,32 17,23"/>
+              <polygon class="dcs-lcd__seg-off" points="5,33 19,33 22,36 19,39 5,39 2,36"/>
+              <polygon class="dcs-lcd__seg-off" points="1,20 4,23 4,32 1,35 -2,32 -2,23"/>
+              <polygon class="dcs-lcd__seg-off" points="1,6 4,9 4,18 1,21 -2,18 -2,9"/>
+              <polygon class="dcs-lcd__seg-off" points="5,17 19,17 22,20 19,23 5,23 2,20"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+      <div class="buttons">
+        <button class="dcs-litbtn dcs-litbtn--lit dcs-litbtn--red">rec</button>
+        <button class="dcs-litbtn dcs-litbtn--lit dcs-litbtn--amber">sync</button>
+        <button class="dcs-litbtn dcs-litbtn--lit dcs-litbtn--green">run</button>
+        <button class="dcs-litbtn dcs-litbtn--sm">a</button>
+        <button class="dcs-litbtn dcs-litbtn--sm dcs-litbtn--lit dcs-litbtn--cyan">b</button>
+        <button class="dcs-litbtn dcs-litbtn--sm">c</button>
+      </div>
+      <div class="meter-wrap">
+        <div class="dcs-meter">
+          <div class="dcs-meter__seg dcs-meter__seg--lit-ok"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--lit-ok"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--lit-warn"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--warn"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--peak"></div>
+        </div>
+        <div class="dcs-meter">
+          <div class="dcs-meter__seg dcs-meter__seg--lit-ok"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--lit-ok"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--lit-warn"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--lit-peak"></div>
+          <div class="dcs-meter__seg dcs-meter__seg--peak"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

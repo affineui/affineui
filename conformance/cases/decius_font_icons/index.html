@@ -1,0 +1,88 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../_decius/css/decius.bundle.min.css">
+<style>
+body{margin:0;background:#14161c;padding:18px}
+.fixture{width:900px}
+.probe{display:flex;flex-direction:column;gap:12px}
+.metric-row{position:relative;display:flex;align-items:center;height:42px;padding:0 10px;border:1px solid var(--dcs-line-soft);background:var(--dcs-well);overflow:hidden}
+.metric-row:before,.metric-row:after{content:"";position:absolute;left:0;right:0;height:1px;pointer-events:none}
+.metric-row:before{top:12px;background:rgba(77,159,255,.45)}
+.metric-row:after{bottom:10px;background:rgba(239,107,107,.38)}
+.label{flex:0 0 88px;color:var(--dcs-text-mute);font-family:var(--dcs-font-mono);font-size:10px}
+.sample{position:relative;z-index:1;color:var(--dcs-text);font-size:20px;line-height:1}
+.plex-400{font-family:var(--dcs-font);font-weight:400}
+.plex-500{font-family:var(--dcs-font);font-weight:500}
+.plex-600{font-family:var(--dcs-font);font-weight:600}
+.mono-400{font-family:var(--dcs-font-mono);font-weight:400;font-size:18px}
+.mono-500{font-family:var(--dcs-font-mono);font-weight:500;font-size:18px}
+.icon-strip{display:flex;align-items:center;gap:14px;height:44px;padding:0 10px;border:1px solid var(--dcs-line-soft);background:var(--dcs-well)}
+.icon-strip .di,.raw-icon{font-size:24px;color:var(--dcs-accent);line-height:1}
+.raw-icon{font-family:decius-icons;font-weight:400;font-style:normal}
+.control-strip{display:flex;align-items:center;gap:20px;height:48px;padding:0 10px;border:1px solid var(--dcs-line-soft);background:var(--dcs-well)}
+.button-strip{display:flex;align-items:center;gap:8px}
+</style>
+</head>
+<body class="dcs" data-dcs-density="comfortable">
+  <section class="fixture dcs-panel dcs-panel--bordered">
+    <div class="dcs-panel__header">
+      <div class="dcs-panel__title"><i class="di di-textured"></i><span>Font and Icon Face Probe</span></div>
+    </div>
+    <div class="dcs-panel__body probe">
+      <div class="metric-row">
+        <div class="label">Plex 400</div>
+        <div class="sample plex-400">Hamburgefonstiv 0123456789 Hgqp</div>
+      </div>
+      <div class="metric-row">
+        <div class="label">Plex 500</div>
+        <div class="sample plex-500">Hamburgefonstiv 0123456789 Hgqp</div>
+      </div>
+      <div class="metric-row">
+        <div class="label">Plex 600</div>
+        <div class="sample plex-600">Hamburgefonstiv 0123456789 Hgqp</div>
+      </div>
+      <div class="metric-row">
+        <div class="label">Mono 400</div>
+        <div class="sample mono-400">mono metrics 0123456789 []{} == !=</div>
+      </div>
+      <div class="metric-row">
+        <div class="label">Mono 500</div>
+        <div class="sample mono-500">mono metrics 0123456789 []{} == !=</div>
+      </div>
+
+      <div class="icon-strip">
+        <div class="label">raw glyph</div>
+        <span class="raw-icon">&#xe01b;</span>
+        <span class="raw-icon">&#xe02b;</span>
+        <span class="raw-icon">&#xe051;</span>
+        <span class="raw-icon">&#xe09f;</span>
+        <span class="raw-icon">&#xe0db;</span>
+      </div>
+      <div class="icon-strip">
+        <div class="label">di before</div>
+        <i class="di di-check"></i>
+        <i class="di di-cube"></i>
+        <i class="di di-gain"></i>
+        <i class="di di-render"></i>
+        <i class="di di-wave-sine"></i>
+        <i class="di di-save"></i>
+        <i class="di di-chevron-down"></i>
+      </div>
+
+      <div class="control-strip">
+        <div class="label">controls</div>
+        <div class="dcs-check" aria-checked="true"><div class="dcs-check__box"><i class="di di-check"></i></div><span>Check</span></div>
+        <div class="dcs-check"><div class="dcs-check__box"><i class="di di-check"></i></div><span>Empty</span></div>
+        <div class="dcs-check dcs-radio" aria-checked="true"><div class="dcs-check__box"></div><span>Radio</span></div>
+        <div class="dcs-row"><div class="dcs-switch" aria-checked="true"></div><span>Switch</span></div>
+        <div class="button-strip">
+          <button class="dcs-btn dcs-btn--icon"><i class="di di-save"></i></button>
+          <button class="dcs-btn"><i class="di di-render"></i> Render</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>
