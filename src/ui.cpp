@@ -89,6 +89,7 @@ struct UiImpl {
     // event bubbling intuitively at the registration site).
     std::vector<std::pair<std::string, std::function<void()>>> click_handlers;
     std::vector<Ui::EventHandler> event_handlers;
+    std::vector<Document::HoverInfo> hover_chain_scratch;
 };
 
 // ── Internal log sink (embed_log.h) ─────────────────────────────────
@@ -280,6 +281,7 @@ void Ui::reset() {
     impl_->document.set_html("");             // clear DOM
     impl_->click_handlers.clear();
     impl_->event_handlers.clear();
+    impl_->hover_chain_scratch.clear();
     impl_->dirty = true;
     impl_->animations_active = false;
     // TODO(embed §7): also release cached GPU resources + the asset cache
@@ -297,7 +299,16 @@ bool Ui::dispatch(const Event& e) {
         impl_->dirty = true;  // a hover/focus/state change needs a repaint
     }
 
-    const auto chain = impl_->document.hovered_info_chain();
+    const bool mouse_up_left =
+        e.type == EventType::MouseUp && e.button == MouseButton::Left;
+    const bool needs_chain =
+        !impl_->event_handlers.empty() || mouse_up_left;
+    if (needs_chain) {
+        impl_->document.hovered_info_chain(impl_->hover_chain_scratch);
+    } else {
+        impl_->hover_chain_scratch.clear();
+    }
+    const auto& chain = impl_->hover_chain_scratch;
     bool event_consumed = false;
     for (const auto& cb : impl_->event_handlers) {
         event_consumed = cb(e, chain) || event_consumed;
@@ -309,7 +320,7 @@ bool Ui::dispatch(const Event& e) {
     // handlers for elements stamped with `aui-imm-{hash}` ids. The
     // user-handler path runs first so explicitly-bound handlers (e.g.
     // retained-mode UI atop an imm-mode island) override.
-    if (e.type == EventType::MouseUp && e.button == MouseButton::Left) {
+    if (mouse_up_left) {
         if (!chain.empty()) {
             bool consumed = false;
             for (const auto& [selector, cb] : impl_->click_handlers) {

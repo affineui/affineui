@@ -108,7 +108,8 @@ public:
 
     /// Live DOM mutation helpers. These are the retained-mode analog of
     /// small JS state updates: mutate one element, invalidate only the
-    /// affected subtree, and keep the parsed document intact.
+    /// affected subtree, and keep the parsed document intact. Return true
+    /// only when the document actually changed.
     bool set_attr(std::string_view elem_id, std::string_view name,
                   std::string_view value);
     bool remove_attr(std::string_view elem_id, std::string_view name);

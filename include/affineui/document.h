@@ -70,9 +70,9 @@ public:
     Size content_size() const;
 
     /// Mutate a live DOM attribute on the element with `id`.
-    /// Returns false when no such element exists. A successful mutation
-    /// marks the affected subtree dirty while preserving the parsed DOM
-    /// and stylesheet state.
+    /// Returns true only when the attribute value actually changed. A
+    /// successful mutation marks the affected subtree dirty while preserving
+    /// the parsed DOM and stylesheet state.
     bool set_attribute_by_id(std::string_view elem_id,
                              std::string_view name,
                              std::string_view value);
@@ -119,6 +119,7 @@ public:
     /// implement DOM-like click bubbling while keeping the simple
     /// selector grammar on Ui::on_click.
     std::vector<HoverInfo> hovered_info_chain() const;
+    void hovered_info_chain(std::vector<HoverInfo>& out) const;
 
     // ── Immediate-mode view (Phase 2D — "clear and rebuild") ────────
 

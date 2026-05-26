@@ -296,6 +296,14 @@ struct DocumentImpl {
         std::chrono::steady_clock::now()};
     std::uint32_t              animation_candidate_count{0};
 
+    // Paint-pass scratch. Document::draw is on the hot path for live
+    // control interaction and CSS animation sampling, so keep these
+    // buffers retained instead of allocating them every frame.
+    std::vector<int>           draw_child_counts;
+    std::vector<int>           draw_first_child_indices;
+    std::vector<int>           draw_list_ordinals;
+    std::vector<int>           draw_list_counts_by_parent;
+
     ~DocumentImpl() {
 #if !defined(AFFINEUI_STUB_BUILD)
         resolver.reset();
@@ -4277,8 +4285,10 @@ void Document::draw(Painter& painter) {
     }
 #endif
 
-    std::vector<int> child_counts(impl_->blocks.size(), 0);
-    std::vector<int> first_child_indices(impl_->blocks.size(), -1);
+    auto& child_counts = impl_->draw_child_counts;
+    auto& first_child_indices = impl_->draw_first_child_indices;
+    child_counts.assign(impl_->blocks.size(), 0);
+    first_child_indices.assign(impl_->blocks.size(), -1);
     for (std::size_t child_idx = 0; child_idx < impl_->blocks.size(); ++child_idx) {
         const auto& b = impl_->blocks[child_idx];
         if (b.parent_idx >= 0 &&
@@ -4291,13 +4301,17 @@ void Document::draw(Painter& painter) {
         }
     }
 
-    std::vector<int> list_ordinals(impl_->blocks.size(), 0);
-    std::unordered_map<int, int> list_counts_by_parent;
+    auto& list_ordinals = impl_->draw_list_ordinals;
+    auto& list_counts_by_parent = impl_->draw_list_counts_by_parent;
+    list_ordinals.assign(impl_->blocks.size(), 0);
+    list_counts_by_parent.assign(impl_->blocks.size() + 1, 0);
     for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
         const auto& b = impl_->blocks[i];
         const auto& cs = impl_->style_store.computed(b.id);
         if (cs.display == detail::ComputedStyle::Display::ListItem) {
-            list_ordinals[i] = ++list_counts_by_parent[b.parent_idx];
+            const auto parent_slot =
+                static_cast<std::size_t>(std::max(-1, b.parent_idx) + 1);
+            list_ordinals[i] = ++list_counts_by_parent[parent_slot];
         }
     }
 
@@ -6513,6 +6527,13 @@ Document::HoverInfo Document::hovered_info() const {
 
 std::vector<Document::HoverInfo> Document::hovered_info_chain() const {
     std::vector<HoverInfo> chain;
+    hovered_info_chain(chain);
+    return chain;
+}
+
+void Document::hovered_info_chain(std::vector<HoverInfo>& chain) const {
+    chain.clear();
+    chain.reserve(impl_->hovered_chain.size());
     int idx = impl_->hovered_idx;
     while (idx >= 0 && idx < static_cast<int>(impl_->blocks.size())) {
         const auto& b = impl_->blocks[static_cast<std::size_t>(idx)];
@@ -6526,7 +6547,6 @@ std::vector<Document::HoverInfo> Document::hovered_info_chain() const {
         chain.push_back(std::move(info));
         idx = b.parent_idx;
     }
-    return chain;
 }
 
 void Document::set_resource_loader(ResourceLoader loader) {
@@ -6544,7 +6564,7 @@ bool Document::set_attribute_by_id(std::string_view elem_id,
     if (!elem) return false;
 
     const bool already_present = has_attr(elem, name);
-    if (already_present && attr_string(elem, name) == value) return true;
+    if (already_present && attr_string(elem, name) == value) return false;
 
     int target_idx = -1;
     for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
@@ -6632,7 +6652,7 @@ bool Document::remove_attribute_by_id(std::string_view elem_id,
     if (!impl_->doc || name.empty()) return false;
     auto* elem = find_dom_element_by_id(*impl_, elem_id);
     if (!elem) return false;
-    if (!has_attr(elem, name)) return true;
+    if (!has_attr(elem, name)) return false;
 
     int target_idx = -1;
     for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {

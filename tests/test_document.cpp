@@ -709,6 +709,33 @@ TEST_CASE("live selector attribute mutation rematches cascade") {
     CHECK_FALSE(saw_fill(painter, affineui::Color::rgb(0x3d, 0xd6, 0x8a)));
 }
 
+TEST_CASE("no-op live attribute mutations do not dirty document") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>html, body { margin: 0; padding: 0; }</style>
+        <div id="sync" aria-checked="true">Hard sync</div>
+    )HTML");
+    doc.layout(180, 60, &painter);
+    (void)doc.take_paint_dirty();
+    (void)doc.take_dirty_rects();
+
+    CHECK_FALSE(doc.set_attribute_by_id("sync", "aria-checked", "true"));
+    CHECK_FALSE(doc.take_paint_dirty());
+    CHECK(doc.take_dirty_rects().empty());
+
+    CHECK_FALSE(doc.remove_attribute_by_id("sync", "data-missing"));
+    CHECK_FALSE(doc.take_paint_dirty());
+    CHECK(doc.take_dirty_rects().empty());
+
+    REQUIRE(doc.remove_attribute_by_id("sync", "aria-checked"));
+    (void)doc.take_dirty_rects();
+    CHECK_FALSE(doc.remove_attribute_by_id("sync", "aria-checked"));
+    CHECK_FALSE(doc.take_paint_dirty());
+    CHECK(doc.take_dirty_rects().empty());
+}
+
 TEST_CASE("live mutation dirty rects include transformed visual bounds") {
     affineui::Document doc;
     RecordingPainter painter;
