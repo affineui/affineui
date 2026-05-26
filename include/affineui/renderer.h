@@ -54,6 +54,9 @@ struct RenderStats {
     std::uint32_t dirty_area_px{0};
     std::uint32_t dirty_area_pct_x100{0};
     std::uint32_t display_list_ops_culled_this_frame{0};
+    std::uint32_t prepare_us_this_frame{0};
+    std::uint32_t raster_us_this_frame{0};
+    std::uint32_t composite_us_this_frame{0};
     bool          recorded_this_frame{false};
     bool          display_list_changed_this_frame{false};
     bool          root_layer_rasterized_this_frame{false};

@@ -252,7 +252,7 @@ struct PerfHudState {
     std::array<float, 64> ms_history{};
     int history_head{0};
     int history_count{0};
-    char   text[384]{};
+    char   text[512]{};
     std::uint64_t last_render_epoch{0};
     std::uint64_t last_html_epoch{0};
     std::uint64_t render_count{0};
@@ -413,7 +413,7 @@ inline void cb_frame_(void* user) {
                 state.ms = 1000.0 / std::max(1.0, state.fps);
                 const auto& stats = state.ui->renderer().stats();
                 std::snprintf(state.text, sizeof(state.text),
-                              "%.1f ms/frame  %.1f fps\nrender %llu  html %llu\nDL rec %llu chg %llu same %llu\nroot rast %llu part %llu comp %llu dir %llu\nops %u culled %u rects %u dirty %u.%02u%%\nflags %c%c%c%c%c%c%c",
+                              "%.1f ms/frame  %.1f fps\nrender %llu  html %llu\nDL rec %llu chg %llu same %llu\nroot rast %llu part %llu comp %llu dir %llu\nwork prep %.2f rast %.2f comp %.2f ms\nops %u culled %u rects %u dirty %u.%02u%%\nflags %c%c%c%c%c%c%c",
                               state.ms, state.fps,
                               static_cast<unsigned long long>(state.render_count),
                               static_cast<unsigned long long>(state.html_count),
@@ -424,6 +424,9 @@ inline void cb_frame_(void* user) {
                               static_cast<unsigned long long>(stats.root_layer_partial_rasterizes),
                               static_cast<unsigned long long>(stats.root_layer_composites),
                               static_cast<unsigned long long>(stats.root_layer_direct_composites),
+                              static_cast<double>(stats.prepare_us_this_frame) / 1000.0,
+                              static_cast<double>(stats.raster_us_this_frame) / 1000.0,
+                              static_cast<double>(stats.composite_us_this_frame) / 1000.0,
                               stats.cached_ops,
                               stats.display_list_ops_culled_this_frame,
                               stats.dirty_rects,

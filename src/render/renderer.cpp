@@ -15,6 +15,7 @@
 #include "affineui/painter.h"
 
 #include <cstdio>
+#include <chrono>
 #include <limits>
 #include <memory>
 #include <span>
@@ -213,6 +214,12 @@ std::uint32_t clamp_u32(std::uint64_t v) {
         std::min<std::uint64_t>(v, std::numeric_limits<std::uint32_t>::max()));
 }
 
+std::uint32_t elapsed_us(std::chrono::steady_clock::time_point start) {
+    const auto us = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - start).count();
+    return clamp_u32(static_cast<std::uint64_t>(std::max<std::int64_t>(0, us)));
+}
+
 struct RootCompositeVertex {
     float x, y;
     float u, v;
@@ -406,6 +413,7 @@ PreparedFrame prepare_frame(detail::RendererImpl& impl,
                             int fb_w,
                             int fb_h,
                             float dpi_scale) {
+    const auto prepare_start = std::chrono::steady_clock::now();
     PreparedFrame frame{};
     frame.pt_w = static_cast<int>(static_cast<float>(fb_w) / dpi_scale + 0.5f);
     frame.pt_h = static_cast<int>(static_cast<float>(fb_h) / dpi_scale + 0.5f);
@@ -496,6 +504,9 @@ PreparedFrame prepare_frame(detail::RendererImpl& impl,
     impl.stats.dirty_area_pct_x100 =
         frame_area > 0 ? clamp_u32((dirty_area * 10000u) / frame_area) : 0;
     impl.stats.display_list_ops_culled_this_frame = 0;
+    impl.stats.prepare_us_this_frame = elapsed_us(prepare_start);
+    impl.stats.raster_us_this_frame = 0;
+    impl.stats.composite_us_this_frame = 0;
     impl.stats.recorded_this_frame = frame.recorded;
     impl.stats.display_list_changed_this_frame = frame.display_list_changed;
     impl.stats.root_layer_rasterized_this_frame = false;
@@ -605,6 +616,7 @@ void rasterize_root_layer(detail::RendererImpl& impl,
                           int pt_w,
                           int pt_h,
                           float dpi_scale) {
+    const auto raster_start = std::chrono::steady_clock::now();
     auto& layer = impl.root_layer;
     sg_pass pass{};
     pass.action.colors[0].load_action = SG_LOADACTION_CLEAR;
@@ -629,6 +641,7 @@ void rasterize_root_layer(detail::RendererImpl& impl,
     impl.stats.display_list_replays += 1;
     impl.stats.root_layer_rasterizes += 1;
     impl.stats.root_layer_rasterized_this_frame = true;
+    impl.stats.raster_us_this_frame = elapsed_us(raster_start);
 }
 
 void clear_nvg_rect(NVGcontext* vg, const Rect& r) {
@@ -650,6 +663,7 @@ void rasterize_root_layer_region(detail::RendererImpl& impl,
                                  float dpi_scale,
                                  const Rect& dirty) {
     if (!rect_valid(dirty)) return;
+    const auto raster_start = std::chrono::steady_clock::now();
     auto& layer = impl.root_layer;
     sg_pass pass{};
     pass.action.colors[0].load_action = SG_LOADACTION_LOAD;
@@ -682,6 +696,7 @@ void rasterize_root_layer_region(detail::RendererImpl& impl,
     impl.stats.root_layer_partial_rasterizes += 1;
     impl.stats.root_layer_rasterized_this_frame = true;
     impl.stats.root_layer_partial_this_frame = true;
+    impl.stats.raster_us_this_frame = elapsed_us(raster_start);
 }
 
 void composite_root_layer(detail::RendererImpl& impl,
@@ -689,6 +704,7 @@ void composite_root_layer(detail::RendererImpl& impl,
                           int pt_h,
                           float dpi_scale,
                           int sample_count) {
+    const auto composite_start = std::chrono::steady_clock::now();
     auto& layer = impl.root_layer;
     if (layer.color_tex.id != SG_INVALID_ID &&
         ensure_root_composite(impl, sample_count)) {
@@ -705,6 +721,7 @@ void composite_root_layer(detail::RendererImpl& impl,
         impl.stats.root_layer_direct_this_frame = true;
         impl.stats.root_layer_reused_this_frame =
             !impl.stats.root_layer_rasterized_this_frame;
+        impl.stats.composite_us_this_frame = elapsed_us(composite_start);
         return;
     }
 
@@ -723,6 +740,7 @@ void composite_root_layer(detail::RendererImpl& impl,
     impl.stats.root_layer_composites += 1;
     impl.stats.root_layer_reused_this_frame =
         !impl.stats.root_layer_rasterized_this_frame;
+    impl.stats.composite_us_this_frame = elapsed_us(composite_start);
 }
 
 }  // namespace
@@ -931,7 +949,7 @@ void Renderer::draw_debug_overlay(std::string_view text,
 
     const std::string s{text};
     constexpr float box_w = 330.0f;
-    constexpr float box_h = 116.0f;
+    constexpr float box_h = 132.0f;
     const float x = std::max(8.0f, static_cast<float>(pt_w) - box_w - 10.0f);
     constexpr float y = 10.0f;
 
