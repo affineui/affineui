@@ -62,7 +62,7 @@ struct RendererImpl {
     // kept in-tree, but live rendering must not clear/replay sub-rects until
     // dirty coverage and clipped replay are proven exact. Otherwise text and
     // controls can accumulate or punch holes in the cached root texture.
-    bool                     partial_root_raster_enabled{true};
+    bool                     partial_root_raster_enabled{false};
     struct RootLayer {
         int      w{0};
         int      h{0};
