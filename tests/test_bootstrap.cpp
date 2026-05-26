@@ -462,6 +462,48 @@ TEST_CASE("Bootstrap dashboard example loads linked CSS and keeps sidebar wide")
     CHECK(sidebar_fill->w >= 220);
 }
 
+TEST_CASE("Bootstrap dashboard survives repeated responsive relayout") {
+    const auto html =
+        read_file(example_dir("10_bootstrap_dashboard") / "index.html");
+    REQUIRE(!html.empty());
+
+    const auto root = example_dir("10_bootstrap_dashboard");
+    affineui::Document doc;
+    doc.set_resource_loader([root](std::string_view url) -> std::string {
+        if (url.empty() || url.find("://") != std::string_view::npos ||
+            url.rfind("data:", 0) == 0) {
+            return {};
+        }
+        const auto path =
+            (root / std::filesystem::path{std::string(url)}).lexically_normal();
+        return read_file(path);
+    });
+    doc.set_html(html);
+
+    for (const int width : {1440, 1280, 1210, 1190, 1100, 992,
+                            980, 900, 768, 760, 900, 1190, 1440}) {
+        RecordingPainter painter;
+        doc.layout(width, 920, &painter);
+        doc.draw(painter);
+
+        CAPTURE(width);
+        INFO(text_run_summary(painter));
+        const auto sidebar = point_for_text(painter, "WORKSPACE");
+        const auto revenue = point_for_text(painter, "Revenue");
+        const auto pipeline = point_for_text(painter, "Enterprise pipeline");
+        REQUIRE(sidebar.has_value());
+        REQUIRE(revenue.has_value());
+        REQUIRE(pipeline.has_value());
+        CHECK(revenue->x >= 0);
+        CHECK(revenue->x < width);
+        CHECK(pipeline->x >= 0);
+        CHECK(pipeline->x < width);
+        if (width >= 768) {
+            CHECK(revenue->x > sidebar->x + 120);
+        }
+    }
+}
+
 TEST_CASE("Bootstrap button row preserves inline spacing and paints focusable variants") {
     auto painter = render_bootstrap(R"HTML(
         <main class="container py-4">

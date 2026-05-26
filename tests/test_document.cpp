@@ -1287,9 +1287,11 @@ TEST_CASE("dark synth C++ value interactions keep checked checkbox visible") {
     send_mouse(affineui::EventType::MouseMove, fader);
     send_mouse(affineui::EventType::MouseDown, fader,
                affineui::MouseButton::Left);
+    const float fader_after_press = state.values["fader-a"];
     send_mouse(affineui::EventType::MouseMove, {fader.x, fader.y + 38});
     send_mouse(affineui::EventType::MouseUp, {fader.x, fader.y + 38},
                affineui::MouseButton::Left);
+    CHECK(state.values["fader-a"] < fader_after_press);
 
     const affineui::Point shape =
         find_hovered_id(ui.document(), "shape", w, h);
@@ -2391,6 +2393,39 @@ TEST_CASE("inline-block generated content contributes flex item width") {
     CHECK(b->pos.x >= a->pos.x + 22);
 }
 
+TEST_CASE("generated inline-block icon is centered by flex parent") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; font-size: 16px; line-height: 1; }
+        .box {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 14px;
+            height: 14px;
+        }
+        .icon { display: inline-block; background: #ff0000; }
+        .icon::before { content: "X"; }
+        </style>
+        <div class="box"><i class="icon"></i></div>
+    )HTML");
+    doc.layout(80, 40, &painter);
+    doc.draw(painter);
+
+    const auto* icon_text = find_text_draw(painter, "X");
+    REQUIRE(icon_text != nullptr);
+    CHECK(icon_text->pos.x == 3);
+
+    const auto* icon_box = find_fill_draw(
+        painter, affineui::Color::rgb(0xff, 0x00, 0x00));
+    REQUIRE(icon_box != nullptr);
+    CHECK(icon_box->rect.x == 3);
+    CHECK(icon_box->rect.w == 8);
+}
+
 TEST_CASE("empty generated content paints an absolutely positioned box") {
     affineui::Document doc;
     RecordingPainter painter;
@@ -2918,6 +2953,48 @@ TEST_CASE("hover overlay resolves var declarations against current scope") {
     painter.fill_colors.clear();
     doc.draw(painter);
     CHECK(saw_fill(painter, affineui::Color::rgb(0x44, 0x55, 0x66)));
+}
+
+TEST_CASE("hover color inheritance reaches anonymous button text") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .btn {
+            display: inline-block;
+            padding: 4px 8px;
+            color: #007bff;
+            background-color: transparent;
+            border: 1px solid #007bff;
+        }
+        .btn:hover {
+            color: #ffffff;
+            background-color: #007bff;
+        }
+        </style>
+        <button class="btn">Off</button>
+    )HTML");
+    doc.layout(120, 80, &painter);
+
+    doc.draw(painter);
+    auto* off = find_text_draw(painter, "Off");
+    REQUIRE(off != nullptr);
+    CHECK(same_color(off->color, affineui::Color::rgb(0x00, 0x7b, 0xff)));
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {8, 8};
+    CHECK(doc.dispatch(move).redraw_requested);
+
+    painter.text_draws.clear();
+    painter.fill_colors.clear();
+    doc.draw(painter);
+    off = find_text_draw(painter, "Off");
+    REQUIRE(off != nullptr);
+    CHECK(same_color(off->color, affineui::Color::rgb(0xff, 0xff, 0xff)));
+    CHECK(saw_fill(painter, affineui::Color::rgb(0x00, 0x7b, 0xff)));
 }
 
 TEST_CASE("focused button keeps higher-specificity recovered border color") {

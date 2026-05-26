@@ -866,6 +866,13 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
         detail::replay(impl_->cached_display_list, *impl_->painter);
         impl_->painter->end_frame();
         impl_->stats.display_list_replays += 1;
+        if (!t.debug_overlay_text.empty()) {
+            draw_debug_overlay(
+                t.debug_overlay_text,
+                std::span<const float>(t.debug_overlay_frame_ms,
+                                       t.debug_overlay_frame_ms_count),
+                t.width, t.height, t.dpi_scale);
+        }
         sg_end_pass();
         if (t.commit) sg_commit();
         return;
@@ -893,6 +900,13 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
     sg_apply_scissor_rect(vx, vy, vw, vh, /*origin_top_left*/ true);
     composite_root_layer(*impl_, frame.pt_w, frame.pt_h, t.dpi_scale,
                          sc.sample_count);
+    if (!t.debug_overlay_text.empty()) {
+        draw_debug_overlay(
+            t.debug_overlay_text,
+            std::span<const float>(t.debug_overlay_frame_ms,
+                                   t.debug_overlay_frame_ms_count),
+            t.width, t.height, t.dpi_scale);
+    }
     sg_end_pass();
     if (t.commit) sg_commit();
 }

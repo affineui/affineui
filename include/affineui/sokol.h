@@ -265,6 +265,7 @@ struct PerfHudState {
     bool                            has_last_mouse_point{false};
     std::uint32_t                   recording_serial{0};
     std::filesystem::path           recording_dir;
+    int                             settle_frames{0};
 };
 
 inline void trim_mouse_path(PerfHudState& state) {
@@ -388,7 +389,17 @@ inline void cb_frame_(void* user) {
     const float dpi = sapp_dpi_scale();
     const bool viewport_changed =
         w != state.last_w || h != state.last_h || dpi != state.last_dpi;
-    if (!state.enabled && !ui.needs_update() && !viewport_changed) {
+    const bool ui_requested_update = ui.needs_update();
+    if (ui_requested_update || viewport_changed) {
+        // Sokol apps commonly run with two or three swapchain images. A
+        // single composite after a state change leaves older backbuffers with
+        // stale pixels, which can surface as one-frame holes or flashes when
+        // the app idles. Composite the retained root layer a few more times,
+        // then go fully quiet again.
+        state.settle_frames = std::max(state.settle_frames, 3);
+    }
+    if (!state.enabled && !ui_requested_update && !viewport_changed &&
+        state.settle_frames <= 0) {
         return;
     }
     state.last_w = w;
@@ -445,7 +456,30 @@ inline void cb_frame_(void* user) {
         }
     }
 
-    affineui::sokol::render_frame(ui, true, !state.enabled);
+    std::array<float, 64> ordered{};
+    int ordered_count = 0;
+    if (state.enabled) {
+        ordered_count = state.history_count;
+        for (int i = 0; i < ordered_count; ++i) {
+            const int src =
+                (state.history_head - ordered_count + i +
+                 static_cast<int>(state.ms_history.size())) %
+                static_cast<int>(state.ms_history.size());
+            ordered[static_cast<std::size_t>(i)] =
+                state.ms_history[static_cast<std::size_t>(src)];
+        }
+    }
+    auto target = affineui::sokol::frame_target(true, true);
+    if (state.enabled) {
+        target.debug_overlay_text = state.text;
+        target.debug_overlay_frame_ms = ordered.data();
+        target.debug_overlay_frame_ms_count =
+            static_cast<std::size_t>(ordered_count);
+    }
+    ui.render(target);
+    if (state.settle_frames > 0 && !ui.needs_update()) {
+        --state.settle_frames;
+    }
     if (state.enabled) {
         const auto render_epoch = ui.render_epoch();
         const auto html_epoch = ui.html_epoch();
@@ -453,33 +487,6 @@ inline void cb_frame_(void* user) {
         state.html_count += html_epoch - state.last_html_epoch;
         state.last_render_epoch = render_epoch;
         state.last_html_epoch = html_epoch;
-    }
-    if (state.enabled) {
-        std::array<float, 64> ordered{};
-        const int n = state.history_count;
-        for (int i = 0; i < n; ++i) {
-            const int src =
-                (state.history_head - n + i +
-                 static_cast<int>(state.ms_history.size())) %
-                static_cast<int>(state.ms_history.size());
-            ordered[static_cast<std::size_t>(i)] =
-                state.ms_history[static_cast<std::size_t>(src)];
-        }
-        sg_pass pass{};
-        pass.action.colors[0].load_action = SG_LOADACTION_LOAD;
-        pass.action.depth.load_action   = SG_LOADACTION_CLEAR;
-        pass.action.depth.clear_value   = 1.0f;
-        pass.action.stencil.load_action = SG_LOADACTION_CLEAR;
-        pass.action.stencil.clear_value = 0;
-        pass.swapchain = sglue_swapchain();
-
-        sg_begin_pass(&pass);
-        ui.renderer().draw_debug_overlay(
-            state.text,
-            std::span<const float>(ordered.data(), static_cast<std::size_t>(n)),
-            w, h, dpi);
-        sg_end_pass();
-        sg_commit();
     }
 }
 inline void cb_event_(const sapp_event* ev, void* user) {

@@ -3729,7 +3729,16 @@ void Document::layout(int viewport_width, int viewport_height,
     // wrapping decisions use glyph advances. Paint gets the same slack before
     // draw_text_box; min-content sizing needs it too or tight controls can
     // wrap their final glyph even though measurement said the label fit.
+    //
+    // Generated pseudo-content is commonly used for icons. Its inline-block
+    // box should size to the glyph advance itself; adding label slack there
+    // makes centered icon controls look left-biased.
     constexpr int kTextAdvanceSlackPx = 4;
+    auto text_advance_slack = [](const Block& b) {
+        return (b.tag == "#before" || b.tag == "#after")
+            ? 0
+            : kTextAdvanceSlackPx;
+    };
 
     collapse_block_flow_vertical_margins(child_indices, impl_->blocks,
                                          layout_styles);
@@ -3798,7 +3807,7 @@ void Document::layout(int viewport_width, int viewport_height,
                          detail::ComputedStyle::FlexDirection::RowReverse)) {
                     in.auto_min_w_px =
                         std::max(1, measurer->measure_text(in.font, b.text))
-                        + kTextAdvanceSlackPx
+                        + text_advance_slack(b)
                         + cs.padding_left + cs.padding_right
                         + cs.used_border_left() + cs.used_border_right();
                 }
@@ -3845,7 +3854,7 @@ void Document::layout(int viewport_width, int viewport_height,
                 content_w = std::max(
                     content_w,
                     std::max(1, measurer->measure_text(inputs[ri].font, b.text))
-                    + kTextAdvanceSlackPx);
+                    + text_advance_slack(b));
             }
 
             const auto& kids = child_indices[ri];
@@ -5559,6 +5568,68 @@ bool computed_change_needs_layout(const detail::ComputedStyle& a,
         a.width_pct_x100 != b.width_pct_x100;
 }
 
+detail::ComputedStyle::JustifyContent
+inline_justify_for_text_align(detail::ComputedStyle::TextAlign align) {
+    using JC = detail::ComputedStyle::JustifyContent;
+    switch (align) {
+        case detail::ComputedStyle::TextAlign::Center: return JC::Center;
+        case detail::ComputedStyle::TextAlign::Right:  return JC::End;
+        case detail::ComputedStyle::TextAlign::Left:
+        case detail::ComputedStyle::TextAlign::Justify:
+        default:                                      return JC::Start;
+    }
+}
+
+bool restyle_synthetic_block(detail::DocumentImpl& impl, int idx) {
+    auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+    auto parent = parent_resolved(impl, idx);
+    const auto old_computed = impl.style_store.computed(block.id);
+
+    if (block.synthetic) {
+        auto next_computed = old_computed;
+        next_computed.font_size_px         = parent.computed.font_size_px;
+        next_computed.font_weight          = parent.computed.font_weight;
+        next_computed.font_style           = parent.computed.font_style;
+        next_computed.line_height_x100     = parent.computed.line_height_x100;
+        next_computed.font_id              = parent.computed.font_id;
+        next_computed.cursor               = parent.computed.cursor;
+        next_computed.text_align           = parent.computed.text_align;
+        next_computed.letter_spacing_x100  = parent.computed.letter_spacing_x100;
+        next_computed.text_indent_value    = parent.computed.text_indent_value;
+        next_computed.text_indent_is_pct   = parent.computed.text_indent_is_pct;
+        next_computed.white_space          = parent.computed.white_space;
+        next_computed.text_transform       = parent.computed.text_transform;
+        next_computed.text_decoration_line =
+            parent.computed.text_decoration_line;
+        next_computed.justify_content =
+            inline_justify_for_text_align(parent.computed.text_align);
+
+        auto next_animated = impl.style_store.animated(block.id);
+        next_animated.color_rgba = parent.animated.color_rgba;
+        next_animated.text_decoration_rgba =
+            parent.animated.text_decoration_rgba;
+
+        impl.style_store.computed(block.id) = next_computed;
+        impl.style_store.animated(block.id) = next_animated;
+        block.custom_props = parent.custom_props;
+        block.base_animated = next_animated;
+        return computed_change_needs_layout(old_computed, next_computed);
+    }
+
+    if (block.tag == "#text") {
+        auto rs = anonymous_text_style(parent);
+        impl.style_store.computed(block.id) = rs.computed;
+        impl.style_store.animated(block.id) = rs.animated;
+        block.custom_props = rs.custom_props;
+        block.box_shadows = rs.box_shadows;
+        block.base_animated = rs.animated;
+        block.animation = rs.animation;
+        return computed_change_needs_layout(old_computed, rs.computed);
+    }
+
+    return false;
+}
+
 bool absolute_geometry_change_can_stay_local(detail::ComputedStyle a,
                                              detail::ComputedStyle b) {
     using Position = detail::ComputedStyle::Position;
@@ -5701,7 +5772,7 @@ bool update_absolute_geometry(detail::DocumentImpl& impl,
 bool restyle_block(detail::DocumentImpl& impl, int idx) {
     auto& block = impl.blocks[static_cast<std::size_t>(idx)];
     auto* elem  = impl.style_store.element_of(block.id);
-    if (!elem) return false;
+    if (!elem) return restyle_synthetic_block(impl, idx);
     auto parent = parent_resolved(impl, idx);
     auto rs     = impl.resolver->resolve(elem, parent);
     apply_pseudo_overlay(impl, block, rs);

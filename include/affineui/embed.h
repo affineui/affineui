@@ -43,6 +43,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace affineui {
 
@@ -180,6 +181,13 @@ struct FrameTarget {
     struct {
         std::uint32_t framebuffer = 0;  // GL framebuffer object (0 = default)
     } gl;
+
+    /// Optional native debug overlay drawn inside the same render pass as
+    /// the UI. This keeps diagnostics from reopening the swapchain with a
+    /// LOAD pass, which is backend-fragile and can expose stale pixels.
+    std::string_view debug_overlay_text{};
+    const float*     debug_overlay_frame_ms = nullptr;
+    std::size_t      debug_overlay_frame_ms_count = 0;
 
     // TODO(embed): per-frame external (live) engine textures referenced as
     //   live://name — transient, used this frame only (DESIGN §3.2):
