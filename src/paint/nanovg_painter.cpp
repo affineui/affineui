@@ -1369,7 +1369,7 @@ public:
                 bounds);
             nvgTextLetterSpacing(vg_, 0.0f);
             return Size{
-                static_cast<int>(advance + 0.5f),
+                static_cast<int>(std::ceil(advance)),
                 static_cast<int>(std::ceil(css_line_h)),
             };
         }

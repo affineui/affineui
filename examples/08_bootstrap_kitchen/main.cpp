@@ -30,6 +30,7 @@ std::string read_first_existing(std::initializer_list<const char*> paths) {
 
 int main() {
     affineui::Ui ui;
+    ui.set_clear_color(affineui::Color::rgb(0xff, 0xff, 0xff));
     ui.css(read_first_existing({
         "examples/08_bootstrap_kitchen/bootstrap-4.6.2.min.css",
         "bootstrap-4.6.2.min.css",

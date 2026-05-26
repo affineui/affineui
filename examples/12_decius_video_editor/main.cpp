@@ -98,6 +98,7 @@ body{margin:0;background:#14161c}
 
 int main() {
     affineui::Ui ui;
+    ui.set_clear_color(affineui::Color::rgb(0x14, 0x16, 0x1c));
     demo::install_resource_loader(ui);
     VideoState state;
     auto rerender = [&] { ui.html(render(state)); ui.mark_dirty(); };

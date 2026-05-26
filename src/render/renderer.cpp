@@ -360,8 +360,13 @@ bool ensure_root_composite(detail::RendererImpl& impl, int sample_count) {
     comp.vertex_buffer = sg_make_buffer(&bd);
 
     sg_sampler_desc sd{};
-    sd.min_filter = SG_FILTER_LINEAR;
-    sd.mag_filter = SG_FILTER_LINEAR;
+    // The retained root is rasterized at the exact framebuffer size and
+    // composited without transform. Filtering it would resample every glyph
+    // and edge a second time, making text look soft/crunchy compared with a
+    // direct paint. Future transformed/scaled layers can opt into linear
+    // sampling per layer; the root layer should be a 1:1 texel copy.
+    sd.min_filter = SG_FILTER_NEAREST;
+    sd.mag_filter = SG_FILTER_NEAREST;
     sd.wrap_u = SG_WRAP_CLAMP_TO_EDGE;
     sd.wrap_v = SG_WRAP_CLAMP_TO_EDGE;
     comp.sampler = sg_make_sampler(&sd);

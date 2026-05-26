@@ -93,6 +93,7 @@ body{margin:0;background:#101219}
 
 int main() {
     affineui::Ui ui;
+    ui.set_clear_color(affineui::Color::rgb(0x10, 0x12, 0x19));
     demo::install_resource_loader(ui);
     SynthState state;
     auto rerender = [&] { ui.html(render(state)); ui.mark_dirty(); };

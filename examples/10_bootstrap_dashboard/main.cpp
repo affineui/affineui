@@ -176,6 +176,7 @@ std::string render_dashboard(const DashboardState& s) {
 
 int main() {
     affineui::Ui ui;
+    ui.set_clear_color(affineui::Color::rgb(0xf4, 0xf6, 0xf9));
     DashboardState state;
 
     ui.css(demo::read_first_existing({
