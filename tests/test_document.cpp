@@ -339,6 +339,28 @@ affineui::Point find_hovered_id(affineui::Document& doc,
     return {-1, -1};
 }
 
+affineui::Point find_hovered_chain_id(affineui::Document& doc,
+                                      std::string_view elem_id,
+                                      int width,
+                                      int height) {
+    for (int y = 0; y < height; y += 4) {
+        for (int x = 0; x < width; x += 4) {
+            affineui::Event move{};
+            move.type = affineui::EventType::MouseMove;
+            move.pos = {x, y};
+            doc.dispatch(move);
+            const auto chain = doc.hovered_info_chain();
+            const bool found = std::any_of(
+                chain.begin(), chain.end(),
+                [&](const affineui::Document::HoverInfo& info) {
+                    return info.elem_id == elem_id;
+                });
+            if (found) return {x, y};
+        }
+    }
+    return {-1, -1};
+}
+
 std::string read_test_file(const std::filesystem::path& path) {
     std::ifstream f(path, std::ios::binary);
     if (!f.good()) return {};
@@ -1063,6 +1085,153 @@ TEST_CASE("dark synth C++ value interactions keep checked checkbox visible") {
     REQUIRE(icon != nullptr);
     CHECK(same_color(icon->color, affineui::Color::rgb(0x0a, 0x12, 0x20)));
     CHECK(find_text_draw(painter, "Hard sync") != nullptr);
+}
+
+TEST_CASE("game editor inspector keeps Decius check and switch interactive across rerenders") {
+    namespace dcs = demo::decius;
+
+    affineui::Ui ui;
+    RecordingPainter painter;
+
+    struct State {
+        int selected{1};
+        bool cast_shadows{true};
+        bool gpu_skinning{true};
+    } state;
+
+    const auto examples_root =
+        std::filesystem::path{AFFINEUI_TEST_SOURCE_DIR} / "examples";
+    ui.document().set_resource_loader(
+        [examples_root](std::string_view url) -> std::string {
+            const std::filesystem::path rel{std::string(url)};
+            return read_test_file(examples_root / rel);
+        });
+
+    const auto render = [&] {
+        const char* selected_name = state.selected == 0 ? "WorldRoot"
+                                  : state.selected == 1 ? "Hero_mesh_high"
+                                                        : "KeyLight";
+        std::ostringstream h;
+        h << R"HTML(
+            <!doctype html><html><head><meta charset="utf-8">
+            <link rel="stylesheet" href="frameworks/css/decius-css-0.4.1.bundle.min.css">
+            <style>
+            body{margin:0;background:#14161c}
+            .app{height:100vh;background:var(--dcs-bg-app);display:flex;gap:1px}
+            .left{flex:0 0 260px}.right{flex:0 0 340px}.main{flex:1;min-width:0}
+            .prop-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+            .prop-row span{flex:0 0 92px;color:var(--dcs-text-mute);font-size:var(--dcs-fs-xs);text-transform:uppercase;letter-spacing:.08em}
+            .prop-row .dcs-input{flex:1}
+            </style></head>
+            <body class="dcs" data-dcs-density="compact" data-dcs-style="3d">
+            <div class="app">
+              <aside class="left dcs-dockpane"><div class="dcs-dockpane__body">
+                <div class="dcs-tree">
+                  <div id="object-0" class="dcs-tree__row")HTML"
+          << (state.selected == 0 ? " aria-selected=\"true\"" : "")
+          << R"HTML(><span class="dcs-tree__label">WorldRoot</span></div>
+                  <div id="object-1" class="dcs-tree__row")HTML"
+          << (state.selected == 1 ? " aria-selected=\"true\"" : "")
+          << R"HTML(><span class="dcs-tree__label">Hero_mesh_high</span></div>
+                  <div id="object-2" class="dcs-tree__row")HTML"
+          << (state.selected == 2 ? " aria-selected=\"true\"" : "")
+          << R"HTML(><span class="dcs-tree__label">KeyLight</span></div>
+                </div>
+              </div></aside>
+              <main class="main dcs-dockpane"><div class="dcs-dockpane__body"></div></main>
+              <aside class="right dcs-dockpane"><div class="dcs-dockpane__body" style="padding:12px">
+        )HTML"
+          << "<h3 style=\"margin:0 0 12px;font-size:16px\">"
+          << selected_name << "</h3>"
+          << "<div class=\"prop-row\"><span>Name</span><input class=\"dcs-input\" value=\""
+          << selected_name << "\"></div>"
+          << "<div style=\"margin:14px 0\">"
+          << dcs::slider(0, 1, .62f, false, true, "roughness")
+          << "</div>"
+          << dcs::check("Cast shadows", state.cast_shadows, false,
+                        "cast-shadows")
+          << dcs::toggle("GPU skinning", state.gpu_skinning,
+                         "gpu-skinning")
+          << R"HTML(
+              </div></aside>
+            </div></body></html>
+        )HTML";
+        return h.str();
+    };
+
+    auto rerender = [&] {
+        ui.html(render());
+        ui.mark_dirty();
+    };
+    rerender();
+
+    ui.on_click("#cast-shadows", [&] {
+        state.cast_shadows = !state.cast_shadows;
+        if (!dcs::set_checked(ui, "cast-shadows", state.cast_shadows)) {
+            rerender();
+        }
+    });
+    ui.on_click("#gpu-skinning", [&] {
+        state.gpu_skinning = !state.gpu_skinning;
+        if (!dcs::set_checked(ui, "gpu-skinning", state.gpu_skinning)) {
+            rerender();
+        }
+    });
+    ui.on_click("#object-0", [&] { state.selected = 0; rerender(); });
+
+    constexpr int w = 940;
+    constexpr int h = 420;
+    auto send_mouse = [&](affineui::EventType type,
+                          affineui::Point pos,
+                          affineui::MouseButton button =
+                              affineui::MouseButton::Left) {
+        affineui::Event ev{};
+        ev.type = type;
+        ev.pos = pos;
+        ev.button = button;
+        ui.dispatch(ev);
+        ui.document().layout(w, h, &painter);
+    };
+
+    ui.document().layout(w, h, &painter);
+    const affineui::Point object =
+        find_hovered_chain_id(ui.document(), "object-0", w, h);
+    const affineui::Point check =
+        find_hovered_chain_id(ui.document(), "cast-shadows", w, h);
+    const affineui::Point toggle =
+        find_hovered_chain_id(ui.document(), "gpu-skinning", w, h);
+    REQUIRE(object.x >= 0);
+    REQUIRE(check.x >= 0);
+    REQUIRE(toggle.x >= 0);
+
+    send_mouse(affineui::EventType::MouseMove, object);
+    send_mouse(affineui::EventType::MouseDown, object);
+    send_mouse(affineui::EventType::MouseUp, object);
+    REQUIRE(state.selected == 0);
+
+    painter.fill_draws.clear();
+    painter.fill_colors.clear();
+    painter.rounded_fill_draws.clear();
+    painter.text_draws.clear();
+    painter.text_runs.clear();
+    ui.document().draw(painter);
+
+    const auto* box_ring = find_border_ring_left_of_text(painter, "Cast shadows");
+    REQUIRE(box_ring != nullptr);
+    CHECK(box_ring->rect.w == 14);
+    CHECK(box_ring->rect.h == 14);
+    REQUIRE(find_text_draw(painter, "\xEE\x80\x9B") != nullptr);
+    CHECK(find_text_draw(painter, "Cast shadows") != nullptr);
+
+    send_mouse(affineui::EventType::MouseMove, check);
+    send_mouse(affineui::EventType::MouseDown, check);
+    send_mouse(affineui::EventType::MouseUp, check);
+    CHECK_FALSE(state.cast_shadows);
+
+    send_mouse(affineui::EventType::MouseMove, toggle);
+    send_mouse(affineui::EventType::MouseDown, toggle);
+    send_mouse(affineui::EventType::MouseUp, toggle);
+    CHECK_FALSE(state.gpu_skinning);
 }
 
 TEST_CASE("common named HTML entities decode in compact entity mode") {
