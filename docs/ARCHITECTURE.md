@@ -69,6 +69,32 @@ future Python "Gradio-style" API, and any remote-browser bridge aligned:
 they all create and mutate app/session objects, then choose where those
 objects present.
 
+### Backend messaging
+
+The native and browser backends should use the same conceptual queue
+boundary. An `App` owns one or more typed queues; callers and backends
+post messages, and the app drains them at deterministic points in its
+tick/frame cycle:
+
+- host -> app: viewport changes, pointer/keyboard input, lifecycle, and
+  resource requests;
+- app -> host: presentation updates, cursor changes, invalidation,
+  timers/animation wakeups, and optional diagnostics;
+- app -> app API caller: widget events and state changes.
+
+For an embedded/native UI these messages are just same-process function
+calls that enqueue small message objects. For a browser UI, the same
+messages can be serialized by a transport adapter such as WebSocket and
+posted into the same queues on the other side. The remote browser is a
+presentation and input adapter, not a separate source of truth. It may
+render HTML/CSS using the browser, but durable widget state and
+application behavior remain in the `App`.
+
+This is deliberately not a full browser protocol. The goal is a simple
+post/drain model that can run the same retained/immediate application
+locally or remotely, keep Python/C++ APIs identical, and allow server
+processes to host many `App` sessions without special cases.
+
 ## Layered view
 
 ```
