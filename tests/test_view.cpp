@@ -72,6 +72,7 @@ TEST_CASE("View emits framework-specific knob markup") {
     CHECK(html.find("data-dcs-knob") != std::string::npos);
     CHECK(html.find("dcs-knob__arc") != std::string::npos);
     CHECK(html.find("dcs-knob__indicator") != std::string::npos);
+    CHECK(html.find("dcs-knob__cap") != std::string::npos);
 
     affineui::View bootstrap{affineui::ViewTheme::Bootstrap};
     bootstrap.begin();
@@ -80,8 +81,125 @@ TEST_CASE("View emits framework-specific knob markup") {
 
     REQUIRE(gain);
     html = bootstrap.to_html_fragment();
-    CHECK(html.find("form-range") != std::string::npos);
-    CHECK(html.find("type=\"range\"") != std::string::npos);
+    CHECK(html.find("data-aui-knob") != std::string::npos);
+    CHECK(html.find("aui-knob__arc") != std::string::npos);
+    CHECK(html.find("aui-knob__indicator") != std::string::npos);
+}
+
+TEST_CASE("View framework personalities apply default and explicit selectors") {
+    affineui::View decius{affineui::ViewTheme::Decius};
+    decius.begin();
+    auto panel = decius.panel_ref("panel");
+    panel.selector(affineui::decius::selector::size,
+                   affineui::decius::size::lg);
+    decius.end();
+
+    auto html = decius.to_html_document();
+    CHECK(html.find("data-aui-size=\"md\"") != std::string::npos);
+    CHECK(html.find("data-aui-style=\"flat\"") != std::string::npos);
+    CHECK(html.find("data-dcs-style=\"flat\"") != std::string::npos);
+    CHECK(html.find("data-dcs-density=\"compact\"") != std::string::npos);
+    CHECK(html.find("data-aui-size=\"lg\"") != std::string::npos);
+
+    decius.find_widget("panel").selector(affineui::decius::selector::size,
+                                         "med");
+    CHECK(decius.to_html_fragment().find("data-aui-size=\"md\"") !=
+          std::string::npos);
+
+    affineui::View decius_3d{affineui::ViewTheme::Decius};
+    decius_3d.selector(affineui::decius::selector::style,
+                       affineui::decius::style::three_d);
+    decius_3d.begin();
+    decius_3d.panel_ref("panel");
+    decius_3d.end();
+    html = decius_3d.to_html_document();
+    CHECK(html.find("data-aui-style=\"3d\"") != std::string::npos);
+    CHECK(html.find("data-dcs-style=\"3d\"") != std::string::npos);
+    CHECK(html.find("data-dcs-style=\"flat\"") == std::string::npos);
+
+    affineui::View bootstrap{affineui::ViewTheme::Bootstrap};
+    bootstrap.begin();
+    auto button = bootstrap.button("Dark", false, "dark");
+    button.selector(affineui::bootstrap::selector::theme,
+                    affineui::bootstrap::theme::dark);
+    bootstrap.end();
+
+    html = bootstrap.to_html_document();
+    CHECK(html.find("data-aui-size=\"md\"") != std::string::npos);
+    CHECK(html.find("data-bs-theme=\"dark\"") != std::string::npos);
+}
+
+TEST_CASE("View emits framework-specific field widgets") {
+    affineui::View bootstrap{affineui::ViewTheme::Bootstrap};
+    bootstrap.begin();
+    {
+        auto panel = bootstrap.panel("panel");
+        (void) panel;
+        bootstrap.input("Object name", "Cylinder.042", "text", "object-name");
+        bootstrap.password("Token", "secret", "token");
+        bootstrap.dropdown("Mode", {"Object", "Edit"}, "Object", "mode");
+        bootstrap.button_group("Space", {"Local", "World"}, "World", "space");
+        bootstrap.textarea("Notes", "Dense native UI", 3, "notes");
+    }
+    bootstrap.end();
+
+    CHECK(bootstrap.diagnostics().empty());
+    auto html = bootstrap.to_html_fragment();
+    CHECK(html.find("form-control") != std::string::npos);
+    CHECK(html.find("form-select") != std::string::npos);
+    CHECK(html.find("btn-group") != std::string::npos);
+    CHECK(html.find("Cylinder.042") != std::string::npos);
+
+    affineui::View decius{affineui::ViewTheme::Decius};
+    decius.begin();
+    {
+        auto panel = decius.panel("panel");
+        (void) panel;
+        decius.input("Object name", "Cylinder.042", "text", "object-name");
+        decius.dropdown("Mode", {"Object", "Edit"}, "Object", "mode");
+        decius.button_group("Space", {"Local", "World"}, "World", "space");
+    }
+    decius.end();
+
+    CHECK(decius.diagnostics().empty());
+    html = decius.to_html_fragment();
+    CHECK(html.find("dcs-input") != std::string::npos);
+    CHECK(html.find("dcs-select") != std::string::npos);
+    CHECK(html.find("dcs-btn-group") != std::string::npos);
+}
+
+TEST_CASE("Stable widget refs can replace tab body content") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+
+    view.begin();
+    {
+        auto panel = view.panel("panel");
+        (void) panel;
+        view.button("Controls", true, "tab-controls");
+        view.button("Fields", false, "tab-fields");
+        auto body = view.container("tab-body", "tab-body");
+        (void) body;
+    }
+    view.end();
+
+    auto body = view.find_widget("tab-body");
+    REQUIRE(body);
+    body.replace([](affineui::View& v) {
+        v.checkbox("Framework checkbox", true, "hello-check");
+        v.slider("Framework slider", 0.65, 0.0, 1.0, "hello-slider");
+    });
+
+    CHECK(view.find_widget("hello-check"));
+    CHECK(view.find_widget("hello-slider"));
+
+    body.replace([](affineui::View& v) {
+        v.input("Object name", "Cylinder.042", "text", "object-name");
+        v.dropdown("Mode", {"Object", "Edit"}, "Object", "mode");
+    });
+
+    CHECK_FALSE(view.find_widget("hello-check"));
+    CHECK(view.find_widget("object-name"));
+    CHECK(view.find_widget("mode"));
 }
 
 TEST_CASE("App dispatch invokes command button callbacks") {

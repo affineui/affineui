@@ -225,6 +225,7 @@ struct KeyframeBlock {
 enum class LiveControlKind : std::uint8_t {
     None,
     RangeInput,
+    AuiKnob,
     DeciusSlider,
     DeciusFader,
     DeciusKnob,
@@ -7013,7 +7014,8 @@ bool update_live_control_value(detail::DocumentImpl& impl,
     const bool value_changed =
         set_attribute_on_element(impl, elem, "value", value_text);
     changed = value_changed || changed;
-    if (kind == LiveControlKind::DeciusSlider ||
+    if (kind == LiveControlKind::AuiKnob ||
+        kind == LiveControlKind::DeciusSlider ||
         kind == LiveControlKind::DeciusFader ||
         kind == LiveControlKind::DeciusKnob) {
         changed =
@@ -7037,21 +7039,30 @@ bool update_live_control_value(detail::DocumentImpl& impl,
         changed = set_attribute_on_element(
             impl, elem, "style",
             decius_fader_style(min, max, clamped)) || changed;
-    } else if (kind == LiveControlKind::DeciusKnob) {
-        if (auto* indicator = first_descendant_with_class(
-                elem, "dcs-knob__indicator")) {
+    } else if (kind == LiveControlKind::AuiKnob ||
+               kind == LiveControlKind::DeciusKnob) {
+        const char* indicator_class = kind == LiveControlKind::AuiKnob
+            ? "aui-knob__indicator"
+            : "dcs-knob__indicator";
+        const char* arc_class = kind == LiveControlKind::AuiKnob
+            ? "aui-knob__arc"
+            : "dcs-knob__arc";
+        const char* value_class = kind == LiveControlKind::AuiKnob
+            ? "aui-knob__value"
+            : "dcs-knob__value";
+        if (auto* indicator = first_descendant_with_class(elem, indicator_class)) {
             changed = set_attribute_on_element(
                 impl, indicator, "style",
                 "--angle:" + compact_number(
                     decius_knob_angle(min, max, clamped)) + "deg") || changed;
         }
-        if (auto* arc = first_descendant_with_class(elem, "dcs-knob__arc")) {
+        if (auto* arc = first_descendant_with_class(elem, arc_class)) {
             const auto path = decius_knob_arc_path(min, max, clamped, bipolar);
             changed = path.empty()
                 ? (remove_attribute_on_element(impl, arc, "d") || changed)
                 : (set_attribute_on_element(impl, arc, "d", path) || changed);
         }
-        if (auto* label = first_descendant_with_class(elem, "dcs-knob__value")) {
+        if (auto* label = first_descendant_with_class(elem, value_class)) {
             changed = set_text_on_element(impl, label, value_text) || changed;
         }
     }
@@ -7062,6 +7073,9 @@ bool update_live_control_value(detail::DocumentImpl& impl,
 LiveControlKind live_control_kind_for_block(const Block& block) {
     if (block.tag == "input" && block.input_type == "range") {
         return LiveControlKind::RangeInput;
+    }
+    if (block_has_attr(block, "data-aui-knob")) {
+        return LiveControlKind::AuiKnob;
     }
     if (block_has_attr(block, "data-dcs-slider")) {
         return LiveControlKind::DeciusSlider;
@@ -7114,7 +7128,8 @@ bool update_active_live_control(detail::DocumentImpl& impl, const Event& ev) {
         value = value_from_x(drag.bounds, ev.pos.x, drag.min, drag.max);
     } else if (drag.kind == LiveControlKind::DeciusFader) {
         value = value_from_y(drag.bounds, ev.pos.y, drag.min, drag.max);
-    } else if (drag.kind == LiveControlKind::DeciusKnob) {
+    } else if (drag.kind == LiveControlKind::AuiKnob ||
+               drag.kind == LiveControlKind::DeciusKnob) {
         value = drag.start_value +
                 (static_cast<double>(drag.start_y - ev.pos.y) / 150.0) *
                     (drag.max - drag.min);
@@ -7449,7 +7464,8 @@ DispatchResult Document::dispatch(const Event& ev) {
                 find_live_control_at(*impl_, impl_->hovered_idx,
                                      impl_->live_drag)) {
                 impl_->live_drag.start_y = ev.pos.y;
-                if (impl_->live_drag.kind != LiveControlKind::DeciusKnob &&
+                if (impl_->live_drag.kind != LiveControlKind::AuiKnob &&
+                    impl_->live_drag.kind != LiveControlKind::DeciusKnob &&
                     update_active_live_control(*impl_, ev)) {
                     result.redraw_requested = true;
                 }

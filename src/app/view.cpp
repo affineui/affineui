@@ -4,6 +4,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstdio>
+#include <initializer_list>
 #include <sstream>
 #include <utility>
 
@@ -46,6 +47,10 @@ StableId make_stable_id(StableId parent,
 
 StableId make_duplicate_stable_id(StableId base, std::size_t index) {
     return {fnv1a_mix(base.value, index + 1)};
+}
+
+bool public_widget_key(std::string_view key) {
+    return !key.empty() && !key.starts_with("__");
 }
 
 std::string remote_id(StableId id) {
@@ -109,6 +114,97 @@ std::string escape_json(std::string_view text) {
     return out;
 }
 
+void set_attr(std::vector<WidgetAttribute>& attrs,
+              std::string_view name,
+              std::string_view value) {
+    auto it = std::find_if(attrs.begin(), attrs.end(),
+        [&](const WidgetAttribute& attr) { return attr.name == name; });
+    if (it != attrs.end()) {
+        it->value = std::string(value);
+        return;
+    }
+    attrs.push_back({std::string(name), std::string(value)});
+}
+
+bool has_attr(const std::vector<WidgetAttribute>& attrs,
+              std::string_view name) {
+    return std::any_of(attrs.begin(), attrs.end(),
+        [&](const WidgetAttribute& attr) { return attr.name == name; });
+}
+
+const WidgetAttribute* find_attr(const std::vector<WidgetAttribute>& attrs,
+                                 std::string_view name) {
+    auto it = std::find_if(attrs.begin(), attrs.end(),
+        [&](const WidgetAttribute& attr) { return attr.name == name; });
+    return it == attrs.end() ? nullptr : &*it;
+}
+
+bool has_any_attr(const std::vector<WidgetAttribute>& attrs,
+                  std::initializer_list<std::string_view> names) {
+    return std::any_of(names.begin(), names.end(),
+        [&](std::string_view name) { return has_attr(attrs, name); });
+}
+
+std::string selector_value(std::string_view key, std::string_view value) {
+    if (key == bootstrap::selector::size || key == decius::selector::size) {
+        if (value == "med" || value == "medium") return "md";
+    }
+    return std::string(value);
+}
+
+void append_attrs_html(const std::vector<WidgetAttribute>& attrs,
+                       std::string& out) {
+    for (const auto& attr : attrs) {
+        out += ' ';
+        out += attr.name;
+        if (!attr.value.empty()) {
+            out += "=\"";
+            out += escape_html(attr.value);
+            out += '"';
+        }
+    }
+}
+
+char selector_attr_char(char c) {
+    if (c >= 'A' && c <= 'Z') return static_cast<char>(c - 'A' + 'a');
+    if ((c >= 'a' && c <= 'z') ||
+        (c >= '0' && c <= '9') ||
+        c == '-') {
+        return c;
+    }
+    if (c == '_' || c == ' ') return '-';
+    return '\0';
+}
+
+std::string normalized_selector_key(std::string_view name) {
+    if (name.starts_with("data-aui-")) name.remove_prefix(9);
+    else if (name.starts_with("data-dcs-")) name.remove_prefix(9);
+    else if (name.starts_with("data-bs-")) name.remove_prefix(8);
+
+    std::string out;
+    out.reserve(name.size());
+    bool previous_dash = false;
+    for (char c : name) {
+        const char mapped = selector_attr_char(c);
+        if (mapped == '\0') return {};
+        if (mapped == '-') {
+            if (out.empty() || previous_dash) continue;
+            previous_dash = true;
+        } else {
+            previous_dash = false;
+        }
+        out.push_back(mapped);
+    }
+    while (!out.empty() && out.back() == '-') out.pop_back();
+    return out;
+}
+
+std::string selector_attr_name(std::string_view name) {
+    const auto key = normalized_selector_key(name);
+    if (key.empty()) return {};
+    return "data-aui-" + key;
+}
+
 std::string number(double value) {
     char buf[64]{};
     auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), value);
@@ -168,6 +264,13 @@ enum class FrameworkElement {
     CheckboxGroup,
     CheckboxInput,
     CheckboxLabel,
+    FieldGroup,
+    FieldLabel,
+    TextInput,
+    TextArea,
+    SelectInput,
+    ButtonGroup,
+    ButtonGroupButton,
     SliderGroup,
     SliderLabel,
     SliderInput,
@@ -186,19 +289,23 @@ public:
     virtual ~ViewFramework() = default;
 
     [[nodiscard]] virtual std::string_view stylesheet_href() const noexcept = 0;
-    [[nodiscard]] virtual std::string_view body_attrs() const noexcept = 0;
     [[nodiscard]] virtual Color background_color() const noexcept = 0;
     [[nodiscard]] virtual ElementRecipe element(FrameworkElement element,
                                                 bool primary = false) const noexcept = 0;
+    virtual void adjust_document_attrs(
+        std::vector<WidgetAttribute>& attrs) const = 0;
+    virtual void adjust_widget_attrs(
+        WidgetKind kind,
+        std::vector<WidgetAttribute>& attrs) const = 0;
+    virtual void apply_selector_attrs(
+        std::string_view key,
+        std::string_view value,
+        std::vector<WidgetAttribute>& attrs) const = 0;
 };
 
 class PlainFramework final : public ViewFramework {
 public:
     [[nodiscard]] std::string_view stylesheet_href() const noexcept override {
-        return {};
-    }
-
-    [[nodiscard]] std::string_view body_attrs() const noexcept override {
         return {};
     }
 
@@ -215,6 +322,14 @@ public:
             case FrameworkElement::CheckboxGroup: return {"label", {}};
             case FrameworkElement::CheckboxInput: return {"input", {}};
             case FrameworkElement::CheckboxLabel: return {"span", {}};
+            case FrameworkElement::FieldGroup:    return {"label", {}};
+            case FrameworkElement::FieldLabel:    return {"span", {}};
+            case FrameworkElement::TextInput:     return {"input", {}};
+            case FrameworkElement::TextArea:      return {"textarea", {}};
+            case FrameworkElement::SelectInput:   return {"select", {}};
+            case FrameworkElement::ButtonGroup:   return {"div", {}};
+            case FrameworkElement::ButtonGroupButton:
+                return {"button", {}};
             case FrameworkElement::SliderGroup:   return {"label", {}};
             case FrameworkElement::SliderLabel:   return {"span", {}};
             case FrameworkElement::SliderInput:   return {"input", {}};
@@ -227,16 +342,31 @@ public:
         }
         return {"div", {}};
     }
+
+    void adjust_document_attrs(
+        std::vector<WidgetAttribute>& attrs) const override {
+        (void) attrs;
+    }
+
+    void adjust_widget_attrs(
+        WidgetKind kind,
+        std::vector<WidgetAttribute>& attrs) const override {
+        (void) kind;
+        (void) attrs;
+    }
+
+    void apply_selector_attrs(
+        std::string_view key,
+        std::string_view value,
+        std::vector<WidgetAttribute>& attrs) const override {
+        set_attr(attrs, "data-aui-" + std::string(key), value);
+    }
 };
 
 class BootstrapFramework final : public ViewFramework {
 public:
     [[nodiscard]] std::string_view stylesheet_href() const noexcept override {
         return "frameworks/css/bootstrap-5.3.8.min.css";
-    }
-
-    [[nodiscard]] std::string_view body_attrs() const noexcept override {
-        return {};
     }
 
     [[nodiscard]] Color background_color() const noexcept override {
@@ -246,7 +376,8 @@ public:
     [[nodiscard]] ElementRecipe element(FrameworkElement element,
                                         bool primary = false) const noexcept override {
         switch (element) {
-            case FrameworkElement::Panel:         return {"div", "container py-4"};
+            case FrameworkElement::Panel:
+                return {"section", "card shadow-sm p-4 d-flex flex-column gap-3"};
             case FrameworkElement::Card:          return {"section", "card shadow-sm"};
             case FrameworkElement::CardTitle:     return {"h3", "card-header h6 mb-0"};
             case FrameworkElement::Button:
@@ -254,6 +385,14 @@ public:
             case FrameworkElement::CheckboxGroup: return {"label", "form-check"};
             case FrameworkElement::CheckboxInput: return {"input", "form-check-input"};
             case FrameworkElement::CheckboxLabel: return {"span", "form-check-label"};
+            case FrameworkElement::FieldGroup:    return {"div", "mb-3"};
+            case FrameworkElement::FieldLabel:    return {"label", "form-label"};
+            case FrameworkElement::TextInput:     return {"input", "form-control"};
+            case FrameworkElement::TextArea:      return {"textarea", "form-control"};
+            case FrameworkElement::SelectInput:   return {"select", "form-select"};
+            case FrameworkElement::ButtonGroup:   return {"div", "btn-group"};
+            case FrameworkElement::ButtonGroupButton:
+                return {"button", primary ? "btn btn-primary" : "btn btn-outline-primary"};
             case FrameworkElement::SliderGroup:   return {"div", "mb-3"};
             case FrameworkElement::SliderLabel:   return {"label", "form-label"};
             case FrameworkElement::SliderInput:   return {"input", "form-range"};
@@ -263,16 +402,39 @@ public:
         }
         return {"div", {}};
     }
+
+    void adjust_document_attrs(
+        std::vector<WidgetAttribute>& attrs) const override {
+        if (!has_attr(attrs, "data-aui-size")) {
+            apply_selector_attrs(bootstrap::selector::size,
+                                 bootstrap::size::md,
+                                 attrs);
+        }
+    }
+
+    void adjust_widget_attrs(
+        WidgetKind kind,
+        std::vector<WidgetAttribute>& attrs) const override {
+        (void) kind;
+        (void) attrs;
+    }
+
+    void apply_selector_attrs(
+        std::string_view key,
+        std::string_view value,
+        std::vector<WidgetAttribute>& attrs) const override {
+        const auto canonical = selector_value(key, value);
+        set_attr(attrs, "data-aui-" + std::string(key), canonical);
+        if (key == bootstrap::selector::theme) {
+            set_attr(attrs, "data-bs-theme", canonical);
+        }
+    }
 };
 
 class DeciusFramework final : public ViewFramework {
 public:
     [[nodiscard]] std::string_view stylesheet_href() const noexcept override {
         return "frameworks/css/decius-css-0.4.1.bundle.min.css";
-    }
-
-    [[nodiscard]] std::string_view body_attrs() const noexcept override {
-        return " class=\"dcs\" data-dcs-density=\"compact\" data-dcs-style=\"3d\"";
     }
 
     [[nodiscard]] Color background_color() const noexcept override {
@@ -283,7 +445,7 @@ public:
                                         bool primary = false) const noexcept override {
         switch (element) {
             case FrameworkElement::Panel:
-                return {"section", "dcs-panel dcs-panel--bordered dcs-panel--raised"};
+                return {"section", "dcs-panel dcs-panel--bordered dcs-panel--raised dcs-col"};
             case FrameworkElement::Card:
                 return {"section", "dcs-panel dcs-panel--bordered"};
             case FrameworkElement::CardTitle:
@@ -293,14 +455,62 @@ public:
             case FrameworkElement::CheckboxGroup: return {"label", "dcs-check"};
             case FrameworkElement::CheckboxInput: return {"input", "dcs-check__input"};
             case FrameworkElement::CheckboxLabel: return {"span", "dcs-check__label"};
-            case FrameworkElement::SliderGroup:   return {"div", "dcs-row"};
-            case FrameworkElement::SliderLabel:   return {"span", {}};
+            case FrameworkElement::FieldGroup:    return {"label", "dcs-field"};
+            case FrameworkElement::FieldLabel:    return {"span", "dcs-field__label"};
+            case FrameworkElement::TextInput:     return {"input", "dcs-input"};
+            case FrameworkElement::TextArea:      return {"textarea", "dcs-textarea dcs-field__fill"};
+            case FrameworkElement::SelectInput:   return {"select", "dcs-select"};
+            case FrameworkElement::ButtonGroup:   return {"div", "dcs-btn-group"};
+            case FrameworkElement::ButtonGroupButton:
+                return {"button", "dcs-btn"};
+            case FrameworkElement::SliderGroup:   return {"div", "dcs-field"};
+            case FrameworkElement::SliderLabel:   return {"span", "dcs-field__label"};
             case FrameworkElement::SliderInput:   return {"div", "dcs-slider"};
             case FrameworkElement::KnobGroup:     return {"div", "dcs-knob"};
             case FrameworkElement::KnobLabel:     return {"div", "dcs-knob__label"};
             case FrameworkElement::KnobInput:     return {"div", "dcs-knob__body"};
         }
         return {"div", {}};
+    }
+
+    void adjust_document_attrs(
+        std::vector<WidgetAttribute>& attrs) const override {
+        set_attr(attrs, "class", "dcs");
+        if (!has_attr(attrs, "data-aui-size")) {
+            apply_selector_attrs(decius::selector::size, decius::size::md, attrs);
+        }
+        if (!has_any_attr(attrs, {"data-aui-style", "data-dcs-style"})) {
+            apply_selector_attrs(decius::selector::style,
+                                 decius::style::flat,
+                                 attrs);
+        }
+        if (!has_any_attr(attrs, {"data-aui-density", "data-dcs-density"})) {
+            apply_selector_attrs(decius::selector::density,
+                                 decius::density::compact,
+                                 attrs);
+        }
+    }
+
+    void adjust_widget_attrs(
+        WidgetKind kind,
+        std::vector<WidgetAttribute>& attrs) const override {
+        (void) kind;
+        (void) attrs;
+    }
+
+    void apply_selector_attrs(
+        std::string_view key,
+        std::string_view value,
+        std::vector<WidgetAttribute>& attrs) const override {
+        const auto canonical = selector_value(key, value);
+        set_attr(attrs, "data-aui-" + std::string(key), canonical);
+        if (key == decius::selector::style ||
+            key == decius::selector::density ||
+            key == decius::selector::accent ||
+            key == decius::selector::radius ||
+            key == decius::selector::dark) {
+            set_attr(attrs, "data-dcs-" + std::string(key), canonical);
+        }
     }
 };
 
@@ -326,8 +536,50 @@ std::string theme_link(ViewTheme theme) {
     return out;
 }
 
-std::string body_attrs(ViewTheme theme) {
-    return std::string{framework_for(theme).body_attrs()};
+std::vector<WidgetAttribute> document_attrs(
+    ViewTheme theme,
+    const std::vector<WidgetAttribute>& explicit_attrs) {
+    auto attrs = explicit_attrs;
+    framework_for(theme).adjust_document_attrs(attrs);
+    return attrs;
+}
+
+std::string body_attrs(ViewTheme theme,
+                       const std::vector<WidgetAttribute>& explicit_attrs) {
+    std::string out;
+    append_attrs_html(document_attrs(theme, explicit_attrs), out);
+    return out;
+}
+
+std::string command_widget_style() {
+    return R"CSS(
+body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
+[data-aui-size=sm]{--aui-panel-pad:var(--dcs-s-3);--aui-panel-gap:var(--dcs-s-2)}
+[data-aui-size=md]{--aui-panel-pad:var(--dcs-s-5);--aui-panel-gap:var(--dcs-s-3)}
+[data-aui-size=lg]{--aui-panel-pad:var(--dcs-s-7);--aui-panel-gap:var(--dcs-s-5)}
+.aui-knob{--aui-knob-size:64px;position:relative;display:inline-flex;align-items:flex-start;justify-content:center;width:var(--aui-knob-size);height:98px;padding-top:16px;box-sizing:border-box;cursor:ns-resize;user-select:none;color:inherit;touch-action:none}
+.aui-knob__ring{position:absolute;left:0;top:16px;width:var(--aui-knob-size);height:var(--aui-knob-size);pointer-events:none}
+.aui-knob__cap{position:absolute;left:14px;top:30px;width:36px;height:36px;border-radius:50%;background:linear-gradient(180deg,#f8f9fa,#dee2e6);border:1px solid rgba(0,0,0,.24);box-shadow:inset 0 1px 0 rgba(255,255,255,.85),0 1px 3px rgba(0,0,0,.2)}
+.aui-knob__indicator{position:absolute;left:50%;top:62px;width:2px;height:24px;background:var(--bs-primary,#0d6efd);border-radius:1px;transform-origin:50% 100%;transform:translate(-50%,-100%) rotate(var(--angle,0deg))}
+.aui-knob__value{position:absolute;left:0;right:0;top:0;text-align:center;font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--bs-primary,#0d6efd)}
+.aui-knob__label{position:absolute;left:-8px;right:-8px;bottom:0;text-align:center;font-size:12px;color:var(--bs-secondary-color,#6c757d);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aui-knob__arc{stroke:var(--bs-primary,#0d6efd)}
+.aui-root [data-aui-widget=knob]{margin-top:16px;margin-bottom:18px}
+.aui-root .aui-knob[data-aui-widget=knob]{display:flex}
+.aui-root .dcs-field{display:flex;flex-direction:column;gap:var(--dcs-s-2)}
+.aui-root .dcs-btn-group{display:flex;align-items:center;gap:0}
+.aui-root .dcs-card-list{gap:var(--dcs-s-2)}
+.aui-root .dcs-card-list>.dcs-card{padding:var(--dcs-s-4);text-align:left}
+.aui-root .dcs-knob[data-aui-widget=knob]{position:relative;display:inline-flex;align-items:center;justify-content:center;width:72px;height:100px;padding-top:18px;box-sizing:border-box;cursor:ns-resize;user-select:none;touch-action:none}
+.aui-root .dcs-knob[data-aui-widget=knob] .dcs-knob__ring{position:absolute;left:4px;top:18px;width:64px;height:64px;pointer-events:none}
+.aui-root .dcs-knob[data-aui-widget=knob] .dcs-knob__cap{position:absolute;left:18px;top:32px;width:36px;height:36px}
+.aui-root .dcs-knob[data-aui-widget=knob] .dcs-knob__indicator{position:absolute;left:50%;top:64px;width:2px;height:24px;transform-origin:50% 100%;transform:translate(-50%,-100%) rotate(var(--angle,0deg))}
+.aui-root .dcs-knob[data-aui-widget=knob] .dcs-knob__value{position:absolute;left:0;right:0;top:0;text-align:center;font-size:var(--dcs-fs-xs);font-family:var(--dcs-font-mono);color:var(--dcs-accent)}
+.aui-root .dcs-knob[data-aui-widget=knob] .dcs-knob__label{position:absolute;left:-10px;right:-10px;bottom:0;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aui-root>.dcs-panel{padding:var(--aui-panel-pad,var(--dcs-s-5));gap:var(--aui-panel-gap,var(--dcs-s-3))}
+.aui-root>.dcs-panel>h1,.aui-root>.dcs-panel>h2,.aui-root>.dcs-panel>h3{margin:0}
+.aui-root>.dcs-panel>p{margin:0;color:var(--dcs-text-dim)}
+)CSS";
 }
 
 std::string default_class(ViewTheme theme,
@@ -608,6 +860,15 @@ WidgetRef& WidgetRef::remove_attr(std::string_view name) {
     return *this;
 }
 
+WidgetRef& WidgetRef::selector(std::string_view name, std::string_view value) {
+    if (owner_) {
+        if (auto* n = owner_->resolve_widget_ref(*this)) {
+            owner_->set_selector(*n, name, value);
+        }
+    }
+    return *this;
+}
+
 WidgetRef& WidgetRef::cls(std::string_view classes) {
     return attr("class", classes);
 }
@@ -694,6 +955,12 @@ View::Scope& View::Scope::attr(std::string_view name, std::string_view value) {
     return *this;
 }
 
+View::Scope& View::Scope::selector(std::string_view name,
+                                   std::string_view value) {
+    if (owner_ && node_) owner_->set_selector(*node_, name, value);
+    return *this;
+}
+
 View::Scope& View::Scope::cls(std::string_view classes) {
     if (owner_ && node_) owner_->set_attr(*node_, "class", classes);
     return *this;
@@ -739,6 +1006,16 @@ void View::clear() {
     change_handlers_.clear();
 }
 
+View& View::selector(std::string_view name, std::string_view value) {
+    const auto key = normalized_selector_key(name);
+    if (key.empty() || selector_attr_name(key).empty()) {
+        diagnostics_.push_back("Invalid selector name: " + std::string(name));
+        return *this;
+    }
+    framework_for(theme_).apply_selector_attrs(key, value, document_attrs_);
+    return *this;
+}
+
 void View::begin(ViewSink* sink) {
     sink_ = sink;
     reconciling_ = true;
@@ -778,6 +1055,14 @@ View::Scope View::container(std::string_view classes,
                             std::string_view key,
                             std::source_location here) {
     auto& node = open_node(WidgetKind::Container, "div", classes, key, here, true);
+    return Scope{this, &node};
+}
+
+View::Scope View::panel(std::string_view key,
+                        std::source_location here) {
+    const auto recipe = default_element(theme_, FrameworkElement::Panel);
+    auto& node = open_node(WidgetKind::Panel, recipe.tag, recipe.classes,
+                           key, here, true);
     return Scope{this, &node};
 }
 
@@ -852,11 +1137,24 @@ WidgetRef View::checkbox(std::string_view label,
     if (checked) set_attr(group, "aria-checked", "true");
     else remove_attr(group, "aria-checked");
 
+    if (theme_ == ViewTheme::Decius) {
+        auto& box = open_node(WidgetKind::Container, "div",
+                              "dcs-check__box", "__box", here, true);
+        (void) box;
+        auto& icon = open_node(WidgetKind::Container, "i",
+                               "di di-check", "__icon", here, false);
+        (void) icon;
+        close_node();
+    }
+
     const auto input_recipe = default_element(theme_, FrameworkElement::CheckboxInput);
     auto& input = open_node(WidgetKind::Checkbox, input_recipe.tag,
                             input_recipe.classes,
                             "__input", here, false);
     set_attr(input, "type", "checkbox");
+    if (theme_ == ViewTheme::Decius) {
+        set_attr(input, "style", "display:none");
+    }
     if (checked) set_attr(input, "checked", "checked");
     else remove_attr(input, "checked");
 
@@ -867,6 +1165,140 @@ WidgetRef View::checkbox(std::string_view label,
     set_text(span, label);
     close_node();
     return ref_for_node(group, current_panel_id(stack_));
+}
+
+WidgetRef View::input(std::string_view label,
+                      std::string_view value,
+                      std::string_view type,
+                      std::string_view key,
+                      std::source_location here) {
+    const auto group_recipe = default_element(theme_, FrameworkElement::FieldGroup);
+    auto& group = open_node(WidgetKind::TextInput, group_recipe.tag,
+                            group_recipe.classes, key, here, true);
+    set_attr(group, "data-aui-widget", "input");
+    set_attr(group, "data-aui-type", type);
+
+    const auto label_recipe = default_element(theme_, FrameworkElement::FieldLabel);
+    auto& label_node = open_node(WidgetKind::Container, label_recipe.tag,
+                                 label_recipe.classes, "__label", here, false);
+    set_text(label_node, label);
+
+    const auto input_recipe = default_element(theme_, FrameworkElement::TextInput);
+    std::string input_classes{input_recipe.classes};
+    if (theme_ == ViewTheme::Decius && type == "number") {
+        input_classes += " dcs-input--num";
+    }
+    auto& input_node = open_node(WidgetKind::TextInput, input_recipe.tag,
+                                 input_classes, "__input", here, false);
+    set_attr(input_node, "type", type.empty() ? "text" : type);
+    set_attr(input_node, "value", value);
+    close_node();
+    return ref_for_node(group, current_panel_id(stack_));
+}
+
+WidgetRef View::password(std::string_view label,
+                         std::string_view value,
+                         std::string_view key,
+                         std::source_location here) {
+    return input(label, value, "password", key, here);
+}
+
+WidgetRef View::textarea(std::string_view label,
+                         std::string_view value,
+                         int rows,
+                         std::string_view key,
+                         std::source_location here) {
+    const auto group_recipe = default_element(theme_, FrameworkElement::FieldGroup);
+    auto& group = open_node(WidgetKind::TextArea, group_recipe.tag,
+                            group_recipe.classes, key, here, true);
+    set_attr(group, "data-aui-widget", "textarea");
+
+    const auto label_recipe = default_element(theme_, FrameworkElement::FieldLabel);
+    auto& label_node = open_node(WidgetKind::Container, label_recipe.tag,
+                                 label_recipe.classes, "__label", here, false);
+    set_text(label_node, label);
+
+    const auto text_recipe = default_element(theme_, FrameworkElement::TextArea);
+    auto& text_node = open_node(WidgetKind::TextArea, text_recipe.tag,
+                                text_recipe.classes, "__input", here, false);
+    set_attr(text_node, "rows", std::to_string(std::max(rows, 1)));
+    set_text(text_node, value);
+    close_node();
+    return ref_for_node(group, current_panel_id(stack_));
+}
+
+WidgetRef View::dropdown(std::string_view label,
+                         const std::vector<std::string>& options,
+                         std::string_view selected,
+                         std::string_view key,
+                         std::source_location here) {
+    const auto group_recipe = default_element(theme_, FrameworkElement::FieldGroup);
+    auto& group = open_node(WidgetKind::Dropdown, group_recipe.tag,
+                            group_recipe.classes, key, here, true);
+    set_attr(group, "data-aui-widget", "dropdown");
+    set_attr(group, "data-value", selected);
+
+    const auto label_recipe = default_element(theme_, FrameworkElement::FieldLabel);
+    auto& label_node = open_node(WidgetKind::Container, label_recipe.tag,
+                                 label_recipe.classes, "__label", here, false);
+    set_text(label_node, label);
+
+    const auto select_recipe = default_element(theme_, FrameworkElement::SelectInput);
+    auto& select_node = open_node(WidgetKind::Dropdown, select_recipe.tag,
+                                  select_recipe.classes, "__select", here, true);
+    set_attr(select_node, "value", selected);
+    for (std::size_t i = 0; i < options.size(); ++i) {
+        const auto option_key = "__option-" + std::to_string(i);
+        auto& option = open_node(WidgetKind::Container, "option", {},
+                                 option_key, here, false);
+        set_attr(option, "value", options[i]);
+        if (options[i] == selected) set_attr(option, "selected", "selected");
+        else remove_attr(option, "selected");
+        set_text(option, options[i]);
+    }
+    close_node();
+    close_node();
+    return ref_for_node(group, current_panel_id(stack_));
+}
+
+WidgetRef View::button_group(std::string_view label,
+                             const std::vector<std::string>& options,
+                             std::string_view selected,
+                             std::string_view key,
+                             std::source_location here) {
+    const char* field_classes =
+        theme_ == ViewTheme::Decius ? "dcs-field" :
+        theme_ == ViewTheme::Bootstrap ? "mb-3" : "";
+    auto& field = open_node(WidgetKind::ButtonGroup, "div", field_classes,
+                            key, here, true);
+    set_attr(field, "data-aui-widget", "button-group");
+    set_attr(field, "data-value", selected);
+
+    const auto label_recipe = default_element(theme_, FrameworkElement::FieldLabel);
+    auto& label_node = open_node(WidgetKind::Container, label_recipe.tag,
+                                 label_recipe.classes, "__label", here, false);
+    set_text(label_node, label);
+
+    const auto group_recipe = default_element(theme_, FrameworkElement::ButtonGroup);
+    auto& group = open_node(WidgetKind::ButtonGroup, group_recipe.tag,
+                            group_recipe.classes, "__group", here, true);
+    (void) group;
+    for (std::size_t i = 0; i < options.size(); ++i) {
+        const bool active = options[i] == selected;
+        const auto button_recipe =
+            default_element(theme_, FrameworkElement::ButtonGroupButton, active);
+        const auto option_key = "__option-" + std::to_string(i);
+        auto& button = open_node(WidgetKind::Button, button_recipe.tag,
+                                 button_recipe.classes, option_key, here, false);
+        set_attr(button, "type", "button");
+        set_attr(button, "value", options[i]);
+        if (active) set_attr(button, "aria-pressed", "true");
+        else remove_attr(button, "aria-pressed");
+        set_text(button, options[i]);
+    }
+    close_node();
+    close_node();
+    return ref_for_node(field, current_panel_id(stack_));
 }
 
 WidgetRef View::slider(std::string_view label,
@@ -943,18 +1375,57 @@ WidgetRef View::knob(std::string_view label,
     set_attr(group, "aria-valuenow", number(clamped));
 
     if (theme_ != ViewTheme::Decius) {
-        const auto label_recipe = default_element(theme_, FrameworkElement::KnobLabel);
-        auto& label_node = open_node(WidgetKind::Container, label_recipe.tag,
-                                     label_recipe.classes, "__label", here, false);
-        set_text(label_node, label);
+        set_attr(group, "class", "aui-knob");
+        set_attr(group, "data-aui-knob", "");
+        set_attr(group, "data-min", number(min));
+        set_attr(group, "data-max", number(max));
+        set_attr(group, "data-value", number(clamped));
+        set_attr(group, "value", number(clamped));
+        if (bipolar) set_attr(group, "data-bipolar", "");
+        else remove_attr(group, "data-bipolar");
 
-        const auto input_recipe = default_element(theme_, FrameworkElement::KnobInput);
-        auto& input = open_node(WidgetKind::Knob, input_recipe.tag,
-                                input_recipe.classes, "__input", here, false);
-        set_attr(input, "type", "range");
-        set_attr(input, "min", number(min));
-        set_attr(input, "max", number(max));
-        set_attr(input, "value", number(clamped));
+        const auto [bg_x0, bg_y0] = knob_ring_point(-225.0);
+        const auto [bg_x1, bg_y1] = knob_ring_point(45.0);
+
+        auto& svg = open_node(WidgetKind::Container, "svg", "aui-knob__ring",
+                              "__ring", here, true);
+        set_attr(svg, "viewBox", "0 0 24 24");
+
+        auto& bg = open_node(WidgetKind::Container, "path", {}, "__ring-bg",
+                             here, false);
+        set_attr(bg, "d", "M " + number(bg_x0) + " " + number(bg_y0) +
+                         " A 10.5 10.5 0 1 1 " + number(bg_x1) + " " +
+                         number(bg_y1));
+        set_attr(bg, "fill", "none");
+        set_attr(bg, "stroke", "rgba(108,117,125,.35)");
+        set_attr(bg, "stroke-width", "1.5");
+        set_attr(bg, "stroke-linecap", "round");
+
+        auto& arc = open_node(WidgetKind::Container, "path", "aui-knob__arc",
+                              "__arc", here, false);
+        const auto path = knob_arc_path(min, max, clamped, bipolar);
+        if (!path.empty()) set_attr(arc, "d", path);
+        else remove_attr(arc, "d");
+        set_attr(arc, "fill", "none");
+        set_attr(arc, "stroke", "#0d6efd");
+        set_attr(arc, "stroke-width", "1.75");
+        set_attr(arc, "stroke-linecap", "round");
+        close_node();
+
+        auto& cap = open_node(WidgetKind::Container, "div",
+                              "aui-knob__cap", "__cap", here, false);
+        (void) cap;
+        auto& indicator = open_node(WidgetKind::Container, "div",
+                                    "aui-knob__indicator", "__indicator",
+                                    here, false);
+        set_attr(indicator, "style",
+                 "--angle:" + number(knob_angle(clamped, min, max)) + "deg");
+        auto& value_node = open_node(WidgetKind::Container, "div",
+                                     "aui-knob__value", "__value", here, false);
+        set_text(value_node, number(clamped));
+        auto& label_node = open_node(WidgetKind::Container, "div",
+                                     "aui-knob__label", "__label", here, false);
+        set_text(label_node, label);
         close_node();
         return ref_for_node(group, current_panel_id(stack_));
     }
@@ -995,10 +1466,9 @@ WidgetRef View::knob(std::string_view label,
     set_attr(arc, "stroke-linecap", "round");
     close_node();
 
-    const auto body_recipe = default_element(theme_, FrameworkElement::KnobInput);
-    auto& body = open_node(WidgetKind::Container, body_recipe.tag,
-                           body_recipe.classes, "__body", here, true);
-    (void) body;
+    auto& cap = open_node(WidgetKind::Container, "div",
+                          "dcs-knob__cap", "__cap", here, false);
+    (void) cap;
 
     auto& indicator = open_node(WidgetKind::Container, "div",
                                 "dcs-knob__indicator", "__indicator",
@@ -1014,7 +1484,6 @@ WidgetRef View::knob(std::string_view label,
     auto& label_node = open_node(WidgetKind::Container, label_recipe.tag,
                                  label_recipe.classes, "__label", here, false);
     set_text(label_node, label);
-    close_node();
     close_node();
 
     return ref_for_node(group, current_panel_id(stack_));
@@ -1082,9 +1551,11 @@ std::string View::to_html_document() const {
     std::string out;
     out += "<!doctype html><html><head><meta charset=\"utf-8\">";
     out += theme_link(theme_);
-    out += "<style>body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}</style>";
+    out += "<style>";
+    out += command_widget_style();
+    out += "</style>";
     out += "</head><body";
-    out += body_attrs(theme_);
+    out += body_attrs(theme_, document_attrs_);
     out += "><main id=\"aui-root\" class=\"aui-root\">";
     out += to_html_fragment();
     out += "</main></body></html>";
@@ -1135,8 +1606,10 @@ WidgetNode& View::open_node(WidgetKind kind,
     }
 
     node->tag = std::string(tag);
-    if (!key.empty() && (created || node->widget_name.empty())) {
+    if (public_widget_key(key) && (created || node->widget_name.empty())) {
         set_widget_name(*node, key);
+    } else if (!public_widget_key(key) && !node->widget_name.empty()) {
+        set_widget_name(*node, {});
     }
     node->cursor = 0;
 
@@ -1149,6 +1622,15 @@ WidgetNode& View::open_node(WidgetKind kind,
     }
     if (!classes.empty()) set_attr(*node, "class", classes);
     else remove_attr(*node, "class");
+
+    auto adjusted_attrs = node->attrs;
+    framework_for(theme_).adjust_widget_attrs(kind, adjusted_attrs);
+    for (const auto& attr : adjusted_attrs) {
+        const auto* existing = find_attr(node->attrs, attr.name);
+        if (existing == nullptr || existing->value != attr.value) {
+            set_attr(*node, attr.name, attr.value);
+        }
+    }
 
     if (push_scope) {
         stack_.push_back(node);
@@ -1183,6 +1665,25 @@ void View::set_attr(WidgetNode& node,
         node.attrs.push_back({std::string(name), std::string(value)});
     }
     if (auto* sink = current_sink()) sink->set_attribute(node, name, value);
+}
+
+void View::set_selector(WidgetNode& node,
+                        std::string_view name,
+                        std::string_view value) {
+    const auto key = normalized_selector_key(name);
+    if (key.empty() || selector_attr_name(key).empty()) {
+        diagnostics_.push_back("Invalid selector name: " + std::string(name));
+        return;
+    }
+
+    auto adjusted_attrs = node.attrs;
+    framework_for(theme_).apply_selector_attrs(key, value, adjusted_attrs);
+    for (const auto& attr : adjusted_attrs) {
+        const auto* existing = find_attr(node.attrs, attr.name);
+        if (existing == nullptr || existing->value != attr.value) {
+            set_attr(node, attr.name, attr.value);
+        }
+    }
 }
 
 void View::remove_attr(WidgetNode& node, std::string_view name) {

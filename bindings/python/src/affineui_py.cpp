@@ -38,6 +38,21 @@ affineui::App::Config make_app_config(const std::string& title,
     return cfg;
 }
 
+void delete_python_function(py::function* fn) {
+    if (fn == nullptr) return;
+    if (!Py_IsInitialized()) {
+        (void) fn->release();
+        delete fn;
+        return;
+    }
+    py::gil_scoped_acquire gil;
+    delete fn;
+}
+
+std::shared_ptr<py::function> keep_python_function(py::function cb) {
+    return {new py::function(std::move(cb)), delete_python_function};
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_affineui, m) {
@@ -209,36 +224,49 @@ PYBIND11_MODULE(_affineui, m) {
                  return ref.remove_attr(name);
              },
              py::return_value_policy::reference_internal)
+        .def("selector",
+             [](affineui::WidgetRef& ref,
+                const std::string& name,
+                const std::string& value) -> affineui::WidgetRef& {
+                 return ref.selector(name, value);
+             },
+             py::return_value_policy::reference_internal)
         .def("cls", [](affineui::WidgetRef& ref, const std::string& classes) -> affineui::WidgetRef& {
             return ref.cls(classes);
         }, py::return_value_policy::reference_internal)
         .def("on_click",
              [](affineui::WidgetRef& ref, py::function cb) -> affineui::WidgetRef& {
-                 return ref.on_click([cb = std::move(cb)] {
+                 auto callback = keep_python_function(std::move(cb));
+                 return ref.on_click([callback = std::move(callback)] {
                      py::gil_scoped_acquire gil;
-                     cb();
+                     (*callback)();
                  });
              },
              py::return_value_policy::reference_internal)
         .def("on_change",
              [](affineui::WidgetRef& ref, py::function cb) -> affineui::WidgetRef& {
-                 return ref.on_change([cb = std::move(cb)](std::string_view value) {
+                 auto callback = keep_python_function(std::move(cb));
+                 return ref.on_change([callback = std::move(callback)](std::string_view value) {
                      py::gil_scoped_acquire gil;
-                     cb(std::string(value));
+                     (*callback)(std::string(value));
                  });
              },
              py::return_value_policy::reference_internal)
         .def("append",
              [](affineui::WidgetRef& ref, py::function build) -> affineui::WidgetRef& {
-                 return ref.append([build = std::move(build)](affineui::View& view) {
-                     build(&view);
+                 auto callback = keep_python_function(std::move(build));
+                 return ref.append([callback = std::move(callback)](affineui::View& view) {
+                     py::gil_scoped_acquire gil;
+                     (*callback)(&view);
                  });
              },
              py::return_value_policy::reference_internal)
         .def("replace",
              [](affineui::WidgetRef& ref, py::function build) -> affineui::WidgetRef& {
-                 return ref.replace([build = std::move(build)](affineui::View& view) {
-                     build(&view);
+                 auto callback = keep_python_function(std::move(build));
+                 return ref.replace([callback = std::move(callback)](affineui::View& view) {
+                     py::gil_scoped_acquire gil;
+                     (*callback)(&view);
                  });
              },
              py::return_value_policy::reference_internal)
@@ -251,6 +279,13 @@ PYBIND11_MODULE(_affineui, m) {
         .def(py::init<affineui::ViewTheme>(),
              py::arg("theme") = affineui::ViewTheme::Bootstrap)
         .def("clear", &affineui::View::clear)
+        .def("selector",
+             [](affineui::View& view,
+                const std::string& name,
+                const std::string& value) -> affineui::View& {
+                 return view.selector(name, value);
+             },
+             py::return_value_policy::reference_internal)
         .def("begin",
              [](affineui::View& view, affineui::RemotePatchQueue* queue) {
                  view.begin(queue);
@@ -303,6 +338,64 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("label"),
              py::arg("checked"),
              py::arg("key") = "")
+        .def("input",
+             [](affineui::View& view,
+                const std::string& label,
+                const std::string& value,
+                const std::string& type,
+                const std::string& key) {
+                 return view.input(label, value, type, key);
+             },
+             py::arg("label"),
+             py::arg("value") = "",
+             py::arg("type") = "text",
+             py::arg("key") = "")
+        .def("password",
+             [](affineui::View& view,
+                const std::string& label,
+                const std::string& value,
+                const std::string& key) {
+                 return view.password(label, value, key);
+             },
+             py::arg("label"),
+             py::arg("value") = "",
+             py::arg("key") = "")
+        .def("textarea",
+             [](affineui::View& view,
+                const std::string& label,
+                const std::string& value,
+                int rows,
+                const std::string& key) {
+                 return view.textarea(label, value, rows, key);
+             },
+             py::arg("label"),
+             py::arg("value") = "",
+             py::arg("rows") = 3,
+             py::arg("key") = "")
+        .def("dropdown",
+             [](affineui::View& view,
+                const std::string& label,
+                const std::vector<std::string>& options,
+                const std::string& selected,
+                const std::string& key) {
+                 return view.dropdown(label, options, selected, key);
+             },
+             py::arg("label"),
+             py::arg("options"),
+             py::arg("selected") = "",
+             py::arg("key") = "")
+        .def("button_group",
+             [](affineui::View& view,
+                const std::string& label,
+                const std::vector<std::string>& options,
+                const std::string& selected,
+                const std::string& key) {
+                 return view.button_group(label, options, selected, key);
+             },
+             py::arg("label"),
+             py::arg("options"),
+             py::arg("selected") = "",
+             py::arg("key") = "")
         .def("slider",
              [](affineui::View& view,
                 const std::string& label,
@@ -336,16 +429,31 @@ PYBIND11_MODULE(_affineui, m) {
         .def("container",
              [](affineui::View& view,
                 const std::string& classes,
-                const std::string& key) {
-                 return view.container_ref(classes, key);
+                const std::string& key,
+                py::object build) {
+                 if (build.is_none()) {
+                     return view.container_ref(classes, key);
+                 }
+                 auto scope = view.container(classes, key);
+                 auto ref = scope.ref();
+                 build(&view);
+                 return ref;
              },
              py::arg("classes") = "",
-             py::arg("key") = "")
+             py::arg("key") = "",
+             py::arg("build") = py::none())
         .def("panel",
-             [](affineui::View& view, const std::string& key) {
-                 return view.panel_ref(key);
+             [](affineui::View& view, const std::string& key, py::object build) {
+                 if (build.is_none()) {
+                     return view.panel_ref(key);
+                 }
+                 auto scope = view.panel(key);
+                 auto ref = scope.ref();
+                 build(&view);
+                 return ref;
              },
-             py::arg("key") = "")
+             py::arg("key") = "",
+             py::arg("build") = py::none())
         .def("find_widget",
              [](affineui::View& view, const std::string& name) {
                  return view.find_widget(name);

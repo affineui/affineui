@@ -39,16 +39,25 @@ def test_view_emits_remote_patch_batches_and_html():
     view.heading(1, "Command API")
     view.button("Run", primary=True, key="run").on_click(lambda: None)
     view.checkbox("Enabled", True, key="enabled").on_change(lambda value: None)
+    view.input("Object", "Cylinder.042", key="object")
+    view.password("Token", "secret", key="token")
+    view.dropdown("Mode", ["Object", "Edit"], "Object", key="mode")
+    view.button_group("Space", ["Local", "World"], "World", key="space")
+    view.textarea("Notes", "Dense native UI", rows=3, key="notes")
     view.slider("Gain", 0.5, key="gain").on_change(lambda value: None)
     view.knob("Shape", 0.42, key="shape").on_change(lambda value: None)
     view.end()
 
+    assert not view.diagnostics()
     assert patches.size() > 0
     assert "create_element" in patches.to_json()
     html = view.to_html_document()
     assert "bootstrap-5.3.8.min.css" in html
     assert "Command API" in html
-    assert "form-range" in html
+    assert "data-aui-knob" in html
+    assert "form-control" in html
+    assert "form-select" in html
+    assert "btn-group" in html
 
     app = ui.App(title="View Smoke")
     app.load_view(view)
@@ -59,19 +68,38 @@ def test_view_emits_remote_patch_batches_and_html():
 def test_view_panel_uses_framework_selectors():
     bootstrap = ui.View(ui.ViewTheme.Bootstrap)
     bootstrap.begin()
-    bootstrap.panel(key="panel")
+    bootstrap.panel(
+        key="panel",
+        build=lambda v: v.input("Object", "Cylinder.042", key="object"),
+    )
     bootstrap.end()
     bootstrap_html = bootstrap.to_html_document()
+    assert not bootstrap.diagnostics()
     assert "bootstrap-5.3.8.min.css" in bootstrap_html
-    assert "container py-4" in bootstrap_html
+    assert "card shadow-sm" in bootstrap_html
+    assert "form-control" in bootstrap_html
+    assert 'data-aui-size="md"' in bootstrap_html
 
     decius = ui.View(ui.ViewTheme.Decius)
     decius.begin()
-    decius.panel(key="panel")
+    decius.panel(
+        key="panel",
+        build=lambda v: v.input("Object", "Cylinder.042", key="object"),
+    ).selector(ui.decius.selector.size, ui.decius.size.lg)
     decius.end()
     decius_html = decius.to_html_document()
+    assert not decius.diagnostics()
     assert "decius-css-0.4.1.bundle.min.css" in decius_html
     assert "dcs-panel dcs-panel--bordered" in decius_html
+    assert "dcs-input" in decius_html
+    assert 'data-aui-style="flat"' in decius_html
+    assert 'data-dcs-style="flat"' in decius_html
+    assert 'data-aui-size="lg"' in decius_html
+
+    decius.selector(ui.decius.selector.style, ui.decius.style.three_d)
+    decius_html = decius.to_html_document()
+    assert 'data-aui-style="3d"' in decius_html
+    assert 'data-dcs-style="3d"' in decius_html
 
 
 def test_named_widget_refs_are_safe_and_recoverable():
@@ -151,6 +179,43 @@ def test_widget_ref_append_and_replace_children():
     panel.replace(lambda v: v.heading(2, "Replacement", key="replacement"))
     assert not view.find_widget("second")
     assert view.find_widget("replacement")
+
+
+def test_stable_ref_replaces_tab_body_content():
+    view = ui.View(ui.ViewTheme.Bootstrap)
+    patches = ui.RemotePatchQueue()
+
+    view.begin(patches)
+    view.panel(
+        key="panel",
+        build=lambda v: (
+            v.button("Controls", primary=True, key="tab-controls"),
+            v.button("Fields", key="tab-fields"),
+            v.container(classes="tab-body", key="tab-body"),
+        ),
+    )
+    view.end()
+
+    body = view.find_widget("tab-body")
+    assert body
+    body.replace(
+        lambda v: (
+            v.checkbox("Framework checkbox", True, key="hello-check"),
+            v.slider("Framework slider", 0.65, key="hello-slider"),
+        )
+    )
+    assert view.find_widget("hello-check")
+    assert view.find_widget("hello-slider")
+
+    body.replace(
+        lambda v: (
+            v.input("Object", "Cylinder.042", key="object"),
+            v.dropdown("Mode", ["Object", "Edit"], "Object", key="mode"),
+        )
+    )
+    assert not view.find_widget("hello-check")
+    assert view.find_widget("object")
+    assert view.find_widget("mode")
 
 
 def test_append_is_illegal_during_generation():

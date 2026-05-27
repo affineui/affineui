@@ -162,6 +162,12 @@ mutation. Public surface (`mount`, `use_state`, `on_click`,
       clear-and-rebuild, entirely different body.
 - [ ] Virtual-DOM data structures (only needed if we promote past
       dumb-reconcile to keyed-list reconciliation)
+- [ ] Command-tree virtual list widget: first-class fixed-row-height
+      virtualization, followed by per-row fixed sizes supplied as an
+      array or size callback. The widget should materialize only the
+      visible block range plus overscan, preserve stable row ids, and
+      expose the same local and browser reconciliation contract as
+      other command-tree widgets.
 - [ ] `on_change` / `on_input` handlers (today they're stubs)
 - [ ] `examples/05_imm_todo` — keyed list rendering, exercises
       add/remove/reorder

@@ -36,6 +36,56 @@ enum class ViewTheme {
     Decius,
 };
 
+namespace bootstrap {
+namespace selector {
+inline constexpr std::string_view size{"size"};
+inline constexpr std::string_view theme{"theme"};
+}  // namespace selector
+
+namespace size {
+inline constexpr std::string_view sm{"sm"};
+inline constexpr std::string_view med{"md"};
+inline constexpr std::string_view medium{"md"};
+inline constexpr std::string_view md{"md"};
+inline constexpr std::string_view lg{"lg"};
+}  // namespace size
+
+namespace theme {
+inline constexpr std::string_view light{"light"};
+inline constexpr std::string_view dark{"dark"};
+}  // namespace theme
+}  // namespace bootstrap
+
+namespace decius {
+namespace selector {
+inline constexpr std::string_view size{"size"};
+inline constexpr std::string_view style{"style"};
+inline constexpr std::string_view density{"density"};
+inline constexpr std::string_view accent{"accent"};
+inline constexpr std::string_view radius{"radius"};
+inline constexpr std::string_view dark{"dark"};
+}  // namespace selector
+
+namespace size {
+inline constexpr std::string_view sm{"sm"};
+inline constexpr std::string_view med{"md"};
+inline constexpr std::string_view medium{"md"};
+inline constexpr std::string_view md{"md"};
+inline constexpr std::string_view lg{"lg"};
+}  // namespace size
+
+namespace style {
+inline constexpr std::string_view flat{"flat"};
+inline constexpr std::string_view three_d{"3d"};
+}  // namespace style
+
+namespace density {
+inline constexpr std::string_view compact{"compact"};
+inline constexpr std::string_view comfortable{"comfortable"};
+inline constexpr std::string_view spacious{"spacious"};
+}  // namespace density
+}  // namespace decius
+
 enum class WidgetKind {
     Root,
     Container,
@@ -46,6 +96,10 @@ enum class WidgetKind {
     Checkbox,
     Slider,
     Knob,
+    TextInput,
+    TextArea,
+    Dropdown,
+    ButtonGroup,
     Card,
 };
 
@@ -187,6 +241,7 @@ public:
     WidgetRef& text(std::string_view value);
     WidgetRef& attr(std::string_view name, std::string_view value);
     WidgetRef& remove_attr(std::string_view name);
+    WidgetRef& selector(std::string_view name, std::string_view value);
     WidgetRef& cls(std::string_view classes);
     WidgetRef& on_click(std::function<void()> cb);
     WidgetRef& on_change(std::function<void(std::string_view)> cb);
@@ -222,6 +277,7 @@ public:
         WidgetRef ref() const;
         Scope& named(std::string_view name);
         Scope& attr(std::string_view name, std::string_view value);
+        Scope& selector(std::string_view name, std::string_view value);
         Scope& cls(std::string_view classes);
         Scope& text(std::string_view value);
         [[nodiscard]] WidgetRef find_widget(std::string_view name) const;
@@ -234,6 +290,7 @@ public:
     explicit View(ViewTheme theme = ViewTheme::Bootstrap);
 
     void clear();
+    View& selector(std::string_view name, std::string_view value);
     void set_mutation_sink(ViewSink* sink) noexcept { mutation_sink_ = sink; }
     void begin(ViewSink* sink = nullptr);
     void begin(RemotePatchQueue* remote_patches);
@@ -252,6 +309,8 @@ public:
     Scope container(std::string_view classes = {},
                     std::string_view key = {},
                     std::source_location here = std::source_location::current());
+    Scope panel(std::string_view key = {},
+                std::source_location here = std::source_location::current());
     Scope card(std::string_view title,
                std::string_view classes = {},
                std::string_view key = {},
@@ -277,6 +336,30 @@ public:
                        bool checked,
                        std::string_view key = {},
                        std::source_location here = std::source_location::current());
+    WidgetRef input(std::string_view label,
+                    std::string_view value,
+                    std::string_view type = "text",
+                    std::string_view key = {},
+                    std::source_location here = std::source_location::current());
+    WidgetRef password(std::string_view label,
+                       std::string_view value,
+                       std::string_view key = {},
+                       std::source_location here = std::source_location::current());
+    WidgetRef textarea(std::string_view label,
+                       std::string_view value,
+                       int rows = 3,
+                       std::string_view key = {},
+                       std::source_location here = std::source_location::current());
+    WidgetRef dropdown(std::string_view label,
+                       const std::vector<std::string>& options,
+                       std::string_view selected,
+                       std::string_view key = {},
+                       std::source_location here = std::source_location::current());
+    WidgetRef button_group(std::string_view label,
+                           const std::vector<std::string>& options,
+                           std::string_view selected,
+                           std::string_view key = {},
+                           std::source_location here = std::source_location::current());
     WidgetRef slider(std::string_view label,
                      double value,
                      double min = 0.0,
@@ -314,6 +397,9 @@ private:
                           bool push_scope);
     void close_node();
     void set_attr(WidgetNode& node, std::string_view name, std::string_view value);
+    void set_selector(WidgetNode& node,
+                      std::string_view name,
+                      std::string_view value);
     void remove_attr(WidgetNode& node, std::string_view name);
     void set_text(WidgetNode& node, std::string_view value);
     void set_click_handler(WidgetNode& node, std::function<void()> cb);
@@ -337,6 +423,7 @@ private:
     [[nodiscard]] ViewSink* current_sink() const noexcept;
 
     ViewTheme theme_{ViewTheme::Bootstrap};
+    std::vector<WidgetAttribute> document_attrs_;
     WidgetNode root_{};
     std::vector<WidgetNode*> stack_;
     std::vector<std::pair<std::string, StableId>> widget_names_;
