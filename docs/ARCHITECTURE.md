@@ -121,6 +121,25 @@ Named methods and stable delegate objects can be removed with
 also return an event token/subscription so callers have a precise removal
 path without relying on lambda identity.
 
+The implementation should be one shared callback-list substrate used by
+C++, Python, and later C#. It should not grow a separate event system per
+language binding. The core representation should favor:
+
+- compact contiguous slots with stable callback ids;
+- tombstone removal plus opportunistic compaction outside dispatch;
+- a small function pointer/trampoline plus user payload for C/Python
+  bindings;
+- typed C++ wrappers for method pointers and guarded lambdas;
+- no per-callback virtual base class on the hot path;
+- no allocation for common method/delegate registration beyond any
+  payload storage the binding explicitly needs.
+
+Python can map bound methods to this substrate with `weakref.WeakMethod`
+and a single C trampoline. The C++ API can map `this` + method pointer to
+the same slot layout. Mixed C++/Python apps therefore dispatch through
+the same callback list, see the same ordering/removal semantics, and do
+not pay for duplicate observer machinery.
+
 ## Layered view
 
 ```
