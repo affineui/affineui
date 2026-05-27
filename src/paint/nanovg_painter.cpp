@@ -756,7 +756,19 @@ public:
             shadow_radius = std::max(0.0f, radius - spread);
         }
 
-        if (img_w > 1024 || img_h > 1024) return false;
+        // Raster shadows are excellent for small 3D controls because their
+        // exact pixel mask is cached and reused. They are the wrong tool for
+        // large responsive panels: every 1px resize creates a new large mask,
+        // allocates two temporary blur buffers, and spends CPU on pixels that
+        // browsers normally handle with a cached/procedural shadow path. Keep
+        // the raster path for control-sized shadows and let NanoVG's analytic
+        // box gradient handle large/card-like shadows.
+        constexpr int kMaxRasterShadowDim = 256;
+        constexpr int kMaxRasterShadowArea = 96 * 1024;
+        if (img_w > kMaxRasterShadowDim || img_h > kMaxRasterShadowDim ||
+            img_w * img_h > kMaxRasterShadowArea) {
+            return false;
+        }
 
         std::uint64_t key = inset ? 0x9f46e997b4a7c15ull
                                   : 0x6a09e667f3bcc909ull;
