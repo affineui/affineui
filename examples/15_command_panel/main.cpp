@@ -6,6 +6,7 @@
 
 #include <affineui/affineui.h>
 
+#include <cstdio>
 #include <string_view>
 
 namespace {
@@ -53,9 +54,23 @@ affineui::View build_view(affineui::ViewTheme style) {
             "native AffineUI engine using framework selectors.",
             {},
             "lede");
-        v.button("Hello button", true, "hello-button");
-        v.checkbox("Framework checkbox", true, "hello-check");
-        v.slider("Framework slider", 0.65, 0.0, 1.0, "hello-slider");
+        v.button("Hello button", true, "hello-button")
+            .on_click([] { std::puts("Hello button clicked"); });
+        v.checkbox("Framework checkbox", true, "hello-check")
+            .on_change([](std::string_view value) {
+                std::printf("Checkbox changed: %.*s\n",
+                            static_cast<int>(value.size()), value.data());
+            });
+        v.slider("Framework slider", 0.65, 0.0, 1.0, "hello-slider")
+            .on_change([](std::string_view value) {
+                std::printf("Slider changed: %.*s\n",
+                            static_cast<int>(value.size()), value.data());
+            });
+        v.knob("Framework knob", 0.42, 0.0, 1.0, false, "hello-knob")
+            .on_change([](std::string_view value) {
+                std::printf("Knob changed: %.*s\n",
+                            static_cast<int>(value.size()), value.data());
+            });
     });
 
     return view;

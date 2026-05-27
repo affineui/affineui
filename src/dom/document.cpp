@@ -34,6 +34,7 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <limits>
 #include <memory>
@@ -221,6 +222,14 @@ struct KeyframeBlock {
     std::vector<KeyframeStep> steps;
 };
 
+enum class LiveControlKind : std::uint8_t {
+    None,
+    RangeInput,
+    DeciusSlider,
+    DeciusFader,
+    DeciusKnob,
+};
+
 void scan_font_face_rules(std::string_view css,
                           std::string_view stylesheet_base_url,
                           std::vector<FontFaceRule>& out);
@@ -273,6 +282,23 @@ struct DocumentImpl {
     std::vector<int>          hovered_chain;
     std::vector<int>          active_chain;
     Point                     last_mouse_pos{};
+    bool                      ui_control_script_attached{false};
+    std::vector<std::string>  activated_widgets;
+    std::vector<Document::WidgetChange> changed_widgets;
+
+#if !defined(AFFINEUI_STUB_BUILD)
+    struct LiveControlDrag {
+        LiveControlKind  kind{LiveControlKind::None};
+        lxb_dom_element_t* elem{nullptr};
+        int              block_idx{-1};
+        Rect             bounds{};
+        double           min{0.0};
+        double           max{1.0};
+        double           start_value{0.0};
+        int              start_y{0};
+        bool             bipolar{false};
+    } live_drag;
+#endif
 
     // Immediate-mode runtime â€” lazily created on the first
     // set_imm_view() call. Holds state slots, click handlers, and the
@@ -739,6 +765,10 @@ const std::string* block_attr_value(const Block& block, std::string_view name) {
     return nullptr;
 }
 
+bool block_has_attr(const Block& block, std::string_view name) {
+    return block_attr_value(block, name) != nullptr;
+}
+
 double block_attr_double(const Block& block,
                          std::string_view name,
                          double fallback) {
@@ -749,6 +779,24 @@ double block_attr_double(const Block& block,
     const double parsed = std::strtod(value->c_str(), &end);
     if (end == value->c_str()) return fallback;
     return parsed;
+}
+
+std::string compact_number(double value, int places = 2) {
+    char buf[64]{};
+    std::snprintf(buf, sizeof(buf), "%.*f", places, value);
+    std::string out{buf};
+    while (out.size() > 1 && out.back() == '0') out.pop_back();
+    if (!out.empty() && out.back() == '.') out.pop_back();
+    return out;
+}
+
+std::string percent_string(double fraction) {
+    return compact_number(std::clamp(fraction, 0.0, 1.0) * 100.0) + "%";
+}
+
+double normalized_control_value(double value, double min, double max) {
+    if (max <= min) return 0.0;
+    return std::clamp((value - min) / (max - min), 0.0, 1.0);
 }
 
 int nearest_block_with_tag(const std::vector<Block>& blocks,
@@ -3599,6 +3647,8 @@ void Document::set_html(std::string_view html) {
     impl_->content_size = Size{0, 0};
     impl_->dirty_rects.clear();
     impl_->pending_dirty_roots.clear();
+    impl_->activated_widgets.clear();
+    impl_->changed_widgets.clear();
     impl_->animation_candidate_count = 0;
     for (auto& slot : impl_->dom_weak_slots) {
 #if !defined(AFFINEUI_STUB_BUILD)
@@ -3717,6 +3767,44 @@ void Document::set_html(std::string_view html) {
         }
     }
 #endif
+}
+
+void Document::attach_script(DocumentScript script) {
+    switch (script) {
+        case DocumentScript::UiControls:
+            impl_->ui_control_script_attached = true;
+            break;
+    }
+}
+
+void Document::detach_script(DocumentScript script) {
+    switch (script) {
+        case DocumentScript::UiControls:
+            impl_->ui_control_script_attached = false;
+#if !defined(AFFINEUI_STUB_BUILD)
+            impl_->live_drag = {};
+#endif
+            break;
+    }
+}
+
+void Document::clear_scripts() {
+    impl_->ui_control_script_attached = false;
+#if !defined(AFFINEUI_STUB_BUILD)
+    impl_->live_drag = {};
+#endif
+}
+
+std::vector<std::string> Document::take_activated_widgets() {
+    auto out = std::move(impl_->activated_widgets);
+    impl_->activated_widgets.clear();
+    return out;
+}
+
+std::vector<Document::WidgetChange> Document::take_widget_changes() {
+    auto out = std::move(impl_->changed_widgets);
+    impl_->changed_widgets.clear();
+    return out;
 }
 
 void Document::set_user_stylesheet(std::string_view css) {
@@ -6478,6 +6566,23 @@ int find_block_by_elem_id(const detail::DocumentImpl& impl,
     return -1;
 }
 
+int block_index_for_exact_element(const detail::DocumentImpl& impl,
+                                  lxb_dom_element_t* elem) {
+    if (!elem) return -1;
+    for (std::size_t i = 0; i < impl.blocks.size(); ++i) {
+        if (impl.style_store.element_of(impl.blocks[i].id) == elem) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+lxb_dom_element_t* element_for_block(detail::DocumentImpl& impl, int idx) {
+    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return nullptr;
+    return impl.style_store.element_of(
+        impl.blocks[static_cast<std::size_t>(idx)].id);
+}
+
 lxb_dom_element_t* find_dom_element_by_id(lxb_dom_node_t* root,
                                           std::string_view elem_id) {
     if (!root || elem_id.empty()) return nullptr;
@@ -6572,6 +6677,559 @@ void mark_live_mutation_dirty(detail::DocumentImpl& impl,
     if (impl.dirty_rects.size() == dirty_count_before && !needs_layout) {
         impl.paint_dirty = true;
     }
+}
+
+lxb_dom_element_t* first_descendant_with_class(lxb_dom_element_t* elem,
+                                               std::string_view cls) {
+    if (!elem) return nullptr;
+    const auto classes = split_classes(attr_string(elem, "class"));
+    if (std::find(classes.begin(), classes.end(), cls) != classes.end()) {
+        return elem;
+    }
+    for (auto* child = lxb_dom_node_first_child(lxb_dom_interface_node(elem));
+         child != nullptr; child = lxb_dom_node_next(child)) {
+        if (child->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        if (auto* found = first_descendant_with_class(
+                lxb_dom_interface_element(child), cls)) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
+lxb_dom_element_t* first_descendant_input(lxb_dom_element_t* elem) {
+    if (!elem) return nullptr;
+    if (tag_name(elem) == "input") return elem;
+    for (auto* child = lxb_dom_node_first_child(lxb_dom_interface_node(elem));
+         child != nullptr; child = lxb_dom_node_next(child)) {
+        if (child->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        if (auto* found = first_descendant_input(
+                lxb_dom_interface_element(child))) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
+lxb_dom_element_t* nearest_checkbox_wrapper(lxb_dom_element_t* elem) {
+    for (auto* node = elem ? lxb_dom_interface_node(elem) : nullptr;
+         node != nullptr; node = node->parent) {
+        if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* candidate = lxb_dom_interface_element(node);
+        const auto classes = split_classes(attr_string(candidate, "class"));
+        const auto widget = attr_string(candidate, "data-aui-widget");
+        const bool checkbox_widget = widget == "checkbox";
+        const bool decius_widget =
+            std::find(classes.begin(), classes.end(), "dcs-check") !=
+                classes.end() ||
+            std::find(classes.begin(), classes.end(), "dcs-switch") !=
+                classes.end();
+        if (checkbox_widget || decius_widget) return candidate;
+    }
+    return elem;
+}
+
+bool set_attribute_on_element(detail::DocumentImpl& impl,
+                              lxb_dom_element_t* elem,
+                              std::string_view name,
+                              std::string_view value) {
+    if (!elem || name.empty()) return false;
+    const bool already_present = has_attr(elem, name);
+    if (already_present && attr_string(elem, name) == value) return false;
+
+    const int target_idx = block_index_for_exact_element(impl, elem);
+    const int dirty_root_idx =
+        target_idx >= 0 ? target_idx
+                        : block_index_for_element_or_ancestor(impl, elem);
+    const bool selector_affecting =
+        attribute_can_affect_selector_matching(name);
+    const bool subtree_local_selectors =
+        !selector_affecting ||
+        stylesheet_dependencies_stay_in_mutated_subtree(impl, name);
+    const int mutation_dirty_root_idx =
+        selector_affecting && !subtree_local_selectors && target_idx >= 0 &&
+                impl.blocks[static_cast<std::size_t>(target_idx)].parent_idx >= 0
+            ? impl.blocks[static_cast<std::size_t>(target_idx)].parent_idx
+            : dirty_root_idx;
+    const Rect old_rect = mutation_dirty_root_idx >= 0
+                              ? subtree_visual_rect(impl, mutation_dirty_root_idx)
+                              : document_visual_rect(impl);
+    const bool recollect_generated_subtree =
+        selector_affecting &&
+        generated_content_depends_on_attribute(impl, name);
+
+    if (!lxb_dom_element_set_attribute(elem, as_lxb(name), name.size(),
+                                       as_lxb(value), value.size())) {
+        return false;
+    }
+
+    bool needs_layout = false;
+    if (selector_affecting) {
+        if (!rematch_stylesheet_matches_for_subtree(
+                impl, mutation_dirty_root_idx)) {
+            return false;
+        }
+        if (impl.resolver) impl.resolver->clear();
+
+        if (target_idx >= 0) {
+            auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
+            refresh_block_metadata_from_element(block, elem);
+        }
+
+        if (recollect_generated_subtree) {
+            recollect_blocks_from_current_dom(impl);
+            mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
+                                     /*needs_layout=*/true);
+            return true;
+        }
+
+        needs_layout = mutation_dirty_root_idx >= 0
+                           ? restyle_subtree(impl, mutation_dirty_root_idx)
+                           : restyle_all_blocks(impl);
+        if (target_idx >= 0) {
+            auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
+            if (block.tag == "img" && name == "src") needs_layout = true;
+        }
+        mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
+                                 needs_layout);
+        return true;
+    }
+
+    if (target_idx >= 0) {
+        if (impl.resolver) impl.resolver->invalidate(elem);
+        auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
+        refresh_block_metadata_from_element(block, elem);
+        needs_layout = restyle_subtree(impl, target_idx);
+        if (block.tag == "img" && name == "src") needs_layout = true;
+    }
+    mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
+                             needs_layout);
+    return true;
+}
+
+bool remove_attribute_on_element(detail::DocumentImpl& impl,
+                                 lxb_dom_element_t* elem,
+                                 std::string_view name) {
+    if (!elem || name.empty() || !has_attr(elem, name)) return false;
+
+    const int target_idx = block_index_for_exact_element(impl, elem);
+    const int dirty_root_idx =
+        target_idx >= 0 ? target_idx
+                        : block_index_for_element_or_ancestor(impl, elem);
+    const bool selector_affecting =
+        attribute_can_affect_selector_matching(name);
+    const bool subtree_local_selectors =
+        !selector_affecting ||
+        stylesheet_dependencies_stay_in_mutated_subtree(impl, name);
+    const int mutation_dirty_root_idx =
+        selector_affecting && !subtree_local_selectors && target_idx >= 0 &&
+                impl.blocks[static_cast<std::size_t>(target_idx)].parent_idx >= 0
+            ? impl.blocks[static_cast<std::size_t>(target_idx)].parent_idx
+            : dirty_root_idx;
+    const Rect old_rect = mutation_dirty_root_idx >= 0
+                              ? subtree_visual_rect(impl, mutation_dirty_root_idx)
+                              : document_visual_rect(impl);
+    const bool recollect_generated_subtree =
+        selector_affecting &&
+        generated_content_depends_on_attribute(impl, name);
+
+    if (lxb_dom_element_remove_attribute(elem, as_lxb(name), name.size())
+            != LXB_STATUS_OK) {
+        return false;
+    }
+
+    bool needs_layout = false;
+    if (selector_affecting) {
+        if (!rematch_stylesheet_matches_for_subtree(
+                impl, mutation_dirty_root_idx)) {
+            return false;
+        }
+        if (impl.resolver) impl.resolver->clear();
+
+        if (target_idx >= 0) {
+            auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
+            refresh_block_metadata_from_element(block, elem);
+        }
+
+        if (recollect_generated_subtree) {
+            recollect_blocks_from_current_dom(impl);
+            mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
+                                     /*needs_layout=*/true);
+            return true;
+        }
+
+        needs_layout = mutation_dirty_root_idx >= 0
+                           ? restyle_subtree(impl, mutation_dirty_root_idx)
+                           : restyle_all_blocks(impl);
+        mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
+                                 needs_layout);
+        return true;
+    }
+
+    if (target_idx >= 0) {
+        if (impl.resolver) impl.resolver->invalidate(elem);
+        auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
+        refresh_block_metadata_from_element(block, elem);
+        needs_layout = restyle_subtree(impl, target_idx);
+    }
+    mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
+                             needs_layout);
+    return true;
+}
+
+bool set_text_on_element(detail::DocumentImpl& impl,
+                         lxb_dom_element_t* elem,
+                         std::string_view text) {
+    if (!elem) return false;
+    auto* node = lxb_dom_interface_node(elem);
+    if (node_text(node) == text) return false;
+
+    const int target_idx = block_index_for_exact_element(impl, elem);
+    if (target_idx < 0) return false;
+    const Rect old_rect = subtree_visual_rect(impl, target_idx);
+    if (lxb_dom_node_text_content_set(node, as_lxb(text), text.size())
+            != LXB_STATUS_OK) {
+        return false;
+    }
+    auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
+    block.text = std::string(text);
+    mark_live_mutation_dirty(impl, target_idx, old_rect,
+                             /*needs_layout=*/true);
+    return true;
+}
+
+double element_attr_double(lxb_dom_element_t* elem,
+                           std::string_view name,
+                           double fallback) {
+    if (!elem || !has_attr(elem, name)) return fallback;
+    const auto value = attr_string(elem, name);
+    if (value.empty()) return fallback;
+    char* end = nullptr;
+    const double parsed = std::strtod(value.c_str(), &end);
+    return end == value.c_str() ? fallback : parsed;
+}
+
+bool element_attr_true(lxb_dom_element_t* elem, std::string_view name) {
+    if (!elem || !has_attr(elem, name)) return false;
+    const auto value = attr_string(elem, name);
+    return value.empty() || value == "true" || value == "checked" ||
+           value == "1";
+}
+
+std::string widget_event_name(lxb_dom_element_t* elem) {
+    if (!elem) return {};
+    if (auto name = attr_string(elem, "data-aui-name"); !name.empty()) {
+        return name;
+    }
+    return attr_string(elem, "id");
+}
+
+void emit_widget_change(detail::DocumentImpl& impl,
+                        lxb_dom_element_t* elem,
+                        std::string_view value) {
+    auto name = widget_event_name(elem);
+    if (name.empty()) return;
+    impl.changed_widgets.push_back({std::move(name), std::string(value)});
+}
+
+std::string decius_slider_fill_style(double min, double max, double value,
+                                     bool bipolar) {
+    const double p = normalized_control_value(value, min, max);
+    if (!bipolar) return "width:" + percent_string(p);
+    const double start = std::min(0.5, p);
+    const double width = std::abs(p - 0.5);
+    return "left:" + percent_string(start) + ";right:auto;width:" +
+           percent_string(width);
+}
+
+std::string decius_slider_thumb_style(double min, double max, double value) {
+    return "left:" + percent_string(normalized_control_value(value, min, max));
+}
+
+std::string decius_fader_style(double min, double max, double value) {
+    const double p = 1.0 - normalized_control_value(value, min, max);
+    return "--pos:" + percent_string(p);
+}
+
+double decius_knob_angle(double min, double max, double value) {
+    return -135.0 + normalized_control_value(value, min, max) * 270.0;
+}
+
+std::pair<double, double> decius_knob_ring_point(double deg) {
+    constexpr double r = 10.5;
+    constexpr double pi = 3.14159265358979323846;
+    const double rad = deg * pi / 180.0;
+    return {12.0 + r * std::cos(rad), 12.0 + r * std::sin(rad)};
+}
+
+std::string decius_knob_arc_path(double min, double max, double value,
+                                 bool bipolar) {
+    const double p = normalized_control_value(value, min, max);
+    const double sweep_degrees = bipolar ? (p - 0.5) * 270.0 : p * 270.0;
+    if (std::abs(sweep_degrees) <= 0.5) return {};
+
+    const double start_degrees = bipolar ? -90.0 : -225.0;
+    const double end_degrees = start_degrees + sweep_degrees;
+    const auto [x0, y0] = decius_knob_ring_point(start_degrees);
+    const auto [x1, y1] = decius_knob_ring_point(end_degrees);
+    const int large = std::abs(sweep_degrees) > 180.0 ? 1 : 0;
+    const int sweep = end_degrees >= start_degrees ? 1 : 0;
+
+    return "M " + compact_number(x0) + " " + compact_number(y0) +
+           " A 10.5 10.5 0 " + std::to_string(large) + " " +
+           std::to_string(sweep) + " " + compact_number(x1) + " " +
+           compact_number(y1);
+}
+
+double value_from_x(const Rect& bounds, int x, double min, double max) {
+    const double t = bounds.w > 0
+        ? std::clamp((static_cast<double>(x) - bounds.x) / bounds.w,
+                     0.0, 1.0)
+        : 0.0;
+    return min + t * (max - min);
+}
+
+double value_from_y(const Rect& bounds, int y, double min, double max) {
+    const double t = bounds.h > 0
+        ? std::clamp((static_cast<double>(y) - bounds.y) / bounds.h,
+                     0.0, 1.0)
+        : 0.0;
+    return min + (1.0 - t) * (max - min);
+}
+
+bool update_live_control_value(detail::DocumentImpl& impl,
+                               lxb_dom_element_t* elem,
+                               LiveControlKind kind,
+                               double min,
+                               double max,
+                               double value,
+                               bool bipolar) {
+    if (!elem) return false;
+    if (max <= min) max = min + 1.0;
+    const double clamped = std::clamp(value, min, max);
+    const std::string value_text = compact_number(clamped);
+
+    bool changed = false;
+    const bool value_changed =
+        set_attribute_on_element(impl, elem, "value", value_text);
+    changed = value_changed || changed;
+    if (kind == LiveControlKind::DeciusSlider ||
+        kind == LiveControlKind::DeciusFader ||
+        kind == LiveControlKind::DeciusKnob) {
+        changed =
+            set_attribute_on_element(impl, elem, "data-value", value_text) ||
+            changed;
+    }
+    if (value_changed) emit_widget_change(impl, elem, value_text);
+
+    if (kind == LiveControlKind::DeciusSlider) {
+        if (auto* fill = first_descendant_with_class(elem, "dcs-slider__fill")) {
+            changed = set_attribute_on_element(
+                impl, fill, "style",
+                decius_slider_fill_style(min, max, clamped, bipolar)) || changed;
+        }
+        if (auto* thumb = first_descendant_with_class(elem, "dcs-slider__thumb")) {
+            changed = set_attribute_on_element(
+                impl, thumb, "style",
+                decius_slider_thumb_style(min, max, clamped)) || changed;
+        }
+    } else if (kind == LiveControlKind::DeciusFader) {
+        changed = set_attribute_on_element(
+            impl, elem, "style",
+            decius_fader_style(min, max, clamped)) || changed;
+    } else if (kind == LiveControlKind::DeciusKnob) {
+        if (auto* indicator = first_descendant_with_class(
+                elem, "dcs-knob__indicator")) {
+            changed = set_attribute_on_element(
+                impl, indicator, "style",
+                "--angle:" + compact_number(
+                    decius_knob_angle(min, max, clamped)) + "deg") || changed;
+        }
+        if (auto* arc = first_descendant_with_class(elem, "dcs-knob__arc")) {
+            const auto path = decius_knob_arc_path(min, max, clamped, bipolar);
+            changed = path.empty()
+                ? (remove_attribute_on_element(impl, arc, "d") || changed)
+                : (set_attribute_on_element(impl, arc, "d", path) || changed);
+        }
+        if (auto* label = first_descendant_with_class(elem, "dcs-knob__value")) {
+            changed = set_text_on_element(impl, label, value_text) || changed;
+        }
+    }
+
+    return changed;
+}
+
+LiveControlKind live_control_kind_for_block(const Block& block) {
+    if (block.tag == "input" && block.input_type == "range") {
+        return LiveControlKind::RangeInput;
+    }
+    if (block_has_attr(block, "data-dcs-slider")) {
+        return LiveControlKind::DeciusSlider;
+    }
+    if (block_has_attr(block, "data-dcs-fader")) {
+        return LiveControlKind::DeciusFader;
+    }
+    if (block_has_attr(block, "data-dcs-knob")) {
+        return LiveControlKind::DeciusKnob;
+    }
+    return LiveControlKind::None;
+}
+
+bool find_live_control_at(detail::DocumentImpl& impl,
+                          int from_idx,
+                          detail::DocumentImpl::LiveControlDrag& out) {
+    for (int idx = from_idx;
+         idx >= 0 && idx < static_cast<int>(impl.blocks.size());
+         idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+        const auto kind = live_control_kind_for_block(block);
+        if (kind == LiveControlKind::None || block.is_disabled) continue;
+
+        auto* elem = element_for_block(impl, idx);
+        if (!elem) continue;
+        out.kind = kind;
+        out.elem = elem;
+        out.block_idx = idx;
+        out.bounds = block_border_visual_rect(impl, idx);
+        out.min = element_attr_double(elem, "min",
+                  element_attr_double(elem, "data-min", 0.0));
+        out.max = element_attr_double(elem, "max",
+                  element_attr_double(elem, "data-max", 1.0));
+        if (out.max <= out.min) out.max = out.min + 1.0;
+        out.start_value = element_attr_double(
+            elem, "value", element_attr_double(elem, "data-value", out.min));
+        out.bipolar = has_attr(elem, "data-bipolar");
+        return true;
+    }
+    return false;
+}
+
+bool update_active_live_control(detail::DocumentImpl& impl, const Event& ev) {
+    auto& drag = impl.live_drag;
+    if (drag.kind == LiveControlKind::None || !drag.elem) return false;
+
+    double value = drag.start_value;
+    if (drag.kind == LiveControlKind::RangeInput ||
+        drag.kind == LiveControlKind::DeciusSlider) {
+        value = value_from_x(drag.bounds, ev.pos.x, drag.min, drag.max);
+    } else if (drag.kind == LiveControlKind::DeciusFader) {
+        value = value_from_y(drag.bounds, ev.pos.y, drag.min, drag.max);
+    } else if (drag.kind == LiveControlKind::DeciusKnob) {
+        value = drag.start_value +
+                (static_cast<double>(drag.start_y - ev.pos.y) / 150.0) *
+                    (drag.max - drag.min);
+    }
+    return update_live_control_value(impl, drag.elem, drag.kind, drag.min,
+                                     drag.max, value, drag.bipolar);
+}
+
+bool is_checkbox_like_block(const Block& block) {
+    if (block.tag == "input" &&
+        (block.input_type == "checkbox" || block.input_type == "radio")) {
+        return true;
+    }
+    if (block_attr_value(block, "data-aui-widget") &&
+        *block_attr_value(block, "data-aui-widget") == "checkbox") {
+        return true;
+    }
+    return block_has_class(block, "dcs-check") ||
+           block_has_class(block, "dcs-switch");
+}
+
+bool find_checkbox_control_at(detail::DocumentImpl& impl,
+                              int from_idx,
+                              int& out_idx,
+                              lxb_dom_element_t*& out_elem) {
+    for (int idx = from_idx;
+         idx >= 0 && idx < static_cast<int>(impl.blocks.size());
+         idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+        if (!is_checkbox_like_block(block) || block.is_disabled) continue;
+        auto* elem = element_for_block(impl, idx);
+        if (!elem) continue;
+        out_idx = idx;
+        out_elem = elem;
+        return true;
+    }
+    return false;
+}
+
+bool toggle_checkbox_control(detail::DocumentImpl& impl, int idx,
+                             lxb_dom_element_t* elem) {
+    if (!elem) return false;
+    const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+    lxb_dom_element_t* input =
+        block.tag == "input" ? elem : first_descendant_input(elem);
+    const bool radio = input && attr_string(input, "type") == "radio";
+    const bool old_checked = input
+        ? has_attr(input, "checked")
+        : element_attr_true(elem, "aria-checked");
+    const bool checked = radio ? true : !old_checked;
+
+    bool changed = false;
+    if (input) {
+        changed = checked
+            ? (set_attribute_on_element(impl, input, "checked", "checked") || changed)
+            : (remove_attribute_on_element(impl, input, "checked") || changed);
+    }
+    if (input != elem || has_attr(elem, "aria-checked") ||
+        block_has_class(block, "dcs-check") ||
+        block_has_class(block, "dcs-switch") ||
+        block_attr_value(block, "data-aui-widget")) {
+        changed = checked
+            ? (set_attribute_on_element(impl, elem, "aria-checked", "true") || changed)
+            : (remove_attribute_on_element(impl, elem, "aria-checked") || changed);
+    }
+    if (changed) {
+        emit_widget_change(impl, nearest_checkbox_wrapper(elem),
+                           checked ? "true" : "false");
+    }
+    return changed;
+}
+
+bool is_button_like_block(const Block& block) {
+    if (block.tag == "button") return true;
+    if (const auto* role = block_attr_value(block, "role");
+        role && *role == "button") {
+        return true;
+    }
+    if (const auto* widget = block_attr_value(block, "data-aui-widget");
+        widget && *widget == "button") {
+        return true;
+    }
+    return false;
+}
+
+bool find_button_control_at(detail::DocumentImpl& impl,
+                            int from_idx,
+                            lxb_dom_element_t*& out_elem) {
+    for (int idx = from_idx;
+         idx >= 0 && idx < static_cast<int>(impl.blocks.size());
+         idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+        if (!is_button_like_block(block) || block.is_disabled) continue;
+        auto* elem = element_for_block(impl, idx);
+        if (!elem) continue;
+        out_elem = elem;
+        return true;
+    }
+    return false;
+}
+
+std::string activation_name(lxb_dom_element_t* elem) {
+    if (!elem) return {};
+    if (auto name = attr_string(elem, "data-aui-name"); !name.empty()) {
+        return name;
+    }
+    return attr_string(elem, "id");
+}
+
+bool activate_button_control(detail::DocumentImpl& impl,
+                             lxb_dom_element_t* elem) {
+    auto name = activation_name(elem);
+    if (name.empty()) return false;
+    impl.activated_widgets.push_back(std::move(name));
+    return true;
 }
 
 // Generic chain-refresh helper used by both :hover (chain follows the
@@ -6746,6 +7404,15 @@ DispatchResult Document::dispatch(const Event& ev) {
     switch (ev.type) {
         case EventType::MouseMove: {
             impl_->last_mouse_pos = ev.pos;
+#if !defined(AFFINEUI_STUB_BUILD)
+            if (impl_->ui_control_script_attached &&
+                impl_->live_drag.kind != LiveControlKind::None) {
+                if (update_active_live_control(*impl_, ev)) {
+                    result.redraw_requested = true;
+                }
+                break;
+            }
+#endif
             const int new_hover = hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
             if (new_hover != impl_->hovered_idx) {
                 impl_->hovered_idx      = new_hover;
@@ -6776,10 +7443,33 @@ DispatchResult Document::dispatch(const Event& ev) {
             const int target = focusable_ancestor(*impl_, impl_->hovered_idx);
             const bool f = set_focus(*impl_, target);
             if (h || a || f) result.redraw_requested = true;
+#if !defined(AFFINEUI_STUB_BUILD)
+            if (impl_->ui_control_script_attached &&
+                ev.button == MouseButton::Left &&
+                find_live_control_at(*impl_, impl_->hovered_idx,
+                                     impl_->live_drag)) {
+                impl_->live_drag.start_y = ev.pos.y;
+                if (impl_->live_drag.kind != LiveControlKind::DeciusKnob &&
+                    update_active_live_control(*impl_, ev)) {
+                    result.redraw_requested = true;
+                }
+            }
+#endif
             break;
         }
         case EventType::MouseUp: {
             impl_->last_mouse_pos = ev.pos;
+            bool released_live_control = false;
+#if !defined(AFFINEUI_STUB_BUILD)
+            if (impl_->ui_control_script_attached &&
+                impl_->live_drag.kind != LiveControlKind::None) {
+                if (update_active_live_control(*impl_, ev)) {
+                    result.redraw_requested = true;
+                }
+                released_live_control = true;
+                impl_->live_drag = {};
+            }
+#endif
             impl_->hovered_idx    = hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
             // Clear :active on every MouseUp â€” the press is over. We
             // don't try to be clever about "release outside the
@@ -6789,6 +7479,28 @@ DispatchResult Document::dispatch(const Event& ev) {
             const bool h = refresh_hover_chain(*impl_);
             const bool a = refresh_active_chain(*impl_);
             if (h || a) result.redraw_requested = true;
+#if !defined(AFFINEUI_STUB_BUILD)
+            if (impl_->ui_control_script_attached &&
+                ev.button == MouseButton::Left && !released_live_control) {
+                bool toggled_checkbox = false;
+                int check_idx = -1;
+                lxb_dom_element_t* check_elem = nullptr;
+                if (find_checkbox_control_at(*impl_, impl_->hovered_idx,
+                                             check_idx, check_elem) &&
+                    toggle_checkbox_control(*impl_, check_idx, check_elem)) {
+                    result.redraw_requested = true;
+                    toggled_checkbox = true;
+                }
+                if (!toggled_checkbox) {
+                    lxb_dom_element_t* button_elem = nullptr;
+                    if (find_button_control_at(*impl_, impl_->hovered_idx,
+                                               button_elem) &&
+                        activate_button_control(*impl_, button_elem)) {
+                        result.redraw_requested = true;
+                    }
+                }
+            }
+#endif
             break;
         }
 #if !defined(AFFINEUI_STUB_BUILD)
@@ -7008,84 +7720,7 @@ bool Document::set_attribute_by_id(std::string_view elem_id,
     if (!impl_->doc || name.empty()) return false;
     auto* elem = find_dom_element_by_id(*impl_, elem_id);
     if (!elem) return false;
-
-    const bool already_present = has_attr(elem, name);
-    if (already_present && attr_string(elem, name) == value) return false;
-
-    int target_idx = -1;
-    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
-        if (impl_->style_store.element_of(impl_->blocks[i].id) == elem) {
-            target_idx = static_cast<int>(i);
-            break;
-        }
-    }
-    const int dirty_root_idx =
-        target_idx >= 0 ? target_idx
-                        : block_index_for_element_or_ancestor(*impl_, elem);
-    const bool selector_affecting =
-        attribute_can_affect_selector_matching(name);
-    const bool subtree_local_selectors =
-        !selector_affecting ||
-        stylesheet_dependencies_stay_in_mutated_subtree(*impl_, name);
-    const int mutation_dirty_root_idx =
-        selector_affecting && !subtree_local_selectors && target_idx >= 0 &&
-                impl_->blocks[static_cast<std::size_t>(target_idx)].parent_idx >= 0
-            ? impl_->blocks[static_cast<std::size_t>(target_idx)].parent_idx
-            : dirty_root_idx;
-    const Rect old_rect = mutation_dirty_root_idx >= 0
-                              ? subtree_visual_rect(*impl_, mutation_dirty_root_idx)
-                              : document_visual_rect(*impl_);
-    const bool recollect_generated_subtree =
-        selector_affecting &&
-        generated_content_depends_on_attribute(*impl_, name);
-
-    if (!lxb_dom_element_set_attribute(elem, as_lxb(name), name.size(),
-                                       as_lxb(value), value.size())) {
-        return false;
-    }
-
-    bool needs_layout = false;
-    if (selector_affecting) {
-        if (!rematch_stylesheet_matches_for_subtree(*impl_,
-                                                    mutation_dirty_root_idx)) {
-            return false;
-        }
-        if (impl_->resolver) impl_->resolver->clear();
-
-        if (target_idx >= 0) {
-            auto& block = impl_->blocks[static_cast<std::size_t>(target_idx)];
-            refresh_block_metadata_from_element(block, elem);
-        }
-
-        if (recollect_generated_subtree) {
-            recollect_blocks_from_current_dom(*impl_);
-            mark_live_mutation_dirty(*impl_, mutation_dirty_root_idx, old_rect,
-                                     /*needs_layout=*/true);
-            return true;
-        }
-
-        needs_layout = mutation_dirty_root_idx >= 0
-                           ? restyle_subtree(*impl_, mutation_dirty_root_idx)
-                           : restyle_all_blocks(*impl_);
-        if (target_idx >= 0) {
-            auto& block = impl_->blocks[static_cast<std::size_t>(target_idx)];
-            if (block.tag == "img" && name == "src") needs_layout = true;
-        }
-        mark_live_mutation_dirty(*impl_, mutation_dirty_root_idx, old_rect,
-                                 needs_layout);
-        return true;
-    }
-
-    if (target_idx >= 0) {
-        impl_->resolver->invalidate(elem);
-        auto& block = impl_->blocks[static_cast<std::size_t>(target_idx)];
-        refresh_block_metadata_from_element(block, elem);
-        needs_layout = restyle_subtree(*impl_, target_idx);
-        if (block.tag == "img" && name == "src") needs_layout = true;
-    }
-    mark_live_mutation_dirty(*impl_, mutation_dirty_root_idx, old_rect,
-                             needs_layout);
-    return true;
+    return set_attribute_on_element(*impl_, elem, name, value);
 #else
     (void)elem_id; (void)name; (void)value;
     return false;
@@ -7098,82 +7733,7 @@ bool Document::remove_attribute_by_id(std::string_view elem_id,
     if (!impl_->doc || name.empty()) return false;
     auto* elem = find_dom_element_by_id(*impl_, elem_id);
     if (!elem) return false;
-    if (!has_attr(elem, name)) return false;
-
-    int target_idx = -1;
-    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
-        if (impl_->style_store.element_of(impl_->blocks[i].id) == elem) {
-            target_idx = static_cast<int>(i);
-            break;
-        }
-    }
-    const int dirty_root_idx =
-        target_idx >= 0 ? target_idx
-                        : block_index_for_element_or_ancestor(*impl_, elem);
-    const bool selector_affecting =
-        attribute_can_affect_selector_matching(name);
-    const bool subtree_local_selectors =
-        !selector_affecting ||
-        stylesheet_dependencies_stay_in_mutated_subtree(*impl_, name);
-    const int mutation_dirty_root_idx =
-        selector_affecting && !subtree_local_selectors && target_idx >= 0 &&
-                impl_->blocks[static_cast<std::size_t>(target_idx)].parent_idx >= 0
-            ? impl_->blocks[static_cast<std::size_t>(target_idx)].parent_idx
-            : dirty_root_idx;
-    const Rect old_rect = mutation_dirty_root_idx >= 0
-                              ? subtree_visual_rect(*impl_, mutation_dirty_root_idx)
-                              : document_visual_rect(*impl_);
-    const bool recollect_generated_subtree =
-        selector_affecting &&
-        generated_content_depends_on_attribute(*impl_, name);
-
-    if (lxb_dom_element_remove_attribute(elem, as_lxb(name), name.size())
-            != LXB_STATUS_OK) {
-        return false;
-    }
-
-    bool needs_layout = false;
-    if (selector_affecting) {
-        if (!rematch_stylesheet_matches_for_subtree(*impl_,
-                                                    mutation_dirty_root_idx)) {
-            return false;
-        }
-        if (impl_->resolver) impl_->resolver->clear();
-
-        if (target_idx >= 0) {
-            auto& block = impl_->blocks[static_cast<std::size_t>(target_idx)];
-            refresh_block_metadata_from_element(block, elem);
-        }
-
-        if (recollect_generated_subtree) {
-            recollect_blocks_from_current_dom(*impl_);
-            mark_live_mutation_dirty(*impl_, mutation_dirty_root_idx, old_rect,
-                                     /*needs_layout=*/true);
-            return true;
-        }
-
-        needs_layout = mutation_dirty_root_idx >= 0
-                           ? restyle_subtree(*impl_, mutation_dirty_root_idx)
-                           : restyle_all_blocks(*impl_);
-        if (target_idx >= 0) {
-            auto& block = impl_->blocks[static_cast<std::size_t>(target_idx)];
-            if (block.tag == "img" && name == "src") needs_layout = true;
-        }
-        mark_live_mutation_dirty(*impl_, mutation_dirty_root_idx, old_rect,
-                                 needs_layout);
-        return true;
-    }
-
-    if (target_idx >= 0) {
-        impl_->resolver->invalidate(elem);
-        auto& block = impl_->blocks[static_cast<std::size_t>(target_idx)];
-        refresh_block_metadata_from_element(block, elem);
-        needs_layout = restyle_subtree(*impl_, target_idx);
-        if (block.tag == "img" && name == "src") needs_layout = true;
-    }
-    mark_live_mutation_dirty(*impl_, mutation_dirty_root_idx, old_rect,
-                             needs_layout);
-    return true;
+    return remove_attribute_on_element(*impl_, elem, name);
 #else
     (void)elem_id; (void)name;
     return false;

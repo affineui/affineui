@@ -45,6 +45,7 @@ enum class WidgetKind {
     Button,
     Checkbox,
     Slider,
+    Knob,
     Card,
 };
 
@@ -69,6 +70,16 @@ struct WidgetNode {
     // inspectors can show the machinery plainly; user code should treat it as
     // internal state.
     std::size_t cursor{0};
+};
+
+struct WidgetClickBinding {
+    std::string name;
+    std::function<void()> handler;
+};
+
+struct WidgetChangeBinding {
+    std::string name;
+    std::function<void(std::string_view)> handler;
 };
 
 enum class RemotePatchOp {
@@ -177,6 +188,8 @@ public:
     WidgetRef& attr(std::string_view name, std::string_view value);
     WidgetRef& remove_attr(std::string_view name);
     WidgetRef& cls(std::string_view classes);
+    WidgetRef& on_click(std::function<void()> cb);
+    WidgetRef& on_change(std::function<void(std::string_view)> cb);
     WidgetRef& append(const std::function<void(View&)>& build);
     WidgetRef& replace(const std::function<void(View&)>& build);
 
@@ -270,6 +283,13 @@ public:
                      double max = 1.0,
                      std::string_view key = {},
                      std::source_location here = std::source_location::current());
+    WidgetRef knob(std::string_view label,
+                   double value,
+                   double min = 0.0,
+                   double max = 1.0,
+                   bool bipolar = false,
+                   std::string_view key = {},
+                   std::source_location here = std::source_location::current());
     WidgetRef container_ref(std::string_view classes = {},
                             std::string_view key = {},
                             std::source_location here = std::source_location::current());
@@ -277,6 +297,8 @@ public:
                         std::source_location here = std::source_location::current());
 
     [[nodiscard]] WidgetRef find_widget(std::string_view name);
+    [[nodiscard]] std::vector<WidgetClickBinding> click_bindings() const;
+    [[nodiscard]] std::vector<WidgetChangeBinding> change_bindings() const;
     [[nodiscard]] const WidgetNode* find_remote(std::string_view remote_id) const;
     [[nodiscard]] std::string to_html_fragment() const;
     [[nodiscard]] std::string to_html_document() const;
@@ -294,6 +316,9 @@ private:
     void set_attr(WidgetNode& node, std::string_view name, std::string_view value);
     void remove_attr(WidgetNode& node, std::string_view name);
     void set_text(WidgetNode& node, std::string_view value);
+    void set_click_handler(WidgetNode& node, std::function<void()> cb);
+    void set_change_handler(WidgetNode& node,
+                            std::function<void(std::string_view)> cb);
     void clear_children(WidgetNode& node);
     void set_widget_name(WidgetNode& node, std::string_view name);
     void unregister_tree(const WidgetNode& node);
@@ -315,6 +340,9 @@ private:
     WidgetNode root_{};
     std::vector<WidgetNode*> stack_;
     std::vector<std::pair<std::string, StableId>> widget_names_;
+    std::vector<std::pair<StableId, std::function<void()>>> click_handlers_;
+    std::vector<std::pair<StableId, std::function<void(std::string_view)>>>
+        change_handlers_;
     std::vector<std::string> diagnostics_;
     ViewSink* sink_{nullptr};
     ViewSink* mutation_sink_{nullptr};

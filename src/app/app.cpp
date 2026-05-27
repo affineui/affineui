@@ -21,6 +21,7 @@
 #include "affineui/renderer.h"
 #include "affineui/themes.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -41,11 +42,18 @@ namespace affineui {
 
 namespace detail {
 
+// Sokol does not expose exact swap-image age to App today. Use the common
+// triple-buffered desktop budget so a newly composited retained layer reaches
+// every backbuffer before the app goes back to zero-idle work.
+constexpr int kSwapchainSettleFrames = 3;
+
 struct AppImpl {
     App::Config           config;
     Document              document;
     Renderer              renderer;
     std::function<void()> view_fn;
+    std::vector<WidgetClickBinding> view_click_bindings;
+    std::vector<WidgetChangeBinding> view_change_bindings;
     bool                  quit_requested{false};
     int                   exit_code{0};
     int                   last_cursor{-1};  // last sapp cursor we set
@@ -54,6 +62,7 @@ struct AppImpl {
     int                   last_w{-1};
     int                   last_h{-1};
     float                 last_dpi{1.0f};   // updated each frame for event→pt conversion
+    int                   settle_frames{0};
 };
 
 bool local_asset_url(std::string_view url) {
@@ -103,6 +112,61 @@ ResourceLoader make_asset_resource_loader(std::vector<std::string> folders) {
     };
 }
 
+bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
+    if (ev.type == EventType::Resize) {
+        impl.dirty = true;
+    }
+
+    const auto result = impl.document.dispatch(ev);
+    if (result.redraw_requested || result.invalidate_view) {
+        impl.dirty = true;
+    }
+
+    bool consumed = result.redraw_requested || result.invalidate_view;
+    if (ev.type == EventType::MouseUp && ev.button == MouseButton::Left &&
+        !impl.view_click_bindings.empty()) {
+        const auto activations = impl.document.take_activated_widgets();
+        std::vector<std::function<void()>> callbacks;
+        for (const auto& name : activations) {
+            for (const auto& binding : impl.view_click_bindings) {
+                if (binding.name == name && binding.handler) {
+                    callbacks.push_back(binding.handler);
+                }
+            }
+        }
+        for (const auto& cb : callbacks) {
+            cb();
+            consumed = true;
+            impl.dirty = true;
+        }
+    } else if (ev.type == EventType::MouseUp) {
+        (void) impl.document.take_activated_widgets();
+    }
+
+    const auto changes = impl.document.take_widget_changes();
+    if (!changes.empty()) {
+        struct PendingChange {
+            std::function<void(std::string_view)> handler;
+            std::string value;
+        };
+        std::vector<PendingChange> callbacks;
+        for (const auto& change : changes) {
+            for (const auto& binding : impl.view_change_bindings) {
+                if (binding.name == change.name && binding.handler) {
+                    callbacks.push_back({binding.handler, change.value});
+                }
+            }
+        }
+        for (const auto& cb : callbacks) {
+            cb.handler(cb.value);
+            consumed = true;
+            impl.dirty = true;
+        }
+    }
+
+    return consumed;
+}
+
 }  // namespace detail
 
 App::App() : App(Config{}) {}
@@ -122,16 +186,31 @@ App::~App() = default;
 App::App(App&&) noexcept            = default;
 App& App::operator=(App&&) noexcept = default;
 
-void App::load_html(std::string_view html)     { impl_->document.set_html(html); impl_->dirty = true; impl_->animations_active = false; }
+void App::load_html(std::string_view html) {
+    impl_->view_click_bindings.clear();
+    impl_->view_change_bindings.clear();
+    impl_->document.clear_scripts();
+    impl_->document.set_html(html);
+    impl_->dirty = true;
+    impl_->animations_active = false;
+    impl_->settle_frames = detail::kSwapchainSettleFrames;
+}
 void App::load_view(const View& view) {
     impl_->config.clear_color = view.background_color();
     impl_->renderer.set_clear_color(impl_->config.clear_color);
     load_html(view.to_html_document());
+    impl_->document.attach_script(DocumentScript::UiControls);
+    impl_->view_click_bindings = view.click_bindings();
+    impl_->view_change_bindings = view.change_bindings();
 }
 bool App::load_html_file(std::string_view)     { return false; }
 void App::set_stylesheet(std::string_view css) { impl_->document.set_user_stylesheet(css); impl_->dirty = true; impl_->animations_active = false; }
 void App::mount(std::function<void()> view_fn) { impl_->view_fn = std::move(view_fn); impl_->dirty = true; impl_->animations_active = false; }
 void App::invalidate() { impl_->dirty = true; impl_->animations_active = false; }
+
+bool App::dispatch(const Event& ev) {
+    return detail::dispatch_loaded_view_event(*impl_, ev);
+}
 
 #if defined(AFFINEUI_STUB_BUILD)
 
@@ -189,7 +268,17 @@ void cb_frame(void* user) {
     const int h = sapp_height();
     const bool viewport_changed =
         w != impl->last_w || h != impl->last_h;
-    if (!impl->dirty && !impl->animations_active && !viewport_changed) {
+    if (impl->dirty || impl->animations_active || viewport_changed) {
+        // Sokol apps normally present through a two or three image swapchain.
+        // After one UI change, drawing only the current backbuffer can leave
+        // stale pixels in older swap images; those images can flash when the
+        // app goes quiet. Keep compositing until the whole swapchain has seen
+        // the latest retained root layer, then return to zero-idle work.
+        impl->settle_frames =
+            std::max(impl->settle_frames, detail::kSwapchainSettleFrames);
+    }
+    if (!impl->dirty && !impl->animations_active && !viewport_changed &&
+        impl->settle_frames <= 0) {
         if (impl->quit_requested) sapp_request_quit();
         return;
     }
@@ -217,6 +306,9 @@ void cb_frame(void* user) {
     impl->renderer.render_to(impl->document, target);
     impl->animations_active = impl->renderer.stats().animations_active;
     impl->dirty = impl->animations_active;
+    if (impl->settle_frames > 0 && !impl->dirty) {
+        --impl->settle_frames;
+    }
 
     if (impl->quit_requested) sapp_request_quit();
 }
@@ -241,15 +333,12 @@ void cb_event(const sapp_event* ev, void* user) {
         case SAPP_EVENTTYPE_MOUSE_UP:    aui_ev.type = EventType::MouseUp;   break;
         case SAPP_EVENTTYPE_RESIZED:
             aui_ev.type = EventType::Resize;
-            impl->document.dispatch(aui_ev);
-            impl->dirty = true;
+            detail::dispatch_loaded_view_event(*impl, aui_ev);
             return;
         case SAPP_EVENTTYPE_MOUSE_LEAVE:
             aui_ev.type = EventType::MouseMove;
             aui_ev.pos  = Point{-1, -1};
-            if (impl->document.dispatch(aui_ev).redraw_requested) {
-                impl->dirty = true;
-            }
+            (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
             return;
         default:
             return;
@@ -268,10 +357,8 @@ void cb_event(const sapp_event* ev, void* user) {
         }
     }
 
-    const auto result = impl->document.dispatch(aui_ev);
-    if (result.redraw_requested || result.invalidate_view) {
-        impl->dirty = true;
-    }
+    const bool consumed = detail::dispatch_loaded_view_event(*impl, aui_ev);
+    (void) consumed;
 
     // Cursor must be applied synchronously inside the macOS mouse-
     // event handler — calling sapp_set_mouse_cursor later from the

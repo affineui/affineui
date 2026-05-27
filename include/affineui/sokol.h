@@ -67,6 +67,14 @@
 
 namespace affineui::sokol {
 
+// Sokol swapchains are commonly double- or triple-buffered. Whenever the
+// retained AffineUI layer changes, the compositor must present that newest
+// layer into every swap image that can later come back around. The public API
+// does not currently expose exact backbuffer count, so three frames is the
+// conservative desktop default; future backend adapters can replace this with
+// explicit swap-image age.
+inline constexpr int kSwapchainSettleFrames = 3;
+
 // ── Cursor mapping ──────────────────────────────────────────────────
 
 inline sapp_mouse_cursor cursor_to_sokol(int c) {
@@ -396,7 +404,8 @@ inline void cb_frame_(void* user) {
         // stale pixels, which can surface as one-frame holes or flashes when
         // the app idles. Composite the retained root layer a few more times,
         // then go fully quiet again.
-        state.settle_frames = std::max(state.settle_frames, 3);
+        state.settle_frames =
+            std::max(state.settle_frames, kSwapchainSettleFrames);
     }
     if (!state.enabled && !ui_requested_update && !viewport_changed &&
         state.settle_frames <= 0) {

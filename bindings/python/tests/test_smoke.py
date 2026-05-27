@@ -37,9 +37,10 @@ def test_view_emits_remote_patch_batches_and_html():
 
     view.begin(patches)
     view.heading(1, "Command API")
-    view.button("Run", primary=True)
-    view.checkbox("Enabled", True)
-    view.slider("Gain", 0.5)
+    view.button("Run", primary=True, key="run").on_click(lambda: None)
+    view.checkbox("Enabled", True, key="enabled").on_change(lambda value: None)
+    view.slider("Gain", 0.5, key="gain").on_change(lambda value: None)
+    view.knob("Shape", 0.42, key="shape").on_change(lambda value: None)
     view.end()
 
     assert patches.size() > 0
@@ -47,6 +48,7 @@ def test_view_emits_remote_patch_batches_and_html():
     html = view.to_html_document()
     assert "bootstrap-5.3.8.min.css" in html
     assert "Command API" in html
+    assert "form-range" in html
 
     app = ui.App(title="View Smoke")
     app.load_view(view)

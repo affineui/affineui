@@ -61,6 +61,122 @@ TEST_CASE("View emits remote create patches on first reconcile") {
     CHECK(html.find("form-check") != std::string::npos);
 }
 
+TEST_CASE("View emits framework-specific knob markup") {
+    affineui::View decius{affineui::ViewTheme::Decius};
+    decius.begin();
+    auto shape = decius.knob("Shape", 0.42, 0.0, 1.0, false, "shape");
+    decius.end();
+
+    REQUIRE(shape);
+    auto html = decius.to_html_fragment();
+    CHECK(html.find("data-dcs-knob") != std::string::npos);
+    CHECK(html.find("dcs-knob__arc") != std::string::npos);
+    CHECK(html.find("dcs-knob__indicator") != std::string::npos);
+
+    affineui::View bootstrap{affineui::ViewTheme::Bootstrap};
+    bootstrap.begin();
+    auto gain = bootstrap.knob("Gain", 0.5, 0.0, 1.0, false, "gain");
+    bootstrap.end();
+
+    REQUIRE(gain);
+    html = bootstrap.to_html_fragment();
+    CHECK(html.find("form-range") != std::string::npos);
+    CHECK(html.find("type=\"range\"") != std::string::npos);
+}
+
+TEST_CASE("App dispatch invokes command button callbacks") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    int clicks = 0;
+
+    view.begin();
+    view.button("Run", true, "run").on_click([&] { ++clicks; });
+    view.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = {"examples", "."};
+    affineui::App app{cfg};
+    app.load_view(view);
+    app.document().layout(240, 120);
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    bool found = false;
+    for (int y = 0; y < 120 && !found; y += 4) {
+        for (int x = 0; x < 240 && !found; x += 4) {
+            move.pos = {x, y};
+            app.dispatch(move);
+            const auto chain = app.document().hovered_info_chain();
+            found = std::any_of(chain.begin(), chain.end(),
+                [](const affineui::Document::HoverInfo& info) {
+                    return info.tag == "button";
+                });
+        }
+    }
+    REQUIRE(found);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = move.pos;
+    app.dispatch(down);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = move.pos;
+    CHECK(app.dispatch(up));
+    CHECK(clicks == 1);
+}
+
+TEST_CASE("App dispatch invokes command widget change callbacks") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    std::string value;
+
+    view.begin();
+    view.checkbox("Enabled", false, "enabled")
+        .on_change([&](std::string_view next) { value = std::string(next); });
+    view.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = {"examples", "."};
+    affineui::App app{cfg};
+    app.load_view(view);
+    app.document().layout(260, 120);
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    bool found = false;
+    for (int y = 0; y < 120 && !found; y += 4) {
+        for (int x = 0; x < 260 && !found; x += 4) {
+            move.pos = {x, y};
+            app.dispatch(move);
+            const auto chain = app.document().hovered_info_chain();
+            found = std::any_of(chain.begin(), chain.end(),
+                [](const affineui::Document::HoverInfo& info) {
+                    return std::any_of(info.attrs.begin(), info.attrs.end(),
+                        [](const auto& attr) {
+                            return attr.first == "data-aui-name" &&
+                                   attr.second == "enabled";
+                        });
+                });
+        }
+    }
+    REQUIRE(found);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = move.pos;
+    app.dispatch(down);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = move.pos;
+    CHECK(app.dispatch(up));
+    CHECK(value == "true");
+}
+
 TEST_CASE("View reconcile reuses nodes and emits property patches") {
     affineui::View view{affineui::ViewTheme::Bootstrap};
     affineui::RemotePatchQueue first;

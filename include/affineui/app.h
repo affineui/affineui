@@ -68,6 +68,11 @@ public:
     /// the view fn.
     void invalidate();
 
+    /// Dispatch a translated input event through the loaded view/document.
+    /// Returns true when the event was consumed by a command callback or the
+    /// document requested a redraw.
+    bool dispatch(const Event& ev);
+
     /// Start the main loop. Returns the OS exit code.
     int run();
 

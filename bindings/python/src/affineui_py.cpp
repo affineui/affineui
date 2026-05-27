@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace py = pybind11;
@@ -134,12 +135,18 @@ PYBIND11_MODULE(_affineui, m) {
         .def("take_dirty_rects", &affineui::Document::take_dirty_rects)
         .def("take_paint_dirty", &affineui::Document::take_paint_dirty)
         .def("has_active_animations",
-             &affineui::Document::has_active_animations);
+             &affineui::Document::has_active_animations)
+        .def("attach_script", &affineui::Document::attach_script)
+        .def("detach_script", &affineui::Document::detach_script)
+        .def("clear_scripts", &affineui::Document::clear_scripts);
 
     py::enum_<affineui::ViewTheme>(m, "ViewTheme")
         .value("Plain", affineui::ViewTheme::Plain)
         .value("Bootstrap", affineui::ViewTheme::Bootstrap)
         .value("Decius", affineui::ViewTheme::Decius);
+
+    py::enum_<affineui::DocumentScript>(m, "DocumentScript")
+        .value("UiControls", affineui::DocumentScript::UiControls);
 
     py::enum_<affineui::RemotePatchOp>(m, "RemotePatchOp")
         .value("CreateElement", affineui::RemotePatchOp::CreateElement)
@@ -205,6 +212,22 @@ PYBIND11_MODULE(_affineui, m) {
         .def("cls", [](affineui::WidgetRef& ref, const std::string& classes) -> affineui::WidgetRef& {
             return ref.cls(classes);
         }, py::return_value_policy::reference_internal)
+        .def("on_click",
+             [](affineui::WidgetRef& ref, py::function cb) -> affineui::WidgetRef& {
+                 return ref.on_click([cb = std::move(cb)] {
+                     py::gil_scoped_acquire gil;
+                     cb();
+                 });
+             },
+             py::return_value_policy::reference_internal)
+        .def("on_change",
+             [](affineui::WidgetRef& ref, py::function cb) -> affineui::WidgetRef& {
+                 return ref.on_change([cb = std::move(cb)](std::string_view value) {
+                     py::gil_scoped_acquire gil;
+                     cb(std::string(value));
+                 });
+             },
+             py::return_value_policy::reference_internal)
         .def("append",
              [](affineui::WidgetRef& ref, py::function build) -> affineui::WidgetRef& {
                  return ref.append([build = std::move(build)](affineui::View& view) {
@@ -293,6 +316,22 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("value"),
              py::arg("min") = 0.0,
              py::arg("max") = 1.0,
+             py::arg("key") = "")
+        .def("knob",
+             [](affineui::View& view,
+                const std::string& label,
+                double value,
+                double min,
+                double max,
+                bool bipolar,
+                const std::string& key) {
+                 return view.knob(label, value, min, max, bipolar, key);
+             },
+             py::arg("label"),
+             py::arg("value"),
+             py::arg("min") = 0.0,
+             py::arg("max") = 1.0,
+             py::arg("bipolar") = false,
              py::arg("key") = "")
         .def("container",
              [](affineui::View& view,

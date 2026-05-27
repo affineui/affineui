@@ -361,6 +361,43 @@ affineui::Point find_hovered_chain_id(affineui::Document& doc,
     return {-1, -1};
 }
 
+affineui::Point find_hovered_attr(affineui::Document& doc,
+                                  std::string_view name,
+                                  std::string_view value,
+                                  int width,
+                                  int height) {
+    for (int y = 0; y < height; y += 4) {
+        for (int x = 0; x < width; x += 4) {
+            affineui::Event move{};
+            move.type = affineui::EventType::MouseMove;
+            move.pos = {x, y};
+            doc.dispatch(move);
+            const auto chain = doc.hovered_info_chain();
+            for (const auto& info : chain) {
+                for (const auto& attr : info.attrs) {
+                    if (attr.first == name && attr.second == value) {
+                        return {x, y};
+                    }
+                }
+            }
+        }
+    }
+    return {-1, -1};
+}
+
+std::string hovered_attr_for_id(affineui::Document& doc,
+                                std::string_view elem_id,
+                                std::string_view name) {
+    const auto chain = doc.hovered_info_chain();
+    for (const auto& info : chain) {
+        if (info.elem_id != elem_id) continue;
+        for (const auto& attr : info.attrs) {
+            if (attr.first == name) return attr.second;
+        }
+    }
+    return {};
+}
+
 std::string read_test_file(const std::filesystem::path& path) {
     std::ifstream f(path, std::ios::binary);
     if (!f.good()) return {};
@@ -382,6 +419,196 @@ TEST_CASE("set_html accepts a string without crashing") {
     affineui::Document doc;
     doc.set_html("<h1>Hi</h1>");
     CHECK(true);
+}
+
+TEST_CASE("UiControls script opt-in owns default widget behavior") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        label { display: block; width: 160px; height: 32px; }
+        input { display: inline-block; width: 20px; height: 20px; }
+        </style>
+        <label id="wrap" data-aui-widget="checkbox">
+            <input id="check" type="checkbox"><span>Enabled</span>
+        </label>
+    )HTML");
+    doc.layout(220, 80, &painter);
+
+    const auto p = find_hovered_id(doc, "check", 220, 80);
+    REQUIRE(p.x >= 0);
+
+    auto click = [&] {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        doc.dispatch(down);
+
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        doc.dispatch(up);
+    };
+    auto hovered_has_checked = [&] {
+        const auto chain = doc.hovered_info_chain();
+        for (const auto& info : chain) {
+            if (info.elem_id != "check") continue;
+            return std::any_of(info.attrs.begin(), info.attrs.end(),
+                [](const auto& attr) {
+                    return attr.first == "checked";
+                });
+        }
+        return false;
+    };
+
+    click();
+    CHECK_FALSE(hovered_has_checked());
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    click();
+    CHECK(hovered_has_checked());
+
+    doc.detach_script(affineui::DocumentScript::UiControls);
+    click();
+    CHECK(hovered_has_checked());
+}
+
+TEST_CASE("UiControls script updates range input and Decius knob markup") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        #gain { display: block; width: 200px; height: 24px; margin: 8px; }
+        #shape { display: block; width: 80px; height: 80px; margin: 8px; }
+        </style>
+        <input id="gain" type="range" min="0" max="1" value="0">
+        <div id="shape" data-dcs-knob data-min="0" data-max="1"
+             data-value="0.25" value="0.25">
+            <svg><path class="dcs-knob__arc"></path></svg>
+            <div class="dcs-knob__indicator" style="--angle:-67.5deg"></div>
+            <div class="dcs-knob__value">0.25</div>
+        </div>
+    )HTML");
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.layout(260, 160, &painter);
+
+    auto gain = find_hovered_id(doc, "gain", 260, 160);
+    REQUIRE(gain.x >= 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = gain;
+    doc.dispatch(down);
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {gain.x + 140, gain.y};
+    doc.dispatch(move);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = move.pos;
+    doc.dispatch(up);
+    CHECK(hovered_attr_for_id(doc, "gain", "value") != "0");
+
+    auto shape = find_hovered_chain_id(doc, "shape", 260, 160);
+    REQUIRE(shape.x >= 0);
+
+    down.pos = shape;
+    doc.dispatch(down);
+    move.pos = {shape.x, shape.y - 40};
+    doc.dispatch(move);
+    up.pos = move.pos;
+    doc.dispatch(up);
+    shape = find_hovered_chain_id(doc, "shape", 260, 160);
+    REQUIRE(shape.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "shape", "value") != "0.25");
+}
+
+TEST_CASE("UiControls script emits named button activations") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        button { display: block; width: 120px; height: 36px; }
+        </style>
+        <button data-aui-name="run">Run</button>
+    )HTML");
+    doc.layout(180, 80, &painter);
+
+    const auto p = find_hovered_attr(doc, "data-aui-name", "run", 180, 80);
+    REQUIRE(p.x >= 0);
+
+    auto click = [&] {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        doc.dispatch(down);
+
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        doc.dispatch(up);
+    };
+
+    click();
+    CHECK(doc.take_activated_widgets().empty());
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    click();
+    const auto activations = doc.take_activated_widgets();
+    REQUIRE(activations.size() == 1);
+    CHECK(activations[0] == "run");
+}
+
+TEST_CASE("UiControls script emits named widget changes") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .check { display: block; width: 160px; height: 32px; }
+        input { width: 20px; height: 20px; }
+        </style>
+        <label class="check" data-aui-widget="checkbox" data-aui-name="enabled">
+            <input type="checkbox"> Enabled
+        </label>
+    )HTML");
+    doc.layout(220, 80, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    const auto p = find_hovered_attr(doc, "data-aui-name", "enabled", 220, 80);
+    REQUIRE(p.x >= 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = p;
+    doc.dispatch(down);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = p;
+    doc.dispatch(up);
+
+    const auto changes = doc.take_widget_changes();
+    REQUIRE(changes.size() == 1);
+    CHECK(changes[0].name == "enabled");
+    CHECK(changes[0].value == "true");
 }
 
 TEST_CASE("Ui on_click matches hovered ancestors") {

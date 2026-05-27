@@ -27,15 +27,26 @@ def build_view(theme: ui.ViewTheme) -> ui.View:
                 "the native AffineUI engine using framework selectors.",
                 key="lede",
             ),
-            v.button("Hello button", primary=True, key="hello-button"),
-            v.checkbox("Framework checkbox", checked=True, key="hello-check"),
+            v.button("Hello button", primary=True, key="hello-button").on_click(
+                lambda: print("Hello button clicked")
+            ),
+            v.checkbox("Framework checkbox", checked=True, key="hello-check").on_change(
+                lambda value: print(f"checkbox changed: {value}")
+            ),
             v.slider(
                 "Framework slider",
                 value=0.65,
                 min=0.0,
                 max=1.0,
                 key="hello-slider",
-            ),
+            ).on_change(lambda value: print(f"slider changed: {value}")),
+            v.knob(
+                "Framework knob",
+                value=0.42,
+                min=0.0,
+                max=1.0,
+                key="hello-knob",
+            ).on_change(lambda value: print(f"knob changed: {value}")),
         )
     )
     return view

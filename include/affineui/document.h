@@ -14,6 +14,16 @@ namespace affineui {
 class App;
 class Painter;
 
+/// Optional C++ behavior scripts that can be attached to a Document.
+/// These are intentionally separate from the renderer: raw HTML/CSS
+/// documents can remain paint-only, while command-tree/framework demos can
+/// opt into browser-like control behavior.
+enum class DocumentScript {
+    /// Stock behavior for native form controls and AffineUI framework
+    /// widgets emitted as HTML/CSS, such as Decius sliders/faders/knobs.
+    UiControls,
+};
+
 namespace detail {
 struct DocumentImpl;
 }
@@ -22,6 +32,11 @@ struct DocumentImpl;
 /// Owned by an App, but can also be used headless for layout / testing.
 class Document {
 public:
+    struct WidgetChange {
+        std::string name;
+        std::string value;
+    };
+
     Document();
     ~Document();
 
@@ -61,6 +76,23 @@ public:
     /// Route an OS / app event through litehtml. Returns whether a
     /// redraw and/or imm-view re-evaluation is needed.
     DispatchResult dispatch(const Event& ev);
+
+    /// Drain named widget activations produced by attached behavior scripts.
+    /// Names are stable `data-aui-name` values when present, otherwise `id`.
+    std::vector<std::string> take_activated_widgets();
+
+    /// Drain named value changes produced by attached behavior scripts.
+    /// Values are serialized strings so language bindings and remote
+    /// transports can forward them without ABI-specific variant machinery.
+    std::vector<WidgetChange> take_widget_changes();
+
+    /// Attach/detach optional C++ behavior scripts. This is the native
+    /// equivalent of including a page script: without it, Document remains a
+    /// renderer plus CSS pseudo-state engine; with it, stock widgets mutate
+    /// themselves in response to pointer input.
+    void attach_script(DocumentScript script);
+    void detach_script(DocumentScript script);
+    void clear_scripts();
 
     /// Embedder-supplied resource loader for `<img src=...>`,
     /// `<link rel=stylesheet href=...>`, etc.
