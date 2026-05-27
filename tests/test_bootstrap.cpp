@@ -432,6 +432,30 @@ TEST_CASE("Bootstrap 5 dashboard sidebar is not squeezed by wide main content") 
     CHECK(sidebar_fill->w >= 220);
 }
 
+TEST_CASE("Bootstrap 5 dashboard collapse hides sidebar below md breakpoint") {
+    auto painter = render_bootstrap5(R"HTML(
+        <div class="container-fluid">
+            <div class="row">
+                <nav class="col-md-3 col-lg-2 d-md-block bg-body-tertiary sidebar collapse">
+                    <h6 class="px-3">Workspace</h6>
+                    <ul class="nav flex-column">
+                        <li class="nav-item"><a class="nav-link active" href="#">Dashboard</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#">Orders</a></li>
+                    </ul>
+                </nav>
+                <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 dashboard-main">
+                    <h1 class="h2">Dashboard</h1>
+                    <div class="card"><div class="card-body">Revenue</div></div>
+                </main>
+            </div>
+        </div>
+    )HTML", 740, 920);
+
+    INFO(text_run_summary(painter));
+    CHECK_FALSE(point_for_text(painter, "Workspace").has_value());
+    CHECK(point_for_text(painter, "Revenue").has_value());
+}
+
 TEST_CASE("Bootstrap dashboard example loads linked CSS and keeps sidebar wide") {
     const auto html =
         read_file(example_dir("10_bootstrap_dashboard") / "index.html");
@@ -497,7 +521,6 @@ TEST_CASE("Bootstrap dashboard survives repeated responsive relayout") {
         const auto sidebar = point_for_text(painter, "WORKSPACE");
         const auto revenue = point_for_text(painter, "Revenue");
         const auto pipeline = point_for_text(painter, "Enterprise pipeline");
-        REQUIRE(sidebar.has_value());
         REQUIRE(revenue.has_value());
         REQUIRE(pipeline.has_value());
         CHECK(revenue->x >= 0);
@@ -507,10 +530,14 @@ TEST_CASE("Bootstrap dashboard survives repeated responsive relayout") {
         CHECK(pipeline->x >= 0);
         CHECK(pipeline->x < width);
         CHECK(pipeline->y >= 0);
-        CHECK(pipeline->y < 920);
         if (width >= 768) {
+            CHECK(pipeline->y < 920);
+            REQUIRE(sidebar.has_value());
             CHECK(revenue->x > sidebar->x + 120);
             CHECK(revenue->x > 140);
+        } else {
+            CHECK_FALSE(sidebar.has_value());
+            CHECK(revenue->x < 80);
         }
     }
 }

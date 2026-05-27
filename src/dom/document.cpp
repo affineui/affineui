@@ -3160,6 +3160,11 @@ void collect_blocks(detail::DocumentImpl& impl,
 
             using Display = detail::ComputedStyle::Display;
             using CssFloat = detail::ComputedStyle::Float;
+            if (rs_inline.computed.display == Display::None) {
+                open_synth_idx = -1;
+                pending_inline_space = false;
+                continue;
+            }
             const bool parent_blockifies_inline_children =
                 is_flex_container_display(parent_style.computed.display) ||
                 parent_style.computed.display == Display::Grid ||
@@ -3232,6 +3237,16 @@ void collect_blocks(detail::DocumentImpl& impl,
         // matches CSS source order).
         apply_font_family_fills(impl, tag, elem_id_attr, cls_attr,
                                 parent_idx, sb_at_collect, rs);
+
+        // CSS display:none removes the element and its entire subtree from
+        // layout/paint. Do this before appending a Block so descendants cannot
+        // leak out at (0,0) when a framework hides a parent such as Bootstrap's
+        // `.collapse:not(.show)`.
+        if (rs.computed.display == detail::ComputedStyle::Display::None) {
+            open_synth_idx = -1;
+            pending_inline_space = false;
+            continue;
+        }
 
         impl.style_store.computed(id) = rs.computed;
         impl.style_store.animated(id) = rs.animated;

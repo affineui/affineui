@@ -1473,6 +1473,41 @@ TEST_CASE("table child selector matches td for padding") {
     CHECK(td_rs.computed.padding_right  == 12);
 }
 
+TEST_CASE("class argument :not selector controls display") {
+    CssEnv env("<nav class=\"collapse\">Hidden</nav>"
+               "<nav class=\"collapse show\">Visible</nav>");
+    env.attach(".collapse:not(.show){display:none}");
+    env.build_resolver();
+
+    const affineui::detail::ResolvedStyle root{};
+    auto* hidden = find_nth(lxb_dom_interface_node(env.doc), "nav", 0);
+    auto* visible = find_nth(lxb_dom_interface_node(env.doc), "nav", 1);
+    REQUIRE(hidden != nullptr);
+    REQUIRE(visible != nullptr);
+
+    const auto hidden_rs = env.resolver->resolve(hidden, root);
+    const auto visible_rs = env.resolver->resolve(visible, root);
+
+    CHECK(hidden_rs.computed.display ==
+          affineui::detail::ComputedStyle::Display::None);
+    CHECK(visible_rs.computed.display !=
+          affineui::detail::ComputedStyle::Display::None);
+}
+
+TEST_CASE("Bootstrap 5 collapse selector controls display") {
+    CssEnv env("<nav class=\"col-md-3 col-lg-2 d-md-block bg-body-tertiary sidebar collapse\">Hidden</nav>");
+    env.attach(read_text_file("examples/frameworks/css/bootstrap-5.3.8.min.css"));
+    env.build_resolver(740, 920);
+
+    auto* nav = env.find("nav");
+    REQUIRE(nav != nullptr);
+
+    const affineui::detail::ResolvedStyle root{};
+    const auto rs = env.resolver->resolve(nav, root);
+    CHECK(rs.computed.display ==
+          affineui::detail::ComputedStyle::Display::None);
+}
+
 TEST_CASE("nth-child selector applies background to even rows") {
     // Tests tbody tr:nth-child(even) td { background: #eceff1 }
     CssEnv env(
