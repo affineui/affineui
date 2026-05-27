@@ -3637,6 +3637,21 @@ Rect subtree_visual_rect(const detail::DocumentImpl& impl, int root_idx);
 std::uint64_t media_match_signature(const detail::DocumentImpl& impl,
                                     int viewport_width);
 void recollect_blocks_from_current_dom(detail::DocumentImpl& impl);
+void attach_matching_media_blocks_for_viewport(detail::DocumentImpl& impl) {
+    if (!impl.doc || impl.media_viewport_width_px <= 0) return;
+    const std::size_t media_count = impl.media_blocks.size();
+    for (std::size_t i = 0; i < media_count; ++i) {
+        if (impl.media_blocks[i].matches(impl.media_viewport_width_px)) {
+            attach_media_block(impl, impl.media_blocks[i]);
+        }
+    }
+    impl.resolver = detail::make_lexbor_resolver(
+        impl.doc, impl.media_viewport_width_px,
+        impl.media_viewport_height_px);
+    impl.media_match_signature =
+        media_match_signature(impl, impl.media_viewport_width_px);
+    recollect_blocks_from_current_dom(impl);
+}
 #endif
 }  // namespace
 
@@ -3685,9 +3700,15 @@ void Document::layout(int viewport_width, int viewport_height,
         impl_->media_viewport_width_px = viewport_width;
         impl_->media_viewport_height_px = viewport_height;
         if (media_set_changed) {
-            set_html(impl_->html);
-            // set_html resets everything; fall through to the normal layout
-            // path with media blocks attached for the new viewport.
+            if (first_viewport) {
+                attach_matching_media_blocks_for_viewport(*impl_);
+            } else {
+                // Changing an already-attached media set requires detaching old
+                // stylesheet matches. Keep this conservative until the Lexbor
+                // stylesheet replacement path is hardened.
+                const std::string html = impl_->html;
+                set_html(html);
+            }
         } else if (computed_style_viewport_changed) {
             impl_->resolver = detail::make_lexbor_resolver(
                 impl_->doc, impl_->media_viewport_width_px,
