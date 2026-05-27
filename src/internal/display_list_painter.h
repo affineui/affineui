@@ -332,6 +332,12 @@ public:
     void draw_text(std::uint32_t font, const Point& pos,
                    std::string_view text, Color c) override {
         const auto [off, len] = list_.intern_text(text);
+        const int measured_w = measure_text(font, text);
+        const TextMetrics metrics = text_metrics(font);
+        const auto clamp_u16 = [](float v) {
+            return static_cast<std::uint16_t>(
+                std::clamp(std::ceil(v), 0.0f, 65535.0f));
+        };
         PaintOp op{};
         op.kind = PaintOpKind::DrawText;
         op.p.draw_text.font_handle = font;
@@ -340,7 +346,14 @@ public:
         op.p.draw_text.rgba = pack(c);
         op.p.draw_text.text_offset = off;
         op.p.draw_text.text_len    = len;
+        op.p.draw_text.measured_w =
+            static_cast<std::uint16_t>(std::clamp(measured_w, 0, 65535));
+        op.p.draw_text.measured_h =
+            clamp_u16(metrics.ascender + metrics.descender);
         list_.ops.push_back(op);
+        list_.set_last_op_bounds_override(
+            Rect{pos.x, pos.y, static_cast<int>(op.p.draw_text.measured_w),
+                 static_cast<int>(op.p.draw_text.measured_h)});
     }
 
     Size measure_text_box(std::uint32_t font, std::string_view text, float max_w,
@@ -358,6 +371,9 @@ public:
                        float letter_spacing_px = 0.0f,
                        TextAlign align = TextAlign::Left) override {
         const auto [off, len] = list_.intern_text(text);
+        const Size measured =
+            measure_text_box(font, text, max_w, line_height_mult,
+                             letter_spacing_px);
         PaintOp op{};
         op.kind = PaintOpKind::DrawTextBox;
         op.p.draw_text_box.font_handle = font;
@@ -378,7 +394,23 @@ public:
                                                   -32768.0f, 32767.0f));
         op.p.draw_text_box.align = static_cast<std::uint8_t>(align);
         op.p.draw_text_box.pad0_ = 0;
+        op.p.draw_text_box.measured_h =
+            static_cast<std::uint16_t>(
+                std::clamp(std::ceil(static_cast<double>(measured.height)),
+                           0.0, 65535.0));
         list_.ops.push_back(op);
+        int visual_x = pos.x;
+        const int measured_w = std::max(0, measured.width);
+        const int measured_h = std::max(0, measured.height);
+        if (align == TextAlign::Center) {
+            visual_x += static_cast<int>(
+                std::floor((max_w - static_cast<float>(measured_w)) * 0.5f));
+        } else if (align == TextAlign::Right) {
+            visual_x += static_cast<int>(
+                std::floor(max_w - static_cast<float>(measured_w)));
+        }
+        list_.set_last_op_bounds_override(
+            Rect{visual_x, pos.y, measured_w, measured_h});
     }
 
     std::uint32_t load_image(std::string_view url) override {
@@ -645,6 +677,12 @@ struct ReplayClipStats {
 struct DisplayListDiffBounds {
     bool known{true};
     Rect bounds{};
+    std::uint32_t changed_ops{0};
+    std::uint8_t first_changed_kind{0xFF};
+    Rect first_old_bounds{};
+    Rect first_new_bounds{};
+    std::uint8_t largest_changed_kind{0xFF};
+    Rect largest_changed_bounds{};
 };
 
 inline bool replay_rect_valid(const Rect& r) {
@@ -765,13 +803,23 @@ inline bool replay_op_bounds(const PaintOp& op, Rect& out) {
             out = Rect{r.x, r.y, r.w, r.h};
             return true;
         }
+        case PaintOpKind::DrawText: {
+            const auto& t = op.p.draw_text;
+            out = Rect{t.x, t.y, static_cast<int>(t.measured_w),
+                       static_cast<int>(t.measured_h)};
+            return replay_rect_valid(out);
+        }
+        case PaintOpKind::DrawTextBox: {
+            const auto& t = op.p.draw_text_box;
+            out = Rect{t.x, t.y, static_cast<int>(t.max_width),
+                       static_cast<int>(t.measured_h)};
+            return replay_rect_valid(out);
+        }
         case PaintOpKind::PushClip: {
             const auto& c = op.p.clip;
             out = Rect{c.x, c.y, c.w, c.h};
             return true;
         }
-        case PaintOpKind::DrawText:
-        case PaintOpKind::DrawTextBox:
         case PaintOpKind::PopClip:
         case PaintOpKind::PushAlpha:
         case PaintOpKind::PopAlpha:
@@ -780,6 +828,18 @@ inline bool replay_op_bounds(const PaintOp& op, Rect& out) {
             return false;
     }
     return false;
+}
+
+inline bool replay_op_bounds(const DisplayList& list,
+                             std::size_t index,
+                             Rect& out) {
+    if (index < list.op_bounds_override.size() &&
+        replay_rect_valid(list.op_bounds_override[index])) {
+        out = list.op_bounds_override[index];
+        return true;
+    }
+    if (index >= list.ops.size()) return false;
+    return replay_op_bounds(list.ops[index], out);
 }
 
 inline Rect replay_transform_bounds(const Rect& r, const Mat2x3& m) {
@@ -839,6 +899,41 @@ inline bool replay_paint_ops_equal(const DisplayList& a,
     return true;
 }
 
+inline bool replay_resized_solid_fill_diff_bounds(const PaintOp& old_op,
+                                                  const PaintOp& new_op,
+                                                  const Rect& old_bounds,
+                                                  const Rect& new_bounds,
+                                                  Rect& out) {
+    if (old_op.kind != PaintOpKind::FillRect ||
+        new_op.kind != PaintOpKind::FillRect) {
+        return false;
+    }
+    if (old_op.p.fill_rect.rgba != new_op.p.fill_rect.rgba) {
+        return false;
+    }
+    if (old_bounds.x == new_bounds.x &&
+        old_bounds.y == new_bounds.y &&
+        old_bounds.h == new_bounds.h) {
+        const int old_x1 = old_bounds.x + old_bounds.w;
+        const int new_x1 = new_bounds.x + new_bounds.w;
+        const int x0 = std::min(old_x1, new_x1);
+        const int x1 = std::max(old_x1, new_x1);
+        out = Rect{x0, old_bounds.y, x1 - x0, old_bounds.h};
+        return replay_rect_valid(out);
+    }
+    if (old_bounds.x == new_bounds.x &&
+        old_bounds.y == new_bounds.y &&
+        old_bounds.w == new_bounds.w) {
+        const int old_y1 = old_bounds.y + old_bounds.h;
+        const int new_y1 = new_bounds.y + new_bounds.h;
+        const int y0 = std::min(old_y1, new_y1);
+        const int y1 = std::max(old_y1, new_y1);
+        out = Rect{old_bounds.x, y0, old_bounds.w, y1 - y0};
+        return replay_rect_valid(out);
+    }
+    return false;
+}
+
 inline std::size_t replay_matching_transform_pop(const DisplayList& list,
                                                  std::size_t push_index) {
     int depth = 1;
@@ -887,14 +982,12 @@ inline bool replay_range_bounds(const DisplayList& list,
             }
             continue;
         }
-        if (op.kind == PaintOpKind::DrawText ||
-            op.kind == PaintOpKind::DrawTextBox ||
-            transform_overflow_depth > 0) {
+        if (transform_overflow_depth > 0) {
             return false;
         }
 
         Rect bounds{};
-        if (!replay_op_bounds(op, bounds)) continue;
+        if (!replay_op_bounds(list, i, bounds)) continue;
         if (op.kind == PaintOpKind::PushClip) continue;
         out = replay_union_rect(out, replay_transform_bounds(bounds,
                                                              current_transform));
@@ -1002,7 +1095,7 @@ inline bool replay_visual_bounds_for_op(const DisplayList& list,
     }
 
     Rect local{};
-    if (!replay_op_bounds(op, local)) return false;
+    if (!replay_op_bounds(list, index, local)) return false;
     out = replay_transform_bounds(local, current_transform);
     return replay_rect_valid(out);
 }
@@ -1083,12 +1176,50 @@ inline DisplayListDiffBounds display_list_diff_bounds(const DisplayList& old_lis
                                    new_list, new_list.ops[i])) {
             continue;
         }
+        ++result.changed_ops;
         if (!old_known[i] || !new_known[i]) {
+            if (result.first_changed_kind == 0xFF) {
+                result.first_changed_kind =
+                    static_cast<std::uint8_t>(old_list.ops[i].kind);
+            }
             result.known = false;
             return result;
         }
-        result.bounds = replay_union_rect(result.bounds, old_bounds[i]);
-        result.bounds = replay_union_rect(result.bounds, new_bounds[i]);
+        if (result.first_changed_kind == 0xFF) {
+            result.first_changed_kind =
+                static_cast<std::uint8_t>(old_list.ops[i].kind);
+            result.first_old_bounds = old_bounds[i];
+            result.first_new_bounds = new_bounds[i];
+        }
+        Rect resized_solid_fill_bounds{};
+        if (replay_resized_solid_fill_diff_bounds(
+                old_list.ops[i], new_list.ops[i],
+                old_bounds[i], new_bounds[i],
+                resized_solid_fill_bounds)) {
+            if (static_cast<std::uint64_t>(resized_solid_fill_bounds.w) *
+                    static_cast<std::uint64_t>(resized_solid_fill_bounds.h) >
+                static_cast<std::uint64_t>(result.largest_changed_bounds.w) *
+                    static_cast<std::uint64_t>(result.largest_changed_bounds.h)) {
+                result.largest_changed_kind =
+                    static_cast<std::uint8_t>(old_list.ops[i].kind);
+                result.largest_changed_bounds = resized_solid_fill_bounds;
+            }
+            result.bounds =
+                replay_union_rect(result.bounds, resized_solid_fill_bounds);
+        } else {
+            const Rect changed_bounds =
+                replay_union_rect(old_bounds[i], new_bounds[i]);
+            if (static_cast<std::uint64_t>(changed_bounds.w) *
+                    static_cast<std::uint64_t>(changed_bounds.h) >
+                static_cast<std::uint64_t>(result.largest_changed_bounds.w) *
+                    static_cast<std::uint64_t>(result.largest_changed_bounds.h)) {
+                result.largest_changed_kind =
+                    static_cast<std::uint8_t>(old_list.ops[i].kind);
+                result.largest_changed_bounds = changed_bounds;
+            }
+            result.bounds = replay_union_rect(result.bounds, old_bounds[i]);
+            result.bounds = replay_union_rect(result.bounds, new_bounds[i]);
+        }
     }
 
     for (std::size_t i = shared; i < old_list.ops.size(); ++i) {
@@ -1193,7 +1324,8 @@ inline ReplayClipStats replay_clipped(const DisplayList& list,
         }
 
         Rect bounds{};
-        if (transform_overflow_depth == 0 && replay_op_bounds(op, bounds)) {
+        if (transform_overflow_depth == 0 &&
+            replay_op_bounds(list, i, bounds)) {
             bounds = replay_transform_bounds(bounds, current_transform);
             if (!replay_rect_intersects(bounds, clip)) {
                 if (op.kind == PaintOpKind::PushClip) {

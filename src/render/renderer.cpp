@@ -14,8 +14,10 @@
 #include "affineui/document.h"
 #include "affineui/painter.h"
 
+#include <array>
 #include <cstdio>
 #include <chrono>
+#include <cmath>
 #include <limits>
 #include <memory>
 #include <span>
@@ -189,6 +191,12 @@ struct PreparedFrame {
     Rect dirty_bounds{};
     Rect raster_bounds{};
     Rect display_list_diff_bounds{};
+    std::uint32_t display_list_diff_changed_ops{0};
+    std::uint8_t display_list_diff_first_kind{0xFF};
+    Rect display_list_diff_first_old_bounds{};
+    Rect display_list_diff_first_new_bounds{};
+    std::uint8_t display_list_diff_largest_kind{0xFF};
+    Rect display_list_diff_largest_bounds{};
 };
 
 bool rect_valid(const Rect& r) {
@@ -240,9 +248,31 @@ std::uint32_t elapsed_us(std::chrono::steady_clock::time_point start) {
     return clamp_u32(static_cast<std::uint64_t>(std::max<std::int64_t>(0, us)));
 }
 
+Rect pixel_rect_to_point_rect(int x, int y, int w, int h,
+                              float dpi_scale, int pt_w, int pt_h) {
+    if (w <= 0 || h <= 0 || pt_w <= 0 || pt_h <= 0) return {};
+    const double d = dpi_scale > 0.0f ? static_cast<double>(dpi_scale) : 1.0;
+    const int x0 = static_cast<int>(std::floor(static_cast<double>(x) / d));
+    const int y0 = static_cast<int>(std::floor(static_cast<double>(y) / d));
+    const int x1 =
+        static_cast<int>(std::ceil(static_cast<double>(x + w) / d));
+    const int y1 =
+        static_cast<int>(std::ceil(static_cast<double>(y + h) / d));
+    return inflate_and_clip(Rect{x0, y0, x1 - x0, y1 - y0}, 1, pt_w, pt_h);
+}
+
 struct RootCompositeVertex {
     float x, y;
     float u, v;
+};
+
+struct RootLayerUpdate {
+    bool allocated{false};
+    bool content_resized{false};
+    int old_content_w{0};
+    int old_content_h{0};
+    int new_content_w{0};
+    int new_content_h{0};
 };
 
 sg_shader make_root_composite_shader() {
@@ -491,6 +521,12 @@ PreparedFrame prepare_frame(detail::RendererImpl& impl,
                 impl.cached_display_list, builder.list());
             frame.display_list_diff_bounds_known =
                 diff.known && rect_valid(diff.bounds);
+            frame.display_list_diff_changed_ops = diff.changed_ops;
+            frame.display_list_diff_first_kind = diff.first_changed_kind;
+            frame.display_list_diff_first_old_bounds = diff.first_old_bounds;
+            frame.display_list_diff_first_new_bounds = diff.first_new_bounds;
+            frame.display_list_diff_largest_kind = diff.largest_changed_kind;
+            frame.display_list_diff_largest_bounds = diff.largest_changed_bounds;
             if (frame.display_list_diff_bounds_known) {
                 frame.display_list_diff_bounds = inflate_and_clip(
                     diff.bounds, 4, frame.pt_w, frame.pt_h);
@@ -532,6 +568,18 @@ PreparedFrame prepare_frame(detail::RendererImpl& impl,
     impl.stats.dirty_area_pct_x100 =
         frame_area > 0 ? clamp_u32((dirty_area * 10000u) / frame_area) : 0;
     impl.stats.display_list_ops_culled_this_frame = 0;
+    impl.stats.display_list_diff_changed_ops =
+        frame.display_list_diff_changed_ops;
+    impl.stats.display_list_diff_first_kind =
+        frame.display_list_diff_first_kind;
+    impl.stats.display_list_diff_first_old_bounds =
+        frame.display_list_diff_first_old_bounds;
+    impl.stats.display_list_diff_first_new_bounds =
+        frame.display_list_diff_first_new_bounds;
+    impl.stats.display_list_diff_largest_kind =
+        frame.display_list_diff_largest_kind;
+    impl.stats.display_list_diff_largest_bounds =
+        frame.display_list_diff_largest_bounds;
     impl.stats.prepare_us_this_frame = elapsed_us(prepare_start);
     impl.stats.layout_us_this_frame = frame.layout_us;
     impl.stats.display_list_record_us_this_frame =
@@ -585,13 +633,23 @@ void destroy_root_layer(detail::RendererImpl& impl) {
     layer.valid = false;
 }
 
-bool ensure_root_layer(detail::RendererImpl& impl, int w, int h) {
+bool ensure_root_layer(detail::RendererImpl& impl, int w, int h,
+                       RootLayerUpdate* update = nullptr) {
     auto& layer = impl.root_layer;
+    if (update) {
+        *update = {};
+    }
     if (layer.color_img.id != SG_INVALID_ID && layer.w >= w && layer.h >= h) {
         if (layer.content_w != w || layer.content_h != h) {
+            if (update) {
+                update->content_resized = true;
+                update->old_content_w = layer.content_w;
+                update->old_content_h = layer.content_h;
+                update->new_content_w = w;
+                update->new_content_h = h;
+            }
             layer.content_w = w;
             layer.content_h = h;
-            layer.valid = false;
         }
         impl.stats.root_layer_capacity_w = static_cast<std::uint32_t>(layer.w);
         impl.stats.root_layer_capacity_h = static_cast<std::uint32_t>(layer.h);
@@ -657,6 +715,12 @@ bool ensure_root_layer(detail::RendererImpl& impl, int w, int h) {
     layer.content_w = w;
     layer.content_h = h;
     layer.valid = false;
+    if (update) {
+        update->allocated = true;
+        update->content_resized = true;
+        update->new_content_w = w;
+        update->new_content_h = h;
+    }
     impl.stats.root_layer_allocated_this_frame = true;
     impl.stats.root_layer_capacity_w = static_cast<std::uint32_t>(layer.w);
     impl.stats.root_layer_capacity_h = static_cast<std::uint32_t>(layer.h);
@@ -756,7 +820,7 @@ void rasterize_root_layer_region(detail::RendererImpl& impl,
     impl.stats.root_layer_partial_rasterizes += 1;
     impl.stats.root_layer_rasterized_this_frame = true;
     impl.stats.root_layer_partial_this_frame = true;
-    impl.stats.raster_us_this_frame = elapsed_us(raster_start);
+    impl.stats.raster_us_this_frame += elapsed_us(raster_start);
 }
 
 void composite_root_layer(detail::RendererImpl& impl,
@@ -944,7 +1008,51 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
     pass.swapchain = sc;
 
     const PreparedFrame frame = prepare_frame(*impl_, doc, vw, vh, t.dpi_scale);
-    const bool layer_ready = ensure_root_layer(*impl_, vw, vh);
+    const std::uint64_t frame_area =
+        static_cast<std::uint64_t>(std::max(frame.pt_w, 1)) *
+        static_cast<std::uint64_t>(std::max(frame.pt_h, 1));
+    const std::uint64_t dirty_area =
+        rect_valid(frame.raster_bounds)
+            ? static_cast<std::uint64_t>(frame.raster_bounds.w) *
+                  static_cast<std::uint64_t>(frame.raster_bounds.h)
+            : 0;
+    const bool dirty_covers_frame =
+        !rect_valid(frame.raster_bounds) ||
+        (frame_area > 0 && dirty_area * 100u >= frame_area * 80u);
+    const bool has_retained_surface =
+        impl_->root_layer.color_img.id != SG_INVALID_ID;
+    const bool direct_live_resize =
+        !sub &&
+        has_retained_surface &&
+        frame.viewport_changed &&
+        frame.display_list_changed &&
+        dirty_covers_frame;
+    if (direct_live_resize) {
+        const auto raster_start = std::chrono::steady_clock::now();
+        impl_->root_layer.valid = false;
+        sg_begin_pass(&pass);
+        sg_apply_viewport(vx, vy, vw, vh, /*origin_top_left*/ true);
+        sg_apply_scissor_rect(vx, vy, vw, vh, /*origin_top_left*/ true);
+        impl_->painter->begin_frame(frame.pt_w, frame.pt_h, t.dpi_scale);
+        detail::replay(impl_->cached_display_list, *impl_->painter);
+        impl_->painter->end_frame();
+        impl_->stats.display_list_replays += 1;
+        impl_->stats.root_layer_direct_this_frame = true;
+        impl_->stats.raster_us_this_frame = elapsed_us(raster_start);
+        if (!t.debug_overlay_text.empty()) {
+            draw_debug_overlay(
+                t.debug_overlay_text,
+                std::span<const float>(t.debug_overlay_frame_ms,
+                                       t.debug_overlay_frame_ms_count),
+                t.width, t.height, t.dpi_scale);
+        }
+        sg_end_pass();
+        if (t.commit) sg_commit();
+        return;
+    }
+
+    RootLayerUpdate layer_update{};
+    const bool layer_ready = ensure_root_layer(*impl_, vw, vh, &layer_update);
     if (!layer_ready) {
         sg_begin_pass(&pass);
         sg_apply_viewport(vx, vy, vw, vh, /*origin_top_left*/ true);
@@ -966,19 +1074,55 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
     }
 
     if (frame.display_list_changed || !impl_->root_layer.valid) {
-        const bool can_partial_raster =
-            impl_->partial_root_raster_enabled &&
+        const bool bounded_known_partial =
             impl_->root_layer.valid &&
             frame.display_list_changed &&
             rect_valid(frame.raster_bounds) &&
             frame.display_list_diff_bounds_known &&
-            !frame.viewport_changed &&
-            !frame.paint_dirty;
+            !frame.paint_dirty &&
+            frame_area > 0 &&
+            dirty_area * 100u <= frame_area * 40u;
+        const bool can_partial_raster =
+            bounded_known_partial ||
+            (impl_->partial_root_raster_enabled &&
+             impl_->root_layer.valid &&
+             frame.display_list_changed &&
+             rect_valid(frame.raster_bounds) &&
+             frame.display_list_diff_bounds_known &&
+             !frame.viewport_changed &&
+             !frame.paint_dirty);
         if (can_partial_raster) {
             rasterize_root_layer_region(*impl_, frame.pt_w, frame.pt_h,
                                         t.dpi_scale, frame.raster_bounds);
         } else {
             rasterize_root_layer(*impl_, frame.pt_w, frame.pt_h, t.dpi_scale);
+        }
+    } else if (layer_update.content_resized) {
+        std::array<Rect, 2> exposed_regions{};
+        std::size_t exposed_count = 0;
+        const int old_w = std::max(layer_update.old_content_w, 0);
+        const int old_h = std::max(layer_update.old_content_h, 0);
+        const int new_w = layer_update.new_content_w;
+        const int new_h = layer_update.new_content_h;
+        if (new_w > old_w) {
+            exposed_regions[exposed_count++] = pixel_rect_to_point_rect(
+                old_w, 0, new_w - old_w, new_h, t.dpi_scale,
+                frame.pt_w, frame.pt_h);
+        }
+        if (new_h > old_h) {
+            // If width also grew, the right strip above already covers the
+            // bottom-right corner. Restrict the bottom strip to the previously
+            // painted width so resize growth stays a pair of narrow repaints,
+            // not a full-viewport union.
+            exposed_regions[exposed_count++] = pixel_rect_to_point_rect(
+                0, old_h, std::min(new_w, old_w), new_h - old_h,
+                t.dpi_scale, frame.pt_w, frame.pt_h);
+        }
+        for (std::size_t i = 0; i < exposed_count; ++i) {
+            if (rect_valid(exposed_regions[i])) {
+                rasterize_root_layer_region(*impl_, frame.pt_w, frame.pt_h,
+                                            t.dpi_scale, exposed_regions[i]);
+            }
         }
     }
 

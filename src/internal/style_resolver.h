@@ -79,6 +79,11 @@ struct ResolvedStyle {
     std::shared_ptr<const BoxShadowList> box_shadows;
 };
 
+struct ViewportDependency {
+    bool width{false};
+    bool height{false};
+};
+
 /// Abstract style resolver. Phase 2 ships one impl (lexbor-backed)
 /// that delegates to lexbor's cascade via `lxb_html_element_style_walk`.
 /// Future phases can swap in a custom matcher with bloom filters,
@@ -112,6 +117,20 @@ public:
     /// Drop all caches. Called by Document::set_html when the DOM
     /// is wholesale replaced.
     virtual void clear() = 0;
+
+    /// Reports whether any declaration actually resolved by this resolver
+    /// used viewport-relative units. This lets Document::layout avoid
+    /// rebuilding the entire block/style tree on resize ticks where the
+    /// active media query set is unchanged and the resized dimension cannot
+    /// affect computed style.
+    virtual ViewportDependency viewport_dependency() const { return {}; }
+
+    /// Update the CSS viewport used by future resolutions without clearing
+    /// existing cached styles. Callers pair this with viewport_dependency():
+    /// cached styles can be retained when no cached value depends on the
+    /// changed dimension, while future dynamic resolves still see the current
+    /// viewport.
+    virtual void set_viewport(int /*width_px*/, int /*height_px*/) {}
 };
 
 /// Construct the default resolver, backed by lexbor's cascade.

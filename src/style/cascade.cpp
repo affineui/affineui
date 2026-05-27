@@ -49,6 +49,8 @@ public:
     ResolvedStyle resolve(lxb_dom_element_t*, const ResolvedStyle& parent) override {
         return parent;  // pure inherit, no overrides — fine for stub mode
     }
+    void apply_decl_list(const lxb_css_rule_declaration_list_t*,
+                         ResolvedStyle&) override {}
     void invalidate(lxb_dom_element_t*) override {}
     void clear() override {}
 };
@@ -63,6 +65,88 @@ std::unique_ptr<StyleResolver> make_lexbor_resolver(lxb_html_document_t*,
 #else  // !AFFINEUI_STUB_BUILD
 
 namespace {
+
+void mark_viewport_dependency(int unit, ViewportDependency* dependency) {
+    if (dependency == nullptr) return;
+    switch (unit) {
+        case LXB_CSS_UNIT_VW:
+        case LXB_CSS_UNIT_VI:
+            dependency->width = true;
+            break;
+        case LXB_CSS_UNIT_VH:
+        case LXB_CSS_UNIT_VB:
+            dependency->height = true;
+            break;
+        case LXB_CSS_UNIT_VMIN:
+        case LXB_CSS_UNIT_VMAX:
+            dependency->width = true;
+            dependency->height = true;
+            break;
+        default:
+            break;
+    }
+}
+
+bool ascii_iequals(std::string_view a, std::string_view b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (static_cast<char>(std::tolower(
+                static_cast<unsigned char>(a[i]))) != b[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void mark_viewport_dependency(std::string_view unit,
+                              ViewportDependency* dependency) {
+    if (dependency == nullptr || unit.empty()) return;
+    if (ascii_iequals(unit, "vw") || ascii_iequals(unit, "vi")) {
+        dependency->width = true;
+    } else if (ascii_iequals(unit, "vh") || ascii_iequals(unit, "vb")) {
+        dependency->height = true;
+    } else if (ascii_iequals(unit, "vmin") || ascii_iequals(unit, "vmax")) {
+        dependency->width = true;
+        dependency->height = true;
+    }
+}
+
+bool ascii_unit_at(std::string_view s, std::size_t i, std::string_view unit) {
+    if (i + unit.size() > s.size()) return false;
+    for (std::size_t k = 0; k < unit.size(); ++k) {
+        if (static_cast<char>(std::tolower(
+                static_cast<unsigned char>(s[i + k]))) != unit[k]) {
+            return false;
+        }
+    }
+    const bool before_ident =
+        i > 0 &&
+        (std::isalpha(static_cast<unsigned char>(s[i - 1])) ||
+         s[i - 1] == '-' || s[i - 1] == '_');
+    const std::size_t end = i + unit.size();
+    const bool after_ident =
+        end < s.size() &&
+        (std::isalnum(static_cast<unsigned char>(s[end])) ||
+         s[end] == '-' || s[end] == '_');
+    return !before_ident && !after_ident;
+}
+
+void mark_viewport_dependencies_in_value(std::string_view value,
+                                         ViewportDependency* dependency) {
+    if (dependency == nullptr) return;
+    for (std::size_t i = 0; i < value.size(); ++i) {
+        if (ascii_unit_at(value, i, "vw") || ascii_unit_at(value, i, "vi")) {
+            dependency->width = true;
+        } else if (ascii_unit_at(value, i, "vh") ||
+                   ascii_unit_at(value, i, "vb")) {
+            dependency->height = true;
+        } else if (ascii_unit_at(value, i, "vmin") ||
+                   ascii_unit_at(value, i, "vmax")) {
+            dependency->width = true;
+            dependency->height = true;
+        }
+    }
+}
 
 // Pack an 8-bit RGBA quad in our canonical layout.
 inline std::uint32_t make_rgba(std::uint8_t r, std::uint8_t g,
@@ -402,7 +486,9 @@ bool parse_color(const lxb_css_value_color_t* v, std::uint32_t& out,
 bool resolve_length_px(double num, int unit, double& out_px,
                        double em_px = 16.0,
                        double viewport_w = 0.0,
-                       double viewport_h = 0.0) {
+                       double viewport_h = 0.0,
+                       ViewportDependency* dependency = nullptr) {
+    mark_viewport_dependency(unit, dependency);
     switch (unit) {
         case LXB_CSS_UNIT__UNDEF:
         case LXB_CSS_UNIT_PX:
@@ -439,12 +525,14 @@ bool resolve_length_px(double num, int unit, double& out_px,
 
 bool parse_length_value(double num, int unit, int& out, double em_px = 16.0,
                         double viewport_w = 0.0,
-                        double viewport_h = 0.0) {
+                        double viewport_h = 0.0,
+                        ViewportDependency* dependency = nullptr) {
     // std::lround rounds half away from zero, so negative lengths (e.g. a
     // calc()-derived negative margin) round symmetrically — plain
     // `int(num + 0.5)` would truncate -4.0 toward zero as -3.
     double px = 0.0;
-    if (!resolve_length_px(num, unit, px, em_px, viewport_w, viewport_h))
+    if (!resolve_length_px(num, unit, px, em_px, viewport_w, viewport_h,
+                           dependency))
         return false;
     out = static_cast<int>(std::lround(px));
     return true;
@@ -453,9 +541,11 @@ bool parse_length_value(double num, int unit, int& out, double em_px = 16.0,
 bool parse_length_value_x100(double num, int unit, int& out,
                              double em_px = 16.0,
                              double viewport_w = 0.0,
-                             double viewport_h = 0.0) {
+                             double viewport_h = 0.0,
+                             ViewportDependency* dependency = nullptr) {
     double px = 0.0;
-    if (!resolve_length_px(num, unit, px, em_px, viewport_w, viewport_h))
+    if (!resolve_length_px(num, unit, px, em_px, viewport_w, viewport_h,
+                           dependency))
         return false;
 
     out = static_cast<int>(std::clamp(std::lround(px * 100.0),
@@ -481,12 +571,13 @@ bool parse_length_value_x100(double num, int unit, int& out,
 bool parse_length_px(const lxb_css_value_length_percentage_type_t* v, int& out,
                      double em_px = 16.0,
                      double viewport_w = 0.0,
-                     double viewport_h = 0.0) {
+                     double viewport_h = 0.0,
+                     ViewportDependency* dependency = nullptr) {
     if (!v) return false;
     if (v->length.type == LXB_CSS_VALUE__LENGTH) {
         const auto& L = v->length.u.length;
         return parse_length_value(L.num, static_cast<int>(L.unit), out, em_px,
-                                  viewport_w, viewport_h);
+                                  viewport_w, viewport_h, dependency);
     }
     if (v->length.type == LXB_CSS_VALUE__PERCENTAGE &&
         v->length.u.percentage.num == 0.0) {
@@ -503,12 +594,13 @@ bool parse_length_px(const lxb_css_value_length_percentage_type_t* v, int& out,
 bool parse_length_px(const lxb_css_value_length_type_t* v, int& out,
                      double em_px = 16.0,
                      double viewport_w = 0.0,
-                     double viewport_h = 0.0) {
+                     double viewport_h = 0.0,
+                     ViewportDependency* dependency = nullptr) {
     if (!v) return false;
     if (v->type == LXB_CSS_VALUE__LENGTH) {
         return parse_length_value(v->length.num,
                                   static_cast<int>(v->length.unit), out, em_px,
-                                  viewport_w, viewport_h);
+                                  viewport_w, viewport_h, dependency);
     }
     if (v->type == LXB_CSS_VALUE__NUMBER) {
         // The lxb_css_value_length_type_t union doesn't expose the
@@ -535,20 +627,25 @@ bool resolve_box_shadow_layer(const lxb_css_property_box_shadow_layer_t& v,
                               BoxShadowLayer& out,
                               double em_px = 16.0,
                               double viewport_w = 0.0,
-                              double viewport_h = 0.0) {
+                              double viewport_h = 0.0,
+                              ViewportDependency* dependency = nullptr) {
     int ox = 0;
     int oy = 0;
     int blur = 0;
     int spread = 0;
-    if (!parse_length_px(&v.offset_x, ox, em_px, viewport_w, viewport_h) ||
-        !parse_length_px(&v.offset_y, oy, em_px, viewport_w, viewport_h)) {
+    if (!parse_length_px(&v.offset_x, ox, em_px, viewport_w, viewport_h,
+                         dependency) ||
+        !parse_length_px(&v.offset_y, oy, em_px, viewport_w, viewport_h,
+                         dependency)) {
         return false;
     }
     if (v.blur_radius.type != LXB_CSS_VALUE__UNDEF) {
-        parse_length_px(&v.blur_radius, blur, em_px, viewport_w, viewport_h);
+        parse_length_px(&v.blur_radius, blur, em_px, viewport_w, viewport_h,
+                        dependency);
     }
     if (v.spread_radius.type != LXB_CSS_VALUE__UNDEF) {
-        parse_length_px(&v.spread_radius, spread, em_px, viewport_w, viewport_h);
+        parse_length_px(&v.spread_radius, spread, em_px, viewport_w,
+                        viewport_h, dependency);
     }
 
     std::uint32_t rgba = current.color_rgba;
@@ -628,12 +725,13 @@ void apply_text_decoration_line(
 bool parse_length_px(const lxb_css_value_length_percentage_t* v, int& out,
                      double em_px = 16.0,
                      double viewport_w = 0.0,
-                     double viewport_h = 0.0) {
+                     double viewport_h = 0.0,
+                     ViewportDependency* dependency = nullptr) {
     if (!v) return false;
     if (v->type == LXB_CSS_VALUE__LENGTH) {
         return parse_length_value(v->u.length.num,
                                   static_cast<int>(v->u.length.unit), out, em_px,
-                                  viewport_w, viewport_h);
+                                  viewport_w, viewport_h, dependency);
     }
     if (v->type == LXB_CSS_VALUE__PERCENTAGE &&
         v->u.percentage.num == 0.0) {
@@ -654,12 +752,13 @@ bool parse_length_float(const lxb_css_value_length_percentage_t& v,
                         float& out,
                         double em_px = 16.0,
                         double viewport_w = 0.0,
-                        double viewport_h = 0.0) {
+                        double viewport_h = 0.0,
+                        ViewportDependency* dependency = nullptr) {
     if (v.type == LXB_CSS_VALUE__LENGTH) {
         double px = 0.0;
         if (!resolve_length_px(v.u.length.num,
                                static_cast<int>(v.u.length.unit), px,
-                               em_px, viewport_w, viewport_h)) {
+                               em_px, viewport_w, viewport_h, dependency)) {
             return false;
         }
         out = static_cast<float>(px);
@@ -681,23 +780,27 @@ bool parse_translate_float(const lxb_css_value_length_percentage_t& v,
                            float& pct_out,
                            double em_px = 16.0,
                            double viewport_w = 0.0,
-                           double viewport_h = 0.0) {
+                           double viewport_h = 0.0,
+                           ViewportDependency* dependency = nullptr) {
     if (v.type == LXB_CSS_VALUE__PERCENTAGE) {
         pct_out = static_cast<float>(v.u.percentage.num);
         return true;
     }
-    return parse_length_float(v, px_out, em_px, viewport_w, viewport_h);
+    return parse_length_float(v, px_out, em_px, viewport_w, viewport_h,
+                              dependency);
 }
 
 bool parse_radius(const lxb_css_property_border_radius_corner_t& corner,
                   std::int16_t& out, double em_px = 16.0,
                   double viewport_w = 0.0,
-                  double viewport_h = 0.0) {
+                  double viewport_h = 0.0,
+                  ViewportDependency* dependency = nullptr) {
     // AffineUI currently stores one scalar radius per corner. CSS
     // allows elliptical radii (`h / v`); use the horizontal radius
     // until the renderer grows paired radii.
     int px = 0;
-    if (parse_length_px(&corner.h, px, em_px, viewport_w, viewport_h)) {
+    if (parse_length_px(&corner.h, px, em_px, viewport_w, viewport_h,
+                        dependency)) {
         out = static_cast<std::int16_t>(px);
         return true;
     }
@@ -716,7 +819,8 @@ bool parse_radius(const lxb_css_property_border_radius_corner_t& corner,
 void apply_flex_basis_value(const lxb_css_property_flex_basis_t& basis,
                             ResolvedStyle& s, double em_px = 16.0,
                             double viewport_w = 0.0,
-                            double viewport_h = 0.0) {
+                            double viewport_h = 0.0,
+                            ViewportDependency* dependency = nullptr) {
     int px = 0;
     if (basis.type == LXB_CSS_VALUE_AUTO ||
         basis.type == LXB_CSS_VALUE_MIN_CONTENT ||
@@ -737,7 +841,8 @@ void apply_flex_basis_value(const lxb_css_property_flex_basis_t& basis,
         return;
     }
     s.computed.flex_basis_pct = -1;
-    if (parse_length_px(&basis, px, em_px, viewport_w, viewport_h) && px >= 0) {
+    if (parse_length_px(&basis, px, em_px, viewport_w, viewport_h,
+                        dependency) && px >= 0) {
         s.computed.flex_basis = static_cast<std::int16_t>(px);
     }
 }
@@ -753,7 +858,8 @@ void apply_width_value(const lxb_css_property_width_t& width,
                        std::int16_t* pct_out = nullptr,
                        double em_px = 16.0,
                        double viewport_w = 0.0,
-                       double viewport_h = 0.0) {
+                       double viewport_h = 0.0,
+                       ViewportDependency* dependency = nullptr) {
     if (pct_out) *pct_out = -1;  // default: not a percentage
     int px = 0;
     if (width.type == LXB_CSS_VALUE_AUTO ||
@@ -775,7 +881,8 @@ void apply_width_value(const lxb_css_property_width_t& width,
         out = auto_value;  // px field → auto when pct governs
         return;
     }
-    if (parse_length_px(&width, px, em_px, viewport_w, viewport_h) && px >= 0) {
+    if (parse_length_px(&width, px, em_px, viewport_w, viewport_h,
+                        dependency) && px >= 0) {
         out = static_cast<std::int16_t>(px);
     }
 }
@@ -1110,11 +1217,13 @@ void calc_ws(std::string_view s, std::size_t& i) {
 
 CalcVal calc_expr(std::string_view s, std::size_t& i,
                   double rem, double em,
-                  double viewport_w, double viewport_h);
+                  double viewport_w, double viewport_h,
+                  ViewportDependency* dependency);
 
 CalcVal calc_factor(std::string_view s, std::size_t& i,
                     double rem, double em,
-                    double viewport_w, double viewport_h) {
+                    double viewport_w, double viewport_h,
+                    ViewportDependency* dependency) {
     calc_ws(s, i);
     if (i >= s.size()) return {};
     // Unary sign that applies to a parenthesised group / nested calc.
@@ -1129,7 +1238,8 @@ CalcVal calc_factor(std::string_view s, std::size_t& i,
     }
     if (i < s.size() && (s[i] == '(' || calc_kw_at(s, i))) {
         i += (s[i] == '(') ? 1 : 5;
-        CalcVal inner = calc_expr(s, i, rem, em, viewport_w, viewport_h);
+        CalcVal inner =
+            calc_expr(s, i, rem, em, viewport_w, viewport_h, dependency);
         if (!inner.ok) return {};
         calc_ws(s, i);
         if (i >= s.size() || s[i] != ')') return {};
@@ -1145,6 +1255,7 @@ CalcVal calc_factor(std::string_view s, std::size_t& i,
     const std::size_t us = i;
     while (i < s.size() && std::isalpha(static_cast<unsigned char>(s[i]))) ++i;
     std::string_view unit = s.substr(us, i - us);
+    mark_viewport_dependency(unit, dependency);
     if (i < s.size() && s[i] == '%') {
         if (!unit.empty()) return {};
         ++i;
@@ -1175,14 +1286,17 @@ CalcVal calc_factor(std::string_view s, std::size_t& i,
 
 CalcVal calc_term(std::string_view s, std::size_t& i,
                   double rem, double em,
-                  double viewport_w, double viewport_h) {
-    CalcVal a = calc_factor(s, i, rem, em, viewport_w, viewport_h);
+                  double viewport_w, double viewport_h,
+                  ViewportDependency* dependency) {
+    CalcVal a =
+        calc_factor(s, i, rem, em, viewport_w, viewport_h, dependency);
     if (!a.ok) return {};
     for (;;) {
         calc_ws(s, i);
         if (i >= s.size() || (s[i] != '*' && s[i] != '/')) break;
         const char op = s[i++];
-        CalcVal b = calc_factor(s, i, rem, em, viewport_w, viewport_h);
+        CalcVal b =
+            calc_factor(s, i, rem, em, viewport_w, viewport_h, dependency);
         if (!b.ok) return {};
         if (op == '*') {
             if (a.dims != 0 && b.dims != 0) return {};
@@ -1202,14 +1316,17 @@ CalcVal calc_term(std::string_view s, std::size_t& i,
 
 CalcVal calc_expr(std::string_view s, std::size_t& i,
                   double rem, double em,
-                  double viewport_w, double viewport_h) {
-    CalcVal a = calc_term(s, i, rem, em, viewport_w, viewport_h);
+                  double viewport_w, double viewport_h,
+                  ViewportDependency* dependency) {
+    CalcVal a =
+        calc_term(s, i, rem, em, viewport_w, viewport_h, dependency);
     if (!a.ok) return {};
     for (;;) {
         calc_ws(s, i);
         if (i >= s.size() || (s[i] != '+' && s[i] != '-')) break;
         const char op = s[i++];
-        CalcVal b = calc_term(s, i, rem, em, viewport_w, viewport_h);
+        CalcVal b =
+            calc_term(s, i, rem, em, viewport_w, viewport_h, dependency);
         if (!b.ok || a.dims != b.dims) return {};   // mismatched unit/number
         a.v += (op == '+') ? b.v : -b.v;
     }
@@ -1223,7 +1340,9 @@ CalcVal calc_expr(std::string_view s, std::size_t& i,
 // dimensions for viewport units.
 std::string evaluate_calc(std::string_view input, double rem, double em,
                           double viewport_w = 0.0,
-                          double viewport_h = 0.0) {
+                          double viewport_h = 0.0,
+                          ViewportDependency* dependency = nullptr) {
+    mark_viewport_dependencies_in_value(input, dependency);
     if (find_calc(input, 0) == std::string_view::npos)
         return std::string(input);
     std::string out;
@@ -1233,7 +1352,8 @@ std::string evaluate_calc(std::string_view input, double rem, double em,
         if (c == std::string_view::npos) { out.append(input.substr(i)); break; }
         out.append(input.substr(i, c - i));
         std::size_t j = c + 5;   // past "calc("
-        CalcVal r = calc_expr(input, j, rem, em, viewport_w, viewport_h);
+        CalcVal r =
+            calc_expr(input, j, rem, em, viewport_w, viewport_h, dependency);
         calc_ws(input, j);
         if (r.ok && (r.dims == 0 || r.dims == 1 || r.dims == 2) &&
             j < input.size() && input[j] == ')') {
@@ -1263,41 +1383,51 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s,
                        const ResolvedStyle* parent = nullptr,
                        bool apply_font_size = true,
                        double viewport_w = 0.0,
-                       double viewport_h = 0.0) {
+                       double viewport_h = 0.0,
+                       ViewportDependency* dependency = nullptr) {
     // Local helpers that forward em_px to the free-function overloads so
     // every length in this declaration resolves against the correct em.
     // These shadow the free functions within apply_declaration's scope.
-    auto plx_lpt = [em_px, viewport_w, viewport_h](
+    auto plx_lpt = [em_px, viewport_w, viewport_h, dependency](
                        const lxb_css_value_length_percentage_type_t* v, int& o) {
-        return parse_length_px(v, o, em_px, viewport_w, viewport_h);
+        return parse_length_px(v, o, em_px, viewport_w, viewport_h,
+                               dependency);
     };
-    auto plx_lt = [em_px, viewport_w, viewport_h](
+    auto plx_lt = [em_px, viewport_w, viewport_h, dependency](
                       const lxb_css_value_length_type_t* v, int& o) {
-        return parse_length_px(v, o, em_px, viewport_w, viewport_h);
+        return parse_length_px(v, o, em_px, viewport_w, viewport_h,
+                               dependency);
     };
-    auto plx_lp = [em_px, viewport_w, viewport_h](
+    auto plx_lp = [em_px, viewport_w, viewport_h, dependency](
                       const lxb_css_value_length_percentage_t* v, int& o) {
-        return parse_length_px(v, o, em_px, viewport_w, viewport_h);
+        return parse_length_px(v, o, em_px, viewport_w, viewport_h,
+                               dependency);
     };
-    auto plv = [em_px, viewport_w, viewport_h](double num, int unit, int& o) {
-        return parse_length_value(num, unit, o, em_px, viewport_w, viewport_h);
+    auto plv = [em_px, viewport_w, viewport_h, dependency](
+                   double num, int unit, int& o) {
+        return parse_length_value(num, unit, o, em_px, viewport_w,
+                                  viewport_h, dependency);
     };
-    auto plv_x100 = [em_px, viewport_w, viewport_h](double num, int unit, int& o) {
-        return parse_length_value_x100(num, unit, o, em_px, viewport_w, viewport_h);
+    auto plv_x100 = [em_px, viewport_w, viewport_h, dependency](
+                        double num, int unit, int& o) {
+        return parse_length_value_x100(num, unit, o, em_px, viewport_w,
+                                       viewport_h, dependency);
     };
-    auto radius = [em_px, viewport_w, viewport_h](
+    auto radius = [em_px, viewport_w, viewport_h, dependency](
                       const lxb_css_property_border_radius_corner_t& c,
                       std::int16_t& o) {
-        return parse_radius(c, o, em_px, viewport_w, viewport_h);
+        return parse_radius(c, o, em_px, viewport_w, viewport_h, dependency);
     };
-    auto awv = [em_px, viewport_w, viewport_h](
+    auto awv = [em_px, viewport_w, viewport_h, dependency](
                    const lxb_css_property_width_t& w, std::int16_t& o,
                    std::int16_t av, std::int16_t* po = nullptr) {
-        return apply_width_value(w, o, av, po, em_px, viewport_w, viewport_h);
+        return apply_width_value(w, o, av, po, em_px, viewport_w,
+                                 viewport_h, dependency);
     };
-    auto afb = [em_px, viewport_w, viewport_h](
+    auto afb = [em_px, viewport_w, viewport_h, dependency](
                    const lxb_css_property_flex_basis_t& b, ResolvedStyle& rs) {
-        return apply_flex_basis_value(b, rs, em_px, viewport_w, viewport_h);
+        return apply_flex_basis_value(b, rs, em_px, viewport_w, viewport_h,
+                                      dependency);
     };
     (void)plx_lpt; (void)plx_lt; (void)plx_lp; (void)plv; (void)plv_x100;
     (void)radius; (void)awv; (void)afb;
@@ -3167,7 +3297,8 @@ public:
             const std::string resolved = evaluate_calc(
                 substitute_vars(dv.raw_value, scope), rem, parent_em,
                 static_cast<double>(viewport_width_px_),
-                static_cast<double>(viewport_height_px_));
+                static_cast<double>(viewport_height_px_),
+                &viewport_dependency_);
             apply_resolved_decl(dv.property_id, resolved, s, parent_em,
                                 &parent, /*apply_font_size=*/true);
         };
@@ -3179,7 +3310,8 @@ public:
             apply_declaration(pd.declr, s, parent_em, &parent,
                               /*apply_font_size=*/true,
                               static_cast<double>(viewport_width_px_),
-                              static_cast<double>(viewport_height_px_));
+                              static_cast<double>(viewport_height_px_),
+                              &viewport_dependency_);
         }
         while (font_di < deferred.size())
             apply_deferred_font(deferred[font_di++]);
@@ -3193,13 +3325,15 @@ public:
                 apply_declaration(pd.declr, s, parent_em, &parent,
                                   /*apply_font_size=*/true,
                                   static_cast<double>(viewport_width_px_),
-                                  static_cast<double>(viewport_height_px_));
+                                  static_cast<double>(viewport_height_px_),
+                                  &viewport_dependency_);
         for (const DeferredVar& dv : deferred)
             if (is_color(dv.property_id)) {
                 const std::string resolved = evaluate_calc(
                     substitute_vars(dv.raw_value, scope), rem, parent_em,
                     static_cast<double>(viewport_width_px_),
-                    static_cast<double>(viewport_height_px_));
+                    static_cast<double>(viewport_height_px_),
+                    &viewport_dependency_);
                 apply_resolved_decl(dv.property_id, resolved, s, parent_em,
                                     &parent);
             }
@@ -3216,7 +3350,8 @@ public:
             const std::string resolved = evaluate_calc(
                 substitute_vars(dv.raw_value, scope), rem, own_em,
                 static_cast<double>(viewport_width_px_),
-                static_cast<double>(viewport_height_px_));
+                static_cast<double>(viewport_height_px_),
+                &viewport_dependency_);
             apply_resolved_decl(dv.property_id, resolved, s, own_em, &parent,
                                 dv.property_id != LXB_CSS_PROPERTY_FONT);
         };
@@ -3229,7 +3364,8 @@ public:
             apply_declaration(pd.declr, s, own_em, &parent,
                               pd.declr->type != LXB_CSS_PROPERTY_FONT,
                               static_cast<double>(viewport_width_px_),
-                              static_cast<double>(viewport_height_px_));
+                              static_cast<double>(viewport_height_px_),
+                              &viewport_dependency_);
         }
         while (di < deferred.size()) apply_deferred(deferred[di++]);
 
@@ -3281,7 +3417,8 @@ public:
                             substitute_vars(std::string(val), scope),
                             16.0, em,
                             static_cast<double>(viewport_width_px_),
-                            static_cast<double>(viewport_height_px_));
+                            static_cast<double>(viewport_height_px_),
+                            &viewport_dependency_);
                         apply_resolved_decl(u->type, resolved, out, em,
                                             nullptr, /*apply_font_size=*/true);
                     }
@@ -3290,8 +3427,18 @@ public:
             }
             apply_declaration(decl, out, em, nullptr, /*apply_font_size=*/true,
                               static_cast<double>(viewport_width_px_),
-                              static_cast<double>(viewport_height_px_));
+                              static_cast<double>(viewport_height_px_),
+                              &viewport_dependency_);
         }
+    }
+
+    ViewportDependency viewport_dependency() const override {
+        return viewport_dependency_;
+    }
+
+    void set_viewport(int width_px, int height_px) override {
+        viewport_width_px_ = width_px;
+        viewport_height_px_ = height_px;
     }
 
     void invalidate(lxb_dom_element_t*) override {
@@ -3332,7 +3479,8 @@ private:
                     reinterpret_cast<const lxb_css_rule_declaration_t*>(node), s,
                     em_px, parent, apply_font_size,
                     static_cast<double>(viewport_width_px_),
-                    static_cast<double>(viewport_height_px_));
+                    static_cast<double>(viewport_height_px_),
+                    &viewport_dependency_);
             }
         }
         // Reset the arena for the next re-parse (the typed values we
@@ -3345,6 +3493,7 @@ private:
     int                  viewport_height_px_{0};
     lxb_css_parser_t*    parser_{nullptr};
     lxb_css_memory_t*    reparse_mem_{nullptr};
+    ViewportDependency   viewport_dependency_{};
     std::unordered_map<lxb_dom_element_t*, ResolvedStyle> cache_;
 };
 

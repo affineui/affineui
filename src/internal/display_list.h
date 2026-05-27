@@ -126,6 +126,8 @@ struct PaintOp {
             std::uint32_t rgba;
             std::uint32_t text_offset;
             std::uint16_t text_len;
+            std::uint16_t measured_w;
+            std::uint16_t measured_h;
             std::uint16_t pad;
         } draw_text;
 
@@ -148,6 +150,7 @@ struct PaintOp {
             std::int16_t  letter_spacing_x100;
             std::uint8_t  align;
             std::uint8_t  pad0_;
+            std::uint16_t measured_h;
         } draw_text_box;
 
         struct {
@@ -267,6 +270,10 @@ struct DisplayListClipRange {
 struct DisplayList {
     std::vector<PaintOp>   ops;
     std::vector<char>      text_pool;  // contiguous text storage
+    // Optional measured visual bounds for ops whose compact payload cannot
+    // carry enough geometry for precise retained-surface invalidation
+    // (notably wrapped/aligned text boxes).
+    std::vector<Rect>      op_bounds_override;
     std::vector<DisplayListTransformRange> transform_ranges;
     std::vector<DisplayListClipRange>      clip_ranges;
     std::uint64_t          content_hash{0};
@@ -274,6 +281,7 @@ struct DisplayList {
     void clear() {
         ops.clear();
         text_pool.clear();
+        op_bounds_override.clear();
         transform_ranges.clear();
         clip_ranges.clear();
         content_hash = 0;
@@ -289,6 +297,11 @@ struct DisplayList {
     std::string_view text_at(std::uint32_t offset, std::uint16_t len) const {
         if (offset + len > text_pool.size()) return {};
         return std::string_view(text_pool.data() + offset, len);
+    }
+
+    void set_last_op_bounds_override(const Rect& bounds) {
+        op_bounds_override.resize(ops.size());
+        op_bounds_override.back() = bounds;
     }
 
     // FNV-1a over the byte representation of ops + text_pool. Same

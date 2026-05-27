@@ -21,7 +21,8 @@
   };
   const sliderThumbStyle = (min, max, value) =>
     `left:${num(pct(min, max, value))}%`;
-  const faderStyle = (value) => `--pos:${num(clamp(value, 0, 1) * 100)}%`;
+  const faderStyle = (value) =>
+    `--pos:${num((1 - clamp(value, 0, 1)) * 100)}%`;
   const knobIndicatorAngle = (min, max, value) =>
     -135 + (pct(min, max, value) / 100) * 270;
   const knobRingPoint = (deg) => {
@@ -120,7 +121,7 @@
     if (drag.kind === "slider") {
       setValue(drag.el, min + clamp((ev.clientX - drag.rect.left) / drag.rect.width, 0, 1) * (max - min));
     } else if (drag.kind === "fader") {
-      setValue(drag.el, min + clamp((ev.clientY - drag.rect.top) / drag.rect.height, 0, 1) * (max - min));
+      setValue(drag.el, min + (1 - clamp((ev.clientY - drag.rect.top) / drag.rect.height, 0, 1)) * (max - min));
     } else {
       setValue(drag.el, drag.startValue + ((drag.startY - ev.clientY) / 150) * (max - min));
     }

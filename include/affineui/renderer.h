@@ -54,6 +54,12 @@ struct RenderStats {
     std::uint32_t dirty_area_px{0};
     std::uint32_t dirty_area_pct_x100{0};
     std::uint32_t display_list_ops_culled_this_frame{0};
+    std::uint32_t display_list_diff_changed_ops{0};
+    std::uint8_t  display_list_diff_first_kind{0xFF};
+    Rect          display_list_diff_first_old_bounds{};
+    Rect          display_list_diff_first_new_bounds{};
+    std::uint8_t  display_list_diff_largest_kind{0xFF};
+    Rect          display_list_diff_largest_bounds{};
     std::uint32_t prepare_us_this_frame{0};
     std::uint32_t layout_us_this_frame{0};
     std::uint32_t display_list_record_us_this_frame{0};

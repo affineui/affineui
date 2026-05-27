@@ -3648,6 +3648,10 @@ void Document::layout(int viewport_width, int viewport_height,
     if (!impl_->html.empty() &&
         (viewport_width != impl_->media_viewport_width_px ||
          viewport_height != impl_->media_viewport_height_px)) {
+        const bool width_changed =
+            viewport_width != impl_->media_viewport_width_px;
+        const bool height_changed =
+            viewport_height != impl_->media_viewport_height_px;
         const bool first_viewport =
             impl_->media_viewport_width_px <= 0 ||
             impl_->media_viewport_height_px <= 0;
@@ -3656,17 +3660,35 @@ void Document::layout(int viewport_width, int viewport_height,
         const bool media_set_changed =
             first_viewport ||
             next_media_sig != impl_->media_match_signature;
+        const auto viewport_dependency =
+            impl_->resolver ? impl_->resolver->viewport_dependency()
+                            : detail::ViewportDependency{true, true};
+        const bool computed_style_viewport_changed =
+            first_viewport ||
+            (width_changed && viewport_dependency.width) ||
+            (height_changed && viewport_dependency.height);
         impl_->media_viewport_width_px = viewport_width;
         impl_->media_viewport_height_px = viewport_height;
         if (media_set_changed) {
             set_html(impl_->html);
             // set_html resets everything; fall through to the normal layout
             // path with media blocks attached for the new viewport.
-        } else {
+        } else if (computed_style_viewport_changed) {
             impl_->resolver = detail::make_lexbor_resolver(
                 impl_->doc, impl_->media_viewport_width_px,
                 impl_->media_viewport_height_px);
             recollect_blocks_from_current_dom(*impl_);
+            impl_->media_match_signature = next_media_sig;
+        } else {
+            // A resize can change available layout width without changing any
+            // computed CSS values. Keep the existing block/style tree and only
+            // rerun Yoga below. This is the hot path for Bootstrap dashboards:
+            // media queries stay in the same bucket and their active rules use
+            // vh but not vw, so horizontal resize does not need a full cascade.
+            if (impl_->resolver) {
+                impl_->resolver->set_viewport(impl_->media_viewport_width_px,
+                                              impl_->media_viewport_height_px);
+            }
             impl_->media_match_signature = next_media_sig;
         }
     }

@@ -492,7 +492,10 @@ inline void cb_frame_(void* user) {
         std::fprintf(stderr,
             "[affineui][resize] %dx%d dpi %.2f total %.2f ms "
             "prep %.2f layout %.2f dl %.2f raster %.2f comp %.2f "
-            "ops %u layer %ux%u live %ux%u%s\n",
+            "ops %u diff %u/%u old %d,%d %dx%d new %d,%d %dx%d "
+            "largest %u %d,%d %dx%d "
+            "culled %u dirty %.2u.%02u%% layer %ux%u live %ux%u%s "
+            "flags %c%c%c%c%c%c%c\n",
             w, h, static_cast<double>(dpi),
             static_cast<double>(render_work_us) / 1000.0,
             static_cast<double>(stats.prepare_us_this_frame) / 1000.0,
@@ -501,11 +504,36 @@ inline void cb_frame_(void* user) {
             static_cast<double>(stats.raster_us_this_frame) / 1000.0,
             static_cast<double>(stats.composite_us_this_frame) / 1000.0,
             stats.cached_ops,
+            stats.display_list_diff_changed_ops,
+            static_cast<unsigned>(stats.display_list_diff_first_kind),
+            stats.display_list_diff_first_old_bounds.x,
+            stats.display_list_diff_first_old_bounds.y,
+            stats.display_list_diff_first_old_bounds.w,
+            stats.display_list_diff_first_old_bounds.h,
+            stats.display_list_diff_first_new_bounds.x,
+            stats.display_list_diff_first_new_bounds.y,
+            stats.display_list_diff_first_new_bounds.w,
+            stats.display_list_diff_first_new_bounds.h,
+            static_cast<unsigned>(stats.display_list_diff_largest_kind),
+            stats.display_list_diff_largest_bounds.x,
+            stats.display_list_diff_largest_bounds.y,
+            stats.display_list_diff_largest_bounds.w,
+            stats.display_list_diff_largest_bounds.h,
+            stats.display_list_ops_culled_this_frame,
+            stats.dirty_area_pct_x100 / 100,
+            stats.dirty_area_pct_x100 % 100,
             stats.root_layer_capacity_w,
             stats.root_layer_capacity_h,
             stats.root_layer_content_w,
             stats.root_layer_content_h,
-            stats.root_layer_allocated_this_frame ? " alloc" : "");
+            stats.root_layer_allocated_this_frame ? " alloc" : "",
+            stats.recorded_this_frame ? 'R' : '-',
+            stats.display_list_changed_this_frame ? 'D' : '-',
+            stats.root_layer_partial_this_frame ? 'p' : '-',
+            stats.root_layer_direct_this_frame ? 'q' : '-',
+            stats.layout_dirty ? 'L' : '-',
+            stats.paint_dirty ? 'P' : '-',
+            stats.animations_active ? 'A' : '-');
     }
     if (state.settle_frames > 0 && !ui.needs_update()) {
         --state.settle_frames;

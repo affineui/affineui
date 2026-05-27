@@ -53,7 +53,7 @@ inline std::string slider_thumb_style(float min, float max, float value) {
 }
 
 inline std::string fader_style(float pos) {
-    const float p = clamp(pos, 0.0f, 1.0f) * 100.0f;
+    const float p = (1.0f - clamp(pos, 0.0f, 1.0f)) * 100.0f;
     return "--pos:" + num(p) + "%";
 }
 
