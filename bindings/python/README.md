@@ -11,6 +11,8 @@ first slice exposes:
 - headless `affineui.Document`
 - `affineui.App` construction, HTML/CSS loading, native `run()`, and
   native `launch()`
+- command-tree `affineui.View` plus safe `WidgetRef` handles for named
+  widgets
 
 The intended production model is:
 
@@ -66,4 +68,18 @@ import affineui as ui
 app = ui.App("AffineUI Python")
 app.load_html("<main><h1>Hello</h1><p>Native sokol window.</p></main>")
 app.launch(native=True)
+```
+
+Command-tree hello panel:
+
+```powershell
+python bindings/python/examples/hello_panel.py
+python bindings/python/examples/hello_panel.py --style=decius
+```
+
+Headless check:
+
+```powershell
+python bindings/python/examples/hello_panel.py --headless
+python bindings/python/examples/hello_panel.py --headless --style=decius
 ```

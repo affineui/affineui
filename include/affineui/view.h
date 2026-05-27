@@ -41,6 +41,7 @@ enum class WidgetKind {
     Container,
     Text,
     Heading,
+    Panel,
     Button,
     Checkbox,
     Slider,
@@ -271,6 +272,8 @@ public:
     WidgetRef container_ref(std::string_view classes = {},
                             std::string_view key = {},
                             std::source_location here = std::source_location::current());
+    WidgetRef panel_ref(std::string_view key = {},
+                        std::source_location here = std::source_location::current());
 
     [[nodiscard]] WidgetRef find_widget(std::string_view name);
     [[nodiscard]] const WidgetNode* find_remote(std::string_view remote_id) const;

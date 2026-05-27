@@ -54,6 +54,24 @@ def test_view_emits_remote_patch_batches_and_html():
     assert app.document().content_size().width >= 320
 
 
+def test_view_panel_uses_framework_selectors():
+    bootstrap = ui.View(ui.ViewTheme.Bootstrap)
+    bootstrap.begin()
+    bootstrap.panel(key="panel")
+    bootstrap.end()
+    bootstrap_html = bootstrap.to_html_document()
+    assert "bootstrap-5.3.8.min.css" in bootstrap_html
+    assert "container py-4" in bootstrap_html
+
+    decius = ui.View(ui.ViewTheme.Decius)
+    decius.begin()
+    decius.panel(key="panel")
+    decius.end()
+    decius_html = decius.to_html_document()
+    assert "decius-css-0.4.1.bundle.min.css" in decius_html
+    assert "dcs-panel dcs-panel--bordered" in decius_html
+
+
 def test_named_widget_refs_are_safe_and_recoverable():
     view = ui.View(ui.ViewTheme.Bootstrap)
     patches = ui.RemotePatchQueue()

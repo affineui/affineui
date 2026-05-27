@@ -33,11 +33,18 @@ StableId make_stable_id(StableId parent,
     std::uint64_t h = 0xcbf29ce484222325ull;
     h = fnv1a_mix(h, parent.value);
     h = fnv1a_mix(h, static_cast<std::uint64_t>(kind));
-    h = fnv1a_bytes(h, here.file_name());
-    h = fnv1a_mix(h, here.line());
-    h = fnv1a_mix(h, here.column());
-    h = fnv1a_bytes(h, key);
+    if (!key.empty()) {
+        h = fnv1a_bytes(h, key);
+    } else {
+        h = fnv1a_bytes(h, here.file_name());
+        h = fnv1a_mix(h, here.line());
+        h = fnv1a_mix(h, here.column());
+    }
     return {h};
+}
+
+StableId make_duplicate_stable_id(StableId base, std::size_t index) {
+    return {fnv1a_mix(base.value, index + 1)};
 }
 
 std::string remote_id(StableId id) {
@@ -115,48 +122,157 @@ void emit_remove_tree(ViewSink* sink, const WidgetNode& node) {
     sink->remove(node);
 }
 
-std::string theme_link(ViewTheme theme) {
-    switch (theme) {
-        case ViewTheme::Bootstrap:
-            return "<link rel=\"stylesheet\" href=\"frameworks/css/bootstrap-5.3.8.min.css\">";
-        case ViewTheme::Decius:
-            return "<link rel=\"stylesheet\" href=\"frameworks/css/decius-css-0.4.1.bundle.min.css\">";
-        case ViewTheme::Plain:
-            return {};
+enum class FrameworkElement {
+    Panel,
+    Card,
+    CardTitle,
+    Button,
+    CheckboxGroup,
+    CheckboxInput,
+    CheckboxLabel,
+    SliderGroup,
+    SliderInput,
+};
+
+struct ElementRecipe {
+    std::string_view tag;
+    std::string_view classes;
+};
+
+class ViewFramework {
+public:
+    virtual ~ViewFramework() = default;
+
+    [[nodiscard]] virtual std::string_view stylesheet_href() const noexcept = 0;
+    [[nodiscard]] virtual std::string_view body_attrs() const noexcept = 0;
+    [[nodiscard]] virtual ElementRecipe element(FrameworkElement element,
+                                                bool primary = false) const noexcept = 0;
+};
+
+class PlainFramework final : public ViewFramework {
+public:
+    [[nodiscard]] std::string_view stylesheet_href() const noexcept override {
+        return {};
     }
-    return {};
+
+    [[nodiscard]] std::string_view body_attrs() const noexcept override {
+        return {};
+    }
+
+    [[nodiscard]] ElementRecipe element(FrameworkElement element,
+                                        bool primary = false) const noexcept override {
+        (void) primary;
+        switch (element) {
+            case FrameworkElement::Card:          return {"section", {}};
+            case FrameworkElement::Button:        return {"button", {}};
+            case FrameworkElement::CheckboxGroup: return {"label", {}};
+            case FrameworkElement::CheckboxInput: return {"input", {}};
+            case FrameworkElement::CheckboxLabel: return {"span", {}};
+            case FrameworkElement::SliderGroup:   return {"label", {}};
+            case FrameworkElement::SliderInput:   return {"input", {}};
+            case FrameworkElement::Panel:
+            case FrameworkElement::CardTitle:
+                return {"div", {}};
+        }
+        return {"div", {}};
+    }
+};
+
+class BootstrapFramework final : public ViewFramework {
+public:
+    [[nodiscard]] std::string_view stylesheet_href() const noexcept override {
+        return "frameworks/css/bootstrap-5.3.8.min.css";
+    }
+
+    [[nodiscard]] std::string_view body_attrs() const noexcept override {
+        return {};
+    }
+
+    [[nodiscard]] ElementRecipe element(FrameworkElement element,
+                                        bool primary = false) const noexcept override {
+        switch (element) {
+            case FrameworkElement::Panel:         return {"div", "container py-4"};
+            case FrameworkElement::Card:          return {"section", "card shadow-sm"};
+            case FrameworkElement::CardTitle:     return {"h3", "card-header h6 mb-0"};
+            case FrameworkElement::Button:
+                return {"button", primary ? "btn btn-primary" : "btn btn-outline-secondary"};
+            case FrameworkElement::CheckboxGroup: return {"label", "form-check"};
+            case FrameworkElement::CheckboxInput: return {"input", "form-check-input"};
+            case FrameworkElement::CheckboxLabel: return {"span", "form-check-label"};
+            case FrameworkElement::SliderGroup:   return {"label", "form-label"};
+            case FrameworkElement::SliderInput:   return {"input", "form-range"};
+        }
+        return {"div", {}};
+    }
+};
+
+class DeciusFramework final : public ViewFramework {
+public:
+    [[nodiscard]] std::string_view stylesheet_href() const noexcept override {
+        return "frameworks/css/decius-css-0.4.1.bundle.min.css";
+    }
+
+    [[nodiscard]] std::string_view body_attrs() const noexcept override {
+        return " class=\"dcs\" data-dcs-density=\"compact\" data-dcs-style=\"3d\"";
+    }
+
+    [[nodiscard]] ElementRecipe element(FrameworkElement element,
+                                        bool primary = false) const noexcept override {
+        switch (element) {
+            case FrameworkElement::Panel:
+                return {"section", "dcs-panel dcs-panel--bordered dcs-panel--raised"};
+            case FrameworkElement::Card:
+                return {"section", "dcs-panel dcs-panel--bordered"};
+            case FrameworkElement::CardTitle:
+                return {"h3", "dcs-panel__header"};
+            case FrameworkElement::Button:
+                return {"button", primary ? "dcs-btn dcs-btn--primary" : "dcs-btn"};
+            case FrameworkElement::CheckboxGroup: return {"label", "dcs-check"};
+            case FrameworkElement::CheckboxInput: return {"input", "dcs-check__input"};
+            case FrameworkElement::CheckboxLabel: return {"span", "dcs-check__label"};
+            case FrameworkElement::SliderGroup:   return {"label", "dcs-row"};
+            case FrameworkElement::SliderInput:   return {"input", "dcs-slider"};
+        }
+        return {"div", {}};
+    }
+};
+
+const ViewFramework& framework_for(ViewTheme theme) {
+    static const PlainFramework plain;
+    static const BootstrapFramework bootstrap;
+    static const DeciusFramework decius;
+
+    switch (theme) {
+        case ViewTheme::Bootstrap: return bootstrap;
+        case ViewTheme::Decius:    return decius;
+        case ViewTheme::Plain:     return plain;
+    }
+    return bootstrap;
+}
+
+std::string theme_link(ViewTheme theme) {
+    const auto href = framework_for(theme).stylesheet_href();
+    if (href.empty()) return {};
+    std::string out = "<link rel=\"stylesheet\" href=\"";
+    out += href;
+    out += "\">";
+    return out;
 }
 
 std::string body_attrs(ViewTheme theme) {
-    switch (theme) {
-        case ViewTheme::Decius:
-            return " class=\"dcs\" data-dcs-density=\"compact\" data-dcs-style=\"3d\"";
-        case ViewTheme::Bootstrap:
-        case ViewTheme::Plain:
-            return {};
-    }
-    return {};
+    return std::string{framework_for(theme).body_attrs()};
 }
 
-std::string default_class(ViewTheme theme, WidgetKind kind, bool primary = false) {
-    if (theme == ViewTheme::Bootstrap) {
-        switch (kind) {
-            case WidgetKind::Button:
-                return primary ? "btn btn-primary" : "btn btn-outline-secondary";
-            case WidgetKind::Card:
-                return "card shadow-sm";
-            default:
-                break;
-        }
-    }
-    if (theme == ViewTheme::Decius) {
-        switch (kind) {
-            case WidgetKind::Button: return primary ? "dcs-btn dcs-btn--primary" : "dcs-btn";
-            case WidgetKind::Card:   return "dcs-panel";
-            default:                 break;
-        }
-    }
-    return {};
+std::string default_class(ViewTheme theme,
+                          FrameworkElement element,
+                          bool primary = false) {
+    return std::string{framework_for(theme).element(element, primary).classes};
+}
+
+ElementRecipe default_element(ViewTheme theme,
+                              FrameworkElement element,
+                              bool primary = false) {
+    return framework_for(theme).element(element, primary);
 }
 
 bool is_void_tag(std::string_view tag) {
@@ -366,7 +482,9 @@ WidgetRef::operator bool() const {
 }
 
 StableId WidgetRef::id() const {
-    if (owner_) owner_->resolve_widget_ref(*this);
+    if (owner_) {
+        [[maybe_unused]] auto* resolved = owner_->resolve_widget_ref(*this);
+    }
     return id_;
 }
 
@@ -572,17 +690,15 @@ View::Scope View::card(std::string_view title,
                        std::string_view classes,
                        std::string_view key,
                        std::source_location here) {
-    std::string cls = default_class(theme_, WidgetKind::Card);
+    std::string cls = default_class(theme_, FrameworkElement::Card);
     if (!classes.empty()) {
         if (!cls.empty()) cls += ' ';
         cls += classes;
     }
-    auto& node = open_node(WidgetKind::Card, "section", cls, key, here, true);
+    const auto recipe = default_element(theme_, FrameworkElement::Card);
+    auto& node = open_node(WidgetKind::Card, recipe.tag, cls, key, here, true);
     if (!title.empty()) {
-        heading(3, title,
-                theme_ == ViewTheme::Bootstrap
-                    ? std::string_view{"card-header h6 mb-0"}
-                    : std::string_view{},
+        heading(3, title, default_class(theme_, FrameworkElement::CardTitle),
                 "__title", here);
     }
     return Scope{this, &node};
@@ -622,8 +738,8 @@ WidgetRef View::button(std::string_view label,
                        bool primary,
                        std::string_view key,
                        std::source_location here) {
-    auto& node = open_node(WidgetKind::Button, "button",
-                           default_class(theme_, WidgetKind::Button, primary),
+    const auto recipe = default_element(theme_, FrameworkElement::Button, primary);
+    auto& node = open_node(WidgetKind::Button, recipe.tag, recipe.classes,
                            key, here, false);
     set_attr(node, "type", "button");
     set_text(node, label);
@@ -634,22 +750,24 @@ WidgetRef View::checkbox(std::string_view label,
                          bool checked,
                          std::string_view key,
                          std::source_location here) {
-    const bool bootstrap = theme_ == ViewTheme::Bootstrap;
-    const auto group_class = bootstrap ? "form-check" : "dcs-check";
-    auto& group = open_node(WidgetKind::Checkbox, "label", group_class, key, here, true);
+    const auto group_recipe = default_element(theme_, FrameworkElement::CheckboxGroup);
+    auto& group = open_node(WidgetKind::Checkbox, group_recipe.tag,
+                            group_recipe.classes, key, here, true);
     set_attr(group, "data-aui-widget", "checkbox");
     if (checked) set_attr(group, "aria-checked", "true");
     else remove_attr(group, "aria-checked");
 
-    auto& input = open_node(WidgetKind::Checkbox, "input",
-                            bootstrap ? "form-check-input" : "dcs-check__input",
+    const auto input_recipe = default_element(theme_, FrameworkElement::CheckboxInput);
+    auto& input = open_node(WidgetKind::Checkbox, input_recipe.tag,
+                            input_recipe.classes,
                             "__input", here, false);
     set_attr(input, "type", "checkbox");
     if (checked) set_attr(input, "checked", "checked");
     else remove_attr(input, "checked");
 
-    auto& span = open_node(WidgetKind::Container, "span",
-                           bootstrap ? "form-check-label" : "dcs-check__label",
+    const auto label_recipe = default_element(theme_, FrameworkElement::CheckboxLabel);
+    auto& span = open_node(WidgetKind::Container, label_recipe.tag,
+                           label_recipe.classes,
                            "__label", here, false);
     set_text(span, label);
     close_node();
@@ -662,15 +780,16 @@ WidgetRef View::slider(std::string_view label,
                        double max,
                        std::string_view key,
                        std::source_location here) {
-    const bool bootstrap = theme_ == ViewTheme::Bootstrap;
-    auto& group = open_node(WidgetKind::Slider, "label",
-                            bootstrap ? "form-label" : "dcs-row",
+    const auto group_recipe = default_element(theme_, FrameworkElement::SliderGroup);
+    auto& group = open_node(WidgetKind::Slider, group_recipe.tag,
+                            group_recipe.classes,
                             key, here, true);
     set_attr(group, "data-aui-widget", "slider");
     set_text(group, label);
 
-    auto& input = open_node(WidgetKind::Slider, "input",
-                            bootstrap ? "form-range" : "dcs-slider",
+    const auto input_recipe = default_element(theme_, FrameworkElement::SliderInput);
+    auto& input = open_node(WidgetKind::Slider, input_recipe.tag,
+                            input_recipe.classes,
                             "__input", here, false);
     set_attr(input, "type", "range");
     set_attr(input, "min", number(min));
@@ -684,6 +803,13 @@ WidgetRef View::container_ref(std::string_view classes,
                               std::string_view key,
                               std::source_location here) {
     auto& node = open_node(WidgetKind::Container, "div", classes, key, here, false);
+    return ref_for_node(node, current_panel_id(stack_));
+}
+
+WidgetRef View::panel_ref(std::string_view key, std::source_location here) {
+    const auto recipe = default_element(theme_, FrameworkElement::Panel);
+    auto& node = open_node(WidgetKind::Panel, recipe.tag, recipe.classes,
+                           key, here, false);
     return ref_for_node(node, current_panel_id(stack_));
 }
 
@@ -731,7 +857,16 @@ WidgetNode& View::open_node(WidgetKind kind,
     if (stack_.empty()) begin(static_cast<ViewSink*>(nullptr));
     auto* parent = stack_.back();
     const std::size_t index = parent->cursor++;
-    const StableId id = make_stable_id(parent->id, kind, key, here);
+    StableId id = make_stable_id(parent->id, kind, key, here);
+    if (!key.empty()) {
+        for (std::size_t i = 0; i < index && i < parent->children.size(); ++i) {
+            const auto& sibling = parent->children[i];
+            if (sibling.id == id || sibling.widget_name == key) {
+                id = make_duplicate_stable_id(id, index);
+                break;
+            }
+        }
+    }
 
     WidgetNode* node = nullptr;
     bool created = false;

@@ -299,6 +299,11 @@ PYBIND11_MODULE(_affineui, m) {
              },
              py::arg("classes") = "",
              py::arg("key") = "")
+        .def("panel",
+             [](affineui::View& view, const std::string& key) {
+                 return view.panel_ref(key);
+             },
+             py::arg("key") = "")
         .def("find_widget",
              [](affineui::View& view, const std::string& name) {
                  return view.find_widget(name);
