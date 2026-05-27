@@ -46,6 +46,29 @@ retained DOM:
 
 You can mix them — a retained HTML shell with imm-mode islands inside.
 
+## App/session model
+
+`App` is the product-level application/session object. It owns the
+state that makes one UI independent from another: retained document,
+immediate-mode runtime state, event handlers, resource policy,
+invalidation state, and the connection to a presentation backend.
+
+The backend is an attachment point, not the app model. The same API
+shape must support:
+
+- a local AffineUI renderer driving a native window or embedded surface;
+- a remote browser transport for development, testing, or server-hosted
+  UI;
+- multiple `App` objects in one process, so one process can host a
+  multi-user server with isolated sessions.
+
+Backends may share process-level facilities such as GPU devices,
+transport listeners, font caches, or worker pools, but user-visible app
+state must stay owned by the `App` instance. This keeps the C++ API, the
+future Python "Gradio-style" API, and any remote-browser bridge aligned:
+they all create and mutate app/session objects, then choose where those
+objects present.
+
 ## Layered view
 
 ```

@@ -9,6 +9,10 @@ Production is intentionally narrow. The shipping definition is:
   the same underlying C++ control behavior, layout, interaction, and
   style plumbing wherever the models match. Decius layers its
   additional widgets on top of that shared core.
+- One `App` object represents one independent application/session. An
+  app can attach to a local AffineUI renderer or to a remote browser
+  transport, and multiple app objects can live in one process so a
+  server can host multiple isolated users.
 - Complete, well-tested C++ retained-mode and immediate-mode widget APIs.
 - Complete, well-tested Python "Gradio-style" API that can run locally
   or connect to a remote browser for iteration and testing.
