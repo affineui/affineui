@@ -71,6 +71,7 @@ App::App(App&&) noexcept            = default;
 App& App::operator=(App&&) noexcept = default;
 
 void App::load_html(std::string_view html)     { impl_->document.set_html(html); impl_->dirty = true; impl_->animations_active = false; }
+void App::load_view(const View& view)          { load_html(view.to_html_document()); }
 bool App::load_html_file(std::string_view)     { return false; }
 void App::set_stylesheet(std::string_view css) { impl_->document.set_user_stylesheet(css); impl_->dirty = true; impl_->animations_active = false; }
 void App::mount(std::function<void()> view_fn) { impl_->view_fn = std::move(view_fn); impl_->dirty = true; impl_->animations_active = false; }

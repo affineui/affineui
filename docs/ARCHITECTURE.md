@@ -21,6 +21,85 @@ separately in [RENDERER_COMPOSITOR.md](RENDERER_COMPOSITOR.md). That doc
 is the source of truth for display-list caching, dirty rects, root-layer
 raster, composition, and the path toward compositor-only animation.
 
+## Command-tree sessions
+
+AffineUI also grows a direct app/widget command layer for C++, Python,
+and later C#. This is not a second renderer above HTML. It is a
+native-first command tree that reconciles stable widget identity against
+real DOM backing:
+
+```
+app commands
+  -> widget tree/reconciler
+  -> local AffineUI DOM weak handles
+  -> existing style/layout/paint/compositor
+```
+
+Each widget node carries both possible backing identities:
+
+- `DomHandle local_dom` for a weak, generation-checked handle into the
+  AffineUI document;
+- `remote_id` for a browser-side DOM element id.
+
+The reconciler may generate internal identity from declaration callsites
+so keyless widgets can be updated efficiently during a refresh. That is
+not a public stable id. App code can keep explicit widget handles
+(`WidgetRef`) only for widgets with an explicit id/name. Keyless
+declarations are write-only: they build the tree but return an empty ref
+and cannot be found later.
+
+A ref is a small recovery tuple: owning view, owning panel/root id,
+current widget id, and widget name. The current widget id is the fast
+path. If a refresh deletes and rebuilds part of the tree, the ref
+searches the owning panel by name and rebinds to the recreated node. If
+no node exists, the ref is empty: mutating methods are no-ops and
+accessors return default values. Refs are cheap value types and are
+freely copyable/assignable. This gives retained-mode users a comfortable
+`panel.find_widget("my_list").clear()` style API without raw pointer
+lifetime risk.
+
+Duplicate explicit widget ids are invalid app code, but they are not a
+reconciler failure mode. The view records a diagnostic, lookup remains
+deterministic, and the tree/DOM backing remain valid. User code should
+never be able to corrupt the DOM or reconciliation engine by choosing bad
+ids.
+
+`WidgetRef` is intentionally generic. Every widget supports the same
+basic operations: naming, attributes/classes, text, clearing children,
+and subtree lookup. Typed handles such as `SliderRef`, `ListRef`, or
+`TableRef` can layer widget-specific methods over `WidgetRef` later
+without changing the recovery or binding model.
+
+Child injection uses the same tree builder. `append(fn)` and
+`replace(fn)` resolve a container ref and run `fn(view)` with that node
+as the active parent; `replace` clears existing children first. These
+retained mutations are illegal while a view generation pass is active.
+Attempting recursive structural mutation records a diagnostic and does
+nothing, preserving the active reconciler stack.
+
+Native/local mode is allowed to depend directly on the DOM handle field.
+That is the core product path and keeps the code easy for Dear ImGui
+style users to inspect: command calls reconcile to real DOM objects, not
+to a hidden renderer model. The browser target is optional extra
+infrastructure that observes/scrapes the same tree and emits DOM patch
+batches for a remote browser.
+
+Lexbor subtree mutation is intentionally treated as a correctness
+boundary. Until the native DOM sink has well-tested create/update/remove
+subtree primitives that respect Lexbor's mutation hooks and our cascade
+state, `App::load_view()` may use a safe HTML inflation bridge. That
+bridge is temporary architecture scaffolding, not the final native path.
+The final native sink must update subtrees through documented DOM
+helpers and must be covered by crash/regression tests before replacing
+the bridge.
+
+The browser backend is removable from native C++ builds. HTTP serving,
+SSE/POST transport, and browser bridge JavaScript live outside the core
+include path so a native-only application can build without shipping any
+web server code. Python wheels include the browser extra by default
+because Python users expect local-window and browser presentation to be
+available from the package.
+
 ## Two front-ends, one engine
 
 AffineUI exposes **two equivalent front-ends** that converge on the same
@@ -97,29 +176,38 @@ processes to host many `App` sessions without special cases.
 
 ### Callback lifetime model
 
-Widget callbacks are registered as a guarded delegate: a weak handle to
-the object or state that owns the callback's lifetime, plus a method or
-callable to invoke while that handle is alive.
+Widget callbacks are registered as a guarded object callback: a weak
+object handle that owns the callback's lifetime, plus either a method on
+that object or a callable/delegate to invoke while that object is alive.
+State wrappers can be added later as convenience, but object handles are
+the core lifetime primitive.
 
 The direct API should make that shape visible:
 
 ```cpp
-add_on_change(handle, method_or_delegate);
-remove_on_change(handle, method_or_delegate);
+add_on_change(object, &Object::method);
+remove_on_change(object, &Object::method);
 
-slider.on_change = aui::event_handler(handle, method_or_delegate);
+add_on_change(object, callback_or_delegate);
+remove_on_change(object, callback_or_delegate);
+
+slider.on_change = aui::event_handler(object, &Object::method);
+slider.on_change = aui::event_handler(object, callback_or_delegate);
 ```
 
-Dispatch resolves the handle before invoking the delegate. If the handle
-is expired, the callback is not called and the registration can be
-pruned. This keeps callbacks safe when apps, sessions, components, or
-state slots are destroyed. The handle does not extend lifetime; it is a
-nullable capability with defined empty semantics.
+Dispatch resolves the object handle before invoking anything. If the
+handle is expired, the callback is not called and the registration can
+be pruned. This keeps callbacks safe when apps, sessions, or components
+are destroyed. The handle does not extend lifetime; it is a nullable
+capability with defined empty semantics.
 
-Named methods and stable delegate objects can be removed with
-`remove_on_change(handle, method_or_delegate)`. Anonymous lambdas should
-also return an event token/subscription so callers have a precise removal
-path without relying on lambda identity.
+`object + method` and `object + callback` are separate registration
+forms and both are first-class. `object + method` has stable identity as
+the pair `(object handle, method pointer)`. `object + callback` uses the
+object as the lifetime guard while invoking a separate callback or
+delegate; stable delegate objects can be removed by pair, while
+anonymous lambdas should also return an event token/subscription so
+callers have a precise removal path without relying on lambda identity.
 
 The implementation should be one shared callback-list substrate used by
 C++, Python, and later C#. It should not grow a separate event system per
@@ -135,10 +223,19 @@ language binding. The core representation should favor:
   payload storage the binding explicitly needs.
 
 Python can map bound methods to this substrate with `weakref.WeakMethod`
-and a single C trampoline. The C++ API can map `this` + method pointer to
-the same slot layout. Mixed C++/Python apps therefore dispatch through
-the same callback list, see the same ordering/removal semantics, and do
-not pay for duplicate observer machinery.
+and a single C trampoline. The C++ API can map `this + method` and
+`this + callback` to the same slot layout. Mixed C++/Python apps
+therefore dispatch through the same callback list, see the same
+ordering/removal semantics, and do not pay for duplicate observer
+machinery.
+
+Language wrappers are outside the zero-dependency core. The C++ SDK
+remains the two-file `affineui.h` + `affineui.cpp` distribution; wrapper
+build systems such as pybind11/scikit-build are packaging conveniences,
+not new core dependencies. A binding must be able to target either the
+modular CMake library used during development or the generated two-file
+amalgamation used by embedders. The callback substrate and weak object
+identity therefore belong in core, not in a language wrapper.
 
 ## Layered view
 

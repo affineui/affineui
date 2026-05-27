@@ -20,6 +20,7 @@ install_manifest.txt
 *.so.*
 *.dylib
 *.dll
+*.pyd
 *.exe
 *.exp
 *.pdb
@@ -64,6 +65,8 @@ compile_commands.json
 # Python bytecode (amalgamate.py)
 __pycache__/
 *.pyc
+.pytest_cache/
+*.egg-info/
 
 # Conformance harness (generated snapshots + browser deps)
 conformance/out/

@@ -31,6 +31,16 @@ struct Rect {
     int x{0}, y{0}, w{0}, h{0};
 };
 
+struct DomHandle {
+    std::uint32_t document_id{0};
+    std::uint32_t node_slot{0};
+    std::uint32_t generation{0};
+
+    explicit operator bool() const noexcept {
+        return document_id != 0 && generation != 0;
+    }
+};
+
 enum class MouseButton : std::uint8_t { Left, Right, Middle };
 
 /// Platform-independent key code carried by KeyDown / KeyUp events.

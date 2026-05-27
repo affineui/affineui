@@ -1,0 +1,298 @@
+#include <doctest/doctest.h>
+
+#include "affineui/app.h"
+#include "affineui/view.h"
+#include "affineui_browser_server.h"
+
+#include <algorithm>
+#include <string>
+#include <utility>
+
+namespace {
+
+void build_small_view(affineui::View& view,
+                      affineui::RemotePatchQueue& patches,
+                      std::string_view button_label,
+                      bool checked) {
+    view.begin(&patches);
+    view.heading(1, "Remote-ready UI");
+    view.paragraph("Same commands can inflate local DOM or browser DOM.");
+    view.button(button_label, true);
+    view.checkbox("Enabled", checked);
+    view.slider("Gain", 0.75, 0.0, 1.0);
+    view.end();
+}
+
+bool has_op(const affineui::RemotePatchQueue& queue,
+            affineui::RemotePatchOp op) {
+    const auto& patches = queue.patches();
+    return std::any_of(patches.begin(), patches.end(),
+        [&](const affineui::RemotePatch& patch) {
+            return patch.op == op;
+        });
+}
+
+bool has_text_patch(const affineui::RemotePatchQueue& queue,
+                    std::string_view text) {
+    const auto& patches = queue.patches();
+    return std::any_of(patches.begin(), patches.end(),
+        [&](const affineui::RemotePatch& patch) {
+            return patch.op == affineui::RemotePatchOp::SetText &&
+                   patch.value == text;
+        });
+}
+
+}  // namespace
+
+TEST_CASE("View emits remote create patches on first reconcile") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    affineui::RemotePatchQueue patches;
+
+    build_small_view(view, patches, "Refresh", true);
+
+    CHECK(has_op(patches, affineui::RemotePatchOp::CreateElement));
+    CHECK(has_text_patch(patches, "Refresh"));
+    CHECK(view.root().children.size() == 5);
+
+    const auto html = view.to_html_document();
+    CHECK(html.find("bootstrap-5.3.8.min.css") != std::string::npos);
+    CHECK(html.find("Remote-ready UI") != std::string::npos);
+    CHECK(html.find("Refresh") != std::string::npos);
+    CHECK(html.find("form-check") != std::string::npos);
+}
+
+TEST_CASE("View reconcile reuses nodes and emits property patches") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    affineui::RemotePatchQueue first;
+    build_small_view(view, first, "Refresh", true);
+
+    const auto button_id = view.root().children[2].remote_id;
+    REQUIRE_FALSE(button_id.empty());
+    REQUIRE(view.find_remote(button_id) != nullptr);
+
+    affineui::RemotePatchQueue second;
+    build_small_view(view, second, "Export", false);
+
+    CHECK_FALSE(has_op(second, affineui::RemotePatchOp::CreateElement));
+    CHECK(has_text_patch(second, "Export"));
+    CHECK(has_op(second, affineui::RemotePatchOp::RemoveAttribute));
+    CHECK(view.root().children[2].remote_id == button_id);
+    CHECK(view.find_remote(button_id)->text == "Export");
+}
+
+TEST_CASE("View named widget refs resolve to persistent tree items") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    affineui::RemotePatchQueue patches;
+
+    view.begin(&patches);
+    auto first = view.button("First", true, "main-action");
+    view.end();
+
+    REQUIRE(first);
+    CHECK(first.name() == "main-action");
+    auto lookup = view.find_widget("main-action");
+    REQUIRE(lookup);
+    CHECK(lookup.id() == first.id());
+
+    affineui::WidgetRef copied;
+    copied = lookup;
+    REQUIRE(copied);
+    CHECK(copied.id() == lookup.id());
+
+    lookup.text("Second");
+    CHECK(view.find_widget("main-action").node()->text == "Second");
+
+    view.begin(&patches);
+    auto second = view.button("Refresh label", true, "main-action");
+    view.end();
+
+    REQUIRE(second);
+    CHECK(second.id() == first.id());
+    CHECK(view.find_widget("main-action").node()->text == "Refresh label");
+}
+
+TEST_CASE("View keyless widgets are write-only declarations") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    affineui::RemotePatchQueue patches;
+
+    view.begin(&patches);
+    auto unnamed = view.button("Write only");
+    view.end();
+
+    CHECK_FALSE(unnamed);
+    CHECK_FALSE(view.find_widget(""));
+    CHECK_FALSE(view.find_widget("Write only"));
+    CHECK(view.to_html_fragment().find("Write only") != std::string::npos);
+}
+
+TEST_CASE("View named widget refs become empty when refresh removes the widget") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    affineui::RemotePatchQueue patches;
+
+    view.begin(&patches);
+    auto button = view.button("Transient", false, "transient");
+    view.end();
+    REQUIRE(button);
+
+    view.begin(&patches);
+    view.paragraph("No button here");
+    view.end();
+
+    CHECK_FALSE(button);
+    CHECK_FALSE(view.find_widget("transient"));
+}
+
+TEST_CASE("View named refs recover after a subtree is rebuilt") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    affineui::RemotePatchQueue patches;
+
+    view.begin(&patches);
+    auto button = view.button("Before", true, "recoverable");
+    view.end();
+    REQUIRE(button);
+    const auto first_id = button.id();
+
+    view.clear();
+    view.begin(&patches);
+    auto rebuilt = view.button("After", true, "recoverable");
+    view.end();
+
+    REQUIRE(rebuilt);
+    CHECK(button);
+    CHECK(button.id() == rebuilt.id());
+    CHECK(button.id() == first_id);
+    CHECK(button.node()->text == "After");
+}
+
+TEST_CASE("View records diagnostics for duplicate explicit widget ids") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    affineui::RemotePatchQueue patches;
+
+    view.begin(&patches);
+    view.button("First", true, "duplicate");
+    view.button("Second", false, "duplicate");
+    view.end();
+
+    REQUIRE_FALSE(view.diagnostics().empty());
+    CHECK(view.diagnostics().front().find("duplicate") != std::string::npos);
+    CHECK(view.find_widget("duplicate").node()->text == "Second");
+}
+
+TEST_CASE("WidgetRef can append and replace child declarations") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    affineui::RemotePatchQueue patches;
+
+    view.begin(&patches);
+    auto panel_scope = view.container("panel", "panel");
+    auto panel = panel_scope.ref();
+    view.end();
+
+    REQUIRE(panel);
+    panel.append([](affineui::View& v) {
+        v.paragraph("First child", {}, "first");
+    });
+    panel.append([](affineui::View& v) {
+        v.button("Second child", false, "second");
+    });
+    REQUIRE(panel.node() != nullptr);
+    CHECK(panel.node()->children.size() == 2);
+    CHECK(view.find_widget("second"));
+
+    panel.replace([](affineui::View& v) {
+        v.heading(2, "Replacement", {}, "replacement");
+    });
+    REQUIRE(panel.node() != nullptr);
+    CHECK(panel.node()->children.size() == 1);
+    CHECK_FALSE(view.find_widget("second"));
+    CHECK(view.find_widget("replacement"));
+}
+
+TEST_CASE("WidgetRef child mutation is illegal during view generation") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    affineui::RemotePatchQueue patches;
+
+    view.begin(&patches);
+    auto panel = view.container_ref("panel", "panel");
+    panel.append([](affineui::View& v) {
+        v.paragraph("Forbidden");
+    });
+    view.end();
+
+    REQUIRE_FALSE(view.diagnostics().empty());
+    CHECK(view.diagnostics().front().find("append") != std::string::npos);
+    CHECK(panel);
+    REQUIRE(panel.node() != nullptr);
+    CHECK(panel.node()->children.empty());
+}
+
+TEST_CASE("App can load a command view through the compatibility bridge") {
+    affineui::View view{affineui::ViewTheme::Plain};
+    affineui::RemotePatchQueue patches;
+    build_small_view(view, patches, "Launch", true);
+
+    affineui::App app;
+    app.load_view(view);
+    app.document().layout(480, 320);
+    const auto size = app.document().content_size();
+    CHECK(size.width >= 480);
+    CHECK(size.height >= 320);
+}
+
+TEST_CASE("Document weak DOM handles invalidate when the document is replaced") {
+    affineui::Document document;
+    document.set_html(R"(<main><button id="run">Run</button></main>)");
+
+    const auto handle = document.weak_handle_for_id("run");
+    REQUIRE(handle);
+    CHECK(document.weak_handle_valid(handle));
+
+    document.set_html(R"(<main><button id="stop">Stop</button></main>)");
+    CHECK_FALSE(document.weak_handle_valid(handle));
+}
+
+TEST_CASE("browser asset store serves boot page and bridge script") {
+    const auto assets = affineui::browser::default_assets("Test App");
+
+    const auto* index = assets.find("/");
+    REQUIRE(index != nullptr);
+    CHECK(index->content_type.find("text/html") != std::string::npos);
+    CHECK(index->body.find("Test App") != std::string::npos);
+    CHECK(index->body.find("/affineui.js") != std::string::npos);
+
+    const auto* bridge = assets.find("/affineui.js");
+    REQUIRE(bridge != nullptr);
+    CHECK(bridge->body.find("affineuiApplyPatches") != std::string::npos);
+    CHECK(bridge->body.find("EventSource") != std::string::npos);
+    CHECK(bridge->body.find("/events") != std::string::npos);
+}
+
+TEST_CASE("browser transport core serves assets, queues events, and formats SSE patches") {
+    auto assets = affineui::browser::default_assets("Transport");
+    affineui::browser::TransportCore transport{std::move(assets)};
+
+    auto index = transport.handle_request({"GET", "/", {}});
+    CHECK(index.status == 200);
+    CHECK(index.content_type.find("text/html") != std::string::npos);
+
+    affineui::RemotePatchQueue patches;
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    build_small_view(view, patches, "Sync", true);
+    transport.enqueue_patches_json(patches.to_json());
+
+    auto stream = transport.handle_request({"GET", "/stream", {}});
+    CHECK(stream.status == 200);
+    CHECK(stream.keep_open);
+    CHECK(stream.content_type.find("text/event-stream") != std::string::npos);
+    CHECK(stream.body.find("event: patches") != std::string::npos);
+    CHECK(stream.body.find("create_element") != std::string::npos);
+
+    auto event_response = transport.handle_request({
+        "POST",
+        "/events",
+        R"({"type":"click","id":"aui-test"})",
+    });
+    CHECK(event_response.status == 202);
+    auto events = transport.take_events();
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].find("aui-test") != std::string::npos);
+}

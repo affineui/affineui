@@ -2,6 +2,7 @@
 
 #include "affineui/document.h"
 #include "affineui/types.h"
+#include "affineui/view.h"
 
 #include <functional>
 #include <memory>
@@ -39,6 +40,11 @@ public:
 
     /// Load an HTML string. Retained-mode entry point.
     void load_html(std::string_view html);
+
+    /// Load a command-tree view by inflating it into the retained HTML/CSS
+    /// document. This is a compatibility bridge while the local DOM sink
+    /// grows direct weak-handle mutation support.
+    void load_view(const View& view);
 
     /// Load HTML from a file (resolved via resource loader if absolute
     /// scheme; otherwise interpreted relative to CWD).

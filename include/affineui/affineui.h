@@ -26,6 +26,7 @@
 #include "affineui/themes.h"
 #include "affineui/types.h"
 #include "affineui/ui.h"
+#include "affineui/view.h"
 #include "affineui/version.h"
 
 #ifndef AFFINEUI_NO_IMM

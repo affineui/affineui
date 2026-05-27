@@ -1,0 +1,33 @@
+[build-system]
+requires = [
+    "scikit-build-core>=0.10",
+    "pybind11>=2.12",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "affineui"
+version = "0.0.1"
+description = "Python bindings for AffineUI"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "AffineUI contributors" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: C++",
+    "Topic :: Software Development :: User Interfaces",
+]
+
+[tool.scikit-build]
+cmake.source-dir = "."
+wheel.packages = ["python/affineui"]
+build-dir = "build/{wheel_tag}"
+
+[tool.scikit-build.cmake.define]
+AFFINEUI_BUILD_EXAMPLES = "OFF"
+AFFINEUI_BUILD_TESTS = "OFF"
+AFFINEUI_BUILD_TOOLS = "OFF"

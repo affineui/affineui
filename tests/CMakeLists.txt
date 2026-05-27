@@ -16,6 +16,7 @@ add_executable(affineui_tests
     test_bootstrap.cpp
     test_imm_callsite.cpp
     test_imm_runtime.cpp
+    test_view.cpp
     test_cascade.cpp
     test_display_list.cpp
     test_layout.cpp
@@ -30,6 +31,7 @@ target_link_libraries(affineui_tests PRIVATE
 target_include_directories(affineui_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/examples/common
+    ${CMAKE_SOURCE_DIR}/extras/browser_server
 )
 target_compile_definitions(affineui_tests PRIVATE
     AFFINEUI_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}"

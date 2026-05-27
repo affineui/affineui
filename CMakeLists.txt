@@ -24,7 +24,9 @@ endif()
 option(AFFINEUI_BUILD_EXAMPLES  "Build examples"               ${AFFINEUI_IS_TOPLEVEL})
 option(AFFINEUI_BUILD_TESTS     "Build tests"                  ${AFFINEUI_IS_TOPLEVEL})
 option(AFFINEUI_BUILD_TOOLS     "Build tools"                  ${AFFINEUI_IS_TOPLEVEL})
+option(AFFINEUI_BUILD_PYTHON_BINDINGS "Build Python extension module" OFF)
 option(AFFINEUI_BUILD_SHARED    "Build as shared library"      OFF)
+option(AFFINEUI_INSTALL         "Install AffineUI library and CMake package config" ON)
 option(AFFINEUI_ENABLE_IMM      "Enable immediate-mode layer"  ON)
 option(AFFINEUI_ENABLE_C_API    "Build the extern \"C\" surface" ON)
 option(AFFINEUI_WARNINGS_AS_ERRORS "Treat warnings as errors"  OFF)
@@ -94,6 +96,7 @@ target_sources(affineui PRIVATE
     src/themes.cpp
     src/app/app.cpp
     src/app/event.cpp
+    src/app/view.cpp
     src/dom/document.cpp
     src/dom/dom_view.cpp
     src/style/cascade.cpp
@@ -304,39 +307,44 @@ endif()
 if(AFFINEUI_BUILD_TOOLS)
     add_subdirectory(tools)
 endif()
+if(AFFINEUI_BUILD_PYTHON_BINDINGS)
+    add_subdirectory(bindings/python)
+endif()
 
 # ─── Install / package config ────────────────────────────────────────────────
-include(GNUInstallDirs)
-include(CMakePackageConfigHelpers)
+if(AFFINEUI_INSTALL)
+    include(GNUInstallDirs)
+    include(CMakePackageConfigHelpers)
 
-install(TARGETS affineui
-    EXPORT affineuiTargets
-    LIBRARY  DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE  DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME  DESTINATION ${CMAKE_INSTALL_BINDIR}
-    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
-install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-install(EXPORT affineuiTargets
-    FILE affineuiTargets.cmake
-    NAMESPACE affineui::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/affineui
-)
-configure_package_config_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/affineuiConfig.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/affineuiConfig.cmake"
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/affineui
-)
-write_basic_package_version_file(
-    "${CMAKE_CURRENT_BINARY_DIR}/affineuiConfigVersion.cmake"
-    VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMinorVersion
-)
-install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/affineuiConfig.cmake"
-    "${CMAKE_CURRENT_BINARY_DIR}/affineuiConfigVersion.cmake"
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/affineui
-)
+    install(TARGETS affineui
+        EXPORT affineuiTargets
+        LIBRARY  DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE  DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME  DESTINATION ${CMAKE_INSTALL_BINDIR}
+        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    )
+    install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(EXPORT affineuiTargets
+        FILE affineuiTargets.cmake
+        NAMESPACE affineui::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/affineui
+    )
+    configure_package_config_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/affineuiConfig.cmake.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/affineuiConfig.cmake"
+        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/affineui
+    )
+    write_basic_package_version_file(
+        "${CMAKE_CURRENT_BINARY_DIR}/affineuiConfigVersion.cmake"
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMinorVersion
+    )
+    install(FILES
+        "${CMAKE_CURRENT_BINARY_DIR}/affineuiConfig.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/affineuiConfigVersion.cmake"
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/affineui
+    )
+endif()
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
 message(STATUS "")
@@ -348,5 +356,7 @@ message(STATUS "  C ABI:          ${AFFINEUI_ENABLE_C_API}")
 message(STATUS "  Examples:       ${AFFINEUI_BUILD_EXAMPLES}")
 message(STATUS "  Tests:          ${AFFINEUI_BUILD_TESTS}")
 message(STATUS "  Tools:          ${AFFINEUI_BUILD_TOOLS}")
+message(STATUS "  Python:         ${AFFINEUI_BUILD_PYTHON_BINDINGS}")
 message(STATUS "  Shared:         ${AFFINEUI_BUILD_SHARED}")
+message(STATUS "  Install:        ${AFFINEUI_INSTALL}")
 message(STATUS "")

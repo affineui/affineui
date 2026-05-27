@@ -30,6 +30,7 @@
 #include "layout/yoga_adapter.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -229,7 +230,27 @@ void scan_font_face_rules(std::string_view css,
 
 namespace detail {
 
+#if !defined(AFFINEUI_STUB_BUILD)
+struct DomWeakSlot {
+    lxb_dom_node_t* node{nullptr};
+    std::uint32_t generation{1};
+};
+#else
+struct DomWeakSlot {
+    std::uint32_t generation{1};
+};
+#endif
+
+std::uint32_t next_document_id() {
+    static std::atomic<std::uint32_t> next{1};
+    std::uint32_t id = next.fetch_add(1, std::memory_order_relaxed);
+    if (id == 0) id = next.fetch_add(1, std::memory_order_relaxed);
+    return id == 0 ? 1 : id;
+}
+
 struct DocumentImpl {
+    DocumentImpl() : document_id(next_document_id()) {}
+
     std::string               html;
     std::string               user_stylesheet;
     ResourceLoader            resource_loader;
@@ -272,6 +293,8 @@ struct DocumentImpl {
 
 #if !defined(AFFINEUI_STUB_BUILD)
     lxb_html_document_t*               doc{nullptr};
+    lxb_dom_event_remove_f             lexbor_ev_remove{nullptr};
+    lxb_dom_event_destroy_f            lexbor_ev_destroy{nullptr};
     std::vector<lxb_css_stylesheet_t*> sheets;
     // :hover / :active overlay rules â€” populated by scan_pseudo_rules()
     // during attach. Pointers in `decls` reference rule data owned by
@@ -305,6 +328,9 @@ struct DocumentImpl {
     std::vector<int>           draw_list_ordinals;
     std::vector<int>           draw_list_counts_by_parent;
 
+    std::uint32_t              document_id{1};
+    std::vector<DomWeakSlot>   dom_weak_slots;
+
     ~DocumentImpl() {
 #if !defined(AFFINEUI_STUB_BUILD)
         resolver.reset();
@@ -316,6 +342,62 @@ struct DocumentImpl {
 #endif
     }
 };
+
+#if !defined(AFFINEUI_STUB_BUILD)
+
+void advance_generation(DomWeakSlot& slot) {
+    ++slot.generation;
+    if (slot.generation == 0) slot.generation = 1;
+}
+
+void invalidate_dom_weak_slot(DocumentImpl& impl, lxb_dom_node_t* node) {
+    if (node == nullptr) return;
+    for (auto& slot : impl.dom_weak_slots) {
+        if (slot.node == node) {
+            slot.node = nullptr;
+            advance_generation(slot);
+        }
+    }
+}
+
+DocumentImpl* document_impl_from_node(lxb_dom_node_t* node) {
+    if (node == nullptr || node->owner_document == nullptr) return nullptr;
+    return static_cast<DocumentImpl*>(node->owner_document->user);
+}
+
+lxb_status_t affineui_dom_event_remove(lxb_dom_node_t* node) {
+    auto* impl = document_impl_from_node(node);
+    if (impl != nullptr) {
+        invalidate_dom_weak_slot(*impl, node);
+        if (impl->lexbor_ev_remove != nullptr) {
+            return impl->lexbor_ev_remove(node);
+        }
+    }
+    return LXB_STATUS_OK;
+}
+
+lxb_status_t affineui_dom_event_destroy(lxb_dom_node_t* node) {
+    auto* impl = document_impl_from_node(node);
+    if (impl != nullptr) {
+        invalidate_dom_weak_slot(*impl, node);
+        if (impl->lexbor_ev_destroy != nullptr) {
+            return impl->lexbor_ev_destroy(node);
+        }
+    }
+    return LXB_STATUS_OK;
+}
+
+void install_dom_event_hooks(DocumentImpl& impl) {
+    if (impl.doc == nullptr) return;
+    auto& dom_doc = impl.doc->dom_document;
+    impl.lexbor_ev_remove = dom_doc.ev_remove;
+    impl.lexbor_ev_destroy = dom_doc.ev_destroy;
+    dom_doc.user = &impl;
+    dom_doc.ev_remove = affineui_dom_event_remove;
+    dom_doc.ev_destroy = affineui_dom_event_destroy;
+}
+
+#endif
 
 }  // namespace detail
 
@@ -3506,6 +3588,13 @@ void Document::set_html(std::string_view html) {
     impl_->dirty_rects.clear();
     impl_->pending_dirty_roots.clear();
     impl_->animation_candidate_count = 0;
+    for (auto& slot : impl_->dom_weak_slots) {
+#if !defined(AFFINEUI_STUB_BUILD)
+        slot.node = nullptr;
+#endif
+        ++slot.generation;
+        if (slot.generation == 0) slot.generation = 1;
+    }
 
 #if !defined(AFFINEUI_STUB_BUILD)
     // Tear down the previous document; its CSS pool owns the
@@ -3537,6 +3626,7 @@ void Document::set_html(std::string_view html) {
     if (lxb_html_document_css_init(impl_->doc) != LXB_STATUS_OK) {
         return;
     }
+    detail::install_dom_event_hooks(*impl_);
 
     if (lxb_html_document_parse(
             impl_->doc,
@@ -6792,6 +6882,61 @@ void Document::set_resource_loader(ResourceLoader loader) {
 }
 
 Size Document::content_size() const { return impl_->content_size; }
+
+DomHandle Document::weak_handle_for_id(std::string_view elem_id) {
+    DomHandle out{};
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (!impl_->doc || elem_id.empty()) return out;
+    auto* elem = find_dom_element_by_id(*impl_, elem_id);
+    if (!elem) return out;
+    auto* node = lxb_dom_interface_node(elem);
+    if (!node) return out;
+
+    out.document_id = impl_->document_id;
+    for (std::size_t i = 0; i < impl_->dom_weak_slots.size(); ++i) {
+        auto& slot = impl_->dom_weak_slots[i];
+        if (slot.node == node) {
+            out.node_slot = static_cast<std::uint32_t>(i + 1);
+            out.generation = slot.generation;
+            return out;
+        }
+    }
+
+    std::size_t slot_index = impl_->dom_weak_slots.size();
+    for (std::size_t i = 0; i < impl_->dom_weak_slots.size(); ++i) {
+        if (impl_->dom_weak_slots[i].node == nullptr) {
+            slot_index = i;
+            break;
+        }
+    }
+    if (slot_index == impl_->dom_weak_slots.size()) {
+        impl_->dom_weak_slots.push_back({});
+    }
+    auto& slot = impl_->dom_weak_slots[slot_index];
+    slot.node = node;
+    if (slot.generation == 0) slot.generation = 1;
+    out.node_slot = static_cast<std::uint32_t>(slot_index + 1);
+    out.generation = slot.generation;
+#else
+    (void)elem_id;
+#endif
+    return out;
+}
+
+bool Document::weak_handle_valid(DomHandle handle) const {
+    if (handle.document_id != impl_->document_id || handle.node_slot == 0) {
+        return false;
+    }
+    const std::size_t index = static_cast<std::size_t>(handle.node_slot - 1);
+    if (index >= impl_->dom_weak_slots.size()) return false;
+    const auto& slot = impl_->dom_weak_slots[index];
+    if (slot.generation != handle.generation) return false;
+#if !defined(AFFINEUI_STUB_BUILD)
+    return slot.node != nullptr;
+#else
+    return false;
+#endif
+}
 
 bool Document::set_attribute_by_id(std::string_view elem_id,
                                    std::string_view name,

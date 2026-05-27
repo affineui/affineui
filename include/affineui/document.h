@@ -95,6 +95,12 @@ public:
     /// True while CSS animations in the document need another frame.
     bool has_active_animations() const;
 
+    /// Weak handles for command-tree/native DOM reconciliation. Handles do
+    /// not extend lifetime and become invalid when the document is replaced or
+    /// when Lexbor removes/destroys the referenced node.
+    [[nodiscard]] DomHandle weak_handle_for_id(std::string_view elem_id);
+    [[nodiscard]] bool weak_handle_valid(DomHandle handle) const;
+
     /// Set the document animation clock to a deterministic elapsed time.
     /// Intended for conformance/test harnesses that compare exact animation
     /// phases against a browser.
