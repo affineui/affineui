@@ -1,5 +1,23 @@
 # Roadmap
 
+## Production Scope
+
+Production is intentionally narrow. The shipping definition is:
+
+- Tested and supported on Windows, Ubuntu, and macOS.
+- First-class Decius and Bootstrap support. Shared widgets should use
+  the same underlying C++ control behavior, layout, interaction, and
+  style plumbing wherever the models match. Decius layers its
+  additional widgets on top of that shared core.
+- Complete, well-tested C++ retained-mode and immediate-mode widget APIs.
+- Complete, well-tested Python "Gradio-style" API that can run locally
+  or connect to a remote browser for iteration and testing.
+- Stretch only after the above is solid: C#.
+
+Nothing else is a production requirement. Parking-lot items below may
+still be valuable, but they do not define the ship bar unless one
+becomes necessary for Decius, Bootstrap, the C++ APIs, or the Python API.
+
 Rough sequencing. Items inside a phase are not strictly ordered. Items
 marked ✅ are landed; ⏳ are in progress; otherwise open.
 
@@ -176,6 +194,13 @@ mutation. Public surface (`mount`, `use_state`, `on_click`,
 - [ ] Image cache LRU with size cap
 - [ ] Layout-cache invalidation per dirty subtree (don't relayout the
       whole document for one attribute change)
+
+## Production Cut Line
+
+Phase 5 and Phase 6 are deliberately outside the production definition.
+They are useful ideas to keep in view, but they are not blockers for the
+production target above unless they become necessary to ship Decius,
+Bootstrap, the C++ APIs, or the Python API at production quality.
 
 ## Phase 5 — Reach
 
