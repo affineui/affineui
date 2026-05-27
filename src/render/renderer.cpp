@@ -1083,14 +1083,14 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
             frame_area > 0 &&
             dirty_area * 100u <= frame_area * 40u;
         const bool can_partial_raster =
-            bounded_known_partial ||
-            (impl_->partial_root_raster_enabled &&
-             impl_->root_layer.valid &&
-             frame.display_list_changed &&
-             rect_valid(frame.raster_bounds) &&
-             frame.display_list_diff_bounds_known &&
-             !frame.viewport_changed &&
-             !frame.paint_dirty);
+            impl_->partial_root_raster_enabled &&
+            (bounded_known_partial ||
+             (impl_->root_layer.valid &&
+              frame.display_list_changed &&
+              rect_valid(frame.raster_bounds) &&
+              frame.display_list_diff_bounds_known &&
+              !frame.viewport_changed &&
+              !frame.paint_dirty));
         if (can_partial_raster) {
             rasterize_root_layer_region(*impl_, frame.pt_w, frame.pt_h,
                                         t.dpi_scale, frame.raster_bounds);
@@ -1098,30 +1098,34 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
             rasterize_root_layer(*impl_, frame.pt_w, frame.pt_h, t.dpi_scale);
         }
     } else if (layer_update.content_resized) {
-        std::array<Rect, 2> exposed_regions{};
-        std::size_t exposed_count = 0;
-        const int old_w = std::max(layer_update.old_content_w, 0);
-        const int old_h = std::max(layer_update.old_content_h, 0);
-        const int new_w = layer_update.new_content_w;
-        const int new_h = layer_update.new_content_h;
-        if (new_w > old_w) {
-            exposed_regions[exposed_count++] = pixel_rect_to_point_rect(
-                old_w, 0, new_w - old_w, new_h, t.dpi_scale,
-                frame.pt_w, frame.pt_h);
-        }
-        if (new_h > old_h) {
-            // If width also grew, the right strip above already covers the
-            // bottom-right corner. Restrict the bottom strip to the previously
-            // painted width so resize growth stays a pair of narrow repaints,
-            // not a full-viewport union.
-            exposed_regions[exposed_count++] = pixel_rect_to_point_rect(
-                0, old_h, std::min(new_w, old_w), new_h - old_h,
-                t.dpi_scale, frame.pt_w, frame.pt_h);
-        }
-        for (std::size_t i = 0; i < exposed_count; ++i) {
-            if (rect_valid(exposed_regions[i])) {
-                rasterize_root_layer_region(*impl_, frame.pt_w, frame.pt_h,
-                                            t.dpi_scale, exposed_regions[i]);
+        if (!impl_->partial_root_raster_enabled) {
+            rasterize_root_layer(*impl_, frame.pt_w, frame.pt_h, t.dpi_scale);
+        } else {
+            std::array<Rect, 2> exposed_regions{};
+            std::size_t exposed_count = 0;
+            const int old_w = std::max(layer_update.old_content_w, 0);
+            const int old_h = std::max(layer_update.old_content_h, 0);
+            const int new_w = layer_update.new_content_w;
+            const int new_h = layer_update.new_content_h;
+            if (new_w > old_w) {
+                exposed_regions[exposed_count++] = pixel_rect_to_point_rect(
+                    old_w, 0, new_w - old_w, new_h, t.dpi_scale,
+                    frame.pt_w, frame.pt_h);
+            }
+            if (new_h > old_h) {
+                // If width also grew, the right strip above already covers the
+                // bottom-right corner. Restrict the bottom strip to the
+                // previously painted width so resize growth stays a pair of
+                // narrow repaints, not a full-viewport union.
+                exposed_regions[exposed_count++] = pixel_rect_to_point_rect(
+                    0, old_h, std::min(new_w, old_w), new_h - old_h,
+                    t.dpi_scale, frame.pt_w, frame.pt_h);
+            }
+            for (std::size_t i = 0; i < exposed_count; ++i) {
+                if (rect_valid(exposed_regions[i])) {
+                    rasterize_root_layer_region(*impl_, frame.pt_w, frame.pt_h,
+                                                t.dpi_scale, exposed_regions[i]);
+                }
             }
         }
     }
