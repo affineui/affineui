@@ -218,6 +218,33 @@ def test_stable_ref_replaces_tab_body_content():
     assert view.find_widget("mode")
 
 
+def test_virtual_list_materializes_visible_window():
+    view = ui.View(ui.ViewTheme.Bootstrap)
+
+    view.begin()
+    view.virtual_list(
+        key="events",
+        item_count=100,
+        first_item=40,
+        visible_items=5,
+        overscan=2,
+        item_size=20.0,
+        build=lambda v, index: v.button(f"Row {index}", key=f"row-{index}"),
+    )
+    view.end()
+
+    html = view.to_html_fragment()
+    assert 'data-aui-widget="virtual-list"' in html
+    assert "height:760px" in html
+    assert "height:1060px" in html
+    assert "Row 37" not in html
+    assert "Row 38" in html
+    assert "Row 46" in html
+    assert "Row 47" not in html
+    assert view.find_widget("row-38")
+    assert not view.find_widget("row-47")
+
+
 def test_append_is_illegal_during_generation():
     view = ui.View(ui.ViewTheme.Bootstrap)
     patches = ui.RemotePatchQueue()

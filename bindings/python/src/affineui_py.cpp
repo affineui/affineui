@@ -7,9 +7,11 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <cstdio>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace py = pybind11;
@@ -51,6 +53,23 @@ void delete_python_function(py::function* fn) {
 
 std::shared_ptr<py::function> keep_python_function(py::function cb) {
     return {new py::function(std::move(cb)), delete_python_function};
+}
+
+template <typename... Args>
+void call_python_function(const char* label,
+                          const std::shared_ptr<py::function>& callback,
+                          Args&&... args) noexcept {
+    try {
+        py::gil_scoped_acquire gil;
+        (*callback)(std::forward<Args>(args)...);
+    } catch (py::error_already_set& e) {
+        e.discard_as_unraisable(label);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "AffineUI Python callback failed (%s): %s\n",
+                     label, e.what());
+    } catch (...) {
+        std::fprintf(stderr, "AffineUI Python callback failed (%s)\n", label);
+    }
 }
 
 }  // namespace
@@ -189,6 +208,15 @@ PYBIND11_MODULE(_affineui, m) {
              py::return_value_policy::reference_internal)
         .def("to_json", &affineui::RemotePatchQueue::to_json);
 
+    py::class_<affineui::VirtualListOptions>(m, "VirtualListOptions")
+        .def(py::init<>())
+        .def_readwrite("item_count", &affineui::VirtualListOptions::item_count)
+        .def_readwrite("first_item", &affineui::VirtualListOptions::first_item)
+        .def_readwrite("visible_items", &affineui::VirtualListOptions::visible_items)
+        .def_readwrite("overscan", &affineui::VirtualListOptions::overscan)
+        .def_readwrite("item_size", &affineui::VirtualListOptions::item_size)
+        .def_readwrite("item_sizes", &affineui::VirtualListOptions::item_sizes);
+
     py::class_<affineui::WidgetRef>(m, "WidgetRef")
         .def("__bool__", [](const affineui::WidgetRef& ref) {
             return static_cast<bool>(ref);
@@ -238,8 +266,7 @@ PYBIND11_MODULE(_affineui, m) {
              [](affineui::WidgetRef& ref, py::function cb) -> affineui::WidgetRef& {
                  auto callback = keep_python_function(std::move(cb));
                  return ref.on_click([callback = std::move(callback)] {
-                     py::gil_scoped_acquire gil;
-                     (*callback)();
+                     call_python_function("affineui.on_click", callback);
                  });
              },
              py::return_value_policy::reference_internal)
@@ -247,8 +274,8 @@ PYBIND11_MODULE(_affineui, m) {
              [](affineui::WidgetRef& ref, py::function cb) -> affineui::WidgetRef& {
                  auto callback = keep_python_function(std::move(cb));
                  return ref.on_change([callback = std::move(callback)](std::string_view value) {
-                     py::gil_scoped_acquire gil;
-                     (*callback)(std::string(value));
+                     call_python_function("affineui.on_change", callback,
+                                          std::string(value));
                  });
              },
              py::return_value_policy::reference_internal)
@@ -396,6 +423,44 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("options"),
              py::arg("selected") = "",
              py::arg("key") = "")
+        .def("virtual_list",
+             [](affineui::View& view,
+                const std::string& key,
+                std::size_t item_count,
+                py::function build,
+                double item_size,
+                std::size_t first_item,
+                std::size_t visible_items,
+                std::size_t overscan,
+                const std::vector<double>& item_sizes,
+                const std::string& classes) {
+                 affineui::VirtualListOptions options{};
+                 options.item_count = item_count;
+                 options.first_item = first_item;
+                 options.visible_items = visible_items;
+                 options.overscan = overscan;
+                 options.item_size = item_size;
+                 options.item_sizes = item_sizes;
+                 auto callback = keep_python_function(std::move(build));
+                 return view.virtual_list(
+                     key,
+                     options,
+                     [callback = std::move(callback)](affineui::View& child_view,
+                                                       std::size_t index) {
+                         py::gil_scoped_acquire gil;
+                         (*callback)(&child_view, index);
+                     },
+                     classes);
+             },
+             py::arg("key"),
+             py::arg("item_count"),
+             py::arg("build"),
+             py::arg("item_size") = 24.0,
+             py::arg("first_item") = 0,
+             py::arg("visible_items") = 16,
+             py::arg("overscan") = 2,
+             py::arg("item_sizes") = std::vector<double>{},
+             py::arg("classes") = "")
         .def("slider",
              [](affineui::View& view,
                 const std::string& label,

@@ -96,25 +96,33 @@ class HelloPanel:
         self.selected_row = len(self.rows) - 1
         self.reload()
 
-    def _build_rows(self, v: ui.View) -> None:
-        for index, title in enumerate(self.rows):
-            selected = index == self.selected_row
-            row = v.button(title, primary=selected, key=f"log-row-{index}")
-            row.on_click(lambda index=index: self._select_row(index))
-            if self._is_decius():
-                row.cls("dcs-card dcs-card--clickable").attr(
-                    "aria-selected", "true" if selected else "false"
-                )
-            else:
-                row.cls(
-                    "list-group-item list-group-item-action"
-                    + (" active" if selected else "")
-                )
+    def _build_row(self, v: ui.View, index: int) -> None:
+        title = self.rows[index]
+        selected = index == self.selected_row
+        row = v.button(title, primary=selected, key=f"log-row-{index}")
+        row.on_click(lambda index=index: self._select_row(index))
+        if self._is_decius():
+            row.cls("dcs-card dcs-card--clickable").attr(
+                "aria-selected", "true" if selected else "false"
+            )
+        else:
+            row.cls(
+                "list-group-item list-group-item-action"
+                + (" active" if selected else "")
+            )
 
     def _build_list(self, v: ui.View) -> None:
         v.button("Append row", primary=True, key="append-row").on_click(self._append_row)
         list_classes = "dcs-card-list" if self._is_decius() else "list-group"
-        v.container(classes=list_classes, key="event-list", build=self._build_rows)
+        v.virtual_list(
+            key="event-list",
+            item_count=len(self.rows),
+            item_size=34.0 if self._is_decius() else 40.0,
+            visible_items=min(len(self.rows), 8),
+            overscan=1,
+            classes=list_classes,
+            build=self._build_row,
+        )
 
     def _build_tab_body(self, v: ui.View) -> None:
         if self.active_tab == "fields":

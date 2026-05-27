@@ -223,6 +223,27 @@ std::string percent(double fraction) {
     return number(std::clamp(fraction, 0.0, 1.0) * 100.0) + "%";
 }
 
+std::string px(double value) {
+    return number(std::max(0.0, value)) + "px";
+}
+
+double virtual_item_size(const VirtualListOptions& options,
+                         std::size_t index) {
+    if (index < options.item_sizes.size()) {
+        return std::max(0.0, options.item_sizes[index]);
+    }
+    return std::max(1.0, options.item_size);
+}
+
+double virtual_item_offset(const VirtualListOptions& options,
+                           std::size_t end) {
+    double out = 0.0;
+    for (std::size_t i = 0; i < end && i < options.item_count; ++i) {
+        out += virtual_item_size(options, i);
+    }
+    return out;
+}
+
 double knob_angle(double value, double min, double max) {
     return -135.0 + normalized_value(value, min, max) * 270.0;
 }
@@ -560,20 +581,28 @@ body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
 .aui-knob{--aui-knob-size:64px;position:relative;display:inline-flex;align-items:flex-start;justify-content:center;width:var(--aui-knob-size);height:98px;padding-top:16px;box-sizing:border-box;cursor:ns-resize;user-select:none;color:inherit;touch-action:none}
 .aui-knob__ring{position:absolute;left:0;top:16px;width:var(--aui-knob-size);height:var(--aui-knob-size);pointer-events:none}
 .aui-knob__cap{position:absolute;left:14px;top:30px;width:36px;height:36px;border-radius:50%;background:linear-gradient(180deg,#f8f9fa,#dee2e6);border:1px solid rgba(0,0,0,.24);box-shadow:inset 0 1px 0 rgba(255,255,255,.85),0 1px 3px rgba(0,0,0,.2)}
-.aui-knob__indicator{position:absolute;left:50%;top:62px;width:2px;height:24px;background:var(--bs-primary,#0d6efd);border-radius:1px;transform-origin:50% 100%;transform:translate(-50%,-100%) rotate(var(--angle,0deg))}
+.aui-knob__indicator{position:absolute;left:50%;top:48px;width:2px;height:24px;background:var(--bs-primary,#0d6efd);border-radius:1px;transform-origin:50% 100%;transform:translate(-50%,-100%) rotate(var(--angle,0deg))}
 .aui-knob__value{position:absolute;left:0;right:0;top:0;text-align:center;font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--bs-primary,#0d6efd)}
 .aui-knob__label{position:absolute;left:-8px;right:-8px;bottom:0;text-align:center;font-size:12px;color:var(--bs-secondary-color,#6c757d);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .aui-knob__arc{stroke:var(--bs-primary,#0d6efd)}
 .aui-root [data-aui-widget=knob]{margin-top:16px;margin-bottom:18px}
 .aui-root .aui-knob[data-aui-widget=knob]{display:flex}
-.aui-root .dcs-field{display:flex;flex-direction:column;gap:var(--dcs-s-2)}
+.aui-root .dcs-col{display:flex;flex-direction:column;gap:var(--aui-panel-gap,var(--dcs-s-3))}
+.aui-root .dcs-field{display:grid;grid-template-columns:minmax(88px,max-content) minmax(0,1fr);align-items:center;column-gap:var(--dcs-s-4);row-gap:var(--dcs-s-2)}
+.aui-root .dcs-field>.dcs-field__label{min-width:0;align-self:center}
+.aui-root .dcs-field>.dcs-textarea{align-self:stretch}
 .aui-root .dcs-btn-group{display:flex;align-items:center;gap:0}
 .aui-root .dcs-card-list{gap:var(--dcs-s-2)}
 .aui-root .dcs-card-list>.dcs-card{padding:var(--dcs-s-4);text-align:left}
+.aui-virtual-list{position:relative;display:flex;flex-direction:column;min-height:0;overflow:auto}
+.aui-virtual-list__spacer{flex:0 0 auto;min-height:0;pointer-events:none}
+.aui-virtual-list__row{flex:0 0 auto;display:flex;min-width:0}
+.aui-virtual-list__row>.list-group-item{width:100%;border-left-width:1px;border-right-width:1px}
+.aui-virtual-list__row>.dcs-card{width:100%}
 .aui-root .dcs-knob[data-aui-widget=knob]{position:relative;display:inline-flex;align-items:center;justify-content:center;width:72px;height:100px;padding-top:18px;box-sizing:border-box;cursor:ns-resize;user-select:none;touch-action:none}
 .aui-root .dcs-knob[data-aui-widget=knob] .dcs-knob__ring{position:absolute;left:4px;top:18px;width:64px;height:64px;pointer-events:none}
 .aui-root .dcs-knob[data-aui-widget=knob] .dcs-knob__cap{position:absolute;left:18px;top:32px;width:36px;height:36px}
-.aui-root .dcs-knob[data-aui-widget=knob] .dcs-knob__indicator{position:absolute;left:50%;top:64px;width:2px;height:24px;transform-origin:50% 100%;transform:translate(-50%,-100%) rotate(var(--angle,0deg))}
+.aui-root .dcs-knob[data-aui-widget=knob] .dcs-knob__indicator{position:absolute;left:50%;top:50px;width:2px;height:24px;transform-origin:50% 100%;transform:translate(-50%,-100%) rotate(var(--angle,0deg))}
 .aui-root .dcs-knob[data-aui-widget=knob] .dcs-knob__value{position:absolute;left:0;right:0;top:0;text-align:center;font-size:var(--dcs-fs-xs);font-family:var(--dcs-font-mono);color:var(--dcs-accent)}
 .aui-root .dcs-knob[data-aui-widget=knob] .dcs-knob__label{position:absolute;left:-10px;right:-10px;bottom:0;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .aui-root>.dcs-panel{padding:var(--aui-panel-pad,var(--dcs-s-5));gap:var(--aui-panel-gap,var(--dcs-s-3))}
@@ -1299,6 +1328,78 @@ WidgetRef View::button_group(std::string_view label,
     close_node();
     close_node();
     return ref_for_node(field, current_panel_id(stack_));
+}
+
+WidgetRef View::virtual_list(
+        std::string_view key,
+        const VirtualListOptions& options,
+        const std::function<void(View&, std::size_t)>& build_item,
+        std::string_view classes,
+        std::source_location here) {
+    std::string list_classes{"aui-virtual-list"};
+    if (!classes.empty()) {
+        list_classes += ' ';
+        list_classes += classes;
+    }
+
+    auto& list = open_node(WidgetKind::VirtualList, "div", list_classes,
+                           key, here, true);
+    set_attr(list, "data-aui-widget", "virtual-list");
+    set_attr(list, "role", "list");
+    set_attr(list, "data-item-count", std::to_string(options.item_count));
+    set_attr(list, "data-first-item", std::to_string(options.first_item));
+    set_attr(list, "data-visible-items", std::to_string(options.visible_items));
+    set_attr(list, "data-overscan", std::to_string(options.overscan));
+    set_attr(list, "data-item-size", number(std::max(1.0, options.item_size)));
+
+    const std::size_t count = options.item_count;
+    const std::size_t first = std::min(options.first_item, count);
+    const std::size_t visible = std::min(options.visible_items, count - first);
+    const std::size_t start = first > options.overscan
+        ? first - options.overscan
+        : 0;
+    const std::size_t end = std::min(
+        count,
+        first + visible + options.overscan);
+    const double viewport_height =
+        virtual_item_offset(options, first + visible) -
+        virtual_item_offset(options, first);
+    if (viewport_height > 0.0) {
+        set_attr(list, "style", "max-height:" + px(viewport_height));
+    } else {
+        remove_attr(list, "style");
+    }
+
+    auto& before = open_node(WidgetKind::Container, "div",
+                             "aui-virtual-list__spacer",
+                             "__before", here, false);
+    set_attr(before, "style", "height:" + px(virtual_item_offset(options, start)));
+
+    for (std::size_t i = start; i < end; ++i) {
+        const std::string row_key = "__row-" + std::to_string(i);
+        auto& row = open_node(WidgetKind::Container, "div",
+                              "aui-virtual-list__row", row_key, here, true);
+        set_attr(row, "role", "listitem");
+        set_attr(row, "data-index", std::to_string(i));
+        set_attr(row, "style",
+                 "min-height:" + px(virtual_item_size(options, i)));
+
+        const auto stack_size = stack_.size();
+        if (build_item) build_item(*this, i);
+        while (stack_.size() > stack_size) close_node();
+        close_node();
+    }
+
+    auto& after = open_node(WidgetKind::Container, "div",
+                            "aui-virtual-list__spacer",
+                            "__after", here, false);
+    const double total_height = virtual_item_offset(options, count);
+    set_attr(after, "style",
+             "height:" + px(std::max(0.0, total_height -
+                                      virtual_item_offset(options, end))));
+
+    close_node();
+    return ref_for_node(list, current_panel_id(stack_));
 }
 
 WidgetRef View::slider(std::string_view label,

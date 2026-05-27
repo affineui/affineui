@@ -100,7 +100,17 @@ enum class WidgetKind {
     TextArea,
     Dropdown,
     ButtonGroup,
+    VirtualList,
     Card,
+};
+
+struct VirtualListOptions {
+    std::size_t item_count{0};
+    std::size_t first_item{0};
+    std::size_t visible_items{16};
+    std::size_t overscan{2};
+    double item_size{24.0};
+    std::vector<double> item_sizes;
 };
 
 struct WidgetAttribute {
@@ -359,6 +369,11 @@ public:
                            const std::vector<std::string>& options,
                            std::string_view selected,
                            std::string_view key = {},
+                           std::source_location here = std::source_location::current());
+    WidgetRef virtual_list(std::string_view key,
+                           const VirtualListOptions& options,
+                           const std::function<void(View&, std::size_t)>& build_item,
+                           std::string_view classes = {},
                            std::source_location here = std::source_location::current());
     WidgetRef slider(std::string_view label,
                      double value,

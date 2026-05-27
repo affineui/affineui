@@ -202,6 +202,38 @@ TEST_CASE("Stable widget refs can replace tab body content") {
     CHECK(view.find_widget("mode"));
 }
 
+TEST_CASE("View virtual list materializes only the requested window") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    affineui::VirtualListOptions options;
+    options.item_count = 100;
+    options.first_item = 40;
+    options.visible_items = 5;
+    options.overscan = 2;
+    options.item_size = 20.0;
+
+    view.begin();
+    auto list = view.virtual_list(
+        "events",
+        options,
+        [](affineui::View& v, std::size_t index) {
+            v.button("Row " + std::to_string(index), false,
+                     "row-" + std::to_string(index));
+        });
+    view.end();
+
+    REQUIRE(list);
+    const auto html = view.to_html_fragment();
+    CHECK(html.find("data-aui-widget=\"virtual-list\"") != std::string::npos);
+    CHECK(html.find("height:760px") != std::string::npos);
+    CHECK(html.find("height:1060px") != std::string::npos);
+    CHECK(html.find("Row 37") == std::string::npos);
+    CHECK(html.find("Row 38") != std::string::npos);
+    CHECK(html.find("Row 46") != std::string::npos);
+    CHECK(html.find("Row 47") == std::string::npos);
+    CHECK(view.find_widget("row-38"));
+    CHECK_FALSE(view.find_widget("row-47"));
+}
+
 TEST_CASE("App dispatch invokes command button callbacks") {
     affineui::View view{affineui::ViewTheme::Bootstrap};
     int clicks = 0;
