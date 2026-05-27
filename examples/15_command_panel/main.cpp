@@ -72,6 +72,7 @@ int main(int argc, char** argv) {
     config.title += ")";
     config.width = 720;
     config.height = 420;
+    config.asset_folders = {"examples", "."};
 
     affineui::App app{config};
     app.load_view(build_view(style));

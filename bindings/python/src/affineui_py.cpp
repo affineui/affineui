@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace py = pybind11;
 
@@ -21,7 +22,8 @@ affineui::App::Config make_app_config(const std::string& title,
                                       bool high_dpi,
                                       bool vsync,
                                       const std::string& default_font_family,
-                                      int default_font_size) {
+                                      int default_font_size,
+                                      const std::vector<std::string>& asset_folders) {
     affineui::App::Config cfg{};
     cfg.title = title;
     cfg.width = width;
@@ -31,6 +33,7 @@ affineui::App::Config make_app_config(const std::string& title,
     cfg.vsync = vsync;
     cfg.default_font_family = default_font_family;
     cfg.default_font_size = default_font_size;
+    cfg.asset_folders = asset_folders;
     return cfg;
 }
 
@@ -317,27 +320,30 @@ PYBIND11_MODULE(_affineui, m) {
                          int height,
                          affineui::Color clear_color,
                          bool high_dpi,
-                         bool vsync,
-                         const std::string& default_font_family,
-                         int default_font_size) {
-                 return std::make_unique<affineui::App>(
-                     make_app_config(title,
-                                     width,
+                          bool vsync,
+                          const std::string& default_font_family,
+                          int default_font_size,
+                          const std::vector<std::string>& asset_folders) {
+                  return std::make_unique<affineui::App>(
+                      make_app_config(title,
+                                      width,
                                      height,
                                      clear_color,
                                      high_dpi,
-                                     vsync,
-                                     default_font_family,
-                                     default_font_size));
-             }),
+                                      vsync,
+                                      default_font_family,
+                                      default_font_size,
+                                      asset_folders));
+              }),
              py::arg("title") = "AffineUI",
              py::arg("width") = 1024,
              py::arg("height") = 768,
              py::arg("clear_color") = affineui::Color{30, 30, 46, 255},
              py::arg("high_dpi") = true,
-             py::arg("vsync") = true,
-             py::arg("default_font_family") = "sans-serif",
-             py::arg("default_font_size") = 16)
+              py::arg("vsync") = true,
+              py::arg("default_font_family") = "sans-serif",
+              py::arg("default_font_size") = 16,
+              py::arg("asset_folders") = std::vector<std::string>{"."})
         .def("load_html", [](affineui::App& app, const std::string& html) {
             app.load_html(html);
         })

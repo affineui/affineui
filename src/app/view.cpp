@@ -117,6 +117,15 @@ std::string number(double value) {
     return out.str();
 }
 
+double normalized_value(double value, double min, double max) {
+    if (max <= min) return 0.0;
+    return std::clamp((value - min) / (max - min), 0.0, 1.0);
+}
+
+std::string percent(double fraction) {
+    return number(std::clamp(fraction, 0.0, 1.0) * 100.0) + "%";
+}
+
 void emit_remove_tree(ViewSink* sink, const WidgetNode& node) {
     if (!sink) return;
     sink->remove(node);
@@ -131,6 +140,7 @@ enum class FrameworkElement {
     CheckboxInput,
     CheckboxLabel,
     SliderGroup,
+    SliderLabel,
     SliderInput,
 };
 
@@ -145,6 +155,7 @@ public:
 
     [[nodiscard]] virtual std::string_view stylesheet_href() const noexcept = 0;
     [[nodiscard]] virtual std::string_view body_attrs() const noexcept = 0;
+    [[nodiscard]] virtual Color background_color() const noexcept = 0;
     [[nodiscard]] virtual ElementRecipe element(FrameworkElement element,
                                                 bool primary = false) const noexcept = 0;
 };
@@ -159,6 +170,10 @@ public:
         return {};
     }
 
+    [[nodiscard]] Color background_color() const noexcept override {
+        return Color{30, 30, 46, 255};
+    }
+
     [[nodiscard]] ElementRecipe element(FrameworkElement element,
                                         bool primary = false) const noexcept override {
         (void) primary;
@@ -169,6 +184,7 @@ public:
             case FrameworkElement::CheckboxInput: return {"input", {}};
             case FrameworkElement::CheckboxLabel: return {"span", {}};
             case FrameworkElement::SliderGroup:   return {"label", {}};
+            case FrameworkElement::SliderLabel:   return {"span", {}};
             case FrameworkElement::SliderInput:   return {"input", {}};
             case FrameworkElement::Panel:
             case FrameworkElement::CardTitle:
@@ -188,6 +204,10 @@ public:
         return {};
     }
 
+    [[nodiscard]] Color background_color() const noexcept override {
+        return Color{0xFF, 0xFF, 0xFF, 0xFF};
+    }
+
     [[nodiscard]] ElementRecipe element(FrameworkElement element,
                                         bool primary = false) const noexcept override {
         switch (element) {
@@ -199,7 +219,8 @@ public:
             case FrameworkElement::CheckboxGroup: return {"label", "form-check"};
             case FrameworkElement::CheckboxInput: return {"input", "form-check-input"};
             case FrameworkElement::CheckboxLabel: return {"span", "form-check-label"};
-            case FrameworkElement::SliderGroup:   return {"label", "form-label"};
+            case FrameworkElement::SliderGroup:   return {"div", "mb-3"};
+            case FrameworkElement::SliderLabel:   return {"label", "form-label"};
             case FrameworkElement::SliderInput:   return {"input", "form-range"};
         }
         return {"div", {}};
@@ -216,6 +237,10 @@ public:
         return " class=\"dcs\" data-dcs-density=\"compact\" data-dcs-style=\"3d\"";
     }
 
+    [[nodiscard]] Color background_color() const noexcept override {
+        return Color{0x1F, 0x22, 0x2A, 0xFF};
+    }
+
     [[nodiscard]] ElementRecipe element(FrameworkElement element,
                                         bool primary = false) const noexcept override {
         switch (element) {
@@ -230,8 +255,9 @@ public:
             case FrameworkElement::CheckboxGroup: return {"label", "dcs-check"};
             case FrameworkElement::CheckboxInput: return {"input", "dcs-check__input"};
             case FrameworkElement::CheckboxLabel: return {"span", "dcs-check__label"};
-            case FrameworkElement::SliderGroup:   return {"label", "dcs-row"};
-            case FrameworkElement::SliderInput:   return {"input", "dcs-slider"};
+            case FrameworkElement::SliderGroup:   return {"div", "dcs-row"};
+            case FrameworkElement::SliderLabel:   return {"span", {}};
+            case FrameworkElement::SliderInput:   return {"div", "dcs-slider"};
         }
         return {"div", {}};
     }
@@ -273,6 +299,10 @@ ElementRecipe default_element(ViewTheme theme,
                               FrameworkElement element,
                               bool primary = false) {
     return framework_for(theme).element(element, primary);
+}
+
+Color default_background_color(ViewTheme theme) {
+    return framework_for(theme).background_color();
 }
 
 bool is_void_tag(std::string_view tag) {
@@ -679,6 +709,10 @@ void View::end() {
     remote_patch_sink_.reset(nullptr);
 }
 
+Color View::background_color() const noexcept {
+    return default_background_color(theme_);
+}
+
 View::Scope View::container(std::string_view classes,
                             std::string_view key,
                             std::source_location here) {
@@ -785,16 +819,44 @@ WidgetRef View::slider(std::string_view label,
                             group_recipe.classes,
                             key, here, true);
     set_attr(group, "data-aui-widget", "slider");
-    set_text(group, label);
+    set_attr(group, "role", "slider");
+    set_attr(group, "aria-valuemin", number(min));
+    set_attr(group, "aria-valuemax", number(max));
+    set_attr(group, "aria-valuenow", number(value));
+
+    const auto label_recipe = default_element(theme_, FrameworkElement::SliderLabel);
+    auto& label_node = open_node(WidgetKind::Container, label_recipe.tag,
+                                 label_recipe.classes, "__label", here, false);
+    set_text(label_node, label);
 
     const auto input_recipe = default_element(theme_, FrameworkElement::SliderInput);
     auto& input = open_node(WidgetKind::Slider, input_recipe.tag,
                             input_recipe.classes,
-                            "__input", here, false);
-    set_attr(input, "type", "range");
+                            "__input", here, theme_ == ViewTheme::Decius);
     set_attr(input, "min", number(min));
     set_attr(input, "max", number(max));
     set_attr(input, "value", number(value));
+    if (theme_ == ViewTheme::Decius) {
+        const double pos = normalized_value(value, min, max);
+        set_attr(input, "data-dcs-slider", "");
+        set_attr(input, "data-min", number(min));
+        set_attr(input, "data-max", number(max));
+        set_attr(input, "data-value", number(value));
+
+        auto& track = open_node(WidgetKind::Container, "div",
+                                "dcs-slider__track", "__track", here, true);
+        (void) track;
+        auto& fill = open_node(WidgetKind::Container, "div",
+                               "dcs-slider__fill", "__fill", here, false);
+        set_attr(fill, "style", "width:" + percent(pos));
+        auto& thumb = open_node(WidgetKind::Container, "div",
+                                "dcs-slider__thumb", "__thumb", here, false);
+        set_attr(thumb, "style", "left:" + percent(pos));
+        close_node();
+        close_node();
+    } else {
+        set_attr(input, "type", "range");
+    }
     close_node();
     return ref_for_node(group, current_panel_id(stack_));
 }

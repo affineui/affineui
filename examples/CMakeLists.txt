@@ -13,8 +13,13 @@ add_custom_target(affineui_example_browser_assets
     VERBATIM)
 
 function(affineui_copy_example_browser_files name)
+    add_dependencies(${name} affineui_example_browser_assets)
+    add_custom_command(TARGET ${name} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${AFFINEUI_EXAMPLES_ROOT}/frameworks"
+                "$<TARGET_FILE_DIR:${name}>/frameworks"
+        VERBATIM)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/index.html")
-        add_dependencies(${name} affineui_example_browser_assets)
         add_custom_command(TARGET ${name} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${CMAKE_CURRENT_SOURCE_DIR}/index.html"

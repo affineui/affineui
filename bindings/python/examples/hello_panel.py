@@ -61,6 +61,7 @@ def main() -> None:
         title=f"AffineUI Python Hello Panel ({args.style})",
         width=720,
         height=420,
+        asset_folders=["examples"],
     )
     app.load_view(build_view(theme))
 

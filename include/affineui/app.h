@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace affineui {
 
@@ -26,6 +27,7 @@ public:
         bool        vsync{true};
         std::string default_font_family{"sans-serif"};
         int         default_font_size{16};
+        std::vector<std::string> asset_folders{"."};
         ResourceLoader resource_loader{};
     };
 

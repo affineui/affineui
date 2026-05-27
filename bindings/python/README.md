@@ -77,6 +77,10 @@ python bindings/python/examples/hello_panel.py
 python bindings/python/examples/hello_panel.py --style=decius
 ```
 
+The example passes `asset_folders=["examples"]` to the app so framework
+links such as `frameworks/css/bootstrap-5.3.8.min.css` resolve from the
+checked-in demo assets. If omitted, the default asset folder is `"."`.
+
 Headless check:
 
 ```powershell

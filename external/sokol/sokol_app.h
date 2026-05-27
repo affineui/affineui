@@ -3260,6 +3260,9 @@ typedef struct {
     bool event_consumed;
     bool html5_ask_leave_site;
     bool onscreen_keyboard_shown;
+#if defined(SOKOL_AFFINEUI_DEFER_WIN32_SHOW)
+    bool win32_deferred_show_done;
+#endif
     int window_width;
     int window_height;
     int framebuffer_width;
@@ -9496,6 +9499,12 @@ _SOKOL_PRIVATE void _sapp_win32_frame(bool from_winproc) {
     #if defined(SOKOL_GLCORE)
         _sapp_wgl_swap_buffers();
     #endif
+    #if defined(SOKOL_AFFINEUI_DEFER_WIN32_SHOW)
+        if (!_sapp.win32_deferred_show_done) {
+            ShowWindow(_sapp.win32.hwnd, SW_SHOW);
+            _sapp.win32_deferred_show_done = true;
+        }
+    #endif
     if (!from_winproc) {
         if (IsIconic(_sapp.win32.hwnd)) {
             Sleep((DWORD)(16 * _sapp.swap_interval));
@@ -9796,7 +9805,11 @@ _SOKOL_PRIVATE void _sapp_win32_create_window(void) {
         _sapp_win32_set_fullscreen(_sapp.fullscreen, SWP_HIDEWINDOW);
         _sapp_win32_update_dimensions();
     }
+#if defined(SOKOL_AFFINEUI_DEFER_WIN32_SHOW)
+    _sapp.win32_deferred_show_done = false;
+#else
     ShowWindow(_sapp.win32.hwnd, SW_SHOW);
+#endif
     DragAcceptFiles(_sapp.win32.hwnd, 1);
 }
 

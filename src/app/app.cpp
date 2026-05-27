@@ -22,9 +22,13 @@
 #include "affineui/themes.h"
 
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <memory>
+#include <sstream>
 #include <utility>
+#include <vector>
 
 #if !defined(AFFINEUI_STUB_BUILD)
 #    include "sokol_gfx.h"
@@ -52,6 +56,53 @@ struct AppImpl {
     float                 last_dpi{1.0f};   // updated each frame for event→pt conversion
 };
 
+bool local_asset_url(std::string_view url) {
+    return !url.empty() &&
+           url.find("://") == std::string_view::npos &&
+           url.rfind("data:", 0) != 0;
+}
+
+std::string read_file(const std::filesystem::path& path) {
+    std::ifstream file{path, std::ios::binary};
+    if (!file.good()) return {};
+
+    std::stringstream bytes;
+    bytes << file.rdbuf();
+    return bytes.str();
+}
+
+bool safe_relative_asset_path(const std::filesystem::path& path) {
+    if (path.empty() || path.is_absolute()) return false;
+    const auto normalized = path.lexically_normal();
+    for (const auto& part : normalized) {
+        if (part == "..") return false;
+    }
+    return true;
+}
+
+ResourceLoader make_asset_resource_loader(std::vector<std::string> folders) {
+    if (folders.empty()) folders.push_back(".");
+    std::vector<std::filesystem::path> roots;
+    roots.reserve(folders.size());
+    for (const auto& folder : folders) {
+        roots.emplace_back(folder);
+    }
+
+    return [roots](std::string_view url) -> std::string {
+        if (!local_asset_url(url)) return {};
+
+        const std::filesystem::path rel =
+            std::filesystem::path{std::string(url)}.lexically_normal();
+        if (!safe_relative_asset_path(rel)) return {};
+        for (const auto& root : roots) {
+            if (auto bytes = read_file(root / rel); !bytes.empty()) {
+                return bytes;
+            }
+        }
+        return {};
+    };
+}
+
 }  // namespace detail
 
 App::App() : App(Config{}) {}
@@ -59,9 +110,10 @@ App::App() : App(Config{}) {}
 App::App(Config cfg) : impl_{std::make_unique<detail::AppImpl>()} {
     impl_->config = std::move(cfg);
     impl_->renderer.set_clear_color(impl_->config.clear_color);
-    if (impl_->config.resource_loader) {
-        impl_->document.set_resource_loader(impl_->config.resource_loader);
-    }
+    impl_->document.set_resource_loader(
+        impl_->config.resource_loader
+            ? impl_->config.resource_loader
+            : detail::make_asset_resource_loader(impl_->config.asset_folders));
     // User-agent baseline so unstyled docs pick up sensible defaults.
     impl_->document.set_user_stylesheet(theme::ua_default());
 }
@@ -71,7 +123,11 @@ App::App(App&&) noexcept            = default;
 App& App::operator=(App&&) noexcept = default;
 
 void App::load_html(std::string_view html)     { impl_->document.set_html(html); impl_->dirty = true; impl_->animations_active = false; }
-void App::load_view(const View& view)          { load_html(view.to_html_document()); }
+void App::load_view(const View& view) {
+    impl_->config.clear_color = view.background_color();
+    impl_->renderer.set_clear_color(impl_->config.clear_color);
+    load_html(view.to_html_document());
+}
 bool App::load_html_file(std::string_view)     { return false; }
 void App::set_stylesheet(std::string_view css) { impl_->document.set_user_stylesheet(css); impl_->dirty = true; impl_->animations_active = false; }
 void App::mount(std::function<void()> view_fn) { impl_->view_fn = std::move(view_fn); impl_->dirty = true; impl_->animations_active = false; }

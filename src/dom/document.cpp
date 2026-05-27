@@ -739,6 +739,18 @@ const std::string* block_attr_value(const Block& block, std::string_view name) {
     return nullptr;
 }
 
+double block_attr_double(const Block& block,
+                         std::string_view name,
+                         double fallback) {
+    const auto* value = block_attr_value(block, name);
+    if (!value || value->empty()) return fallback;
+
+    char* end = nullptr;
+    const double parsed = std::strtod(value->c_str(), &end);
+    if (end == value->c_str()) return fallback;
+    return parsed;
+}
+
 int nearest_block_with_tag(const std::vector<Block>& blocks,
                            int idx,
                            std::string_view tag) {
@@ -5517,6 +5529,57 @@ void Document::draw(Painter& painter) {
                 painter.fill_circle(knob_cx, cy, knob_r,
                                     knob);
             }
+        }
+
+        if (b.tag == "input" && b.input_type == "range") {
+            const double min_attr = block_attr_double(b, "min", 0.0);
+            double max_attr = block_attr_double(b, "max", 100.0);
+            if (max_attr <= min_attr) max_attr = min_attr + 1.0;
+            const double value_attr =
+                std::clamp(block_attr_double(b, "value", min_attr),
+                           min_attr, max_attr);
+            const float t = static_cast<float>(
+                (value_attr - min_attr) / (max_attr - min_attr));
+
+            const float bx = static_cast<float>(eff.x);
+            const float by = static_cast<float>(eff.y);
+            const float bw = static_cast<float>(eff.w);
+            const float bh = static_cast<float>(eff.h);
+            const float cy = by + bh * 0.5f;
+            const float thumb_r = std::clamp(bh * 0.34f, 5.0f, 10.0f);
+            const float x0 = bx + thumb_r;
+            const float x1 = bx + std::max(thumb_r, bw - thumb_r);
+            const float thumb_x = x0 + (x1 - x0) * t;
+            const float track_h = block_has_class(b, "form-range") ? 8.0f : 6.0f;
+            const Rect track{
+                static_cast<int>(std::round(x0)),
+                static_cast<int>(std::round(cy - track_h * 0.5f)),
+                std::max(1, static_cast<int>(std::round(x1 - x0))),
+                std::max(1, static_cast<int>(std::round(track_h))),
+            };
+            const Rect fill{
+                track.x,
+                track.y,
+                std::max(1, static_cast<int>(std::round(thumb_x - x0))),
+                track.h,
+            };
+
+            const Color track_color =
+                block_has_class(b, "form-range")
+                    ? Color{0xDE, 0xE2, 0xE6, 0xFF}
+                    : Color{0xB8, 0xC0, 0xCC, 0xFF};
+            const Color fill_color =
+                block_has_class(b, "form-range")
+                    ? Color{0x0D, 0x6E, 0xFD, 0xFF}
+                    : detail::unpack_rgba(an.color_rgba);
+            const Color thumb_color =
+                block_has_class(b, "form-range")
+                    ? Color{0x0D, 0x6E, 0xFD, 0xFF}
+                    : detail::unpack_rgba(an.color_rgba);
+
+            painter.fill_rounded_rect(track, track_h * 0.5f, track_color);
+            painter.fill_rounded_rect(fill, track_h * 0.5f, fill_color);
+            painter.fill_circle(thumb_x, cy, thumb_r, thumb_color);
         }
 
         if (has_opacity) painter.pop_alpha();

@@ -24,6 +24,12 @@
       * resized before each resize-loop frame.
       */
 #    define SOKOL_WIN32_LIVE_RESIZE
+     /*
+      * Keep the first visible frame from being an OS-cleared blank window.
+      * Our local sokol_app patch delays the Win32 ShowWindow call until after
+      * the first app frame has been rendered and presented.
+      */
+#    define SOKOL_AFFINEUI_DEFER_WIN32_SHOW
 #    include "sokol_log.h"
 #    include "sokol_gfx.h"
 #    include "sokol_app.h"

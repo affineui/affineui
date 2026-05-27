@@ -232,6 +232,7 @@ public:
 
     [[nodiscard]] ViewTheme theme() const noexcept { return theme_; }
     void set_theme(ViewTheme theme) noexcept { theme_ = theme; }
+    [[nodiscard]] Color background_color() const noexcept;
 
     [[nodiscard]] const WidgetNode& root() const noexcept { return root_; }
 
