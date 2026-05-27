@@ -95,6 +95,32 @@ post/drain model that can run the same retained/immediate application
 locally or remotely, keep Python/C++ APIs identical, and allow server
 processes to host many `App` sessions without special cases.
 
+### Callback lifetime model
+
+Widget callbacks are registered as a guarded delegate: a weak handle to
+the object or state that owns the callback's lifetime, plus a method or
+callable to invoke while that handle is alive.
+
+The direct API should make that shape visible:
+
+```cpp
+add_on_change(handle, method_or_delegate);
+remove_on_change(handle, method_or_delegate);
+
+slider.on_change = aui::event_handler(handle, method_or_delegate);
+```
+
+Dispatch resolves the handle before invoking the delegate. If the handle
+is expired, the callback is not called and the registration can be
+pruned. This keeps callbacks safe when apps, sessions, components, or
+state slots are destroyed. The handle does not extend lifetime; it is a
+nullable capability with defined empty semantics.
+
+Named methods and stable delegate objects can be removed with
+`remove_on_change(handle, method_or_delegate)`. Anonymous lambdas should
+also return an event token/subscription so callers have a precise removal
+path without relying on lambda identity.
+
 ## Layered view
 
 ```
