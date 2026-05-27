@@ -1336,6 +1336,14 @@ TEST_CASE("dark synth C++ value interactions keep checked checkbox visible") {
     send_mouse(affineui::EventType::MouseUp, {fader.x, fader.y + 38},
                affineui::MouseButton::Left);
     CHECK(state.values["fader-a"] < fader_after_press);
+    const float fader_after_down_drag = state.values["fader-a"];
+    send_mouse(affineui::EventType::MouseMove, fader);
+    send_mouse(affineui::EventType::MouseDown, fader,
+               affineui::MouseButton::Left);
+    send_mouse(affineui::EventType::MouseMove, {fader.x, fader.y - 38});
+    send_mouse(affineui::EventType::MouseUp, {fader.x, fader.y - 38},
+               affineui::MouseButton::Left);
+    CHECK(state.values["fader-a"] > fader_after_down_drag);
 
     const affineui::Point shape =
         find_hovered_id(ui.document(), "shape", w, h);
