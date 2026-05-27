@@ -350,6 +350,74 @@ TEST_CASE("border-box %-width flex items fit with padding (no overflow/wrap)") {
     CHECK(out[2].x == 400);
 }
 
+TEST_CASE("saturated percentage flex row resolves main-axis auto margins to zero") {
+    // CSS flexbox treats auto margins as zero while collecting items
+    // into flex lines. Bootstrap dashboards rely on this shape:
+    // a fixed-width sidebar column plus an ms-*-auto main column whose
+    // percentage widths already consume the full row.
+    ComputedStyle parent{};
+    parent.display   = ComputedStyle::Display::Flex;
+    parent.flex_wrap = ComputedStyle::FlexWrap::Wrap;
+
+    ComputedStyle sidebar{};
+    sidebar.box_sizing = ComputedStyle::BoxSizing::BorderBox;
+    sidebar.width_pct_x100 = 2500;
+    sidebar.flex_shrink = 0;
+
+    ComputedStyle main{};
+    main.box_sizing = ComputedStyle::BoxSizing::BorderBox;
+    main.width_pct_x100 = 7500;
+    main.flex_shrink = 0;
+    main.margin_auto.left = 1;
+
+    auto out = run(1000, {
+        make_input(parent, 0),
+        make_input(sidebar, 40, 0),
+        make_input(main, 40, 0),
+    });
+
+    REQUIRE(out.size() == 3);
+    CHECK(out[1].w == 250);
+    CHECK(out[2].w == 750);
+    CHECK(out[1].y == out[2].y);
+    CHECK(out[2].x == 250);
+}
+
+TEST_CASE("percentage flex columns do not wrap because of oversized auto minimum width") {
+    // A content-heavy Bootstrap dashboard column can have a large
+    // min-content width, but the grid column itself still occupies its
+    // declared percentage track. The content may overflow inside it; the
+    // sibling columns should not be pushed onto separate flex lines.
+    ComputedStyle parent{};
+    parent.display   = ComputedStyle::Display::Flex;
+    parent.flex_wrap = ComputedStyle::FlexWrap::Wrap;
+
+    ComputedStyle sidebar{};
+    sidebar.box_sizing = ComputedStyle::BoxSizing::BorderBox;
+    sidebar.width_pct_x100 = 2500;
+    sidebar.flex_shrink = 0;
+
+    ComputedStyle main{};
+    main.box_sizing = ComputedStyle::BoxSizing::BorderBox;
+    main.width_pct_x100 = 7500;
+    main.flex_shrink = 0;
+
+    auto main_input = make_input(main, 40, 0);
+    main_input.auto_min_w_px = 1600;
+
+    auto out = run(1000, {
+        make_input(parent, 0),
+        make_input(sidebar, 40, 0),
+        main_input,
+    });
+
+    REQUIRE(out.size() == 3);
+    CHECK(out[1].w == 250);
+    CHECK(out[2].w == 750);
+    CHECK(out[1].y == out[2].y);
+    CHECK(out[2].x == 250);
+}
+
 TEST_CASE("flex row gap separates children on the main axis") {
     ComputedStyle parent{};
     parent.display    = ComputedStyle::Display::Flex;

@@ -424,7 +424,7 @@ inline void cb_frame_(void* user) {
                 state.ms = 1000.0 / std::max(1.0, state.fps);
                 const auto& stats = state.ui->renderer().stats();
                 std::snprintf(state.text, sizeof(state.text),
-                              "%.1f ms/frame  %.1f fps\nrender %llu  html %llu\nDL rec %llu chg %llu same %llu\nroot rast %llu part %llu comp %llu dir %llu\nwork prep %.2f rast %.2f comp %.2f ms\nops %u culled %u rects %u dirty %u.%02u%%\nflags %c%c%c%c%c%c%c",
+                              "%.1f ms/frame  %.1f fps\nrender %llu  html %llu\nDL rec %llu chg %llu same %llu\nroot rast %llu part %llu comp %llu dir %llu\nwork prep %.2f layout %.2f dl %.2f\nrast %.2f comp %.2f ms layer %ux%u%s\nops %u culled %u rects %u dirty %u.%02u%%\nflags %c%c%c%c%c%c%c",
                               state.ms, state.fps,
                               static_cast<unsigned long long>(state.render_count),
                               static_cast<unsigned long long>(state.html_count),
@@ -436,8 +436,13 @@ inline void cb_frame_(void* user) {
                               static_cast<unsigned long long>(stats.root_layer_composites),
                               static_cast<unsigned long long>(stats.root_layer_direct_composites),
                               static_cast<double>(stats.prepare_us_this_frame) / 1000.0,
+                              static_cast<double>(stats.layout_us_this_frame) / 1000.0,
+                              static_cast<double>(stats.display_list_record_us_this_frame) / 1000.0,
                               static_cast<double>(stats.raster_us_this_frame) / 1000.0,
                               static_cast<double>(stats.composite_us_this_frame) / 1000.0,
+                              stats.root_layer_capacity_w,
+                              stats.root_layer_capacity_h,
+                              stats.root_layer_allocated_this_frame ? " alloc" : "",
                               stats.cached_ops,
                               stats.display_list_ops_culled_this_frame,
                               stats.dirty_rects,
@@ -477,6 +482,31 @@ inline void cb_frame_(void* user) {
             static_cast<std::size_t>(ordered_count);
     }
     ui.render(target);
+    const auto& stats = ui.renderer().stats();
+    const std::uint32_t render_work_us =
+        stats.prepare_us_this_frame +
+        stats.raster_us_this_frame +
+        stats.composite_us_this_frame;
+    if (state.enabled && stats.viewport_changed &&
+        render_work_us >= 8000u) {
+        std::fprintf(stderr,
+            "[affineui][resize] %dx%d dpi %.2f total %.2f ms "
+            "prep %.2f layout %.2f dl %.2f raster %.2f comp %.2f "
+            "ops %u layer %ux%u live %ux%u%s\n",
+            w, h, static_cast<double>(dpi),
+            static_cast<double>(render_work_us) / 1000.0,
+            static_cast<double>(stats.prepare_us_this_frame) / 1000.0,
+            static_cast<double>(stats.layout_us_this_frame) / 1000.0,
+            static_cast<double>(stats.display_list_record_us_this_frame) / 1000.0,
+            static_cast<double>(stats.raster_us_this_frame) / 1000.0,
+            static_cast<double>(stats.composite_us_this_frame) / 1000.0,
+            stats.cached_ops,
+            stats.root_layer_capacity_w,
+            stats.root_layer_capacity_h,
+            stats.root_layer_content_w,
+            stats.root_layer_content_h,
+            stats.root_layer_allocated_this_frame ? " alloc" : "");
+    }
     if (state.settle_frames > 0 && !ui.needs_update()) {
         --state.settle_frames;
     }

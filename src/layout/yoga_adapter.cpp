@@ -107,7 +107,9 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
                  bool flex_parent,
                  ComputedStyle::FlexDirection parent_flex_direction,
                  bool percent_width_indefinite,
-                 bool percent_height_indefinite) {
+                 bool percent_height_indefinite,
+                 bool suppress_auto_margin_left,
+                 bool suppress_auto_margin_right) {
     // ── Box-sizing ─────────────────────────────────────────────────
     // Yoga's *default* is border-box, but the CSS default is
     // content-box (width/height size the content; padding+border add
@@ -306,13 +308,13 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
     // margin_auto bits) maps to Yoga's YGNodeStyleSetMarginAuto so block
     // boxes get proper horizontal centering (e.g. Bootstrap's .container).
     YGNodeStyleSetMargin(node, YGEdgeTop,    static_cast<float>(cs.margin_top));
-    if (cs.margin_auto.right) {
+    if (cs.margin_auto.right && !suppress_auto_margin_right) {
         YGNodeStyleSetMarginAuto(node, YGEdgeRight);
     } else {
         YGNodeStyleSetMargin(node, YGEdgeRight, static_cast<float>(cs.margin_right));
     }
     YGNodeStyleSetMargin(node, YGEdgeBottom, static_cast<float>(cs.margin_bottom));
-    if (cs.margin_auto.left) {
+    if (cs.margin_auto.left && !suppress_auto_margin_left) {
         YGNodeStyleSetMarginAuto(node, YGEdgeLeft);
     } else {
         YGNodeStyleSetMargin(node, YGEdgeLeft, static_cast<float>(cs.margin_left));
@@ -351,6 +353,11 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
         flex_basis_set && parent_main_axis_row;
     const bool height_from_flex_basis =
         flex_basis_set && !parent_main_axis_row;
+    const bool percent_main_width =
+        flex_parent &&
+        parent_main_axis_row &&
+        ((cs.width_pct_x100 >= 0 && !percent_width_indefinite) ||
+         cs.flex_basis_pct >= 0);
 
     // ── Intrinsic content size ─────────────────────────────────────
     // Phase 2C: we pre-measure text height (font_size + a small line-h
@@ -369,7 +376,13 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
     // skip).
     if (cs.min_width  > 0) {
         YGNodeStyleSetMinWidth(node, static_cast<float>(cs.min_width));
-    } else if (flex_parent && cs.min_width < 0 && auto_min_w > 0) {
+    } else if (flex_parent && cs.min_width < 0 && auto_min_w > 0 &&
+               !percent_main_width) {
+        // The automatic minimum size protects text-only flex items from
+        // collapsing, but it must not overrule a definite main-axis
+        // percentage column. Bootstrap grid columns are the common case:
+        // their width/flex-basis defines the flex line; wide descendants
+        // overflow inside the column instead of forcing the column to wrap.
         int used_auto_min_w = auto_min_w;
         if (!width_from_flex_basis && cs.width > 0) {
             const int definite_w =
@@ -400,6 +413,102 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
             node, static_cast<float>(cs.height_pct));
     } else if (!height_from_flex_basis && cs.height > 0) {
         YGNodeStyleSetHeight(node, static_cast<float>(cs.height));
+    }
+}
+
+struct AutoMarginOverride {
+    bool left{false};
+    bool right{false};
+};
+
+std::int32_t flex_item_main_percent_x100(const ComputedStyle& cs,
+                                         ComputedStyle::FlexDirection parent_direction) {
+    if (!is_row_flex_direction(parent_direction)) return -1;
+
+    if (cs.flex_basis_pct >= 0) {
+        return static_cast<std::int32_t>(cs.flex_basis_pct) * 100;
+    }
+    if (cs.width_pct_x100 >= 0) {
+        return cs.width_pct_x100;
+    }
+    return -1;
+}
+
+void compute_auto_margin_overrides(std::span<const BlockLayoutInput> inputs,
+                                   std::span<AutoMarginOverride> overrides) {
+    constexpr std::int32_t full_row_percent_x100 = 10000;
+    constexpr std::int32_t percent_rounding_tolerance_x100 = 10;
+
+    std::vector<int> first_child(inputs.size(), -1);
+    std::vector<int> next_sibling(inputs.size(), -1);
+    for (std::size_t child_idx = inputs.size(); child_idx-- > 0;) {
+        const int parent_idx = inputs[child_idx].parent_idx;
+        if (parent_idx >= 0) {
+            next_sibling[child_idx] = first_child[static_cast<std::size_t>(parent_idx)];
+            first_child[static_cast<std::size_t>(parent_idx)] =
+                static_cast<int>(child_idx);
+        }
+    }
+
+    for (std::size_t parent_idx = 0; parent_idx < inputs.size(); ++parent_idx) {
+        const auto* parent_style = inputs[parent_idx].style;
+        if (!parent_style || !is_flex_container(parent_style->display)) continue;
+        if (!is_row_flex_direction(parent_style->flex_direction)) continue;
+
+        std::int32_t definite_main_percent_x100 = 0;
+        bool has_main_axis_auto_margin = false;
+        for (int child = first_child[parent_idx]; child >= 0;
+             child = next_sibling[static_cast<std::size_t>(child)]) {
+            const auto child_idx = static_cast<std::size_t>(child);
+            const auto* child_style = inputs[child_idx].style;
+            if (!child_style ||
+                child_style->display == ComputedStyle::Display::None ||
+                child_style->position == ComputedStyle::Position::Absolute ||
+                child_style->position == ComputedStyle::Position::Fixed) {
+                continue;
+            }
+
+            const std::int32_t pct =
+                flex_item_main_percent_x100(*child_style,
+                                            parent_style->flex_direction);
+            if (pct < 0) {
+                definite_main_percent_x100 = -1;
+                break;
+            }
+            definite_main_percent_x100 += pct;
+            has_main_axis_auto_margin =
+                has_main_axis_auto_margin ||
+                child_style->margin_auto.left ||
+                child_style->margin_auto.right;
+        }
+
+        if (!has_main_axis_auto_margin ||
+            definite_main_percent_x100 < 0 ||
+            definite_main_percent_x100 <
+                full_row_percent_x100 - percent_rounding_tolerance_x100) {
+            continue;
+        }
+
+        // CSS flexbox treats auto margins as zero while forming flex lines.
+        // After the line is known, positive free space is assigned to the
+        // auto margins. In a saturated percentage row (Bootstrap's
+        // col-md-3 + ms-sm-auto col-md-9, for example) there is no positive
+        // free space, so the main-axis auto margins resolve to zero. Yoga
+        // otherwise lets the auto margin participate in wrapping and can push
+        // the final column to the next line for a narrow width band.
+        for (int child = first_child[parent_idx]; child >= 0;
+             child = next_sibling[static_cast<std::size_t>(child)]) {
+            const auto child_idx = static_cast<std::size_t>(child);
+            const auto* child_style = inputs[child_idx].style;
+            if (!child_style ||
+                child_style->display == ComputedStyle::Display::None ||
+                child_style->position == ComputedStyle::Position::Absolute ||
+                child_style->position == ComputedStyle::Position::Fixed) {
+                continue;
+            }
+            overrides[child_idx].left = true;
+            overrides[child_idx].right = true;
+        }
     }
 }
 
@@ -479,6 +588,8 @@ void layout_blocks_with_yoga(int viewport_width_px,
     // the duration of YGNodeCalculateLayout.
     std::vector<YGNodeRef> nodes;
     std::vector<NodeCtx>   node_ctxs(inputs.size());
+    std::vector<AutoMarginOverride> auto_margin_overrides(inputs.size());
+    compute_auto_margin_overrides(inputs, auto_margin_overrides);
     nodes.reserve(inputs.size());
     for (std::size_t i = 0; i < inputs.size(); ++i) {
         YGNodeRef n = YGNodeNewWithConfig(config);
@@ -539,7 +650,9 @@ void layout_blocks_with_yoga(int viewport_width_px,
                     flex_parent,
                     parent_flex_direction,
                     percent_width_indefinite,
-                    percent_height_indefinite);
+                    percent_height_indefinite,
+                    auto_margin_overrides[i].left,
+                    auto_margin_overrides[i].right);
 
         // Wire the measure callback for text-bearing leaves. Yoga
         // will call back during layout with the constraint width;

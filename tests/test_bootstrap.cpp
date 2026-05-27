@@ -502,8 +502,12 @@ TEST_CASE("Bootstrap dashboard survives repeated responsive relayout") {
         REQUIRE(pipeline.has_value());
         CHECK(revenue->x >= 0);
         CHECK(revenue->x < width);
+        CHECK(revenue->y >= 0);
+        CHECK(revenue->y < 920);
         CHECK(pipeline->x >= 0);
         CHECK(pipeline->x < width);
+        CHECK(pipeline->y >= 0);
+        CHECK(pipeline->y < 920);
         if (width >= 768) {
             CHECK(revenue->x > sidebar->x + 120);
             CHECK(revenue->x > 140);

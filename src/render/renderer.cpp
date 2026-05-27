@@ -176,6 +176,8 @@ constexpr Backend compiled_backend() {
 struct PreparedFrame {
     int  pt_w{0};
     int  pt_h{0};
+    std::uint32_t layout_us{0};
+    std::uint32_t display_list_record_us{0};
     bool recorded{false};
     bool display_list_changed{false};
     bool display_list_diff_bounds_known{false};
@@ -445,7 +447,9 @@ PreparedFrame prepare_frame(detail::RendererImpl& impl,
         dpi_scale != impl.last_dpi;
     frame.layout_dirty = doc.content_size().width != frame.pt_w;
     if (frame.viewport_changed || frame.layout_dirty) {
+        const auto layout_start = std::chrono::steady_clock::now();
         doc.layout(frame.pt_w, frame.pt_h, impl.painter.get());
+        frame.layout_us = elapsed_us(layout_start);
         impl.last_w      = fb_w;
         impl.last_h      = fb_h;
         impl.last_dpi    = dpi_scale;
@@ -470,6 +474,7 @@ PreparedFrame prepare_frame(detail::RendererImpl& impl,
         impl.last_frame_had_active_animations;
 
     if (!impl.cached_display_list_valid || document_changed) {
+        const auto record_start = std::chrono::steady_clock::now();
         detail::DisplayListBuilder builder(impl.painter.get());
         builder.begin_frame(frame.pt_w, frame.pt_h, dpi_scale);
         doc.draw(builder);
@@ -494,6 +499,7 @@ PreparedFrame prepare_frame(detail::RendererImpl& impl,
         impl.cached_display_list = std::move(builder.list());
         impl.cached_display_list_valid = true;
         frame.recorded = true;
+        frame.display_list_record_us = elapsed_us(record_start);
     }
     impl.last_frame_had_active_animations = frame.animations_active;
 
@@ -527,6 +533,9 @@ PreparedFrame prepare_frame(detail::RendererImpl& impl,
         frame_area > 0 ? clamp_u32((dirty_area * 10000u) / frame_area) : 0;
     impl.stats.display_list_ops_culled_this_frame = 0;
     impl.stats.prepare_us_this_frame = elapsed_us(prepare_start);
+    impl.stats.layout_us_this_frame = frame.layout_us;
+    impl.stats.display_list_record_us_this_frame =
+        frame.display_list_record_us;
     impl.stats.raster_us_this_frame = 0;
     impl.stats.composite_us_this_frame = 0;
     impl.stats.recorded_this_frame = frame.recorded;
@@ -535,6 +544,7 @@ PreparedFrame prepare_frame(detail::RendererImpl& impl,
     impl.stats.root_layer_partial_this_frame = false;
     impl.stats.root_layer_direct_this_frame = false;
     impl.stats.root_layer_reused_this_frame = false;
+    impl.stats.root_layer_allocated_this_frame = false;
     impl.stats.viewport_changed = frame.viewport_changed;
     impl.stats.layout_dirty = frame.layout_dirty;
     impl.stats.paint_dirty = frame.paint_dirty;
@@ -583,6 +593,10 @@ bool ensure_root_layer(detail::RendererImpl& impl, int w, int h) {
             layer.content_h = h;
             layer.valid = false;
         }
+        impl.stats.root_layer_capacity_w = static_cast<std::uint32_t>(layer.w);
+        impl.stats.root_layer_capacity_h = static_cast<std::uint32_t>(layer.h);
+        impl.stats.root_layer_content_w = static_cast<std::uint32_t>(layer.content_w);
+        impl.stats.root_layer_content_h = static_cast<std::uint32_t>(layer.content_h);
         return true;
     }
     destroy_root_layer(impl);
@@ -643,6 +657,11 @@ bool ensure_root_layer(detail::RendererImpl& impl, int w, int h) {
     layer.content_w = w;
     layer.content_h = h;
     layer.valid = false;
+    impl.stats.root_layer_allocated_this_frame = true;
+    impl.stats.root_layer_capacity_w = static_cast<std::uint32_t>(layer.w);
+    impl.stats.root_layer_capacity_h = static_cast<std::uint32_t>(layer.h);
+    impl.stats.root_layer_content_w = static_cast<std::uint32_t>(layer.content_w);
+    impl.stats.root_layer_content_h = static_cast<std::uint32_t>(layer.content_h);
     return true;
 }
 
