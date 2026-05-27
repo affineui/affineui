@@ -66,6 +66,8 @@ struct RendererImpl {
     struct RootLayer {
         int      w{0};
         int      h{0};
+        int      content_w{0};
+        int      content_h{0};
         sg_image color_img{};
         sg_image depth_img{};
         sg_view  color_tex{};
@@ -82,6 +84,8 @@ struct RendererImpl {
         sg_pixel_format color_format{SG_PIXELFORMAT_NONE};
         sg_pixel_format depth_format{SG_PIXELFORMAT_NONE};
         int             sample_count{0};
+        float           u_max{-1.0f};
+        float           v_max{-1.0f};
         bool            valid{false};
     } root_composite;
 #endif
@@ -209,6 +213,20 @@ Rect inflate_and_clip(Rect r, int pad, int w, int h) {
     return Rect{x0, y0, x1 - x0, y1 - y0};
 }
 
+int round_layer_extent(int v) {
+    // Root layer storage is deliberately a little larger than the current
+    // viewport. During an interactive resize, most adjacent sizes can reuse
+    // the same GPU image and only reraster the live content rectangle.
+    constexpr int kLayerQuantum = 256;
+    if (v <= 0) return 0;
+    return ((v + kLayerQuantum - 1) / kLayerQuantum) * kLayerQuantum;
+}
+
+int points_to_pixels(int points, float dpi_scale) {
+    const float d = dpi_scale > 0.0f ? dpi_scale : 1.0f;
+    return static_cast<int>(static_cast<float>(points) * d + 0.5f);
+}
+
 std::uint32_t clamp_u32(std::uint64_t v) {
     return static_cast<std::uint32_t>(
         std::min<std::uint64_t>(v, std::numeric_limits<std::uint32_t>::max()));
@@ -329,6 +347,8 @@ void destroy_root_composite(detail::RendererImpl& impl) {
     comp.color_format = SG_PIXELFORMAT_NONE;
     comp.depth_format = SG_PIXELFORMAT_NONE;
     comp.sample_count = 0;
+    comp.u_max = -1.0f;
+    comp.v_max = -1.0f;
 }
 
 bool ensure_root_composite(detail::RendererImpl& impl, int sample_count) {
@@ -348,23 +368,20 @@ bool ensure_root_composite(detail::RendererImpl& impl, int sample_count) {
         return false;
     }
 
-    const RootCompositeVertex quad[] = {
-        {-1.0f, -1.0f, 0.0f, 1.0f},
-        { 1.0f, -1.0f, 1.0f, 1.0f},
-        {-1.0f,  1.0f, 0.0f, 0.0f},
-        { 1.0f,  1.0f, 1.0f, 0.0f},
-    };
     sg_buffer_desc bd{};
-    bd.data = SG_RANGE(quad);
+    bd.size = sizeof(RootCompositeVertex) * 4;
+    bd.usage.vertex_buffer = true;
+    bd.usage.stream_update = true;
     bd.label = "affineui-root-composite-quad";
     comp.vertex_buffer = sg_make_buffer(&bd);
 
     sg_sampler_desc sd{};
-    // The retained root is rasterized at the exact framebuffer size and
-    // composited without transform. Filtering it would resample every glyph
-    // and edge a second time, making text look soft/crunchy compared with a
-    // direct paint. Future transformed/scaled layers can opt into linear
-    // sampling per layer; the root layer should be a 1:1 texel copy.
+    // The retained root is composited as a 1:1 texel copy from the live
+    // content rectangle, even when the backing image has spare resize
+    // capacity. Filtering it would resample every glyph and edge a second
+    // time, making text look soft/crunchy compared with a direct paint.
+    // Future transformed/scaled layers can opt into linear sampling per
+    // layer; the root layer should stay nearest-neighbor.
     sd.min_filter = SG_FILTER_NEAREST;
     sd.mag_filter = SG_FILTER_NEAREST;
     sd.wrap_u = SG_WRAP_CLAMP_TO_EDGE;
@@ -553,20 +570,29 @@ void destroy_root_layer(detail::RendererImpl& impl) {
     }
     layer.w = 0;
     layer.h = 0;
+    layer.content_w = 0;
+    layer.content_h = 0;
     layer.valid = false;
 }
 
 bool ensure_root_layer(detail::RendererImpl& impl, int w, int h) {
     auto& layer = impl.root_layer;
-    if (layer.color_img.id != SG_INVALID_ID && layer.w == w && layer.h == h) {
+    if (layer.color_img.id != SG_INVALID_ID && layer.w >= w && layer.h >= h) {
+        if (layer.content_w != w || layer.content_h != h) {
+            layer.content_w = w;
+            layer.content_h = h;
+            layer.valid = false;
+        }
         return true;
     }
     destroy_root_layer(impl);
     if (w <= 0 || h <= 0) return false;
+    const int alloc_w = round_layer_extent(w);
+    const int alloc_h = round_layer_extent(h);
 
     sg_image_desc color_desc{};
-    color_desc.width = w;
-    color_desc.height = h;
+    color_desc.width = alloc_w;
+    color_desc.height = alloc_h;
     color_desc.pixel_format = impl.sw_color;
     color_desc.sample_count = 1;
     color_desc.usage.color_attachment = true;
@@ -574,8 +600,8 @@ bool ensure_root_layer(detail::RendererImpl& impl, int w, int h) {
     layer.color_img = sg_make_image(&color_desc);
 
     sg_image_desc depth_desc{};
-    depth_desc.width = w;
-    depth_desc.height = h;
+    depth_desc.width = alloc_w;
+    depth_desc.height = alloc_h;
     depth_desc.pixel_format = impl.sw_depth;
     depth_desc.sample_count = 1;
     depth_desc.usage.depth_stencil_attachment = true;
@@ -600,7 +626,8 @@ bool ensure_root_layer(detail::RendererImpl& impl, int w, int h) {
     layer.depth_att = sg_make_view(&depth_view_desc);
 
     layer.nvg_image = nvsgCreateImageFromHandle(
-        impl.vg, layer.color_img, sg_sampler{}, w, h, NVG_IMAGE_NODELETE);
+        impl.vg, layer.color_img, sg_sampler{}, alloc_w, alloc_h,
+        NVG_IMAGE_NODELETE);
     if (layer.nvg_image == 0 ||
         layer.color_img.id == SG_INVALID_ID ||
         layer.depth_img.id == SG_INVALID_ID ||
@@ -611,11 +638,15 @@ bool ensure_root_layer(detail::RendererImpl& impl, int w, int h) {
         return false;
     }
 
-    layer.w = w;
-    layer.h = h;
+    layer.w = alloc_w;
+    layer.h = alloc_h;
+    layer.content_w = w;
+    layer.content_h = h;
     layer.valid = false;
     return true;
 }
+
+void clear_nvg_rect(NVGcontext* vg, const Rect& r);
 
 void rasterize_root_layer(detail::RendererImpl& impl,
                           int pt_w,
@@ -625,10 +656,7 @@ void rasterize_root_layer(detail::RendererImpl& impl,
     auto& layer = impl.root_layer;
     sg_pass pass{};
     pass.action.colors[0].load_action = SG_LOADACTION_CLEAR;
-    pass.action.colors[0].clear_value.r = 0.0f;
-    pass.action.colors[0].clear_value.g = 0.0f;
-    pass.action.colors[0].clear_value.b = 0.0f;
-    pass.action.colors[0].clear_value.a = 0.0f;
+    pass.action.colors[0].clear_value = sg_color{0.0f, 0.0f, 0.0f, 0.0f};
     pass.action.depth.load_action = SG_LOADACTION_CLEAR;
     pass.action.depth.clear_value = 1.0f;
     pass.action.stencil.load_action = SG_LOADACTION_CLEAR;
@@ -637,6 +665,10 @@ void rasterize_root_layer(detail::RendererImpl& impl,
     pass.attachments.depth_stencil = layer.depth_att;
 
     sg_begin_pass(&pass);
+    const int px_w = std::clamp(points_to_pixels(pt_w, dpi_scale), 0, layer.w);
+    const int px_h = std::clamp(points_to_pixels(pt_h, dpi_scale), 0, layer.h);
+    sg_apply_viewport(0, 0, px_w, px_h, /*origin_top_left*/ true);
+    sg_apply_scissor_rect(0, 0, px_w, px_h, /*origin_top_left*/ true);
     impl.painter->begin_frame(pt_w, pt_h, dpi_scale);
     detail::replay(impl.cached_display_list, *impl.painter);
     impl.painter->end_frame();
@@ -680,6 +712,10 @@ void rasterize_root_layer_region(detail::RendererImpl& impl,
     pass.attachments.depth_stencil = layer.depth_att;
 
     sg_begin_pass(&pass);
+    const int px_w = std::clamp(points_to_pixels(pt_w, dpi_scale), 0, layer.w);
+    const int px_h = std::clamp(points_to_pixels(pt_h, dpi_scale), 0, layer.h);
+    sg_apply_viewport(0, 0, px_w, px_h, /*origin_top_left*/ true);
+    sg_apply_scissor_rect(0, 0, px_w, px_h, /*origin_top_left*/ true);
     impl.painter->begin_frame(pt_w, pt_h, dpi_scale);
     clear_nvg_rect(impl.vg, dirty);
     nvgSave(impl.vg);
@@ -705,15 +741,36 @@ void rasterize_root_layer_region(detail::RendererImpl& impl,
 }
 
 void composite_root_layer(detail::RendererImpl& impl,
-                          int pt_w,
-                          int pt_h,
-                          float dpi_scale,
-                          int sample_count) {
+                           int pt_w,
+                           int pt_h,
+                           float dpi_scale,
+                           int sample_count,
+                           int visible_px_w,
+                           int visible_px_h) {
     const auto composite_start = std::chrono::steady_clock::now();
     auto& layer = impl.root_layer;
     if (layer.color_tex.id != SG_INVALID_ID &&
         ensure_root_composite(impl, sample_count)) {
         auto& comp = impl.root_composite;
+        const float u_max = layer.w > 0
+            ? std::clamp(static_cast<float>(visible_px_w) /
+                         static_cast<float>(layer.w), 0.0f, 1.0f)
+            : 1.0f;
+        const float v_max = layer.h > 0
+            ? std::clamp(static_cast<float>(visible_px_h) /
+                         static_cast<float>(layer.h), 0.0f, 1.0f)
+            : 1.0f;
+        if (u_max != comp.u_max || v_max != comp.v_max) {
+            const RootCompositeVertex quad[] = {
+                {-1.0f, -1.0f, 0.0f,  v_max},
+                { 1.0f, -1.0f, u_max, v_max},
+                {-1.0f,  1.0f, 0.0f,  0.0f},
+                { 1.0f,  1.0f, u_max, 0.0f},
+            };
+            sg_update_buffer(comp.vertex_buffer, SG_RANGE(quad));
+            comp.u_max = u_max;
+            comp.v_max = v_max;
+        }
         sg_apply_pipeline(comp.pipeline);
         sg_bindings b{};
         b.vertex_buffers[0] = comp.vertex_buffer;
@@ -733,8 +790,14 @@ void composite_root_layer(detail::RendererImpl& impl,
     NVGcontext* vg = impl.vg;
     nvgBeginFrame(vg, static_cast<float>(pt_w), static_cast<float>(pt_h),
                   dpi_scale);
+    const float image_w = dpi_scale > 0.0f
+        ? static_cast<float>(layer.w) / dpi_scale
+        : static_cast<float>(pt_w);
+    const float image_h = dpi_scale > 0.0f
+        ? static_cast<float>(layer.h) / dpi_scale
+        : static_cast<float>(pt_h);
     const NVGpaint image = nvgImagePattern(
-        vg, 0.0f, 0.0f, static_cast<float>(pt_w), static_cast<float>(pt_h),
+        vg, 0.0f, 0.0f, image_w, image_h,
         0.0f, layer.nvg_image, 1.0f);
     nvgBeginPath(vg);
     nvgRect(vg, 0.0f, 0.0f, static_cast<float>(pt_w),
@@ -904,7 +967,7 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
     sg_apply_viewport(vx, vy, vw, vh, /*origin_top_left*/ true);
     sg_apply_scissor_rect(vx, vy, vw, vh, /*origin_top_left*/ true);
     composite_root_layer(*impl_, frame.pt_w, frame.pt_h, t.dpi_scale,
-                         sc.sample_count);
+                         sc.sample_count, vw, vh);
     if (!t.debug_overlay_text.empty()) {
         draw_debug_overlay(
             t.debug_overlay_text,

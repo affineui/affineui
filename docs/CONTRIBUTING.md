@@ -43,6 +43,10 @@ exported.
   `lower_case` namespaces. Private members suffixed `_`.
 - Public headers are kept include-light. Forward-declare; don't include
   litehtml or sokol from `include/affineui/`.
+- Temporary workarounds are allowed only when they deliberately unblock
+  development. Mark them with `AFFINEUI_TEMPORARY`, explain the missing
+  final behavior in the nearby comment, and add or link a roadmap item so
+  they are easy to audit before production hardening.
 
 ## Commits
 

@@ -480,8 +480,14 @@ TEST_CASE("Bootstrap dashboard survives repeated responsive relayout") {
     });
     doc.set_html(html);
 
-    for (const int width : {1440, 1280, 1210, 1190, 1100, 992,
-                            980, 900, 768, 760, 900, 1190, 1440}) {
+    std::vector<int> widths{1440, 1280, 1210, 1200, 1199, 1190, 1100,
+                            993, 992, 991, 980, 900, 769, 768, 767,
+                            760, 900, 1190, 1440};
+    for (int width = 740; width <= 1500; width += 17) {
+        widths.push_back(width);
+    }
+
+    for (const int width : widths) {
         RecordingPainter painter;
         doc.layout(width, 920, &painter);
         doc.draw(painter);
@@ -500,6 +506,7 @@ TEST_CASE("Bootstrap dashboard survives repeated responsive relayout") {
         CHECK(pipeline->x < width);
         if (width >= 768) {
             CHECK(revenue->x > sidebar->x + 120);
+            CHECK(revenue->x > 140);
         }
     }
 }

@@ -168,6 +168,11 @@ mutation. Public surface (`mount`, `use_state`, `on_click`,
 - [ ] DPI-aware text rendering corrections (we plumb fb pixels vs
       points correctly; intrinsic text height still uses the parked
       hand-tuned constant — fix is to lean on real `nvgTextMetrics`)
+- [ ] Low-priority Decius checkbox icon polish: verify browser and
+      AffineUI vertical centering for the `decius-icons` check glyph
+      inside `.dcs-check__box`; if both are off, fix the icon/CSS
+      upstream, otherwise fix generated-content/icon-font baseline
+      alignment in the renderer.
 - [ ] Image cache LRU with size cap
 - [ ] Layout-cache invalidation per dirty subtree (don't relayout the
       whole document for one attribute change)

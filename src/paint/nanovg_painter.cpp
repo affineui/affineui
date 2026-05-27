@@ -1313,7 +1313,7 @@ public:
         const float advance = nvgTextBounds(vg_, 0.0f, 0.0f,
                                             text.data(), text.data() + text.size(),
                                             bounds);
-        return static_cast<int>(advance + 0.5f);
+        return static_cast<int>(std::ceil(advance));
     }
 
     TextMetrics text_metrics(std::uint32_t handle) override {

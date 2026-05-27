@@ -82,7 +82,10 @@ inline float value_from_y(const affineui::Rect& r, float y,
         ? clamp((y - static_cast<float>(r.y)) / static_cast<float>(r.h),
                 0.0f, 1.0f)
         : 0.0f;
-    return max - t * (max - min);
+    // Decius faders bind their thumb with `top: var(--pos)`, so the
+    // interaction value follows the CSS position: dragging down increases
+    // the stored percentage and moves the thumb down.
+    return min + t * (max - min);
 }
 
 }  // namespace detail
