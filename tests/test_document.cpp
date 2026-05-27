@@ -411,6 +411,50 @@ TEST_CASE("Ui on_click matches hovered ancestors") {
     CHECK(clicked);
 }
 
+TEST_CASE("Ui on_click routes through transformed hit testing") {
+    affineui::Ui ui;
+    RecordingPainter painter;
+    int selected = -1;
+
+    ui.html(R"HTML(
+        <style>
+            html, body { margin: 0; }
+            .stage { position: relative; width: 200px; height: 120px; }
+            .clip {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100px;
+                height: 30px;
+                background: #2f86ee;
+            }
+            .lane {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100px;
+                height: 30px;
+                transform: translateY(50px);
+            }
+        </style>
+        <div class="stage">
+            <div id="top" class="clip"></div>
+            <div class="lane"><div id="bottom" class="clip"></div></div>
+        </div>
+    )HTML");
+    ui.document().layout(200, 120, &painter);
+    ui.on_click("#top", [&] { selected = 0; });
+    ui.on_click("#bottom", [&] { selected = 1; });
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = {10, 60};
+
+    CHECK(ui.dispatch(up));
+    CHECK(selected == 1);
+}
+
 TEST_CASE("captured pointer moves bypass DOM hover restyle") {
     affineui::Ui ui;
     RecordingPainter painter;
@@ -3560,6 +3604,54 @@ TEST_CASE("percentage translate resolves against the element box") {
     REQUIRE(fill != nullptr);
     CHECK(fill->transform.tx == doctest::Approx(-6.0f));
     CHECK(fill->transform.ty == doctest::Approx(-6.0f));
+}
+
+TEST_CASE("hit testing honors CSS transforms") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+            html, body { margin: 0; }
+            .stage {
+                position: relative;
+                width: 200px;
+                height: 120px;
+            }
+            .clip {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100px;
+                height: 30px;
+                background: #2f86ee;
+            }
+            .lane {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100px;
+                height: 30px;
+                transform: translateY(50px);
+            }
+        </style>
+        <div class="stage">
+            <div id="top" class="clip"></div>
+            <div class="lane"><div id="bottom" class="clip"></div></div>
+        </div>
+    )HTML");
+    doc.layout(200, 120, &painter);
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {10, 10};
+    doc.dispatch(move);
+    CHECK(doc.hovered_info().elem_id == "top");
+
+    move.pos = {10, 60};
+    doc.dispatch(move);
+    CHECK(doc.hovered_info().elem_id == "bottom");
+    CHECK(doc.hovered_info().bounds.y == 50);
 }
 
 TEST_CASE("transform-origin changes the transform pivot") {

@@ -5507,23 +5507,57 @@ const KeyframeBlock* find_keyframes(const detail::DocumentImpl& impl,
 }
 #endif
 
-// Deepest block whose effective border-box (after applying any
-// ancestor scroll offsets) contains (x, y), or -1 if none. Walk in
-// DFS order â€” parents before children â€” so the *last* match wins.
-int hit_test_blocks(const std::vector<Block>& blocks,
 #if !defined(AFFINEUI_STUB_BUILD)
-                    const detail::StyleStore& styles,
+bool invert_transform(const Mat2x3& m, Mat2x3& out) {
+    const float det = m.a * m.d - m.b * m.c;
+    if (std::abs(det) < 1e-6f) return false;
+    const float inv_det = 1.0f / det;
+    out.a =  m.d * inv_det;
+    out.b = -m.b * inv_det;
+    out.c = -m.c * inv_det;
+    out.d =  m.a * inv_det;
+    out.tx = -(out.a * m.tx + out.c * m.ty);
+    out.ty = -(out.b * m.tx + out.d * m.ty);
+    return true;
+}
+
+bool rect_contains_float(const Rect& r, float x, float y) noexcept {
+    return x >= static_cast<float>(r.x) &&
+           x <  static_cast<float>(r.x + r.w) &&
+           y >= static_cast<float>(r.y) &&
+           y <  static_cast<float>(r.y + r.h);
+}
 #endif
-                    int x, int y) {
+
+// Deepest block whose effective border-box (after applying ancestor scroll
+// offsets and CSS transforms) contains (x, y), or -1 if none. Walk in DFS
+// order so the *last* match wins.
+int hit_test_blocks(const detail::DocumentImpl& impl, int x, int y) {
+    const auto& blocks = impl.blocks;
     int hit = -1;
     for (std::size_t i = 0; i < blocks.size(); ++i) {
 #if !defined(AFFINEUI_STUB_BUILD)
-        const int dy = scroll_offset_y_for(blocks, styles, static_cast<int>(i));
+        const int dy = scroll_offset_y_for(
+            blocks, impl.style_store, static_cast<int>(i));
 #else
         const int dy = 0;
 #endif
         Rect eff = blocks[i].bounds;
         eff.y -= dy;
+#if !defined(AFFINEUI_STUB_BUILD)
+        const Mat2x3 transform =
+            effective_transform_for(impl, static_cast<int>(i));
+        if (!transform.is_identity()) {
+            Mat2x3 inverse{};
+            if (!invert_transform(transform, inverse)) continue;
+            const Vec2 local = inverse.apply(
+                Vec2{static_cast<float>(x), static_cast<float>(y)});
+            if (rect_contains_float(eff, local.x, local.y)) {
+                hit = static_cast<int>(i);
+            }
+            continue;
+        }
+#endif
         if (rect_contains(eff, x, y)) {
             hit = static_cast<int>(i);
         }
@@ -6207,6 +6241,35 @@ Rect transform_visual_rect(const Rect& r, const Mat2x3& m) {
     return Rect{x0, y0, x1 - x0, y1 - y0};
 }
 
+Rect transform_border_rect(const Rect& r, const Mat2x3& m) {
+    if (!rect_valid(r) || m.is_identity()) return r;
+    const Vec2 p0 = m.apply(Vec2{static_cast<float>(r.x),
+                                 static_cast<float>(r.y)});
+    const Vec2 p1 = m.apply(Vec2{static_cast<float>(r.x + r.w),
+                                 static_cast<float>(r.y)});
+    const Vec2 p2 = m.apply(Vec2{static_cast<float>(r.x),
+                                 static_cast<float>(r.y + r.h)});
+    const Vec2 p3 = m.apply(Vec2{static_cast<float>(r.x + r.w),
+                                 static_cast<float>(r.y + r.h)});
+    const float min_x = std::min({p0.x, p1.x, p2.x, p3.x});
+    const float min_y = std::min({p0.y, p1.y, p2.y, p3.y});
+    const float max_x = std::max({p0.x, p1.x, p2.x, p3.x});
+    const float max_y = std::max({p0.y, p1.y, p2.y, p3.y});
+    const int x0 = static_cast<int>(std::floor(min_x));
+    const int y0 = static_cast<int>(std::floor(min_y));
+    const int x1 = static_cast<int>(std::ceil(max_x));
+    const int y1 = static_cast<int>(std::ceil(max_y));
+    return Rect{x0, y0, x1 - x0, y1 - y0};
+}
+
+Rect block_border_visual_rect(const detail::DocumentImpl& impl, int idx) {
+    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return {};
+    const auto& b = impl.blocks[static_cast<std::size_t>(idx)];
+    const int dy = scroll_offset_y_for(impl.blocks, impl.style_store, idx);
+    const Rect base{b.bounds.x, b.bounds.y - dy, b.bounds.w, b.bounds.h};
+    return transform_border_rect(base, effective_transform_for(impl, idx));
+}
+
 Rect block_visual_rect(const detail::DocumentImpl& impl, int idx) {
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return {};
     const auto& b = impl.blocks[static_cast<std::size_t>(idx)];
@@ -6530,7 +6593,7 @@ DispatchResult Document::dispatch(const Event& ev) {
     switch (ev.type) {
         case EventType::MouseMove: {
             impl_->last_mouse_pos = ev.pos;
-            const int new_hover = hit_test_blocks(impl_->blocks, impl_->style_store, ev.pos.x, ev.pos.y);
+            const int new_hover = hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
             if (new_hover != impl_->hovered_idx) {
                 impl_->hovered_idx      = new_hover;
                 result.redraw_requested = true;
@@ -6546,7 +6609,7 @@ DispatchResult Document::dispatch(const Event& ev) {
         }
         case EventType::MouseDown: {
             impl_->last_mouse_pos = ev.pos;
-            impl_->hovered_idx    = hit_test_blocks(impl_->blocks, impl_->style_store, ev.pos.x, ev.pos.y);
+            impl_->hovered_idx    = hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
             // :active follows the press: set to whatever's under the
             // pointer right now, refresh the active chain so the bit
             // toggles on and an immediate restyle visualizes the press.
@@ -6564,7 +6627,7 @@ DispatchResult Document::dispatch(const Event& ev) {
         }
         case EventType::MouseUp: {
             impl_->last_mouse_pos = ev.pos;
-            impl_->hovered_idx    = hit_test_blocks(impl_->blocks, impl_->style_store, ev.pos.x, ev.pos.y);
+            impl_->hovered_idx    = hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
             // Clear :active on every MouseUp â€” the press is over. We
             // don't try to be clever about "release outside the
             // pressed element" today; that nuance is part of the
@@ -6688,7 +6751,11 @@ Document::HoverInfo Document::hovered_info() const {
     info.elem_id = b.elem_id;
     info.classes = b.classes;
     info.attrs   = b.attrs;
+#if !defined(AFFINEUI_STUB_BUILD)
+    info.bounds  = block_border_visual_rect(*impl_, idx);
+#else
     info.bounds  = b.bounds;
+#endif
     return info;
 }
 
@@ -6710,7 +6777,11 @@ void Document::hovered_info_chain(std::vector<HoverInfo>& chain) const {
         info.elem_id = b.elem_id;
         info.classes = b.classes;
         info.attrs   = b.attrs;
+#if !defined(AFFINEUI_STUB_BUILD)
+        info.bounds  = block_border_visual_rect(*impl_, idx);
+#else
         info.bounds  = b.bounds;
+#endif
         chain.push_back(std::move(info));
         idx = b.parent_idx;
     }
