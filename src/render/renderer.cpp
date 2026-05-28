@@ -111,7 +111,12 @@ void Renderer::init_gl() {}
 void Renderer::init_embedded(const GpuContext&, const Allocator*) {}
 void Renderer::shutdown() { impl_->ready = false; }
 void Renderer::render(Document&, int, int, float) {}
-void Renderer::draw_debug_overlay(std::string_view, std::span<const float>, int, int, float) {}
+void Renderer::draw_debug_overlay(std::string_view,
+                                  std::span<const float>,
+                                  int,
+                                  int,
+                                  float,
+                                  DebugOverlayCorner) {}
 void Renderer::render_to(Document&, const FrameTarget&) {}
 const RenderStats& Renderer::stats() const noexcept { return impl_->stats; }
 
@@ -1044,7 +1049,7 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
                 t.debug_overlay_text,
                 std::span<const float>(t.debug_overlay_frame_ms,
                                        t.debug_overlay_frame_ms_count),
-                t.width, t.height, t.dpi_scale);
+                t.width, t.height, t.dpi_scale, t.debug_overlay_corner);
         }
         sg_end_pass();
         if (t.commit) sg_commit();
@@ -1066,7 +1071,7 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
                 t.debug_overlay_text,
                 std::span<const float>(t.debug_overlay_frame_ms,
                                        t.debug_overlay_frame_ms_count),
-                t.width, t.height, t.dpi_scale);
+                t.width, t.height, t.dpi_scale, t.debug_overlay_corner);
         }
         sg_end_pass();
         if (t.commit) sg_commit();
@@ -1140,7 +1145,7 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
             t.debug_overlay_text,
             std::span<const float>(t.debug_overlay_frame_ms,
                                    t.debug_overlay_frame_ms_count),
-            t.width, t.height, t.dpi_scale);
+            t.width, t.height, t.dpi_scale, t.debug_overlay_corner);
     }
     sg_end_pass();
     if (t.commit) sg_commit();
@@ -1189,7 +1194,8 @@ void Renderer::draw_debug_overlay(std::string_view text,
                                   std::span<const float> frame_ms,
                                   int fb_w,
                                   int fb_h,
-                                  float dpi_scale) {
+                                  float dpi_scale,
+                                  DebugOverlayCorner corner) {
     if (!impl_->ready || !impl_->vg || text.empty()) return;
     const float d = dpi_scale > 0.0f ? dpi_scale : 1.0f;
     const int pt_w = static_cast<int>(static_cast<float>(fb_w) / d + 0.5f);
@@ -1197,10 +1203,11 @@ void Renderer::draw_debug_overlay(std::string_view text,
     if (pt_w <= 0 || pt_h <= 0) return;
 
     const std::string s{text};
-    constexpr float box_w = 330.0f;
-    constexpr float box_h = 132.0f;
-    const float x = std::max(8.0f, static_cast<float>(pt_w) - box_w - 10.0f);
-    constexpr float y = 10.0f;
+    const auto bounds = debug_overlay_bounds(pt_w, pt_h, corner);
+    const float x = static_cast<float>(bounds.x);
+    const float y = static_cast<float>(bounds.y);
+    const float box_w = static_cast<float>(bounds.w);
+    const float box_h = static_cast<float>(bounds.h);
 
     auto* vg = impl_->vg;
     nvgBeginFrame(vg, static_cast<float>(pt_w), static_cast<float>(pt_h), d);
@@ -1221,7 +1228,7 @@ void Renderer::draw_debug_overlay(std::string_view text,
     if (!frame_ms.empty()) {
         constexpr float graph_x = 8.0f;
         constexpr float graph_y = 93.0f;
-        constexpr float graph_w = box_w - 16.0f;
+        const float graph_w = box_w - 16.0f;
         constexpr float graph_h = 14.0f;
         nvgBeginPath(vg);
         nvgRect(vg, x + graph_x, y + graph_y, graph_w, graph_h);

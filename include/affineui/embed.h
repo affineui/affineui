@@ -67,6 +67,74 @@ enum class PixelFormat {
     depth_stencil,
 };
 
+enum class DebugOverlayCorner {
+    top_left,
+    top_right,
+    bottom_right,
+    bottom_left,
+};
+
+struct DebugOverlayBounds {
+    int x{0};
+    int y{0};
+    int w{330};
+    int h{132};
+};
+
+inline DebugOverlayCorner next_debug_overlay_corner(DebugOverlayCorner corner) {
+    switch (corner) {
+        case DebugOverlayCorner::top_left:
+            return DebugOverlayCorner::top_right;
+        case DebugOverlayCorner::top_right:
+            return DebugOverlayCorner::bottom_right;
+        case DebugOverlayCorner::bottom_right:
+            return DebugOverlayCorner::bottom_left;
+        case DebugOverlayCorner::bottom_left:
+            return DebugOverlayCorner::top_left;
+    }
+    return DebugOverlayCorner::top_right;
+}
+
+inline DebugOverlayBounds debug_overlay_bounds(
+        int logical_w,
+        int logical_h,
+        DebugOverlayCorner corner,
+        int box_w = 330,
+        int box_h = 132,
+        int margin = 10) {
+    DebugOverlayBounds b{};
+    b.w = box_w;
+    b.h = box_h;
+    const int right = logical_w > 0 ? (logical_w - box_w - margin) : margin;
+    const int bottom = logical_h > 0 ? (logical_h - box_h - margin) : margin;
+    switch (corner) {
+        case DebugOverlayCorner::top_left:
+            b.x = margin;
+            b.y = margin;
+            break;
+        case DebugOverlayCorner::top_right:
+            b.x = right > margin ? right : margin;
+            b.y = margin;
+            break;
+        case DebugOverlayCorner::bottom_right:
+            b.x = right > margin ? right : margin;
+            b.y = bottom > margin ? bottom : margin;
+            break;
+        case DebugOverlayCorner::bottom_left:
+            b.x = margin;
+            b.y = bottom > margin ? bottom : margin;
+            break;
+    }
+    return b;
+}
+
+inline bool debug_overlay_contains(const DebugOverlayBounds& bounds,
+                                   int x,
+                                   int y) {
+    return x >= bounds.x && y >= bounds.y &&
+           x < bounds.x + bounds.w && y < bounds.y + bounds.h;
+}
+
 /// The host's core graphics objects, supplied once at init in embedded
 /// mode. Fill the sub-struct for your backend completely. Handles are
 /// borrowed: AffineUI never creates or destroys them.
@@ -188,6 +256,7 @@ struct FrameTarget {
     std::string_view debug_overlay_text{};
     const float*     debug_overlay_frame_ms = nullptr;
     std::size_t      debug_overlay_frame_ms_count = 0;
+    DebugOverlayCorner debug_overlay_corner = DebugOverlayCorner::top_right;
 
     // TODO(embed): per-frame external (live) engine textures referenced as
     //   live://name — transient, used this frame only (DESIGN §3.2):

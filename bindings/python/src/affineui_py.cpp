@@ -26,7 +26,8 @@ affineui::App::Config make_app_config(const std::string& title,
                                       bool vsync,
                                       const std::string& default_font_family,
                                       int default_font_size,
-                                      const std::vector<std::string>& asset_folders) {
+                                      const std::vector<std::string>& asset_folders,
+                                      bool perf_overlay) {
     affineui::App::Config cfg{};
     cfg.title = title;
     cfg.width = width;
@@ -37,6 +38,7 @@ affineui::App::Config make_app_config(const std::string& title,
     cfg.default_font_family = default_font_family;
     cfg.default_font_size = default_font_size;
     cfg.asset_folders = asset_folders;
+    cfg.perf_overlay = perf_overlay;
     return cfg;
 }
 
@@ -705,7 +707,8 @@ PYBIND11_MODULE(_affineui, m) {
                           bool vsync,
                           const std::string& default_font_family,
                           int default_font_size,
-                          const std::vector<std::string>& asset_folders) {
+                          const std::vector<std::string>& asset_folders,
+                          bool perf_overlay) {
                   return std::make_unique<affineui::App>(
                       make_app_config(title,
                                       width,
@@ -715,7 +718,8 @@ PYBIND11_MODULE(_affineui, m) {
                                       vsync,
                                       default_font_family,
                                       default_font_size,
-                                      asset_folders));
+                                      asset_folders,
+                                      perf_overlay));
               }),
              py::arg("title") = "AffineUI",
              py::arg("width") = 1024,
@@ -725,7 +729,8 @@ PYBIND11_MODULE(_affineui, m) {
               py::arg("vsync") = true,
               py::arg("default_font_family") = "sans-serif",
               py::arg("default_font_size") = 16,
-              py::arg("asset_folders") = std::vector<std::string>{"."})
+              py::arg("asset_folders") = std::vector<std::string>{"."},
+              py::arg("perf_overlay") = false)
         .def("load_html", [](affineui::App& app, const std::string& html) {
             app.load_html(html);
         })
@@ -745,6 +750,14 @@ PYBIND11_MODULE(_affineui, m) {
                  app.set_stylesheet(css);
              })
         .def("invalidate", &affineui::App::invalidate)
+        .def("set_perf_overlay_enabled",
+             &affineui::App::set_perf_overlay_enabled,
+             py::arg("enabled"),
+             "Enable or disable the native performance overlay. The overlay "
+             "is drawn outside the document and can be moved by clicking it.")
+        .def("perf_overlay_enabled",
+             &affineui::App::perf_overlay_enabled,
+             "Return whether the native performance overlay is enabled.")
         .def("dispatch",
              [](affineui::App& app, const affineui::Event& ev) {
                  return app.dispatch(ev);

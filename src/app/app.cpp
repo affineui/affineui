@@ -22,6 +22,7 @@
 #include "affineui/themes.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -64,6 +65,16 @@ struct AppImpl {
     int                   last_h{-1};
     float                 last_dpi{1.0f};   // updated each frame for event→pt conversion
     int                   settle_frames{0};
+    bool                  perf_overlay_enabled{false};
+    DebugOverlayCorner    perf_overlay_corner{DebugOverlayCorner::top_right};
+    double                perf_accum_s{0.0};
+    int                   perf_frames{0};
+    double                perf_ms{0.0};
+    double                perf_fps{0.0};
+    std::array<float, 64> perf_ms_history{};
+    int                   perf_history_head{0};
+    int                   perf_history_count{0};
+    char                  perf_text[384]{};
 };
 
 bool local_asset_url(std::string_view url) {
@@ -200,6 +211,8 @@ App::App() : App(Config{}) {}
 
 App::App(Config cfg) : impl_{std::make_unique<detail::AppImpl>()} {
     impl_->config = std::move(cfg);
+    impl_->perf_overlay_enabled = impl_->config.perf_overlay;
+    impl_->perf_overlay_corner = impl_->config.perf_overlay_corner;
     impl_->renderer.set_clear_color(impl_->config.clear_color);
     impl_->document.set_resource_loader(
         impl_->config.resource_loader
@@ -234,6 +247,20 @@ bool App::load_html_file(std::string_view)     { return false; }
 void App::set_stylesheet(std::string_view css) { impl_->document.set_user_stylesheet(css); impl_->dirty = true; impl_->animations_active = false; }
 void App::mount(std::function<void()> view_fn) { impl_->view_fn = std::move(view_fn); impl_->dirty = true; impl_->animations_active = false; }
 void App::invalidate() { impl_->dirty = true; impl_->animations_active = false; }
+
+void App::set_perf_overlay_enabled(bool enabled) {
+    impl_->perf_overlay_enabled = enabled;
+    impl_->settle_frames = detail::kSwapchainSettleFrames;
+}
+
+bool App::perf_overlay_enabled() const noexcept {
+    return impl_->perf_overlay_enabled;
+}
+
+void App::set_perf_overlay_corner(DebugOverlayCorner corner) {
+    impl_->perf_overlay_corner = corner;
+    impl_->settle_frames = detail::kSwapchainSettleFrames;
+}
 
 bool App::dispatch(const Event& ev) {
     return detail::dispatch_loaded_view_event(*impl_, ev);
@@ -300,6 +327,82 @@ std::string utf8_from_codepoint(std::uint32_t cp) {
     return out;
 }
 
+DebugOverlayBounds perf_overlay_bounds(int fb_w,
+                                       int fb_h,
+                                       float dpi_scale,
+                                       DebugOverlayCorner corner) {
+    const float d = dpi_scale > 0.0f ? dpi_scale : 1.0f;
+    const int pt_w = static_cast<int>(static_cast<float>(fb_w) / d + 0.5f);
+    const int pt_h = static_cast<int>(static_cast<float>(fb_h) / d + 0.5f);
+    return debug_overlay_bounds(pt_w, pt_h, corner);
+}
+
+bool point_in_perf_overlay(const detail::AppImpl& impl,
+                           int x,
+                           int y,
+                           int fb_w,
+                           int fb_h,
+                           float dpi_scale) {
+    if (!impl.perf_overlay_enabled) return false;
+    const auto b =
+        perf_overlay_bounds(fb_w, fb_h, dpi_scale, impl.perf_overlay_corner);
+    return debug_overlay_contains(b, x, y);
+}
+
+void update_perf_overlay_text(detail::AppImpl& impl) {
+    const double dt = sapp_frame_duration_unfiltered();
+    if (dt > 0.0) {
+        impl.perf_ms_history[static_cast<std::size_t>(impl.perf_history_head)] =
+            static_cast<float>(dt * 1000.0);
+        impl.perf_history_head =
+            (impl.perf_history_head + 1) %
+            static_cast<int>(impl.perf_ms_history.size());
+        impl.perf_history_count = std::min(
+            impl.perf_history_count + 1,
+            static_cast<int>(impl.perf_ms_history.size()));
+        impl.perf_accum_s += dt;
+        impl.perf_frames += 1;
+    }
+    if (impl.perf_accum_s < 0.5 && impl.perf_text[0] != '\0') return;
+
+    impl.perf_fps = impl.perf_accum_s > 0.0
+        ? static_cast<double>(impl.perf_frames) / impl.perf_accum_s
+        : 0.0;
+    impl.perf_ms = impl.perf_fps > 0.0 ? 1000.0 / impl.perf_fps : 0.0;
+    const auto& stats = impl.renderer.stats();
+    std::snprintf(impl.perf_text, sizeof(impl.perf_text),
+                  "%.1f ms/frame  %.1f fps\n"
+                  "work prep %.2f layout %.2f dl %.2f\n"
+                  "rast %.2f comp %.2f ms layer %ux%u%s\n"
+                  "ops %u culled %u rects %u dirty %u.%02u%%\n"
+                  "flags %c%c%c%c%c%c%c",
+                  impl.perf_ms,
+                  impl.perf_fps,
+                  static_cast<double>(stats.prepare_us_this_frame) / 1000.0,
+                  static_cast<double>(stats.layout_us_this_frame) / 1000.0,
+                  static_cast<double>(
+                      stats.display_list_record_us_this_frame) / 1000.0,
+                  static_cast<double>(stats.raster_us_this_frame) / 1000.0,
+                  static_cast<double>(stats.composite_us_this_frame) / 1000.0,
+                  stats.root_layer_capacity_w,
+                  stats.root_layer_capacity_h,
+                  stats.root_layer_allocated_this_frame ? " alloc" : "",
+                  stats.cached_ops,
+                  stats.display_list_ops_culled_this_frame,
+                  stats.dirty_rects,
+                  stats.dirty_area_pct_x100 / 100,
+                  stats.dirty_area_pct_x100 % 100,
+                  stats.recorded_this_frame ? 'R' : '-',
+                  stats.display_list_changed_this_frame ? 'D' : '-',
+                  stats.root_layer_partial_this_frame ? 'p' : '-',
+                  stats.root_layer_direct_this_frame ? 'q' : '-',
+                  stats.layout_dirty ? 'L' : '-',
+                  stats.paint_dirty ? 'P' : '-',
+                  stats.animations_active ? 'A' : '-');
+    impl.perf_accum_s = 0.0;
+    impl.perf_frames = 0;
+}
+
 // sokol_app's *_userdata_cb hooks each receive the void* we set on
 // sapp_desc.user_data. We stash the AppImpl pointer there so each
 // callback recovers state with one cast.
@@ -342,13 +445,28 @@ void cb_frame(void* user) {
             impl->settle_frames =
                 std::max(impl->settle_frames, detail::kSwapchainSettleFrames);
         }
-        if (!impl->dirty && !impl->animations_active && !viewport_changed &&
+        if (!impl->perf_overlay_enabled && !impl->dirty &&
+            !impl->animations_active && !viewport_changed &&
             impl->settle_frames <= 0) {
             if (impl->quit_requested) sapp_request_quit();
             return;
         }
         impl->last_w = w;
         impl->last_h = h;
+        std::array<float, 64> ordered_perf_ms{};
+        int ordered_perf_count = 0;
+        if (impl->perf_overlay_enabled) {
+            update_perf_overlay_text(*impl);
+            ordered_perf_count = impl->perf_history_count;
+            for (int i = 0; i < ordered_perf_count; ++i) {
+                const int src =
+                    (impl->perf_history_head - ordered_perf_count + i +
+                     static_cast<int>(impl->perf_ms_history.size())) %
+                    static_cast<int>(impl->perf_ms_history.size());
+                ordered_perf_ms[static_cast<std::size_t>(i)] =
+                    impl->perf_ms_history[static_cast<std::size_t>(src)];
+            }
+        }
 
         const sg_swapchain sc = sglue_swapchain();
         FrameTarget target{};
@@ -368,6 +486,13 @@ void cb_frame(void* user) {
         target.wgpu.resolve_view = sc.wgpu.resolve_view;
         target.wgpu.depth_stencil_view = sc.wgpu.depth_stencil_view;
         target.gl.framebuffer = sc.gl.framebuffer;
+        if (impl->perf_overlay_enabled) {
+            target.debug_overlay_text = impl->perf_text;
+            target.debug_overlay_frame_ms = ordered_perf_ms.data();
+            target.debug_overlay_frame_ms_count =
+                static_cast<std::size_t>(ordered_perf_count);
+            target.debug_overlay_corner = impl->perf_overlay_corner;
+        }
         impl->renderer.render_to(impl->document, target);
         impl->animations_active = impl->renderer.stats().animations_active;
         impl->dirty = impl->animations_active;
@@ -456,6 +581,23 @@ void cb_event(const sapp_event* ev, void* user) {
     if (ev->type == SAPP_EVENTTYPE_MOUSE_SCROLL) {
         aui_ev.wheel_dx = ev->scroll_x;
         aui_ev.wheel_dy = ev->scroll_y;
+    }
+    const bool over_perf_overlay =
+        point_in_perf_overlay(*impl, aui_ev.pos.x, aui_ev.pos.y,
+                              sapp_width(), sapp_height(), dpi);
+    if (over_perf_overlay) {
+        if (aui_ev.type == EventType::MouseMove) {
+            sapp_set_mouse_cursor(SAPP_MOUSECURSOR_POINTING_HAND);
+            impl->last_cursor = 1;
+            return;
+        }
+        if (aui_ev.type == EventType::MouseDown &&
+            aui_ev.button == MouseButton::Left) {
+            impl->perf_overlay_corner =
+                next_debug_overlay_corner(impl->perf_overlay_corner);
+            impl->settle_frames = detail::kSwapchainSettleFrames;
+            return;
+        }
     }
 
     const bool consumed = detail::dispatch_loaded_view_event(*impl, aui_ev);

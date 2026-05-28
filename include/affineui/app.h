@@ -1,6 +1,7 @@
 #pragma once
 
 #include "affineui/document.h"
+#include "affineui/embed.h"
 #include "affineui/types.h"
 #include "affineui/view.h"
 
@@ -29,6 +30,8 @@ public:
         int         default_font_size{16};
         std::vector<std::string> asset_folders{"."};
         ResourceLoader resource_loader{};
+        bool        perf_overlay{false};
+        DebugOverlayCorner perf_overlay_corner{DebugOverlayCorner::top_right};
     };
 
     App();
@@ -67,6 +70,12 @@ public:
     /// paint. Same effect as calling `imm::invalidate()` from inside
     /// the view fn.
     void invalidate();
+
+    /// Enable/disable the native performance overlay. The overlay is drawn
+    /// outside the document tree so it never affects layout.
+    void set_perf_overlay_enabled(bool enabled);
+    [[nodiscard]] bool perf_overlay_enabled() const noexcept;
+    void set_perf_overlay_corner(DebugOverlayCorner corner);
 
     /// Dispatch a translated input event through the loaded view/document.
     /// Returns true when the event was consumed by a command callback or the

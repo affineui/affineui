@@ -266,7 +266,8 @@ class HelloPanel:
             if self._is_decius()
             else f"aui-tree-list aui-scroll {ui.bootstrap.class_name.tree}"
         )
-        v.container(classes=tree_classes, key="scene-tree", build=self._build_tree_rows)
+        tree = v.container(classes=tree_classes, key="scene-tree", build=self._build_tree_rows)
+        tree.attr("style", "height:220px;overflow:auto")
 
     def _build_tab_body(self, v: ui.View) -> None:
         if self.active_tab == "fields":
@@ -344,6 +345,11 @@ def main() -> None:
         default="bootstrap",
         help="Framework selector set to use.",
     )
+    parser.add_argument(
+        "--perf",
+        action="store_true",
+        help="Show the native performance overlay. Click it to move corners.",
+    )
     args = parser.parse_args()
 
     theme = parse_style(args.style)
@@ -353,6 +359,7 @@ def main() -> None:
         width=720,
         height=520,
         asset_folders=["examples"],
+        perf_overlay=args.perf,
     )
     controller.app = app
     app.load_view(controller.build_view())

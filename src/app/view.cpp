@@ -1471,7 +1471,7 @@ WidgetRef View::virtual_list(
         virtual_item_offset(options, first + visible) -
         virtual_item_offset(options, first);
     if (viewport_height > 0.0) {
-        set_attr(list, "style", "max-height:" + px(viewport_height));
+        set_attr(list, "style", "height:" + px(viewport_height));
     } else {
         remove_attr(list, "style");
     }

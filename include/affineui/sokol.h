@@ -75,6 +75,13 @@ namespace affineui::sokol {
 // explicit swap-image age.
 inline constexpr int kSwapchainSettleFrames = 3;
 
+struct PerfHudOptions {
+    bool enabled{false};
+    bool record_mouse{true};
+    DebugOverlayCorner corner{DebugOverlayCorner::top_right};
+    std::filesystem::path recording_dir{};
+};
+
 // ── Cursor mapping ──────────────────────────────────────────────────
 
 inline sapp_mouse_cursor cursor_to_sokol(int c) {
@@ -253,6 +260,8 @@ struct RecordedMouseEvent {
 struct PerfHudState {
     Ui*    ui{nullptr};
     bool   enabled{false};
+    bool   record_mouse{true};
+    DebugOverlayCorner corner{DebugOverlayCorner::top_right};
     double accum_s{0.0};
     int    frames{0};
     double ms{0.0};
@@ -275,6 +284,27 @@ struct PerfHudState {
     std::filesystem::path           recording_dir;
     int                             settle_frames{0};
 };
+
+inline DebugOverlayBounds perf_hud_bounds(int fb_w,
+                                          int fb_h,
+                                          float dpi_scale,
+                                          DebugOverlayCorner corner) {
+    const float d = dpi_scale > 0.0f ? dpi_scale : 1.0f;
+    const int pt_w = static_cast<int>(static_cast<float>(fb_w) / d + 0.5f);
+    const int pt_h = static_cast<int>(static_cast<float>(fb_h) / d + 0.5f);
+    return debug_overlay_bounds(pt_w, pt_h, corner);
+}
+
+inline bool point_in_perf_hud(const PerfHudState& state,
+                              int x,
+                              int y,
+                              int fb_w,
+                              int fb_h,
+                              float dpi_scale) {
+    if (!state.enabled) return false;
+    const auto b = perf_hud_bounds(fb_w, fb_h, dpi_scale, state.corner);
+    return debug_overlay_contains(b, x, y);
+}
 
 inline void trim_mouse_path(PerfHudState& state) {
     if (state.mouse_path.size() > 24000) {
@@ -489,6 +519,7 @@ inline void cb_frame_(void* user) {
         target.debug_overlay_frame_ms = ordered.data();
         target.debug_overlay_frame_ms_count =
             static_cast<std::size_t>(ordered_count);
+        target.debug_overlay_corner = state.corner;
     }
     ui.render(target);
     const auto& stats = ui.renderer().stats();
@@ -565,8 +596,25 @@ inline void cb_event_(const sapp_event* ev, void* user) {
         return;
     }
     const auto e = affineui::sokol::translate(ev);
-    record_mouse_event(state, e);
+    if (state.record_mouse) {
+        record_mouse_event(state, e);
+    }
     if (e.type == EventType::None) return;
+    const bool over_perf_hud =
+        point_in_perf_hud(state, e.pos.x, e.pos.y, sapp_width(),
+                          sapp_height(), sapp_dpi_scale());
+    if (over_perf_hud) {
+        if (e.type == EventType::MouseMove) {
+            sapp_set_mouse_cursor(SAPP_MOUSECURSOR_POINTING_HAND);
+            return;
+        }
+        if (e.type == EventType::MouseDown && e.button == MouseButton::Left) {
+            state.corner = next_debug_overlay_corner(state.corner);
+            state.settle_frames =
+                std::max(state.settle_frames, kSwapchainSettleFrames);
+            return;
+        }
+    }
     const bool consumed = ui.dispatch(e);
     (void)consumed;
     if (e.type == EventType::MouseMove) {
@@ -591,11 +639,15 @@ inline void cb_cleanup_(void* user) {
 /// menus). For mixed games (game + UI overlay), write your own
 /// callbacks and call `render(ui)` / `dispatch(ui, ev)` explicitly
 /// from inside them.
-inline void wire(sapp_desc& desc, Ui& ui, bool perf_hud = false) {
+inline void wire(sapp_desc& desc, Ui& ui, PerfHudOptions options) {
     auto* state = new detail::PerfHudState{};
     state->ui = &ui;
-    state->enabled = perf_hud;
-    state->recording_dir = detail::default_recording_dir();
+    state->enabled = options.enabled;
+    state->record_mouse = options.record_mouse;
+    state->corner = options.corner;
+    state->recording_dir = options.recording_dir.empty()
+        ? detail::default_recording_dir()
+        : options.recording_dir;
     desc.user_data           = state;
     desc.init_userdata_cb    = detail::cb_init_;
     desc.frame_userdata_cb   = detail::cb_frame_;
@@ -610,6 +662,12 @@ inline void wire(sapp_desc& desc, Ui& ui, bool perf_hud = false) {
         desc.gl.major_version = 4;
         desc.gl.minor_version = 1;
     }
+}
+
+inline void wire(sapp_desc& desc, Ui& ui, bool perf_hud = false) {
+    PerfHudOptions options{};
+    options.enabled = perf_hud;
+    wire(desc, ui, options);
 }
 
 }  // namespace affineui::sokol

@@ -143,7 +143,8 @@ public:
                             std::span<const float> frame_ms,
                             int fb_w,
                             int fb_h,
-                            float dpi_scale);
+                            float dpi_scale,
+                            DebugOverlayCorner corner = DebugOverlayCorner::top_right);
 
     /// Background color (RGBA) applied to the default framebuffer
     /// before the document quad is composited on top. Default is the
