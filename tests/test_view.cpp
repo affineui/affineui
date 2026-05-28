@@ -480,6 +480,11 @@ TEST_CASE("App dispatch invokes command text input change callbacks") {
     down.pos = input;
     app.dispatch(down);
 
+    affineui::Event end{};
+    end.type = affineui::EventType::KeyDown;
+    end.key = affineui::Key::End;
+    app.dispatch(end);
+
     affineui::Event text{};
     text.type = affineui::EventType::TextInput;
     text.text = "X";

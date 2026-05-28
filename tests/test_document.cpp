@@ -3518,6 +3518,11 @@ TEST_CASE("focused input accepts text input and backspace") {
     down.pos = input_pos;
     CHECK(doc.dispatch(down).redraw_requested);
 
+    affineui::Event end{};
+    end.type = affineui::EventType::KeyDown;
+    end.key = affineui::Key::End;
+    doc.dispatch(end);
+
     affineui::Event text{};
     text.type = affineui::EventType::TextInput;
     text.text = "B";
@@ -3570,6 +3575,66 @@ TEST_CASE("focused text input paints a caret") {
     painter.stroke_line_draws.clear();
     doc.draw(painter);
     CHECK_FALSE(painter.stroke_line_draws.empty());
+}
+
+TEST_CASE("focused input edits at caret and preserves caret across relayout") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        input {
+            display: block;
+            width: 160px;
+            padding: 4px 8px;
+            border: 0;
+        }
+        </style>
+        <input value="abcd">
+    )HTML");
+    doc.layout(320, 0, &painter);
+
+    const auto input_pos = find_hovered_tag(doc, "input");
+    REQUIRE(input_pos.x >= 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = input_pos;
+    CHECK(doc.dispatch(down).redraw_requested);
+
+    affineui::Event home{};
+    home.type = affineui::EventType::KeyDown;
+    home.key = affineui::Key::Home;
+    doc.dispatch(home);
+
+    affineui::Event text{};
+    text.type = affineui::EventType::TextInput;
+    text.text = "X";
+    CHECK(doc.dispatch(text).redraw_requested);
+
+    affineui::Event right{};
+    right.type = affineui::EventType::KeyDown;
+    right.key = affineui::Key::ArrowRight;
+    CHECK(doc.dispatch(right).redraw_requested);
+
+    affineui::Event del{};
+    del.type = affineui::EventType::KeyDown;
+    del.key = affineui::Key::Delete;
+    CHECK(doc.dispatch(del).redraw_requested);
+
+    doc.layout(320, 0, &painter);
+
+    affineui::Event bang{};
+    bang.type = affineui::EventType::TextInput;
+    bang.text = "!";
+    CHECK(doc.dispatch(bang).redraw_requested);
+
+    painter.text_runs.clear();
+    doc.draw(painter);
+    REQUIRE_FALSE(painter.text_runs.empty());
+    CHECK(painter.text_runs.back() == "Xa!cd");
 }
 
 TEST_CASE("range and color inputs use native control paint instead of text") {

@@ -93,6 +93,7 @@ struct Block {
     bool              text_control{false};
     bool              placeholder_visible{false};
     std::string       text_value;       // unmasked live value for editable controls
+    std::size_t       caret_offset{0};  // byte offset into text_value
     // Input-control UA paint hints. Populated for <input> elements at
     // collect time; empty / false for all other elements.
     std::string       input_type;       // "checkbox" / "radio" / ""
@@ -339,6 +340,7 @@ struct DocumentImpl {
     std::vector<GeneratedContentRule>   generated_content_rules;
     std::vector<FontFaceRule>           font_faces;
     std::unordered_map<lxb_dom_node_t*, std::string> live_text_values;
+    std::unordered_map<lxb_dom_node_t*, std::size_t> live_text_carets;
     // @media blocks collected during attach_stylesheet. Evaluated against
     // media_viewport_width_px; matching blocks are re-attached as extra
     // stylesheets so their rules participate in the normal cascade.
@@ -385,6 +387,7 @@ void advance_generation(DomWeakSlot& slot) {
 void invalidate_dom_weak_slot(DocumentImpl& impl, lxb_dom_node_t* node) {
     if (node == nullptr) return;
     impl.live_text_values.erase(node);
+    impl.live_text_carets.erase(node);
     for (auto& slot : impl.dom_weak_slots) {
         if (slot.node == node) {
             slot.node = nullptr;
@@ -3527,6 +3530,10 @@ void collect_blocks(detail::DocumentImpl& impl,
                     leaf.text_value = live != impl.live_text_values.end()
                         ? live->second
                         : attr_string(elem, "value");
+                    auto caret = impl.live_text_carets.find(elem_node);
+                    leaf.caret_offset = caret != impl.live_text_carets.end()
+                        ? std::min(caret->second, leaf.text_value.size())
+                        : leaf.text_value.size();
                     leaf.text = text_control_display_value(leaf, leaf.text_value);
                     if (leaf.text.empty() && !leaf.placeholder.empty()) {
                         leaf.text = leaf.placeholder;
@@ -3542,6 +3549,10 @@ void collect_blocks(detail::DocumentImpl& impl,
                 leaf.text_value = live != impl.live_text_values.end()
                     ? live->second
                     : node_text(child, rs.computed.white_space);
+                auto caret = impl.live_text_carets.find(elem_node);
+                leaf.caret_offset = caret != impl.live_text_carets.end()
+                    ? std::min(caret->second, leaf.text_value.size())
+                    : leaf.text_value.size();
                 leaf.text = leaf.text_value;
                 if (leaf.text.empty() && !leaf.placeholder.empty()) {
                     leaf.text = leaf.placeholder;
@@ -3712,6 +3723,7 @@ void Document::set_html(std::string_view html) {
     impl_->media_blocks.clear();
     impl_->keyframes.clear();
     impl_->live_text_values.clear();
+    impl_->live_text_carets.clear();
     impl_->hovered_chain.clear();
     impl_->active_chain.clear();
     impl_->hovered_idx = -1;
@@ -5459,16 +5471,19 @@ void Document::draw(Painter& painter) {
                 static_cast<float>(cs.letter_spacing_x100) / 100.0f;
             const float line_height_mult =
                 detail::effective_line_height_mult(cs);
-            const auto natural_text_width = [&] {
+            const auto measure_text_width = [&](std::string_view text) {
                 if (cs.letter_spacing_x100 == 0) {
-                    return static_cast<float>(painter.measure_text(font, b.text));
+                    return static_cast<float>(painter.measure_text(font, text));
                 }
                 return static_cast<float>(
                     painter
-                        .measure_text_box(font, b.text, 1e6f,
+                        .measure_text_box(font, text, 1e6f,
                                           line_height_mult,
                                           letter_spacing_px)
                         .width);
+            };
+            const auto natural_text_width = [&] {
+                return measure_text_width(b.text);
             };
 
             // white-space:nowrap forces a single line, which we signal to
@@ -5537,11 +5552,16 @@ void Document::draw(Painter& painter) {
                 const float line_top =
                     static_cast<float>(text_y) +
                     (css_line_h - natural_line_h) * 0.5f;
-                const std::string_view caret_text =
-                    b.placeholder_visible ? std::string_view{} : std::string_view(b.text);
+                std::string caret_text;
+                if (!b.placeholder_visible && !b.text_value.empty()) {
+                    const std::size_t caret =
+                        std::min(b.caret_offset, b.text_value.size());
+                    caret_text = text_control_display_value(
+                        b, std::string_view(b.text_value).substr(0, caret));
+                }
                 const float tw = caret_text.empty()
                     ? 0.0f
-                    : natural_text_width();
+                    : measure_text_width(caret_text);
                 float caret_x = static_cast<float>(text_x);
                 if (paint_align == Painter::TextAlign::Right) {
                     caret_x += content_w;
@@ -7050,6 +7070,11 @@ void set_live_text_value(detail::DocumentImpl& impl,
                          int idx,
                          Block& block,
                          std::string value);
+void set_live_text_state(detail::DocumentImpl& impl,
+                         int idx,
+                         Block& block,
+                         std::string value,
+                         std::size_t caret);
 std::string emitted_text_control_value(const Block& block);
 
 std::string decius_slider_fill_style(double min, double max, double value,
@@ -7752,6 +7777,48 @@ bool focused_text_control(detail::DocumentImpl& impl, Block*& out) {
     return true;
 }
 
+std::size_t text_caret_offset_from_x(const detail::DocumentImpl& impl,
+                                     int idx,
+                                     int x) {
+    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return 0;
+    const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+    if (block.text_value.empty()) return 0;
+    const auto& cs = impl.style_store.computed(block.id);
+    const int content_x = block.bounds.x + cs.used_border_left() +
+                          cs.padding_left;
+    const int content_w = std::max(
+        1,
+        block.bounds.w - cs.used_border_left() - cs.used_border_right() -
+            cs.padding_left - cs.padding_right);
+    const double ratio = std::clamp(
+        static_cast<double>(x - content_x) / static_cast<double>(content_w),
+        0.0,
+        1.0);
+    std::size_t pos = static_cast<std::size_t>(
+        std::llround(ratio * static_cast<double>(block.text_value.size())));
+    pos = std::min(pos, block.text_value.size());
+    while (pos > 0 && pos < block.text_value.size() &&
+           (static_cast<unsigned char>(block.text_value[pos]) & 0xC0u) ==
+               0x80u) {
+        ++pos;
+    }
+    return std::min(pos, block.text_value.size());
+}
+
+bool set_text_caret_from_point(detail::DocumentImpl& impl, int idx, int x) {
+    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return false;
+    auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+    if (!block.text_control) return false;
+    const std::size_t next = text_caret_offset_from_x(impl, idx, x);
+    if (next == block.caret_offset) return false;
+    block.caret_offset = next;
+    if (auto* elem = element_for_block(impl, idx)) {
+        impl.live_text_carets[lxb_dom_interface_node(elem)] = block.caret_offset;
+    }
+    add_dirty_rect(impl, block_visual_rect(impl, idx));
+    return true;
+}
+
 void remove_last_utf8_codepoint(std::string& text) {
     if (text.empty()) return;
     std::size_t pos = text.size() - 1;
@@ -7762,11 +7829,69 @@ void remove_last_utf8_codepoint(std::string& text) {
     text.erase(pos);
 }
 
+std::size_t previous_utf8_boundary(std::string_view text, std::size_t pos) {
+    pos = std::min(pos, text.size());
+    if (pos == 0) return 0;
+    --pos;
+    while (pos > 0 &&
+           (static_cast<unsigned char>(text[pos]) & 0xC0u) == 0x80u) {
+        --pos;
+    }
+    return pos;
+}
+
+std::size_t next_utf8_boundary(std::string_view text, std::size_t pos) {
+    pos = std::min(pos, text.size());
+    if (pos >= text.size()) return text.size();
+    ++pos;
+    while (pos < text.size() &&
+           (static_cast<unsigned char>(text[pos]) & 0xC0u) == 0x80u) {
+        ++pos;
+    }
+    return pos;
+}
+
+std::string erase_previous_codepoint(std::string text, std::size_t& caret) {
+    caret = std::min(caret, text.size());
+    if (caret == 0) return text;
+    const std::size_t start = previous_utf8_boundary(text, caret);
+    text.erase(start, caret - start);
+    caret = start;
+    return text;
+}
+
+std::string erase_next_codepoint(std::string text, std::size_t& caret) {
+    caret = std::min(caret, text.size());
+    if (caret >= text.size()) return text;
+    const std::size_t end = next_utf8_boundary(text, caret);
+    text.erase(caret, end - caret);
+    return text;
+}
+
+std::string insert_text_at_caret(std::string text,
+                                 std::size_t& caret,
+                                 std::string_view insert) {
+    caret = std::min(caret, text.size());
+    text.insert(caret, insert);
+    caret += insert.size();
+    return text;
+}
+
 void set_live_text_value(detail::DocumentImpl& impl,
                          int idx,
                          Block& block,
                          std::string value) {
+    const std::size_t caret = value.size();
+    set_live_text_state(impl, idx, block, std::move(value), caret);
+}
+
+void set_live_text_state(detail::DocumentImpl& impl,
+                         int idx,
+                         Block& block,
+                         std::string value,
+                         std::size_t caret) {
     block.text_value = std::move(value);
+    block.caret_offset = std::min(caret, block.text_value.size());
     block.placeholder_visible = false;
     block.text = text_control_display_value(block, block.text_value);
     if (block.text.empty() && !block.placeholder.empty()) {
@@ -7775,7 +7900,9 @@ void set_live_text_value(detail::DocumentImpl& impl,
     }
 
     if (auto* elem = element_for_block(impl, idx)) {
-        impl.live_text_values[lxb_dom_interface_node(elem)] = block.text_value;
+        auto* node = lxb_dom_interface_node(elem);
+        impl.live_text_values[node] = block.text_value;
+        impl.live_text_carets[node] = block.caret_offset;
     }
 }
 
@@ -7789,8 +7916,11 @@ bool set_focus(detail::DocumentImpl&, int)       { return false; }
 int  focusable_ancestor(const detail::DocumentImpl&, int) { return -1; }
 int  find_scrollable_y_ancestor(const detail::DocumentImpl&, int) { return -1; }
 bool focused_text_control(detail::DocumentImpl&, Block*&) { return false; }
+bool set_text_caret_from_point(detail::DocumentImpl&, int, int) { return false; }
 void remove_last_utf8_codepoint(std::string&) {}
 void set_live_text_value(detail::DocumentImpl&, int, Block&, std::string) {}
+void set_live_text_state(detail::DocumentImpl&, int, Block&, std::string,
+                         std::size_t) {}
 std::string emitted_text_control_value(const Block&) { return {}; }
 #endif
 }  // namespace
@@ -7838,7 +7968,9 @@ DispatchResult Document::dispatch(const Event& ev) {
             // mousedown outside any form control.
             const int target = focusable_ancestor(*impl_, impl_->hovered_idx);
             const bool f = set_focus(*impl_, target);
-            if (h || a || f) result.redraw_requested = true;
+            const bool caret =
+                set_text_caret_from_point(*impl_, target, ev.pos.x);
+            if (h || a || f || caret) result.redraw_requested = true;
 #if !defined(AFFINEUI_STUB_BUILD)
             if (impl_->ui_control_script_attached &&
                 ev.button == MouseButton::Left &&
@@ -7948,8 +8080,10 @@ DispatchResult Document::dispatch(const Event& ev) {
                     const int idx = impl_->focused_idx;
                     const Rect old_rect = subtree_visual_rect(*impl_, idx);
                     std::string next = emitted_text_control_value(*control);
-                    remove_last_utf8_codepoint(next);
-                    set_live_text_value(*impl_, idx, *control, std::move(next));
+                    std::size_t caret = control->caret_offset;
+                    next = erase_previous_codepoint(std::move(next), caret);
+                    set_live_text_state(
+                        *impl_, idx, *control, std::move(next), caret);
                     mark_live_mutation_dirty(*impl_, idx, old_rect,
                                              /*needs_layout=*/true);
                     if (auto* elem = element_for_block(*impl_, idx)) {
@@ -7957,6 +8091,52 @@ DispatchResult Document::dispatch(const Event& ev) {
                             *impl_, elem, emitted_text_control_value(*control));
                     }
                     result.redraw_requested = true;
+                }
+            } else if (ev.key == Key::Delete) {
+                Block* control = nullptr;
+                if (focused_text_control(*impl_, control)) {
+                    const int idx = impl_->focused_idx;
+                    const Rect old_rect = subtree_visual_rect(*impl_, idx);
+                    std::string next = emitted_text_control_value(*control);
+                    std::size_t caret = control->caret_offset;
+                    next = erase_next_codepoint(std::move(next), caret);
+                    set_live_text_state(
+                        *impl_, idx, *control, std::move(next), caret);
+                    mark_live_mutation_dirty(*impl_, idx, old_rect,
+                                             /*needs_layout=*/true);
+                    if (auto* elem = element_for_block(*impl_, idx)) {
+                        emit_widget_change(
+                            *impl_, elem, emitted_text_control_value(*control));
+                    }
+                    result.redraw_requested = true;
+                }
+            } else if (ev.key == Key::ArrowLeft ||
+                       ev.key == Key::ArrowRight ||
+                       ev.key == Key::Home ||
+                       ev.key == Key::End) {
+                Block* control = nullptr;
+                if (focused_text_control(*impl_, control)) {
+                    std::size_t caret = control->caret_offset;
+                    const auto text = emitted_text_control_value(*control);
+                    if (ev.key == Key::ArrowLeft) {
+                        caret = previous_utf8_boundary(text, caret);
+                    } else if (ev.key == Key::ArrowRight) {
+                        caret = next_utf8_boundary(text, caret);
+                    } else if (ev.key == Key::Home) {
+                        caret = 0;
+                    } else {
+                        caret = text.size();
+                    }
+                    if (caret != control->caret_offset) {
+                        const int idx = impl_->focused_idx;
+                        control->caret_offset = caret;
+                        if (auto* elem = element_for_block(*impl_, idx)) {
+                            impl_->live_text_carets[
+                                lxb_dom_interface_node(elem)] = caret;
+                        }
+                        add_dirty_rect(*impl_, block_visual_rect(*impl_, idx));
+                        result.redraw_requested = true;
+                    }
                 }
             }
             break;
@@ -7967,8 +8147,10 @@ DispatchResult Document::dispatch(const Event& ev) {
                 const int idx = impl_->focused_idx;
                 const Rect old_rect = subtree_visual_rect(*impl_, idx);
                 std::string next = emitted_text_control_value(*control);
-                next += ev.text;
-                set_live_text_value(*impl_, idx, *control, std::move(next));
+                std::size_t caret = control->caret_offset;
+                next = insert_text_at_caret(std::move(next), caret, ev.text);
+                set_live_text_state(
+                    *impl_, idx, *control, std::move(next), caret);
                 mark_live_mutation_dirty(*impl_, idx, old_rect,
                                          /*needs_layout=*/true);
                 if (auto* elem = element_for_block(*impl_, idx)) {
