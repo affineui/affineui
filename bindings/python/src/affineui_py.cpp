@@ -130,6 +130,108 @@ PYBIND11_MODULE(_affineui, m) {
                    ", h=" + std::to_string(r.h) + ")";
         });
 
+    py::class_<affineui::Point>(
+            m,
+            "Point",
+            "Integer point in AffineUI CSS/layout coordinates.")
+        .def(py::init<int, int>(), py::arg("x") = 0, py::arg("y") = 0)
+        .def_readwrite("x", &affineui::Point::x)
+        .def_readwrite("y", &affineui::Point::y)
+        .def("__repr__", [](const affineui::Point& p) {
+            return "Point(x=" + std::to_string(p.x) +
+                   ", y=" + std::to_string(p.y) + ")";
+        });
+
+    py::class_<affineui::DomHandle>(
+            m,
+            "DomHandle",
+            "Opaque weak handle to a native DOM node. It never owns the node; "
+            "check Document.weak_handle_valid(handle) before relying on it.")
+        .def(py::init<>())
+        .def_readonly("document_id", &affineui::DomHandle::document_id)
+        .def_readonly("node_slot", &affineui::DomHandle::node_slot)
+        .def_readonly("generation", &affineui::DomHandle::generation)
+        .def("__bool__", [](const affineui::DomHandle& handle) {
+            return static_cast<bool>(handle);
+        });
+
+    py::enum_<affineui::MouseButton>(
+            m,
+            "MouseButton",
+            "Mouse button carried by MouseDown/MouseUp events.")
+        .value("Left", affineui::MouseButton::Left)
+        .value("Right", affineui::MouseButton::Right)
+        .value("Middle", affineui::MouseButton::Middle);
+
+    py::enum_<affineui::Key>(
+            m,
+            "Key",
+            "Portable non-text key code. Printable text arrives as TextInput.")
+        .value("Unknown", affineui::Key::Unknown)
+        .value("Escape", affineui::Key::Escape)
+        .value("Tab", affineui::Key::Tab)
+        .value("Enter", affineui::Key::Enter)
+        .value("Backspace", affineui::Key::Backspace)
+        .value("Delete", affineui::Key::Delete)
+        .value("ArrowLeft", affineui::Key::ArrowLeft)
+        .value("ArrowRight", affineui::Key::ArrowRight)
+        .value("ArrowUp", affineui::Key::ArrowUp)
+        .value("ArrowDown", affineui::Key::ArrowDown)
+        .value("Home", affineui::Key::Home)
+        .value("End", affineui::Key::End);
+
+    py::enum_<affineui::EventType>(
+            m,
+            "EventType",
+            "Event kind accepted by App.dispatch and Document.dispatch.")
+        .value("None", affineui::EventType::None)
+        .value("MouseMove", affineui::EventType::MouseMove)
+        .value("MouseDown", affineui::EventType::MouseDown)
+        .value("MouseUp", affineui::EventType::MouseUp)
+        .value("MouseWheel", affineui::EventType::MouseWheel)
+        .value("KeyDown", affineui::EventType::KeyDown)
+        .value("KeyUp", affineui::EventType::KeyUp)
+        .value("TextInput", affineui::EventType::TextInput)
+        .value("Resize", affineui::EventType::Resize)
+        .value("FocusLost", affineui::EventType::FocusLost)
+        .value("FocusGained", affineui::EventType::FocusGained);
+
+    py::class_<affineui::Event>(
+            m,
+            "Event",
+            "Value object used to drive AffineUI from tests, custom hosts, "
+            "or Python-native event loops.")
+        .def(py::init<>())
+        .def_readwrite("type", &affineui::Event::type)
+        .def_readwrite("pos", &affineui::Event::pos)
+        .def_readwrite("button", &affineui::Event::button)
+        .def_readwrite("wheel_dx", &affineui::Event::wheel_dx)
+        .def_readwrite("wheel_dy", &affineui::Event::wheel_dy)
+        .def_readwrite("key", &affineui::Event::key)
+        .def_readwrite("key_code", &affineui::Event::key_code)
+        .def_readwrite("text", &affineui::Event::text);
+
+    py::class_<affineui::DispatchResult>(
+            m,
+            "DispatchResult",
+            "Value returned from event dispatch. It is a snapshot, not a "
+            "live reference into the document.")
+        .def_readonly("redraw_requested",
+                      &affineui::DispatchResult::redraw_requested)
+        .def_readonly("invalidate_view",
+                      &affineui::DispatchResult::invalidate_view);
+
+    py::class_<affineui::Document::HoverInfo>(
+            m,
+            "HoverInfo",
+            "Snapshot describing one hovered element in the DOM chain.")
+        .def_readonly("valid", &affineui::Document::HoverInfo::valid)
+        .def_readonly("tag", &affineui::Document::HoverInfo::tag)
+        .def_readonly("elem_id", &affineui::Document::HoverInfo::elem_id)
+        .def_readonly("classes", &affineui::Document::HoverInfo::classes)
+        .def_readonly("attrs", &affineui::Document::HoverInfo::attrs)
+        .def_readonly("bounds", &affineui::Document::HoverInfo::bounds);
+
     py::class_<affineui::Document>(m, "Document")
         .def(py::init<>())
         .def("set_html", [](affineui::Document& doc, const std::string& html) {
@@ -172,7 +274,38 @@ PYBIND11_MODULE(_affineui, m) {
              &affineui::Document::has_active_animations)
         .def("attach_script", &affineui::Document::attach_script)
         .def("detach_script", &affineui::Document::detach_script)
-        .def("clear_scripts", &affineui::Document::clear_scripts);
+        .def("clear_scripts", &affineui::Document::clear_scripts)
+        .def("dispatch",
+             [](affineui::Document& doc, const affineui::Event& ev) {
+                 return doc.dispatch(ev);
+             },
+             py::arg("event"),
+             "Dispatch an event directly to this document and return a "
+             "DispatchResult snapshot.")
+        .def("hovered_info",
+             [](const affineui::Document& doc) {
+                 return doc.hovered_info();
+             },
+             "Return a HoverInfo snapshot for the deepest hovered element.")
+        .def("hovered_info_chain",
+             [](const affineui::Document& doc) {
+                 return doc.hovered_info_chain();
+             },
+             "Return HoverInfo snapshots from deepest hovered element toward "
+             "the root.")
+        .def("weak_handle_for_id",
+             [](affineui::Document& doc, const std::string& id) {
+                 return doc.weak_handle_for_id(id);
+             },
+             py::arg("id"),
+             "Return an opaque weak handle for an element id. Invalid handles "
+             "are empty and safe to pass back to weak_handle_valid().")
+        .def("weak_handle_valid",
+             [](const affineui::Document& doc, affineui::DomHandle handle) {
+                 return doc.weak_handle_valid(handle);
+             },
+             py::arg("handle"),
+             "Return whether a DomHandle still resolves inside this document.");
 
     py::enum_<affineui::ViewTheme>(m, "ViewTheme")
         .value("Plain", affineui::ViewTheme::Plain)
@@ -300,7 +433,10 @@ PYBIND11_MODULE(_affineui, m) {
         .def("find_widget",
              [](const affineui::WidgetRef& ref, const std::string& name) {
                  return ref.find_widget(name);
-             });
+             },
+             py::arg("name"),
+             py::keep_alive<0, 1>(),
+             "Find a descendant widget by key. Empty refs are safe.");
 
     py::class_<affineui::View>(m, "View")
         .def(py::init<affineui::ViewTheme>(),
@@ -334,7 +470,9 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("level"),
              py::arg("text"),
              py::arg("classes") = "",
-             py::arg("key") = "")
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a heading and return a stable WidgetRef tied to this View.")
         .def("paragraph",
              [](affineui::View& view,
                 const std::string& text,
@@ -344,7 +482,9 @@ PYBIND11_MODULE(_affineui, m) {
              },
              py::arg("text"),
              py::arg("classes") = "",
-             py::arg("key") = "")
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a paragraph and return a stable WidgetRef tied to this View.")
         .def("button",
              [](affineui::View& view,
                 const std::string& label,
@@ -354,7 +494,9 @@ PYBIND11_MODULE(_affineui, m) {
              },
              py::arg("label"),
              py::arg("primary") = false,
-             py::arg("key") = "")
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a button. The returned WidgetRef keeps the View alive.")
         .def("checkbox",
              [](affineui::View& view,
                 const std::string& label,
@@ -364,7 +506,9 @@ PYBIND11_MODULE(_affineui, m) {
              },
              py::arg("label"),
              py::arg("checked"),
-             py::arg("key") = "")
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a checkbox and return a WidgetRef tied to this View.")
         .def("input",
              [](affineui::View& view,
                 const std::string& label,
@@ -376,7 +520,9 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("label"),
              py::arg("value") = "",
              py::arg("type") = "text",
-             py::arg("key") = "")
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a text-like input and return a WidgetRef tied to this View.")
         .def("password",
              [](affineui::View& view,
                 const std::string& label,
@@ -386,7 +532,9 @@ PYBIND11_MODULE(_affineui, m) {
              },
              py::arg("label"),
              py::arg("value") = "",
-             py::arg("key") = "")
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a password input and return a WidgetRef tied to this View.")
         .def("textarea",
              [](affineui::View& view,
                 const std::string& label,
@@ -398,7 +546,9 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("label"),
              py::arg("value") = "",
              py::arg("rows") = 3,
-             py::arg("key") = "")
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a textarea and return a WidgetRef tied to this View.")
         .def("dropdown",
              [](affineui::View& view,
                 const std::string& label,
@@ -410,7 +560,9 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("label"),
              py::arg("options"),
              py::arg("selected") = "",
-             py::arg("key") = "")
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a dropdown/select and return a WidgetRef tied to this View.")
         .def("button_group",
              [](affineui::View& view,
                 const std::string& label,
@@ -422,7 +574,9 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("label"),
              py::arg("options"),
              py::arg("selected") = "",
-             py::arg("key") = "")
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a mutually-exclusive button group and return a WidgetRef.")
         .def("virtual_list",
              [](affineui::View& view,
                 const std::string& key,
@@ -460,7 +614,10 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("visible_items") = 16,
              py::arg("overscan") = 2,
              py::arg("item_sizes") = std::vector<double>{},
-             py::arg("classes") = "")
+             py::arg("classes") = "",
+             py::keep_alive<0, 1>(),
+             "Add a virtualized fixed-size list. build(view, index) is called "
+             "only for the materialized rows.")
         .def("slider",
              [](affineui::View& view,
                 const std::string& label,
@@ -474,7 +631,9 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("value"),
              py::arg("min") = 0.0,
              py::arg("max") = 1.0,
-             py::arg("key") = "")
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a slider and return a WidgetRef tied to this View.")
         .def("knob",
              [](affineui::View& view,
                 const std::string& label,
@@ -490,7 +649,9 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("min") = 0.0,
              py::arg("max") = 1.0,
              py::arg("bipolar") = false,
-             py::arg("key") = "")
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a rotary knob and return a WidgetRef tied to this View.")
         .def("container",
              [](affineui::View& view,
                 const std::string& classes,
@@ -506,7 +667,10 @@ PYBIND11_MODULE(_affineui, m) {
              },
              py::arg("classes") = "",
              py::arg("key") = "",
-             py::arg("build") = py::none())
+             py::arg("build") = py::none(),
+             py::keep_alive<0, 1>(),
+             "Add a generic container. If build is supplied it is called "
+             "immediately with the same View.")
         .def("panel",
              [](affineui::View& view, const std::string& key, py::object build) {
                  if (build.is_none()) {
@@ -518,11 +682,17 @@ PYBIND11_MODULE(_affineui, m) {
                  return ref;
              },
              py::arg("key") = "",
-             py::arg("build") = py::none())
+             py::arg("build") = py::none(),
+             py::keep_alive<0, 1>(),
+             "Add a framework-default panel. If build is supplied it is "
+             "called immediately with the same View.")
         .def("find_widget",
              [](affineui::View& view, const std::string& name) {
                  return view.find_widget(name);
-             })
+             },
+             py::arg("name"),
+             py::keep_alive<0, 1>(),
+             "Return a stable WidgetRef by user key. Empty refs are safe.")
         .def("to_html_fragment", &affineui::View::to_html_fragment)
         .def("to_html_document", &affineui::View::to_html_document);
 
@@ -559,7 +729,13 @@ PYBIND11_MODULE(_affineui, m) {
         .def("load_html", [](affineui::App& app, const std::string& html) {
             app.load_html(html);
         })
-        .def("load_view", &affineui::App::load_view)
+        .def("load_view",
+             [](affineui::App& app, const affineui::View& view) {
+                 app.load_view(view);
+             },
+             py::arg("view"),
+             "Copy a View into the native App. The App copies callbacks and "
+             "does not borrow the Python View object.")
         .def("load_html_file",
              [](affineui::App& app, const std::string& path) {
                  return app.load_html_file(path);
@@ -569,6 +745,13 @@ PYBIND11_MODULE(_affineui, m) {
                  app.set_stylesheet(css);
              })
         .def("invalidate", &affineui::App::invalidate)
+        .def("dispatch",
+             [](affineui::App& app, const affineui::Event& ev) {
+                 return app.dispatch(ev);
+             },
+             py::arg("event"),
+             "Dispatch an Event through the loaded document. Useful for "
+             "headless tests and custom Python hosts.")
         .def("quit", &affineui::App::quit, py::arg("code") = 0)
         .def("window_size", &affineui::App::window_size)
         .def("dpi_scale", &affineui::App::dpi_scale)
@@ -578,9 +761,12 @@ PYBIND11_MODULE(_affineui, m) {
              py::return_value_policy::reference_internal)
         .def("run",
              [](affineui::App& app) {
-                 py::gil_scoped_release release;
                  return app.run();
-             })
+             },
+             "Run the native app loop on the Python main thread. This binding "
+             "intentionally keeps the GIL while native callbacks are still "
+             "synchronous Python calls; a future queued callback bridge can "
+             "release it safely.")
         .def("launch",
              [](affineui::App& app, bool native) {
                  if (!native) {
@@ -588,8 +774,9 @@ PYBIND11_MODULE(_affineui, m) {
                          "Only native=True is available in this POC; "
                          "remote browser transport is not implemented yet.");
                  }
-                 py::gil_scoped_release release;
                  return app.run();
              },
-             py::arg("native") = true);
+             py::arg("native") = true,
+             "Launch the app. native=True opens the local AffineUI window; "
+             "remote browser transport is planned but not implemented yet.");
 }

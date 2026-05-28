@@ -18,12 +18,10 @@ class HelloPanel:
         self.theme = theme
         self.app: Optional[ui.App] = None
         self.active_tab = "controls"
-        self.rows = [
-            "Renderer warm",
-            "Input route armed",
-            "Patch graph clean",
-        ]
+        self.field_layout = "props"
+        self.rows = [f"Frame {index:02d} - event routed" for index in range(1, 33)]
         self.selected_row = 0
+        self.selected_tree = "tree-camera"
 
     def _is_decius(self) -> bool:
         return self.theme == ui.ViewTheme.Decius
@@ -40,7 +38,20 @@ class HelloPanel:
     def _build_tabs(self, v: ui.View) -> None:
         self._tab_button(v, "Controls", "controls")
         self._tab_button(v, "Fields", "fields")
-        self._tab_button(v, "List", "list")
+        self._tab_button(v, "Lists & tree", "collections")
+
+    def _flow_class(self, mode: str) -> str:
+        if self._is_decius():
+            return (
+                ui.decius.class_name.form
+                if mode == "form"
+                else ui.decius.class_name.props
+            )
+        return (
+            ui.bootstrap.class_name.form
+            if mode == "form"
+            else ui.bootstrap.class_name.props
+        )
 
     def _build_controls(self, v: ui.View) -> None:
         v.button("Hello button", primary=True, key="hello-button").on_click(
@@ -65,6 +76,12 @@ class HelloPanel:
         ).on_change(lambda value: print(f"knob changed: {value}"))
 
     def _build_fields(self, v: ui.View) -> None:
+        v.button_group(
+            "Field layout",
+            ["Form", "Props"],
+            "Form" if self.field_layout == "form" else "Props",
+            key="field-layout",
+        ).on_change(lambda value: self.set_field_layout(value.lower()))
         v.input("Object name", "Cylinder.042", key="object-name").on_change(
             lambda value: print(f"name changed: {value}")
         )
@@ -73,6 +90,9 @@ class HelloPanel:
         )
         v.input("Gain", "1.000", type="number", key="gain-field").on_change(
             lambda value: print(f"gain changed: {value}")
+        )
+        v.input("Tint", "#4da3ff", type="color", key="tint-color").on_change(
+            lambda value: print(f"tint changed: {value}")
         )
         v.slider(
             "Rotation",
@@ -124,7 +144,44 @@ class HelloPanel:
                 + (" active" if selected else "")
             )
 
-    def _build_list(self, v: ui.View) -> None:
+    def _select_tree(self, key: str) -> None:
+        self.selected_tree = key
+        self.reload()
+
+    def _tree_row(self, v: ui.View, label: str, key: str, depth: int = 0) -> None:
+        selected = self.selected_tree == key
+        row = v.button(label, primary=selected, key=key)
+        row.on_click(lambda key=key: self._select_tree(key))
+        indent = 12 + depth * 18
+        if self._is_decius():
+            row.cls(ui.decius.class_name.tree_row).attr(
+                "aria-selected", "true" if selected else "false"
+            )
+        else:
+            row.cls(
+                f"{ui.bootstrap.class_name.tree_row} list-group-item-action"
+                + (" active" if selected else "")
+            )
+        row.attr("style", f"padding-left:{indent}px")
+
+    def _build_tree_rows(self, v: ui.View) -> None:
+        self._tree_row(v, "Scene", "tree-scene", 0)
+        self._tree_row(v, "Camera", "tree-camera", 1)
+        self._tree_row(v, "Key Light", "tree-light", 1)
+        self._tree_row(v, "Player", "tree-player", 1)
+        self._tree_row(v, "Mesh", "tree-player-mesh", 2)
+        self._tree_row(v, "Controller", "tree-player-controller", 2)
+        self._tree_row(v, "Environment", "tree-environment", 1)
+        self._tree_row(v, "Collision", "tree-collision", 2)
+        self._tree_row(v, "Audio", "tree-audio", 1)
+
+    def _build_collections(self, v: ui.View) -> None:
+        note_class = (
+            ui.decius.class_name.note
+            if self._is_decius()
+            else ui.bootstrap.class_name.note
+        )
+        v.paragraph("Virtual event log", classes=note_class, key="list-prompt")
         v.button("Append row", primary=True, key="append-row").on_click(self._append_row)
         list_classes = (
             ui.decius.class_name.list
@@ -135,32 +192,37 @@ class HelloPanel:
             key="event-list",
             item_count=len(self.rows),
             item_size=28.0 if self._is_decius() else 40.0,
-            visible_items=min(len(self.rows), 8),
+            visible_items=8,
             overscan=1,
             classes=list_classes,
             build=self._build_row,
         )
+        v.paragraph("Scene tree", classes=note_class, key="tree-prompt")
+        tree_classes = (
+            f"aui-tree-list {ui.decius.class_name.tree}"
+            if self._is_decius()
+            else f"aui-tree-list {ui.bootstrap.class_name.tree}"
+        )
+        v.container(classes=tree_classes, key="scene-tree", build=self._build_tree_rows)
 
     def _build_tab_body(self, v: ui.View) -> None:
         if self.active_tab == "fields":
             self._build_fields(v)
-        elif self.active_tab == "list":
-            self._build_list(v)
+        elif self.active_tab == "collections":
+            self._build_collections(v)
         else:
             self._build_controls(v)
 
     def _tab_body_class(self) -> str:
-        if not self._is_decius():
-            if self.active_tab == "fields":
-                return ui.bootstrap.class_name.props
-            if self.active_tab == "controls":
-                return ui.bootstrap.class_name.form
-            return ui.bootstrap.class_name.column
         if self.active_tab == "fields":
-            return ui.decius.class_name.props
+            return self._flow_class(self.field_layout)
         if self.active_tab == "controls":
-            return ui.decius.class_name.form
-        return ui.decius.class_name.column
+            return self._flow_class("form")
+        return (
+            ui.decius.class_name.column
+            if self._is_decius()
+            else ui.bootstrap.class_name.column
+        )
 
     def _build_panel(self, v: ui.View) -> None:
         v.heading(1, "Hello from AffineUI", key="title")
@@ -189,6 +251,12 @@ class HelloPanel:
 
     def select_tab(self, tab: str) -> None:
         self.active_tab = tab
+        self.reload()
+
+    def set_field_layout(self, layout: str) -> None:
+        if layout not in ("form", "props"):
+            return
+        self.field_layout = layout
         self.reload()
 
 

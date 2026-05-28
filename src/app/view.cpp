@@ -587,8 +587,10 @@ body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
 .aui-bs-props>.aui-bs-field>.aui-bs-field__label{flex:0 0 128px;text-align:left;margin-bottom:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .aui-bs-form>.aui-bs-field>.form-control,.aui-bs-form>.aui-bs-field>.form-select,.aui-bs-form>.aui-bs-field>.form-range,.aui-bs-form>.aui-bs-field>.btn-group,.aui-bs-form>.aui-bs-field>.aui-select{flex:0 1 280px;max-width:280px;min-width:0}
 .aui-bs-props>.aui-bs-field>.form-control,.aui-bs-props>.aui-bs-field>.form-select,.aui-bs-props>.aui-bs-field>.form-range,.aui-bs-props>.aui-bs-field>.btn-group,.aui-bs-props>.aui-bs-field>.aui-select{flex:1 1 auto;min-width:0}
+.aui-bs-field>.btn-group{display:flex}
+.aui-bs-field>.btn-group>.btn{flex:1 1 0;min-width:64px;white-space:nowrap}
 .aui-bs-field>.aui-knob,.aui-bs-field>.aui-bs-check{flex:0 0 auto}
-.aui-select{display:flex;flex-direction:column;min-width:0;position:relative}
+.aui-select{display:flex;flex-direction:column;min-width:0;width:100%;position:relative}
 .aui-select>.form-select,.aui-select>.dcs-select{width:100%}
 .aui-select__menu[hidden]{display:none}
 .aui-select__menu:not([hidden]){display:flex!important;position:static!important;flex-direction:column;margin-top:4px;z-index:20}
@@ -608,11 +610,17 @@ body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
 .aui-root .aui-knob[data-aui-widget=knob]{display:flex;margin-top:16px;margin-bottom:18px}
 .aui-root .dcs-card-list{gap:var(--dcs-s-2)}
 .aui-root .dcs-card-list>.dcs-card{padding:var(--dcs-s-4);text-align:left}
+.aui-root .dcs-field>.aui-select,.aui-root .dcs-field>.dcs-btn-group{flex:1 1 auto;min-width:0}
+.aui-root .dcs-field>.dcs-btn-group{display:flex}
+.aui-root .dcs-field>.dcs-btn-group>.dcs-btn{flex:1 1 0;min-width:64px;white-space:nowrap}
 .aui-virtual-list{position:relative;display:flex;flex-direction:column;min-height:0;overflow:auto}
 .aui-virtual-list__spacer{flex:0 0 auto;min-height:0;pointer-events:none}
 .aui-virtual-list__row{flex:0 0 auto;display:flex;min-width:0}
 .aui-virtual-list__row>.list-group-item{width:100%;border-left-width:1px;border-right-width:1px}
 .aui-virtual-list__row>.dcs-card,.aui-virtual-list__row>.dcs-list__item{width:100%}
+.aui-scroll{overflow:auto;min-height:0}
+.aui-tree-list{display:flex;flex-direction:column;width:100%;max-height:220px;overflow:auto}
+.aui-tree-list .list-group-item,.aui-tree-list .dcs-tree__row{width:100%;text-align:left}
 .aui-root .dcs-field[data-aui-widget=knob]{height:auto;min-height:calc(var(--knob-size,56px) + 34px);align-items:center}
 .aui-root .dcs-field[data-aui-widget=knob]>.dcs-knob{flex:0 0 auto;margin:18px 0 20px}
 .aui-root .dcs-field[data-aui-widget=checkbox]>.dcs-check{flex:0 0 auto}

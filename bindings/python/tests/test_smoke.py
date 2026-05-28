@@ -30,6 +30,32 @@ def test_app_can_load_html_without_running_window():
     assert size.width >= 256
     assert size.height >= 128
 
+    ok = doc.element("ok")
+    assert ok
+    assert ok.set_text("Ready")
+    assert ok.set_attr("data-state", "ready")
+    assert ok.remove_attr("data-state")
+    assert ok.set_style("color: red")
+    assert ok.clear_style()
+
+    missing = doc.element("missing")
+    assert not missing
+    assert not missing.set_text("Ignored")
+    assert not missing.set_style("display: none")
+
+
+def _find_hovered_attr(app, attr_name: str, width: int, height: int):
+    ev = ui.Event()
+    ev.type = ui.EventType.MouseMove
+    for y in range(0, height, 4):
+        for x in range(0, width, 4):
+            ev.pos = ui.Point(x, y)
+            app.dispatch(ev)
+            for info in app.document().hovered_info_chain():
+                if any(name == attr_name for name, _ in info.attrs):
+                    return ui.Point(x, y)
+    return None
+
 
 def test_view_emits_remote_patch_batches_and_html():
     view = ui.View(ui.ViewTheme.Bootstrap)
@@ -63,6 +89,45 @@ def test_view_emits_remote_patch_batches_and_html():
     app.load_view(view)
     app.document().layout(320, 200)
     assert app.document().content_size().width >= 320
+
+
+def test_python_knob_callback_survives_headless_dispatch():
+    for theme, attr_name in (
+        (ui.ViewTheme.Bootstrap, "data-aui-knob"),
+        (ui.ViewTheme.Decius, "data-dcs-knob"),
+    ):
+        changes = []
+        view = ui.View(theme)
+        view.begin()
+        view.knob("Shape", 0.42, key="shape").on_change(changes.append)
+        view.end()
+
+        app = ui.App(title="Knob Smoke", asset_folders=["examples", "."])
+        app.load_view(view)
+        app.document().layout(360, 240)
+
+        knob = _find_hovered_attr(app, attr_name, 360, 240)
+        assert knob is not None
+
+        down = ui.Event()
+        down.type = ui.EventType.MouseDown
+        down.button = ui.MouseButton.Left
+        down.pos = knob
+        app.dispatch(down)
+
+        drag = ui.Event()
+        drag.type = ui.EventType.MouseMove
+        drag.pos = ui.Point(knob.x, knob.y - 36)
+        app.dispatch(drag)
+
+        up = ui.Event()
+        up.type = ui.EventType.MouseUp
+        up.button = ui.MouseButton.Left
+        up.pos = drag.pos
+        app.dispatch(up)
+
+        assert changes
+        assert float(changes[-1]) > 0.42
 
 
 def test_view_panel_uses_framework_selectors():

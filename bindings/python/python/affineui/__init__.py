@@ -43,7 +43,16 @@ _prefer_local_extension()
 from ._affineui import (
     App,
     Color,
+    DomHandle,
     Document,
+    DispatchResult,
+    DocumentScript,
+    Event,
+    EventType,
+    HoverInfo,
+    Key,
+    MouseButton,
+    Point,
     RemotePatch,
     RemotePatchOp,
     RemotePatchQueue,
@@ -57,6 +66,71 @@ from ._affineui import (
     native_backend,
     version,
 )
+
+
+class ElementRef:
+    """Safe id-based reference to a native AffineUI document element.
+
+    ElementRef intentionally does not expose a raw DOM pointer. Every method
+    resolves through the owning Document and returns False if the element no
+    longer exists, so stale refs have empty semantics instead of dangling.
+    """
+
+    def __init__(self, document: Document, elem_id: str) -> None:
+        self._document = document
+        self.id = elem_id
+
+    def handle(self) -> DomHandle:
+        """Return the current weak DOM handle, or an empty handle."""
+
+        return self._document.weak_handle_for_id(self.id)
+
+    def valid(self) -> bool:
+        """Return True if this element id resolves in the current document."""
+
+        handle = self.handle()
+        return bool(handle) and self._document.weak_handle_valid(handle)
+
+    def set_attr(self, name: str, value: str) -> bool:
+        """Set an attribute if the element exists."""
+
+        return self._document.set_attribute_by_id(self.id, name, value)
+
+    def remove_attr(self, name: str) -> bool:
+        """Remove an attribute if the element exists."""
+
+        return self._document.remove_attribute_by_id(self.id, name)
+
+    def set_style(self, css_text: str) -> bool:
+        """Replace the inline style if the element exists."""
+
+        return self.set_attr("style", css_text)
+
+    def clear_style(self) -> bool:
+        """Remove the inline style if the element exists."""
+
+        return self.remove_attr("style")
+
+    def set_text(self, text: str) -> bool:
+        """Set leaf text if the element exists and can accept text."""
+
+        return self._document.set_text_by_id(self.id, text)
+
+    def __bool__(self) -> bool:
+        return self.valid()
+
+
+def element(document: Document, elem_id: str) -> ElementRef:
+    """Create a safe id-based ElementRef for direct document mutation."""
+
+    return ElementRef(document, elem_id)
+
+
+def _document_element(self: Document, elem_id: str) -> ElementRef:
+    return ElementRef(self, elem_id)
+
+
+Document.element = _document_element
 
 
 class bootstrap:
@@ -153,7 +227,17 @@ def document(html: str = "", css: str = "", *, width: int = 1024, height: int = 
 __all__ = [
     "App",
     "Color",
+    "DomHandle",
     "Document",
+    "DispatchResult",
+    "DocumentScript",
+    "ElementRef",
+    "Event",
+    "EventType",
+    "HoverInfo",
+    "Key",
+    "MouseButton",
+    "Point",
     "RemotePatch",
     "RemotePatchOp",
     "RemotePatchQueue",
@@ -167,6 +251,7 @@ __all__ = [
     "bootstrap",
     "decius",
     "document",
+    "element",
     "native_backend",
     "version",
 ]
