@@ -533,54 +533,62 @@ TEST_CASE("App dispatch supports numeric input horizontal drag") {
 }
 
 TEST_CASE("App dispatch invokes command dropdown and button-group callbacks") {
-    affineui::View view{affineui::ViewTheme::Bootstrap};
-    std::string mode;
-    std::string space;
+    for (const auto theme :
+         {affineui::ViewTheme::Bootstrap, affineui::ViewTheme::Decius}) {
+        affineui::View view{theme};
+        std::string mode;
+        std::string space;
 
-    view.begin();
-    view.dropdown("Mode", {"Object", "Edit", "Render"}, "Object", "mode")
-        .on_change([&](std::string_view next) { mode = std::string(next); });
-    view.button_group("Space", {"Local", "World"}, "World", "space")
-        .on_change([&](std::string_view next) { space = std::string(next); });
-    view.end();
+        view.begin();
+        view.dropdown("Mode", {"Object", "Edit", "Render"}, "Object", "mode")
+            .on_change([&](std::string_view next) {
+                mode = std::string(next);
+            });
+        view.button_group("Space", {"Local", "World"}, "World", "space")
+            .on_change([&](std::string_view next) {
+                space = std::string(next);
+            });
+        view.end();
 
-    affineui::App::Config cfg;
-    cfg.asset_folders = {"examples", "."};
-    affineui::App app{cfg};
-    app.load_view(view);
-    app.document().layout(420, 420);
+        affineui::App::Config cfg;
+        cfg.asset_folders = {"examples", "."};
+        affineui::App app{cfg};
+        app.load_view(view);
+        app.document().layout(420, 420);
 
-    auto click_at = [&](affineui::Point p) {
-        affineui::Event down{};
-        down.type = affineui::EventType::MouseDown;
-        down.button = affineui::MouseButton::Left;
-        down.pos = p;
-        app.dispatch(down);
-        affineui::Event up{};
-        up.type = affineui::EventType::MouseUp;
-        up.button = affineui::MouseButton::Left;
-        up.pos = p;
-        app.dispatch(up);
-    };
+        auto click_at = [&](affineui::Point p) {
+            affineui::Event down{};
+            down.type = affineui::EventType::MouseDown;
+            down.button = affineui::MouseButton::Left;
+            down.pos = p;
+            app.dispatch(down);
+            affineui::Event up{};
+            up.type = affineui::EventType::MouseUp;
+            up.button = affineui::MouseButton::Left;
+            up.pos = p;
+            app.dispatch(up);
+        };
 
-    const auto select = find_hovered_tag_attr(app, "select", "data-aui-name",
-                                              "mode", 420, 420);
-    REQUIRE(select.x >= 0);
-    click_at(select);
-    app.document().layout(420, 420);
+        const auto select = find_hovered_tag_attr(app, "select",
+                                                  "data-aui-name", "mode",
+                                                  420, 420);
+        REQUIRE(select.x >= 0);
+        click_at(select);
+        app.document().layout(420, 420);
 
-    const auto edit = find_hovered_tag_attr(app, "button", "value",
-                                            "Edit", 420, 420);
-    REQUIRE(edit.x >= 0);
-    click_at(edit);
-    CHECK(mode == "Edit");
-    app.document().layout(420, 420);
+        const auto edit = find_hovered_tag_attr(app, "button", "value",
+                                                "Edit", 420, 420);
+        REQUIRE(edit.x >= 0);
+        click_at(edit);
+        CHECK(mode == "Edit");
+        app.document().layout(420, 420);
 
-    const auto local = find_hovered_tag_attr(app, "button", "value",
-                                             "Local", 420, 420);
-    REQUIRE(local.x >= 0);
-    click_at(local);
-    CHECK(space == "Local");
+        const auto local = find_hovered_tag_attr(app, "button", "value",
+                                                 "Local", 420, 420);
+        REQUIRE(local.x >= 0);
+        click_at(local);
+        CHECK(space == "Local");
+    }
 }
 
 TEST_CASE("View reconcile reuses nodes and emits property patches") {
