@@ -37,7 +37,7 @@ std::string render(const SynthState& s) {
     std::ostringstream h;
     h << R"HTML(
 <!doctype html><html><head><meta charset="utf-8">
-<link rel="stylesheet" href="frameworks/css/decius-css-0.4.1.bundle.min.css">
+<link rel="stylesheet" href="frameworks/css/decius-css-0.5.2.bundle.min.css">
 <style>
 body{margin:0;background:#101219}
 .desk{min-height:100vh;background:radial-gradient(circle at 30% 0,#273044,#101219 64%);padding:22px;overflow:hidden}

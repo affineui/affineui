@@ -35,7 +35,7 @@ class HelloPanel:
         if self._is_decius():
             button.cls("dcs-tab").attr("aria-selected", "true" if active else "false")
         else:
-            button.cls("btn btn-primary" if active else "btn btn-outline-secondary")
+            button.cls("nav-link active" if active else "nav-link")
 
     def _build_tabs(self, v: ui.View) -> None:
         self._tab_button(v, "Controls", "controls")
@@ -65,27 +65,40 @@ class HelloPanel:
         ).on_change(lambda value: print(f"knob changed: {value}"))
 
     def _build_fields(self, v: ui.View) -> None:
-        v.input("Object name", "Cylinder.042", key="object-name")
-        v.password("Token", "secret", key="token")
-        v.input("Gain", "1.000", type="number", key="gain-field")
+        v.input("Object name", "Cylinder.042", key="object-name").on_change(
+            lambda value: print(f"name changed: {value}")
+        )
+        v.password("Token", "secret", key="token").on_change(
+            lambda value: print(f"token changed: {value}")
+        )
+        v.input("Gain", "1.000", type="number", key="gain-field").on_change(
+            lambda value: print(f"gain changed: {value}")
+        )
+        v.slider(
+            "Rotation",
+            value=45.0,
+            min=-180.0,
+            max=180.0,
+            key="rotation-degrees",
+        ).on_change(lambda value: print(f"rotation changed: {value}"))
         v.dropdown(
             "Mode",
             ["Object", "Edit", "Sculpt", "Render"],
             "Object",
             key="mode",
-        )
+        ).on_change(lambda value: print(f"mode changed: {value}"))
         v.button_group(
             "Transform space",
             ["Local", "World", "View"],
             "World",
             key="space",
-        )
+        ).on_change(lambda value: print(f"space changed: {value}"))
         v.textarea(
             "Notes",
             "Dense native UI, browser semantics.",
             rows=3,
             key="notes",
-        )
+        ).on_change(lambda value: print(f"notes changed: {value}"))
 
     def _select_row(self, index: int) -> None:
         self.selected_row = index
@@ -102,22 +115,26 @@ class HelloPanel:
         row = v.button(title, primary=selected, key=f"log-row-{index}")
         row.on_click(lambda index=index: self._select_row(index))
         if self._is_decius():
-            row.cls("dcs-card dcs-card--clickable").attr(
+            row.cls(ui.decius.class_name.list_item).attr(
                 "aria-selected", "true" if selected else "false"
             )
         else:
             row.cls(
-                "list-group-item list-group-item-action"
+                f"{ui.bootstrap.class_name.list_item} list-group-item-action"
                 + (" active" if selected else "")
             )
 
     def _build_list(self, v: ui.View) -> None:
         v.button("Append row", primary=True, key="append-row").on_click(self._append_row)
-        list_classes = "dcs-card-list" if self._is_decius() else "list-group"
+        list_classes = (
+            ui.decius.class_name.list
+            if self._is_decius()
+            else ui.bootstrap.class_name.list
+        )
         v.virtual_list(
             key="event-list",
             item_count=len(self.rows),
-            item_size=34.0 if self._is_decius() else 40.0,
+            item_size=28.0 if self._is_decius() else 40.0,
             visible_items=min(len(self.rows), 8),
             overscan=1,
             classes=list_classes,
@@ -132,16 +149,32 @@ class HelloPanel:
         else:
             self._build_controls(v)
 
+    def _tab_body_class(self) -> str:
+        if not self._is_decius():
+            if self.active_tab == "fields":
+                return ui.bootstrap.class_name.props
+            if self.active_tab == "controls":
+                return ui.bootstrap.class_name.form
+            return ui.bootstrap.class_name.column
+        if self.active_tab == "fields":
+            return ui.decius.class_name.props
+        if self.active_tab == "controls":
+            return ui.decius.class_name.form
+        return ui.decius.class_name.column
+
     def _build_panel(self, v: ui.View) -> None:
         v.heading(1, "Hello from AffineUI", key="title")
         v.paragraph(
             "The same Python command tree is rendered with Bootstrap or Decius selectors.",
             key="lede",
         )
-        tabs_class = "dcs-tabs" if self._is_decius() else "btn-group"
+        tabs_class = "dcs-tabs" if self._is_decius() else "nav nav-tabs"
         v.container(classes=tabs_class, key="tabs", build=self._build_tabs)
-        body_class = "dcs-col" if self._is_decius() else "d-flex flex-column gap-3"
-        v.container(classes=body_class, key="tab-body", build=self._build_tab_body)
+        v.container(
+            classes=self._tab_body_class(),
+            key="tab-body",
+            build=self._build_tab_body,
+        )
 
     def build_view(self) -> ui.View:
         view = ui.View(self.theme)

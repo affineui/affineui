@@ -398,27 +398,27 @@ public:
                                         bool primary = false) const noexcept override {
         switch (element) {
             case FrameworkElement::Panel:
-                return {"section", "card shadow-sm p-4 d-flex flex-column gap-3"};
+                return {"section", "card shadow-sm p-4 aui-bs-form"};
             case FrameworkElement::Card:          return {"section", "card shadow-sm"};
             case FrameworkElement::CardTitle:     return {"h3", "card-header h6 mb-0"};
             case FrameworkElement::Button:
                 return {"button", primary ? "btn btn-primary" : "btn btn-outline-secondary"};
-            case FrameworkElement::CheckboxGroup: return {"label", "form-check"};
+            case FrameworkElement::CheckboxGroup: return {"div", "aui-bs-field"};
             case FrameworkElement::CheckboxInput: return {"input", "form-check-input"};
-            case FrameworkElement::CheckboxLabel: return {"span", "form-check-label"};
-            case FrameworkElement::FieldGroup:    return {"div", "mb-3"};
-            case FrameworkElement::FieldLabel:    return {"label", "form-label"};
+            case FrameworkElement::CheckboxLabel: return {"label", "aui-bs-field__label form-label"};
+            case FrameworkElement::FieldGroup:    return {"div", "aui-bs-field"};
+            case FrameworkElement::FieldLabel:    return {"label", "aui-bs-field__label form-label"};
             case FrameworkElement::TextInput:     return {"input", "form-control"};
             case FrameworkElement::TextArea:      return {"textarea", "form-control"};
             case FrameworkElement::SelectInput:   return {"select", "form-select"};
             case FrameworkElement::ButtonGroup:   return {"div", "btn-group"};
             case FrameworkElement::ButtonGroupButton:
                 return {"button", primary ? "btn btn-primary" : "btn btn-outline-primary"};
-            case FrameworkElement::SliderGroup:   return {"div", "mb-3"};
-            case FrameworkElement::SliderLabel:   return {"label", "form-label"};
+            case FrameworkElement::SliderGroup:   return {"div", "aui-bs-field"};
+            case FrameworkElement::SliderLabel:   return {"label", "aui-bs-field__label form-label"};
             case FrameworkElement::SliderInput:   return {"input", "form-range"};
-            case FrameworkElement::KnobGroup:     return {"div", "mb-3"};
-            case FrameworkElement::KnobLabel:     return {"label", "form-label"};
+            case FrameworkElement::KnobGroup:     return {"div", "aui-bs-field"};
+            case FrameworkElement::KnobLabel:     return {"label", "aui-bs-field__label form-label"};
             case FrameworkElement::KnobInput:     return {"input", "form-range"};
         }
         return {"div", {}};
@@ -455,7 +455,7 @@ public:
 class DeciusFramework final : public ViewFramework {
 public:
     [[nodiscard]] std::string_view stylesheet_href() const noexcept override {
-        return "frameworks/css/decius-css-0.4.1.bundle.min.css";
+        return "frameworks/css/decius-css-0.5.2.bundle.min.css";
     }
 
     [[nodiscard]] Color background_color() const noexcept override {
@@ -466,16 +466,16 @@ public:
                                         bool primary = false) const noexcept override {
         switch (element) {
             case FrameworkElement::Panel:
-                return {"section", "dcs-panel dcs-panel--bordered dcs-panel--raised dcs-col"};
+                return {"section", "dcs-panel dcs-panel--bordered dcs-panel--raised dcs-form"};
             case FrameworkElement::Card:
                 return {"section", "dcs-panel dcs-panel--bordered"};
             case FrameworkElement::CardTitle:
                 return {"h3", "dcs-panel__header"};
             case FrameworkElement::Button:
                 return {"button", primary ? "dcs-btn dcs-btn--primary" : "dcs-btn"};
-            case FrameworkElement::CheckboxGroup: return {"label", "dcs-check"};
+            case FrameworkElement::CheckboxGroup: return {"div", "dcs-field"};
             case FrameworkElement::CheckboxInput: return {"input", "dcs-check__input"};
-            case FrameworkElement::CheckboxLabel: return {"span", "dcs-check__label"};
+            case FrameworkElement::CheckboxLabel: return {"span", "dcs-field__label"};
             case FrameworkElement::FieldGroup:    return {"label", "dcs-field"};
             case FrameworkElement::FieldLabel:    return {"span", "dcs-field__label"};
             case FrameworkElement::TextInput:     return {"input", "dcs-input"};
@@ -487,9 +487,9 @@ public:
             case FrameworkElement::SliderGroup:   return {"div", "dcs-field"};
             case FrameworkElement::SliderLabel:   return {"span", "dcs-field__label"};
             case FrameworkElement::SliderInput:   return {"div", "dcs-slider"};
-            case FrameworkElement::KnobGroup:     return {"div", "dcs-knob"};
-            case FrameworkElement::KnobLabel:     return {"div", "dcs-knob__label"};
-            case FrameworkElement::KnobInput:     return {"div", "dcs-knob__body"};
+            case FrameworkElement::KnobGroup:     return {"div", "dcs-field"};
+            case FrameworkElement::KnobLabel:     return {"span", "dcs-field__label"};
+            case FrameworkElement::KnobInput:     return {"div", "dcs-knob"};
         }
         return {"div", {}};
     }
@@ -578,6 +578,26 @@ body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
 [data-aui-size=sm]{--aui-panel-pad:var(--dcs-s-3);--aui-panel-gap:var(--dcs-s-2)}
 [data-aui-size=md]{--aui-panel-pad:var(--dcs-s-5);--aui-panel-gap:var(--dcs-s-3)}
 [data-aui-size=lg]{--aui-panel-pad:var(--dcs-s-7);--aui-panel-gap:var(--dcs-s-5)}
+.aui-bs-form,.aui-bs-props,.aui-bs-col{display:flex;flex-direction:column}
+.aui-bs-form{gap:1rem}.aui-bs-props{gap:.5rem}.aui-bs-col{gap:1rem}
+.aui-bs-row,.aui-bs-btn-row{display:flex;align-items:center;gap:.5rem}
+.aui-bs-form>.aui-bs-field,.aui-bs-props>.aui-bs-field{display:flex;align-items:center;gap:.75rem;margin-bottom:0;min-width:0}
+.aui-bs-form>.aui-bs-field{justify-content:center}
+.aui-bs-form>.aui-bs-field>.aui-bs-field__label{flex:0 0 42%;max-width:220px;text-align:right;margin-bottom:0}
+.aui-bs-props>.aui-bs-field>.aui-bs-field__label{flex:0 0 128px;text-align:left;margin-bottom:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aui-bs-form>.aui-bs-field>.form-control,.aui-bs-form>.aui-bs-field>.form-select,.aui-bs-form>.aui-bs-field>.form-range,.aui-bs-form>.aui-bs-field>.btn-group,.aui-bs-form>.aui-bs-field>.aui-select{flex:0 1 280px;max-width:280px;min-width:0}
+.aui-bs-props>.aui-bs-field>.form-control,.aui-bs-props>.aui-bs-field>.form-select,.aui-bs-props>.aui-bs-field>.form-range,.aui-bs-props>.aui-bs-field>.btn-group,.aui-bs-props>.aui-bs-field>.aui-select{flex:1 1 auto;min-width:0}
+.aui-bs-field>.aui-knob,.aui-bs-field>.aui-bs-check{flex:0 0 auto}
+.aui-select{display:flex;flex-direction:column;min-width:0;position:relative}
+.aui-select>.form-select,.aui-select>.dcs-select{width:100%}
+.aui-select__menu[hidden]{display:none}
+.aui-select__menu:not([hidden]){display:flex!important;position:static!important;flex-direction:column;margin-top:4px;z-index:20}
+.aui-select__menu .dropdown-item,.aui-select__menu .dcs-menu__item{border:0;background:transparent;text-align:left;font:inherit}
+.aui-bs-check{min-height:auto;margin-bottom:0;padding-left:1.5em}
+.aui-bs-form>.btn{align-self:center}.aui-bs-props>.btn,.aui-bs-props>.btn-group{align-self:stretch}.aui-bs-props>.aui-bs-btn-row>.btn{flex:1 1 0}
+.aui-root>.card.aui-bs-form,.aui-root>.card.aui-bs-props,.aui-root>.card.aui-bs-col{gap:1rem}
+.aui-root>.card>h1,.aui-root>.card>h2,.aui-root>.card>h3{margin-bottom:0}
+.aui-root>.card>p{margin-bottom:0;color:var(--bs-secondary-color,#6c757d)}
 .aui-knob{--aui-knob-size:64px;position:relative;display:inline-flex;align-items:flex-start;justify-content:center;width:var(--aui-knob-size);height:98px;padding-top:16px;box-sizing:border-box;cursor:ns-resize;user-select:none;color:inherit;touch-action:none}
 .aui-knob__ring{position:absolute;left:0;top:16px;width:var(--aui-knob-size);height:var(--aui-knob-size);pointer-events:none}
 .aui-knob__cap{position:absolute;left:14px;top:30px;width:36px;height:36px;border-radius:50%;background:linear-gradient(180deg,#f8f9fa,#dee2e6);border:1px solid rgba(0,0,0,.24);box-shadow:inset 0 1px 0 rgba(255,255,255,.85),0 1px 3px rgba(0,0,0,.2)}
@@ -585,26 +605,17 @@ body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
 .aui-knob__value{position:absolute;left:0;right:0;top:0;text-align:center;font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--bs-primary,#0d6efd)}
 .aui-knob__label{position:absolute;left:-8px;right:-8px;bottom:0;text-align:center;font-size:12px;color:var(--bs-secondary-color,#6c757d);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .aui-knob__arc{stroke:var(--bs-primary,#0d6efd)}
-.aui-root [data-aui-widget=knob]{margin-top:16px;margin-bottom:18px}
-.aui-root .aui-knob[data-aui-widget=knob]{display:flex}
-.aui-root .dcs-col{display:flex;flex-direction:column;gap:var(--aui-panel-gap,var(--dcs-s-3))}
-.aui-root .dcs-field{display:grid;grid-template-columns:minmax(88px,max-content) minmax(0,1fr);align-items:center;column-gap:var(--dcs-s-4);row-gap:var(--dcs-s-2)}
-.aui-root .dcs-field>.dcs-field__label{min-width:0;align-self:center}
-.aui-root .dcs-field>.dcs-textarea{align-self:stretch}
-.aui-root .dcs-btn-group{display:flex;align-items:center;gap:0}
+.aui-root .aui-knob[data-aui-widget=knob]{display:flex;margin-top:16px;margin-bottom:18px}
 .aui-root .dcs-card-list{gap:var(--dcs-s-2)}
 .aui-root .dcs-card-list>.dcs-card{padding:var(--dcs-s-4);text-align:left}
 .aui-virtual-list{position:relative;display:flex;flex-direction:column;min-height:0;overflow:auto}
 .aui-virtual-list__spacer{flex:0 0 auto;min-height:0;pointer-events:none}
 .aui-virtual-list__row{flex:0 0 auto;display:flex;min-width:0}
 .aui-virtual-list__row>.list-group-item{width:100%;border-left-width:1px;border-right-width:1px}
-.aui-virtual-list__row>.dcs-card{width:100%}
-.aui-root .dcs-knob[data-aui-widget=knob]{position:relative;display:inline-flex;align-items:center;justify-content:center;width:72px;height:100px;padding-top:18px;box-sizing:border-box;cursor:ns-resize;user-select:none;touch-action:none}
-.aui-root .dcs-knob[data-aui-widget=knob] .dcs-knob__ring{position:absolute;left:4px;top:18px;width:64px;height:64px;pointer-events:none}
-.aui-root .dcs-knob[data-aui-widget=knob] .dcs-knob__cap{position:absolute;left:18px;top:32px;width:36px;height:36px}
-.aui-root .dcs-knob[data-aui-widget=knob] .dcs-knob__indicator{position:absolute;left:50%;top:50px;width:2px;height:24px;transform-origin:50% 100%;transform:translate(-50%,-100%) rotate(var(--angle,0deg))}
-.aui-root .dcs-knob[data-aui-widget=knob] .dcs-knob__value{position:absolute;left:0;right:0;top:0;text-align:center;font-size:var(--dcs-fs-xs);font-family:var(--dcs-font-mono);color:var(--dcs-accent)}
-.aui-root .dcs-knob[data-aui-widget=knob] .dcs-knob__label{position:absolute;left:-10px;right:-10px;bottom:0;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aui-virtual-list__row>.dcs-card,.aui-virtual-list__row>.dcs-list__item{width:100%}
+.aui-root .dcs-field[data-aui-widget=knob]{height:auto;min-height:calc(var(--knob-size,56px) + 34px);align-items:center}
+.aui-root .dcs-field[data-aui-widget=knob]>.dcs-knob{flex:0 0 auto;margin:18px 0 20px}
+.aui-root .dcs-field[data-aui-widget=checkbox]>.dcs-check{flex:0 0 auto}
 .aui-root>.dcs-panel{padding:var(--aui-panel-pad,var(--dcs-s-5));gap:var(--aui-panel-gap,var(--dcs-s-3))}
 .aui-root>.dcs-panel>h1,.aui-root>.dcs-panel>h2,.aui-root>.dcs-panel>h3{margin:0}
 .aui-root>.dcs-panel>p{margin:0;color:var(--dcs-text-dim)}
@@ -1167,6 +1178,17 @@ WidgetRef View::checkbox(std::string_view label,
     else remove_attr(group, "aria-checked");
 
     if (theme_ == ViewTheme::Decius) {
+        const auto label_recipe = default_element(theme_, FrameworkElement::CheckboxLabel);
+        auto& label_node = open_node(WidgetKind::Container, label_recipe.tag,
+                                     label_recipe.classes, "__label", here, false);
+        set_text(label_node, label);
+
+        auto& check = open_node(WidgetKind::Checkbox, "div",
+                                "dcs-check", "__check", here, true);
+        set_attr(check, "role", "checkbox");
+        if (checked) set_attr(check, "aria-checked", "true");
+        else remove_attr(check, "aria-checked");
+
         auto& box = open_node(WidgetKind::Container, "div",
                               "dcs-check__box", "__box", here, true);
         (void) box;
@@ -1174,6 +1196,39 @@ WidgetRef View::checkbox(std::string_view label,
                                "di di-check", "__icon", here, false);
         (void) icon;
         close_node();
+
+        const auto input_recipe = default_element(theme_, FrameworkElement::CheckboxInput);
+        auto& input = open_node(WidgetKind::Checkbox, input_recipe.tag,
+                                input_recipe.classes, "__input", here, false);
+        set_attr(input, "type", "checkbox");
+        set_attr(input, "style", "display:none");
+        if (checked) set_attr(input, "checked", "checked");
+        else remove_attr(input, "checked");
+
+        close_node();
+        close_node();
+        return ref_for_node(group, current_panel_id(stack_));
+    }
+
+    if (theme_ == ViewTheme::Bootstrap) {
+        const auto label_recipe = default_element(theme_, FrameworkElement::CheckboxLabel);
+        auto& label_node = open_node(WidgetKind::Container, label_recipe.tag,
+                                     label_recipe.classes, "__label", here, false);
+        set_text(label_node, label);
+
+        auto& check = open_node(WidgetKind::Container, "label",
+                                "form-check aui-bs-check", "__check", here, true);
+        (void) check;
+        const auto input_recipe = default_element(theme_, FrameworkElement::CheckboxInput);
+        auto& input = open_node(WidgetKind::Checkbox, input_recipe.tag,
+                                input_recipe.classes,
+                                "__input", here, false);
+        set_attr(input, "type", "checkbox");
+        if (checked) set_attr(input, "checked", "checked");
+        else remove_attr(input, "checked");
+        close_node();
+        close_node();
+        return ref_for_node(group, current_panel_id(stack_));
     }
 
     const auto input_recipe = default_element(theme_, FrameworkElement::CheckboxInput);
@@ -1181,9 +1236,6 @@ WidgetRef View::checkbox(std::string_view label,
                             input_recipe.classes,
                             "__input", here, false);
     set_attr(input, "type", "checkbox");
-    if (theme_ == ViewTheme::Decius) {
-        set_attr(input, "style", "display:none");
-    }
     if (checked) set_attr(input, "checked", "checked");
     else remove_attr(input, "checked");
 
@@ -1221,6 +1273,7 @@ WidgetRef View::input(std::string_view label,
                                  input_classes, "__input", here, false);
     set_attr(input_node, "type", type.empty() ? "text" : type);
     set_attr(input_node, "value", value);
+    if (!key.empty()) set_attr(input_node, "data-aui-name", key);
     close_node();
     return ref_for_node(group, current_panel_id(stack_));
 }
@@ -1251,6 +1304,7 @@ WidgetRef View::textarea(std::string_view label,
     auto& text_node = open_node(WidgetKind::TextArea, text_recipe.tag,
                                 text_recipe.classes, "__input", here, false);
     set_attr(text_node, "rows", std::to_string(std::max(rows, 1)));
+    if (!key.empty()) set_attr(text_node, "data-aui-name", key);
     set_text(text_node, value);
     close_node();
     return ref_for_node(group, current_panel_id(stack_));
@@ -1272,10 +1326,16 @@ WidgetRef View::dropdown(std::string_view label,
                                  label_recipe.classes, "__label", here, false);
     set_text(label_node, label);
 
+    auto& select_shell = open_node(WidgetKind::Container, "div",
+                                   "aui-select", "__select-shell", here,
+                                   true);
+    (void) select_shell;
+
     const auto select_recipe = default_element(theme_, FrameworkElement::SelectInput);
     auto& select_node = open_node(WidgetKind::Dropdown, select_recipe.tag,
                                   select_recipe.classes, "__select", here, true);
     set_attr(select_node, "value", selected);
+    if (!key.empty()) set_attr(select_node, "data-aui-name", key);
     for (std::size_t i = 0; i < options.size(); ++i) {
         const auto option_key = "__option-" + std::to_string(i);
         auto& option = open_node(WidgetKind::Container, "option", {},
@@ -1285,6 +1345,39 @@ WidgetRef View::dropdown(std::string_view label,
         else remove_attr(option, "selected");
         set_text(option, options[i]);
     }
+    close_node();
+
+    std::string menu_classes{"aui-select__menu"};
+    std::string item_classes{"aui-select__item"};
+    if (theme_ == ViewTheme::Bootstrap) {
+        menu_classes = "dropdown-menu aui-select__menu";
+        item_classes = "dropdown-item";
+    } else if (theme_ == ViewTheme::Decius) {
+        menu_classes = "dcs-menu aui-select__menu";
+        item_classes = "dcs-menu__item";
+    }
+    auto& menu = open_node(WidgetKind::Container, "div", menu_classes,
+                           "__menu", here, true);
+    set_attr(menu, "hidden", "");
+    set_attr(menu, "role", "listbox");
+    for (std::size_t i = 0; i < options.size(); ++i) {
+        const bool active = options[i] == selected;
+        std::string option_classes{item_classes};
+        if (active) {
+            if (theme_ == ViewTheme::Bootstrap) option_classes += " active";
+            else if (theme_ == ViewTheme::Decius) option_classes += " dcs-menu__item--active";
+        }
+        const auto option_key = "__menu-option-" + std::to_string(i);
+        auto& option = open_node(WidgetKind::Button, "button", option_classes,
+                                 option_key, here, false);
+        set_attr(option, "type", "button");
+        set_attr(option, "role", "option");
+        set_attr(option, "value", options[i]);
+        if (active) set_attr(option, "aria-selected", "true");
+        else remove_attr(option, "aria-selected");
+        set_text(option, options[i]);
+    }
+    close_node();
     close_node();
     close_node();
     return ref_for_node(group, current_panel_id(stack_));
@@ -1297,7 +1390,7 @@ WidgetRef View::button_group(std::string_view label,
                              std::source_location here) {
     const char* field_classes =
         theme_ == ViewTheme::Decius ? "dcs-field" :
-        theme_ == ViewTheme::Bootstrap ? "mb-3" : "";
+        theme_ == ViewTheme::Bootstrap ? "aui-bs-field" : "";
     auto& field = open_node(WidgetKind::ButtonGroup, "div", field_classes,
                             key, here, true);
     set_attr(field, "data-aui-widget", "button-group");
@@ -1476,14 +1569,33 @@ WidgetRef View::knob(std::string_view label,
     set_attr(group, "aria-valuenow", number(clamped));
 
     if (theme_ != ViewTheme::Decius) {
-        set_attr(group, "class", "aui-knob");
-        set_attr(group, "data-aui-knob", "");
-        set_attr(group, "data-min", number(min));
-        set_attr(group, "data-max", number(max));
-        set_attr(group, "data-value", number(clamped));
-        set_attr(group, "value", number(clamped));
-        if (bipolar) set_attr(group, "data-bipolar", "");
-        else remove_attr(group, "data-bipolar");
+        WidgetNode* control = &group;
+        if (theme_ == ViewTheme::Bootstrap) {
+            const auto label_recipe =
+                default_element(theme_, FrameworkElement::KnobLabel);
+            auto& label_node = open_node(WidgetKind::Container,
+                                         label_recipe.tag,
+                                         label_recipe.classes,
+                                         "__label", here, false);
+            set_text(label_node, label);
+            control = &open_node(WidgetKind::Knob, "div", "aui-knob",
+                                 "__knob", here, true);
+            if (!key.empty()) set_attr(*control, "data-aui-name", key);
+        } else {
+            set_attr(*control, "class", "aui-knob");
+        }
+        set_attr(*control, "data-aui-widget", "knob");
+        set_attr(*control, "role", "slider");
+        set_attr(*control, "aria-valuemin", number(min));
+        set_attr(*control, "aria-valuemax", number(max));
+        set_attr(*control, "aria-valuenow", number(clamped));
+        set_attr(*control, "data-aui-knob", "");
+        set_attr(*control, "data-min", number(min));
+        set_attr(*control, "data-max", number(max));
+        set_attr(*control, "data-value", number(clamped));
+        set_attr(*control, "value", number(clamped));
+        if (bipolar) set_attr(*control, "data-bipolar", "");
+        else remove_attr(*control, "data-bipolar");
 
         const auto [bg_x0, bg_y0] = knob_ring_point(-225.0);
         const auto [bg_x1, bg_y1] = knob_ring_point(45.0);
@@ -1528,8 +1640,16 @@ WidgetRef View::knob(std::string_view label,
                                      "aui-knob__label", "__label", here, false);
         set_text(label_node, label);
         close_node();
+        if (theme_ == ViewTheme::Bootstrap) {
+            close_node();
+        }
         return ref_for_node(group, current_panel_id(stack_));
     }
+
+    const auto label_recipe = default_element(theme_, FrameworkElement::KnobLabel);
+    auto& field_label = open_node(WidgetKind::Container, label_recipe.tag,
+                                  label_recipe.classes, "__label", here, false);
+    set_text(field_label, label);
 
     set_attr(group, "data-dcs-knob", "");
     set_attr(group, "data-min", number(min));
@@ -1538,6 +1658,11 @@ WidgetRef View::knob(std::string_view label,
     set_attr(group, "value", number(clamped));
     if (bipolar) set_attr(group, "data-bipolar", "");
     else remove_attr(group, "data-bipolar");
+
+    const auto input_recipe = default_element(theme_, FrameworkElement::KnobInput);
+    auto& knob = open_node(WidgetKind::Knob, input_recipe.tag,
+                           input_recipe.classes, "__knob", here, true);
+    (void) knob;
 
     const auto [bg_x0, bg_y0] = knob_ring_point(-225.0);
     const auto [bg_x1, bg_y1] = knob_ring_point(45.0);
@@ -1581,10 +1706,7 @@ WidgetRef View::knob(std::string_view label,
                                  "dcs-knob__value", "__value", here, false);
     set_text(value_node, number(clamped));
 
-    const auto label_recipe = default_element(theme_, FrameworkElement::KnobLabel);
-    auto& label_node = open_node(WidgetKind::Container, label_recipe.tag,
-                                 label_recipe.classes, "__label", here, false);
-    set_text(label_node, label);
+    close_node();
     close_node();
 
     return ref_for_node(group, current_panel_id(stack_));

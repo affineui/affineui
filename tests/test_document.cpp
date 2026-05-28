@@ -889,7 +889,7 @@ TEST_CASE("real Decius checkbox remains visible after rerender and hover restyle
         std::string checked_attr = checked ? " aria-checked=\"true\"" : "";
         return R"HTML(
             <!doctype html><html><head>
-            <link rel="stylesheet" href="frameworks/css/decius-css-0.4.1.bundle.min.css">
+            <link rel="stylesheet" href="frameworks/css/decius-css-0.5.2.bundle.min.css">
             <style>body{margin:0;padding:0;background:#101219}</style>
             </head><body class="dcs" data-dcs-density="comfortable" data-dcs-accent="green">
               <div id="sync" class="dcs-check")HTML" + checked_attr + R"HTML(>
@@ -962,7 +962,7 @@ TEST_CASE("real Decius checkbox generated icon updates after live aria mutation"
 
     ui.html(R"HTML(
         <!doctype html><html><head>
-        <link rel="stylesheet" href="frameworks/css/decius-css-0.4.1.bundle.min.css">
+        <link rel="stylesheet" href="frameworks/css/decius-css-0.5.2.bundle.min.css">
         <style>body{margin:0;padding:0;background:#101219}</style>
         </head><body class="dcs" data-dcs-density="comfortable" data-dcs-accent="green">
           <div id="sync" class="dcs-check">
@@ -1229,7 +1229,7 @@ TEST_CASE("real Decius checkbox survives unrelated live control mutation") {
         std::string checked_attr = checked ? " aria-checked=\"true\"" : "";
         return R"HTML(
             <!doctype html><html><head>
-            <link rel="stylesheet" href="frameworks/css/decius-css-0.4.1.bundle.min.css">
+            <link rel="stylesheet" href="frameworks/css/decius-css-0.5.2.bundle.min.css">
             <style>body{margin:0;padding:0;background:#101219}.row{display:flex;gap:18px}</style>
             </head><body class="dcs" data-dcs-density="comfortable" data-dcs-accent="green">
               <div class="row">
@@ -1476,7 +1476,7 @@ TEST_CASE("dark synth C++ value interactions keep checked checkbox visible") {
         std::ostringstream h;
         h << R"HTML(
             <!doctype html><html><head><meta charset="utf-8">
-            <link rel="stylesheet" href="frameworks/css/decius-css-0.4.1.bundle.min.css">
+            <link rel="stylesheet" href="frameworks/css/decius-css-0.5.2.bundle.min.css">
             <style>
             body{margin:0;background:#101219}
             .desk{padding:18px;background:#101219}
@@ -1617,7 +1617,7 @@ TEST_CASE("live Decius checkbox state survives ordinary viewport relayout") {
     std::ostringstream h;
     h << R"HTML(
         <!doctype html><html><head><meta charset="utf-8">
-        <link rel="stylesheet" href="frameworks/css/decius-css-0.4.1.bundle.min.css">
+        <link rel="stylesheet" href="frameworks/css/decius-css-0.5.2.bundle.min.css">
         <style>
         body{margin:0;background:#101219}
         .desk{padding:18px;background:#101219}
@@ -1680,7 +1680,7 @@ TEST_CASE("game editor inspector keeps Decius check and switch interactive acros
         std::ostringstream h;
         h << R"HTML(
             <!doctype html><html><head><meta charset="utf-8">
-            <link rel="stylesheet" href="frameworks/css/decius-css-0.4.1.bundle.min.css">
+            <link rel="stylesheet" href="frameworks/css/decius-css-0.5.2.bundle.min.css">
             <style>
             body{margin:0;background:#14161c}
             .app{height:100vh;background:var(--dcs-bg-app);display:flex;gap:1px}

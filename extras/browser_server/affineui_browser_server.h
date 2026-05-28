@@ -252,9 +252,9 @@ inline void add_framework_assets(AssetStore& store,
     store.add_file("/frameworks/css/bootstrap-5.3.8.min.css",
                    "text/css; charset=utf-8",
                    frameworks_dir / "css" / "bootstrap-5.3.8.min.css");
-    store.add_file("/frameworks/css/decius-css-0.4.1.bundle.min.css",
+    store.add_file("/frameworks/css/decius-css-0.5.2.bundle.min.css",
                    "text/css; charset=utf-8",
-                   frameworks_dir / "css" / "decius-css-0.4.1.bundle.min.css");
+                   frameworks_dir / "css" / "decius-css-0.5.2.bundle.min.css");
     store.add_file("/frameworks/fonts/decius-icons.woff2",
                    "font/woff2",
                    frameworks_dir / "fonts" / "decius-icons.woff2");

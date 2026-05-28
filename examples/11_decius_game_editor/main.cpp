@@ -56,7 +56,7 @@ std::string render(const GameEditorState& s) {
     std::ostringstream h;
     h << R"HTML(
 <!doctype html><html><head><meta charset="utf-8">
-<link rel="stylesheet" href="frameworks/css/decius-css-0.4.1.bundle.min.css">
+<link rel="stylesheet" href="frameworks/css/decius-css-0.5.2.bundle.min.css">
 <style>
 body{margin:0;background:#14161c}
 .app{height:100vh;background:var(--dcs-bg-app);display:flex;flex-direction:column;overflow:hidden}

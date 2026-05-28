@@ -56,9 +56,9 @@ void build_tabs(affineui::View& view, affineui::ViewTheme style) {
         fields.cls("dcs-tab").attr("aria-selected", "false");
         list.cls("dcs-tab").attr("aria-selected", "false");
     } else {
-        controls.cls("btn btn-primary");
-        fields.cls("btn btn-outline-secondary");
-        list.cls("btn btn-outline-secondary");
+        controls.cls("nav-link active");
+        fields.cls("nav-link");
+        list.cls("nav-link");
     }
 }
 
@@ -83,21 +83,52 @@ void build_controls(affineui::View& view) {
 }
 
 void build_fields(affineui::View& view) {
-    view.input("Object name", "Cylinder.042", "text", "object-name");
-    view.password("Token", "secret", "token");
-    view.input("Gain", "1.000", "number", "gain-field");
+    view.input("Object name", "Cylinder.042", "text", "object-name")
+        .on_change([](std::string_view value) {
+            std::printf("Name changed: %.*s\n",
+                        static_cast<int>(value.size()), value.data());
+        });
+    view.password("Token", "secret", "token")
+        .on_change([](std::string_view value) {
+            std::printf("Token changed: %.*s\n",
+                        static_cast<int>(value.size()), value.data());
+        });
+    view.input("Gain", "1.000", "number", "gain-field")
+        .on_change([](std::string_view value) {
+            std::printf("Gain changed: %.*s\n",
+                        static_cast<int>(value.size()), value.data());
+        });
+    view.slider("Rotation", 45.0, -180.0, 180.0, "rotation-degrees")
+        .on_change([](std::string_view value) {
+            std::printf("Rotation changed: %.*s\n",
+                        static_cast<int>(value.size()), value.data());
+        });
     view.dropdown("Mode", {"Object", "Edit", "Sculpt", "Render"},
-                  "Object", "mode");
+                  "Object", "mode")
+        .on_change([](std::string_view value) {
+            std::printf("Mode changed: %.*s\n",
+                        static_cast<int>(value.size()), value.data());
+        });
     view.button_group("Transform space", {"Local", "World", "View"},
-                      "World", "space");
-    view.textarea("Notes", "Dense native UI, browser semantics.", 3, "notes");
+                      "World", "space")
+        .on_change([](std::string_view value) {
+            std::printf("Space changed: %.*s\n",
+                        static_cast<int>(value.size()), value.data());
+        });
+    view.textarea("Notes", "Dense native UI, browser semantics.", 3, "notes")
+        .on_change([](std::string_view value) {
+            std::printf("Notes changed: %.*s\n",
+                        static_cast<int>(value.size()), value.data());
+        });
 }
 
 void build_list(affineui::View& view, affineui::ViewTheme style) {
     view.button("Append row", true, "append-row")
         .on_click([] { std::puts("Append row clicked"); });
 
-    const auto list_classes = is_decius(style) ? "dcs-card-list" : "list-group";
+    const auto list_classes = is_decius(style)
+        ? affineui::decius::class_name::list
+        : affineui::bootstrap::class_name::list;
     auto rows = view.container(list_classes, "event-list");
     const std::vector<std::string_view> titles{
         "Renderer warm",
@@ -109,7 +140,7 @@ void build_list(affineui::View& view, affineui::ViewTheme style) {
         auto row = view.button(titles[i], selected,
                                std::string{"log-row-"} + std::to_string(i));
         if (is_decius(style)) {
-            row.cls("dcs-card dcs-card--clickable")
+            row.cls(affineui::decius::class_name::list_item)
                .attr("aria-selected", selected ? "true" : "false");
         } else {
             row.cls(selected
@@ -134,19 +165,36 @@ affineui::View build_view(affineui::ViewTheme style) {
             "lede");
 
         {
-            auto tabs = view.container(is_decius(style) ? "dcs-tabs" : "btn-group",
+            auto tabs = view.container(is_decius(style) ? "dcs-tabs" : "nav nav-tabs",
                                        "tabs");
             (void) tabs;
             build_tabs(view, style);
         }
 
         {
-            auto body = view.container(is_decius(style) ? "dcs-col"
-                                                        : "d-flex flex-column gap-3",
-                                       "tab-body");
-            (void) body;
+            auto controls = view.container(
+                is_decius(style) ? affineui::decius::class_name::form
+                                 : affineui::bootstrap::class_name::form,
+                "controls-body");
+            (void) controls;
             build_controls(view);
+        }
+
+        {
+            auto fields = view.container(
+                is_decius(style) ? affineui::decius::class_name::props
+                                 : affineui::bootstrap::class_name::props,
+                "fields-body");
+            (void) fields;
             build_fields(view);
+        }
+
+        {
+            auto list = view.container(
+                is_decius(style) ? affineui::decius::class_name::column
+                                 : affineui::bootstrap::class_name::column,
+                "list-body");
+            (void) list;
             build_list(view, style);
         }
     }

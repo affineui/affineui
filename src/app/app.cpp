@@ -22,6 +22,7 @@
 #include "affineui/themes.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -135,9 +136,18 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
             }
         }
         for (const auto& cb : callbacks) {
-            cb();
-            consumed = true;
-            impl.dirty = true;
+            try {
+                cb();
+                consumed = true;
+                impl.dirty = true;
+            } catch (const std::exception& e) {
+                std::fprintf(stderr,
+                             "AffineUI click callback failed: %s\n",
+                             e.what());
+            } catch (...) {
+                std::fprintf(stderr,
+                             "AffineUI click callback failed\n");
+            }
         }
     } else if (ev.type == EventType::MouseUp) {
         (void) impl.document.take_activated_widgets();
@@ -158,13 +168,30 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
             }
         }
         for (const auto& cb : callbacks) {
-            cb.handler(cb.value);
-            consumed = true;
-            impl.dirty = true;
+            try {
+                cb.handler(cb.value);
+                consumed = true;
+                impl.dirty = true;
+            } catch (const std::exception& e) {
+                std::fprintf(stderr,
+                             "AffineUI change callback failed: %s\n",
+                             e.what());
+            } catch (...) {
+                std::fprintf(stderr,
+                             "AffineUI change callback failed\n");
+            }
         }
     }
 
     return consumed;
+}
+
+void log_event_loop_exception(const char* where, const std::exception& e) {
+    std::fprintf(stderr, "AffineUI %s failed: %s\n", where, e.what());
+}
+
+void log_event_loop_exception(const char* where) {
+    std::fprintf(stderr, "AffineUI %s failed\n", where);
 }
 
 }  // namespace detail
@@ -236,6 +263,43 @@ sapp_mouse_cursor map_cursor(int c) {
     }
 }
 
+Key key_to_affine(int sapp_keycode) {
+    switch (sapp_keycode) {
+        case SAPP_KEYCODE_ESCAPE:    return Key::Escape;
+        case SAPP_KEYCODE_TAB:       return Key::Tab;
+        case SAPP_KEYCODE_ENTER:     return Key::Enter;
+        case SAPP_KEYCODE_BACKSPACE: return Key::Backspace;
+        case SAPP_KEYCODE_DELETE:    return Key::Delete;
+        case SAPP_KEYCODE_LEFT:      return Key::ArrowLeft;
+        case SAPP_KEYCODE_RIGHT:     return Key::ArrowRight;
+        case SAPP_KEYCODE_UP:        return Key::ArrowUp;
+        case SAPP_KEYCODE_DOWN:      return Key::ArrowDown;
+        case SAPP_KEYCODE_HOME:      return Key::Home;
+        case SAPP_KEYCODE_END:       return Key::End;
+        default:                     return Key::Unknown;
+    }
+}
+
+std::string utf8_from_codepoint(std::uint32_t cp) {
+    std::string out;
+    if (cp <= 0x7Fu) {
+        out.push_back(static_cast<char>(cp));
+    } else if (cp <= 0x7FFu) {
+        out.push_back(static_cast<char>(0xC0u | (cp >> 6)));
+        out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+    } else if (cp <= 0xFFFFu) {
+        out.push_back(static_cast<char>(0xE0u | (cp >> 12)));
+        out.push_back(static_cast<char>(0x80u | ((cp >> 6) & 0x3Fu)));
+        out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+    } else if (cp <= 0x10FFFFu) {
+        out.push_back(static_cast<char>(0xF0u | (cp >> 18)));
+        out.push_back(static_cast<char>(0x80u | ((cp >> 12) & 0x3Fu)));
+        out.push_back(static_cast<char>(0x80u | ((cp >> 6) & 0x3Fu)));
+        out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+    }
+    return out;
+}
+
 // sokol_app's *_userdata_cb hooks each receive the void* we set on
 // sapp_desc.user_data. We stash the AppImpl pointer there so each
 // callback recovers state with one cast.
@@ -263,54 +327,64 @@ void cb_init(void* user) {
 
 void cb_frame(void* user) {
     auto* impl = static_cast<detail::AppImpl*>(user);
-    impl->last_dpi = sapp_dpi_scale();
-    const int w = sapp_width();
-    const int h = sapp_height();
-    const bool viewport_changed =
-        w != impl->last_w || h != impl->last_h;
-    if (impl->dirty || impl->animations_active || viewport_changed) {
-        // Sokol apps normally present through a two or three image swapchain.
-        // After one UI change, drawing only the current backbuffer can leave
-        // stale pixels in older swap images; those images can flash when the
-        // app goes quiet. Keep compositing until the whole swapchain has seen
-        // the latest retained root layer, then return to zero-idle work.
-        impl->settle_frames =
-            std::max(impl->settle_frames, detail::kSwapchainSettleFrames);
-    }
-    if (!impl->dirty && !impl->animations_active && !viewport_changed &&
-        impl->settle_frames <= 0) {
+    try {
+        impl->last_dpi = sapp_dpi_scale();
+        const int w = sapp_width();
+        const int h = sapp_height();
+        const bool viewport_changed =
+            w != impl->last_w || h != impl->last_h;
+        if (impl->dirty || impl->animations_active || viewport_changed) {
+            // Sokol apps normally present through a two or three image swapchain.
+            // After one UI change, drawing only the current backbuffer can leave
+            // stale pixels in older swap images; those images can flash when the
+            // app goes quiet. Keep compositing until the whole swapchain has seen
+            // the latest retained root layer, then return to zero-idle work.
+            impl->settle_frames =
+                std::max(impl->settle_frames, detail::kSwapchainSettleFrames);
+        }
+        if (!impl->dirty && !impl->animations_active && !viewport_changed &&
+            impl->settle_frames <= 0) {
+            if (impl->quit_requested) sapp_request_quit();
+            return;
+        }
+        impl->last_w = w;
+        impl->last_h = h;
+
+        const sg_swapchain sc = sglue_swapchain();
+        FrameTarget target{};
+        target.width = w;
+        target.height = h;
+        target.dpi_scale = impl->last_dpi;
+        target.sample_count = sc.sample_count > 0 ? sc.sample_count : 1;
+        target.clear = true;
+        target.commit = true;
+        target.metal.current_drawable = sc.metal.current_drawable;
+        target.metal.depth_stencil_texture = sc.metal.depth_stencil_texture;
+        target.metal.msaa_color_texture = sc.metal.msaa_color_texture;
+        target.d3d11.render_view = sc.d3d11.render_view;
+        target.d3d11.resolve_view = sc.d3d11.resolve_view;
+        target.d3d11.depth_stencil_view = sc.d3d11.depth_stencil_view;
+        target.wgpu.render_view = sc.wgpu.render_view;
+        target.wgpu.resolve_view = sc.wgpu.resolve_view;
+        target.wgpu.depth_stencil_view = sc.wgpu.depth_stencil_view;
+        target.gl.framebuffer = sc.gl.framebuffer;
+        impl->renderer.render_to(impl->document, target);
+        impl->animations_active = impl->renderer.stats().animations_active;
+        impl->dirty = impl->animations_active;
+        if (impl->settle_frames > 0 && !impl->dirty) {
+            --impl->settle_frames;
+        }
+
         if (impl->quit_requested) sapp_request_quit();
-        return;
+    } catch (const std::exception& e) {
+        detail::log_event_loop_exception("frame callback", e);
+        impl->exit_code = 1;
+        sapp_request_quit();
+    } catch (...) {
+        detail::log_event_loop_exception("frame callback");
+        impl->exit_code = 1;
+        sapp_request_quit();
     }
-    impl->last_w = w;
-    impl->last_h = h;
-
-    const sg_swapchain sc = sglue_swapchain();
-    FrameTarget target{};
-    target.width = w;
-    target.height = h;
-    target.dpi_scale = impl->last_dpi;
-    target.sample_count = sc.sample_count > 0 ? sc.sample_count : 1;
-    target.clear = true;
-    target.commit = true;
-    target.metal.current_drawable = sc.metal.current_drawable;
-    target.metal.depth_stencil_texture = sc.metal.depth_stencil_texture;
-    target.metal.msaa_color_texture = sc.metal.msaa_color_texture;
-    target.d3d11.render_view = sc.d3d11.render_view;
-    target.d3d11.resolve_view = sc.d3d11.resolve_view;
-    target.d3d11.depth_stencil_view = sc.d3d11.depth_stencil_view;
-    target.wgpu.render_view = sc.wgpu.render_view;
-    target.wgpu.resolve_view = sc.wgpu.resolve_view;
-    target.wgpu.depth_stencil_view = sc.wgpu.depth_stencil_view;
-    target.gl.framebuffer = sc.gl.framebuffer;
-    impl->renderer.render_to(impl->document, target);
-    impl->animations_active = impl->renderer.stats().animations_active;
-    impl->dirty = impl->animations_active;
-    if (impl->settle_frames > 0 && !impl->dirty) {
-        --impl->settle_frames;
-    }
-
-    if (impl->quit_requested) sapp_request_quit();
 }
 
 void cb_cleanup(void* user) {
@@ -325,12 +399,35 @@ void cb_cleanup(void* user) {
 void cb_event(const sapp_event* ev, void* user) {
     auto* impl = static_cast<detail::AppImpl*>(user);
     if (!ev) return;
+    try {
 
     Event aui_ev{};
     switch (ev->type) {
         case SAPP_EVENTTYPE_MOUSE_MOVE:  aui_ev.type = EventType::MouseMove; break;
         case SAPP_EVENTTYPE_MOUSE_DOWN:  aui_ev.type = EventType::MouseDown; break;
         case SAPP_EVENTTYPE_MOUSE_UP:    aui_ev.type = EventType::MouseUp;   break;
+        case SAPP_EVENTTYPE_MOUSE_SCROLL:
+            aui_ev.type = EventType::MouseWheel;
+            break;
+        case SAPP_EVENTTYPE_KEY_DOWN:
+            aui_ev.type     = EventType::KeyDown;
+            aui_ev.key_code = static_cast<int>(ev->key_code);
+            aui_ev.key      = key_to_affine(ev->key_code);
+            (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
+            return;
+        case SAPP_EVENTTYPE_KEY_UP:
+            aui_ev.type     = EventType::KeyUp;
+            aui_ev.key_code = static_cast<int>(ev->key_code);
+            aui_ev.key      = key_to_affine(ev->key_code);
+            (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
+            return;
+        case SAPP_EVENTTYPE_CHAR:
+            aui_ev.type = EventType::TextInput;
+            aui_ev.text = utf8_from_codepoint(ev->char_code);
+            if (!aui_ev.text.empty()) {
+                (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
+            }
+            return;
         case SAPP_EVENTTYPE_RESIZED:
             aui_ev.type = EventType::Resize;
             detail::dispatch_loaded_view_event(*impl, aui_ev);
@@ -356,6 +453,10 @@ void cb_event(const sapp_event* ev, void* user) {
             default: break;
         }
     }
+    if (ev->type == SAPP_EVENTTYPE_MOUSE_SCROLL) {
+        aui_ev.wheel_dx = ev->scroll_x;
+        aui_ev.wheel_dy = ev->scroll_y;
+    }
 
     const bool consumed = detail::dispatch_loaded_view_event(*impl, aui_ev);
     (void) consumed;
@@ -369,6 +470,15 @@ void cb_event(const sapp_event* ev, void* user) {
         const int cur = impl->document.hovered_cursor();
         sapp_set_mouse_cursor(map_cursor(cur));
         impl->last_cursor = cur;
+    }
+    } catch (const std::exception& e) {
+        detail::log_event_loop_exception("event callback", e);
+        impl->exit_code = 1;
+        sapp_request_quit();
+    } catch (...) {
+        detail::log_event_loop_exception("event callback");
+        impl->exit_code = 1;
+        sapp_request_quit();
     }
 }
 

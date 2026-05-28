@@ -77,6 +77,19 @@ class bootstrap:
         light = "light"
         dark = "dark"
 
+    class class_name:
+        form = "aui-bs-form"
+        props = "aui-bs-props"
+        column = "aui-bs-col"
+        row = "aui-bs-row"
+        note = "form-text"
+        button_row = "aui-bs-btn-row"
+        list = "list-group"
+        list_item = "list-group-item"
+        tree = "list-group"
+        tree_row = "list-group-item"
+        table = "table"
+
 
 class decius:
     """Decius command-tree selector constants."""
@@ -104,6 +117,19 @@ class decius:
         compact = "compact"
         comfortable = "comfortable"
         spacious = "spacious"
+
+    class class_name:
+        form = "dcs-form"
+        props = "dcs-props"
+        column = "dcs-col"
+        row = "dcs-row"
+        note = "dcs-note"
+        button_row = "dcs-btn-row"
+        list = "dcs-list"
+        list_item = "dcs-list__item"
+        tree = "dcs-tree"
+        tree_row = "dcs-tree__row"
+        table = "dcs-table"
 
 
 def document(html: str = "", css: str = "", *, width: int = 1024, height: int = 0) -> Document:

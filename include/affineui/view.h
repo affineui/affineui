@@ -54,6 +54,20 @@ namespace theme {
 inline constexpr std::string_view light{"light"};
 inline constexpr std::string_view dark{"dark"};
 }  // namespace theme
+
+namespace class_name {
+inline constexpr std::string_view form{"aui-bs-form"};
+inline constexpr std::string_view props{"aui-bs-props"};
+inline constexpr std::string_view column{"aui-bs-col"};
+inline constexpr std::string_view row{"aui-bs-row"};
+inline constexpr std::string_view note{"form-text"};
+inline constexpr std::string_view button_row{"aui-bs-btn-row"};
+inline constexpr std::string_view list{"list-group"};
+inline constexpr std::string_view list_item{"list-group-item"};
+inline constexpr std::string_view tree{"list-group"};
+inline constexpr std::string_view tree_row{"list-group-item"};
+inline constexpr std::string_view table{"table"};
+}  // namespace class_name
 }  // namespace bootstrap
 
 namespace decius {
@@ -84,6 +98,20 @@ inline constexpr std::string_view compact{"compact"};
 inline constexpr std::string_view comfortable{"comfortable"};
 inline constexpr std::string_view spacious{"spacious"};
 }  // namespace density
+
+namespace class_name {
+inline constexpr std::string_view form{"dcs-form"};
+inline constexpr std::string_view props{"dcs-props"};
+inline constexpr std::string_view column{"dcs-col"};
+inline constexpr std::string_view row{"dcs-row"};
+inline constexpr std::string_view note{"dcs-note"};
+inline constexpr std::string_view button_row{"dcs-btn-row"};
+inline constexpr std::string_view list{"dcs-list"};
+inline constexpr std::string_view list_item{"dcs-list__item"};
+inline constexpr std::string_view tree{"dcs-tree"};
+inline constexpr std::string_view tree_row{"dcs-tree__row"};
+inline constexpr std::string_view table{"dcs-table"};
+}  // namespace class_name
 }  // namespace decius
 
 enum class WidgetKind {

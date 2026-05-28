@@ -42,6 +42,83 @@ bool has_text_patch(const affineui::RemotePatchQueue& queue,
         });
 }
 
+affineui::Point find_hovered_widget(affineui::App& app,
+                                    std::string_view name,
+                                    int width,
+                                    int height) {
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    for (int y = 0; y < height; y += 4) {
+        for (int x = 0; x < width; x += 4) {
+            move.pos = {x, y};
+            app.dispatch(move);
+            const auto chain = app.document().hovered_info_chain();
+            const bool found = std::any_of(chain.begin(), chain.end(),
+                [&](const affineui::Document::HoverInfo& info) {
+                    return std::any_of(info.attrs.begin(), info.attrs.end(),
+                        [&](const auto& attr) {
+                            return attr.first == "data-aui-name" &&
+                                   attr.second == name;
+                        });
+                });
+            if (found) return move.pos;
+        }
+    }
+    return {-1, -1};
+}
+
+affineui::Point find_hovered_attr(affineui::App& app,
+                                  std::string_view attr_name,
+                                  int width,
+                                  int height) {
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    for (int y = 0; y < height; y += 4) {
+        for (int x = 0; x < width; x += 4) {
+            move.pos = {x, y};
+            app.dispatch(move);
+            const auto chain = app.document().hovered_info_chain();
+            const bool found = std::any_of(chain.begin(), chain.end(),
+                [&](const affineui::Document::HoverInfo& info) {
+                    return std::any_of(info.attrs.begin(), info.attrs.end(),
+                        [&](const auto& attr) {
+                            return attr.first == attr_name;
+                        });
+                });
+            if (found) return move.pos;
+        }
+    }
+    return {-1, -1};
+}
+
+affineui::Point find_hovered_tag_attr(affineui::App& app,
+                                      std::string_view tag,
+                                      std::string_view attr_name,
+                                      std::string_view attr_value,
+                                      int width,
+                                      int height) {
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    for (int y = 0; y < height; y += 4) {
+        for (int x = 0; x < width; x += 4) {
+            move.pos = {x, y};
+            app.dispatch(move);
+            const auto chain = app.document().hovered_info_chain();
+            const bool found = std::any_of(chain.begin(), chain.end(),
+                [&](const affineui::Document::HoverInfo& info) {
+                    if (info.tag != tag) return false;
+                    return std::any_of(info.attrs.begin(), info.attrs.end(),
+                        [&](const auto& attr) {
+                            return attr.first == attr_name &&
+                                   attr.second == attr_value;
+                        });
+                });
+            if (found) return move.pos;
+        }
+    }
+    return {-1, -1};
+}
+
 }  // namespace
 
 TEST_CASE("View emits remote create patches on first reconcile") {
@@ -145,6 +222,7 @@ TEST_CASE("View emits framework-specific field widgets") {
 
     CHECK(bootstrap.diagnostics().empty());
     auto html = bootstrap.to_html_fragment();
+    CHECK(html.find("aui-bs-field") != std::string::npos);
     CHECK(html.find("form-control") != std::string::npos);
     CHECK(html.find("form-select") != std::string::npos);
     CHECK(html.find("btn-group") != std::string::npos);
@@ -325,6 +403,175 @@ TEST_CASE("App dispatch invokes command widget change callbacks") {
     up.pos = move.pos;
     CHECK(app.dispatch(up));
     CHECK(value == "true");
+}
+
+TEST_CASE("App dispatch invokes command knob change callbacks") {
+    for (const auto theme :
+         {affineui::ViewTheme::Bootstrap, affineui::ViewTheme::Decius}) {
+        affineui::View view{theme};
+        std::string value;
+
+        view.begin();
+        view.knob("Shape", 0.42, 0.0, 1.0, false, "shape")
+            .on_change([&](std::string_view next) {
+                value = std::string(next);
+            });
+        view.end();
+
+        affineui::App::Config cfg;
+        cfg.asset_folders = {"examples", "."};
+        affineui::App app{cfg};
+        app.load_view(view);
+        app.document().layout(320, 200);
+
+        const auto knob = theme == affineui::ViewTheme::Bootstrap
+            ? find_hovered_attr(app, "data-aui-knob", 320, 200)
+            : find_hovered_attr(app, "data-dcs-knob", 320, 200);
+        REQUIRE(knob.x >= 0);
+
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = knob;
+        app.dispatch(down);
+
+        affineui::Event drag{};
+        drag.type = affineui::EventType::MouseMove;
+        drag.pos = {knob.x, knob.y - 36};
+        CHECK(app.dispatch(drag));
+
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = drag.pos;
+        app.dispatch(up);
+
+        REQUIRE_FALSE(value.empty());
+        CHECK(std::stod(value) > 0.42);
+    }
+}
+
+TEST_CASE("App dispatch invokes command text input change callbacks") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    std::string value;
+
+    view.begin();
+    view.input("Name", "Ada", "text", "name")
+        .on_change([&](std::string_view next) { value = std::string(next); });
+    view.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = {"examples", "."};
+    affineui::App app{cfg};
+    app.load_view(view);
+    app.document().layout(320, 160);
+
+    const auto input = find_hovered_tag_attr(app, "input", "data-aui-name",
+                                             "name", 320, 160);
+    REQUIRE(input.x >= 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = input;
+    app.dispatch(down);
+
+    affineui::Event text{};
+    text.type = affineui::EventType::TextInput;
+    text.text = "X";
+    CHECK(app.dispatch(text));
+    CHECK(value == "AdaX");
+}
+
+TEST_CASE("App dispatch supports numeric input horizontal drag") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    std::string value;
+
+    view.begin();
+    view.input("Gain", "1.0", "number", "gain")
+        .on_change([&](std::string_view next) { value = std::string(next); });
+    view.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = {"examples", "."};
+    affineui::App app{cfg};
+    app.load_view(view);
+    app.document().layout(320, 160);
+
+    const auto input = find_hovered_tag_attr(app, "input", "data-aui-name",
+                                             "gain", 320, 160);
+    REQUIRE(input.x >= 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = input;
+    app.dispatch(down);
+
+    affineui::Event drag{};
+    drag.type = affineui::EventType::MouseMove;
+    drag.pos = {input.x + 40, input.y};
+    CHECK(app.dispatch(drag));
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = drag.pos;
+    app.dispatch(up);
+
+    REQUIRE_FALSE(value.empty());
+    CHECK(std::stod(value) > 1.0);
+}
+
+TEST_CASE("App dispatch invokes command dropdown and button-group callbacks") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    std::string mode;
+    std::string space;
+
+    view.begin();
+    view.dropdown("Mode", {"Object", "Edit", "Render"}, "Object", "mode")
+        .on_change([&](std::string_view next) { mode = std::string(next); });
+    view.button_group("Space", {"Local", "World"}, "World", "space")
+        .on_change([&](std::string_view next) { space = std::string(next); });
+    view.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = {"examples", "."};
+    affineui::App app{cfg};
+    app.load_view(view);
+    app.document().layout(420, 420);
+
+    auto click_at = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        app.dispatch(down);
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        app.dispatch(up);
+    };
+
+    const auto select = find_hovered_tag_attr(app, "select", "data-aui-name",
+                                              "mode", 420, 420);
+    REQUIRE(select.x >= 0);
+    click_at(select);
+    app.document().layout(420, 420);
+
+    const auto edit = find_hovered_tag_attr(app, "button", "value",
+                                            "Edit", 420, 420);
+    REQUIRE(edit.x >= 0);
+    click_at(edit);
+    CHECK(mode == "Edit");
+    app.document().layout(420, 420);
+
+    const auto local = find_hovered_tag_attr(app, "button", "value",
+                                             "Local", 420, 420);
+    REQUIRE(local.x >= 0);
+    click_at(local);
+    CHECK(space == "Local");
 }
 
 TEST_CASE("View reconcile reuses nodes and emits property patches") {

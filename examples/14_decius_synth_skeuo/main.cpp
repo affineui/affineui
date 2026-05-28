@@ -34,7 +34,7 @@ std::string render(const SkeuoState& s) {
     std::ostringstream h;
     h << R"HTML(
 <!doctype html><html><head><meta charset="utf-8">
-<link rel="stylesheet" href="frameworks/css/decius-css-0.4.1.bundle.min.css">
+<link rel="stylesheet" href="frameworks/css/decius-css-0.5.2.bundle.min.css">
 <style>
 body{margin:0;background:#101219}
 .bench{min-height:100vh;background:radial-gradient(circle at 48% -20%,#34302a,#0e1015 72%);padding:24px;overflow:hidden}

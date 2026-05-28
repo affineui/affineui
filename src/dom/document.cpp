@@ -225,6 +225,7 @@ struct KeyframeBlock {
 enum class LiveControlKind : std::uint8_t {
     None,
     RangeInput,
+    NumericInput,
     AuiKnob,
     DeciusSlider,
     DeciusFader,
@@ -296,6 +297,8 @@ struct DocumentImpl {
         double           min{0.0};
         double           max{1.0};
         double           start_value{0.0};
+        double           step{0.01};
+        int              start_x{0};
         int              start_y{0};
         bool             bipolar{false};
     } live_drag;
@@ -6225,6 +6228,7 @@ bool attribute_can_affect_selector_matching(std::string_view name) {
     // depend on. The long-term version is a selector attribute-dependency
     // index, but this keeps hot control drags from forcing a full cascade.
     return name == "class" || name == "id" || name == "type" ||
+           name == "hidden" ||
            name == "role" || name == "checked" || name == "disabled" ||
            starts_with(name, "aria-") || starts_with(name, "data-");
 }
@@ -6713,6 +6717,7 @@ lxb_dom_element_t* first_descendant_input(lxb_dom_element_t* elem) {
 }
 
 lxb_dom_element_t* nearest_checkbox_wrapper(lxb_dom_element_t* elem) {
+    lxb_dom_element_t* decius_candidate = nullptr;
     for (auto* node = elem ? lxb_dom_interface_node(elem) : nullptr;
          node != nullptr; node = node->parent) {
         if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
@@ -6725,9 +6730,12 @@ lxb_dom_element_t* nearest_checkbox_wrapper(lxb_dom_element_t* elem) {
                 classes.end() ||
             std::find(classes.begin(), classes.end(), "dcs-switch") !=
                 classes.end();
-        if (checkbox_widget || decius_widget) return candidate;
+        if (checkbox_widget) return candidate;
+        if (decius_widget && decius_candidate == nullptr) {
+            decius_candidate = candidate;
+        }
     }
-    return elem;
+    return decius_candidate != nullptr ? decius_candidate : elem;
 }
 
 bool set_attribute_on_element(detail::DocumentImpl& impl,
@@ -6758,6 +6766,8 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
     const bool recollect_generated_subtree =
         selector_affecting &&
         generated_content_depends_on_attribute(impl, name);
+    const bool recollect_box_tree =
+        name == "hidden" || name == "style";
 
     if (!lxb_dom_element_set_attribute(elem, as_lxb(name), name.size(),
                                        as_lxb(value), value.size())) {
@@ -6777,7 +6787,7 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
             refresh_block_metadata_from_element(block, elem);
         }
 
-        if (recollect_generated_subtree) {
+        if (recollect_generated_subtree || recollect_box_tree) {
             recollect_blocks_from_current_dom(impl);
             mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
                                      /*needs_layout=*/true);
@@ -6833,6 +6843,8 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
     const bool recollect_generated_subtree =
         selector_affecting &&
         generated_content_depends_on_attribute(impl, name);
+    const bool recollect_box_tree =
+        name == "hidden" || name == "style";
 
     if (lxb_dom_element_remove_attribute(elem, as_lxb(name), name.size())
             != LXB_STATUS_OK) {
@@ -6852,7 +6864,7 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
             refresh_block_metadata_from_element(block, elem);
         }
 
-        if (recollect_generated_subtree) {
+        if (recollect_generated_subtree || recollect_box_tree) {
             recollect_blocks_from_current_dom(impl);
             mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
                                      /*needs_layout=*/true);
@@ -7074,6 +7086,9 @@ LiveControlKind live_control_kind_for_block(const Block& block) {
     if (block.tag == "input" && block.input_type == "range") {
         return LiveControlKind::RangeInput;
     }
+    if (block.tag == "input" && block.input_type == "number") {
+        return LiveControlKind::NumericInput;
+    }
     if (block_has_attr(block, "data-aui-knob")) {
         return LiveControlKind::AuiKnob;
     }
@@ -7105,13 +7120,24 @@ bool find_live_control_at(detail::DocumentImpl& impl,
         out.elem = elem;
         out.block_idx = idx;
         out.bounds = block_border_visual_rect(impl, idx);
+        const bool has_min_attr = has_attr(elem, "min") ||
+                                  has_attr(elem, "data-min");
+        const bool has_max_attr = has_attr(elem, "max") ||
+                                  has_attr(elem, "data-max");
         out.min = element_attr_double(elem, "min",
                   element_attr_double(elem, "data-min", 0.0));
         out.max = element_attr_double(elem, "max",
                   element_attr_double(elem, "data-max", 1.0));
-        if (out.max <= out.min) out.max = out.min + 1.0;
         out.start_value = element_attr_double(
             elem, "value", element_attr_double(elem, "data-value", out.min));
+        if (kind == LiveControlKind::NumericInput) {
+            if (!has_min_attr) out.min = out.start_value - 100000.0;
+            if (!has_max_attr) out.max = out.start_value + 100000.0;
+            out.step = element_attr_double(
+                elem, "step", element_attr_double(elem, "data-step", 0.01));
+            if (out.step <= 0.0) out.step = 0.01;
+        }
+        if (out.max <= out.min) out.max = out.min + 1.0;
         out.bipolar = has_attr(elem, "data-bipolar");
         return true;
     }
@@ -7126,6 +7152,9 @@ bool update_active_live_control(detail::DocumentImpl& impl, const Event& ev) {
     if (drag.kind == LiveControlKind::RangeInput ||
         drag.kind == LiveControlKind::DeciusSlider) {
         value = value_from_x(drag.bounds, ev.pos.x, drag.min, drag.max);
+    } else if (drag.kind == LiveControlKind::NumericInput) {
+        value = drag.start_value +
+                static_cast<double>(ev.pos.x - drag.start_x) * drag.step;
     } else if (drag.kind == LiveControlKind::DeciusFader) {
         value = value_from_y(drag.bounds, ev.pos.y, drag.min, drag.max);
     } else if (drag.kind == LiveControlKind::AuiKnob ||
@@ -7175,6 +7204,9 @@ bool toggle_checkbox_control(detail::DocumentImpl& impl, int idx,
     const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
     lxb_dom_element_t* input =
         block.tag == "input" ? elem : first_descendant_input(elem);
+    lxb_dom_element_t* visual_check = block_has_class(block, "dcs-check")
+        ? elem
+        : first_descendant_with_class(elem, "dcs-check");
     const bool radio = input && attr_string(input, "type") == "radio";
     const bool old_checked = input
         ? has_attr(input, "checked")
@@ -7195,9 +7227,20 @@ bool toggle_checkbox_control(detail::DocumentImpl& impl, int idx,
             ? (set_attribute_on_element(impl, elem, "aria-checked", "true") || changed)
             : (remove_attribute_on_element(impl, elem, "aria-checked") || changed);
     }
+    if (visual_check != nullptr && visual_check != elem) {
+        changed = checked
+            ? (set_attribute_on_element(impl, visual_check, "aria-checked", "true") || changed)
+            : (remove_attribute_on_element(impl, visual_check, "aria-checked") || changed);
+    }
+    auto* wrapper = nearest_checkbox_wrapper(elem);
+    if (wrapper != nullptr && wrapper != elem &&
+        attr_string(wrapper, "data-aui-widget") == "checkbox") {
+        changed = checked
+            ? (set_attribute_on_element(impl, wrapper, "aria-checked", "true") || changed)
+            : (remove_attribute_on_element(impl, wrapper, "aria-checked") || changed);
+    }
     if (changed) {
-        emit_widget_change(impl, nearest_checkbox_wrapper(elem),
-                           checked ? "true" : "false");
+        emit_widget_change(impl, wrapper, checked ? "true" : "false");
     }
     return changed;
 }
@@ -7245,6 +7288,205 @@ bool activate_button_control(detail::DocumentImpl& impl,
     if (name.empty()) return false;
     impl.activated_widgets.push_back(std::move(name));
     return true;
+}
+
+bool find_button_group_option_at(detail::DocumentImpl& impl,
+                                 int from_idx,
+                                 lxb_dom_element_t*& out_group,
+                                 lxb_dom_element_t*& out_option) {
+    out_group = nullptr;
+    out_option = nullptr;
+    for (int idx = from_idx;
+         idx >= 0 && idx < static_cast<int>(impl.blocks.size());
+         idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+        auto* elem = element_for_block(impl, idx);
+        if (!elem) continue;
+        if (!out_option && block.tag == "button" &&
+            block_has_attr(block, "value") && !block.is_disabled) {
+            out_option = elem;
+        }
+        const auto* widget = block_attr_value(block, "data-aui-widget");
+        if (widget && *widget == "button-group") {
+            out_group = elem;
+            return out_option != nullptr;
+        }
+    }
+    out_group = nullptr;
+    out_option = nullptr;
+    return false;
+}
+
+bool class_list_contains(lxb_dom_element_t* elem, std::string_view cls) {
+    const auto classes = split_classes(attr_string(elem, "class"));
+    return std::find(classes.begin(), classes.end(), cls) != classes.end();
+}
+
+std::string class_list_set(lxb_dom_element_t* elem,
+                           std::string_view cls,
+                           bool present) {
+    auto classes = split_classes(attr_string(elem, "class"));
+    auto it = std::find(classes.begin(), classes.end(), cls);
+    if (present && it == classes.end()) {
+        classes.emplace_back(cls);
+    } else if (!present && it != classes.end()) {
+        classes.erase(it);
+    }
+    std::string out;
+    for (const auto& c : classes) {
+        if (!out.empty()) out.push_back(' ');
+        out += c;
+    }
+    return out;
+}
+
+bool update_button_group_option_states(detail::DocumentImpl& impl,
+                                       lxb_dom_element_t* elem,
+                                       std::string_view selected) {
+    if (!elem) return false;
+    bool changed = false;
+    if (tag_name(elem) == "button" && has_attr(elem, "value")) {
+        const bool active = attr_string(elem, "value") == selected;
+        changed = active
+            ? (set_attribute_on_element(impl, elem, "aria-pressed", "true") || changed)
+            : (remove_attribute_on_element(impl, elem, "aria-pressed") || changed);
+        if (class_list_contains(elem, "btn")) {
+            changed = set_attribute_on_element(
+                impl, elem, "class",
+                active ? "btn btn-primary" : "btn btn-outline-primary") || changed;
+        }
+    }
+    for (auto* child = lxb_dom_node_first_child(lxb_dom_interface_node(elem));
+         child != nullptr; child = lxb_dom_node_next(child)) {
+        if (child->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        changed = update_button_group_option_states(
+            impl, lxb_dom_interface_element(child), selected) || changed;
+    }
+    return changed;
+}
+
+bool update_button_group_control(detail::DocumentImpl& impl,
+                                 lxb_dom_element_t* group,
+                                 lxb_dom_element_t* option) {
+    if (!group || !option) return false;
+    const auto selected = attr_string(option, "value");
+    if (selected.empty()) return false;
+    bool changed =
+        set_attribute_on_element(impl, group, "data-value", selected);
+    changed = update_button_group_option_states(impl, group, selected) || changed;
+    if (changed) emit_widget_change(impl, group, selected);
+    return changed;
+}
+
+bool find_dropdown_control_at(detail::DocumentImpl& impl,
+                              int from_idx,
+                              lxb_dom_element_t*& out_group,
+                              lxb_dom_element_t*& out_select,
+                              lxb_dom_element_t*& out_option) {
+    out_group = nullptr;
+    out_select = nullptr;
+    out_option = nullptr;
+    for (int idx = from_idx;
+         idx >= 0 && idx < static_cast<int>(impl.blocks.size());
+         idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+        auto* elem = element_for_block(impl, idx);
+        if (!elem) continue;
+        if (!out_option && block.tag == "button" &&
+            block_has_attr(block, "value") &&
+            block_attr_value(block, "role") &&
+            *block_attr_value(block, "role") == "option" &&
+            !block.is_disabled) {
+            out_option = elem;
+        }
+        if (!out_select && block.tag == "select" && !block.is_disabled) {
+            out_select = elem;
+        }
+        const auto* widget = block_attr_value(block, "data-aui-widget");
+        if (widget && *widget == "dropdown") {
+            out_group = elem;
+            return out_select != nullptr || out_option != nullptr;
+        }
+    }
+    out_group = nullptr;
+    out_select = nullptr;
+    out_option = nullptr;
+    return false;
+}
+
+bool update_dropdown_selection_states(detail::DocumentImpl& impl,
+                                      lxb_dom_element_t* elem,
+                                      std::string_view selected) {
+    if (!elem) return false;
+    bool changed = false;
+    const auto tag = tag_name(elem);
+    if (tag == "select") {
+        changed =
+            set_attribute_on_element(impl, elem, "value", selected) || changed;
+    } else if (tag == "option" && has_attr(elem, "value")) {
+        const bool active = attr_string(elem, "value") == selected;
+        changed = active
+            ? (set_attribute_on_element(impl, elem, "selected", "selected") || changed)
+            : (remove_attribute_on_element(impl, elem, "selected") || changed);
+    } else if (tag == "button" && has_attr(elem, "value") &&
+               attr_string(elem, "role") == "option") {
+        const bool active = attr_string(elem, "value") == selected;
+        changed = active
+            ? (set_attribute_on_element(impl, elem, "aria-selected", "true") || changed)
+            : (remove_attribute_on_element(impl, elem, "aria-selected") || changed);
+        if (class_list_contains(elem, "dropdown-item")) {
+            changed = set_attribute_on_element(
+                impl, elem, "class", class_list_set(elem, "active", active)) || changed;
+        }
+        if (class_list_contains(elem, "dcs-menu__item")) {
+            changed = set_attribute_on_element(
+                impl, elem, "class",
+                class_list_set(elem, "dcs-menu__item--active", active)) || changed;
+        }
+    }
+    for (auto* child = lxb_dom_node_first_child(lxb_dom_interface_node(elem));
+         child != nullptr; child = lxb_dom_node_next(child)) {
+        if (child->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        changed = update_dropdown_selection_states(
+            impl, lxb_dom_interface_element(child), selected) || changed;
+    }
+    return changed;
+}
+
+bool hide_dropdown_menu(detail::DocumentImpl& impl, lxb_dom_element_t* group) {
+    auto* menu = first_descendant_with_class(group, "aui-select__menu");
+    if (!menu) return false;
+    bool changed = set_attribute_on_element(impl, menu, "hidden", "");
+    changed = remove_attribute_on_element(impl, menu, "style") || changed;
+    return changed;
+}
+
+bool toggle_dropdown_menu(detail::DocumentImpl& impl, lxb_dom_element_t* group) {
+    auto* menu = first_descendant_with_class(group, "aui-select__menu");
+    if (!menu) return false;
+    if (!has_attr(menu, "hidden")) {
+        return hide_dropdown_menu(impl, group);
+    }
+    bool changed = remove_attribute_on_element(impl, menu, "hidden");
+    changed = set_attribute_on_element(
+        impl, menu, "style",
+        "display:flex;position:static;flex-direction:column;margin-top:4px") ||
+        changed;
+    return changed;
+}
+
+bool update_dropdown_control(detail::DocumentImpl& impl,
+                             lxb_dom_element_t* group,
+                             lxb_dom_element_t* option) {
+    if (!group || !option) return false;
+    const auto selected = attr_string(option, "value");
+    if (selected.empty()) return false;
+    bool changed =
+        set_attribute_on_element(impl, group, "data-value", selected);
+    changed = update_dropdown_selection_states(impl, group, selected) || changed;
+    changed = hide_dropdown_menu(impl, group) || changed;
+    if (changed) emit_widget_change(impl, group, selected);
+    return changed;
 }
 
 // Generic chain-refresh helper used by both :hover (chain follows the
@@ -7463,6 +7705,7 @@ DispatchResult Document::dispatch(const Event& ev) {
                 ev.button == MouseButton::Left &&
                 find_live_control_at(*impl_, impl_->hovered_idx,
                                      impl_->live_drag)) {
+                impl_->live_drag.start_x = ev.pos.x;
                 impl_->live_drag.start_y = ev.pos.y;
                 if (impl_->live_drag.kind != LiveControlKind::AuiKnob &&
                     impl_->live_drag.kind != LiveControlKind::DeciusKnob &&
@@ -7507,7 +7750,42 @@ DispatchResult Document::dispatch(const Event& ev) {
                     result.redraw_requested = true;
                     toggled_checkbox = true;
                 }
+                bool changed_button_group = false;
+                bool changed_dropdown = false;
                 if (!toggled_checkbox) {
+                    lxb_dom_element_t* dropdown_group = nullptr;
+                    lxb_dom_element_t* dropdown_select = nullptr;
+                    lxb_dom_element_t* dropdown_option = nullptr;
+                    if (find_dropdown_control_at(*impl_, impl_->hovered_idx,
+                                                 dropdown_group,
+                                                 dropdown_select,
+                                                 dropdown_option)) {
+                        if (dropdown_option &&
+                            update_dropdown_control(*impl_, dropdown_group,
+                                                    dropdown_option)) {
+                            result.redraw_requested = true;
+                            changed_dropdown = true;
+                        } else if (dropdown_select &&
+                                   toggle_dropdown_menu(*impl_,
+                                                        dropdown_group)) {
+                            result.redraw_requested = true;
+                            changed_dropdown = true;
+                        }
+                    }
+                }
+                if (!toggled_checkbox && !changed_dropdown) {
+                    lxb_dom_element_t* group_elem = nullptr;
+                    lxb_dom_element_t* option_elem = nullptr;
+                    if (find_button_group_option_at(*impl_, impl_->hovered_idx,
+                                                    group_elem, option_elem) &&
+                        update_button_group_control(*impl_, group_elem,
+                                                    option_elem)) {
+                        result.redraw_requested = true;
+                        changed_button_group = true;
+                    }
+                }
+                if (!toggled_checkbox && !changed_dropdown &&
+                    !changed_button_group) {
                     lxb_dom_element_t* button_elem = nullptr;
                     if (find_button_control_at(*impl_, impl_->hovered_idx,
                                                button_elem) &&
@@ -7542,6 +7820,11 @@ DispatchResult Document::dispatch(const Event& ev) {
                     }
                     mark_live_mutation_dirty(*impl_, idx, old_rect,
                                              /*needs_layout=*/true);
+                    if (auto* elem = element_for_block(*impl_, idx)) {
+                        emit_widget_change(
+                            *impl_, elem,
+                            control->placeholder_visible ? "" : control->text);
+                    }
                     result.redraw_requested = true;
                 }
             }
@@ -7559,6 +7842,9 @@ DispatchResult Document::dispatch(const Event& ev) {
                 control->text += ev.text;
                 mark_live_mutation_dirty(*impl_, idx, old_rect,
                                          /*needs_layout=*/true);
+                if (auto* elem = element_for_block(*impl_, idx)) {
+                    emit_widget_change(*impl_, elem, control->text);
+                }
                 result.redraw_requested = true;
             }
             break;

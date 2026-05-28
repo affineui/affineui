@@ -77,6 +77,8 @@ def test_view_panel_uses_framework_selectors():
     assert not bootstrap.diagnostics()
     assert "bootstrap-5.3.8.min.css" in bootstrap_html
     assert "card shadow-sm" in bootstrap_html
+    assert "aui-bs-form" in bootstrap_html
+    assert "aui-bs-field" in bootstrap_html
     assert "form-control" in bootstrap_html
     assert 'data-aui-size="md"' in bootstrap_html
 
@@ -89,7 +91,7 @@ def test_view_panel_uses_framework_selectors():
     decius.end()
     decius_html = decius.to_html_document()
     assert not decius.diagnostics()
-    assert "decius-css-0.4.1.bundle.min.css" in decius_html
+    assert "decius-css-0.5.2.bundle.min.css" in decius_html
     assert "dcs-panel dcs-panel--bordered" in decius_html
     assert "dcs-input" in decius_html
     assert 'data-aui-style="flat"' in decius_html
