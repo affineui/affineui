@@ -119,6 +119,11 @@ struct TextLayoutEntry {
     std::vector<float> line_widths;
     float css_line_height{1.0f};
     float natural_line_height{1.0f};
+    int text_x{0};
+    int text_y{0};
+    float content_w{1.0f};
+    Painter::TextAlign align{Painter::TextAlign::Left};
+    bool nowrap{false};
 };
 
 struct TextControlGeometry {
@@ -391,7 +396,7 @@ struct DocumentImpl {
                        std::pair<std::size_t, std::size_t>>
         live_text_selections;
     std::unordered_map<std::uint64_t, TextLayoutEntry> text_layout_cache;
-    Painter*                                  text_measurer{nullptr};  // non-owning
+    std::unordered_map<lxb_dom_node_t*, std::uint64_t> text_layout_signatures;
     int                                       text_selection_drag_idx{-1};
     std::size_t                               text_selection_drag_anchor{0};
     bool                                      last_text_click_valid{false};
@@ -3809,6 +3814,7 @@ void Document::set_html(std::string_view html) {
     impl_->live_text_carets.clear();
     impl_->live_text_selections.clear();
     impl_->text_layout_cache.clear();
+    impl_->text_layout_signatures.clear();
     impl_->text_selection_drag_idx = -1;
     impl_->last_text_click_valid = false;
     impl_->hovered_chain.clear();
@@ -3987,6 +3993,19 @@ void attach_matching_media_blocks_for_viewport(detail::DocumentImpl& impl) {
 #endif
 }  // namespace
 
+namespace {
+#if !defined(AFFINEUI_STUB_BUILD)
+TextControlGeometry text_control_geometry(const detail::DocumentImpl& impl,
+                                          int idx,
+                                          Painter& painter);
+TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
+                                          int idx,
+                                          const TextControlGeometry& g,
+                                          const Block& block,
+                                          Painter& painter);
+#endif
+}  // namespace
+
 void Document::layout(int viewport_width, int viewport_height,
                       Painter* measurer) {
     // Layout delegates to Yoga via src/layout/yoga_adapter. Text
@@ -4001,9 +4020,6 @@ void Document::layout(int viewport_width, int viewport_height,
     // demos or applications that want a gutter author it explicitly.
 
 #if !defined(AFFINEUI_STUB_BUILD)
-    if (measurer != nullptr) {
-        impl_->text_measurer = measurer;
-    }
     // Viewport-dependent cascade: this is the one call site that knows
     // the real CSS viewport. Rebuild the parsed HTML/CSS attachment graph
     // only when the active @media set changes. Ordinary resize ticks still
@@ -4442,6 +4458,19 @@ void Document::layout(int viewport_width, int viewport_height,
     }
 
 #if !defined(AFFINEUI_STUB_BUILD)
+    if (measurer != nullptr) {
+        for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
+            auto& b = impl_->blocks[i];
+            if (!b.text_control || b.placeholder_visible) continue;
+            const auto g = text_control_geometry(
+                *impl_, static_cast<int>(i), *measurer);
+            ensure_text_layout_entry(
+                *impl_, static_cast<int>(i), g, b, *measurer);
+        }
+    }
+#endif
+
+#if !defined(AFFINEUI_STUB_BUILD)
     if (!impl_->pending_dirty_roots.empty()) {
         for (const int root_idx : impl_->pending_dirty_roots) {
             if (root_idx >= 0 &&
@@ -4474,6 +4503,8 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
                                           Painter& painter);
 float aligned_line_origin_x(const TextControlGeometry& g,
                             const TextLayoutEntry& entry,
+                            std::uint16_t line);
+float aligned_line_origin_x(const TextLayoutEntry& entry,
                             std::uint16_t line);
 #endif
 }  // namespace
@@ -4717,7 +4748,6 @@ void Document::draw(Painter& painter) {
     // color is the window's, not the page's â€” without this, body's
 // bg-color silently does nothing.
 #if !defined(AFFINEUI_STUB_BUILD)
-    impl_->text_measurer = &painter;
     ensure_font_faces_registered(*impl_, painter);
 
     if (impl_->doc) {
@@ -5637,8 +5667,8 @@ void Document::draw(Painter& painter) {
             const float draw_max_w = force_single_line ? 1e6f
                                    : (is_justify ? content_w
                                                  : content_w + wrap_slack);
-            if (b.text_control && !b.placeholder_visible &&
-                has_text_selection(b)) {
+            const TextLayoutEntry* cached_text_layout = nullptr;
+            if (b.text_control && !b.placeholder_visible) {
                 TextControlGeometry g{};
                 g.font = font;
                 g.text_x = text_x;
@@ -5648,8 +5678,11 @@ void Document::draw(Painter& painter) {
                 g.line_height_mult = line_height_mult;
                 g.align = paint_align;
                 g.nowrap = force_single_line;
-                const auto& text_layout = ensure_text_layout_entry(
+                cached_text_layout = &ensure_text_layout_entry(
                     *impl_, static_cast<int>(i), g, b, painter);
+            }
+            if (cached_text_layout != nullptr && has_text_selection(b)) {
+                const auto& text_layout = *cached_text_layout;
                 const auto [sel_begin, sel_end] = normalized_selection(b);
                 const auto caret_index_for =
                     [&](std::size_t offset) -> std::size_t {
@@ -5689,7 +5722,7 @@ void Document::draw(Painter& painter) {
                     if (x1 <= x0) continue;
                     const float line_origin =
                         aligned_line_origin_x(
-                            g, text_layout,
+                            text_layout,
                             static_cast<std::uint16_t>(line));
                     const float y = static_cast<float>(text_y) +
                                     static_cast<float>(line) * line_h +
@@ -8121,19 +8154,31 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
                                           Painter& painter) {
     const std::uint64_t signature =
         text_layout_signature(impl, idx, g, block);
+    lxb_dom_node_t* node = nullptr;
+    if (auto* elem = element_for_block(impl, idx)) {
+        node = lxb_dom_interface_node(elem);
+    }
     if (auto found = impl.text_layout_cache.find(signature);
         found != impl.text_layout_cache.end() &&
         found->second.signature == signature &&
         !found->second.caret_offsets.empty()) {
+        if (node) impl.text_layout_signatures[node] = signature;
         return found->second;
     }
     if (impl.text_layout_cache.size() > 256) {
         impl.text_layout_cache.clear();
+        impl.text_layout_signatures.clear();
     }
     auto& entry = impl.text_layout_cache[signature];
 
     entry = TextLayoutEntry{};
     entry.signature = signature;
+    entry.text_x = g.text_x;
+    entry.text_y = g.text_y;
+    entry.content_w = g.content_w;
+    entry.align = g.align;
+    entry.nowrap = g.nowrap;
+    if (node) impl.text_layout_signatures[node] = signature;
     const auto metrics = painter.text_metrics(g.font);
     entry.natural_line_height =
         metrics.line_height > 0.0f
@@ -8197,6 +8242,23 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
     return entry;
 }
 
+const TextLayoutEntry* cached_text_layout_entry(const detail::DocumentImpl& impl,
+                                                int idx) {
+    if (auto* elem = element_for_block(impl, idx)) {
+        auto* node = lxb_dom_interface_node(elem);
+        if (auto sig = impl.text_layout_signatures.find(node);
+            sig != impl.text_layout_signatures.end()) {
+            if (auto found = impl.text_layout_cache.find(sig->second);
+                found != impl.text_layout_cache.end() &&
+                found->second.signature == sig->second &&
+                !found->second.caret_offsets.empty()) {
+                return &found->second;
+            }
+        }
+    }
+    return nullptr;
+}
+
 float aligned_line_origin_x(const TextControlGeometry& g,
                             const TextLayoutEntry& entry,
                             std::uint16_t line) {
@@ -8212,14 +8274,28 @@ float aligned_line_origin_x(const TextControlGeometry& g,
     return x;
 }
 
+float aligned_line_origin_x(const TextLayoutEntry& entry,
+                            std::uint16_t line) {
+    float x = static_cast<float>(entry.text_x);
+    const float line_w = line < entry.line_widths.size()
+        ? entry.line_widths[static_cast<std::size_t>(line)]
+        : 0.0f;
+    if (entry.align == Painter::TextAlign::Right) {
+        x += entry.content_w - line_w;
+    } else if (entry.align == Painter::TextAlign::Center) {
+        x += (entry.content_w - line_w) * 0.5f;
+    }
+    return x;
+}
+
 std::size_t text_caret_offset_from_point(detail::DocumentImpl& impl,
                                          int idx,
                                          Point p) {
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return 0;
     auto& block = impl.blocks[static_cast<std::size_t>(idx)];
     if (!block.text_control || block.text_value.empty()) return 0;
-    Painter* painter = impl.text_measurer;
-    if (painter == nullptr) {
+    const auto* entry = cached_text_layout_entry(impl, idx);
+    if (entry == nullptr) {
         const auto& cs = impl.style_store.computed(block.id);
         const int content_x = block.bounds.x + cs.used_border_left() +
                               cs.padding_left;
@@ -8241,29 +8317,27 @@ std::size_t text_caret_offset_from_point(detail::DocumentImpl& impl,
         return std::min(pos, block.text_value.size());
     }
 
-    const auto g = text_control_geometry(impl, idx, *painter);
-    const auto& entry = ensure_text_layout_entry(impl, idx, g, block, *painter);
     const int line_count = std::max<int>(
-        1, static_cast<int>(entry.line_widths.size()));
+        1, static_cast<int>(entry->line_widths.size()));
     int target_line = static_cast<int>(
-        std::floor((static_cast<float>(p.y - g.text_y)) /
-                   entry.css_line_height));
+        std::floor((static_cast<float>(p.y - entry->text_y)) /
+                   entry->css_line_height));
     target_line = std::clamp(target_line, 0, line_count - 1);
-    const float origin_x = aligned_line_origin_x(
-        g, entry, static_cast<std::uint16_t>(target_line));
+    const std::uint16_t line = static_cast<std::uint16_t>(target_line);
+    const float origin_x = aligned_line_origin_x(*entry, line);
     const float local_x = static_cast<float>(p.x) - origin_x;
 
     std::size_t best = 0;
     float best_distance = std::numeric_limits<float>::max();
-    for (std::size_t i = 0; i < entry.caret_offsets.size(); ++i) {
-        if (entry.caret_lines[i] != target_line) continue;
-        const float distance = std::abs(entry.caret_x[i] - local_x);
+    for (std::size_t i = 0; i < entry->caret_offsets.size(); ++i) {
+        if (entry->caret_lines[i] != target_line) continue;
+        const float distance = std::abs(entry->caret_x[i] - local_x);
         if (distance < best_distance) {
             best_distance = distance;
             best = i;
         }
     }
-    return entry.caret_offsets[best];
+    return entry->caret_offsets[best];
 }
 
 std::pair<std::size_t, std::size_t>
@@ -8420,6 +8494,7 @@ void set_live_text_state(detail::DocumentImpl& impl,
 
     if (auto* elem = element_for_block(impl, idx)) {
         auto* node = lxb_dom_interface_node(elem);
+        impl.text_layout_signatures.erase(node);
         impl.live_text_values[node] = block.text_value;
         impl.live_text_carets[node] = block.caret_offset;
         impl.live_text_selections[node] = {
