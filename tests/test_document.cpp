@@ -3522,6 +3522,7 @@ TEST_CASE("focused input accepts text input and backspace") {
     text.type = affineui::EventType::TextInput;
     text.text = "B";
     CHECK(doc.dispatch(text).redraw_requested);
+    doc.layout(320, 0, &painter);
 
     painter.text_runs.clear();
     doc.draw(painter);
@@ -3537,6 +3538,68 @@ TEST_CASE("focused input accepts text input and backspace") {
     doc.draw(painter);
     REQUIRE(!painter.text_runs.empty());
     CHECK(painter.text_runs.back() == "A");
+}
+
+TEST_CASE("focused text input paints a caret") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        input {
+            display: block;
+            width: 160px;
+            padding: 4px 8px;
+            border: 0;
+        }
+        </style>
+        <input value="Ada">
+    )HTML");
+    doc.layout(320, 0, &painter);
+
+    const auto input_pos = find_hovered_tag(doc, "input");
+    REQUIRE(input_pos.x >= 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = input_pos;
+    CHECK(doc.dispatch(down).redraw_requested);
+
+    painter.stroke_line_draws.clear();
+    doc.draw(painter);
+    CHECK_FALSE(painter.stroke_line_draws.empty());
+}
+
+TEST_CASE("range and color inputs use native control paint instead of text") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        input { display: block; width: 160px; height: 24px; margin-bottom: 8px; }
+        input[type=color] { width: 64px; height: 32px; padding: 4px; border: 0; }
+        </style>
+        <input type="range" value="0.5">
+        <input type="color" value="#4da3ff">
+    )HTML");
+    doc.layout(320, 0, &painter);
+
+    painter.text_runs.clear();
+    painter.fill_draws.clear();
+    doc.draw(painter);
+
+    CHECK(std::find(painter.text_runs.begin(), painter.text_runs.end(),
+                    "0.5") == painter.text_runs.end());
+    const auto swatch = std::find_if(
+        painter.fill_draws.begin(), painter.fill_draws.end(),
+        [](const RecordingPainter::FillDraw& draw) {
+            return draw.color.r == 0x4d && draw.color.g == 0xa3 &&
+                   draw.color.b == 0xff && draw.color.a == 0xff;
+        });
+    CHECK(swatch != painter.fill_draws.end());
 }
 
 TEST_CASE("overflow clipping uses padding box so borders remain visible") {

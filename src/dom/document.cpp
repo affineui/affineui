@@ -92,6 +92,7 @@ struct Block {
     bool              synthetic{false};
     bool              text_control{false};
     bool              placeholder_visible{false};
+    std::string       text_value;       // unmasked live value for editable controls
     // Input-control UA paint hints. Populated for <input> elements at
     // collect time; empty / false for all other elements.
     std::string       input_type;       // "checkbox" / "radio" / ""
@@ -337,6 +338,7 @@ struct DocumentImpl {
     // CSS source and matched during DOM block collection.
     std::vector<GeneratedContentRule>   generated_content_rules;
     std::vector<FontFaceRule>           font_faces;
+    std::unordered_map<lxb_dom_node_t*, std::string> live_text_values;
     // @media blocks collected during attach_stylesheet. Evaluated against
     // media_viewport_width_px; matching blocks are re-attached as extra
     // stylesheets so their rules participate in the normal cascade.
@@ -382,6 +384,7 @@ void advance_generation(DomWeakSlot& slot) {
 
 void invalidate_dom_weak_slot(DocumentImpl& impl, lxb_dom_node_t* node) {
     if (node == nullptr) return;
+    impl.live_text_values.erase(node);
     for (auto& slot : impl.dom_weak_slots) {
         if (slot.node == node) {
             slot.node = nullptr;
@@ -740,6 +743,26 @@ std::string mask_password(std::string_view s) {
         out += "\xE2\x80\xA2";
     }
     return out;
+}
+
+bool input_type_accepts_text(std::string_view type) {
+    return type.empty() ||
+           type == "text" ||
+           type == "password" ||
+           type == "search" ||
+           type == "email" ||
+           type == "url" ||
+           type == "tel" ||
+           type == "number";
+}
+
+std::string text_control_display_value(const Block& block,
+                                       std::string_view value) {
+    if (block.tag == "input" && block.input_type == "password" &&
+        !value.empty()) {
+        return mask_password(value);
+    }
+    return std::string(value);
 }
 
 // Tokenize a class attribute on whitespace runs.
@@ -3462,15 +3485,18 @@ void collect_blocks(detail::DocumentImpl& impl,
         if (b.tag == "img") {
             b.image_src = attr_string(elem, "src");
         }
-        if (b.tag == "input" || b.tag == "textarea") {
-            b.text_control = true;
-            b.placeholder = attr_string(elem, "placeholder");
-        }
         if (b.tag == "input") {
             b.input_type  = attr_string(elem, "type");
             b.role_attr   = attr_string(elem, "role");
             b.is_checked  = has_attr(elem, "checked");
             b.is_disabled = has_attr(elem, "disabled");
+        }
+        if (b.tag == "textarea") {
+            b.text_control = true;
+            b.placeholder = attr_string(elem, "placeholder");
+        } else if (b.tag == "input") {
+            b.text_control = input_type_accepts_text(b.input_type);
+            b.placeholder = attr_string(elem, "placeholder");
         }
         b.parent_idx = effective_parent_idx;
         b.base_animated = rs.animated;
@@ -3494,17 +3520,29 @@ void collect_blocks(detail::DocumentImpl& impl,
         if (is_leaf) {
             auto& leaf = impl.blocks[static_cast<std::size_t>(my_idx)];
             if (leaf.tag == "input") {
-                leaf.text = attr_string(elem, "value");
-                if (!leaf.text.empty() && attr_string(elem, "type") == "password") {
-                    leaf.text = mask_password(leaf.text);
-                } else if (leaf.text.empty() && !leaf.placeholder.empty()) {
-                    leaf.text = leaf.placeholder;
-                    leaf.placeholder_visible = true;
+                if (leaf.text_control) {
+                    auto* elem_node = lxb_dom_interface_node(elem);
+                    auto live = impl.live_text_values.find(
+                        elem_node);
+                    leaf.text_value = live != impl.live_text_values.end()
+                        ? live->second
+                        : attr_string(elem, "value");
+                    leaf.text = text_control_display_value(leaf, leaf.text_value);
+                    if (leaf.text.empty() && !leaf.placeholder.empty()) {
+                        leaf.text = leaf.placeholder;
+                        leaf.placeholder_visible = true;
+                    }
                 }
             } else if (leaf.tag == "select") {
                 leaf.text = select_display_text(elem);
             } else if (leaf.tag == "textarea") {
-                leaf.text = node_text(child, rs.computed.white_space);
+                auto* elem_node = lxb_dom_interface_node(elem);
+                auto live = impl.live_text_values.find(
+                    elem_node);
+                leaf.text_value = live != impl.live_text_values.end()
+                    ? live->second
+                    : node_text(child, rs.computed.white_space);
+                leaf.text = leaf.text_value;
                 if (leaf.text.empty() && !leaf.placeholder.empty()) {
                     leaf.text = leaf.placeholder;
                     leaf.placeholder_visible = true;
@@ -3673,6 +3711,7 @@ void Document::set_html(std::string_view html) {
     impl_->font_faces.clear();
     impl_->media_blocks.clear();
     impl_->keyframes.clear();
+    impl_->live_text_values.clear();
     impl_->hovered_chain.clear();
     impl_->active_chain.clear();
     impl_->hovered_idx = -1;
@@ -5488,6 +5527,35 @@ void Document::draw(Painter& painter) {
                                   line_height_mult,
                                   letter_spacing_px,
                                   paint_align);
+            if (b.text_control && static_cast<int>(i) == impl_->focused_idx) {
+                const auto metrics = painter.text_metrics(font);
+                const float natural_line_h = metrics.line_height > 0.0f
+                    ? metrics.line_height
+                    : static_cast<float>(cs.font_size_px);
+                const float css_line_h =
+                    static_cast<float>(cs.font_size_px) * line_height_mult;
+                const float line_top =
+                    static_cast<float>(text_y) +
+                    (css_line_h - natural_line_h) * 0.5f;
+                const std::string_view caret_text =
+                    b.placeholder_visible ? std::string_view{} : std::string_view(b.text);
+                const float tw = caret_text.empty()
+                    ? 0.0f
+                    : natural_text_width();
+                float caret_x = static_cast<float>(text_x);
+                if (paint_align == Painter::TextAlign::Right) {
+                    caret_x += content_w;
+                } else if (paint_align == Painter::TextAlign::Center) {
+                    caret_x += (content_w + tw) * 0.5f;
+                } else {
+                    caret_x += tw;
+                }
+                const float y0 = std::floor(line_top + 2.0f) + 0.5f;
+                const float y1 = std::ceil(line_top + natural_line_h - 2.0f) + 0.5f;
+                painter.stroke_line(caret_x, y0, caret_x, y1,
+                                    detail::unpack_rgba(an.color_rgba),
+                                    1.0f);
+            }
             if (cs.text_decoration_line != detail::ComputedStyle::DecorationNone) {
                 const auto metrics = painter.text_metrics(font);
                 const float natural_line_h =
@@ -5621,6 +5689,36 @@ void Document::draw(Painter& painter) {
                 painter.fill_circle(knob_cx, cy, knob_r,
                                     knob);
             }
+        }
+
+        if (b.tag == "input" && b.input_type == "color") {
+            std::uint32_t rgba = 0;
+            const auto* value = block_attr_value(b, "value");
+            if (value && parse_hex_color(*value, rgba)) {
+                const int inset_x = std::max(3, cs.padding_left / 2);
+                const int inset_y = std::max(3, cs.padding_top / 2);
+                Rect swatch{
+                    eff.x + cs.used_border_left() + inset_x,
+                    eff.y + cs.used_border_top() + inset_y,
+                    std::max(1, eff.w - cs.used_border_left()
+                                      - cs.used_border_right()
+                                      - inset_x * 2),
+                    std::max(1, eff.h - cs.used_border_top()
+                                      - cs.used_border_bottom()
+                                      - inset_y * 2),
+                };
+                painter.fill_rect(swatch, detail::unpack_rgba(rgba));
+            }
+        }
+
+        if (b.tag == "textarea") {
+            const float x1 = static_cast<float>(
+                eff.x + eff.w - cs.used_border_right() - 4);
+            const float y1 = static_cast<float>(
+                eff.y + eff.h - cs.used_border_bottom() - 4);
+            const Color grip = detail::unpack_rgba(an.color_rgba);
+            painter.stroke_line(x1 - 10.0f, y1, x1, y1 - 10.0f, grip, 1.0f);
+            painter.stroke_line(x1 - 5.0f, y1, x1, y1 - 5.0f, grip, 1.0f);
         }
 
         if (b.tag == "input" && b.input_type == "range") {
@@ -6653,6 +6751,9 @@ void refresh_block_metadata_from_element(Block& block,
         block.role_attr   = attr_string(elem, "role");
         block.is_checked  = has_attr(elem, "checked");
         block.is_disabled = has_attr(elem, "disabled");
+        block.text_control = input_type_accepts_text(block.input_type);
+    } else if (block.tag == "textarea") {
+        block.text_control = true;
     }
 }
 
@@ -6945,6 +7046,12 @@ void emit_widget_change(detail::DocumentImpl& impl,
     impl.changed_widgets.push_back({std::move(name), std::string(value)});
 }
 
+void set_live_text_value(detail::DocumentImpl& impl,
+                         int idx,
+                         Block& block,
+                         std::string value);
+std::string emitted_text_control_value(const Block& block);
+
 std::string decius_slider_fill_style(double min, double max, double value,
                                      bool bipolar) {
     const double p = normalized_control_value(value, min, max);
@@ -7026,6 +7133,15 @@ bool update_live_control_value(detail::DocumentImpl& impl,
     const bool value_changed =
         set_attribute_on_element(impl, elem, "value", value_text);
     changed = value_changed || changed;
+    if (value_changed && kind == LiveControlKind::NumericInput) {
+        const int idx = block_index_for_exact_element(impl, elem);
+        if (idx >= 0) {
+            auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+            if (block.text_control) {
+                set_live_text_value(impl, idx, block, value_text);
+            }
+        }
+    }
     if (kind == LiveControlKind::AuiKnob ||
         kind == LiveControlKind::DeciusSlider ||
         kind == LiveControlKind::DeciusFader ||
@@ -7645,6 +7761,27 @@ void remove_last_utf8_codepoint(std::string& text) {
     }
     text.erase(pos);
 }
+
+void set_live_text_value(detail::DocumentImpl& impl,
+                         int idx,
+                         Block& block,
+                         std::string value) {
+    block.text_value = std::move(value);
+    block.placeholder_visible = false;
+    block.text = text_control_display_value(block, block.text_value);
+    if (block.text.empty() && !block.placeholder.empty()) {
+        block.text = block.placeholder;
+        block.placeholder_visible = true;
+    }
+
+    if (auto* elem = element_for_block(impl, idx)) {
+        impl.live_text_values[lxb_dom_interface_node(elem)] = block.text_value;
+    }
+}
+
+std::string emitted_text_control_value(const Block& block) {
+    return block.placeholder_visible ? std::string{} : block.text_value;
+}
 #else  // stub build â€” no DOM, no pseudo / scroll bookkeeping
 bool refresh_hover_chain(detail::DocumentImpl&)  { return false; }
 bool refresh_active_chain(detail::DocumentImpl&) { return false; }
@@ -7653,6 +7790,8 @@ int  focusable_ancestor(const detail::DocumentImpl&, int) { return -1; }
 int  find_scrollable_y_ancestor(const detail::DocumentImpl&, int) { return -1; }
 bool focused_text_control(detail::DocumentImpl&, Block*&) { return false; }
 void remove_last_utf8_codepoint(std::string&) {}
+void set_live_text_value(detail::DocumentImpl&, int, Block&, std::string) {}
+std::string emitted_text_control_value(const Block&) { return {}; }
 #endif
 }  // namespace
 
@@ -7808,22 +7947,14 @@ DispatchResult Document::dispatch(const Event& ev) {
                 if (focused_text_control(*impl_, control)) {
                     const int idx = impl_->focused_idx;
                     const Rect old_rect = subtree_visual_rect(*impl_, idx);
-                    if (control->placeholder_visible) {
-                        control->text.clear();
-                        control->placeholder_visible = false;
-                    } else {
-                        remove_last_utf8_codepoint(control->text);
-                    }
-                    if (control->text.empty() && !control->placeholder.empty()) {
-                        control->text = control->placeholder;
-                        control->placeholder_visible = true;
-                    }
+                    std::string next = emitted_text_control_value(*control);
+                    remove_last_utf8_codepoint(next);
+                    set_live_text_value(*impl_, idx, *control, std::move(next));
                     mark_live_mutation_dirty(*impl_, idx, old_rect,
                                              /*needs_layout=*/true);
                     if (auto* elem = element_for_block(*impl_, idx)) {
                         emit_widget_change(
-                            *impl_, elem,
-                            control->placeholder_visible ? "" : control->text);
+                            *impl_, elem, emitted_text_control_value(*control));
                     }
                     result.redraw_requested = true;
                 }
@@ -7835,15 +7966,14 @@ DispatchResult Document::dispatch(const Event& ev) {
             if (focused_text_control(*impl_, control) && !ev.text.empty()) {
                 const int idx = impl_->focused_idx;
                 const Rect old_rect = subtree_visual_rect(*impl_, idx);
-                if (control->placeholder_visible) {
-                    control->text.clear();
-                    control->placeholder_visible = false;
-                }
-                control->text += ev.text;
+                std::string next = emitted_text_control_value(*control);
+                next += ev.text;
+                set_live_text_value(*impl_, idx, *control, std::move(next));
                 mark_live_mutation_dirty(*impl_, idx, old_rect,
                                          /*needs_layout=*/true);
                 if (auto* elem = element_for_block(*impl_, idx)) {
-                    emit_widget_change(*impl_, elem, control->text);
+                    emit_widget_change(
+                        *impl_, elem, emitted_text_control_value(*control));
                 }
                 result.redraw_requested = true;
             }
