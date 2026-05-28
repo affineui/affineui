@@ -147,6 +147,8 @@ TEST_CASE("View emits framework-specific knob markup") {
     REQUIRE(shape);
     auto html = decius.to_html_fragment();
     CHECK(html.find("data-dcs-knob") != std::string::npos);
+    CHECK(html.find("class=\"dcs-knob\" data-dcs-knob") !=
+          std::string::npos);
     CHECK(html.find("dcs-knob__arc") != std::string::npos);
     CHECK(html.find("dcs-knob__indicator") != std::string::npos);
     CHECK(html.find("dcs-knob__cap") != std::string::npos);
@@ -159,6 +161,8 @@ TEST_CASE("View emits framework-specific knob markup") {
     REQUIRE(gain);
     html = bootstrap.to_html_fragment();
     CHECK(html.find("data-aui-knob") != std::string::npos);
+    CHECK(html.find("class=\"aui-knob\" data-aui-name=\"gain\"") !=
+          std::string::npos);
     CHECK(html.find("aui-knob__arc") != std::string::npos);
     CHECK(html.find("aui-knob__indicator") != std::string::npos);
 }

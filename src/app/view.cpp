@@ -627,6 +627,11 @@ body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
 .aui-root>.dcs-panel{padding:var(--aui-panel-pad,var(--dcs-s-5));gap:var(--aui-panel-gap,var(--dcs-s-3))}
 .aui-root>.dcs-panel>h1,.aui-root>.dcs-panel>h2,.aui-root>.dcs-panel>h3{margin:0}
 .aui-root>.dcs-panel>p{margin:0;color:var(--dcs-text-dim)}
+.aui-demo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem;align-items:start;min-width:0}
+.aui-demo-section{min-width:0}
+.aui-demo-section.card{gap:1rem}
+.aui-demo-section.dcs-panel{padding:var(--aui-panel-pad,var(--dcs-s-5));gap:var(--aui-panel-gap,var(--dcs-s-3))}
+.aui-demo-section>p:first-child{margin:0;font-weight:600}
 )CSS";
 }
 
@@ -1571,10 +1576,6 @@ WidgetRef View::knob(std::string_view label,
                             group_recipe.classes, key, here,
                             true);
     set_attr(group, "data-aui-widget", "knob");
-    set_attr(group, "role", "slider");
-    set_attr(group, "aria-valuemin", number(min));
-    set_attr(group, "aria-valuemax", number(max));
-    set_attr(group, "aria-valuenow", number(clamped));
 
     if (theme_ != ViewTheme::Decius) {
         WidgetNode* control = &group;
@@ -1659,18 +1660,21 @@ WidgetRef View::knob(std::string_view label,
                                   label_recipe.classes, "__label", here, false);
     set_text(field_label, label);
 
-    set_attr(group, "data-dcs-knob", "");
-    set_attr(group, "data-min", number(min));
-    set_attr(group, "data-max", number(max));
-    set_attr(group, "data-value", number(clamped));
-    set_attr(group, "value", number(clamped));
-    if (bipolar) set_attr(group, "data-bipolar", "");
-    else remove_attr(group, "data-bipolar");
-
     const auto input_recipe = default_element(theme_, FrameworkElement::KnobInput);
     auto& knob = open_node(WidgetKind::Knob, input_recipe.tag,
                            input_recipe.classes, "__knob", here, true);
-    (void) knob;
+    set_attr(knob, "data-dcs-knob", "");
+    set_attr(knob, "role", "slider");
+    set_attr(knob, "aria-valuemin", number(min));
+    set_attr(knob, "aria-valuemax", number(max));
+    set_attr(knob, "aria-valuenow", number(clamped));
+    set_attr(knob, "data-min", number(min));
+    set_attr(knob, "data-max", number(max));
+    set_attr(knob, "data-value", number(clamped));
+    set_attr(knob, "value", number(clamped));
+    if (!key.empty()) set_attr(knob, "data-aui-name", key);
+    if (bipolar) set_attr(knob, "data-bipolar", "");
+    else remove_attr(knob, "data-bipolar");
 
     const auto [bg_x0, bg_y0] = knob_ring_point(-225.0);
     const auto [bg_x1, bg_y1] = knob_ring_point(45.0);

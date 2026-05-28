@@ -18,7 +18,7 @@ class HelloPanel:
         self.theme = theme
         self.app: Optional[ui.App] = None
         self.active_tab = "controls"
-        self.field_layout = "props"
+        self.field_layout = "split"
         self.rows = [f"Frame {index:02d} - event routed" for index in range(1, 33)]
         self.selected_row = 0
         self.selected_tree = "tree-camera"
@@ -53,6 +53,14 @@ class HelloPanel:
             else ui.bootstrap.class_name.props
         )
 
+    def _section_class(self, mode: str) -> str:
+        if self._is_decius():
+            return (
+                "aui-demo-section dcs-panel dcs-panel--bordered dcs-panel--raised "
+                + self._flow_class(mode)
+            )
+        return "aui-demo-section card shadow-sm p-3 " + self._flow_class(mode)
+
     def _build_controls(self, v: ui.View) -> None:
         v.button("Hello button", primary=True, key="hello-button").on_click(
             lambda: print("Hello button clicked")
@@ -75,50 +83,95 @@ class HelloPanel:
             key="hello-knob",
         ).on_change(lambda value: print(f"knob changed: {value}"))
 
-    def _build_fields(self, v: ui.View) -> None:
-        v.button_group(
-            "Field layout",
-            ["Form", "Props"],
-            "Form" if self.field_layout == "form" else "Props",
-            key="field-layout",
-        ).on_change(lambda value: self.set_field_layout(value.lower()))
-        v.input("Object name", "Cylinder.042", key="object-name").on_change(
-            lambda value: print(f"name changed: {value}")
+    def _build_field_controls(self, v: ui.View, prefix: str) -> None:
+        v.input(
+            "Object name",
+            "Cylinder.042",
+            key=f"{prefix}-object-name",
+        ).on_change(lambda value, prefix=prefix: print(f"{prefix} name: {value}"))
+        v.password("Token", "secret", key=f"{prefix}-token").on_change(
+            lambda value, prefix=prefix: print(f"{prefix} token: {value}")
         )
-        v.password("Token", "secret", key="token").on_change(
-            lambda value: print(f"token changed: {value}")
-        )
-        v.input("Gain", "1.000", type="number", key="gain-field").on_change(
-            lambda value: print(f"gain changed: {value}")
-        )
-        v.input("Tint", "#4da3ff", type="color", key="tint-color").on_change(
-            lambda value: print(f"tint changed: {value}")
+        v.input(
+            "Gain",
+            "1.000",
+            type="number",
+            key=f"{prefix}-gain-field",
+        ).on_change(lambda value, prefix=prefix: print(f"{prefix} gain: {value}"))
+        v.input("Tint", "#4da3ff", type="color", key=f"{prefix}-tint").on_change(
+            lambda value, prefix=prefix: print(f"{prefix} tint: {value}")
         )
         v.slider(
             "Rotation",
             value=45.0,
             min=-180.0,
             max=180.0,
-            key="rotation-degrees",
-        ).on_change(lambda value: print(f"rotation changed: {value}"))
+            key=f"{prefix}-rotation",
+        ).on_change(lambda value, prefix=prefix: print(f"{prefix} rotation: {value}"))
         v.dropdown(
             "Mode",
             ["Object", "Edit", "Sculpt", "Render"],
             "Object",
-            key="mode",
-        ).on_change(lambda value: print(f"mode changed: {value}"))
+            key=f"{prefix}-mode",
+        ).on_change(lambda value, prefix=prefix: print(f"{prefix} mode: {value}"))
         v.button_group(
             "Transform space",
             ["Local", "World", "View"],
             "World",
-            key="space",
-        ).on_change(lambda value: print(f"space changed: {value}"))
+            key=f"{prefix}-space",
+        ).on_change(lambda value, prefix=prefix: print(f"{prefix} space: {value}"))
         v.textarea(
             "Notes",
             "Dense native UI, browser semantics.",
             rows=3,
-            key="notes",
-        ).on_change(lambda value: print(f"notes changed: {value}"))
+            key=f"{prefix}-notes",
+        ).on_change(lambda value, prefix=prefix: print(f"{prefix} notes: {value}"))
+
+    def _build_field_section(self, v: ui.View, mode: str) -> None:
+        title_class = (
+            ui.decius.class_name.note
+            if self._is_decius()
+            else ui.bootstrap.class_name.note
+        )
+        v.paragraph(f"{mode.title()} layout", classes=title_class, key=f"{mode}-title")
+        self._build_field_controls(v, mode)
+
+    def _build_fields(self, v: ui.View) -> None:
+        v.button_group(
+            "Field view",
+            ["Split", "Form", "Props"],
+            self.field_layout.title(),
+            key="field-layout",
+        ).on_change(lambda value: self.set_field_layout(value.lower()))
+
+        modes = (
+            ("form", "props")
+            if self.field_layout == "split"
+            else (self.field_layout,)
+        )
+
+        if len(modes) == 2:
+            v.container(
+                classes="aui-demo-grid",
+                key="field-layout-grid",
+                build=lambda child: tuple(
+                    child.container(
+                        classes=self._section_class(mode),
+                        key=f"{mode}-section",
+                        build=lambda scoped, mode=mode: self._build_field_section(
+                            scoped, mode
+                        ),
+                    )
+                    for mode in modes
+                ),
+            )
+        else:
+            mode = modes[0]
+            v.container(
+                classes=self._section_class(mode),
+                key=f"{mode}-section",
+                build=lambda child, mode=mode: self._build_field_section(child, mode),
+            )
 
     def _select_row(self, index: int) -> None:
         self.selected_row = index
@@ -174,6 +227,16 @@ class HelloPanel:
         self._tree_row(v, "Environment", "tree-environment", 1)
         self._tree_row(v, "Collision", "tree-collision", 2)
         self._tree_row(v, "Audio", "tree-audio", 1)
+        self._tree_row(v, "Music", "tree-music", 2)
+        self._tree_row(v, "Foley", "tree-foley", 2)
+        self._tree_row(v, "UI", "tree-ui", 1)
+        self._tree_row(v, "HUD", "tree-hud", 2)
+        self._tree_row(v, "Inventory", "tree-inventory", 2)
+        self._tree_row(v, "Simulation", "tree-simulation", 1)
+        self._tree_row(v, "Navigation", "tree-navigation", 2)
+        self._tree_row(v, "Physics", "tree-physics", 2)
+        self._tree_row(v, "Networking", "tree-networking", 1)
+        self._tree_row(v, "Replication", "tree-replication", 2)
 
     def _build_collections(self, v: ui.View) -> None:
         note_class = (
@@ -199,9 +262,9 @@ class HelloPanel:
         )
         v.paragraph("Scene tree", classes=note_class, key="tree-prompt")
         tree_classes = (
-            f"aui-tree-list {ui.decius.class_name.tree}"
+            f"aui-tree-list aui-scroll {ui.decius.class_name.tree}"
             if self._is_decius()
-            else f"aui-tree-list {ui.bootstrap.class_name.tree}"
+            else f"aui-tree-list aui-scroll {ui.bootstrap.class_name.tree}"
         )
         v.container(classes=tree_classes, key="scene-tree", build=self._build_tree_rows)
 
@@ -215,7 +278,11 @@ class HelloPanel:
 
     def _tab_body_class(self) -> str:
         if self.active_tab == "fields":
-            return self._flow_class(self.field_layout)
+            return (
+                ui.decius.class_name.column
+                if self._is_decius()
+                else ui.bootstrap.class_name.column
+            )
         if self.active_tab == "controls":
             return self._flow_class("form")
         return (
@@ -254,7 +321,7 @@ class HelloPanel:
         self.reload()
 
     def set_field_layout(self, layout: str) -> None:
-        if layout not in ("form", "props"):
+        if layout not in ("split", "form", "props"):
             return
         self.field_layout = layout
         self.reload()
