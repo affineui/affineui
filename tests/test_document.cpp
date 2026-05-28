@@ -3637,6 +3637,149 @@ TEST_CASE("focused input edits at caret and preserves caret across relayout") {
     CHECK(painter.text_runs.back() == "Xa!cd");
 }
 
+TEST_CASE("text input click placement uses measured glyph advances") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        input {
+            display: block;
+            width: 160px;
+            padding: 0;
+            border: 0;
+        }
+        </style>
+        <input value="abcdefgh">
+    )HTML");
+    doc.layout(320, 0, &painter);
+
+    const auto input_pos = find_hovered_tag(doc, "input");
+    REQUIRE(input_pos.x >= 0);
+    const auto input_bounds = doc.hovered_info().bounds;
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {input_bounds.x + 24, input_bounds.y + 8};
+    CHECK(doc.dispatch(down).redraw_requested);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = down.pos;
+    doc.dispatch(up);
+
+    affineui::Event text{};
+    text.type = affineui::EventType::TextInput;
+    text.text = "X";
+    CHECK(doc.dispatch(text).redraw_requested);
+
+    painter.text_runs.clear();
+    doc.draw(painter);
+    REQUIRE_FALSE(painter.text_runs.empty());
+    CHECK(painter.text_runs.back() == "abcXdefgh");
+}
+
+TEST_CASE("drag selection replacement edits selected text") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        input {
+            display: block;
+            width: 160px;
+            padding: 0;
+            border: 0;
+        }
+        </style>
+        <input value="abcdefgh">
+    )HTML");
+    doc.layout(320, 0, &painter);
+
+    const auto input_pos = find_hovered_tag(doc, "input");
+    REQUIRE(input_pos.x >= 0);
+    const auto input_bounds = doc.hovered_info().bounds;
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {input_bounds.x + 16, input_bounds.y + 8};
+    doc.dispatch(down);
+
+    affineui::Event drag{};
+    drag.type = affineui::EventType::MouseMove;
+    drag.pos = {input_bounds.x + 48, input_bounds.y + 8};
+    CHECK(doc.dispatch(drag).redraw_requested);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = drag.pos;
+    doc.dispatch(up);
+
+    affineui::Event text{};
+    text.type = affineui::EventType::TextInput;
+    text.text = "X";
+    CHECK(doc.dispatch(text).redraw_requested);
+
+    painter.text_runs.clear();
+    doc.draw(painter);
+    REQUIRE_FALSE(painter.text_runs.empty());
+    CHECK(painter.text_runs.back() == "abXgh");
+}
+
+TEST_CASE("double click selects a word for replacement") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        input {
+            display: block;
+            width: 200px;
+            padding: 0;
+            border: 0;
+        }
+        </style>
+        <input value="red green blue">
+    )HTML");
+    doc.layout(320, 0, &painter);
+
+    const auto input_pos = find_hovered_tag(doc, "input");
+    REQUIRE(input_pos.x >= 0);
+    const auto input_bounds = doc.hovered_info().bounds;
+    const affineui::Point green_pos{input_bounds.x + 40, input_bounds.y + 8};
+
+    for (int i = 0; i < 2; ++i) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = green_pos;
+        doc.dispatch(down);
+
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = green_pos;
+        doc.dispatch(up);
+    }
+
+    affineui::Event text{};
+    text.type = affineui::EventType::TextInput;
+    text.text = "cyan";
+    CHECK(doc.dispatch(text).redraw_requested);
+
+    painter.text_runs.clear();
+    doc.draw(painter);
+    REQUIRE_FALSE(painter.text_runs.empty());
+    CHECK(painter.text_runs.back() == "red cyan blue");
+}
+
 TEST_CASE("range and color inputs use native control paint instead of text") {
     affineui::Document doc;
     RecordingPainter painter;

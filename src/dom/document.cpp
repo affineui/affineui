@@ -39,6 +39,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -94,6 +95,8 @@ struct Block {
     bool              placeholder_visible{false};
     std::string       text_value;       // unmasked live value for editable controls
     std::size_t       caret_offset{0};  // byte offset into text_value
+    std::size_t       selection_anchor{0};
+    std::size_t       selection_focus{0};
     // Input-control UA paint hints. Populated for <input> elements at
     // collect time; empty / false for all other elements.
     std::string       input_type;       // "checkbox" / "radio" / ""
@@ -107,6 +110,49 @@ struct Block {
     std::chrono::steady_clock::time_point animation_epoch{
         std::chrono::steady_clock::now()};
 };
+
+struct TextLayoutEntry {
+    std::uint64_t signature{0};
+    std::vector<std::size_t> caret_offsets;
+    std::vector<float> caret_x;
+    std::vector<std::uint16_t> caret_lines;
+    std::vector<float> line_widths;
+    float css_line_height{1.0f};
+    float natural_line_height{1.0f};
+};
+
+struct TextControlGeometry {
+    std::uint32_t font{0};
+    int text_x{0};
+    int text_y{0};
+    float content_w{1.0f};
+    float letter_spacing_px{0.0f};
+    float line_height_mult{1.0f};
+    Painter::TextAlign align{Painter::TextAlign::Left};
+    bool nowrap{false};
+};
+
+std::uint64_t fnv1a_64_bytes(std::uint64_t h,
+                             const void* data,
+                             std::size_t size) {
+    const auto* bytes = static_cast<const unsigned char*>(data);
+    for (std::size_t i = 0; i < size; ++i) {
+        h ^= static_cast<std::uint64_t>(bytes[i]);
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+
+template <class T>
+void hash_mix(std::uint64_t& h, const T& value) {
+    h = fnv1a_64_bytes(h, &value, sizeof(value));
+}
+
+void hash_mix_string(std::uint64_t& h, std::string_view value) {
+    h = fnv1a_64_bytes(h, value.data(), value.size());
+    const std::uint64_t size = static_cast<std::uint64_t>(value.size());
+    hash_mix(h, size);
+}
 
 #if !defined(AFFINEUI_STUB_BUILD)
 // CSS pseudo-class side-table entry, parsed out of attached
@@ -341,6 +387,17 @@ struct DocumentImpl {
     std::vector<FontFaceRule>           font_faces;
     std::unordered_map<lxb_dom_node_t*, std::string> live_text_values;
     std::unordered_map<lxb_dom_node_t*, std::size_t> live_text_carets;
+    std::unordered_map<lxb_dom_node_t*,
+                       std::pair<std::size_t, std::size_t>>
+        live_text_selections;
+    std::unordered_map<std::uint64_t, TextLayoutEntry> text_layout_cache;
+    Painter*                                  text_measurer{nullptr};  // non-owning
+    int                                       text_selection_drag_idx{-1};
+    std::size_t                               text_selection_drag_anchor{0};
+    bool                                      last_text_click_valid{false};
+    int                                       last_text_click_idx{-1};
+    Point                                     last_text_click_pos{};
+    std::chrono::steady_clock::time_point     last_text_click_time{};
     // @media blocks collected during attach_stylesheet. Evaluated against
     // media_viewport_width_px; matching blocks are re-attached as extra
     // stylesheets so their rules participate in the normal cascade.
@@ -388,6 +445,7 @@ void invalidate_dom_weak_slot(DocumentImpl& impl, lxb_dom_node_t* node) {
     if (node == nullptr) return;
     impl.live_text_values.erase(node);
     impl.live_text_carets.erase(node);
+    impl.live_text_selections.erase(node);
     for (auto& slot : impl.dom_weak_slots) {
         if (slot.node == node) {
             slot.node = nullptr;
@@ -3534,6 +3592,19 @@ void collect_blocks(detail::DocumentImpl& impl,
                     leaf.caret_offset = caret != impl.live_text_carets.end()
                         ? std::min(caret->second, leaf.text_value.size())
                         : leaf.text_value.size();
+                    auto selection =
+                        impl.live_text_selections.find(elem_node);
+                    if (selection != impl.live_text_selections.end()) {
+                        leaf.selection_anchor =
+                            std::min(selection->second.first,
+                                     leaf.text_value.size());
+                        leaf.selection_focus =
+                            std::min(selection->second.second,
+                                     leaf.text_value.size());
+                    } else {
+                        leaf.selection_anchor = leaf.caret_offset;
+                        leaf.selection_focus = leaf.caret_offset;
+                    }
                     leaf.text = text_control_display_value(leaf, leaf.text_value);
                     if (leaf.text.empty() && !leaf.placeholder.empty()) {
                         leaf.text = leaf.placeholder;
@@ -3553,6 +3624,18 @@ void collect_blocks(detail::DocumentImpl& impl,
                 leaf.caret_offset = caret != impl.live_text_carets.end()
                     ? std::min(caret->second, leaf.text_value.size())
                     : leaf.text_value.size();
+                auto selection = impl.live_text_selections.find(elem_node);
+                if (selection != impl.live_text_selections.end()) {
+                    leaf.selection_anchor =
+                        std::min(selection->second.first,
+                                 leaf.text_value.size());
+                    leaf.selection_focus =
+                        std::min(selection->second.second,
+                                 leaf.text_value.size());
+                } else {
+                    leaf.selection_anchor = leaf.caret_offset;
+                    leaf.selection_focus = leaf.caret_offset;
+                }
                 leaf.text = leaf.text_value;
                 if (leaf.text.empty() && !leaf.placeholder.empty()) {
                     leaf.text = leaf.placeholder;
@@ -3724,6 +3807,10 @@ void Document::set_html(std::string_view html) {
     impl_->keyframes.clear();
     impl_->live_text_values.clear();
     impl_->live_text_carets.clear();
+    impl_->live_text_selections.clear();
+    impl_->text_layout_cache.clear();
+    impl_->text_selection_drag_idx = -1;
+    impl_->last_text_click_valid = false;
     impl_->hovered_chain.clear();
     impl_->active_chain.clear();
     impl_->hovered_idx = -1;
@@ -3914,6 +4001,9 @@ void Document::layout(int viewport_width, int viewport_height,
     // demos or applications that want a gutter author it explicitly.
 
 #if !defined(AFFINEUI_STUB_BUILD)
+    if (measurer != nullptr) {
+        impl_->text_measurer = measurer;
+    }
     // Viewport-dependent cascade: this is the one call site that knows
     // the real CSS viewport. Rebuild the parsed HTML/CSS attachment graph
     // only when the active @media set changes. Ordinary resize ticks still
@@ -4375,6 +4465,16 @@ int  scroll_offset_y_for(const std::vector<Block>& blocks,
                          const detail::StyleStore& styles, int idx);
 const KeyframeBlock* find_keyframes(const detail::DocumentImpl& impl,
                                     std::uint32_t name_hash);
+bool has_text_selection(const Block& block);
+std::pair<std::size_t, std::size_t> normalized_selection(const Block& block);
+TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
+                                          int idx,
+                                          const TextControlGeometry& g,
+                                          const Block& block,
+                                          Painter& painter);
+float aligned_line_origin_x(const TextControlGeometry& g,
+                            const TextLayoutEntry& entry,
+                            std::uint16_t line);
 #endif
 }  // namespace
 
@@ -4617,6 +4717,7 @@ void Document::draw(Painter& painter) {
     // color is the window's, not the page's â€” without this, body's
 // bg-color silently does nothing.
 #if !defined(AFFINEUI_STUB_BUILD)
+    impl_->text_measurer = &painter;
     ensure_font_faces_registered(*impl_, painter);
 
     if (impl_->doc) {
@@ -5536,6 +5637,73 @@ void Document::draw(Painter& painter) {
             const float draw_max_w = force_single_line ? 1e6f
                                    : (is_justify ? content_w
                                                  : content_w + wrap_slack);
+            if (b.text_control && !b.placeholder_visible &&
+                has_text_selection(b)) {
+                TextControlGeometry g{};
+                g.font = font;
+                g.text_x = text_x;
+                g.text_y = text_y;
+                g.content_w = content_w;
+                g.letter_spacing_px = letter_spacing_px;
+                g.line_height_mult = line_height_mult;
+                g.align = paint_align;
+                g.nowrap = force_single_line;
+                const auto& text_layout = ensure_text_layout_entry(
+                    *impl_, static_cast<int>(i), g, b, painter);
+                const auto [sel_begin, sel_end] = normalized_selection(b);
+                const auto caret_index_for =
+                    [&](std::size_t offset) -> std::size_t {
+                    auto it = std::lower_bound(
+                        text_layout.caret_offsets.begin(),
+                        text_layout.caret_offsets.end(), offset);
+                    if (it == text_layout.caret_offsets.end()) {
+                        return text_layout.caret_offsets.empty()
+                            ? 0
+                            : text_layout.caret_offsets.size() - 1;
+                    }
+                    return static_cast<std::size_t>(
+                        std::distance(text_layout.caret_offsets.begin(), it));
+                };
+                const std::size_t begin_idx = caret_index_for(sel_begin);
+                const std::size_t end_idx = caret_index_for(sel_end);
+                const int first_line = text_layout.caret_lines[begin_idx];
+                const int last_line = text_layout.caret_lines[end_idx];
+                const float line_h = std::max(1.0f,
+                                              text_layout.css_line_height);
+                const float ink_h = std::max(1.0f,
+                                             text_layout.natural_line_height);
+                const Color selection_color{0x4D, 0xA3, 0xFF, 0x66};
+                for (int line = first_line; line <= last_line; ++line) {
+                    float x0 = 0.0f;
+                    float x1 = line < static_cast<int>(
+                                      text_layout.line_widths.size())
+                        ? text_layout.line_widths[static_cast<std::size_t>(line)]
+                        : 0.0f;
+                    if (line == first_line) {
+                        x0 = text_layout.caret_x[begin_idx];
+                    }
+                    if (line == last_line) {
+                        x1 = text_layout.caret_x[end_idx];
+                    }
+                    if (x1 < x0) std::swap(x0, x1);
+                    if (x1 <= x0) continue;
+                    const float line_origin =
+                        aligned_line_origin_x(
+                            g, text_layout,
+                            static_cast<std::uint16_t>(line));
+                    const float y = static_cast<float>(text_y) +
+                                    static_cast<float>(line) * line_h +
+                                    (line_h - ink_h) * 0.5f;
+                    painter.fill_rect(
+                        Rect{
+                            static_cast<int>(std::floor(line_origin + x0)),
+                            static_cast<int>(std::floor(y)),
+                            std::max(1, static_cast<int>(std::ceil(x1 - x0))),
+                            std::max(1, static_cast<int>(std::ceil(ink_h))),
+                        },
+                        selection_color);
+                }
+            }
             painter.draw_text_box(font, Point{text_x, text_y}, b.text,
                                   detail::unpack_rgba(an.color_rgba),
                                   draw_max_w,
@@ -6706,6 +6874,13 @@ lxb_dom_element_t* element_for_block(detail::DocumentImpl& impl, int idx) {
         impl.blocks[static_cast<std::size_t>(idx)].id);
 }
 
+const lxb_dom_element_t* element_for_block(const detail::DocumentImpl& impl,
+                                           int idx) {
+    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return nullptr;
+    return impl.style_store.element_of(
+        impl.blocks[static_cast<std::size_t>(idx)].id);
+}
+
 lxb_dom_element_t* find_dom_element_by_id(lxb_dom_node_t* root,
                                           std::string_view elem_id) {
     if (!root || elem_id.empty()) return nullptr;
@@ -7777,48 +7952,6 @@ bool focused_text_control(detail::DocumentImpl& impl, Block*& out) {
     return true;
 }
 
-std::size_t text_caret_offset_from_x(const detail::DocumentImpl& impl,
-                                     int idx,
-                                     int x) {
-    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return 0;
-    const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
-    if (block.text_value.empty()) return 0;
-    const auto& cs = impl.style_store.computed(block.id);
-    const int content_x = block.bounds.x + cs.used_border_left() +
-                          cs.padding_left;
-    const int content_w = std::max(
-        1,
-        block.bounds.w - cs.used_border_left() - cs.used_border_right() -
-            cs.padding_left - cs.padding_right);
-    const double ratio = std::clamp(
-        static_cast<double>(x - content_x) / static_cast<double>(content_w),
-        0.0,
-        1.0);
-    std::size_t pos = static_cast<std::size_t>(
-        std::llround(ratio * static_cast<double>(block.text_value.size())));
-    pos = std::min(pos, block.text_value.size());
-    while (pos > 0 && pos < block.text_value.size() &&
-           (static_cast<unsigned char>(block.text_value[pos]) & 0xC0u) ==
-               0x80u) {
-        ++pos;
-    }
-    return std::min(pos, block.text_value.size());
-}
-
-bool set_text_caret_from_point(detail::DocumentImpl& impl, int idx, int x) {
-    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return false;
-    auto& block = impl.blocks[static_cast<std::size_t>(idx)];
-    if (!block.text_control) return false;
-    const std::size_t next = text_caret_offset_from_x(impl, idx, x);
-    if (next == block.caret_offset) return false;
-    block.caret_offset = next;
-    if (auto* elem = element_for_block(impl, idx)) {
-        impl.live_text_carets[lxb_dom_interface_node(elem)] = block.caret_offset;
-    }
-    add_dirty_rect(impl, block_visual_rect(impl, idx));
-    return true;
-}
-
 void remove_last_utf8_codepoint(std::string& text) {
     if (text.empty()) return;
     std::size_t pos = text.size() - 1;
@@ -7849,6 +7982,390 @@ std::size_t next_utf8_boundary(std::string_view text, std::size_t pos) {
         ++pos;
     }
     return pos;
+}
+
+Painter::TextAlign painter_text_align(const detail::ComputedStyle& cs) {
+    switch (cs.text_align) {
+        case detail::ComputedStyle::TextAlign::Center:
+            return Painter::TextAlign::Center;
+        case detail::ComputedStyle::TextAlign::Right:
+            return Painter::TextAlign::Right;
+        case detail::ComputedStyle::TextAlign::Justify:
+            return Painter::TextAlign::Justify;
+        case detail::ComputedStyle::TextAlign::Left:
+        default:
+            return Painter::TextAlign::Left;
+    }
+}
+
+TextControlGeometry text_control_geometry(const detail::DocumentImpl& impl,
+                                          int idx,
+                                          Painter& painter) {
+    const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+    const auto& cs = impl.style_store.computed(block.id);
+    const int dy = scroll_offset_y_for(impl.blocks, impl.style_store, idx);
+    const Rect eff{block.bounds.x, block.bounds.y - dy,
+                   block.bounds.w, block.bounds.h};
+    const int used_border_top = cs.used_border_top();
+    const int used_border_left = cs.used_border_left();
+    const int used_border_right = cs.used_border_right();
+
+    TextControlGeometry g{};
+    g.font = painter.resolve_font(impl.style_store.font_family_of(cs.font_id),
+                                  cs.font_size_px,
+                                  cs.font_weight,
+                                  cs.font_style != 0);
+    g.text_x = eff.x + used_border_left + cs.padding_left;
+    g.text_y = eff.y + used_border_top + cs.padding_top;
+    g.content_w = static_cast<float>(
+        eff.w - used_border_left - used_border_right -
+        cs.padding_left - cs.padding_right);
+    g.content_w = std::max(1.0f, g.content_w);
+    g.letter_spacing_px = static_cast<float>(cs.letter_spacing_x100) / 100.0f;
+    g.line_height_mult = detail::effective_line_height_mult(cs);
+    g.align = painter_text_align(cs);
+    using WS = detail::ComputedStyle::WhiteSpace;
+    g.nowrap = cs.white_space == WS::Nowrap || cs.white_space == WS::Pre;
+
+    const int textarea_idx =
+        nearest_block_with_tag(impl.blocks, idx, "textarea");
+    if (textarea_idx >= 0) {
+        const auto& textarea_cs = impl.style_store.computed(
+            impl.blocks[static_cast<std::size_t>(textarea_idx)].id);
+        g.text_y += std::max(
+            0, textarea_cs.padding_top - textarea_cs.used_border_top());
+    } else if (block.tag == "input" &&
+               block.input_type != "checkbox" &&
+               block.input_type != "radio") {
+        g.text_y += std::min<int>(1, used_border_top);
+    }
+
+    int indent_px = cs.text_indent_value;
+    if (cs.text_indent_is_pct) {
+        indent_px = static_cast<int>(std::lround(
+            g.content_w * static_cast<float>(cs.text_indent_value) /
+            10000.0f));
+    }
+    if (indent_px != 0) {
+        g.text_x += indent_px;
+        g.content_w = std::max(
+            1.0f, g.content_w - static_cast<float>(indent_px));
+    }
+
+    if (g.nowrap && (g.align == Painter::TextAlign::Center ||
+                     g.align == Painter::TextAlign::Right)) {
+        const std::string display =
+            block.placeholder_visible
+                ? block.text
+                : text_control_display_value(block, block.text_value);
+        const Size measured = g.letter_spacing_px == 0.0f
+            ? Size{painter.measure_text(g.font, display), 0}
+            : painter.measure_text_box(g.font, display, 1e6f,
+                                       g.line_height_mult,
+                                       g.letter_spacing_px);
+        const float slack = g.content_w - static_cast<float>(measured.width);
+        if (g.align == Painter::TextAlign::Center) {
+            g.text_x += static_cast<int>(std::lround(slack * 0.5f));
+        } else {
+            g.text_x += static_cast<int>(std::lround(slack));
+        }
+        g.align = Painter::TextAlign::Left;
+    }
+    return g;
+}
+
+std::uint64_t text_layout_signature(const detail::DocumentImpl& impl,
+                                    int idx,
+                                    const TextControlGeometry& g,
+                                    const Block& block) {
+    std::uint64_t h = 1469598103934665603ull;
+    if (const auto* elem = element_for_block(impl, idx)) {
+        const auto* node = lxb_dom_interface_node(
+            const_cast<lxb_dom_element_t*>(elem));
+        hash_mix(h, node);
+    } else {
+        hash_mix(h, idx);
+    }
+    hash_mix_string(h, block.tag);
+    hash_mix_string(h, block.input_type);
+    hash_mix_string(h, block.text_value);
+    const auto& cs = impl.style_store.computed(block.id);
+    hash_mix(h, g.font);
+    hash_mix(h, g.content_w);
+    hash_mix(h, g.letter_spacing_px);
+    hash_mix(h, g.line_height_mult);
+    hash_mix(h, g.align);
+    hash_mix(h, g.nowrap);
+    hash_mix(h, cs.white_space);
+    return h;
+}
+
+float measure_text_advance(Painter& painter,
+                           std::uint32_t font,
+                           std::string_view text,
+                           float line_height_mult,
+                           float letter_spacing_px) {
+    if (text.empty()) return 0.0f;
+    if (letter_spacing_px == 0.0f) {
+        return static_cast<float>(painter.measure_text(font, text));
+    }
+    return static_cast<float>(
+        painter.measure_text_box(font, text, 1e6f, line_height_mult,
+                                 letter_spacing_px).width);
+}
+
+TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
+                                          int idx,
+                                          const TextControlGeometry& g,
+                                          const Block& block,
+                                          Painter& painter) {
+    const std::uint64_t signature =
+        text_layout_signature(impl, idx, g, block);
+    if (auto found = impl.text_layout_cache.find(signature);
+        found != impl.text_layout_cache.end() &&
+        found->second.signature == signature &&
+        !found->second.caret_offsets.empty()) {
+        return found->second;
+    }
+    if (impl.text_layout_cache.size() > 256) {
+        impl.text_layout_cache.clear();
+    }
+    auto& entry = impl.text_layout_cache[signature];
+
+    entry = TextLayoutEntry{};
+    entry.signature = signature;
+    const auto metrics = painter.text_metrics(g.font);
+    entry.natural_line_height =
+        metrics.line_height > 0.0f
+            ? metrics.line_height
+            : static_cast<float>(
+                  impl.style_store.computed(block.id).font_size_px);
+    entry.css_line_height = std::max(
+        1.0f,
+        static_cast<float>(impl.style_store.computed(block.id).font_size_px) *
+            g.line_height_mult);
+
+    const auto display_segment = [&](std::size_t begin, std::size_t end) {
+        begin = std::min(begin, block.text_value.size());
+        end = std::min(end, block.text_value.size());
+        if (begin > end) std::swap(begin, end);
+        return text_control_display_value(
+            block,
+            std::string_view(block.text_value).substr(begin, end - begin));
+    };
+    entry.caret_offsets.push_back(0);
+    entry.caret_x.push_back(0.0f);
+    entry.caret_lines.push_back(0);
+    entry.line_widths.push_back(0.0f);
+
+    std::size_t line_start = 0;
+    std::uint16_t line = 0;
+    for (std::size_t pos = 0; pos < block.text_value.size();) {
+        const std::size_t next = next_utf8_boundary(block.text_value, pos);
+        if (block.text_value[pos] == '\n') {
+            entry.line_widths[static_cast<std::size_t>(line)] =
+                measure_text_advance(
+                    painter, g.font,
+                    display_segment(line_start, pos),
+                    g.line_height_mult, g.letter_spacing_px);
+            ++line;
+            line_start = next;
+            entry.line_widths.push_back(0.0f);
+            entry.caret_offsets.push_back(next);
+            entry.caret_x.push_back(0.0f);
+            entry.caret_lines.push_back(line);
+            pos = next;
+            continue;
+        }
+
+        entry.caret_offsets.push_back(next);
+        entry.caret_x.push_back(
+            measure_text_advance(
+                painter, g.font,
+                display_segment(line_start, next),
+                g.line_height_mult, g.letter_spacing_px));
+        entry.caret_lines.push_back(line);
+        pos = next;
+    }
+    if (line_start <= block.text_value.size()) {
+        entry.line_widths[static_cast<std::size_t>(line)] =
+            measure_text_advance(
+                painter, g.font,
+                display_segment(line_start, block.text_value.size()),
+                g.line_height_mult, g.letter_spacing_px);
+    }
+    return entry;
+}
+
+float aligned_line_origin_x(const TextControlGeometry& g,
+                            const TextLayoutEntry& entry,
+                            std::uint16_t line) {
+    float x = static_cast<float>(g.text_x);
+    const float line_w = line < entry.line_widths.size()
+        ? entry.line_widths[static_cast<std::size_t>(line)]
+        : 0.0f;
+    if (g.align == Painter::TextAlign::Right) {
+        x += g.content_w - line_w;
+    } else if (g.align == Painter::TextAlign::Center) {
+        x += (g.content_w - line_w) * 0.5f;
+    }
+    return x;
+}
+
+std::size_t text_caret_offset_from_point(detail::DocumentImpl& impl,
+                                         int idx,
+                                         Point p) {
+    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return 0;
+    auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+    if (!block.text_control || block.text_value.empty()) return 0;
+    Painter* painter = impl.text_measurer;
+    if (painter == nullptr) {
+        const auto& cs = impl.style_store.computed(block.id);
+        const int content_x = block.bounds.x + cs.used_border_left() +
+                              cs.padding_left;
+        const int content_w = std::max(
+            1,
+            block.bounds.w - cs.used_border_left() - cs.used_border_right() -
+                cs.padding_left - cs.padding_right);
+        const double ratio = std::clamp(
+            static_cast<double>(p.x - content_x) /
+                static_cast<double>(content_w),
+            0.0, 1.0);
+        std::size_t pos = static_cast<std::size_t>(std::llround(
+            ratio * static_cast<double>(block.text_value.size())));
+        while (pos > 0 && pos < block.text_value.size() &&
+               (static_cast<unsigned char>(block.text_value[pos]) & 0xC0u) ==
+                   0x80u) {
+            ++pos;
+        }
+        return std::min(pos, block.text_value.size());
+    }
+
+    const auto g = text_control_geometry(impl, idx, *painter);
+    const auto& entry = ensure_text_layout_entry(impl, idx, g, block, *painter);
+    const int line_count = std::max<int>(
+        1, static_cast<int>(entry.line_widths.size()));
+    int target_line = static_cast<int>(
+        std::floor((static_cast<float>(p.y - g.text_y)) /
+                   entry.css_line_height));
+    target_line = std::clamp(target_line, 0, line_count - 1);
+    const float origin_x = aligned_line_origin_x(
+        g, entry, static_cast<std::uint16_t>(target_line));
+    const float local_x = static_cast<float>(p.x) - origin_x;
+
+    std::size_t best = 0;
+    float best_distance = std::numeric_limits<float>::max();
+    for (std::size_t i = 0; i < entry.caret_offsets.size(); ++i) {
+        if (entry.caret_lines[i] != target_line) continue;
+        const float distance = std::abs(entry.caret_x[i] - local_x);
+        if (distance < best_distance) {
+            best_distance = distance;
+            best = i;
+        }
+    }
+    return entry.caret_offsets[best];
+}
+
+std::pair<std::size_t, std::size_t>
+normalized_selection(const Block& block) {
+    const auto a = std::min(block.selection_anchor, block.text_value.size());
+    const auto b = std::min(block.selection_focus, block.text_value.size());
+    return {std::min(a, b), std::max(a, b)};
+}
+
+bool has_text_selection(const Block& block) {
+    const auto [begin, end] = normalized_selection(block);
+    return begin != end;
+}
+
+void set_text_selection(detail::DocumentImpl& impl,
+                        int idx,
+                        Block& block,
+                        std::size_t anchor,
+                        std::size_t focus) {
+    anchor = std::min(anchor, block.text_value.size());
+    focus = std::min(focus, block.text_value.size());
+    block.selection_anchor = anchor;
+    block.selection_focus = focus;
+    block.caret_offset = focus;
+    if (auto* elem = element_for_block(impl, idx)) {
+        auto* node = lxb_dom_interface_node(elem);
+        impl.live_text_carets[node] = focus;
+        impl.live_text_selections[node] = {anchor, focus};
+    }
+}
+
+bool set_text_caret_from_point(detail::DocumentImpl& impl,
+                               int idx,
+                               Point p,
+                               bool extend_selection = false,
+                               std::size_t anchor = 0) {
+    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return false;
+    auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+    if (!block.text_control) return false;
+    const std::size_t next = text_caret_offset_from_point(impl, idx, p);
+    const std::size_t next_anchor =
+        extend_selection ? std::min(anchor, block.text_value.size()) : next;
+    if (next == block.caret_offset &&
+        next_anchor == block.selection_anchor &&
+        next == block.selection_focus) {
+        return false;
+    }
+    set_text_selection(impl, idx, block, next_anchor, next);
+    add_dirty_rect(impl, block_visual_rect(impl, idx));
+    return true;
+}
+
+std::pair<std::size_t, std::size_t>
+word_bounds_at(std::string_view text, std::size_t caret) {
+    caret = std::min(caret, text.size());
+    const auto is_word = [](unsigned char c) {
+        return std::isalnum(c) || c == '_';
+    };
+    std::size_t begin = caret;
+    if (begin == text.size() && begin > 0) begin = previous_utf8_boundary(text, begin);
+    while (begin > 0) {
+        const std::size_t prev = previous_utf8_boundary(text, begin);
+        if (prev >= text.size() || !is_word(static_cast<unsigned char>(text[prev]))) {
+            break;
+        }
+        begin = prev;
+    }
+    std::size_t end = caret;
+    while (end < text.size()) {
+        if (!is_word(static_cast<unsigned char>(text[end]))) break;
+        end = next_utf8_boundary(text, end);
+    }
+    if (begin == end && caret < text.size()) {
+        begin = caret;
+        end = next_utf8_boundary(text, caret);
+    }
+    return {begin, end};
+}
+
+std::string erase_selected_text(std::string text,
+                                std::size_t begin,
+                                std::size_t end,
+                                std::size_t& caret) {
+    begin = std::min(begin, text.size());
+    end = std::min(end, text.size());
+    if (begin > end) std::swap(begin, end);
+    text.erase(begin, end - begin);
+    caret = begin;
+    return text;
+}
+
+std::string replace_selected_text(std::string text,
+                                  std::size_t begin,
+                                  std::size_t end,
+                                  std::string_view insert,
+                                  std::size_t& caret) {
+    begin = std::min(begin, text.size());
+    end = std::min(end, text.size());
+    if (begin > end) std::swap(begin, end);
+    text.replace(begin, end - begin, insert);
+    caret = begin + insert.size();
+    return text;
 }
 
 std::string erase_previous_codepoint(std::string text, std::size_t& caret) {
@@ -7892,6 +8409,8 @@ void set_live_text_state(detail::DocumentImpl& impl,
                          std::size_t caret) {
     block.text_value = std::move(value);
     block.caret_offset = std::min(caret, block.text_value.size());
+    block.selection_anchor = block.caret_offset;
+    block.selection_focus = block.caret_offset;
     block.placeholder_visible = false;
     block.text = text_control_display_value(block, block.text_value);
     if (block.text.empty() && !block.placeholder.empty()) {
@@ -7903,6 +8422,8 @@ void set_live_text_state(detail::DocumentImpl& impl,
         auto* node = lxb_dom_interface_node(elem);
         impl.live_text_values[node] = block.text_value;
         impl.live_text_carets[node] = block.caret_offset;
+        impl.live_text_selections[node] = {
+            block.selection_anchor, block.selection_focus};
     }
 }
 
@@ -7916,7 +8437,8 @@ bool set_focus(detail::DocumentImpl&, int)       { return false; }
 int  focusable_ancestor(const detail::DocumentImpl&, int) { return -1; }
 int  find_scrollable_y_ancestor(const detail::DocumentImpl&, int) { return -1; }
 bool focused_text_control(detail::DocumentImpl&, Block*&) { return false; }
-bool set_text_caret_from_point(detail::DocumentImpl&, int, int) { return false; }
+bool set_text_caret_from_point(detail::DocumentImpl&, int, Point, bool = false,
+                               std::size_t = 0) { return false; }
 void remove_last_utf8_codepoint(std::string&) {}
 void set_live_text_value(detail::DocumentImpl&, int, Block&, std::string) {}
 void set_live_text_state(detail::DocumentImpl&, int, Block&, std::string,
@@ -7939,6 +8461,14 @@ DispatchResult Document::dispatch(const Event& ev) {
                 break;
             }
 #endif
+            if (impl_->text_selection_drag_idx >= 0) {
+                if (set_text_caret_from_point(
+                        *impl_, impl_->text_selection_drag_idx, ev.pos,
+                        true, impl_->text_selection_drag_anchor)) {
+                    result.redraw_requested = true;
+                }
+                break;
+            }
             const int new_hover = hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
             if (new_hover != impl_->hovered_idx) {
                 impl_->hovered_idx      = new_hover;
@@ -7956,6 +8486,7 @@ DispatchResult Document::dispatch(const Event& ev) {
         case EventType::MouseDown: {
             impl_->last_mouse_pos = ev.pos;
             impl_->hovered_idx    = hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
+            impl_->text_selection_drag_idx = -1;
             // :active follows the press: set to whatever's under the
             // pointer right now, refresh the active chain so the bit
             // toggles on and an immediate restyle visualizes the press.
@@ -7968,8 +8499,40 @@ DispatchResult Document::dispatch(const Event& ev) {
             // mousedown outside any form control.
             const int target = focusable_ancestor(*impl_, impl_->hovered_idx);
             const bool f = set_focus(*impl_, target);
-            const bool caret =
-                set_text_caret_from_point(*impl_, target, ev.pos.x);
+            bool caret = set_text_caret_from_point(*impl_, target, ev.pos);
+            if (target >= 0 &&
+                target < static_cast<int>(impl_->blocks.size()) &&
+                impl_->blocks[static_cast<std::size_t>(target)].text_control) {
+                auto& block = impl_->blocks[static_cast<std::size_t>(target)];
+                const auto now = std::chrono::steady_clock::now();
+                const bool double_click =
+                    impl_->last_text_click_valid &&
+                    impl_->last_text_click_idx == target &&
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        now - impl_->last_text_click_time).count() < 500 &&
+                    std::abs(ev.pos.x - impl_->last_text_click_pos.x) <= 4 &&
+                    std::abs(ev.pos.y - impl_->last_text_click_pos.y) <= 4;
+                if (double_click && !block.text_value.empty()) {
+                    const auto [begin, end] =
+                        word_bounds_at(block.text_value, block.caret_offset);
+                    set_text_selection(*impl_, target, block, begin, end);
+                    add_dirty_rect(*impl_, block_visual_rect(*impl_, target));
+                    caret = true;
+                    impl_->last_text_click_valid = false;
+                } else {
+                    impl_->last_text_click_valid = true;
+                    impl_->last_text_click_idx = target;
+                    impl_->last_text_click_pos = ev.pos;
+                    impl_->last_text_click_time = now;
+                    if (ev.button == MouseButton::Left) {
+                        impl_->text_selection_drag_idx = target;
+                        impl_->text_selection_drag_anchor =
+                            block.caret_offset;
+                    }
+                }
+            } else {
+                impl_->text_selection_drag_idx = -1;
+            }
             if (h || a || f || caret) result.redraw_requested = true;
 #if !defined(AFFINEUI_STUB_BUILD)
             if (impl_->ui_control_script_attached &&
@@ -8001,6 +8564,7 @@ DispatchResult Document::dispatch(const Event& ev) {
             }
 #endif
             impl_->hovered_idx    = hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
+            impl_->text_selection_drag_idx = -1;
             // Clear :active on every MouseUp â€” the press is over. We
             // don't try to be clever about "release outside the
             // pressed element" today; that nuance is part of the
@@ -8081,7 +8645,13 @@ DispatchResult Document::dispatch(const Event& ev) {
                     const Rect old_rect = subtree_visual_rect(*impl_, idx);
                     std::string next = emitted_text_control_value(*control);
                     std::size_t caret = control->caret_offset;
-                    next = erase_previous_codepoint(std::move(next), caret);
+                    if (has_text_selection(*control)) {
+                        const auto [begin, end] = normalized_selection(*control);
+                        next = erase_selected_text(std::move(next), begin, end,
+                                                   caret);
+                    } else {
+                        next = erase_previous_codepoint(std::move(next), caret);
+                    }
                     set_live_text_state(
                         *impl_, idx, *control, std::move(next), caret);
                     mark_live_mutation_dirty(*impl_, idx, old_rect,
@@ -8099,7 +8669,13 @@ DispatchResult Document::dispatch(const Event& ev) {
                     const Rect old_rect = subtree_visual_rect(*impl_, idx);
                     std::string next = emitted_text_control_value(*control);
                     std::size_t caret = control->caret_offset;
-                    next = erase_next_codepoint(std::move(next), caret);
+                    if (has_text_selection(*control)) {
+                        const auto [begin, end] = normalized_selection(*control);
+                        next = erase_selected_text(std::move(next), begin, end,
+                                                   caret);
+                    } else {
+                        next = erase_next_codepoint(std::move(next), caret);
+                    }
                     set_live_text_state(
                         *impl_, idx, *control, std::move(next), caret);
                     mark_live_mutation_dirty(*impl_, idx, old_rect,
@@ -8118,7 +8694,13 @@ DispatchResult Document::dispatch(const Event& ev) {
                 if (focused_text_control(*impl_, control)) {
                     std::size_t caret = control->caret_offset;
                     const auto text = emitted_text_control_value(*control);
-                    if (ev.key == Key::ArrowLeft) {
+                    if (has_text_selection(*control) &&
+                        ev.key == Key::ArrowLeft) {
+                        caret = normalized_selection(*control).first;
+                    } else if (has_text_selection(*control) &&
+                               ev.key == Key::ArrowRight) {
+                        caret = normalized_selection(*control).second;
+                    } else if (ev.key == Key::ArrowLeft) {
                         caret = previous_utf8_boundary(text, caret);
                     } else if (ev.key == Key::ArrowRight) {
                         caret = next_utf8_boundary(text, caret);
@@ -8127,9 +8709,10 @@ DispatchResult Document::dispatch(const Event& ev) {
                     } else {
                         caret = text.size();
                     }
-                    if (caret != control->caret_offset) {
+                    if (caret != control->caret_offset ||
+                        has_text_selection(*control)) {
                         const int idx = impl_->focused_idx;
-                        control->caret_offset = caret;
+                        set_text_selection(*impl_, idx, *control, caret, caret);
                         if (auto* elem = element_for_block(*impl_, idx)) {
                             impl_->live_text_carets[
                                 lxb_dom_interface_node(elem)] = caret;
@@ -8148,7 +8731,14 @@ DispatchResult Document::dispatch(const Event& ev) {
                 const Rect old_rect = subtree_visual_rect(*impl_, idx);
                 std::string next = emitted_text_control_value(*control);
                 std::size_t caret = control->caret_offset;
-                next = insert_text_at_caret(std::move(next), caret, ev.text);
+                if (has_text_selection(*control)) {
+                    const auto [begin, end] = normalized_selection(*control);
+                    next = replace_selected_text(std::move(next), begin, end,
+                                                 ev.text, caret);
+                } else {
+                    next = insert_text_at_caret(std::move(next), caret,
+                                                ev.text);
+                }
                 set_live_text_state(
                     *impl_, idx, *control, std::move(next), caret);
                 mark_live_mutation_dirty(*impl_, idx, old_rect,

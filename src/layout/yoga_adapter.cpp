@@ -658,8 +658,14 @@ void layout_blocks_with_yoga(int viewport_width_px,
         // will call back during layout with the constraint width;
         // the callback runs nvgTextBoxBounds to compute the actual
         // wrapped rendered size for that width.
+        const bool has_children = std::any_of(
+            inputs.begin(), inputs.end(),
+            [i](const BlockLayoutInput& child) {
+                return child.parent_idx == static_cast<int>(i);
+            });
         const bool has_text_measure =
-            measurer != nullptr && !inputs[i].text.empty() && inputs[i].font != 0;
+            measurer != nullptr && !inputs[i].text.empty() &&
+            inputs[i].font != 0 && !has_children;
         const bool has_baseline = inputs[i].baseline_px > 0.0f;
         if (has_text_measure || has_baseline) {
             node_ctxs[i] = NodeCtx{
