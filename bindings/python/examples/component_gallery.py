@@ -647,10 +647,19 @@ def main() -> None:
         default="retina",
         help="Native window DPI mode. retina uses the platform high-DPI framebuffer; normal uses 1x.",
     )
+    parser.add_argument(
+        "--page",
+        default="overview",
+        help="Initial gallery page key, for example: overview, controls, forms, photo.",
+    )
     args = parser.parse_args()
 
     theme = parse_style(args.style)
     controller = ComponentGalleryApp(theme)
+    page_keys = {page.key for page in controller.pages}
+    if args.page not in page_keys:
+        parser.error(f"unknown page '{args.page}'. Available: {', '.join(sorted(page_keys))}")
+    controller.active_page = args.page
     app = ui.App(
         title=f"AffineUI Component Gallery ({args.style})",
         width=1024,
