@@ -1,10 +1,10 @@
-"""Hybrid Decius photo-editor panel driven by Python on the C++ runtime."""
+"""Pure-Python Decius photo-editor gallery panel."""
 
 
 def build(ctx, v):
     v.paragraph(
-        "Python owns this editor shell while C++ supplies the retained view tree, "
-        "DOM scripting, layout, and widget callbacks.",
+        "Python owns this editor shell, state, and callbacks while AffineUI "
+        "supplies rendering, layout, DOM scripting, and widget dispatch.",
         classes=ctx.note_class(),
         key="photo-note",
     )

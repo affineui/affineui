@@ -86,8 +86,8 @@ class ComponentGalleryApp:
                     ),
                     NavItem(
                         "photo",
-                        "Photo Hybrid",
-                        "Decius photo editor shell driven from Python on the C++ runtime",
+                        "Photo Edit",
+                        "Pure-Python Decius photo editor surface",
                         "image",
                         photo.build,
                     ),

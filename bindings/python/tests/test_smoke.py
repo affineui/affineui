@@ -1,3 +1,6 @@
+import sys
+from pathlib import Path
+
 import affineui as ui
 
 
@@ -55,6 +58,38 @@ def _find_hovered_attr(app, attr_name: str, width: int, height: int):
                 if any(name == attr_name for name, _ in info.attrs):
                     return ui.Point(x, y)
     return None
+
+
+def _find_hovered_attr_value(
+    app, attr_name: str, attr_value: str, width: int, height: int
+):
+    ev = ui.Event()
+    ev.type = ui.EventType.MouseMove
+    for y in range(0, height, 4):
+        for x in range(0, width, 4):
+            ev.pos = ui.Point(x, y)
+            app.dispatch(ev)
+            for info in app.document().hovered_info_chain():
+                if any(
+                    name == attr_name and value == attr_value
+                    for name, value in info.attrs
+                ):
+                    return ui.Point(x, y)
+    return None
+
+
+def _click(app, point):
+    down = ui.Event()
+    down.type = ui.EventType.MouseDown
+    down.button = ui.MouseButton.Left
+    down.pos = point
+    app.dispatch(down)
+
+    up = ui.Event()
+    up.type = ui.EventType.MouseUp
+    up.button = ui.MouseButton.Left
+    up.pos = point
+    app.dispatch(up)
 
 
 def test_view_emits_remote_patch_batches_and_html():
@@ -323,3 +358,37 @@ def test_append_is_illegal_during_generation():
 
     assert view.diagnostics()
     assert "append" in view.diagnostics()[0]
+
+
+def test_photo_edit_sample_is_pure_python_and_clickable():
+    examples = Path(__file__).resolve().parents[1] / "examples"
+    sys.path.insert(0, str(examples))
+    try:
+        from photo_edit import PHOTO_CSS, PhotoEditApp
+    finally:
+        sys.path.remove(str(examples))
+
+    sample = PhotoEditApp()
+    app = ui.App(
+        title="Photo Edit Smoke",
+        width=1280,
+        height=820,
+        asset_folders=["examples", "."],
+        high_dpi=False,
+    )
+    sample.app = app
+    sample.reload()
+    app.set_stylesheet(PHOTO_CSS)
+    app.document().layout(1280, 820)
+
+    assert app.document().content_size().width >= 1280
+    eraser = _find_hovered_attr_value(
+        app, "data-aui-name", "tool-eraser", 1280, 820
+    )
+    assert eraser is not None
+
+    _click(app, eraser)
+    assert sample.tool == "eraser"
+
+    sample.menu_action("lnew")
+    assert sample.current_layer().name.startswith("Layer")
