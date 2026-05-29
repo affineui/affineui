@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -40,6 +41,13 @@ bool has_text_patch(const affineui::RemotePatchQueue& queue,
             return patch.op == affineui::RemotePatchOp::SetText &&
                    patch.value == text;
         });
+}
+
+std::vector<std::string> test_asset_folders() {
+    return {
+        std::string(AFFINEUI_TEST_SOURCE_DIR) + "/examples",
+        std::string(AFFINEUI_TEST_SOURCE_DIR),
+    };
 }
 
 affineui::Point find_hovered_widget(affineui::App& app,
@@ -167,6 +175,21 @@ TEST_CASE("View emits framework-specific knob markup") {
     CHECK(html.find("aui-knob__indicator") != std::string::npos);
 }
 
+TEST_CASE("View can embed trusted raw HTML fragments") {
+    affineui::View view{affineui::ViewTheme::Decius};
+    view.begin();
+    view.heading(2, "Reference");
+    view.html(R"(<div class="dcs-alert"><span data-role="raw">Decius</span></div>)",
+              "raw-decius-snippet");
+    view.text("<escaped>", "escaped-text");
+    view.end();
+
+    const auto html = view.to_html_fragment();
+    CHECK(html.find("<div class=\"dcs-alert\"><span data-role=\"raw\">Decius</span></div>") !=
+          std::string::npos);
+    CHECK(html.find("&lt;escaped&gt;") != std::string::npos);
+}
+
 TEST_CASE("View framework personalities apply default and explicit selectors") {
     affineui::View decius{affineui::ViewTheme::Decius};
     decius.begin();
@@ -238,6 +261,8 @@ TEST_CASE("View emits framework-specific field widgets") {
         auto panel = decius.panel("panel");
         (void) panel;
         decius.input("Object name", "Cylinder.042", "text", "object-name");
+        decius.input("Gain", "1.000", "number", "gain");
+        decius.input("Tint", "#4da3ff", "color", "tint");
         decius.dropdown("Mode", {"Object", "Edit"}, "Object", "mode");
         decius.button_group("Space", {"Local", "World"}, "World", "space");
     }
@@ -246,6 +271,11 @@ TEST_CASE("View emits framework-specific field widgets") {
     CHECK(decius.diagnostics().empty());
     html = decius.to_html_fragment();
     CHECK(html.find("dcs-input") != std::string::npos);
+    CHECK(html.find("dcs-combo") != std::string::npos);
+    CHECK(html.find("data-dcs-combo") != std::string::npos);
+    CHECK(html.find("dcs-combo__fill") != std::string::npos);
+    CHECK(html.find("style=\"--fill:50%\"") != std::string::npos);
+    CHECK(html.find("dcs-colorfield") != std::string::npos);
     CHECK(html.find("dcs-select") != std::string::npos);
     CHECK(html.find("dcs-btn-group") != std::string::npos);
 }
@@ -325,7 +355,7 @@ TEST_CASE("App dispatch invokes command button callbacks") {
     view.end();
 
     affineui::App::Config cfg;
-    cfg.asset_folders = {"examples", "."};
+    cfg.asset_folders = test_asset_folders();
     affineui::App app{cfg};
     app.load_view(view);
     app.document().layout(240, 120);
@@ -370,7 +400,7 @@ TEST_CASE("App dispatch invokes command widget change callbacks") {
     view.end();
 
     affineui::App::Config cfg;
-    cfg.asset_folders = {"examples", "."};
+    cfg.asset_folders = test_asset_folders();
     affineui::App app{cfg};
     app.load_view(view);
     app.document().layout(260, 120);
@@ -423,7 +453,7 @@ TEST_CASE("App dispatch invokes command knob change callbacks") {
         view.end();
 
         affineui::App::Config cfg;
-        cfg.asset_folders = {"examples", "."};
+        cfg.asset_folders = test_asset_folders();
         affineui::App app{cfg};
         app.load_view(view);
         app.document().layout(320, 200);
@@ -465,7 +495,7 @@ TEST_CASE("App dispatch invokes command text input change callbacks") {
     view.end();
 
     affineui::App::Config cfg;
-    cfg.asset_folders = {"examples", "."};
+    cfg.asset_folders = test_asset_folders();
     affineui::App app{cfg};
     app.load_view(view);
     app.document().layout(320, 160);
@@ -493,6 +523,107 @@ TEST_CASE("App dispatch invokes command text input change callbacks") {
 }
 
 TEST_CASE("App dispatch supports numeric input horizontal drag") {
+    for (const auto theme :
+         {affineui::ViewTheme::Bootstrap, affineui::ViewTheme::Decius}) {
+        affineui::View view{theme};
+        std::string value;
+
+        view.begin();
+        view.input("Gain", "1.0", "number", "gain")
+            .on_change([&](std::string_view next) { value = std::string(next); });
+        view.end();
+
+        affineui::App::Config cfg;
+        cfg.asset_folders = test_asset_folders();
+        affineui::App app{cfg};
+        app.load_view(view);
+        app.document().layout(320, 160);
+
+        const auto input = find_hovered_tag_attr(app, "input", "data-aui-name",
+                                                 "gain", 320, 160);
+        REQUIRE(input.x >= 0);
+        CHECK(app.document().hovered_cursor() == 6);
+
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = input;
+        app.dispatch(down);
+
+        affineui::Event drag{};
+        drag.type = affineui::EventType::MouseMove;
+        drag.pos = {input.x + 40, input.y};
+        CHECK(app.dispatch(drag));
+
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = drag.pos;
+        app.dispatch(up);
+
+        REQUIRE_FALSE(value.empty());
+        CHECK(std::stod(value) > 1.0);
+    }
+}
+
+TEST_CASE("App dispatch edits and resizes command textareas") {
+    for (const auto theme :
+         {affineui::ViewTheme::Bootstrap, affineui::ViewTheme::Decius}) {
+        affineui::View view{theme};
+        std::string value;
+
+        view.begin();
+        view.textarea("Notes", "alpha\nomega", 3, "notes")
+            .on_change([&](std::string_view next) { value = std::string(next); });
+        view.end();
+
+        affineui::App::Config cfg;
+        cfg.asset_folders = test_asset_folders();
+        affineui::App app{cfg};
+        app.load_view(view);
+        app.document().layout(420, 240);
+
+        const auto textarea = find_hovered_tag_attr(app, "textarea",
+                                                    "data-aui-name", "notes",
+                                                    420, 240);
+        REQUIRE(textarea.x >= 0);
+        const auto before = app.document().hovered_info().bounds;
+
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = {before.x + 8, before.y + 8};
+        app.dispatch(down);
+
+        affineui::Event end{};
+        end.type = affineui::EventType::KeyDown;
+        end.key = affineui::Key::End;
+        app.dispatch(end);
+
+        affineui::Event text{};
+        text.type = affineui::EventType::TextInput;
+        text.text = "!";
+        CHECK(app.dispatch(text));
+        CHECK(value.find('!') != std::string::npos);
+
+        affineui::Event hover{};
+        hover.type = affineui::EventType::MouseMove;
+        hover.pos = {before.x + before.w - 2, before.y + before.h - 2};
+        app.dispatch(hover);
+        CHECK((app.document().hovered_cursor() == 7 ||
+               app.document().hovered_cursor() == 8));
+
+        down.pos = hover.pos;
+        app.dispatch(down);
+
+        affineui::Event drag{};
+        drag.type = affineui::EventType::MouseMove;
+        drag.pos = {hover.pos.x + 24, hover.pos.y + 20};
+        CHECK(app.dispatch(drag));
+    }
+}
+
+TEST_CASE("App dispatch defers numeric input edit mode until click release") {
     affineui::View view{affineui::ViewTheme::Bootstrap};
     std::string value;
 
@@ -502,7 +633,7 @@ TEST_CASE("App dispatch supports numeric input horizontal drag") {
     view.end();
 
     affineui::App::Config cfg;
-    cfg.asset_folders = {"examples", "."};
+    cfg.asset_folders = test_asset_folders();
     affineui::App app{cfg};
     app.load_view(view);
     app.document().layout(320, 160);
@@ -516,20 +647,26 @@ TEST_CASE("App dispatch supports numeric input horizontal drag") {
     down.button = affineui::MouseButton::Left;
     down.pos = input;
     app.dispatch(down);
-
-    affineui::Event drag{};
-    drag.type = affineui::EventType::MouseMove;
-    drag.pos = {input.x + 40, input.y};
-    CHECK(app.dispatch(drag));
+    CHECK(value.empty());
 
     affineui::Event up{};
     up.type = affineui::EventType::MouseUp;
     up.button = affineui::MouseButton::Left;
-    up.pos = drag.pos;
+    up.pos = input;
     app.dispatch(up);
+    CHECK(value.empty());
 
-    REQUIRE_FALSE(value.empty());
-    CHECK(std::stod(value) > 1.0);
+    affineui::Event select_all{};
+    select_all.type = affineui::EventType::KeyDown;
+    select_all.key = affineui::Key::A;
+    select_all.ctrl = true;
+    app.dispatch(select_all);
+
+    affineui::Event text{};
+    text.type = affineui::EventType::TextInput;
+    text.text = "2.5";
+    CHECK(app.dispatch(text));
+    CHECK(value == "2.5");
 }
 
 TEST_CASE("App dispatch invokes command dropdown and button-group callbacks") {
@@ -551,7 +688,7 @@ TEST_CASE("App dispatch invokes command dropdown and button-group callbacks") {
         view.end();
 
         affineui::App::Config cfg;
-        cfg.asset_folders = {"examples", "."};
+        cfg.asset_folders = test_asset_folders();
         affineui::App app{cfg};
         app.load_view(view);
         app.document().layout(420, 420);
@@ -573,8 +710,15 @@ TEST_CASE("App dispatch invokes command dropdown and button-group callbacks") {
                                                   "data-aui-name", "mode",
                                                   420, 420);
         REQUIRE(select.x >= 0);
+        const auto select_bounds = app.document().hovered_info().bounds;
         click_at(select);
         app.document().layout(420, 420);
+        const auto reopened_select = find_hovered_tag_attr(app, "select",
+                                                           "data-aui-name",
+                                                           "mode", 420, 420);
+        REQUIRE(reopened_select.x >= 0);
+        CHECK(app.document().hovered_info().bounds.y == select_bounds.y);
+        CHECK(app.document().hovered_info().bounds.h == select_bounds.h);
 
         const auto edit = find_hovered_tag_attr(app, "button", "value",
                                                 "Edit", 420, 420);
@@ -589,6 +733,46 @@ TEST_CASE("App dispatch invokes command dropdown and button-group callbacks") {
         click_at(local);
         CHECK(space == "Local");
     }
+}
+
+TEST_CASE("App dispatch invokes Decius colorfield menu callbacks") {
+    affineui::View view{affineui::ViewTheme::Decius};
+    std::string tint;
+
+    view.begin();
+    view.input("Tint", "#3bb7ff", "color", "tint")
+        .on_change([&](std::string_view next) { tint = std::string(next); });
+    view.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    app.load_view(view);
+    app.document().layout(360, 180);
+
+    auto click_at = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        app.dispatch(down);
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        app.dispatch(up);
+    };
+
+    const auto field = find_hovered_widget(app, "tint", 360, 180);
+    REQUIRE(field.x >= 0);
+    click_at(field);
+    app.document().layout(360, 180);
+
+    const auto green = find_hovered_tag_attr(app, "button", "data-dcs-value",
+                                             "#3dd68a", 360, 220);
+    REQUIRE(green.x >= 0);
+    click_at(green);
+    CHECK(tint == "#3dd68a");
 }
 
 TEST_CASE("View reconcile reuses nodes and emits property patches") {

@@ -36,6 +36,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <limits>
 #include <memory>
 #include <string>
@@ -200,6 +201,9 @@ struct RuleFill {
     lxb_css_selector_specificity_t specificity{0};
     std::uint32_t                 source_order{0};
     std::string                   font_family;            // empty = unset
+    detail::ComputedStyle::Resize resize{
+        detail::ComputedStyle::Resize::None};
+    bool                          has_resize{false};
     // When non-zero, this fill is gated on the named pseudo-class
     // state bit (kHoverStateBit / kActiveStateBit / kFocusStateBit)
     // being set on the matched element.
@@ -279,6 +283,7 @@ enum class LiveControlKind : std::uint8_t {
     None,
     RangeInput,
     NumericInput,
+    TextAreaResize,
     AuiKnob,
     DeciusSlider,
     DeciusFader,
@@ -318,6 +323,9 @@ struct DocumentImpl {
     std::string               html;
     std::string               user_stylesheet;
     ResourceLoader            resource_loader;
+    Document::ClipboardGet    clipboard_get;
+    Document::ClipboardSet    clipboard_set;
+    std::string               fallback_clipboard;
     Size                      content_size{0, 0};
     std::vector<Block>        blocks;
     bool                      paint_dirty{true};  // Phase 2C flips this
@@ -341,6 +349,13 @@ struct DocumentImpl {
     std::vector<std::string>  activated_widgets;
     std::vector<Document::WidgetChange> changed_widgets;
 
+    struct ScrollbarDrag {
+        int block_idx{-1};
+        int start_y{0};
+        int start_scroll_y{0};
+        int thumb_offset_y{0};
+    } scrollbar_drag;
+
 #if !defined(AFFINEUI_STUB_BUILD)
     struct LiveControlDrag {
         LiveControlKind  kind{LiveControlKind::None};
@@ -353,7 +368,15 @@ struct DocumentImpl {
         double           step{0.01};
         int              start_x{0};
         int              start_y{0};
+        int              start_w{0};
+        int              start_h{0};
         bool             bipolar{false};
+        bool             moved{false};
+        bool             resize_x{false};
+        bool             resize_y{false};
+        bool             defer_text_focus{false};
+        int              focus_idx{-1};
+        Point            focus_point{};
     } live_drag;
 #endif
 
@@ -397,6 +420,12 @@ struct DocumentImpl {
         live_text_selections;
     std::unordered_map<std::uint64_t, TextLayoutEntry> text_layout_cache;
     std::unordered_map<lxb_dom_node_t*, std::uint64_t> text_layout_signatures;
+    struct UserTextAreaSize {
+        int width{-1};
+        int height{-1};
+    };
+    std::unordered_map<lxb_dom_node_t*, UserTextAreaSize> user_textarea_sizes;
+    std::unordered_map<lxb_dom_node_t*, lxb_dom_node_t*> dcs_select_anchors;
     int                                       text_selection_drag_idx{-1};
     std::size_t                               text_selection_drag_anchor{0};
     bool                                      last_text_click_valid{false};
@@ -451,6 +480,16 @@ void invalidate_dom_weak_slot(DocumentImpl& impl, lxb_dom_node_t* node) {
     impl.live_text_values.erase(node);
     impl.live_text_carets.erase(node);
     impl.live_text_selections.erase(node);
+    impl.user_textarea_sizes.erase(node);
+    impl.dcs_select_anchors.erase(node);
+    for (auto it = impl.dcs_select_anchors.begin();
+         it != impl.dcs_select_anchors.end(); ) {
+        if (it->second == node) {
+            it = impl.dcs_select_anchors.erase(it);
+        } else {
+            ++it;
+        }
+    }
     for (auto& slot : impl.dom_weak_slots) {
         if (slot.node == node) {
             slot.node = nullptr;
@@ -1226,6 +1265,28 @@ void apply_font_family_fills(detail::DocumentImpl& impl,
             rs.computed.font_id = impl.style_store.intern_font_family(
                 rf.font_family);
         }
+        if (rf.has_resize) {
+            rs.computed.resize = rf.resize;
+        }
+    }
+}
+
+void apply_user_textarea_size(detail::DocumentImpl& impl,
+                              lxb_dom_element_t* elem,
+                              detail::ResolvedStyle& rs) {
+    if (!elem) return;
+    auto* elem_node = lxb_dom_interface_node(elem);
+    const auto it = impl.user_textarea_sizes.find(elem_node);
+    if (it == impl.user_textarea_sizes.end()) return;
+    if (it->second.width > 0) {
+        rs.computed.width = static_cast<std::int16_t>(
+            std::min(it->second.width, 32767));
+        rs.computed.width_pct_x100 = -1;
+    }
+    if (it->second.height > 0) {
+        rs.computed.height = static_cast<std::int16_t>(
+            std::min(it->second.height, 32767));
+        rs.computed.height_pct = -1;
     }
 }
 
@@ -1709,6 +1770,38 @@ std::string first_font_family(std::string_view value) {
     return strip_css_quotes(std::string(trim_css_ws(value)));
 }
 
+std::string css_keyword_value(std::string value) {
+    value = std::string(trim_css_ws(value));
+    const auto important = value.find('!');
+    if (important != std::string::npos) {
+        value = std::string(trim_css_ws(
+            std::string_view(value).substr(0, important)));
+    }
+    for (char& c : value) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return value;
+}
+
+std::pair<detail::ComputedStyle::Resize, bool>
+parse_resize_keyword(std::string value) {
+    using R = detail::ComputedStyle::Resize;
+    value = css_keyword_value(std::move(value));
+    if (value == "none" || value == "initial") {
+        return {R::None, true};
+    }
+    if (value == "both") {
+        return {R::Both, true};
+    }
+    if (value == "horizontal" || value == "inline") {
+        return {R::Horizontal, true};
+    }
+    if (value == "vertical" || value == "block") {
+        return {R::Vertical, true};
+    }
+    return {R::None, false};
+}
+
 bool starts_with_ascii_ci(std::string_view s, std::string_view prefix) {
     if (s.size() < prefix.size()) return false;
     for (std::size_t i = 0; i < prefix.size(); ++i) {
@@ -2117,7 +2210,11 @@ void scan_rule_fills(lxb_css_stylesheet_t* sst,
             ff = std::string(trim_css_ws(
                 std::string_view(ff).substr(0, important)));
         }
-        if (ff.empty()) continue;
+
+        const auto resize_value = find_decl_value(raw.decls, "resize");
+        const auto [resize, has_resize] = parse_resize_keyword(
+            substitute_root_vars(resize_value, root_vars));
+        if (ff.empty() && !has_resize) continue;
 
         // Each comma-separated group becomes its own RuleFill.
         std::string_view sel_text = trim_css_ws(raw.selector);
@@ -2143,6 +2240,8 @@ void scan_rule_fills(lxb_css_stylesheet_t* sst,
                     rf.source_order         =
                         static_cast<std::uint32_t>(out.size());
                     rf.font_family          = ff;
+                    rf.resize               = resize;
+                    rf.has_resize           = has_resize;
                     rf.state_bit            = state_bit;
                     out.push_back(std::move(rf));
                 }
@@ -3472,6 +3571,9 @@ void collect_blocks(detail::DocumentImpl& impl,
         // matches CSS source order).
         apply_font_family_fills(impl, tag, elem_id_attr, cls_attr,
                                 parent_idx, sb_at_collect, rs);
+        if (tag == "textarea") {
+            apply_user_textarea_size(impl, elem, rs);
+        }
 
         // CSS display:none removes the element and its entire subtree from
         // layout/paint. Do this before appending a Block so descendants cannot
@@ -3559,6 +3661,7 @@ void collect_blocks(detail::DocumentImpl& impl,
         }
         if (b.tag == "textarea") {
             b.text_control = true;
+            b.is_disabled = has_attr(elem, "disabled");
             b.placeholder = attr_string(elem, "placeholder");
         } else if (b.tag == "input") {
             b.text_control = input_type_accepts_text(b.input_type);
@@ -3813,6 +3916,7 @@ void Document::set_html(std::string_view html) {
     impl_->live_text_values.clear();
     impl_->live_text_carets.clear();
     impl_->live_text_selections.clear();
+    impl_->dcs_select_anchors.clear();
     impl_->text_layout_cache.clear();
     impl_->text_layout_signatures.clear();
     impl_->text_selection_drag_idx = -1;
@@ -4440,7 +4544,7 @@ void Document::layout(int viewport_width, int viewport_height,
     impl_->content_size = Size{viewport_width,
                                std::max(natural_h, viewport_height)};
 
-    // Compute per-block content_h = max(child bottom edge) - own top.
+    // Compute per-block content_h = max(descendant bottom edge) - own top.
     // Used by the scroll path: how far the user can scroll before the
     // last descendant clears the visible region. Iterate children in
     // doc order; each parent gets the max bottom of all its
@@ -4452,7 +4556,7 @@ void Document::layout(int viewport_width, int viewport_height,
         if (child.parent_idx < 0) continue;
         auto& parent = impl_->blocks[static_cast<std::size_t>(child.parent_idx)];
         const int child_bottom_in_parent =
-            (child.bounds.y - parent.bounds.y) + child.bounds.h;
+            (child.bounds.y - parent.bounds.y) + child.content_h;
         if (child_bottom_in_parent > parent.content_h)
             parent.content_h = child_bottom_in_parent;
     }
@@ -4492,6 +4596,15 @@ bool block_is_scrollable_y(const detail::DocumentImpl& impl, int idx);
 bool block_clips_overflow(const detail::DocumentImpl& impl, int idx);
 int  scroll_offset_y_for(const std::vector<Block>& blocks,
                          const detail::StyleStore& styles, int idx);
+struct ScrollbarGeometry {
+    Rect track{};
+    Rect thumb{};
+    int scroll_range{0};
+    int thumb_travel{0};
+};
+bool vertical_scrollbar_geometry(const detail::DocumentImpl& impl,
+                                 int idx,
+                                 ScrollbarGeometry& out);
 const KeyframeBlock* find_keyframes(const detail::DocumentImpl& impl,
                                     std::uint32_t name_hash);
 bool has_text_selection(const Block& block);
@@ -5932,7 +6045,8 @@ void Document::draw(Painter& painter) {
             }
         }
 
-        if (b.tag == "textarea") {
+        if (b.tag == "textarea" &&
+            cs.resize != detail::ComputedStyle::Resize::None) {
             const float x1 = static_cast<float>(
                 eff.x + eff.w - cs.used_border_right() - 4);
             const float y1 = static_cast<float>(
@@ -6002,25 +6116,15 @@ void Document::draw(Painter& painter) {
     // clipped content. A simple right-side thumb showing how far
     // we've scrolled; track is transparent.
     for (const auto& b : impl_->blocks) {
-        if (!block_is_scrollable_y(*impl_, static_cast<int>(&b - impl_->blocks.data())))
+        ScrollbarGeometry scrollbar{};
+        if (!vertical_scrollbar_geometry(
+                *impl_, static_cast<int>(&b - impl_->blocks.data()),
+                scrollbar)) {
             continue;
-        const int track_w  = 6;
-        const int track_pad = 2;
-        const int track_x  = b.bounds.x + b.bounds.w - track_w - track_pad;
-        const int track_y  = b.bounds.y + track_pad;
-        const int track_h  = b.bounds.h - 2 * track_pad;
-        const float ratio  = static_cast<float>(b.bounds.h)
-                           / static_cast<float>(b.content_h);
-        const int thumb_h  = std::max(24, static_cast<int>(
-                               static_cast<float>(track_h) * ratio));
-        const int scroll_range = std::max(1, b.content_h - b.bounds.h);
-        const int thumb_y_off  = static_cast<int>(
-            static_cast<float>(track_h - thumb_h) *
-            static_cast<float>(b.scroll_y) /
-            static_cast<float>(scroll_range));
-        const Rect thumb{track_x, track_y + thumb_y_off, track_w, thumb_h};
+        }
         // Catppuccin overlay0-ish, semi-transparent.
-        painter.fill_rounded_rect(thumb, 3.0f, Color{0x9c, 0xa0, 0xb0, 0xC0});
+        painter.fill_rounded_rect(
+            scrollbar.thumb, 3.0f, Color{0x9c, 0xa0, 0xb0, 0xC0});
     }
 }
 
@@ -6218,6 +6322,7 @@ bool computed_change_needs_layout(const detail::ComputedStyle& a,
         a.min_width != b.min_width ||
         a.max_width != b.max_width ||
         a.min_height != b.min_height ||
+        a.max_height != b.max_height ||
         a.inset_top != b.inset_top ||
         a.inset_right != b.inset_right ||
         a.inset_bottom != b.inset_bottom ||
@@ -6418,34 +6523,70 @@ bool update_absolute_geometry(detail::DocumentImpl& impl,
     }
 
     const auto& parent = impl.blocks[static_cast<std::size_t>(block.parent_idx)];
+    const auto& parent_cs = impl.style_store.computed(parent.id);
+    const Rect containing{
+        parent.bounds.x + parent_cs.used_border_left(),
+        parent.bounds.y + parent_cs.used_border_top(),
+        std::max(0, parent.bounds.w - parent_cs.used_border_left() -
+                         parent_cs.used_border_right()),
+        std::max(0, parent.bounds.h - parent_cs.used_border_top() -
+                         parent_cs.used_border_bottom())
+    };
+
+    const auto resolve_horizontal_inset = [&](std::int16_t value,
+                                              bool is_pct) {
+        return resolve_position_edge(value, is_pct, containing.w);
+    };
+    const auto resolve_vertical_inset = [&](std::int16_t value,
+                                            bool is_pct) {
+        return resolve_position_edge(value, is_pct, containing.h);
+    };
+
     Rect next = block.bounds;
-    next.w = resolved_outer_length(cs.width, cs.width_pct_x100, parent.bounds.w,
+    next.w = resolved_outer_length(cs.width, cs.width_pct_x100, containing.w,
                                    next.w, cs, true);
     next.h = resolved_outer_length(
         cs.height,
         cs.height_pct >= 0 ? static_cast<std::int16_t>(cs.height_pct * 100)
                            : static_cast<std::int16_t>(-1),
-        parent.bounds.h, next.h, cs, false);
+        containing.h, next.h, cs, false);
+
+    const bool explicit_width = cs.width >= 0 || cs.width_pct_x100 >= 0;
+    if (!explicit_width && cs.inset_has.left && cs.inset_has.right) {
+        const int left = resolve_horizontal_inset(
+            cs.inset_left, cs.inset_has.left_pct);
+        const int right = resolve_horizontal_inset(
+            cs.inset_right, cs.inset_has.right_pct);
+        next.w = std::max(0, containing.w - left - right);
+    }
+    const bool explicit_height = cs.height >= 0 || cs.height_pct >= 0;
+    if (!explicit_height && cs.inset_has.top && cs.inset_has.bottom) {
+        const int top = resolve_vertical_inset(
+            cs.inset_top, cs.inset_has.top_pct);
+        const int bottom = resolve_vertical_inset(
+            cs.inset_bottom, cs.inset_has.bottom_pct);
+        next.h = std::max(0, containing.h - top - bottom);
+    }
 
     if (cs.inset_has.left) {
-        next.x = parent.bounds.x + resolve_position_edge(
-            cs.inset_left, cs.inset_has.left_pct, parent.bounds.w);
+        next.x = containing.x +
+                 resolve_horizontal_inset(cs.inset_left,
+                                          cs.inset_has.left_pct);
     } else if (cs.inset_has.right) {
-        next.x = parent.bounds.x + parent.bounds.w -
-                 resolve_position_edge(cs.inset_right,
-                                       cs.inset_has.right_pct,
-                                       parent.bounds.w) -
+        next.x = containing.x + containing.w -
+                 resolve_horizontal_inset(cs.inset_right,
+                                          cs.inset_has.right_pct) -
                  next.w;
     }
 
     if (cs.inset_has.top) {
-        next.y = parent.bounds.y + resolve_position_edge(
-            cs.inset_top, cs.inset_has.top_pct, parent.bounds.h);
+        next.y = containing.y +
+                 resolve_vertical_inset(cs.inset_top,
+                                        cs.inset_has.top_pct);
     } else if (cs.inset_has.bottom) {
-        next.y = parent.bounds.y + parent.bounds.h -
-                 resolve_position_edge(cs.inset_bottom,
-                                       cs.inset_has.bottom_pct,
-                                       parent.bounds.h) -
+        next.y = containing.y + containing.h -
+                 resolve_vertical_inset(cs.inset_bottom,
+                                        cs.inset_has.bottom_pct) -
                  next.h;
     }
 
@@ -6476,6 +6617,9 @@ bool restyle_block(detail::DocumentImpl& impl, int idx) {
     const auto sb_rs = impl.style_store.state_bits(block.id);
     apply_font_family_fills(impl, block.tag, block.elem_id, block.classes,
                             block.parent_idx, sb_rs, rs);
+    if (block.tag == "textarea") {
+        apply_user_textarea_size(impl, elem, rs);
+    }
     const auto old_animation = block.animation;
     const auto old_computed = impl.style_store.computed(block.id);
     const bool needs_layout = computed_change_needs_layout(old_computed,
@@ -6862,6 +7006,100 @@ Rect block_visual_rect(const detail::DocumentImpl& impl, int idx) {
     return out;
 }
 
+bool vertical_scrollbar_geometry(const detail::DocumentImpl& impl,
+                                 int idx,
+                                 ScrollbarGeometry& out) {
+    if (!block_is_scrollable_y(impl, idx)) return false;
+    const auto& b = impl.blocks[static_cast<std::size_t>(idx)];
+    const Rect box = block_border_visual_rect(impl, idx);
+    constexpr int kTrackWidth = 6;
+    constexpr int kTrackPad = 2;
+    if (box.w <= kTrackWidth + kTrackPad * 2 ||
+        box.h <= kTrackPad * 2 + 1) {
+        return false;
+    }
+
+    const int track_h = box.h - 2 * kTrackPad;
+    const float ratio =
+        static_cast<float>(b.bounds.h) / static_cast<float>(b.content_h);
+    const int natural_thumb_h = static_cast<int>(
+        std::round(static_cast<float>(track_h) * ratio));
+    const int thumb_h = std::clamp(
+        std::max(24, natural_thumb_h), 1, std::max(1, track_h));
+    const int scroll_range = std::max(1, b.content_h - b.bounds.h);
+    const int thumb_travel = std::max(0, track_h - thumb_h);
+    const int thumb_y_off = thumb_travel == 0
+        ? 0
+        : static_cast<int>(
+            std::round(static_cast<float>(thumb_travel) *
+                       static_cast<float>(b.scroll_y) /
+                       static_cast<float>(scroll_range)));
+
+    out.track = Rect{
+        box.x + box.w - kTrackWidth - kTrackPad,
+        box.y + kTrackPad,
+        kTrackWidth,
+        track_h,
+    };
+    out.thumb = Rect{
+        out.track.x,
+        out.track.y + thumb_y_off,
+        out.track.w,
+        thumb_h,
+    };
+    out.scroll_range = scroll_range;
+    out.thumb_travel = thumb_travel;
+    return true;
+}
+
+bool set_block_scroll_y(detail::DocumentImpl& impl, int idx, int scroll_y) {
+    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return false;
+    if (!block_is_scrollable_y(impl, idx)) return false;
+    auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+    const int max_scroll = std::max(0, block.content_h - block.bounds.h);
+    const int next = std::clamp(scroll_y, 0, max_scroll);
+    if (next == block.scroll_y) return false;
+
+    add_dirty_rect(impl, block_visual_rect(impl, idx));
+    block.scroll_y = next;
+    add_dirty_rect(impl, block_visual_rect(impl, idx));
+    return true;
+}
+
+bool scrollbar_scroll_from_thumb_y(detail::DocumentImpl& impl,
+                                   int idx,
+                                   int thumb_y) {
+    ScrollbarGeometry geometry{};
+    if (!vertical_scrollbar_geometry(impl, idx, geometry)) return false;
+    if (geometry.thumb_travel <= 0) return false;
+    const int track_relative = std::clamp(
+        thumb_y - geometry.track.y, 0, geometry.thumb_travel);
+    const int next = static_cast<int>(
+        std::round(static_cast<double>(track_relative) *
+                   static_cast<double>(geometry.scroll_range) /
+                   static_cast<double>(geometry.thumb_travel)));
+    return set_block_scroll_y(impl, idx, next);
+}
+
+bool find_vertical_scrollbar_at(const detail::DocumentImpl& impl,
+                                Point point,
+                                int& out_idx,
+                                ScrollbarGeometry& out) {
+    for (std::size_t i = impl.blocks.size(); i-- > 0; ) {
+        ScrollbarGeometry geometry{};
+        if (!vertical_scrollbar_geometry(
+                impl, static_cast<int>(i), geometry)) {
+            continue;
+        }
+        if (rect_contains(geometry.track, point.x, point.y)) {
+            out_idx = static_cast<int>(i);
+            out = geometry;
+            return true;
+        }
+    }
+    return false;
+}
+
 Rect subtree_visual_rect(const detail::DocumentImpl& impl, int root_idx) {
     Rect out{};
     if (root_idx < 0 || root_idx >= static_cast<int>(impl.blocks.size()))
@@ -6981,6 +7219,7 @@ void refresh_block_metadata_from_element(Block& block,
         block.is_disabled = has_attr(elem, "disabled");
         block.text_control = input_type_accepts_text(block.input_type);
     } else if (block.tag == "textarea") {
+        block.is_disabled = has_attr(elem, "disabled");
         block.text_control = true;
     }
 }
@@ -7026,6 +7265,18 @@ lxb_dom_element_t* first_descendant_with_class(lxb_dom_element_t* elem,
         if (auto* found = first_descendant_with_class(
                 lxb_dom_interface_element(child), cls)) {
             return found;
+        }
+    }
+    return nullptr;
+}
+
+lxb_dom_element_t* nearest_ancestor_with_class(lxb_dom_element_t* elem,
+                                               std::string_view cls) {
+    for (auto* current = elem; current != nullptr;
+         current = parent_element(current)) {
+        const auto classes = split_classes(attr_string(current, "class"));
+        if (std::find(classes.begin(), classes.end(), cls) != classes.end()) {
+            return current;
         }
     }
     return nullptr;
@@ -7350,6 +7601,55 @@ double value_from_y(const Rect& bounds, int y, double min, double max) {
     return min + (1.0 - t) * (max - min);
 }
 
+constexpr int kLiveDragThresholdPx = 3;
+constexpr int kTextareaResizeGripPx = 16;
+
+bool pointer_moved_past_threshold(const Event& ev,
+                                  const detail::DocumentImpl::LiveControlDrag& drag) {
+    return std::abs(ev.pos.x - drag.start_x) >= kLiveDragThresholdPx ||
+           std::abs(ev.pos.y - drag.start_y) >= kLiveDragThresholdPx;
+}
+
+bool textarea_resize_axes(detail::ComputedStyle::Resize resize,
+                          bool& resize_x,
+                          bool& resize_y) {
+    using R = detail::ComputedStyle::Resize;
+    resize_x = resize == R::Both || resize == R::Horizontal;
+    resize_y = resize == R::Both || resize == R::Vertical;
+    return resize_x || resize_y;
+}
+
+Rect textarea_resize_grip_rect(const detail::DocumentImpl& impl, int idx) {
+    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return {};
+    const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+    if (block.tag != "textarea" || block.is_disabled) return {};
+    bool resize_x = false;
+    bool resize_y = false;
+    const auto& cs = impl.style_store.computed(block.id);
+    if (!textarea_resize_axes(cs.resize, resize_x, resize_y)) return {};
+    const Rect bounds = block_border_visual_rect(impl, idx);
+    const int grip = std::min(kTextareaResizeGripPx,
+                              std::max(1, std::min(bounds.w, bounds.h)));
+    return Rect{bounds.x + bounds.w - grip, bounds.y + bounds.h - grip,
+                grip, grip};
+}
+
+bool point_in_textarea_resize_grip(const detail::DocumentImpl& impl,
+                                   int idx,
+                                   Point point,
+                                   bool& resize_x,
+                                   bool& resize_y) {
+    resize_x = false;
+    resize_y = false;
+    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return false;
+    const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+    if (block.tag != "textarea" || block.is_disabled) return false;
+    const auto& cs = impl.style_store.computed(block.id);
+    if (!textarea_resize_axes(cs.resize, resize_x, resize_y)) return false;
+    return rect_contains(textarea_resize_grip_rect(impl, idx),
+                         point.x, point.y);
+}
+
 bool update_live_control_value(detail::DocumentImpl& impl,
                                lxb_dom_element_t* elem,
                                LiveControlKind kind,
@@ -7373,6 +7673,23 @@ bool update_live_control_value(detail::DocumentImpl& impl,
             if (block.text_control) {
                 set_live_text_value(impl, idx, block, value_text);
             }
+        }
+        if (auto* combo = nearest_ancestor_with_class(elem, "dcs-combo")) {
+            changed =
+                set_attribute_on_element(impl, combo, "data-value", value_text) ||
+                changed;
+            changed =
+                set_attribute_on_element(impl, combo, "aria-valuenow", value_text) ||
+                changed;
+            const double fill_min =
+                element_attr_double(elem, "data-fill-min", min);
+            const double fill_max =
+                element_attr_double(elem, "data-fill-max", max);
+            changed = set_attribute_on_element(
+                impl, combo, "style",
+                "--fill:" + percent_string(
+                    normalized_control_value(clamped, fill_min, fill_max))) ||
+                changed;
         }
     }
     if (kind == LiveControlKind::AuiKnob ||
@@ -7455,11 +7772,29 @@ LiveControlKind live_control_kind_for_block(const Block& block) {
 
 bool find_live_control_at(detail::DocumentImpl& impl,
                           int from_idx,
+                          Point point,
                           detail::DocumentImpl::LiveControlDrag& out) {
     for (int idx = from_idx;
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
         const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+        bool resize_x = false;
+        bool resize_y = false;
+        if (point_in_textarea_resize_grip(impl, idx, point,
+                                          resize_x, resize_y)) {
+            auto* elem = element_for_block(impl, idx);
+            if (!elem) continue;
+            out.kind = LiveControlKind::TextAreaResize;
+            out.elem = elem;
+            out.block_idx = idx;
+            out.bounds = block_border_visual_rect(impl, idx);
+            out.start_w = out.bounds.w;
+            out.start_h = out.bounds.h;
+            out.resize_x = resize_x;
+            out.resize_y = resize_y;
+            return true;
+        }
+
         const auto kind = live_control_kind_for_block(block);
         if (kind == LiveControlKind::None || block.is_disabled) continue;
 
@@ -7493,9 +7828,55 @@ bool find_live_control_at(detail::DocumentImpl& impl,
     return false;
 }
 
+bool update_textarea_resize(detail::DocumentImpl& impl,
+                            detail::DocumentImpl::LiveControlDrag& drag,
+                            const Event& ev) {
+    if (!drag.elem || drag.block_idx < 0 ||
+        drag.block_idx >= static_cast<int>(impl.blocks.size())) {
+        return false;
+    }
+    auto* node = lxb_dom_interface_node(drag.elem);
+    auto& size = impl.user_textarea_sizes[node];
+    const int next_w = drag.resize_x
+        ? std::max(1, drag.start_w + (ev.pos.x - drag.start_x))
+        : (size.width > 0 ? size.width : drag.start_w);
+    const int next_h = drag.resize_y
+        ? std::max(1, drag.start_h + (ev.pos.y - drag.start_y))
+        : (size.height > 0 ? size.height : drag.start_h);
+    if (next_w == size.width && next_h == size.height) return false;
+
+    const Rect old_rect = subtree_visual_rect(impl, drag.block_idx);
+    size.width = next_w;
+    size.height = next_h;
+    auto& block = impl.blocks[static_cast<std::size_t>(drag.block_idx)];
+    auto& cs = impl.style_store.computed(block.id);
+    if (drag.resize_x) {
+        cs.width = static_cast<std::int16_t>(std::min(next_w, 32767));
+        cs.width_pct_x100 = -1;
+    }
+    if (drag.resize_y) {
+        cs.height = static_cast<std::int16_t>(std::min(next_h, 32767));
+        cs.height_pct = -1;
+    }
+    mark_live_mutation_dirty(impl, drag.block_idx, old_rect,
+                             /*needs_layout=*/true);
+    return true;
+}
+
 bool update_active_live_control(detail::DocumentImpl& impl, const Event& ev) {
     auto& drag = impl.live_drag;
     if (drag.kind == LiveControlKind::None || !drag.elem) return false;
+
+    if (!drag.moved && pointer_moved_past_threshold(ev, drag)) {
+        drag.moved = true;
+    }
+    if (drag.kind == LiveControlKind::NumericInput && !drag.moved) {
+        return false;
+    }
+    if (drag.kind == LiveControlKind::TextAreaResize) {
+        if (!drag.moved) return false;
+        return update_textarea_resize(impl, drag, ev);
+    }
 
     double value = drag.start_value;
     if (drag.kind == LiveControlKind::RangeInput ||
@@ -7819,8 +8200,8 @@ bool toggle_dropdown_menu(detail::DocumentImpl& impl, lxb_dom_element_t* group) 
     bool changed = remove_attribute_on_element(impl, menu, "hidden");
     changed = set_attribute_on_element(
         impl, menu, "style",
-        "display:flex;position:static;flex-direction:column;margin-top:4px") ||
-        changed;
+        "display:flex;position:absolute;left:0;right:0;top:100%;"
+        "margin-top:4px;flex-direction:column;z-index:200") || changed;
     return changed;
 }
 
@@ -7835,6 +8216,356 @@ bool update_dropdown_control(detail::DocumentImpl& impl,
     changed = update_dropdown_selection_states(impl, group, selected) || changed;
     changed = hide_dropdown_menu(impl, group) || changed;
     if (changed) emit_widget_change(impl, group, selected);
+    return changed;
+}
+
+template <class Fn>
+void walk_dom_elements(lxb_dom_node_t* node, Fn& fn) {
+    if (!node) return;
+    if (node->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+        fn(lxb_dom_interface_element(node));
+    }
+    for (auto* child = lxb_dom_node_first_child(node);
+         child != nullptr; child = lxb_dom_node_next(child)) {
+        walk_dom_elements(child, fn);
+    }
+}
+
+lxb_dom_node_t* document_dom_root(detail::DocumentImpl& impl) {
+    if (!impl.doc) return nullptr;
+    auto* body = lxb_html_document_body_element(impl.doc);
+    return body ? lxb_dom_interface_node(body) : lxb_dom_interface_node(impl.doc);
+}
+
+std::string target_id_from_selector(std::string_view selector) {
+    selector = trim_css_ws(selector);
+    if (selector.empty() || selector.front() != '#') return {};
+    selector.remove_prefix(1);
+    selector = trim_css_ws(selector);
+    std::size_t end = 0;
+    while (end < selector.size() &&
+           !std::isspace(static_cast<unsigned char>(selector[end]))) {
+        ++end;
+    }
+    return std::string(selector.substr(0, end));
+}
+
+lxb_dom_element_t* dcs_target_for_trigger(detail::DocumentImpl& impl,
+                                          lxb_dom_element_t* trigger) {
+    if (!trigger) return nullptr;
+    auto selector = attr_string(trigger, "data-dcs-target");
+    if (selector.empty()) selector = attr_string(trigger, "href");
+    const auto target_id = target_id_from_selector(selector);
+    return target_id.empty() ? nullptr : find_dom_element_by_id(impl, target_id);
+}
+
+bool is_dcs_menu_trigger(lxb_dom_element_t* elem) {
+    return elem && attr_string(elem, "data-dcs-toggle") == "menu" &&
+           !has_attr(elem, "disabled");
+}
+
+bool set_all_dcs_menu_triggers_expanded(detail::DocumentImpl& impl,
+                                        std::string_view value) {
+    std::vector<lxb_dom_element_t*> triggers;
+    auto collect = [&](lxb_dom_element_t* elem) {
+        if (is_dcs_menu_trigger(elem)) triggers.push_back(elem);
+    };
+    walk_dom_elements(document_dom_root(impl), collect);
+
+    bool changed = false;
+    for (auto* trigger : triggers) {
+        changed =
+            set_attribute_on_element(impl, trigger, "aria-expanded", value) ||
+            changed;
+    }
+    return changed;
+}
+
+bool close_dcs_menu(detail::DocumentImpl& impl, lxb_dom_element_t* menu) {
+    if (!menu) return false;
+    bool changed = set_attribute_on_element(impl, menu, "hidden", "");
+    changed = remove_attribute_on_element(impl, menu, "style") || changed;
+    return changed;
+}
+
+bool close_all_dcs_menus(detail::DocumentImpl& impl) {
+    std::vector<lxb_dom_element_t*> menus;
+    auto collect = [&](lxb_dom_element_t* elem) {
+        if (class_list_contains(elem, "dcs-menu") && !has_attr(elem, "hidden")) {
+            menus.push_back(elem);
+        }
+    };
+    walk_dom_elements(document_dom_root(impl), collect);
+
+    bool changed = false;
+    for (auto* menu : menus) {
+        changed = close_dcs_menu(impl, menu) || changed;
+    }
+    changed = set_all_dcs_menu_triggers_expanded(impl, "false") || changed;
+    return changed;
+}
+
+std::string dcs_menu_open_style(const detail::DocumentImpl& impl,
+                                lxb_dom_element_t* trigger) {
+    int left = 0;
+    int top = 0;
+    const int trigger_idx =
+        block_index_for_element_or_ancestor(impl, trigger);
+    if (trigger_idx >= 0) {
+        const Rect rect = block_border_visual_rect(impl, trigger_idx);
+        left = rect.x;
+        top = rect.y + rect.h + 4;
+    }
+    return "display:flex;position:fixed;left:" + std::to_string(left) +
+           "px;top:" + std::to_string(top) +
+           "px;flex-direction:column;z-index:200";
+}
+
+bool toggle_dcs_menu(detail::DocumentImpl& impl,
+                     lxb_dom_element_t* trigger,
+                     lxb_dom_element_t* menu) {
+    if (!trigger || !menu) return false;
+    if (!has_attr(menu, "hidden")) {
+        bool changed = close_dcs_menu(impl, menu);
+        changed =
+            set_attribute_on_element(impl, trigger, "aria-expanded", "false") ||
+            changed;
+        return changed;
+    }
+
+    const std::string open_style = dcs_menu_open_style(impl, trigger);
+    bool changed = close_all_dcs_menus(impl);
+    changed = remove_attribute_on_element(impl, menu, "hidden") || changed;
+    changed =
+        set_attribute_on_element(impl, menu, "style", open_style) ||
+        changed;
+    changed =
+        set_attribute_on_element(impl, trigger, "aria-expanded", "true") ||
+        changed;
+    return changed;
+}
+
+bool find_dcs_menu_trigger_at(detail::DocumentImpl& impl,
+                              int from_idx,
+                              lxb_dom_element_t*& out_trigger,
+                              lxb_dom_element_t*& out_menu) {
+    out_trigger = nullptr;
+    out_menu = nullptr;
+    for (int idx = from_idx;
+         idx >= 0 && idx < static_cast<int>(impl.blocks.size());
+         idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        auto* elem = element_for_block(impl, idx);
+        if (!is_dcs_menu_trigger(elem)) continue;
+        auto* menu = dcs_target_for_trigger(impl, elem);
+        if (!menu || !class_list_contains(menu, "dcs-menu")) continue;
+        out_trigger = elem;
+        out_menu = menu;
+        return true;
+    }
+    return false;
+}
+
+bool is_disabled_dcs_menu_item(lxb_dom_element_t* elem) {
+    return has_attr(elem, "disabled") ||
+           attr_string(elem, "aria-disabled") == "true" ||
+           class_list_contains(elem, "dcs-menu__item--disabled");
+}
+
+bool find_dcs_menu_item_at(detail::DocumentImpl& impl,
+                           int from_idx,
+                           lxb_dom_element_t*& out_menu,
+                           lxb_dom_element_t*& out_item) {
+    out_menu = nullptr;
+    out_item = nullptr;
+    for (int idx = from_idx;
+         idx >= 0 && idx < static_cast<int>(impl.blocks.size());
+         idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        auto* elem = element_for_block(impl, idx);
+        if (!elem) continue;
+        if (!out_item && class_list_contains(elem, "dcs-menu__item")) {
+            if (is_disabled_dcs_menu_item(elem)) return false;
+            out_item = elem;
+        }
+        if (out_item && class_list_contains(elem, "dcs-menu")) {
+            out_menu = elem;
+            return true;
+        }
+    }
+    out_item = nullptr;
+    return false;
+}
+
+bool activate_dcs_menu_item(detail::DocumentImpl& impl,
+                            lxb_dom_element_t* menu,
+                            lxb_dom_element_t* item) {
+    if (!menu || !item) return false;
+    if (has_attr(menu, "data-aui-colorfield") &&
+        has_attr(item, "data-dcs-value")) {
+        const auto value = attr_string(item, "data-dcs-value");
+        auto* colorfield =
+            find_dom_element_by_id(impl, attr_string(menu, "data-aui-colorfield"));
+        bool changed = false;
+        if (colorfield) {
+            changed =
+                set_attribute_on_element(impl, colorfield, "data-value", value) ||
+                changed;
+            if (auto* chip =
+                    first_descendant_with_class(colorfield,
+                                                "dcs-colorfield__chip")) {
+                changed = set_attribute_on_element(
+                    impl, chip, "style",
+                    "--c:" + value + ";background:" + value) || changed;
+            }
+            if (auto* hex =
+                    first_descendant_with_class(colorfield,
+                                                "dcs-colorfield__hex")) {
+                changed = set_text_on_element(impl, hex, value) || changed;
+            }
+            emit_widget_change(impl, colorfield, value);
+        }
+        changed = close_dcs_menu(impl, menu) || changed;
+        changed = set_all_dcs_menu_triggers_expanded(impl, "false") || changed;
+        return changed;
+    }
+    if (has_attr(item, "data-dcs-value")) {
+        emit_widget_change(impl, menu, attr_string(item, "data-dcs-value"));
+    }
+    if (class_list_contains(item, "dcs-menu__item--has-sub")) return false;
+
+    bool changed = close_dcs_menu(impl, menu);
+    changed = set_all_dcs_menu_triggers_expanded(impl, "false") || changed;
+    return changed;
+}
+
+bool is_dcs_select_row(lxb_dom_element_t* elem) {
+    return elem && (class_list_contains(elem, "dcs-list__item") ||
+                    class_list_contains(elem, "dcs-tree__row"));
+}
+
+bool is_disabled_dcs_select_row(lxb_dom_element_t* elem) {
+    return has_attr(elem, "disabled") ||
+           attr_string(elem, "aria-disabled") == "true" ||
+           class_list_contains(elem, "dcs-list__item--disabled") ||
+           class_list_contains(elem, "dcs-tree__row--disabled");
+}
+
+bool find_dcs_select_row_at(detail::DocumentImpl& impl,
+                            int from_idx,
+                            lxb_dom_element_t*& out_box,
+                            lxb_dom_element_t*& out_row) {
+    out_box = nullptr;
+    out_row = nullptr;
+    for (int idx = from_idx;
+         idx >= 0 && idx < static_cast<int>(impl.blocks.size());
+         idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        auto* elem = element_for_block(impl, idx);
+        if (!elem) continue;
+        if (!out_row && is_dcs_select_row(elem)) {
+            if (is_disabled_dcs_select_row(elem)) return false;
+            out_row = elem;
+        }
+        if (out_row && has_attr(elem, "data-dcs-select")) {
+            out_box = elem;
+            return true;
+        }
+    }
+    out_row = nullptr;
+    return false;
+}
+
+void collect_dcs_select_rows(lxb_dom_element_t* elem,
+                             std::vector<lxb_dom_element_t*>& rows) {
+    if (!elem) return;
+    for (auto* child = lxb_dom_node_first_child(lxb_dom_interface_node(elem));
+         child != nullptr; child = lxb_dom_node_next(child)) {
+        if (child->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* child_elem = lxb_dom_interface_element(child);
+        if (is_dcs_select_row(child_elem) &&
+            !is_disabled_dcs_select_row(child_elem)) {
+            rows.push_back(child_elem);
+        }
+        collect_dcs_select_rows(child_elem, rows);
+    }
+}
+
+bool set_dcs_row_selected(detail::DocumentImpl& impl,
+                          lxb_dom_element_t* row,
+                          bool selected) {
+    return set_attribute_on_element(
+        impl, row, "aria-selected", selected ? "true" : "false");
+}
+
+std::string dcs_selected_rows_value(
+    const std::vector<lxb_dom_element_t*>& rows) {
+    std::string out;
+    for (auto* row : rows) {
+        if (attr_string(row, "aria-selected") != "true") continue;
+        std::string value = attr_string(row, "data-dcs-value");
+        if (value.empty()) value = attr_string(row, "id");
+        if (value.empty()) continue;
+        if (!out.empty()) out.push_back(',');
+        out += value;
+    }
+    return out;
+}
+
+bool update_dcs_select_control(detail::DocumentImpl& impl,
+                               lxb_dom_element_t* box,
+                               lxb_dom_element_t* row,
+                               const Event& ev) {
+    if (!box || !row) return false;
+    std::vector<lxb_dom_element_t*> rows;
+    collect_dcs_select_rows(box, rows);
+    if (rows.empty()) return false;
+
+    const auto row_it = std::find(rows.begin(), rows.end(), row);
+    if (row_it == rows.end()) return false;
+
+    const bool multi = attr_string(box, "data-dcs-select") == "multi";
+    bool changed = false;
+    if (multi && (ev.ctrl || ev.super)) {
+        const bool selected = attr_string(row, "aria-selected") == "true";
+        changed = set_dcs_row_selected(impl, row, !selected) || changed;
+        impl.dcs_select_anchors[lxb_dom_interface_node(box)] =
+            lxb_dom_interface_node(row);
+    } else if (multi && ev.shift) {
+        auto* anchor_node = [&]() -> lxb_dom_node_t* {
+            const auto it =
+                impl.dcs_select_anchors.find(lxb_dom_interface_node(box));
+            return it == impl.dcs_select_anchors.end() ? nullptr : it->second;
+        }();
+        auto* anchor = anchor_node && anchor_node->type == LXB_DOM_NODE_TYPE_ELEMENT
+            ? lxb_dom_interface_element(anchor_node)
+            : nullptr;
+        const auto anchor_it = anchor
+            ? std::find(rows.begin(), rows.end(), anchor)
+            : rows.end();
+        if (anchor_it != rows.end()) {
+            const auto a = static_cast<std::size_t>(anchor_it - rows.begin());
+            const auto b = static_cast<std::size_t>(row_it - rows.begin());
+            const auto lo = std::min(a, b);
+            const auto hi = std::max(a, b);
+            for (std::size_t i = 0; i < rows.size(); ++i) {
+                changed =
+                    set_dcs_row_selected(impl, rows[i], i >= lo && i <= hi) ||
+                    changed;
+            }
+        } else {
+            for (auto* r : rows) {
+                changed = set_dcs_row_selected(impl, r, r == row) || changed;
+            }
+            impl.dcs_select_anchors[lxb_dom_interface_node(box)] =
+                lxb_dom_interface_node(row);
+        }
+    } else {
+        for (auto* r : rows) {
+            changed = set_dcs_row_selected(impl, r, r == row) || changed;
+        }
+        impl.dcs_select_anchors[lxb_dom_interface_node(box)] =
+            lxb_dom_interface_node(row);
+    }
+
+    emit_widget_change(impl, box, dcs_selected_rows_value(rows));
     return changed;
 }
 
@@ -8505,6 +9236,149 @@ void set_live_text_state(detail::DocumentImpl& impl,
 std::string emitted_text_control_value(const Block& block) {
     return block.placeholder_visible ? std::string{} : block.text_value;
 }
+
+bool command_modifier(const Event& ev) {
+    return ev.ctrl || ev.super;
+}
+
+bool text_word_byte(std::string_view text, std::size_t pos) {
+    if (pos >= text.size()) return false;
+    const unsigned char c = static_cast<unsigned char>(text[pos]);
+    return c >= 0x80u || std::isalnum(c) || c == '_';
+}
+
+std::size_t previous_word_boundary(std::string_view text, std::size_t pos) {
+    pos = std::min(pos, text.size());
+    while (pos > 0) {
+        const std::size_t prev = previous_utf8_boundary(text, pos);
+        if (text_word_byte(text, prev)) break;
+        pos = prev;
+    }
+    while (pos > 0) {
+        const std::size_t prev = previous_utf8_boundary(text, pos);
+        if (!text_word_byte(text, prev)) break;
+        pos = prev;
+    }
+    return pos;
+}
+
+std::size_t next_word_boundary(std::string_view text, std::size_t pos) {
+    pos = std::min(pos, text.size());
+    while (pos < text.size() && text_word_byte(text, pos)) {
+        pos = next_utf8_boundary(text, pos);
+    }
+    while (pos < text.size() && !text_word_byte(text, pos)) {
+        pos = next_utf8_boundary(text, pos);
+    }
+    return pos;
+}
+
+std::string selected_text(const Block& block) {
+    const auto [begin, end] = normalized_selection(block);
+    if (begin == end) return {};
+    return emitted_text_control_value(block).substr(begin, end - begin);
+}
+
+std::string clipboard_get_text(detail::DocumentImpl& impl) {
+    if (impl.clipboard_get) {
+        try {
+            return impl.clipboard_get();
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "AffineUI clipboard get failed: %s\n", e.what());
+        } catch (...) {
+            std::fprintf(stderr, "AffineUI clipboard get failed\n");
+        }
+    }
+    return impl.fallback_clipboard;
+}
+
+void clipboard_set_text(detail::DocumentImpl& impl, std::string_view text) {
+    impl.fallback_clipboard.assign(text);
+    if (impl.clipboard_set) {
+        try {
+            impl.clipboard_set(text);
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "AffineUI clipboard set failed: %s\n", e.what());
+        } catch (...) {
+            std::fprintf(stderr, "AffineUI clipboard set failed\n");
+        }
+    }
+}
+
+void emit_text_control_change(detail::DocumentImpl& impl, int idx, Block& block) {
+    if (auto* elem = element_for_block(impl, idx)) {
+        emit_widget_change(impl, elem, emitted_text_control_value(block));
+    }
+}
+
+bool delete_text_range(detail::DocumentImpl& impl,
+                       int idx,
+                       Block& block,
+                       std::size_t begin,
+                       std::size_t end) {
+    std::string next = emitted_text_control_value(block);
+    std::size_t caret = block.caret_offset;
+    const std::string old = next;
+    next = erase_selected_text(std::move(next), begin, end, caret);
+    if (next == old && caret == block.caret_offset) return false;
+    const Rect old_rect = subtree_visual_rect(impl, idx);
+    set_live_text_state(impl, idx, block, std::move(next), caret);
+    mark_live_mutation_dirty(impl, idx, old_rect, /*needs_layout=*/true);
+    emit_text_control_change(impl, idx, block);
+    return true;
+}
+
+bool replace_text_selection_or_insert(detail::DocumentImpl& impl,
+                                      int idx,
+                                      Block& block,
+                                      std::string_view text) {
+    if (text.empty()) return false;
+    const Rect old_rect = subtree_visual_rect(impl, idx);
+    std::string next = emitted_text_control_value(block);
+    std::size_t caret = block.caret_offset;
+    if (has_text_selection(block)) {
+        const auto [begin, end] = normalized_selection(block);
+        next = replace_selected_text(std::move(next), begin, end, text, caret);
+    } else {
+        next = insert_text_at_caret(std::move(next), caret, text);
+    }
+    set_live_text_state(impl, idx, block, std::move(next), caret);
+    mark_live_mutation_dirty(impl, idx, old_rect, /*needs_layout=*/true);
+    emit_text_control_change(impl, idx, block);
+    return true;
+}
+
+bool move_text_caret(detail::DocumentImpl& impl,
+                     int idx,
+                     Block& block,
+                     std::size_t caret,
+                     bool extend_selection) {
+    caret = std::min(caret, block.text_value.size());
+    const std::size_t anchor = extend_selection
+        ? (has_text_selection(block) ? block.selection_anchor
+                                     : block.caret_offset)
+        : caret;
+    if (caret == block.caret_offset &&
+        anchor == block.selection_anchor &&
+        caret == block.selection_focus) {
+        return false;
+    }
+    set_text_selection(impl, idx, block, anchor, caret);
+    add_dirty_rect(impl, block_visual_rect(impl, idx));
+    return true;
+}
+
+bool apply_deferred_text_focus(detail::DocumentImpl& impl,
+                               const detail::DocumentImpl::LiveControlDrag& drag,
+                               Point point) {
+    if (!drag.defer_text_focus || drag.focus_idx < 0 ||
+        drag.focus_idx >= static_cast<int>(impl.blocks.size())) {
+        return false;
+    }
+    bool changed = set_focus(impl, drag.focus_idx);
+    changed = set_text_caret_from_point(impl, drag.focus_idx, point) || changed;
+    return changed;
+}
 #else  // stub build â€” no DOM, no pseudo / scroll bookkeeping
 bool refresh_hover_chain(detail::DocumentImpl&)  { return false; }
 bool refresh_active_chain(detail::DocumentImpl&) { return false; }
@@ -8527,6 +9401,15 @@ DispatchResult Document::dispatch(const Event& ev) {
     switch (ev.type) {
         case EventType::MouseMove: {
             impl_->last_mouse_pos = ev.pos;
+            if (impl_->scrollbar_drag.block_idx >= 0) {
+                if (scrollbar_scroll_from_thumb_y(
+                        *impl_,
+                        impl_->scrollbar_drag.block_idx,
+                        ev.pos.y - impl_->scrollbar_drag.thumb_offset_y)) {
+                    result.redraw_requested = true;
+                }
+                break;
+            }
 #if !defined(AFFINEUI_STUB_BUILD)
             if (impl_->ui_control_script_attached &&
                 impl_->live_drag.kind != LiveControlKind::None) {
@@ -8562,20 +9445,66 @@ DispatchResult Document::dispatch(const Event& ev) {
             impl_->last_mouse_pos = ev.pos;
             impl_->hovered_idx    = hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
             impl_->text_selection_drag_idx = -1;
+            impl_->scrollbar_drag = {};
+            if (ev.button == MouseButton::Left) {
+                int scrollbar_idx = -1;
+                ScrollbarGeometry scrollbar{};
+                if (find_vertical_scrollbar_at(
+                        *impl_, ev.pos, scrollbar_idx, scrollbar)) {
+                    impl_->scrollbar_drag.block_idx = scrollbar_idx;
+                    impl_->scrollbar_drag.start_y = ev.pos.y;
+                    impl_->scrollbar_drag.start_scroll_y =
+                        impl_->blocks[static_cast<std::size_t>(
+                            scrollbar_idx)].scroll_y;
+                    impl_->scrollbar_drag.thumb_offset_y =
+                        rect_contains(scrollbar.thumb, ev.pos.x, ev.pos.y)
+                            ? ev.pos.y - scrollbar.thumb.y
+                            : scrollbar.thumb.h / 2;
+                    if (!rect_contains(scrollbar.thumb, ev.pos.x, ev.pos.y) &&
+                        scrollbar_scroll_from_thumb_y(
+                            *impl_, scrollbar_idx,
+                            ev.pos.y -
+                                impl_->scrollbar_drag.thumb_offset_y)) {
+                        result.redraw_requested = true;
+                    }
+                    break;
+                }
+            }
             // :active follows the press: set to whatever's under the
             // pointer right now, refresh the active chain so the bit
             // toggles on and an immediate restyle visualizes the press.
             impl_->active_idx     = impl_->hovered_idx;
             const bool h = refresh_hover_chain(*impl_);
             const bool a = refresh_active_chain(*impl_);
+#if !defined(AFFINEUI_STUB_BUILD)
+            detail::DocumentImpl::LiveControlDrag pending_live_drag{};
+            const bool has_pending_live_drag =
+                impl_->ui_control_script_attached &&
+                ev.button == MouseButton::Left &&
+                find_live_control_at(*impl_, impl_->hovered_idx, ev.pos,
+                                     pending_live_drag);
+            const bool defer_text_focus =
+                has_pending_live_drag &&
+                pending_live_drag.kind == LiveControlKind::NumericInput;
+            const bool resize_textarea =
+                has_pending_live_drag &&
+                pending_live_drag.kind == LiveControlKind::TextAreaResize;
+#else
+            const bool defer_text_focus = false;
+            const bool resize_textarea = false;
+#endif
             // Focus moves to the nearest focusable ancestor of whatever
             // the press landed on. Clicking blank space (no focusable
             // ancestor) clears focus, matching browser behavior for
             // mousedown outside any form control.
             const int target = focusable_ancestor(*impl_, impl_->hovered_idx);
-            const bool f = set_focus(*impl_, target);
-            bool caret = set_text_caret_from_point(*impl_, target, ev.pos);
-            if (target >= 0 &&
+            bool f = false;
+            bool caret = false;
+            if (!defer_text_focus && !resize_textarea) {
+                f = set_focus(*impl_, target);
+                caret = set_text_caret_from_point(*impl_, target, ev.pos);
+            }
+            if (!defer_text_focus && !resize_textarea && target >= 0 &&
                 target < static_cast<int>(impl_->blocks.size()) &&
                 impl_->blocks[static_cast<std::size_t>(target)].text_control) {
                 auto& block = impl_->blocks[static_cast<std::size_t>(target)];
@@ -8610,14 +9539,19 @@ DispatchResult Document::dispatch(const Event& ev) {
             }
             if (h || a || f || caret) result.redraw_requested = true;
 #if !defined(AFFINEUI_STUB_BUILD)
-            if (impl_->ui_control_script_attached &&
-                ev.button == MouseButton::Left &&
-                find_live_control_at(*impl_, impl_->hovered_idx,
-                                     impl_->live_drag)) {
+            if (has_pending_live_drag) {
+                impl_->live_drag = pending_live_drag;
                 impl_->live_drag.start_x = ev.pos.x;
                 impl_->live_drag.start_y = ev.pos.y;
+                if (impl_->live_drag.kind == LiveControlKind::NumericInput) {
+                    impl_->live_drag.defer_text_focus = true;
+                    impl_->live_drag.focus_idx = target;
+                    impl_->live_drag.focus_point = ev.pos;
+                }
                 if (impl_->live_drag.kind != LiveControlKind::AuiKnob &&
                     impl_->live_drag.kind != LiveControlKind::DeciusKnob &&
+                    impl_->live_drag.kind != LiveControlKind::NumericInput &&
+                    impl_->live_drag.kind != LiveControlKind::TextAreaResize &&
                     update_active_live_control(*impl_, ev)) {
                     result.redraw_requested = true;
                 }
@@ -8627,11 +9561,27 @@ DispatchResult Document::dispatch(const Event& ev) {
         }
         case EventType::MouseUp: {
             impl_->last_mouse_pos = ev.pos;
+            if (impl_->scrollbar_drag.block_idx >= 0) {
+                if (scrollbar_scroll_from_thumb_y(
+                        *impl_,
+                        impl_->scrollbar_drag.block_idx,
+                        ev.pos.y - impl_->scrollbar_drag.thumb_offset_y)) {
+                    result.redraw_requested = true;
+                }
+                impl_->scrollbar_drag = {};
+                break;
+            }
             bool released_live_control = false;
 #if !defined(AFFINEUI_STUB_BUILD)
             if (impl_->ui_control_script_attached &&
                 impl_->live_drag.kind != LiveControlKind::None) {
+                const auto released_drag = impl_->live_drag;
                 if (update_active_live_control(*impl_, ev)) {
+                    result.redraw_requested = true;
+                }
+                if (released_drag.kind == LiveControlKind::NumericInput &&
+                    !impl_->live_drag.moved &&
+                    apply_deferred_text_focus(*impl_, released_drag, ev.pos)) {
                     result.redraw_requested = true;
                 }
                 released_live_control = true;
@@ -8694,8 +9644,47 @@ DispatchResult Document::dispatch(const Event& ev) {
                         changed_button_group = true;
                     }
                 }
+                bool changed_menu = false;
                 if (!toggled_checkbox && !changed_dropdown &&
                     !changed_button_group) {
+                    lxb_dom_element_t* menu_elem = nullptr;
+                    lxb_dom_element_t* menu_item = nullptr;
+                    lxb_dom_element_t* trigger_elem = nullptr;
+                    if (find_dcs_menu_item_at(*impl_, impl_->hovered_idx,
+                                              menu_elem, menu_item)) {
+                        if (activate_dcs_menu_item(*impl_, menu_elem,
+                                                   menu_item)) {
+                            result.redraw_requested = true;
+                        }
+                        changed_menu = true;
+                    } else if (find_dcs_menu_trigger_at(*impl_,
+                                                       impl_->hovered_idx,
+                                                       trigger_elem,
+                                                       menu_elem)) {
+                        if (toggle_dcs_menu(*impl_, trigger_elem,
+                                            menu_elem)) {
+                            result.redraw_requested = true;
+                        }
+                        changed_menu = true;
+                    }
+                }
+                bool changed_selection = false;
+                if (!toggled_checkbox && !changed_dropdown &&
+                    !changed_button_group && !changed_menu) {
+                    lxb_dom_element_t* select_box = nullptr;
+                    lxb_dom_element_t* select_row = nullptr;
+                    if (find_dcs_select_row_at(*impl_, impl_->hovered_idx,
+                                               select_box, select_row)) {
+                        if (update_dcs_select_control(*impl_, select_box,
+                                                      select_row, ev)) {
+                            result.redraw_requested = true;
+                        }
+                        changed_selection = true;
+                    }
+                }
+                if (!toggled_checkbox && !changed_dropdown &&
+                    !changed_button_group && !changed_menu &&
+                    !changed_selection) {
                     lxb_dom_element_t* button_elem = nullptr;
                     if (find_button_control_at(*impl_, impl_->hovered_idx,
                                                button_elem) &&
@@ -8713,88 +9702,102 @@ DispatchResult Document::dispatch(const Event& ev) {
             // dismissing a focused control.
             if (ev.key == Key::Escape) {
                 if (set_focus(*impl_, -1)) result.redraw_requested = true;
-            } else if (ev.key == Key::Backspace) {
-                Block* control = nullptr;
-                if (focused_text_control(*impl_, control)) {
-                    const int idx = impl_->focused_idx;
-                    const Rect old_rect = subtree_visual_rect(*impl_, idx);
-                    std::string next = emitted_text_control_value(*control);
-                    std::size_t caret = control->caret_offset;
-                    if (has_text_selection(*control)) {
-                        const auto [begin, end] = normalized_selection(*control);
-                        next = erase_selected_text(std::move(next), begin, end,
-                                                   caret);
-                    } else {
-                        next = erase_previous_codepoint(std::move(next), caret);
-                    }
-                    set_live_text_state(
-                        *impl_, idx, *control, std::move(next), caret);
-                    mark_live_mutation_dirty(*impl_, idx, old_rect,
-                                             /*needs_layout=*/true);
-                    if (auto* elem = element_for_block(*impl_, idx)) {
-                        emit_widget_change(
-                            *impl_, elem, emitted_text_control_value(*control));
-                    }
+                break;
+            }
+
+            Block* control = nullptr;
+            if (!focused_text_control(*impl_, control)) break;
+            const int idx = impl_->focused_idx;
+            const auto text = emitted_text_control_value(*control);
+            const bool command = command_modifier(ev);
+
+            if (command && ev.key == Key::A) {
+                if (move_text_caret(*impl_, idx, *control, text.size(), true)) {
+                    set_text_selection(*impl_, idx, *control, 0, text.size());
+                    add_dirty_rect(*impl_, block_visual_rect(*impl_, idx));
+                    result.redraw_requested = true;
+                } else if (!has_text_selection(*control) && !text.empty()) {
+                    set_text_selection(*impl_, idx, *control, 0, text.size());
+                    add_dirty_rect(*impl_, block_visual_rect(*impl_, idx));
                     result.redraw_requested = true;
                 }
+            } else if (command && ev.key == Key::C) {
+                if (has_text_selection(*control)) {
+                    clipboard_set_text(*impl_, selected_text(*control));
+                }
+            } else if (command && ev.key == Key::X) {
+                if (has_text_selection(*control)) {
+                    clipboard_set_text(*impl_, selected_text(*control));
+                    const auto [begin, end] = normalized_selection(*control);
+                    result.redraw_requested =
+                        delete_text_range(*impl_, idx, *control, begin, end);
+                }
+            } else if (command && ev.key == Key::V) {
+                const std::string paste = clipboard_get_text(*impl_);
+                result.redraw_requested =
+                    replace_text_selection_or_insert(*impl_, idx, *control, paste);
+            } else if (ev.key == Key::Backspace) {
+                if (has_text_selection(*control)) {
+                    const auto [begin, end] = normalized_selection(*control);
+                    result.redraw_requested =
+                        delete_text_range(*impl_, idx, *control, begin, end);
+                } else if (command) {
+                    const std::size_t begin =
+                        previous_word_boundary(text, control->caret_offset);
+                    result.redraw_requested =
+                        delete_text_range(*impl_, idx, *control, begin,
+                                          control->caret_offset);
+                } else {
+                    std::size_t begin =
+                        previous_utf8_boundary(text, control->caret_offset);
+                    result.redraw_requested =
+                        delete_text_range(*impl_, idx, *control, begin,
+                                          control->caret_offset);
+                }
             } else if (ev.key == Key::Delete) {
-                Block* control = nullptr;
-                if (focused_text_control(*impl_, control)) {
-                    const int idx = impl_->focused_idx;
-                    const Rect old_rect = subtree_visual_rect(*impl_, idx);
-                    std::string next = emitted_text_control_value(*control);
-                    std::size_t caret = control->caret_offset;
-                    if (has_text_selection(*control)) {
-                        const auto [begin, end] = normalized_selection(*control);
-                        next = erase_selected_text(std::move(next), begin, end,
-                                                   caret);
-                    } else {
-                        next = erase_next_codepoint(std::move(next), caret);
-                    }
-                    set_live_text_state(
-                        *impl_, idx, *control, std::move(next), caret);
-                    mark_live_mutation_dirty(*impl_, idx, old_rect,
-                                             /*needs_layout=*/true);
-                    if (auto* elem = element_for_block(*impl_, idx)) {
-                        emit_widget_change(
-                            *impl_, elem, emitted_text_control_value(*control));
-                    }
-                    result.redraw_requested = true;
+                if (has_text_selection(*control)) {
+                    const auto [begin, end] = normalized_selection(*control);
+                    result.redraw_requested =
+                        delete_text_range(*impl_, idx, *control, begin, end);
+                } else if (command) {
+                    const std::size_t end =
+                        next_word_boundary(text, control->caret_offset);
+                    result.redraw_requested =
+                        delete_text_range(*impl_, idx, *control,
+                                          control->caret_offset, end);
+                } else {
+                    const std::size_t end =
+                        next_utf8_boundary(text, control->caret_offset);
+                    result.redraw_requested =
+                        delete_text_range(*impl_, idx, *control,
+                                          control->caret_offset, end);
                 }
             } else if (ev.key == Key::ArrowLeft ||
                        ev.key == Key::ArrowRight ||
                        ev.key == Key::Home ||
                        ev.key == Key::End) {
-                Block* control = nullptr;
-                if (focused_text_control(*impl_, control)) {
-                    std::size_t caret = control->caret_offset;
-                    const auto text = emitted_text_control_value(*control);
-                    if (has_text_selection(*control) &&
-                        ev.key == Key::ArrowLeft) {
-                        caret = normalized_selection(*control).first;
-                    } else if (has_text_selection(*control) &&
-                               ev.key == Key::ArrowRight) {
-                        caret = normalized_selection(*control).second;
-                    } else if (ev.key == Key::ArrowLeft) {
-                        caret = previous_utf8_boundary(text, caret);
-                    } else if (ev.key == Key::ArrowRight) {
-                        caret = next_utf8_boundary(text, caret);
-                    } else if (ev.key == Key::Home) {
-                        caret = 0;
-                    } else {
-                        caret = text.size();
-                    }
-                    if (caret != control->caret_offset ||
-                        has_text_selection(*control)) {
-                        const int idx = impl_->focused_idx;
-                        set_text_selection(*impl_, idx, *control, caret, caret);
-                        if (auto* elem = element_for_block(*impl_, idx)) {
-                            impl_->live_text_carets[
-                                lxb_dom_interface_node(elem)] = caret;
-                        }
-                        add_dirty_rect(*impl_, block_visual_rect(*impl_, idx));
-                        result.redraw_requested = true;
-                    }
+                std::size_t caret = control->caret_offset;
+                if (!ev.shift && has_text_selection(*control) &&
+                    ev.key == Key::ArrowLeft) {
+                    caret = normalized_selection(*control).first;
+                } else if (!ev.shift && has_text_selection(*control) &&
+                           ev.key == Key::ArrowRight) {
+                    caret = normalized_selection(*control).second;
+                } else if (ev.key == Key::ArrowLeft) {
+                    caret = command
+                        ? previous_word_boundary(text, caret)
+                        : previous_utf8_boundary(text, caret);
+                } else if (ev.key == Key::ArrowRight) {
+                    caret = command
+                        ? next_word_boundary(text, caret)
+                        : next_utf8_boundary(text, caret);
+                } else if (ev.key == Key::Home) {
+                    caret = 0;
+                } else {
+                    caret = text.size();
+                }
+                if (move_text_caret(*impl_, idx, *control, caret, ev.shift)) {
+                    result.redraw_requested = true;
                 }
             }
             break;
@@ -8802,27 +9805,9 @@ DispatchResult Document::dispatch(const Event& ev) {
         case EventType::TextInput: {
             Block* control = nullptr;
             if (focused_text_control(*impl_, control) && !ev.text.empty()) {
-                const int idx = impl_->focused_idx;
-                const Rect old_rect = subtree_visual_rect(*impl_, idx);
-                std::string next = emitted_text_control_value(*control);
-                std::size_t caret = control->caret_offset;
-                if (has_text_selection(*control)) {
-                    const auto [begin, end] = normalized_selection(*control);
-                    next = replace_selected_text(std::move(next), begin, end,
-                                                 ev.text, caret);
-                } else {
-                    next = insert_text_at_caret(std::move(next), caret,
-                                                ev.text);
-                }
-                set_live_text_state(
-                    *impl_, idx, *control, std::move(next), caret);
-                mark_live_mutation_dirty(*impl_, idx, old_rect,
-                                         /*needs_layout=*/true);
-                if (auto* elem = element_for_block(*impl_, idx)) {
-                    emit_widget_change(
-                        *impl_, elem, emitted_text_control_value(*control));
-                }
-                result.redraw_requested = true;
+                result.redraw_requested =
+                    replace_text_selection_or_insert(
+                        *impl_, impl_->focused_idx, *control, ev.text);
             }
             break;
         }
@@ -8832,8 +9817,10 @@ DispatchResult Document::dispatch(const Event& ev) {
             // scrolls content up (i.e. scroll position increases).
             // The platform adapter is responsible for normalizing
             // direction + step size before we get here.
+            const int wheel_hover =
+                hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
             const int target = find_scrollable_y_ancestor(
-                *impl_, impl_->hovered_idx);
+                *impl_, wheel_hover >= 0 ? wheel_hover : impl_->hovered_idx);
             if (target < 0) break;
             auto& sb = impl_->blocks[static_cast<std::size_t>(target)];
             constexpr int kPxPerWheelStep = 24;
@@ -8842,10 +9829,7 @@ DispatchResult Document::dispatch(const Event& ev) {
             const int max_scroll = std::max(0, sb.content_h - sb.bounds.h);
             const int next       = std::clamp(sb.scroll_y + delta,
                                               0, max_scroll);
-            if (next != sb.scroll_y) {
-                add_dirty_rect(*impl_, block_visual_rect(*impl_, target));
-                sb.scroll_y             = next;
-                add_dirty_rect(*impl_, block_visual_rect(*impl_, target));
+            if (set_block_scroll_y(*impl_, target, next)) {
                 result.redraw_requested = true;
             }
             break;
@@ -8881,6 +9865,24 @@ detail::ComputedStyle::Cursor effective_cursor(
 /// Lives on the public Document surface so App can poll it once per
 /// frame without taking a Painter-style dependency.
 int Document::hovered_cursor() const {
+#if !defined(AFFINEUI_STUB_BUILD)
+    for (int idx = impl_->hovered_idx;
+         idx >= 0 && idx < static_cast<int>(impl_->blocks.size());
+         idx = impl_->blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        const auto& block = impl_->blocks[static_cast<std::size_t>(idx)];
+        if (live_control_kind_for_block(block) == LiveControlKind::NumericInput) {
+            return 6;
+        }
+        bool resize_x = false;
+        bool resize_y = false;
+        if (point_in_textarea_resize_grip(*impl_, idx, impl_->last_mouse_pos,
+                                          resize_x, resize_y)) {
+            if (resize_x && !resize_y) return 6;
+            if (!resize_x && resize_y) return 7;
+            return 8;
+        }
+    }
+#endif
     return static_cast<int>(
         effective_cursor(impl_->blocks, impl_->style_store, impl_->hovered_idx));
 }
@@ -8933,6 +9935,11 @@ void Document::hovered_info_chain(std::vector<HoverInfo>& chain) const {
 
 void Document::set_resource_loader(ResourceLoader loader) {
     impl_->resource_loader = std::move(loader);
+}
+
+void Document::set_clipboard(ClipboardGet get, ClipboardSet set) {
+    impl_->clipboard_get = std::move(get);
+    impl_->clipboard_set = std::move(set);
 }
 
 Size Document::content_size() const { return impl_->content_size; }

@@ -118,6 +118,7 @@ enum class WidgetKind {
     Root,
     Container,
     Text,
+    RawHtml,
     Heading,
     Panel,
     Button,
@@ -364,6 +365,9 @@ public:
                         std::string_view key = {},
                         std::source_location here = std::source_location::current());
     WidgetRef text(std::string_view text,
+                   std::string_view key = {},
+                   std::source_location here = std::source_location::current());
+    WidgetRef html(std::string_view markup,
                    std::string_view key = {},
                    std::source_location here = std::source_location::current());
     WidgetRef button(std::string_view label,

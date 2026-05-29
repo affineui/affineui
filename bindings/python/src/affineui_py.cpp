@@ -180,7 +180,11 @@ PYBIND11_MODULE(_affineui, m) {
         .value("ArrowUp", affineui::Key::ArrowUp)
         .value("ArrowDown", affineui::Key::ArrowDown)
         .value("Home", affineui::Key::Home)
-        .value("End", affineui::Key::End);
+        .value("End", affineui::Key::End)
+        .value("A", affineui::Key::A)
+        .value("C", affineui::Key::C)
+        .value("V", affineui::Key::V)
+        .value("X", affineui::Key::X);
 
     py::enum_<affineui::EventType>(
             m,
@@ -211,7 +215,11 @@ PYBIND11_MODULE(_affineui, m) {
         .def_readwrite("wheel_dy", &affineui::Event::wheel_dy)
         .def_readwrite("key", &affineui::Event::key)
         .def_readwrite("key_code", &affineui::Event::key_code)
-        .def_readwrite("text", &affineui::Event::text);
+        .def_readwrite("text", &affineui::Event::text)
+        .def_readwrite("shift", &affineui::Event::shift)
+        .def_readwrite("ctrl", &affineui::Event::ctrl)
+        .def_readwrite("alt", &affineui::Event::alt)
+        .def_readwrite("super", &affineui::Event::super);
 
     py::class_<affineui::DispatchResult>(
             m,
@@ -487,6 +495,17 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("key") = "",
              py::keep_alive<0, 1>(),
              "Add a paragraph and return a stable WidgetRef tied to this View.")
+        .def("html",
+             [](affineui::View& view,
+                const std::string& markup,
+                const std::string& key) {
+                 return view.html(markup, key);
+             },
+             py::arg("markup"),
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Append trusted raw HTML to the current View. The markup is "
+             "parsed when the View is loaded into the App document.")
         .def("button",
              [](affineui::View& view,
                 const std::string& label,
@@ -766,8 +785,15 @@ PYBIND11_MODULE(_affineui, m) {
              "Dispatch an Event through the loaded document. Useful for "
              "headless tests and custom Python hosts.")
         .def("quit", &affineui::App::quit, py::arg("code") = 0)
-        .def("window_size", &affineui::App::window_size)
-        .def("dpi_scale", &affineui::App::dpi_scale)
+        .def("window_size",
+             &affineui::App::window_size,
+             "Return the current window size in logical CSS points.")
+        .def("framebuffer_size",
+             &affineui::App::framebuffer_size,
+             "Return the current drawable framebuffer size in physical pixels.")
+        .def("dpi_scale",
+             &affineui::App::dpi_scale,
+             "Return the render DPI scale: framebuffer pixels per CSS point.")
         .def("document",
              static_cast<affineui::Document& (affineui::App::*)()>(
                  &affineui::App::document),

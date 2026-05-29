@@ -205,6 +205,25 @@ std::string selector_attr_name(std::string_view name) {
     return "data-aui-" + key;
 }
 
+std::string dom_id_fragment(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    bool previous_dash = false;
+    for (char c : text) {
+        const char mapped = selector_attr_char(c);
+        if (mapped == '\0') continue;
+        if (mapped == '-') {
+            if (out.empty() || previous_dash) continue;
+            previous_dash = true;
+        } else {
+            previous_dash = false;
+        }
+        out.push_back(mapped);
+    }
+    while (!out.empty() && out.back() == '-') out.pop_back();
+    return out.empty() ? "color" : out;
+}
+
 std::string number(double value) {
     char buf[64]{};
     auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), value);
@@ -217,6 +236,14 @@ std::string number(double value) {
 double normalized_value(double value, double min, double max) {
     if (max <= min) return 0.0;
     return std::clamp((value - min) / (max - min), 0.0, 1.0);
+}
+
+double parse_double_or(std::string_view text, double fallback) {
+    double value = fallback;
+    const auto* first = text.data();
+    const auto* last = first + text.size();
+    const auto [ptr, ec] = std::from_chars(first, last, value);
+    return (ec == std::errc{} && ptr != first) ? value : fallback;
 }
 
 std::string percent(double fraction) {
@@ -573,7 +600,9 @@ std::string body_attrs(ViewTheme theme,
 }
 
 std::string command_widget_style() {
-    return R"CSS(
+    std::string css;
+    css.reserve(32768);
+    css += R"CSS(
 body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
 [data-aui-size=sm]{--aui-panel-pad:var(--dcs-s-3);--aui-panel-gap:var(--dcs-s-2)}
 [data-aui-size=md]{--aui-panel-pad:var(--dcs-s-5);--aui-panel-gap:var(--dcs-s-3)}
@@ -585,18 +614,20 @@ body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
 .aui-bs-form>.aui-bs-field{justify-content:center}
 .aui-bs-form>.aui-bs-field>.aui-bs-field__label{flex:0 0 42%;max-width:220px;text-align:right;margin-bottom:0}
 .aui-bs-props>.aui-bs-field>.aui-bs-field__label{flex:0 0 128px;text-align:left;margin-bottom:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.aui-bs-form>.aui-bs-field>.form-control,.aui-bs-form>.aui-bs-field>.form-select,.aui-bs-form>.aui-bs-field>.form-range,.aui-bs-form>.aui-bs-field>.btn-group,.aui-bs-form>.aui-bs-field>.aui-select{flex:0 1 280px;max-width:280px;min-width:0}
-.aui-bs-props>.aui-bs-field>.form-control,.aui-bs-props>.aui-bs-field>.form-select,.aui-bs-props>.aui-bs-field>.form-range,.aui-bs-props>.aui-bs-field>.btn-group,.aui-bs-props>.aui-bs-field>.aui-select{flex:1 1 auto;min-width:0}
-.aui-bs-field>.btn-group{display:flex}
-.aui-bs-field>.btn-group>.btn{flex:1 1 0;min-width:64px;white-space:nowrap}
+.aui-bs-form>.aui-bs-field>.form-control,.aui-bs-form>.aui-bs-field>.form-select,.aui-bs-form>.aui-bs-field>.form-range,.aui-bs-form>.aui-bs-field>.aui-select{flex:0 1 280px;max-width:280px;min-width:0}
+.aui-bs-props>.aui-bs-field>.form-control,.aui-bs-props>.aui-bs-field>.form-select,.aui-bs-props>.aui-bs-field>.form-range,.aui-bs-props>.aui-bs-field>.aui-select{flex:1 1 auto;min-width:0}
+.aui-bs-field>input[type=number].form-control{cursor:ew-resize}
+.aui-bs-form>.aui-bs-field>.form-control-color,.aui-bs-props>.aui-bs-field>.form-control-color{flex:0 0 3rem;min-width:3rem;width:3rem;height:2.25rem}
+.aui-bs-field>.btn-group{display:inline-flex;flex:0 0 auto;width:auto}
+.aui-bs-field>.btn-group>.btn{flex:0 0 auto;min-width:64px;white-space:nowrap}
 .aui-bs-field>.aui-knob,.aui-bs-field>.aui-bs-check{flex:0 0 auto}
 .aui-select{display:flex;flex-direction:column;min-width:0;width:100%;position:relative}
 .aui-select>.form-select,.aui-select>.dcs-select{width:100%}
 .aui-select__menu[hidden]{display:none}
-.aui-select__menu:not([hidden]){display:flex!important;position:static!important;flex-direction:column;margin-top:4px;z-index:20}
+.aui-select__menu:not([hidden]){display:flex!important;position:absolute!important;left:0;right:0;top:100%;margin-top:4px;flex-direction:column;z-index:200;min-width:100%;max-height:240px;overflow:auto}
 .aui-select__menu .dropdown-item,.aui-select__menu .dcs-menu__item{border:0;background:transparent;text-align:left;font:inherit}
 .aui-bs-check{min-height:auto;margin-bottom:0;padding-left:1.5em}
-.aui-bs-form>.btn{align-self:center}.aui-bs-props>.btn,.aui-bs-props>.btn-group{align-self:stretch}.aui-bs-props>.aui-bs-btn-row>.btn{flex:1 1 0}
+.aui-bs-form>.btn{align-self:center}.aui-bs-props>.btn,.aui-bs-props>.btn-group{align-self:flex-start}.aui-bs-props>.aui-bs-btn-row>.btn{flex:1 1 0}
 .aui-root>.card.aui-bs-form,.aui-root>.card.aui-bs-props,.aui-root>.card.aui-bs-col{gap:1rem}
 .aui-root>.card>h1,.aui-root>.card>h2,.aui-root>.card>h3{margin-bottom:0}
 .aui-root>.card>p{margin-bottom:0;color:var(--bs-secondary-color,#6c757d)}
@@ -610,29 +641,156 @@ body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
 .aui-root .aui-knob[data-aui-widget=knob]{display:flex;margin-top:16px;margin-bottom:18px}
 .aui-root .dcs-card-list{gap:var(--dcs-s-2)}
 .aui-root .dcs-card-list>.dcs-card{padding:var(--dcs-s-4);text-align:left}
-.aui-root .dcs-field>.aui-select,.aui-root .dcs-field>.dcs-btn-group{flex:1 1 auto;min-width:0}
-.aui-root .dcs-field>.dcs-btn-group{display:flex}
-.aui-root .dcs-field>.dcs-btn-group>.dcs-btn{flex:1 1 0;min-width:64px;white-space:nowrap}
+.aui-root .dcs-field>.aui-select,.aui-root .dcs-field>.dcs-colorfield,.aui-root .dcs-field>.dcs-combo{flex:1 1 auto;min-width:0}
+.aui-root .dcs-field>.dcs-btn-group{display:inline-flex;flex:0 0 auto;width:auto;min-width:0}
+.aui-root .dcs-field>.dcs-btn-group>.dcs-btn{flex:0 0 auto;min-width:64px;white-space:nowrap}
+.aui-root .dcs-combo>input.dcs-combo__value{background:transparent;border:0;outline:0;text-align:right;min-width:0;cursor:ew-resize}
+.aui-root .dcs-colorfield{position:relative}
+.aui-root .dcs-colorfield>.dcs-colorfield__chip{border:0;padding:0;background:var(--c,#3bb7ff);color:transparent;appearance:none}
+.aui-root .aui-color-menu{min-width:160px;gap:1px}
+.aui-root .aui-color-menu .aui-color-option{display:flex;align-items:center;gap:8px}
+.aui-root .aui-color-option__swatch{display:inline-block;width:14px;height:14px;border-radius:2px;background:var(--c,#fff);box-shadow:inset 0 0 0 1px rgba(0,0,0,.35)}
 .aui-virtual-list{position:relative;display:flex;flex-direction:column;min-height:0;overflow:auto}
 .aui-virtual-list__spacer{flex:0 0 auto;min-height:0;pointer-events:none}
 .aui-virtual-list__row{flex:0 0 auto;display:flex;min-width:0}
 .aui-virtual-list__row>.list-group-item{width:100%;border-left-width:1px;border-right-width:1px}
-.aui-virtual-list__row>.dcs-card,.aui-virtual-list__row>.dcs-list__item{width:100%}
+.aui-virtual-list__row>.dcs-card,.aui-virtual-list__row>.dcs-list__item{display:flex;align-items:center;justify-content:flex-start;width:100%;min-width:100%;box-sizing:border-box;text-align:left}
 .aui-scroll{overflow:auto;min-height:0}
-.aui-tree-list{display:flex;flex-direction:column;width:100%;max-height:220px;overflow:auto}
-.aui-tree-list .list-group-item,.aui-tree-list .dcs-tree__row{width:100%;text-align:left}
+.aui-tree-list{display:flex;flex-direction:column;align-items:stretch;width:100%;max-height:220px;overflow:auto}
+.aui-tree-list .list-group-item,.aui-tree-list .dcs-tree__row,.aui-tree-list .aui-tree-row,.aui-scroll-tree .list-group-item,.aui-scroll-tree .dcs-tree__row,.aui-scroll-tree .aui-tree-row{display:flex;align-items:center;justify-content:flex-start;width:100%;min-width:100%;box-sizing:border-box;text-align:left}
+.aui-tree-list .aui-tree-row::before{display:inline-flex;align-items:center;justify-content:center;flex:0 0 1.15em;width:1.15em;margin-left:-.15em;margin-right:.15em;opacity:.72}
+.aui-tree-list .aui-tree-branch[aria-expanded=true]::before{content:"\25be"}
+.aui-tree-list .aui-tree-branch:not([aria-expanded=true])::before{content:"\25b8"}
+.aui-tree-list .aui-tree-leaf::before{content:""}
+.aui-scroll-tree .aui-tree-row::before{display:inline-flex;align-items:center;justify-content:center;flex:0 0 1.15em;width:1.15em;margin-left:-.15em;margin-right:.15em;opacity:.72}
+.aui-scroll-tree .aui-tree-branch[aria-expanded=true]::before{content:"\25be"}
+.aui-scroll-tree .aui-tree-branch:not([aria-expanded=true])::before{content:"\25b8"}
+.aui-scroll-tree .aui-tree-leaf::before{content:""}
 .aui-root .dcs-field[data-aui-widget=knob]{height:auto;min-height:calc(var(--knob-size,56px) + 34px);align-items:center}
 .aui-root .dcs-field[data-aui-widget=knob]>.dcs-knob{flex:0 0 auto;margin:18px 0 20px}
 .aui-root .dcs-field[data-aui-widget=checkbox]>.dcs-check{flex:0 0 auto}
 .aui-root>.dcs-panel{padding:var(--aui-panel-pad,var(--dcs-s-5));gap:var(--aui-panel-gap,var(--dcs-s-3))}
 .aui-root>.dcs-panel>h1,.aui-root>.dcs-panel>h2,.aui-root>.dcs-panel>h3{margin:0}
 .aui-root>.dcs-panel>p{margin:0;color:var(--dcs-text-dim)}
-.aui-demo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem;align-items:start;min-width:0}
-.aui-demo-section{min-width:0}
-.aui-demo-section.card{gap:1rem}
-.aui-demo-section.dcs-panel{padding:var(--aui-panel-pad,var(--dcs-s-5));gap:var(--aui-panel-gap,var(--dcs-s-3))}
-.aui-demo-section>p:first-child{margin:0;font-weight:600}
 )CSS";
+    css += R"CSS(
+.aui-demo-grid{display:flex;flex-direction:row;flex-wrap:wrap;gap:1rem;align-items:flex-start;min-width:0}
+.aui-demo-stack{display:flex;flex-direction:column;gap:1rem;min-width:0}
+.aui-demo-grid>.aui-demo-section{flex:1 1 320px}
+.aui-demo-stack>.aui-demo-section{flex:0 0 auto;width:100%}
+.aui-demo-section{display:block;flex-grow:0;flex-shrink:0;flex-basis:auto;min-width:0;min-height:auto;overflow:visible}
+.aui-root .aui-demo-section.dcs-panel{display:block;flex:0 0 auto;min-height:auto;overflow:visible}
+.aui-demo-section>.card-header,.aui-demo-section>.dcs-panel__header{margin:0}
+.aui-demo-section>.card-body,.aui-demo-section>.dcs-panel__body{flex-grow:0;flex-shrink:0;flex-basis:auto;height:auto;min-height:auto;max-height:none;min-width:0;overflow:visible}
+.aui-root .aui-demo-section.dcs-panel>.dcs-panel__body{display:flex;flex-direction:column;flex:0 0 auto;height:auto;min-height:auto;max-height:none;overflow:visible}
+.aui-root .aui-demo-section.dcs-subpanel{background:transparent;border-bottom:1px solid var(--dcs-line-soft)}
+.aui-root .aui-demo-section.dcs-subpanel>.dcs-subpanel__header{background:transparent;border-bottom:1px solid var(--dcs-line-soft)}
+.aui-root .aui-demo-section.dcs-subpanel>.dcs-subpanel__body{display:flex;flex-direction:column;gap:var(--dcs-s-4);height:auto;min-height:auto;overflow:visible;padding:var(--dcs-s-4) 0 var(--dcs-s-5)}
+.aui-root .aui-demo-section.dcs-subpanel>.dcs-subpanel__body>.dcs-btn{align-self:flex-start}
+.aui-root .aui-demo-section.dcs-subpanel>.dcs-subpanel__body.dcs-form>.dcs-btn{align-self:center}
+.aui-root .aui-demo-section.dcs-subpanel>.dcs-subpanel__body.dcs-props>.dcs-btn{align-self:flex-start}
+.aui-demo-section>.dcs-panel__body{gap:var(--dcs-s-4)}
+.aui-demo-section>.card-body>p:first-child,.aui-demo-section>.dcs-panel__body>p:first-child{margin:0}
+.aui-demo-section>.dcs-subpanel__body>p:first-child{margin:0}
+.aui-root .dcs-props>.dcs-field[data-aui-widget=textarea]{height:auto;min-height:calc(var(--dcs-h-in)*3);align-items:flex-start}
+.aui-root .dcs-props>.dcs-field[data-aui-widget=textarea]>.dcs-field__label{padding-top:3px}
+.aui-root .dcs-props>.dcs-field[data-aui-widget=textarea]>.dcs-textarea{height:auto;min-height:calc(var(--dcs-h-in)*3)}
+)CSS";
+    css += R"CSS(
+@font-face{font-family:decius-icons;src:url("frameworks/fonts/decius-icons.woff2") format("woff2");font-weight:400;font-style:normal;font-display:block}
+.di,[class*=" di-"],[class^=di-]{font-family:decius-icons!important;font-style:normal;font-weight:400;font-variant:normal;text-transform:none;line-height:1;speak:never;display:inline-block;vertical-align:middle}
+.di-check-circle:before{content:"\e01c"}.di-decius:before{content:"\e030"}.di-folder-open:before{content:"\e04f"}.di-gain:before{content:"\e051"}.di-gizmo:before{content:"\e053"}.di-grid:before{content:"\e059"}.di-keyframe:before{content:"\e066"}.di-layers:before{content:"\e06a"}.di-menu:before{content:"\e079"}.di-pencil:before{content:"\e090"}.di-rocket:before{content:"\e0a2"}
+.aui-test-nav-icon{display:inline-flex;align-items:center;justify-content:center;margin:0;line-height:1;color:currentColor}
+.aui-test-brand-icon{flex:0 0 auto;color:var(--bs-primary,var(--dcs-accent,#0d6efd));font-size:18px}
+.aui-root>.aui-test-shell{margin:-24px;height:100vh;min-height:100vh}
+.aui-test-shell{display:flex;flex-direction:column;height:100vh;min-height:0;background:inherit;color:inherit}
+.aui-test-shell-inner{display:flex;flex:1 1 auto;min-height:0;flex-direction:column;overflow:hidden}
+.aui-test-topbar{display:flex;align-items:stretch;gap:0;height:48px;min-height:48px;max-height:48px;padding:0 144px 0 16px;box-sizing:border-box;border-bottom:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));background:var(--bs-body-bg,var(--dcs-surface-1,inherit));overflow:hidden;flex:0 0 auto}
+.aui-test-topbar.dcs-menubar{height:var(--dcs-h-lg);min-height:var(--dcs-h-lg);max-height:var(--dcs-h-lg);padding:0 144px 0 var(--dcs-s-3);gap:0}
+.aui-test-brand{display:flex;align-items:center;gap:8px;min-width:0;white-space:nowrap}
+.aui-test-brand h1{margin:0;font-size:1rem;font-weight:700;line-height:1.2;white-space:nowrap}
+.aui-test-brand p,.aui-test-subtitle p{margin:0}
+.aui-test-subtitle{display:flex;align-items:center;min-width:0;overflow:hidden;color:var(--bs-secondary-color,var(--dcs-text-mute,#6c757d))}
+.aui-test-subtitle p{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aui-test-tweaks{display:flex;align-items:stretch;gap:0;min-width:0;margin-left:auto;height:100%;overflow:hidden}
+.aui-test-control{display:flex;align-items:center;gap:7px;height:100%;min-width:0;padding:0 10px;border-left:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));box-sizing:border-box}
+.aui-test-control-label{margin:0;color:var(--bs-secondary-color,var(--dcs-text-mute,#6c757d));font-size:var(--dcs-fs-xs,.72rem);font-weight:600;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+.aui-test-segment-group{display:inline-flex;align-items:center;flex:0 0 auto;width:auto;min-width:0;max-width:none}
+.aui-test-segment-group.btn-group{display:inline-flex;height:30px;width:auto}
+.aui-test-segment-group.dcs-btn-group{display:inline-flex;height:var(--dcs-h,24px);width:auto}
+.aui-test-segment{flex:0 0 auto;width:auto;min-width:48px;white-space:nowrap}
+.aui-test-segment-group.dcs-btn-group>.aui-test-segment{flex:0 0 auto;width:auto;min-width:56px;height:100%;padding-left:10px;padding-right:10px}
+.aui-test-segment-group.btn-group>.aui-test-segment{flex:0 0 auto;width:auto;min-width:58px;height:100%;padding-left:10px;padding-right:10px}
+.aui-test-keycolor{display:flex;align-items:center;gap:6px;height:100%;padding:0 2px 0 10px;border-left:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));min-width:0;box-sizing:border-box}
+.aui-keycolor-label{margin:0;color:var(--dcs-text-mute,#6c757d);font-size:var(--dcs-fs-xs,.72rem);font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.aui-keycolor-swatch{--aui-swatch:#00b8d4;flex:0 0 15px;width:15px;height:15px;border-radius:50%;background:var(--aui-swatch);border:1px solid rgba(255,255,255,.24);box-shadow:inset 0 1px 0 rgba(255,255,255,.35),inset 0 -1px 1px rgba(0,0,0,.35),0 1px 2px rgba(0,0,0,.45);cursor:pointer}
+.aui-keycolor-swatch--cyan{--aui-swatch:#00b8d4}.aui-keycolor-swatch--green{--aui-swatch:#3dd68a}.aui-keycolor-swatch--orange{--aui-swatch:#ff8a3a}.aui-keycolor-swatch--violet{--aui-swatch:#8b6dff}
+.aui-keycolor-swatch:hover{box-shadow:inset 0 1px 0 rgba(255,255,255,.42),inset 0 -1px 1px rgba(0,0,0,.35),0 0 0 2px rgba(255,255,255,.12),0 1px 2px rgba(0,0,0,.45)}
+.aui-keycolor-swatch.is-active{box-shadow:inset 0 1px 0 rgba(255,255,255,.42),inset 0 -1px 1px rgba(0,0,0,.35),0 0 0 1px var(--dcs-bg-app,#1f222a),0 0 0 3px var(--aui-swatch),0 0 10px var(--aui-swatch)}
+)CSS";
+    css += R"CSS(
+.aui-test-perf-reserve{flex:1 1 auto;min-width:0}
+.aui-test-mobile-nav{display:none;padding:12px 16px;border-bottom:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)))}
+.aui-test-body{display:flex;flex:1 1 auto;min-height:0;align-items:stretch;overflow:hidden}
+.aui-test-nav{flex:0 0 256px;display:flex;flex-direction:column;gap:18px;min-height:0;max-height:100%;padding:18px 14px;box-sizing:border-box;border-right:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));background:linear-gradient(180deg,rgba(128,128,128,.055),rgba(128,128,128,.025));overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}
+.aui-test-nav-heading{margin:0 6px -4px;font-size:.78rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--bs-secondary-color,var(--dcs-text-dim,#6c757d))}
+.aui-test-nav-group{display:flex;flex-direction:column;gap:4px;min-width:0}
+.aui-test-nav-group-title{display:flex;align-items:center;gap:7px;margin:0 6px 2px;font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--bs-secondary-color,var(--dcs-text-mute,#6c757d))}
+.aui-test-nav-group-title>.aui-test-nav-icon{flex:0 0 14px;width:14px;font-size:13px;color:var(--bs-primary,var(--dcs-accent,#0d6efd));opacity:.82}
+.aui-test-nav-label{margin:0;min-width:0;color:inherit;font:inherit;letter-spacing:inherit;text-transform:inherit;overflow:hidden;text-overflow:ellipsis}
+.aui-test-nav-item{appearance:none;display:flex;align-items:center;gap:10px;width:100%;min-height:38px;padding:8px 10px;box-sizing:border-box;border:0;border-radius:0;background:transparent;color:var(--bs-body-color,var(--dcs-text,#222));font:inherit;font-weight:600;text-align:left;white-space:normal;cursor:pointer}
+.aui-test-nav-item>.aui-test-nav-icon{flex:0 0 18px;width:18px;height:18px;background:transparent;color:var(--bs-secondary-color,var(--dcs-text-dim,#6c757d));font-size:15px}
+.aui-test-nav-item:hover{background:rgba(128,128,128,.09)}
+.aui-test-nav-item.is-active{background:var(--bs-primary,var(--dcs-accent,#0d6efd));color:white;box-shadow:none}
+.aui-test-nav-item.is-active>.aui-test-nav-icon{background:transparent;color:white}
+.aui-test-nav-item.is-active:hover{background:var(--bs-primary,var(--dcs-accent,#0d6efd));color:white}
+.aui-test-nav-item.is-active:hover>.aui-test-nav-icon{background:transparent;color:white}
+.aui-test-nav-item.is-disabled{opacity:.52;cursor:default}
+.aui-test-nav-item.is-disabled:hover{background:transparent}
+.aui-test-nav-item.is-disabled::after{content:"soon";margin-left:auto;padding:1px 6px;border-radius:999px;background:rgba(128,128,128,.14);font-size:.64rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--bs-secondary-color,var(--dcs-text-mute,#6c757d))}
+.aui-test-content{flex:1 1 auto;display:flex;min-width:0;min-height:0;overflow:hidden;padding:0;box-sizing:border-box}
+.aui-test-content>h1{margin-top:0}
+.aui-test-page{display:flex;flex:1 1 auto;flex-direction:column;width:100%;min-width:0;min-height:0;overflow:hidden}
+.aui-test-page>.aui-test-page-header{margin:0 0 .75rem;font-size:clamp(1.45rem,2vw,2.1rem);line-height:1.15;font-weight:700;letter-spacing:0}
+.aui-test-page>.aui-test-page-body{display:flex;flex:1 1 auto;flex-direction:column;gap:1.25rem;min-height:0;min-width:0;overflow:auto;overscroll-behavior:contain;padding:28px 32px;box-sizing:border-box}
+.aui-test-page>.dcs-panel__body{gap:var(--dcs-s-5)}
+.aui-scroll-list,.aui-scroll-tree{width:100%;min-height:0;overflow:auto;border:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));border-radius:4px;box-sizing:border-box;background:rgba(0,0,0,.03)}
+.aui-scroll-tree{max-height:340px}
+.photo-hybrid-shell{display:flex;flex-direction:column;min-height:560px;border:1px solid var(--dcs-line,rgba(128,128,128,.25));background:var(--dcs-bg-app,#1f222a);overflow:hidden}
+.photo-hybrid-toolbar{display:flex;align-items:center;gap:6px;min-height:34px;padding:5px 8px;box-sizing:border-box;border-bottom:1px solid var(--dcs-line,rgba(128,128,128,.25));background:var(--dcs-surface-1,#242832)}
+.photo-hybrid-body{display:flex;flex:1 1 auto;min-height:0}
+.photo-hybrid-tools{display:flex;flex:0 0 42px;flex-direction:column;gap:5px;padding:6px;box-sizing:border-box;border-right:1px solid var(--dcs-line,rgba(128,128,128,.25));background:rgba(0,0,0,.08)}
+.photo-hybrid-canvas{position:relative;display:flex;flex:1 1 auto;min-width:0;min-height:420px;background:#151820;overflow:hidden}
+.photo-hybrid-ruler{position:absolute;background:#20242e;border-color:var(--dcs-line,rgba(128,128,128,.25));z-index:1}
+.photo-hybrid-ruler--top{left:24px;right:0;top:0;height:24px;border-bottom:1px solid var(--dcs-line,rgba(128,128,128,.25))}
+.photo-hybrid-ruler--left{left:0;top:24px;bottom:24px;width:24px;border-right:1px solid var(--dcs-line,rgba(128,128,128,.25))}
+.photo-hybrid-artboard{position:absolute;left:72px;right:72px;top:58px;bottom:56px;background:#0e1118;border:1px solid rgba(255,255,255,.16);box-shadow:0 18px 50px rgba(0,0,0,.35)}
+.photo-hybrid-photo{position:absolute;inset:28px;background:linear-gradient(135deg,#f08c3c 0%,#e26b9c 42%,#7654d9 100%);border:1px solid rgba(255,255,255,.18)}
+.photo-hybrid-selection{position:absolute;left:24%;top:22%;width:46%;height:52%;border:1px dashed rgba(255,255,255,.72);box-shadow:0 0 0 1px rgba(0,0,0,.5)}
+.photo-hybrid-tool-label{position:absolute;left:16px;bottom:12px;margin:0;color:#fff;background:rgba(0,0,0,.35);padding:3px 8px;border-radius:3px;font-size:12px}
+.photo-hybrid-status{position:absolute;left:24px;right:0;bottom:0;height:24px;display:flex;align-items:center;gap:14px;padding:0 10px;box-sizing:border-box;border-top:1px solid var(--dcs-line,rgba(128,128,128,.25));background:#20242e;color:var(--dcs-text-dim,#aaa);font-size:12px}
+.photo-hybrid-status p{margin:0}
+.photo-hybrid-inspector{display:flex;flex:0 0 260px;flex-direction:column;gap:8px;padding:10px;box-sizing:border-box;border-left:1px solid var(--dcs-line,rgba(128,128,128,.25));background:var(--dcs-surface-1,#20242e);overflow:auto}
+.photo-hybrid-inspector h2{margin:4px 0 2px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dcs-text-mute,#888)}
+@media (max-width:1120px){
+  .aui-test-control-label{display:none}
+  .aui-test-control{padding-left:7px;padding-right:7px}
+  .aui-test-segment-group.dcs-btn-group>.aui-test-segment{min-width:44px;padding-left:8px;padding-right:8px}
+  .aui-test-segment-group.btn-group>.aui-test-segment{min-width:46px;padding-left:8px;padding-right:8px}
+}
+@media (max-width:760px){
+  .aui-test-topbar{align-items:stretch;flex-direction:row;height:48px;min-height:48px;max-height:48px;padding:0 16px}
+  .aui-test-topbar.dcs-menubar{height:var(--dcs-h-lg);min-height:var(--dcs-h-lg);max-height:var(--dcs-h-lg);padding:0 var(--dcs-s-3)}
+  .aui-test-brand{min-width:0;flex:1 1 auto;overflow:hidden}
+  .aui-test-brand h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .aui-test-subtitle,.aui-test-tweaks{display:none}
+  .aui-test-nav{display:none}
+  .aui-test-mobile-nav{display:block}
+  .aui-test-body{flex-direction:column}
+  .aui-test-page>.aui-test-page-body{padding:18px}
+}
+)CSS";
+    return css;
 }
 
 std::string default_class(ViewTheme theme,
@@ -663,6 +821,10 @@ void append_node_html(const WidgetNode& node, std::string& out) {
     }
     if (node.kind == WidgetKind::Text) {
         out += escape_html(node.text);
+        return;
+    }
+    if (node.kind == WidgetKind::RawHtml) {
+        out += node.text;
         return;
     }
 
@@ -1167,6 +1329,14 @@ WidgetRef View::text(std::string_view value,
     return ref_for_node(node, current_panel_id(stack_));
 }
 
+WidgetRef View::html(std::string_view markup,
+                     std::string_view key,
+                     std::source_location here) {
+    auto& node = open_node(WidgetKind::RawHtml, "#html", {}, key, here, false);
+    set_text(node, markup);
+    return ref_for_node(node, current_panel_id(stack_));
+}
+
 WidgetRef View::button(std::string_view label,
                        bool primary,
                        std::string_view key,
@@ -1266,26 +1436,135 @@ WidgetRef View::input(std::string_view label,
                       std::string_view type,
                       std::string_view key,
                       std::source_location here) {
+    const std::string_view input_type = type.empty() ? "text" : type;
     const auto group_recipe = default_element(theme_, FrameworkElement::FieldGroup);
     auto& group = open_node(WidgetKind::TextInput, group_recipe.tag,
                             group_recipe.classes, key, here, true);
     set_attr(group, "data-aui-widget", "input");
-    set_attr(group, "data-aui-type", type);
+    set_attr(group, "data-aui-type", input_type);
 
     const auto label_recipe = default_element(theme_, FrameworkElement::FieldLabel);
     auto& label_node = open_node(WidgetKind::Container, label_recipe.tag,
                                  label_recipe.classes, "__label", here, false);
     set_text(label_node, label);
 
+    if (theme_ == ViewTheme::Decius && input_type == "number") {
+        const double numeric_value = parse_double_or(value, 0.0);
+        auto& combo = open_node(WidgetKind::Container, "div", "dcs-combo",
+                                "__combo", here, true);
+        set_attr(combo, "role", "spinbutton");
+        set_attr(combo, "aria-valuenow", number(numeric_value));
+        set_attr(combo, "data-dcs-combo", "");
+        set_attr(combo, "data-value", number(numeric_value));
+        set_attr(combo, "data-step", "0.01");
+        set_attr(combo, "style", "--fill:" + percent(0.5));
+
+        open_node(WidgetKind::Container, "div", "dcs-combo__fill", "__fill",
+                  here, false);
+
+        const auto input_recipe = default_element(theme_, FrameworkElement::TextInput);
+        (void) input_recipe;
+        auto& input_node = open_node(WidgetKind::TextInput, "input",
+                                     "dcs-combo__value", "__input", here,
+                                     false);
+        set_attr(input_node, "type", "number");
+        set_attr(input_node, "value", value);
+        set_attr(input_node, "data-fill-min", number(numeric_value - 1.0));
+        set_attr(input_node, "data-fill-max", number(numeric_value + 1.0));
+        if (!key.empty()) set_attr(input_node, "data-aui-name", key);
+        close_node();
+        close_node();
+        return ref_for_node(group, current_panel_id(stack_));
+    }
+
+    if (theme_ == ViewTheme::Decius && input_type == "color") {
+        auto& color = open_node(WidgetKind::Container, "div", "dcs-colorfield",
+                                "__colorfield", here, true);
+        const std::string field_id =
+            "aui-colorfield-" + dom_id_fragment(key.empty() ? color.remote_id
+                                                            : std::string(key));
+        const std::string menu_id = field_id + "-menu";
+        set_attr(group, "aria-expanded", "false");
+        set_attr(group, "data-dcs-toggle", "menu");
+        set_attr(group, "data-dcs-target", "#" + menu_id);
+        set_attr(color, "id", field_id);
+        if (!key.empty()) set_attr(color, "data-aui-name", key);
+        set_attr(color, "role", "button");
+        set_attr(color, "aria-expanded", "false");
+        set_attr(color, "data-dcs-toggle", "menu");
+        set_attr(color, "data-dcs-target", "#" + menu_id);
+        set_attr(color, "data-value", value);
+
+        auto& chip = open_node(WidgetKind::Container, "div",
+                               "dcs-colorfield__chip", "__chip", here,
+                               false);
+        set_attr(chip, "style", "--c:" + std::string(value) +
+                                ";background:" + std::string(value));
+
+        auto& hex = open_node(WidgetKind::Container, "span",
+                              "dcs-colorfield__hex", "__hex", here, false);
+        set_text(hex, value);
+
+        auto& caret = open_node(WidgetKind::Container, "span",
+                                "dcs-colorfield__caret di di-chevron-down",
+                                "__caret", here, false);
+        (void) caret;
+
+        close_node();
+
+        auto& menu = open_node(WidgetKind::Container, "div",
+                               "dcs-menu aui-color-menu", "__menu", here,
+                               true);
+        set_attr(menu, "id", menu_id);
+        set_attr(menu, "hidden", "");
+        set_attr(menu, "data-aui-colorfield", field_id);
+
+        std::vector<std::string> palette{
+            std::string(value), "#3bb7ff", "#33aaff", "#3dd68a",
+            "#ff8a3a", "#8b6dff", "#cf6b3a", "#3a3d45",
+        };
+        std::sort(palette.begin(), palette.end());
+        palette.erase(std::unique(palette.begin(), palette.end()),
+                      palette.end());
+        for (const auto& swatch : palette) {
+            auto& option = open_node(
+                WidgetKind::Button, "button", "dcs-menu__item aui-color-option",
+                std::string{"__color_"} + dom_id_fragment(swatch), here, true);
+            set_attr(option, "type", "button");
+            set_attr(option, "role", "menuitem");
+            set_attr(option, "value", swatch);
+            set_attr(option, "data-dcs-value", swatch);
+            if (swatch == value) set_attr(option, "aria-selected", "true");
+
+            auto& swatch_node = open_node(
+                WidgetKind::Container, "span", "aui-color-option__swatch",
+                "__swatch", here, false);
+            set_attr(swatch_node, "style", "--c:" + swatch +
+                                      ";background:" + swatch);
+
+            auto& swatch_label = open_node(WidgetKind::Container, "span",
+                                           "dcs-menu__label-text", "__label",
+                                           here, false);
+            set_text(swatch_label, swatch);
+            close_node();
+        }
+        close_node();
+        close_node();
+        return ref_for_node(group, current_panel_id(stack_));
+    }
+
     const auto input_recipe = default_element(theme_, FrameworkElement::TextInput);
     std::string input_classes{input_recipe.classes};
-    if (theme_ == ViewTheme::Decius && type == "number") {
+    if (theme_ == ViewTheme::Bootstrap && input_type == "color") {
+        input_classes += " form-control-color";
+    } else if (theme_ == ViewTheme::Decius && input_type == "number") {
         input_classes += " dcs-input--num";
     }
     auto& input_node = open_node(WidgetKind::TextInput, input_recipe.tag,
                                  input_classes, "__input", here, false);
-    set_attr(input_node, "type", type.empty() ? "text" : type);
+    set_attr(input_node, "type", input_type);
     set_attr(input_node, "value", value);
+    if (input_type == "number") set_attr(input_node, "style", "cursor:ew-resize");
     if (!key.empty()) set_attr(input_node, "data-aui-name", key);
     close_node();
     return ref_for_node(group, current_panel_id(stack_));
@@ -1851,6 +2130,9 @@ WidgetNode& View::open_node(WidgetKind kind,
     if (created && sink_) {
         if (kind == WidgetKind::Text) {
             sink_->create_text(*node, parent == &root_ ? nullptr : parent, index);
+        } else if (kind == WidgetKind::RawHtml) {
+            diagnostics_.push_back(
+                "Raw HTML nodes are not represented in remote patch streams");
         } else {
             sink_->create_element(*node, parent == &root_ ? nullptr : parent, index);
         }
@@ -1932,6 +2214,7 @@ void View::remove_attr(WidgetNode& node, std::string_view name) {
 void View::set_text(WidgetNode& node, std::string_view value) {
     if (node.text == value) return;
     node.text = std::string(value);
+    if (node.kind == WidgetKind::RawHtml) return;
     if (auto* sink = current_sink()) sink->set_text(node, value);
 }
 
