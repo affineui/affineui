@@ -1,15 +1,15 @@
-"""Pure-Python Decius Photo Edit sample.
+"""Python Decius Photo Edit sample.
 
 This mirrors the sibling decius-css/samples/decius-photo app shape while keeping
-the application state, callbacks, and view generation in Python.
+the UI, callbacks, and view generation in Python. The document/layer model uses
+the AffineUI C++ photo core through the Python binding.
 """
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from html import escape
-from pathlib import Path
 from typing import Callable
 
 import affineui as ui
@@ -25,19 +25,6 @@ class Tool:
     group: bool = False
     paint: bool = False
     sep_after: bool = False
-
-
-@dataclass
-class Layer:
-    id: str
-    name: str
-    kind: str
-    visible: bool = True
-    locked: bool = False
-    opacity: float = 100.0
-    fill: float = 100.0
-    blend: str = "Normal"
-    style: str = "background:linear-gradient(135deg,#345b9d,#6d9ed8)"
 
 
 TOOLS: tuple[Tool, ...] = (
@@ -301,21 +288,7 @@ class PhotoEditApp:
             "adjust": True,
             "history": True,
         }
-        self.layers: list[Layer] = [
-            Layer("background", "Background", "pixel", locked=True, style="background:linear-gradient(135deg,#f08c3c 0%,#e26b9c 42%,#7654d9 100%)"),
-            Layer("retouch", "Hero retouch", "pixel", opacity=82, style="background:radial-gradient(circle at 68% 32%,rgba(255,240,200,.75),rgba(255,200,120,0) 34%)"),
-            Layer("curves", "Adjustment - Curves", "adjustment", opacity=64, blend="Soft Light", style="background:linear-gradient(90deg,rgba(31,111,235,.5),rgba(255,122,184,.45))"),
-            Layer("title", "Title type", "type", opacity=94, style="background:transparent"),
-            Layer("vignette", "Vignette", "pixel", opacity=68, blend="Multiply", style="background:radial-gradient(circle,rgba(0,0,0,0) 40%,rgba(0,0,0,.72) 100%)"),
-        ]
-        self.active_layer = "retouch"
-        self.history = [
-            "Open Sample",
-            "Brush Stroke",
-            "Hue / Saturation",
-            "Layer Opacity",
-        ]
-        self.history_index = len(self.history) - 1
+        self.doc = ui.PhotoDocument(1280, 800)
 
     def build_view(self) -> ui.View:
         view = ui.View(ui.ViewTheme.Decius)
@@ -353,11 +326,7 @@ class PhotoEditApp:
         self.app.launch(native=True)
 
     def snapshot(self, label: str) -> None:
-        if self.history_index < len(self.history) - 1:
-            self.history = self.history[: self.history_index + 1]
-        self.history.append(label)
-        self.history = self.history[-24:]
-        self.history_index = len(self.history) - 1
+        self.doc.snapshot(label)
         self.status = label
 
     def set_tool(self, tool_id: str) -> None:
@@ -368,69 +337,42 @@ class PhotoEditApp:
         self.reload()
 
     def set_layer(self, layer_id: str) -> None:
-        if any(layer.id == layer_id for layer in self.layers):
-            self.active_layer = layer_id
+        if self.doc.set_active_layer(layer_id):
             self.status = f"Selected layer: {self.current_layer().name}"
             self.reload()
 
-    def current_layer(self) -> Layer:
-        for layer in self.layers:
-            if layer.id == self.active_layer:
-                return layer
-        return self.layers[-1]
-
-    def update_current_layer(self, **changes: object) -> None:
-        self.layers = [
-            replace(layer, **changes) if layer.id == self.active_layer else layer
-            for layer in self.layers
-        ]
+    def current_layer(self) -> ui.PhotoLayerSnapshot:
+        return self.doc.active_layer()
 
     def set_layer_opacity(self, value: str) -> None:
-        self.update_current_layer(opacity=_clamp(_safe_num(value, 100.0), 0.0, 100.0))
-        self.snapshot("Layer Opacity")
+        self.doc.set_active_opacity(_clamp(_safe_num(value, 100.0), 0.0, 100.0))
+        self.status = "Layer Opacity"
         self.reload()
 
     def set_layer_blend(self, value: str) -> None:
         if value in BLENDS:
-            self.update_current_layer(blend=value)
-            self.snapshot(f"Blend: {value}")
+            self.doc.set_active_blend(value)
+            self.status = f"Blend: {value}"
             self.reload()
 
     def toggle_layer_visible(self, layer_id: str) -> None:
-        self.layers = [
-            replace(layer, visible=not layer.visible) if layer.id == layer_id else layer
-            for layer in self.layers
-        ]
-        self.snapshot("Layer Visibility")
+        self.doc.toggle_layer_visible(layer_id)
+        self.status = "Layer Visibility"
         self.reload()
 
     def add_layer(self, name: str | None = None) -> None:
-        index = len(self.layers) + 1
-        layer = Layer(
-            f"layer-{index}",
-            name or f"Layer {index}",
-            "pixel",
-            style="background:linear-gradient(135deg,rgba(79,134,214,.38),rgba(232,132,58,.32))",
-        )
-        self.layers.append(layer)
-        self.active_layer = layer.id
-        self.snapshot("New Layer")
+        self.doc.add_layer(name or "")
+        self.status = "New Layer"
         self.reload()
 
     def duplicate_layer(self) -> None:
-        src = self.current_layer()
-        copy = replace(src, id=f"{src.id}-copy-{len(self.layers)}", name=f"{src.name} copy")
-        self.layers.append(copy)
-        self.active_layer = copy.id
-        self.snapshot("Duplicate Layer")
+        if self.doc.duplicate_active_layer():
+            self.status = "Duplicate Layer"
         self.reload()
 
     def delete_layer(self) -> None:
-        if len(self.layers) <= 1:
-            return
-        self.layers = [layer for layer in self.layers if layer.id != self.active_layer]
-        self.active_layer = self.layers[-1].id
-        self.snapshot("Delete Layer")
+        if self.doc.delete_active_layer():
+            self.status = "Delete Layer"
         self.reload()
 
     def set_zoom(self, zoom: float) -> None:
@@ -439,8 +381,11 @@ class PhotoEditApp:
         self.reload()
 
     def select_history(self, index: int) -> None:
-        self.history_index = _clamp(index, 0, len(self.history) - 1)
-        self.status = self.history[int(self.history_index)]
+        self.doc.select_history(index)
+        history = self.doc.history()
+        current = self.doc.history_index()
+        if 0 <= current < len(history):
+            self.status = history[current]
         self.reload()
 
     def set_foreground(self, color: str) -> None:
@@ -492,7 +437,7 @@ class PhotoEditApp:
             "sfeather": ("Feather Selection", "Set the feather radius for the active selection."),
             "fblur": ("Gaussian Blur", "Blur the current layer or selected pixels."),
             "fnoise": ("Add Noise", "Apply monochromatic or color noise to the selection."),
-            "habout": ("About Decius Photo Edit", "A pure-Python AffineUI recreation of the Decius photo editing sample."),
+            "habout": ("About Decius Photo Edit", "A Python AffineUI recreation of the Decius photo editing sample backed by the C++ photo core."),
             "hframework": ("About decius.css", "A dense, token-driven CSS framework for pro creative tools."),
             "hkeys": ("Keyboard Shortcuts", "V Move, M Marquee, B Brush, E Eraser, G Fill, Z Zoom, X Swap colors, D Default colors."),
         }
@@ -506,15 +451,26 @@ class PhotoEditApp:
         elif action == "ldel":
             self.delete_layer()
         elif action == "undo":
-            self.history_index = max(0, self.history_index - 1)
-            self.status = "Undo"
+            self.status = self.doc.undo()
             self.reload()
         elif action == "redo":
-            self.history_index = min(len(self.history) - 1, self.history_index + 1)
-            self.status = "Redo"
+            self.status = self.doc.redo()
             self.reload()
         elif action == "fill":
-            self.snapshot("Fill with Foreground")
+            self.doc.fill_active(self.fg)
+            self.status = "Fill with Foreground"
+            self.reload()
+        elif action == "invert":
+            self.doc.invert_active()
+            self.status = "Invert"
+            self.reload()
+        elif action == "desat":
+            self.doc.desaturate_active()
+            self.status = "Desaturate"
+            self.reload()
+        elif action == "flatten":
+            self.doc.flatten()
+            self.status = "Flatten Image"
             self.reload()
         elif action == "vin":
             self.set_zoom(self.zoom * 1.4)
@@ -561,7 +517,7 @@ class PhotoEditApp:
 
     def _build_menubar(self, v: ui.View) -> None:
         brand = v.container(classes="ps-brand", key="ps-brand", build=lambda b: b.html('<i class="di di-decius ps-brand__mark"></i><span class="ps-brand__name">Decius Photo</span>'))
-        brand.attr("role", "button").on_click(lambda: self.open_dialog("About Decius Photo Edit", "A pure-Python clone of the Decius photo sample UI."))
+        brand.attr("role", "button").on_click(lambda: self.open_dialog("About Decius Photo Edit", "A Python clone of the Decius photo sample UI backed by a C++ photo core."))
         for menu_id, label in MENU_ORDER:
             trigger = v.button(label, key=f"trigger-{menu_id}")
             trigger.cls("dcs-menubar__item")
@@ -670,7 +626,7 @@ class PhotoEditApp:
         stage.attr("role", "button")
         stage.on_click(lambda: self.snapshot(f"{_tool(self.tool).name} Action"))
         v.container(classes="ps-stage-badge ps-stage-badge--bl", key="ps-ov-cursor", build=lambda h: h.html('<span class="dcs-badge dcs-badge--soft">0, 0 px</span>'))
-        v.container(classes="ps-stage-badge ps-stage-badge--tr", key="ps-ov-doc", build=lambda h: h.html('<span class="dcs-badge dcs-badge--soft">1280 x 800</span>'))
+        v.container(classes="ps-stage-badge ps-stage-badge--tr", key="ps-ov-doc", build=lambda h: h.html(f'<span class="dcs-badge dcs-badge--soft">{self.doc.width()} x {self.doc.height()}</span>'))
 
     def _ruler_ticks(self) -> str:
         ticks = "".join(f"<span>{i}</span>" for i in range(0, 1300, 200))
@@ -682,7 +638,7 @@ class PhotoEditApp:
         doc.attr("style", style)
 
     def _build_layers_on_canvas(self, v: ui.View) -> None:
-        for index, layer in enumerate(self.layers):
+        for index, layer in enumerate(self.doc.layers()):
             if not layer.visible:
                 continue
             classes = "ps-layer-canvas"
@@ -794,15 +750,15 @@ class PhotoEditApp:
         v.container(classes="ps-amt", key="ps-fill-amt", build=lambda h: h.html(f"{round(self.current_layer().fill)}%"))
 
     def _toggle_lock(self) -> None:
-        self.update_current_layer(locked=not self.current_layer().locked)
-        self.snapshot("Layer Lock")
+        self.doc.set_active_locked(not self.current_layer().locked)
+        self.status = "Layer Lock"
         self.reload()
 
     def _build_layer_rows(self, v: ui.View) -> None:
-        for layer in reversed(self.layers):
+        for layer in reversed(self.doc.layers()):
             self._layer_row(v, layer)
 
-    def _layer_row(self, v: ui.View, layer: Layer) -> None:
+    def _layer_row(self, v: ui.View, layer: ui.PhotoLayerSnapshot) -> None:
         def row(r: ui.View) -> None:
             eye = r.container(classes="ps-layer-eye" + ("" if layer.visible else " is-off"), key=f"eye-{layer.id}", build=lambda h: h.html("o" if layer.visible else "-"))
             eye.attr("role", "button").on_click(lambda layer_id=layer.id: self.toggle_layer_visible(layer_id))
@@ -810,10 +766,11 @@ class PhotoEditApp:
             r.container(classes="ps-layer-name", key=f"name-{layer.id}", build=lambda h: h.html(escape(layer.name)))
             r.container(classes="ps-layer-lock", key=f"lock-{layer.id}", build=lambda h: h.html("lock" if layer.locked else ""))
 
-        cls = "ps-layer" + (" is-active" if layer.id == self.active_layer else "")
+        is_active = layer.id == self.doc.active_layer_id()
+        cls = "ps-layer" + (" is-active" if is_active else "")
         ref = v.container(classes=cls, key=f"layer-{layer.id}", build=row)
         ref.attr("role", "button")
-        ref.attr("aria-selected", "true" if layer.id == self.active_layer else "false")
+        ref.attr("aria-selected", "true" if is_active else "false")
         ref.on_click(lambda layer_id=layer.id: self.set_layer(layer_id))
 
     def _build_layer_footer(self, v: ui.View) -> None:
@@ -842,9 +799,10 @@ class PhotoEditApp:
         v.container(classes="ps-adjust-grid", key="ps-adjust-grid", build=grid)
 
     def _build_history(self, v: ui.View) -> None:
-        for index, label in enumerate(self.history):
+        history_index = self.doc.history_index()
+        for index, label in enumerate(self.doc.history()):
             item = v.container(
-                classes="ps-history-item" + (" is-current" if index == self.history_index else ""),
+                classes="ps-history-item" + (" is-current" if index == history_index else ""),
                 key=f"history-{index}",
                 build=lambda h, label=label: h.html(f'<i class="di di-history-brush"></i><span>{escape(label)}</span>'),
             )

@@ -360,7 +360,39 @@ def test_append_is_illegal_during_generation():
     assert "append" in view.diagnostics()[0]
 
 
-def test_photo_edit_sample_is_pure_python_and_clickable():
+def test_photo_document_core_layer_history_operations():
+    doc = ui.PhotoDocument(640, 480)
+
+    assert doc.width() == 640
+    assert doc.height() == 480
+    assert doc.active_layer_id() == "retouch"
+    assert doc.active_layer().name == "Hero retouch"
+    assert doc.history()[doc.history_index()] == "Layer Opacity"
+
+    new_id = doc.add_layer("Paint test")
+    assert doc.active_layer_id() == new_id
+    assert doc.active_layer().name == "Paint test"
+    assert doc.history()[doc.history_index()] == "New Layer"
+
+    assert doc.set_active_opacity(42)
+    assert doc.active_layer().opacity == 42
+    assert doc.set_active_blend("Multiply")
+    assert doc.active_layer().blend == "Multiply"
+
+    assert doc.toggle_layer_visible(new_id)
+    assert doc.active_layer().visible is False
+
+    copy_id = doc.duplicate_active_layer()
+    assert copy_id
+    assert doc.active_layer().name.endswith(" copy")
+
+    assert doc.delete_active_layer()
+    assert doc.active_layer_id() == new_id
+    assert doc.undo() == "Duplicate Layer"
+    assert doc.redo() == "Delete Layer"
+
+
+def test_photo_edit_sample_uses_cpp_core_and_is_clickable():
     examples = Path(__file__).resolve().parents[1] / "examples"
     sys.path.insert(0, str(examples))
     try:
@@ -369,6 +401,7 @@ def test_photo_edit_sample_is_pure_python_and_clickable():
         sys.path.remove(str(examples))
 
     sample = PhotoEditApp()
+    assert isinstance(sample.doc, ui.PhotoDocument)
     app = ui.App(
         title="Photo Edit Smoke",
         width=1280,
@@ -392,3 +425,4 @@ def test_photo_edit_sample_is_pure_python_and_clickable():
 
     sample.menu_action("lnew")
     assert sample.current_layer().name.startswith("Layer")
+    assert sample.doc.history()[sample.doc.history_index()] == "New Layer"

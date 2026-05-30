@@ -23,6 +23,7 @@ endif()
 
 pybind11_add_module(_affineui MODULE
     src/affineui_py.cpp
+    src/photo_core_py.cpp
 )
 
 target_link_libraries(_affineui PRIVATE affineui::affineui)

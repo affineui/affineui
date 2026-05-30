@@ -4,6 +4,8 @@
 #include <affineui/view.h>
 #include <affineui/version.h>
 
+#include "photo_core_py.h"
+
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -82,6 +84,7 @@ PYBIND11_MODULE(_affineui, m) {
     m.attr("__version__") = AFFINEUI_PY_VERSION;
     m.def("version", [] { return std::string{affineui::version_string()}; });
     m.def("native_backend", [] { return std::string{"sokol"}; });
+    bind_photo_core(m);
 
     py::class_<affineui::Color>(m, "Color")
         .def(py::init([](int r, int g, int b, int a) {
