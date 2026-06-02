@@ -26,9 +26,11 @@
 namespace {
 
 struct Step {
-    enum Kind { Click, Hover, Wait, AnimationTime, Snapshot } kind;
+    enum Kind { Click, Hover, Wheel, Wait, AnimationTime, Snapshot } kind;
     int x = 0;
     int y = 0;
+    int dx = 0;
+    int dy = 0;
     int ms = 0;
     std::string name;
 };
@@ -138,6 +140,13 @@ bool load_case(Args& a) {
                 a.steps.push_back({Step::Click, c->at_int(0), c->at_int(1)});
             } else if (const cjson::Value* h = s.find("hover")) {
                 a.steps.push_back({Step::Hover, h->at_int(0), h->at_int(1)});
+            } else if (const cjson::Value* wh = s.find("wheel")) {
+                Step st{Step::Wheel};
+                st.x = wh->at_int(0);
+                st.y = wh->at_int(1);
+                st.dx = wh->at_int(2);
+                st.dy = wh->at_int(3);
+                a.steps.push_back(st);
             } else if (const cjson::Value* w = s.find("wait_ms")) {
                 Step st{Step::Wait};
                 st.ms = static_cast<int>(w->as_num());
@@ -175,6 +184,18 @@ void dispatch_click(affineui::Ui& ui, int x, int y) {
     ui.dispatch(e);
 }
 
+void dispatch_wheel(affineui::Ui& ui, int x, int y, int dx, int dy) {
+    constexpr float kPxPerWheelStep = 24.0f;
+    affineui::Event e{};
+    e.pos = {x, y};
+    e.type = affineui::EventType::MouseMove;
+    ui.dispatch(e);
+    e.type = affineui::EventType::MouseWheel;
+    e.wheel_dx = -static_cast<float>(dx) / kPxPerWheelStep;
+    e.wheel_dy = -static_cast<float>(dy) / kPxPerWheelStep;
+    ui.dispatch(e);
+}
+
 void apply_scripted_inputs(AppState& app) {
     for (const Step& step : app.args.steps) {
         switch (step.kind) {
@@ -183,6 +204,9 @@ void apply_scripted_inputs(AppState& app) {
                 break;
             case Step::Hover:
                 dispatch_hover(app.ui, step.x, step.y);
+                break;
+            case Step::Wheel:
+                dispatch_wheel(app.ui, step.x, step.y, step.dx, step.dy);
                 break;
             default:
                 break;

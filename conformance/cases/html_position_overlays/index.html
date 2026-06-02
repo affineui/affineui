@@ -1,0 +1,289 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body {
+    margin: 0;
+    background: #f3f5f8;
+    color: #1f2633;
+    font-family: sans-serif;
+  }
+  * { box-sizing: border-box; }
+  .page {
+    position: relative;
+    width: 1000px;
+    height: 760px;
+    padding: 18px;
+    background: #f3f5f8;
+  }
+  .topbar {
+    height: 42px;
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    background: #242b38;
+    color: #f8fbff;
+    border: 1px solid #151923;
+  }
+  .topbar strong { font-size: 13px; margin-right: 18px; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 24px;
+    min-width: 64px;
+    margin-right: 8px;
+    padding: 0 9px;
+    border: 1px solid #536172;
+    background: #30394a;
+    color: #dfe7f2;
+    font-size: 12px;
+  }
+  .row { display: flex; margin-top: 14px; }
+  .panel {
+    position: relative;
+    width: 474px;
+    height: 214px;
+    margin-right: 14px;
+    padding: 13px;
+    border: 1px solid #b9c2cf;
+    background: #ffffff;
+  }
+  .panel.wide { width: 962px; height: 230px; }
+  .title {
+    margin: 0 0 10px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #5b6778;
+  }
+  .stage {
+    position: relative;
+    width: 438px;
+    height: 156px;
+    border: 1px solid #8995a6;
+    background: #eef2f6;
+  }
+  .box {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .anchor { left: 18px; top: 22px; width: 118px; height: 50px; background: #43546a; }
+  .abs-right { right: 18px; top: 18px; width: 116px; height: 44px; background: #2467b2; }
+  .abs-bottom { left: 158px; bottom: 18px; width: 120px; height: 46px; background: #7b3bb3; }
+  .relative-slot {
+    position: relative;
+    left: 28px;
+    top: 92px;
+    width: 116px;
+    height: 42px;
+    background: #178169;
+  }
+  .scroll-pane {
+    position: relative;
+    width: 212px;
+    height: 142px;
+    overflow: auto;
+    border: 1px solid #657080;
+    background: #f8fafc;
+  }
+  .scroll-content { position: relative; height: 340px; padding: 9px; }
+  .stripe {
+    height: 42px;
+    margin-bottom: 8px;
+    border: 1px solid #c8d1dc;
+    background: #e6ecf4;
+    color: #495568;
+    font-size: 11px;
+    padding: 11px 8px;
+  }
+  .absolute-note {
+    position: absolute;
+    left: 96px;
+    top: 158px;
+    width: 76px;
+    height: 36px;
+    background: #c74e3d;
+    color: white;
+    font-size: 10px;
+    padding: 8px;
+  }
+  .fixed-menu {
+    position: fixed;
+    left: 730px;
+    top: 108px;
+    width: 205px;
+    height: 76px;
+    z-index: 50;
+    border: 1px solid #151923;
+    background: #242b38;
+    color: #f7fbff;
+    box-shadow: 0 10px 18px rgba(20, 26, 36, 0.22);
+  }
+  .fixed-menu div {
+    height: 25px;
+    padding: 5px 9px;
+    border-bottom: 1px solid #3c4657;
+    font-size: 11px;
+  }
+  .dropdown-anchor {
+    position: absolute;
+    left: 260px;
+    top: 38px;
+    width: 146px;
+    height: 30px;
+    padding: 7px 10px;
+    border: 1px solid #5f6d7f;
+    background: #fbfcfe;
+    color: #1f2633;
+    font-size: 12px;
+  }
+  .anchored-dropdown {
+    position: fixed;
+    left: 766px;
+    top: 318px;
+    width: 168px;
+    z-index: 60;
+    border: 1px solid #151923;
+    background: #ffffff;
+    color: #212834;
+    box-shadow: 0 12px 20px rgba(20, 26, 36, 0.20);
+  }
+  .anchored-dropdown div {
+    height: 28px;
+    padding: 7px 10px;
+    border-bottom: 1px solid #d9e0e8;
+    font-size: 11px;
+  }
+  .overlap {
+    position: relative;
+    width: 438px;
+    height: 156px;
+    border: 1px solid #8995a6;
+    background: #eef2f6;
+  }
+  .z {
+    position: absolute;
+    width: 146px;
+    height: 74px;
+    color: white;
+    padding: 27px 12px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .z.one { left: 46px; top: 38px; background: #3174bb; z-index: 1; }
+  .z.two { left: 118px; top: 62px; background: #d16a2f; z-index: 3; }
+  .z.three { left: 202px; top: 30px; background: #2b8d73; z-index: 2; }
+  .no-scroll-sentinel {
+    position: relative;
+    width: 438px;
+    height: 128px;
+    overflow: auto;
+    border: 1px solid #657080;
+    background: #f8fafc;
+  }
+  .short-content {
+    height: 96px;
+    margin: 10px;
+    padding: 34px 12px;
+    border: 1px solid #c8d1dc;
+    background: #e6ecf4;
+    color: #495568;
+    font-size: 12px;
+  }
+  .far-fixed {
+    position: fixed;
+    left: 704px;
+    top: 636px;
+    width: 214px;
+    height: 42px;
+    z-index: 40;
+    padding: 12px;
+    border: 1px solid #151923;
+    background: #722f8f;
+    color: #fff;
+    font-size: 11px;
+  }
+</style>
+</head>
+<body>
+  <div class="page">
+    <div class="topbar">
+      <strong>HTML positioning conformance</strong>
+      <span class="chip">absolute</span>
+      <span class="chip">fixed</span>
+      <span class="chip">scroll</span>
+      <span class="chip">z-index</span>
+    </div>
+
+    <div class="row">
+      <section class="panel">
+        <p class="title">Containing block and inset geometry</p>
+        <div class="stage">
+          <div class="box anchor">static slot</div>
+          <div class="box abs-right">right/top</div>
+          <div class="box abs-bottom">left/bottom</div>
+          <div class="box relative-slot">relative</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <p class="title">Fixed child inside scroll container</p>
+        <div class="scroll-pane">
+          <div class="scroll-content">
+            <div class="stripe">scroll row 1</div>
+            <div class="stripe">scroll row 2</div>
+            <div class="stripe">scroll row 3</div>
+            <div class="absolute-note">absolute child</div>
+            <div class="stripe">scroll row 4</div>
+            <div class="stripe">scroll row 5</div>
+          </div>
+          <div class="fixed-menu">
+            <div>Fixed menu</div>
+            <div>Should not clip</div>
+            <div>Should not scroll</div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="row">
+      <section class="panel">
+        <p class="title">Stacking order</p>
+        <div class="overlap">
+          <div class="z one">z 1</div>
+          <div class="z two">z 3</div>
+          <div class="z three">z 2</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <p class="title">Dropdown anchored over panel chrome</p>
+        <div class="stage">
+          <div class="dropdown-anchor">Preset: studio</div>
+        </div>
+        <div class="anchored-dropdown">
+          <div>Studio</div>
+          <div>Outdoor</div>
+          <div>Night grade</div>
+        </div>
+      </section>
+    </div>
+
+    <div class="row">
+      <section class="panel wide">
+        <p class="title">Fixed descendants must not expand scroll ranges</p>
+        <div class="no-scroll-sentinel">
+          <div class="short-content">This pane should have no vertical scrollbar.</div>
+          <div class="far-fixed">Fixed descendant outside the pane</div>
+        </div>
+      </section>
+    </div>
+  </div>
+</body>
+</html>

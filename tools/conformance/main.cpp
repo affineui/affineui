@@ -13,7 +13,8 @@
 // extensible — agents add new step types (named DOM interactions, keys, etc.)
 // to this dispatch and the browser's as they go. Unknown step types are
 // skipped, so a newer script degrades gracefully on an older tool. Starter set:
-//   {"click":[x,y]} {"hover":[x,y]} {"mouse_path":[[x,y],...]}
+//   {"click":[x,y]} {"hover":[x,y]} {"wheel":[x,y,dx,dy]}
+//   {"mouse_path":[[x,y],...]}
 //   {"mouse_recording":[{"type":"move|down|up","x":N,"y":N},...]}
 //   {"wait_ms":N}
 //   {"animation_time_ms":N} {"snapshot":"name"}
@@ -38,13 +39,13 @@
 namespace {
 
 struct Step {
-    enum Kind { Click, Hover, MousePath, MouseRecording, Wait, AnimationTime, Snapshot } kind;
+    enum Kind { Click, Hover, Wheel, MousePath, MouseRecording, Wait, AnimationTime, Snapshot } kind;
     enum MouseKind { Move, Down, Up };
     struct MouseEvent {
         MouseKind kind{Move};
         affineui::Point pos{};
     };
-    int x = 0, y = 0, ms = 0;
+    int x = 0, y = 0, dx = 0, dy = 0, ms = 0;
     std::string name;
     std::vector<MouseEvent> path;
 };
@@ -108,6 +109,14 @@ bool load_case(Args& a) {
         for (const cjson::Value& s : *steps->arr) {
             if (const cjson::Value* c = s.find("click"))    { a.steps.push_back({Step::Click, c->at_int(0), c->at_int(1)}); }
             else if (const cjson::Value* h = s.find("hover")) { a.steps.push_back({Step::Hover, h->at_int(0), h->at_int(1)}); }
+            else if (const cjson::Value* w = s.find("wheel")) {
+                Step st{Step::Wheel};
+                st.x = w->at_int(0);
+                st.y = w->at_int(1);
+                st.dx = w->at_int(2);
+                st.dy = w->at_int(3);
+                a.steps.push_back(st);
+            }
             else if (const cjson::Value* p = s.find("mouse_path")) {
                 Step st{Step::MousePath};
                 if (p->type == cjson::Value::Arr && p->arr) {
@@ -289,6 +298,17 @@ int main(int argc, char** argv) {
     auto hover = [&](int x, int y) {
         affineui::Event e; e.pos = {x, y}; e.type = affineui::EventType::MouseMove; ui.dispatch(e);
     };
+    auto wheel = [&](int x, int y, int dx, int dy) {
+        constexpr float kPxPerWheelStep = 24.0f;
+        affineui::Event e;
+        e.pos = {x, y};
+        e.type = affineui::EventType::MouseMove;
+        ui.dispatch(e);
+        e.type = affineui::EventType::MouseWheel;
+        e.wheel_dx = -static_cast<float>(dx) / kPxPerWheelStep;
+        e.wheel_dy = -static_cast<float>(dy) / kPxPerWheelStep;
+        ui.dispatch(e);
+    };
     auto dispatch_mouse = [&](const Step::MouseEvent& ev) {
         affineui::Event e; e.pos = ev.pos; e.button = affineui::MouseButton::Left;
         if (ev.kind == Step::Down) e.type = affineui::EventType::MouseDown;
@@ -307,6 +327,7 @@ int main(int argc, char** argv) {
         switch (st.kind) {
             case Step::Click:    click(st.x, st.y); break;
             case Step::Hover:    hover(st.x, st.y); break;
+            case Step::Wheel:    wheel(st.x, st.y, st.dx, st.dy); break;
             case Step::MousePath:
             case Step::MouseRecording:
                 for (int i = 0; i < static_cast<int>(st.path.size()); ++i) {

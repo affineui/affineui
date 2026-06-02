@@ -10,7 +10,8 @@
 //
 // Step vocabulary is small + extensible (agents add new types to this dispatch
 // and the C++ side as they go); unknown step types are skipped. Starter set:
-//   {"click":[x,y]} {"hover":[x,y]} {"mouse_path":[[x,y],...]}
+//   {"click":[x,y]} {"hover":[x,y]} {"wheel":[x,y,dx,dy]}
+//   {"mouse_path":[[x,y],...]}
 //   {"mouse_recording":[{"type":"move|down|up","x":N,"y":N},...]}
 //   {"wait_ms":N}
 //   {"animation_time_ms":N} {"snapshot":"name"}
@@ -193,6 +194,15 @@ try {
   for (const step of cfg.steps) {
     if (step.click) await page.mouse.click(step.click[0], step.click[1]);
     else if (step.hover) await page.mouse.move(step.hover[0], step.hover[1]);
+    else if (step.wheel) {
+      const x = Number(step.wheel[0]) || 0;
+      const y = Number(step.wheel[1]) || 0;
+      const dx = Number(step.wheel[2]) || 0;
+      const dy = Number(step.wheel[3]) || 0;
+      await page.mouse.move(x, y);
+      await page.mouse.wheel(dx, dy);
+      await page.evaluate(() => new Promise(requestAnimationFrame));
+    }
     else if (step.mouse_path) {
       const points = Array.isArray(step.mouse_path) ? step.mouse_path : [];
       for (let i = 0; i < points.length; i++) {

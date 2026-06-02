@@ -1,0 +1,12 @@
+{
+  "width": 1000,
+  "height": 760,
+  "dpi": 1.0,
+  "tolerance": 2,
+  "threshold": 7.5,
+  "steps": [
+    { "snapshot": "initial" },
+    { "wheel": [600, 166, 0, 160] },
+    { "snapshot": "after_scroll" }
+  ]
+}
