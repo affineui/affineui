@@ -8163,7 +8163,9 @@ bool update_live_control_value(detail::DocumentImpl& impl,
                 set_live_text_value(impl, idx, block, value_text);
             }
         }
-        if (auto* combo = nearest_ancestor_with_class(elem, "dcs-combo")) {
+        auto* combo = nearest_ancestor_with_class(elem, "dcs-combo");
+        if (!combo && has_attr(elem, "data-dcs-combo")) combo = elem;
+        if (combo) {
             changed =
                 set_attribute_on_element(impl, combo, "data-value", value_text) ||
                 changed;
@@ -8244,6 +8246,9 @@ LiveControlKind live_control_kind_for_block(const Block& block) {
     if (block.tag == "input" && block.input_type == "number") {
         return LiveControlKind::NumericInput;
     }
+    if (block_has_attr(block, "data-dcs-combo")) {
+        return LiveControlKind::NumericInput;
+    }
     if (block_has_attr(block, "data-aui-knob")) {
         return LiveControlKind::AuiKnob;
     }
@@ -8296,6 +8301,10 @@ bool find_live_control_at(detail::DocumentImpl& impl,
         auto* combo = kind == LiveControlKind::NumericInput
             ? nearest_ancestor_with_class(elem, "dcs-combo")
             : nullptr;
+        if (kind == LiveControlKind::NumericInput && !combo &&
+            has_attr(elem, "data-dcs-combo")) {
+            combo = elem;
+        }
         const bool has_min_attr =
             has_attr(elem, "min") || has_attr(elem, "data-min") ||
             (combo && has_attr(combo, "data-min"));
@@ -8392,13 +8401,10 @@ bool update_active_live_control(detail::DocumentImpl& impl, const Event& ev) {
         drag.kind == LiveControlKind::DeciusSlider) {
         value = value_from_x(drag.bounds, ev.pos.x, drag.min, drag.max);
     } else if (drag.kind == LiveControlKind::NumericInput) {
-        const double mult = ev.shift ? 4.0 : 1.0;
         if (drag.bounded) {
-            const double width = std::max(1, drag.bounds.w);
-            value = drag.start_value +
-                    (static_cast<double>(ev.pos.x - drag.start_x) / width) *
-                        (drag.max - drag.min) * mult;
+            value = value_from_x(drag.bounds, ev.pos.x, drag.min, drag.max);
         } else {
+            const double mult = ev.shift ? 4.0 : 1.0;
             const double current = element_attr_double(
                 drag.elem, "value",
                 element_attr_double(drag.elem, "data-value", drag.start_value));

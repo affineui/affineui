@@ -789,7 +789,7 @@ TEST_CASE("UiControls script toggles Decius popovers") {
     CHECK(find_hovered_chain_id(doc, "pop-body", 260, 140).x < 0);
 }
 
-TEST_CASE("UiControls script drags bounded Decius combos by combo width") {
+TEST_CASE("UiControls script maps bounded Decius combo value to bar position") {
     affineui::Document doc;
     RecordingPainter painter;
 
@@ -807,26 +807,30 @@ TEST_CASE("UiControls script drags bounded Decius combos by combo width") {
         </style>
         <div id="combo" class="dcs-combo" data-dcs-combo
              data-min="0" data-max="100" data-step="1"
-             data-value="50" style="--fill:50%">
+             data-value="10" style="--fill:10%">
             <div class="dcs-combo__fill"></div>
             <input id="combo-value" class="dcs-combo__value" type="number"
-                   value="50" data-aui-name="combo">
+                   value="10" data-aui-name="combo">
         </div>
     )HTML");
     doc.layout(180, 80, &painter);
 
     const auto input = find_hovered_id(doc, "combo-value", 180, 80);
     REQUIRE(input.x >= 0);
+    const auto combo_hit = find_hovered_chain_id(doc, "combo", 180, 80);
+    REQUIRE(combo_hit.x >= 0);
+    const auto combo_bounds = hovered_bounds_for_id(doc, "combo");
+    REQUIRE(combo_bounds.w == 100);
 
     affineui::Event down{};
     down.type = affineui::EventType::MouseDown;
     down.button = affineui::MouseButton::Left;
-    down.pos = input;
+    down.pos = {combo_bounds.x + combo_bounds.w - 10, input.y};
     doc.dispatch(down);
 
     affineui::Event move{};
     move.type = affineui::EventType::MouseMove;
-    move.pos = {input.x + 10, input.y};
+    move.pos = {combo_bounds.x + combo_bounds.w / 2, input.y};
     doc.dispatch(move);
 
     affineui::Event up{};
@@ -840,8 +844,57 @@ TEST_CASE("UiControls script drags bounded Decius combos by combo width") {
     REQUIRE(updated.x >= 0);
     const double value =
         std::stod(hovered_attr_for_id(doc, "combo-value", "value"));
-    CHECK(value >= 58.0);
-    CHECK(value <= 62.0);
+    CHECK(value >= 49.0);
+    CHECK(value <= 51.0);
+    CHECK(hovered_attr_for_id(doc, "combo", "style") == "--fill:50%");
+}
+
+TEST_CASE("UiControls script maps raw Decius combo div value to bar position") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        #combo { display: block; width: 100px; height: 24px; margin: 8px; }
+        </style>
+        <div id="combo" data-dcs-combo data-min="0" data-max="100"
+             data-step="1" data-value="10" style="--fill:10%"></div>
+    )HTML");
+    doc.layout(180, 80, &painter);
+
+    auto combo = find_hovered_id(doc, "combo", 180, 80);
+    REQUIRE(combo.x >= 0);
+    const auto combo_bounds = hovered_bounds_for_id(doc, "combo");
+    REQUIRE(combo_bounds.w == 100);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {combo_bounds.x + combo_bounds.w - 10,
+                combo_bounds.y + combo_bounds.h / 2};
+    doc.dispatch(down);
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {combo_bounds.x + combo_bounds.w / 2, down.pos.y};
+    doc.dispatch(move);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = move.pos;
+    doc.dispatch(up);
+    doc.layout(180, 80, &painter);
+
+    combo = find_hovered_id(doc, "combo", 180, 80);
+    REQUIRE(combo.x >= 0);
+    const double value =
+        std::stod(hovered_attr_for_id(doc, "combo", "data-value"));
+    CHECK(value >= 49.0);
+    CHECK(value <= 51.0);
+    CHECK(hovered_attr_for_id(doc, "combo", "style") == "--fill:50%");
 }
 
 TEST_CASE("UiControls script toggles raw Decius checks radios and button groups") {

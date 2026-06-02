@@ -9,7 +9,7 @@ EXAMPLE_DIR = Path(__file__).resolve().parent
 if str(EXAMPLE_DIR) not in sys.path:
     sys.path.insert(0, str(EXAMPLE_DIR))
 
-from test_panels import collections, controls, decius_reference, forms, overview, photo
+from test_panels import collections, controls, decius_reference, forms, photo
 
 
 PanelBuilder = Callable[["ComponentGalleryApp", ui.View], None]
@@ -42,7 +42,7 @@ class ComponentGalleryApp:
     def __init__(self, theme: ui.ViewTheme) -> None:
         self.theme = theme
         self.app: Optional[ui.App] = None
-        self.active_page = "overview"
+        self.active_page = "controls"
         self.field_layout = "split"
         self.visual_style = "flat"
         self.density = "compact"
@@ -53,19 +53,6 @@ class ComponentGalleryApp:
         self.photo_tool = "brush"
         self.photo_layer = "layer-hero"
         self.nav_groups: tuple[NavGroup, ...] = (
-            NavGroup(
-                "Workbench",
-                "decius",
-                (
-                    NavItem(
-                        "overview",
-                        "Overview",
-                        "What this test bench covers",
-                        "decius",
-                        overview.build,
-                    ),
-                ),
-            ),
             NavGroup(
                 "Widget Surface",
                 "gizmo",
@@ -649,8 +636,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--page",
-        default="overview",
-        help="Initial gallery page key, for example: overview, controls, forms, photo.",
+        default="controls",
+        help="Initial gallery page key, for example: controls, forms, photo.",
     )
     args = parser.parse_args()
 
