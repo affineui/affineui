@@ -140,6 +140,29 @@ YGDisplay YGNodeStyleGetDisplay(const YGNodeConstRef node) {
   return unscopedEnum(resolveRef(node)->style().display());
 }
 
+void YGNodeStyleSetGridTemplateColumns(
+    const YGNodeRef node,
+    const YGGridTrack* tracks,
+    const size_t count) {
+  auto resolvedNode = resolveRef(node);
+  Style next = resolvedNode->style();
+  next.setGridTemplateColumns(tracks, count);
+  if (resolvedNode->style() != next) {
+    resolvedNode->setStyle(next);
+    resolvedNode->markDirtyAndPropagate();
+  }
+}
+
+size_t YGNodeStyleGetGridTemplateColumnCount(const YGNodeConstRef node) {
+  return resolveRef(node)->style().gridTemplateColumnCount();
+}
+
+YGGridTrack YGNodeStyleGetGridTemplateColumn(
+    const YGNodeConstRef node,
+    const size_t index) {
+  return resolveRef(node)->style().gridTemplateColumn(index);
+}
+
 void YGNodeStyleSetFlex(const YGNodeRef node, const float flex) {
   updateStyle<&Style::flex, &Style::setFlex>(node, FloatOptional{flex});
 }

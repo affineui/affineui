@@ -1,6 +1,7 @@
 #include "layout/yoga_adapter.h"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cstdlib>
 #include <vector>
@@ -109,7 +110,10 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
                  bool percent_width_indefinite,
                  bool percent_height_indefinite,
                  bool suppress_auto_margin_left,
-                 bool suppress_auto_margin_right) {
+                 bool suppress_auto_margin_right,
+                 const std::array<GridTrackHint, kMaxGridTrackHints>&
+                     grid_columns,
+                 std::uint8_t grid_column_count) {
     // ── Box-sizing ─────────────────────────────────────────────────
     // Yoga's *default* is border-box, but the CSS default is
     // content-box (width/height size the content; padding+border add
@@ -191,11 +195,42 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
     const bool is_grid_container =
         cs.display == ComputedStyle::Display::Grid ||
         cs.display == ComputedStyle::Display::InlineGrid;
+    if (is_grid_container && grid_column_count > 0) {
+        std::array<YGGridTrack, kMaxGridTrackHints> tracks{};
+        std::size_t track_count = 0;
+        for (std::uint8_t i = 0; i < grid_column_count; ++i) {
+            const auto& src = grid_columns[i];
+            if (src.px > 0) {
+                tracks[track_count++] = {
+                    YGGridTrackUnitPoint,
+                    static_cast<float>(src.px)
+                };
+            } else if (src.fr_x100 > 0) {
+                tracks[track_count++] = {
+                    YGGridTrackUnitFraction,
+                    static_cast<float>(src.fr_x100) / 100.0f
+                };
+            }
+        }
+        if (track_count > 0) {
+            YGNodeStyleSetGridTemplateColumns(node, tracks.data(),
+                                              track_count);
+        }
+    }
     if (is_flex_container(cs.display)) {
         YGNodeStyleSetFlexDirection (node, to_yg(cs.flex_direction));
         YGNodeStyleSetJustifyContent(node, to_yg(cs.justify_content));
         YGNodeStyleSetAlignItems    (node, to_yg(cs.align_items));
         YGNodeStyleSetFlexWrap      (node, to_yg(cs.flex_wrap));
+        if (cs.row_gap    > 0) YGNodeStyleSetGap(node, YGGutterRow,    static_cast<float>(cs.row_gap));
+        if (cs.column_gap > 0) YGNodeStyleSetGap(node, YGGutterColumn, static_cast<float>(cs.column_gap));
+    } else if (is_grid_container && grid_column_count > 0) {
+        // Explicit-column grid is solved inside Yoga. The flex direction
+        // provides the row main axis for Yoga's shared line machinery; track
+        // sizing and row breaks come from GridTemplateColumns.
+        YGNodeStyleSetFlexDirection(node, YGFlexDirectionRow);
+        YGNodeStyleSetFlexWrap(node, YGWrapWrap);
+        YGNodeStyleSetAlignItems(node, to_yg(cs.align_items));
         if (cs.row_gap    > 0) YGNodeStyleSetGap(node, YGGutterRow,    static_cast<float>(cs.row_gap));
         if (cs.column_gap > 0) YGNodeStyleSetGap(node, YGGutterColumn, static_cast<float>(cs.column_gap));
     } else if (is_grid_container) {
@@ -653,7 +688,9 @@ void layout_blocks_with_yoga(int viewport_width_px,
                     percent_width_indefinite,
                     percent_height_indefinite,
                     auto_margin_overrides[i].left,
-                    auto_margin_overrides[i].right);
+                    auto_margin_overrides[i].right,
+                    inputs[i].grid_columns,
+                    inputs[i].grid_column_count);
 
         // Wire the measure callback for text-bearing leaves. Yoga
         // will call back during layout with the constraint width;

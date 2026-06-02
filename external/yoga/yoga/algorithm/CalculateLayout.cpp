@@ -525,6 +525,24 @@ static float calculateAvailableInnerDimension(
   return availableInnerDim;
 }
 
+static bool usesExplicitGridColumns(
+    const yoga::Node* const node,
+    const FlexDirection mainAxis) {
+  return isRow(mainAxis) && node->style().hasGridTemplateColumns();
+}
+
+static float gridTemplateMainBasis(const yoga::Node* const node) {
+  float basis = 0.0f;
+  const size_t count = node->style().gridTemplateColumnCount();
+  for (size_t i = 0; i < count; ++i) {
+    const auto track = node->style().gridTemplateColumn(i);
+    if (track.unit == YGGridTrackUnitPoint) {
+      basis += track.value;
+    }
+  }
+  return basis;
+}
+
 static float computeFlexBasisForChildren(
     yoga::Node* const node,
     const float availableInnerWidth,
@@ -542,10 +560,11 @@ static float computeFlexBasisForChildren(
   auto children = node->getLayoutChildren();
   SizingMode sizingModeMainDim =
       isRow(mainAxis) ? widthSizingMode : heightSizingMode;
+  const bool explicitGridColumns = usesExplicitGridColumns(node, mainAxis);
   // If there is only one child with flexGrow + flexShrink it means we can set
   // the computedFlexBasis to 0 instead of measuring and shrinking / flexing the
   // child to exactly match the remaining space
-  if (sizingModeMainDim == SizingMode::StretchFit) {
+  if (sizingModeMainDim == SizingMode::StretchFit && !explicitGridColumns) {
     for (auto child : children) {
       if (child->isNodeFlexible()) {
         if (singleFlexChild != nullptr ||
@@ -562,7 +581,9 @@ static float computeFlexBasisForChildren(
     }
   }
 
+  size_t gridAutoColumnIndex = 0;
   for (auto child : children) {
+    child->setLayoutGridTemplateColumnIndex(Node::NoGridTemplateColumn);
     child->processDimensions();
     if (child->style().display() == Display::None) {
       zeroOutLayoutRecursively(child);
@@ -580,9 +601,28 @@ static float computeFlexBasisForChildren(
     if (child->style().positionType() == PositionType::Absolute) {
       continue;
     }
+
+    if (explicitGridColumns) {
+      const size_t columnCount = node->style().gridTemplateColumnCount();
+      child->setLayoutGridTemplateColumnIndex(
+          gridAutoColumnIndex % columnCount);
+      gridAutoColumnIndex++;
+    }
+
     if (child == singleFlexChild) {
       child->setLayoutComputedFlexBasisGeneration(generationCount);
       child->setLayoutComputedFlexBasis(FloatOptional(0));
+    } else if (explicitGridColumns) {
+      const auto track = node->style().gridTemplateColumn(
+          child->getLayoutGridTemplateColumnIndex());
+      const float trackBasis = track.unit == YGGridTrackUnitPoint
+          ? yoga::maxOrDefined(
+                track.value,
+                paddingAndBorderForAxis(
+                    child, mainAxis, direction, availableInnerWidth))
+          : 0.0f;
+      child->setLayoutComputedFlexBasisGeneration(generationCount);
+      child->setLayoutComputedFlexBasis(FloatOptional(trackBasis));
     } else {
       computeFlexBasisForChild(
           node,
@@ -1410,6 +1450,7 @@ static void calculateLayoutImpl(
       isMainAxisRow ? availableInnerWidth : availableInnerHeight;
   const float availableInnerCrossDim =
       isMainAxisRow ? availableInnerHeight : availableInnerWidth;
+  const bool explicitGridColumns = usesExplicitGridColumns(node, mainAxis);
 
   // STEP 3: DETERMINE FLEX BASIS FOR EACH ITEM
 
@@ -1428,7 +1469,15 @@ static void calculateLayoutImpl(
       depth,
       generationCount);
 
-  if (childCount > 1) {
+  if (explicitGridColumns) {
+    totalMainDim = gridTemplateMainBasis(node);
+    const size_t columnCount = node->style().gridTemplateColumnCount();
+    if (columnCount > 1) {
+      totalMainDim +=
+          node->style().computeGapForAxis(mainAxis, availableInnerMainDim) *
+          static_cast<float>(columnCount - 1);
+    }
+  } else if (childCount > 1) {
     totalMainDim +=
         node->style().computeGapForAxis(mainAxis, availableInnerMainDim) *
         static_cast<float>(childCount - 1);

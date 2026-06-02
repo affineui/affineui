@@ -320,6 +320,51 @@ TEST_CASE("percentage height inside auto-height flex item behaves as auto") {
 
 // ── Flex layout ────────────────────────────────────────────────────
 
+// Grid layout
+
+TEST_CASE("explicit grid columns auto-place rows and distribute fr tracks") {
+    ComputedStyle grid{};
+    grid.display = ComputedStyle::Display::Grid;
+    grid.width = 420;
+    grid.column_gap = 10;
+    grid.row_gap = 8;
+
+    auto grid_input = make_input(grid, 0);
+    grid_input.grid_column_count = 3;
+    grid_input.grid_columns[0].px = 80;
+    grid_input.grid_columns[1].fr_x100 = 100;
+    grid_input.grid_columns[2].px = 120;
+
+    ComputedStyle child{};
+
+    auto out = run(800, {
+        grid_input,
+        make_input(child, 34, 0),
+        make_input(child, 34, 0),
+        make_input(child, 34, 0),
+        make_input(child, 34, 0),
+        make_input(child, 34, 0),
+        make_input(child, 34, 0),
+    });
+
+    REQUIRE(out.size() == 7);
+    CHECK(out[0].w == 420);
+    CHECK(out[0].h == 76);
+
+    CHECK(out[1].x == 0);
+    CHECK(out[1].w == 80);
+    CHECK(out[2].x == 90);
+    CHECK(out[2].w == 200);
+    CHECK(out[3].x == 300);
+    CHECK(out[3].w == 120);
+
+    CHECK(out[4].x == 0);
+    CHECK(out[4].y == 42);
+    CHECK(out[5].x == 90);
+    CHECK(out[5].w == 200);
+    CHECK(out[6].x == 300);
+}
+
 TEST_CASE("flex row with flex-grow:1 children distributes width evenly") {
     ComputedStyle parent{};
     parent.display = ComputedStyle::Display::Flex;

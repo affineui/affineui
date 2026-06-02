@@ -14,6 +14,17 @@
 
 YG_EXTERN_C_BEGIN
 
+typedef enum YGGridTrackUnit {
+  YGGridTrackUnitUndefined,
+  YGGridTrackUnitPoint,
+  YGGridTrackUnitFraction,
+} YGGridTrackUnit;
+
+typedef struct YGGridTrack {
+  YGGridTrackUnit unit;
+  float value;
+} YGGridTrack;
+
 YG_EXPORT void YGNodeCopyStyle(YGNodeRef dstNode, YGNodeConstRef srcNode);
 
 YG_EXPORT void YGNodeStyleSetDirection(YGNodeRef node, YGDirection direction);
@@ -51,6 +62,15 @@ YG_EXPORT YGOverflow YGNodeStyleGetOverflow(YGNodeConstRef node);
 
 YG_EXPORT void YGNodeStyleSetDisplay(YGNodeRef node, YGDisplay display);
 YG_EXPORT YGDisplay YGNodeStyleGetDisplay(YGNodeConstRef node);
+
+YG_EXPORT void YGNodeStyleSetGridTemplateColumns(
+    YGNodeRef node,
+    const YGGridTrack* tracks,
+    size_t count);
+YG_EXPORT size_t YGNodeStyleGetGridTemplateColumnCount(YGNodeConstRef node);
+YG_EXPORT YGGridTrack YGNodeStyleGetGridTemplateColumn(
+    YGNodeConstRef node,
+    size_t index);
 
 YG_EXPORT void YGNodeStyleSetFlex(YGNodeRef node, float flex);
 YG_EXPORT float YGNodeStyleGetFlex(YGNodeConstRef node);

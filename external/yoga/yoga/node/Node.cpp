@@ -17,6 +17,27 @@
 
 namespace facebook::yoga {
 
+namespace {
+
+bool resolveParentGridColumnTrack(const Node* node, YGGridTrack& track) {
+  const Node* owner = node->getOwner();
+  if (owner == nullptr || !owner->style().hasGridTemplateColumns()) {
+    return false;
+  }
+
+  const size_t columnIndex = node->getLayoutGridTemplateColumnIndex();
+  if (columnIndex == Node::NoGridTemplateColumn ||
+      columnIndex >= owner->style().gridTemplateColumnCount()) {
+    return false;
+  }
+
+  track = owner->style().gridTemplateColumn(columnIndex);
+  return track.unit == YGGridTrackUnitPoint ||
+      track.unit == YGGridTrackUnitFraction;
+}
+
+} // namespace
+
 Node::Node() : Node{&Config::getDefault()} {}
 
 Node::Node(const yoga::Config* config) : config_{config} {
@@ -41,6 +62,7 @@ Node::Node(Node&& node) noexcept
       style_(std::move(node.style_)),
       layout_(node.layout_),
       lineIndex_(node.lineIndex_),
+      layoutGridTemplateColumnIndex_(node.layoutGridTemplateColumnIndex_),
       contentsChildrenCount_(node.contentsChildrenCount_),
       owner_(node.owner_),
       children_(std::move(node.children_)),
@@ -395,6 +417,11 @@ void Node::markDirtyAndPropagate() {
 }
 
 float Node::resolveFlexGrow() const {
+  YGGridTrack gridTrack{};
+  if (resolveParentGridColumnTrack(this, gridTrack)) {
+    return gridTrack.unit == YGGridTrackUnitFraction ? gridTrack.value : 0.0f;
+  }
+
   // Root nodes flexGrow should always be 0
   if (owner_ == nullptr) {
     return 0.0;
@@ -409,6 +436,11 @@ float Node::resolveFlexGrow() const {
 }
 
 float Node::resolveFlexShrink() const {
+  YGGridTrack gridTrack{};
+  if (resolveParentGridColumnTrack(this, gridTrack)) {
+    return gridTrack.unit == YGGridTrackUnitFraction ? 1.0f : 0.0f;
+  }
+
   if (owner_ == nullptr) {
     return 0.0;
   }

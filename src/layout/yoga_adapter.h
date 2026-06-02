@@ -28,6 +28,7 @@
 #include "internal/computed_style.h"
 
 #include <cstdint>
+#include <array>
 #include <span>
 #include <string_view>
 
@@ -36,6 +37,15 @@ class Painter;
 }
 
 namespace affineui::detail {
+
+inline constexpr std::size_t kMaxGridTrackHints = 8;
+
+struct GridTrackHint {
+    // Fixed px track when px > 0; fractional track when fr_x100 > 0.
+    // Unsupported/auto tracks are represented as 1fr by the CSS parser.
+    std::int16_t px{0};
+    std::int16_t fr_x100{0};
+};
 
 /// One block's worth of input to the layout pass.
 struct BlockLayoutInput {
@@ -74,6 +84,11 @@ struct BlockLayoutInput {
     float                letter_spacing_px{0.0f};
     /// CSS text-indent in pixels for the first rendered line.
     float                text_indent_px{0.0f};
+
+    /// Explicit CSS grid column template hints parsed by AffineUI and solved
+    /// in the vendored Yoga fork.
+    std::array<GridTrackHint, kMaxGridTrackHints> grid_columns{};
+    std::uint8_t        grid_column_count{0};
 
     /// When true, the text measure callback passes a very large wrap
     /// width so the text is never broken across lines (CSS

@@ -7,7 +7,9 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
@@ -38,6 +40,7 @@ class YG_EXPORT Style {
  public:
   using Length = StyleLength;
 
+  static constexpr size_t MaxGridTemplateTracks = 16;
   static constexpr float DefaultFlexGrow = 0.0f;
   static constexpr float DefaultFlexShrink = 0.0f;
   static constexpr float WebDefaultFlexShrink = 1.0f;
@@ -110,6 +113,39 @@ class YG_EXPORT Style {
   }
   void setDisplay(Display value) {
     display_ = value;
+  }
+
+  size_t gridTemplateColumnCount() const {
+    return gridTemplateColumnCount_;
+  }
+
+  bool hasGridTemplateColumns() const {
+    return gridTemplateColumnCount_ > 0;
+  }
+
+  YGGridTrack gridTemplateColumn(size_t index) const {
+    if (index >= gridTemplateColumnCount_) {
+      return {YGGridTrackUnitUndefined, 0.0f};
+    }
+    return gridTemplateColumns_[index];
+  }
+
+  void setGridTemplateColumns(const YGGridTrack* tracks, size_t count) {
+    gridTemplateColumns_.fill({YGGridTrackUnitUndefined, 0.0f});
+    gridTemplateColumnCount_ = 0;
+    if (tracks == nullptr) {
+      return;
+    }
+    const size_t clampedCount = std::min(count, MaxGridTemplateTracks);
+    for (size_t i = 0; i < clampedCount; ++i) {
+      const auto unit = tracks[i].unit;
+      const float value = tracks[i].value;
+      if ((unit == YGGridTrackUnitPoint ||
+           unit == YGGridTrackUnitFraction) &&
+          value > 0.0f) {
+        gridTemplateColumns_[gridTemplateColumnCount_++] = {unit, value};
+      }
+    }
   }
 
   FloatOptional flex() const {
@@ -543,7 +579,12 @@ class YG_EXPORT Style {
                minDimensions_, pool_, other.minDimensions_, other.pool_) &&
         lengthsEqual(
                maxDimensions_, pool_, other.maxDimensions_, other.pool_) &&
-        numbersEqual(aspectRatio_, pool_, other.aspectRatio_, other.pool_);
+        numbersEqual(aspectRatio_, pool_, other.aspectRatio_, other.pool_) &&
+        gridTemplateColumnCount_ == other.gridTemplateColumnCount_ &&
+        gridTracksEqual(
+            gridTemplateColumns_,
+            other.gridTemplateColumns_,
+            gridTemplateColumnCount_);
   }
 
   bool operator!=(const Style& other) const {
@@ -554,6 +595,7 @@ class YG_EXPORT Style {
   using Dimensions = std::array<StyleValueHandle, ordinalCount<Dimension>()>;
   using Edges = std::array<StyleValueHandle, ordinalCount<Edge>()>;
   using Gutters = std::array<StyleValueHandle, ordinalCount<Gutter>()>;
+  using GridTracks = std::array<YGGridTrack, MaxGridTemplateTracks>;
 
   static inline bool numbersEqual(
       const StyleValueHandle& lhsHandle,
@@ -587,6 +629,18 @@ class YG_EXPORT Style {
         [&](const auto& lhs, const auto& rhs) {
           return lengthsEqual(lhs, lhsPool, rhs, rhsPool);
         });
+  }
+
+  static inline bool gridTracksEqual(
+      const GridTracks& lhs,
+      const GridTracks& rhs,
+      size_t count) {
+    for (size_t i = 0; i < count; ++i) {
+      if (lhs[i].unit != rhs[i].unit || lhs[i].value != rhs[i].value) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Style::Length computeColumnGap() const {
@@ -734,6 +788,7 @@ class YG_EXPORT Style {
   Overflow overflow_ : bitCount<Overflow>() = Overflow::Visible;
   Display display_ : bitCount<Display>() = Display::Flex;
   BoxSizing boxSizing_ : bitCount<BoxSizing>() = BoxSizing::BorderBox;
+  std::uint8_t gridTemplateColumnCount_{0};
 
   StyleValueHandle flex_{};
   StyleValueHandle flexGrow_{};
@@ -750,6 +805,7 @@ class YG_EXPORT Style {
   Dimensions minDimensions_{};
   Dimensions maxDimensions_{};
   StyleValueHandle aspectRatio_{};
+  GridTracks gridTemplateColumns_{};
 
   StyleValuePool pool_;
 };

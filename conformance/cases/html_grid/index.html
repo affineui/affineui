@@ -1,0 +1,119 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body {
+    margin: 0;
+    background: #f4f6f8;
+    font-family: sans-serif;
+  }
+  * { box-sizing: border-box; }
+  .page {
+    width: 900px;
+    height: 640px;
+    padding: 18px;
+    background: #f4f6f8;
+  }
+  .panel {
+    width: 864px;
+    margin-bottom: 16px;
+    padding: 14px;
+    border: 1px solid #9aa6b4;
+    background: #ffffff;
+  }
+  .grid {
+    display: grid;
+    border: 1px solid #5d6a7a;
+    background: #dfe6ee;
+  }
+  .fixed-fr {
+    width: 420px;
+    grid-template-columns: 80px 1fr 120px;
+    column-gap: 10px;
+    row-gap: 8px;
+  }
+  .repeat-grid {
+    width: 260px;
+    grid-template-columns: repeat(4, 54px);
+    column-gap: 8px;
+    row-gap: 8px;
+  }
+  .minmax-grid {
+    width: 500px;
+    grid-template-columns: minmax(40px, 1fr) 90px 2fr;
+    column-gap: 12px;
+    row-gap: 10px;
+  }
+  .auto-grid {
+    width: 360px;
+    grid-template-columns: auto 70px 1fr;
+    column-gap: 9px;
+    row-gap: 7px;
+  }
+  .cell {
+    height: 34px;
+    border: 1px solid rgba(20, 30, 42, 0.35);
+  }
+  .tall { height: 48px; }
+  .a { background: #2f6fb3; }
+  .b { background: #2d9b73; }
+  .c { background: #d56d35; }
+  .d { background: #7a57bf; }
+  .e { background: #bf4d66; }
+  .f { background: #5c7188; }
+  .row {
+    display: flex;
+    gap: 18px;
+  }
+</style>
+</head>
+<body>
+  <div class="page">
+    <div class="panel">
+      <div class="grid fixed-fr">
+        <div class="cell a"></div>
+        <div class="cell b"></div>
+        <div class="cell c"></div>
+        <div class="cell d"></div>
+        <div class="cell e"></div>
+        <div class="cell f"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="row">
+        <div class="grid repeat-grid">
+          <div class="cell a"></div>
+          <div class="cell b"></div>
+          <div class="cell c"></div>
+          <div class="cell d"></div>
+          <div class="cell e"></div>
+          <div class="cell f"></div>
+          <div class="cell a"></div>
+          <div class="cell b"></div>
+        </div>
+        <div class="grid auto-grid">
+          <div class="cell c"></div>
+          <div class="cell d"></div>
+          <div class="cell e"></div>
+          <div class="cell f"></div>
+          <div class="cell a"></div>
+          <div class="cell b"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="grid minmax-grid">
+        <div class="cell tall a"></div>
+        <div class="cell b"></div>
+        <div class="cell c"></div>
+        <div class="cell d"></div>
+        <div class="cell tall e"></div>
+        <div class="cell f"></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

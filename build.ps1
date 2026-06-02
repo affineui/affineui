@@ -17,6 +17,7 @@
     .\build.ps1 clean            remove build\
     .\build.ps1 sync-nanovg      vendor the affineui_nanovg fork  (needs bash+rsync)
     .\build.ps1 sync-lexbor      vendor the affineui_lexbor fork  (needs bash+rsync)
+    .\build.ps1 sync-yoga        vendor the affineui_yoga fork  (needs bash+rsync)
     .\build.ps1 help             this help
 
     'codefiles' (the amalgamator) stages Lexbor as C++ and depends on clang's
@@ -264,6 +265,7 @@ AffineUI task runner (Windows / PowerShell). Unix/macOS: use ./build.sh
   .\build.ps1 clean            remove build\
   .\build.ps1 sync-nanovg      vendor the affineui_nanovg fork  (needs bash+rsync)
   .\build.ps1 sync-lexbor      vendor the affineui_lexbor fork  (needs bash+rsync)
+  .\build.ps1 sync-yoga        vendor the affineui_yoga fork  (needs bash+rsync)
   .\build.ps1 help             this help
 
   examples: hello (primary), bootstrap, hello_sdl, media, imm_counter,
@@ -287,6 +289,7 @@ switch ($Verb) {
     'clean'       { if (Test-Path (Join-Path $Root 'build')) { Remove-Item -Recurse -Force (Join-Path $Root 'build') } }
     'sync-nanovg' { Invoke-Sync 'nanovg' }
     'sync-lexbor' { Invoke-Sync 'lexbor' }
+    'sync-yoga'   { Invoke-Sync 'yoga' }
     'help'        { Show-Help }
     default       { Write-Host "unknown command '$Verb'`n"; Show-Help; exit 1 }
 }

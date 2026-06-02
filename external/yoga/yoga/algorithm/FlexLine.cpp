@@ -36,6 +36,10 @@ FlexLine calculateFlexLine(
   const FlexDirection mainAxis =
       resolveDirection(node->style().flexDirection(), direction);
   const bool isNodeFlexWrap = node->style().flexWrap() != Wrap::NoWrap;
+  const bool explicitGridColumns =
+      isRow(mainAxis) && node->style().hasGridTemplateColumns();
+  const size_t explicitGridColumnCount =
+      node->style().gridTemplateColumnCount();
   const float gap =
       node->style().computeGapForAxis(mainAxis, availableInnerMainDim);
 
@@ -46,6 +50,11 @@ FlexLine calculateFlexLine(
     if (child->style().display() == Display::None ||
         child->style().positionType() == PositionType::Absolute) {
       continue;
+    }
+
+    if (explicitGridColumns &&
+        itemsInFlow.size() >= explicitGridColumnCount) {
+      break;
     }
 
     if (firstElementInLine == nullptr) {

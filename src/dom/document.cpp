@@ -30,6 +30,7 @@
 #include "layout/yoga_adapter.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <chrono>
@@ -107,6 +108,8 @@ struct Block {
     bool              is_disabled{false};
     std::shared_ptr<const detail::CustomPropMap> custom_props;
     std::shared_ptr<const detail::BoxShadowList> box_shadows;
+    std::array<detail::GridTrackHint, detail::kMaxGridTrackHints> grid_columns{};
+    std::uint8_t grid_column_count{0};
     detail::AnimatedStyle base_animated{};
     detail::ResolvedStyle::CssAnimation animation{};
     std::chrono::steady_clock::time_point animation_epoch{
@@ -202,6 +205,8 @@ struct RuleFill {
     lxb_css_selector_specificity_t specificity{0};
     std::uint32_t                 source_order{0};
     std::string                   font_family;            // empty = unset
+    std::array<detail::GridTrackHint, detail::kMaxGridTrackHints> grid_columns{};
+    std::uint8_t                  grid_column_count{0};
     detail::ComputedStyle::Resize resize{
         detail::ComputedStyle::Resize::None};
     bool                          has_resize{false};
@@ -1334,7 +1339,10 @@ void apply_font_family_fills(detail::DocumentImpl& impl,
                              const std::vector<std::string>& classes,
                              int parent_idx,
                              std::uint8_t state_bits,
-                             detail::ResolvedStyle& rs) {
+                             detail::ResolvedStyle& rs,
+                             std::array<detail::GridTrackHint,
+                                        detail::kMaxGridTrackHints>* grid_columns = nullptr,
+                             std::uint8_t* grid_column_count = nullptr) {
     for (const auto& rf : impl.rule_fills) {
         // Pseudo-scoped fills only apply when the state bit is set.
         // Unscoped fills (state_bit == 0) always apply.
@@ -1348,6 +1356,10 @@ void apply_font_family_fills(detail::DocumentImpl& impl,
         }
         if (rf.has_resize) {
             rs.computed.resize = rf.resize;
+        }
+        if (rf.grid_column_count > 0 && grid_columns && grid_column_count) {
+            *grid_column_count = rf.grid_column_count;
+            *grid_columns = rf.grid_columns;
         }
     }
 }
@@ -1883,6 +1895,181 @@ parse_resize_keyword(std::string value) {
     return {R::None, false};
 }
 
+bool starts_with_ascii_ci(std::string_view s, std::string_view prefix);
+std::size_t find_ascii_ci(std::string_view s, std::string_view needle,
+                          std::size_t pos);
+
+bool ends_with_ascii_ci(std::string_view s, std::string_view suffix) {
+    if (s.size() < suffix.size()) return false;
+    return starts_with_ascii_ci(s.substr(s.size() - suffix.size()), suffix);
+}
+
+std::string strip_css_important(std::string value) {
+    const auto important = find_ascii_ci(value, "!", 0);
+    if (important != std::string::npos) {
+        value = std::string(trim_css_ws(
+            std::string_view(value).substr(0, important)));
+    }
+    return value;
+}
+
+std::vector<std::string_view> split_css_top_level_ws(std::string_view value) {
+    std::vector<std::string_view> out;
+    std::size_t start = std::string_view::npos;
+    int depth = 0;
+    char quote = '\0';
+    for (std::size_t i = 0; i <= value.size(); ++i) {
+        const char c = i < value.size() ? value[i] : ' ';
+        if (i < value.size()) {
+            if (quote != '\0') {
+                if (c == quote) quote = '\0';
+            } else if (c == '"' || c == '\'') {
+                quote = c;
+            } else if (c == '(') {
+                ++depth;
+            } else if (c == ')' && depth > 0) {
+                --depth;
+            }
+        }
+        const bool sep = i == value.size() ||
+            (depth == 0 && quote == '\0' &&
+             is_css_ws(static_cast<unsigned char>(c)));
+        if (!sep) {
+            if (start == std::string_view::npos) start = i;
+            continue;
+        }
+        if (start != std::string_view::npos) {
+            auto tok = trim_css_ws(value.substr(start, i - start));
+            if (!tok.empty()) out.push_back(tok);
+            start = std::string_view::npos;
+        }
+    }
+    return out;
+}
+
+bool parse_css_number(std::string_view s, float& out) {
+    s = trim_css_ws(s);
+    if (s.empty()) return false;
+    std::string tmp(s);
+    char* end = nullptr;
+    out = std::strtof(tmp.c_str(), &end);
+    return end != tmp.c_str();
+}
+
+std::string_view css_function_inner(std::string_view value,
+                                    std::string_view name) {
+    value = trim_css_ws(value);
+    if (!starts_with_ascii_ci(value, name)) return {};
+    auto rest = trim_css_ws(value.substr(name.size()));
+    if (rest.size() < 2 || rest.front() != '(' || rest.back() != ')')
+        return {};
+    return rest.substr(1, rest.size() - 2);
+}
+
+bool parse_grid_track_token(std::string_view tok,
+                            detail::GridTrackHint& out);
+
+bool append_grid_template_tracks(
+        std::string_view value,
+        std::array<detail::GridTrackHint,
+                   detail::kMaxGridTrackHints>& out,
+        std::uint8_t& count) {
+    bool appended = false;
+    for (auto tok : split_css_top_level_ws(value)) {
+        tok = trim_css_ws(tok);
+        if (tok.empty()) continue;
+        if (auto inner = css_function_inner(tok, "repeat"); !inner.empty()) {
+            const auto comma = find_top_level_comma(inner);
+            if (comma == std::string_view::npos) continue;
+            float repeats_f = 0.0f;
+            if (!parse_css_number(inner.substr(0, comma), repeats_f))
+                continue;
+            const int repeats = std::clamp(
+                static_cast<int>(std::round(repeats_f)), 0, 32);
+            auto pattern = inner.substr(comma + 1);
+            std::array<detail::GridTrackHint,
+                       detail::kMaxGridTrackHints> pattern_tracks{};
+            std::uint8_t pattern_count = 0;
+            if (!append_grid_template_tracks(pattern, pattern_tracks,
+                                             pattern_count) ||
+                pattern_count == 0) {
+                continue;
+            }
+            for (int r = 0; r < repeats; ++r) {
+                for (std::uint8_t i = 0; i < pattern_count; ++i) {
+                    if (count >= detail::kMaxGridTrackHints) return true;
+                    out[count++] = pattern_tracks[i];
+                    appended = true;
+                }
+            }
+            continue;
+        }
+        detail::GridTrackHint track{};
+        if (!parse_grid_track_token(tok, track)) continue;
+        if (count >= detail::kMaxGridTrackHints) return true;
+        out[count++] = track;
+        appended = true;
+    }
+    return appended;
+}
+
+bool parse_grid_track_token(std::string_view tok,
+                            detail::GridTrackHint& out) {
+    tok = trim_css_ws(tok);
+    if (tok.empty()) return false;
+    if (auto inner = css_function_inner(tok, "minmax"); !inner.empty()) {
+        const auto comma = find_top_level_comma(inner);
+        if (comma == std::string_view::npos) return false;
+        return parse_grid_track_token(inner.substr(comma + 1), out);
+    }
+    if (starts_with_ascii_ci(tok, "auto")) {
+        out.fr_x100 = 100;
+        return true;
+    }
+    if (ends_with_ascii_ci(tok, "px")) {
+        float px = 0.0f;
+        if (!parse_css_number(tok.substr(0, tok.size() - 2), px)) return false;
+        out.px = static_cast<std::int16_t>(
+            std::clamp(static_cast<int>(std::round(px)), 0, 32767));
+        return out.px > 0;
+    }
+    if (ends_with_ascii_ci(tok, "fr")) {
+        float fr = 0.0f;
+        if (!parse_css_number(tok.substr(0, tok.size() - 2), fr)) return false;
+        out.fr_x100 = static_cast<std::int16_t>(
+            std::clamp(static_cast<int>(std::round(fr * 100.0f)), 1, 32767));
+        return true;
+    }
+    return false;
+}
+
+std::uint8_t parse_grid_template_columns(
+        std::string value,
+        std::array<detail::GridTrackHint,
+                   detail::kMaxGridTrackHints>& out) {
+    value = strip_css_important(std::string(trim_css_ws(value)));
+    if (value.empty()) return 0;
+    std::uint8_t count = 0;
+    append_grid_template_tracks(value, out, count);
+    return count;
+}
+
+bool same_grid_track_hints(
+        const std::array<detail::GridTrackHint,
+                         detail::kMaxGridTrackHints>& a,
+        std::uint8_t a_count,
+        const std::array<detail::GridTrackHint,
+                         detail::kMaxGridTrackHints>& b,
+        std::uint8_t b_count) {
+    if (a_count != b_count) return false;
+    for (std::uint8_t i = 0; i < a_count; ++i) {
+        if (a[i].px != b[i].px || a[i].fr_x100 != b[i].fr_x100) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool starts_with_ascii_ci(std::string_view s, std::string_view prefix) {
     if (s.size() < prefix.size()) return false;
     for (std::size_t i = 0; i < prefix.size(); ++i) {
@@ -2295,7 +2482,15 @@ void scan_rule_fills(lxb_css_stylesheet_t* sst,
         const auto resize_value = find_decl_value(raw.decls, "resize");
         const auto [resize, has_resize] = parse_resize_keyword(
             substitute_root_vars(resize_value, root_vars));
-        if (ff.empty() && !has_resize) continue;
+        std::array<detail::GridTrackHint,
+                   detail::kMaxGridTrackHints> grid_columns{};
+        const auto grid_columns_value =
+            find_decl_value(raw.decls, "grid-template-columns");
+        const std::uint8_t grid_column_count =
+            parse_grid_template_columns(
+                substitute_root_vars(grid_columns_value, root_vars),
+                grid_columns);
+        if (ff.empty() && !has_resize && grid_column_count == 0) continue;
 
         // Each comma-separated group becomes its own RuleFill.
         std::string_view sel_text = trim_css_ws(raw.selector);
@@ -2321,6 +2516,8 @@ void scan_rule_fills(lxb_css_stylesheet_t* sst,
                     rf.source_order         =
                         static_cast<std::uint32_t>(out.size());
                     rf.font_family          = ff;
+                    rf.grid_columns         = grid_columns;
+                    rf.grid_column_count    = grid_column_count;
                     rf.resize               = resize;
                     rf.has_resize           = has_resize;
                     rf.state_bit            = state_bit;
@@ -3246,6 +3443,18 @@ std::string scan_inline_keyword(lxb_dom_element_t* elem, std::string_view key) {
 }
 
 // Map a `cursor` keyword onto our enum. Unknown values â†’ Default.
+std::string scan_inline_decl_value(lxb_dom_element_t* elem,
+                                   std::string_view key) {
+    size_t len = 0;
+    const lxb_char_t* attr = lxb_dom_element_get_attribute(
+        elem,
+        reinterpret_cast<const lxb_char_t*>("style"), 5,
+        &len);
+    if (!attr || len == 0) return {};
+    std::string_view s(reinterpret_cast<const char*>(attr), len);
+    return find_decl_value(s, key);
+}
+
 detail::ComputedStyle::Cursor parse_cursor_keyword(std::string_view kw) {
     using C = detail::ComputedStyle::Cursor;
     if (kw == "pointer")     return C::Pointer;
@@ -3650,8 +3859,17 @@ void collect_blocks(detail::DocumentImpl& impl,
         // Font-family fill overlay. Same selector grammar as pseudo
         // overlay; later rules win (the scan is in attach order, which
         // matches CSS source order).
+        std::array<detail::GridTrackHint,
+                   detail::kMaxGridTrackHints> grid_columns{};
+        std::uint8_t grid_column_count = 0;
         apply_font_family_fills(impl, tag, elem_id_attr, cls_attr,
-                                parent_idx, sb_at_collect, rs);
+                                parent_idx, sb_at_collect, rs,
+                                &grid_columns, &grid_column_count);
+        if (auto value = scan_inline_decl_value(elem, "grid-template-columns");
+            !value.empty()) {
+            grid_column_count = parse_grid_template_columns(
+                std::move(value), grid_columns);
+        }
         if (tag == "textarea") {
             apply_user_textarea_size(impl, elem, rs);
         }
@@ -3755,6 +3973,12 @@ void collect_blocks(detail::DocumentImpl& impl,
             b.placeholder = attr_string(elem, "placeholder");
         }
         b.parent_idx = effective_parent_idx;
+        if ((rs.computed.display == detail::ComputedStyle::Display::Grid ||
+             rs.computed.display == detail::ComputedStyle::Display::InlineGrid) &&
+            grid_column_count > 0) {
+            b.grid_columns = grid_columns;
+            b.grid_column_count = grid_column_count;
+        }
         b.base_animated = rs.animated;
         b.animation = rs.animation;
         b.animation_epoch = impl.animation_epoch;
@@ -4397,6 +4621,12 @@ void Document::layout(int viewport_width, int viewport_height,
             b.parent_idx >= 0 &&
             impl_->blocks[static_cast<std::size_t>(b.parent_idx)].synthetic;
         in.baseline_px    = block_baselines[bi];
+        if ((cs.display == detail::ComputedStyle::Display::Grid ||
+             cs.display == detail::ComputedStyle::Display::InlineGrid) &&
+            b.grid_column_count > 0) {
+            in.grid_columns = b.grid_columns;
+            in.grid_column_count = b.grid_column_count;
+        }
 
         if (!b.image_src.empty()) {
             if (measurer != nullptr) {
@@ -6815,8 +7045,21 @@ bool restyle_block(detail::DocumentImpl& impl, int idx) {
     // path (hover/active/focus toggles), and pseudo-scoped fills gate on
     // the matching state bit being set.
     const auto sb_rs = impl.style_store.state_bits(block.id);
+    std::array<detail::GridTrackHint,
+               detail::kMaxGridTrackHints> grid_columns{};
+    std::uint8_t grid_column_count = 0;
     apply_font_family_fills(impl, block.tag, block.elem_id, block.classes,
-                            block.parent_idx, sb_rs, rs);
+                            block.parent_idx, sb_rs, rs,
+                            &grid_columns, &grid_column_count);
+    if (auto value = scan_inline_decl_value(elem, "grid-template-columns");
+        !value.empty()) {
+        grid_column_count = parse_grid_template_columns(
+            std::move(value), grid_columns);
+    }
+    if (rs.computed.display != detail::ComputedStyle::Display::Grid &&
+        rs.computed.display != detail::ComputedStyle::Display::InlineGrid) {
+        grid_column_count = 0;
+    }
     if (block.tag == "textarea") {
         apply_user_textarea_size(impl, elem, rs);
     }
@@ -6831,12 +7074,20 @@ bool restyle_block(detail::DocumentImpl& impl, int idx) {
     }
     const auto old_animation = block.animation;
     const auto old_computed = impl.style_store.computed(block.id);
-    const bool needs_layout = computed_change_needs_layout(old_computed,
-                                                           rs.computed);
+    const bool grid_template_changed =
+        !same_grid_track_hints(block.grid_columns,
+                               block.grid_column_count,
+                               grid_columns,
+                               grid_column_count);
+    const bool needs_layout =
+        computed_change_needs_layout(old_computed, rs.computed) ||
+        grid_template_changed;
     impl.style_store.computed(block.id) = rs.computed;
     impl.style_store.animated(block.id) = rs.animated;
     block.custom_props = rs.custom_props;
     block.box_shadows = rs.box_shadows;
+    block.grid_columns = grid_columns;
+    block.grid_column_count = grid_column_count;
     block.base_animated = rs.animated;
     block.animation = rs.animation;
     bool local_absolute_geometry_update = false;

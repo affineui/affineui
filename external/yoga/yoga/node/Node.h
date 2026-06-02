@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <limits>
 #include <vector>
 
 #include <yoga/Yoga.h>
@@ -33,6 +34,9 @@ namespace facebook::yoga {
 class YG_EXPORT Node : public ::YGNode {
  public:
   using LayoutableChildren = yoga::LayoutableChildren<Node>;
+  static constexpr size_t NoGridTemplateColumn =
+      std::numeric_limits<size_t>::max();
+
   Node();
   explicit Node(const Config* config);
 
@@ -120,6 +124,10 @@ class YG_EXPORT Node : public ::YGNode {
 
   size_t getLineIndex() const {
     return lineIndex_;
+  }
+
+  size_t getLayoutGridTemplateColumnIndex() const {
+    return layoutGridTemplateColumnIndex_;
   }
 
   bool isReferenceBaseline() const {
@@ -236,6 +244,10 @@ class YG_EXPORT Node : public ::YGNode {
     lineIndex_ = lineIndex;
   }
 
+  void setLayoutGridTemplateColumnIndex(size_t index) {
+    layoutGridTemplateColumnIndex_ = index;
+  }
+
   void setIsReferenceBaseline(bool isReferenceBaseline) {
     isReferenceBaseline_ = isReferenceBaseline;
   }
@@ -318,6 +330,7 @@ class YG_EXPORT Node : public ::YGNode {
   Style style_;
   LayoutResults layout_;
   size_t lineIndex_ = 0;
+  size_t layoutGridTemplateColumnIndex_ = NoGridTemplateColumn;
   size_t contentsChildrenCount_ = 0;
   Node* owner_ = nullptr;
   std::vector<Node*> children_;
