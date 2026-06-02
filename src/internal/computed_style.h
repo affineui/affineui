@@ -93,6 +93,7 @@ struct ComputedStyle {
     std::int16_t min_width {-1};
     std::int16_t max_width {-1};
     std::int16_t min_height{0};
+    std::int16_t max_height{-1};
 
     // ── Positioned-layout insets (8 bytes) ────────────────────────
     // CSS `top` / `right` / `bottom` / `left`. Only meaningful when
@@ -184,6 +185,14 @@ struct ComputedStyle {
         NotAllowed, ResizeEW, ResizeNS,
     };
     Cursor cursor : 3 {Cursor::Default};
+
+    // CSS `resize`. Lexbor currently does not expose this property through
+    // the typed declaration set we consume, so document.cpp fills it from a
+    // raw-rule side table. Non-inherited; initial is none.
+    enum class Resize : std::uint8_t {
+        None = 0, Both, Horizontal, Vertical,
+    };
+    Resize resize : 2 {Resize::None};
 
     // CSS `text-align`. Controls horizontal alignment of inline content
     // within the block. Inherited (like `color`), so block children
@@ -284,6 +293,19 @@ struct ComputedStyle {
     // flex: 1 0 0% → flex_basis_pct=0. Repurposes the former pad_flex_ byte.
     std::int8_t    flex_basis_pct {-1};
 
+    // Inheritance presence bitset. Kept here to occupy the byte before the
+    // gap fields, preserving the struct's 96-byte budget after max-height.
+    // Only inherited properties care about presence; non-inherited properties
+    // default to their CSS initial value and never need a "use parent's" path.
+    struct InheritedHas {
+        std::uint8_t color       : 1 {};
+        std::uint8_t font_family : 1 {};
+        std::uint8_t font_size   : 1 {};
+        std::uint8_t font_weight : 1 {};
+        std::uint8_t font_style  : 1 {};
+        std::uint8_t text_align  : 1 {};
+    } has{};
+
     // Gaps. CSS allows length or %; we currently support px integers.
     std::int16_t row_gap   {0};
     std::int16_t column_gap{0};
@@ -310,19 +332,6 @@ struct ComputedStyle {
     // can be floored without accumulating error. Stored as int16_t
     // after the other fields to avoid disturbing existing alignment.
     std::int16_t  width_pct_x100{-1};
-
-    // ── Inheritance presence bitset (1 byte) ───────────────────────
-    // Only inherited properties care about presence; non-inherited
-    // properties default to their CSS initial value and never need
-    // a "use parent's" path.
-    struct InheritedHas {
-        std::uint8_t color       : 1 {};
-        std::uint8_t font_family : 1 {};
-        std::uint8_t font_size   : 1 {};
-        std::uint8_t font_weight : 1 {};
-        std::uint8_t font_style  : 1 {};
-        std::uint8_t text_align  : 1 {};
-    } has{};
 
     bool border_side_has_style(std::uint8_t side) const noexcept {
         return border_style != BorderStyle::None &&

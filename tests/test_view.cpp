@@ -127,6 +127,18 @@ affineui::Point find_hovered_tag_attr(affineui::App& app,
     return {-1, -1};
 }
 
+affineui::Rect hovered_class_bounds(const affineui::App& app,
+                                    std::string_view cls) {
+    const auto chain = app.document().hovered_info_chain();
+    for (const auto& info : chain) {
+        if (std::find(info.classes.begin(), info.classes.end(), cls) !=
+            info.classes.end()) {
+            return info.bounds;
+        }
+    }
+    return {-1, -1, 0, 0};
+}
+
 }  // namespace
 
 TEST_CASE("View emits remote create patches on first reconcile") {
@@ -610,8 +622,7 @@ TEST_CASE("App dispatch edits and resizes command textareas") {
         hover.type = affineui::EventType::MouseMove;
         hover.pos = {before.x + before.w - 2, before.y + before.h - 2};
         app.dispatch(hover);
-        CHECK((app.document().hovered_cursor() == 7 ||
-               app.document().hovered_cursor() == 8));
+        CHECK(app.document().hovered_cursor() == 4);
 
         down.pos = hover.pos;
         app.dispatch(down);
@@ -723,6 +734,9 @@ TEST_CASE("App dispatch invokes command dropdown and button-group callbacks") {
         const auto edit = find_hovered_tag_attr(app, "button", "value",
                                                 "Edit", 420, 420);
         REQUIRE(edit.x >= 0);
+        const auto menu_bounds = hovered_class_bounds(app, "aui-select__menu");
+        REQUIRE(menu_bounds.y >= 0);
+        CHECK(menu_bounds.y == select_bounds.y + select_bounds.h);
         click_at(edit);
         CHECK(mode == "Edit");
         app.document().layout(420, 420);

@@ -348,6 +348,10 @@ public:
     Scope container(std::string_view classes = {},
                     std::string_view key = {},
                     std::source_location here = std::source_location::current());
+    Scope element(std::string_view tag,
+                  std::string_view classes = {},
+                  std::string_view key = {},
+                  std::source_location here = std::source_location::current());
     Scope panel(std::string_view key = {},
                 std::source_location here = std::source_location::current());
     Scope card(std::string_view title,
@@ -423,6 +427,10 @@ public:
     WidgetRef container_ref(std::string_view classes = {},
                             std::string_view key = {},
                             std::source_location here = std::source_location::current());
+    WidgetRef element_ref(std::string_view tag,
+                          std::string_view classes = {},
+                          std::string_view key = {},
+                          std::source_location here = std::source_location::current());
     WidgetRef panel_ref(std::string_view key = {},
                         std::source_location here = std::source_location::current());
 

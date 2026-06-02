@@ -42,6 +42,7 @@ std::string_view ua_default() {
         "img{display:inline-block}"
         // Form controls default to inline-block (HTML5 UA stylesheet).
         "button,input,select,textarea{font:inherit;display:inline-block}"
+        "textarea{resize:both}"
         // Phrasing elements (including `a`) default to inline so they flow
         // with their inline siblings via the synthetic line-box wrapper.
         // When such an element is the child of a flex container it is

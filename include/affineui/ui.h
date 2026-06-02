@@ -169,7 +169,8 @@ public:
     /// Cursor the OS should display under the last hovered position.
     /// Maps onto your windowing toolkit's cursor enum.
     ///   0 = default, 1 = pointer, 2 = text, 3 = crosshair, 4 = move,
-    ///   5 = not-allowed, 6 = ew-resize, 7 = ns-resize
+    ///   5 = not-allowed, 6 = ew-resize, 7 = ns-resize,
+    ///   8 = nwse-resize
     int hovered_cursor() const;
 
     // ── Handlers ────────────────────────────────────────────────────

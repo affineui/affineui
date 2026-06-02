@@ -474,8 +474,14 @@ PreparedFrame prepare_frame(detail::RendererImpl& impl,
                             float dpi_scale) {
     const auto prepare_start = std::chrono::steady_clock::now();
     PreparedFrame frame{};
-    frame.pt_w = static_cast<int>(static_cast<float>(fb_w) / dpi_scale + 0.5f);
-    frame.pt_h = static_cast<int>(static_cast<float>(fb_h) / dpi_scale + 0.5f);
+    const float d = dpi_scale > 0.0f ? dpi_scale : 1.0f;
+    // Layout and CSS live in logical CSS pixels/points. The framebuffer,
+    // root layer, and swapchain live in physical pixels. A Retina 1024x680
+    // window therefore lays out at 1024x680 but rasterizes into about
+    // 2048x1360, with NanoVG's devicePixelRatio preserving real 1px CSS
+    // geometry rather than upscaling a half-resolution image.
+    frame.pt_w = static_cast<int>(static_cast<float>(fb_w) / d + 0.5f);
+    frame.pt_h = static_cast<int>(static_cast<float>(fb_h) / d + 0.5f);
 
     frame.viewport_changed =
         impl.first_frame || fb_w != impl.last_w || fb_h != impl.last_h ||

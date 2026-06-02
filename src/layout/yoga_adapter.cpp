@@ -396,6 +396,7 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
     }
     if (cs.max_width  > 0)  YGNodeStyleSetMaxWidth (node, static_cast<float>(cs.max_width));
     if (cs.min_height > 0)  YGNodeStyleSetMinHeight(node, static_cast<float>(cs.min_height));
+    if (cs.max_height > 0)  YGNodeStyleSetMaxHeight(node, static_cast<float>(cs.max_height));
 
     // Width/height: percentage takes priority over px value.
     // width_pct_x100 stores pct × 100 (e.g. 33.33% → 3333), int16_t.
@@ -716,7 +717,10 @@ void layout_blocks_with_yoga(int viewport_width_px,
         const float h       = YGNodeLayoutGetHeight(n);
         int dx = 0, dy = 0;
         float fdx = 0.0f, fdy = 0.0f;
-        if (inputs[i].parent_idx >= 0) {
+        const bool viewport_fixed =
+            inputs[i].style &&
+            inputs[i].style->position == ComputedStyle::Position::Fixed;
+        if (inputs[i].parent_idx >= 0 && !viewport_fixed) {
             const auto parent_idx =
                 static_cast<std::size_t>(inputs[i].parent_idx);
             const auto& parent_rect = out_bounds[parent_idx];

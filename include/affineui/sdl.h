@@ -47,6 +47,7 @@ inline SDL_SystemCursor cursor_to_sdl(int c) {
         case 5: return SDL_SYSTEM_CURSOR_NO;
         case 6: return SDL_SYSTEM_CURSOR_SIZEWE;
         case 7: return SDL_SYSTEM_CURSOR_SIZENS;
+        case 8: return SDL_SYSTEM_CURSOR_SIZENWSE;
         default: return SDL_SYSTEM_CURSOR_ARROW;
     }
 }
@@ -56,8 +57,8 @@ namespace detail {
 // per kind; we lazily fill the slots so we only pay for the cursors we
 // actually use. Pointers live for process lifetime.
 inline SDL_Cursor* get_cached_cursor(int c) {
-    static SDL_Cursor* cache[8] = {nullptr};
-    const int idx = (c < 0 || c > 7) ? 0 : c;
+    static SDL_Cursor* cache[9] = {nullptr};
+    const int idx = (c < 0 || c > 8) ? 0 : c;
     if (!cache[idx]) {
         cache[idx] = SDL_CreateSystemCursor(cursor_to_sdl(c));
     }
@@ -85,8 +86,19 @@ inline Key key_to_affine(SDL_Keycode sym) {
         case SDLK_DOWN:      return Key::ArrowDown;
         case SDLK_HOME:      return Key::Home;
         case SDLK_END:       return Key::End;
+        case SDLK_a:         return Key::A;
+        case SDLK_c:         return Key::C;
+        case SDLK_v:         return Key::V;
+        case SDLK_x:         return Key::X;
         default:             return Key::Unknown;
     }
+}
+
+inline void apply_key_modifiers(Event& out, SDL_Keymod mods) {
+    out.shift = (mods & KMOD_SHIFT) != 0;
+    out.ctrl  = (mods & KMOD_CTRL) != 0;
+    out.alt   = (mods & KMOD_ALT) != 0;
+    out.super = (mods & KMOD_GUI) != 0;
 }
 
 inline Event translate(const SDL_Event& ev) {
@@ -131,6 +143,8 @@ inline Event translate(const SDL_Event& ev) {
                                                 : EventType::KeyUp;
             out.key_code = static_cast<int>(ev.key.keysym.sym);
             out.key      = key_to_affine(ev.key.keysym.sym);
+            apply_key_modifiers(out,
+                                static_cast<SDL_Keymod>(ev.key.keysym.mod));
             return out;
         }
         case SDL_TEXTINPUT:

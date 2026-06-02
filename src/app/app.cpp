@@ -218,6 +218,17 @@ App::App(Config cfg) : impl_{std::make_unique<detail::AppImpl>()} {
         impl_->config.resource_loader
             ? impl_->config.resource_loader
             : detail::make_asset_resource_loader(impl_->config.asset_folders));
+#if !defined(AFFINEUI_STUB_BUILD)
+    impl_->document.set_clipboard(
+        []() -> std::string {
+            const char* text = sapp_get_clipboard_string();
+            return text ? std::string(text) : std::string{};
+        },
+        [](std::string_view text) {
+            const std::string owned{text};
+            sapp_set_clipboard_string(owned.c_str());
+        });
+#endif
     // User-agent baseline so unstyled docs pick up sensible defaults.
     impl_->document.set_user_stylesheet(theme::ua_default());
 }
@@ -286,6 +297,7 @@ sapp_mouse_cursor map_cursor(int c) {
         case 5: return SAPP_MOUSECURSOR_NOT_ALLOWED;
         case 6: return SAPP_MOUSECURSOR_RESIZE_EW;
         case 7: return SAPP_MOUSECURSOR_RESIZE_NS;
+        case 8: return SAPP_MOUSECURSOR_RESIZE_NWSE;
         default: return SAPP_MOUSECURSOR_DEFAULT;
     }
 }
@@ -303,8 +315,19 @@ Key key_to_affine(int sapp_keycode) {
         case SAPP_KEYCODE_DOWN:      return Key::ArrowDown;
         case SAPP_KEYCODE_HOME:      return Key::Home;
         case SAPP_KEYCODE_END:       return Key::End;
+        case SAPP_KEYCODE_A:         return Key::A;
+        case SAPP_KEYCODE_C:         return Key::C;
+        case SAPP_KEYCODE_V:         return Key::V;
+        case SAPP_KEYCODE_X:         return Key::X;
         default:                     return Key::Unknown;
     }
+}
+
+void apply_modifiers(Event& out, std::uint32_t modifiers) {
+    out.shift = (modifiers & SAPP_MODIFIER_SHIFT) != 0;
+    out.ctrl  = (modifiers & SAPP_MODIFIER_CTRL) != 0;
+    out.alt   = (modifiers & SAPP_MODIFIER_ALT) != 0;
+    out.super = (modifiers & SAPP_MODIFIER_SUPER) != 0;
 }
 
 std::string utf8_from_codepoint(std::uint32_t cp) {
@@ -349,6 +372,12 @@ bool point_in_perf_overlay(const detail::AppImpl& impl,
     return debug_overlay_contains(b, x, y);
 }
 
+float current_dpi_scale(const detail::AppImpl& impl) {
+    const float live_dpi = sapp_dpi_scale();
+    if (live_dpi > 0.0f) return live_dpi;
+    return impl.last_dpi > 0.0f ? impl.last_dpi : 1.0f;
+}
+
 void update_perf_overlay_text(detail::AppImpl& impl) {
     const double dt = sapp_frame_duration_unfiltered();
     if (dt > 0.0) {
@@ -369,15 +398,27 @@ void update_perf_overlay_text(detail::AppImpl& impl) {
         ? static_cast<double>(impl.perf_frames) / impl.perf_accum_s
         : 0.0;
     impl.perf_ms = impl.perf_fps > 0.0 ? 1000.0 / impl.perf_fps : 0.0;
+    const float dpi = current_dpi_scale(impl);
+    const float d = dpi > 0.0f ? dpi : 1.0f;
+    const int fb_w = sapp_width();
+    const int fb_h = sapp_height();
+    const int css_w = static_cast<int>(static_cast<float>(fb_w) / d + 0.5f);
+    const int css_h = static_cast<int>(static_cast<float>(fb_h) / d + 0.5f);
     const auto& stats = impl.renderer.stats();
     std::snprintf(impl.perf_text, sizeof(impl.perf_text),
                   "%.1f ms/frame  %.1f fps\n"
+                  "fb %dx%d css %dx%d dpi %.2f\n"
                   "work prep %.2f layout %.2f dl %.2f\n"
                   "rast %.2f comp %.2f ms layer %ux%u%s\n"
                   "ops %u culled %u rects %u dirty %u.%02u%%\n"
                   "flags %c%c%c%c%c%c%c",
                   impl.perf_ms,
                   impl.perf_fps,
+                  fb_w,
+                  fb_h,
+                  css_w,
+                  css_h,
+                  static_cast<double>(dpi),
                   static_cast<double>(stats.prepare_us_this_frame) / 1000.0,
                   static_cast<double>(stats.layout_us_this_frame) / 1000.0,
                   static_cast<double>(
@@ -527,6 +568,7 @@ void cb_event(const sapp_event* ev, void* user) {
     try {
 
     Event aui_ev{};
+    apply_modifiers(aui_ev, ev->modifiers);
     switch (ev->type) {
         case SAPP_EVENTTYPE_MOUSE_MOVE:  aui_ev.type = EventType::MouseMove; break;
         case SAPP_EVENTTYPE_MOUSE_DOWN:  aui_ev.type = EventType::MouseDown; break;
@@ -566,7 +608,8 @@ void cb_event(const sapp_event* ev, void* user) {
             return;
     }
 
-    const float dpi = impl->last_dpi > 0.0f ? impl->last_dpi : 1.0f;
+    const float dpi = current_dpi_scale(*impl);
+    impl->last_dpi = dpi;
     aui_ev.pos.x = static_cast<int>(ev->mouse_x / dpi);
     aui_ev.pos.y = static_cast<int>(ev->mouse_y / dpi);
     if (ev->type == SAPP_EVENTTYPE_MOUSE_DOWN ||
@@ -639,6 +682,8 @@ int App::run() {
     desc.high_dpi             = impl_->config.high_dpi;
     desc.swap_interval        = impl_->config.vsync ? 1 : 0;
     desc.sample_count         = 1;
+    desc.enable_clipboard     = true;
+    desc.clipboard_size       = 1024 * 1024;
     // GL 4.1 core on the GL backend (ignored by D3D11/Metal). sokol's Linux
     // default of GL 4.3 fails to create a context on drivers that cap lower
     // (e.g. WSLg's Mesa/D3D12 at GL 4.2); 4.1 is enough for sokol_gfx + our
@@ -669,6 +714,19 @@ Document&       App::document()       { return impl_->document; }
 const Document& App::document() const { return impl_->document; }
 
 Size App::window_size() const {
+#if defined(AFFINEUI_STUB_BUILD)
+    return {impl_->config.width, impl_->config.height};
+#else
+    const float dpi = dpi_scale();
+    const float d = dpi > 0.0f ? dpi : 1.0f;
+    return {
+        static_cast<int>(static_cast<float>(sapp_width()) / d + 0.5f),
+        static_cast<int>(static_cast<float>(sapp_height()) / d + 0.5f),
+    };
+#endif
+}
+
+Size App::framebuffer_size() const {
 #if defined(AFFINEUI_STUB_BUILD)
     return {impl_->config.width, impl_->config.height};
 #else

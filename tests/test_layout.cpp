@@ -179,6 +179,33 @@ TEST_CASE("percentage positioned insets resolve through Yoga") {
     CHECK(out[1].h == 10);
 }
 
+TEST_CASE("fixed positioned children resolve against the viewport") {
+    ComputedStyle parent{};
+    parent.position = ComputedStyle::Position::Relative;
+    parent.margin_top = 30;
+    parent.width = 200;
+    parent.height = 100;
+
+    ComputedStyle child{};
+    child.position = ComputedStyle::Position::Fixed;
+    child.width = 20;
+    child.height = 10;
+    child.inset_top = 5;
+    child.inset_left = 7;
+    child.inset_has.top = 1;
+    child.inset_has.left = 1;
+
+    auto out = run(800, {
+        make_input(parent),
+        make_input(child, 0, /*parent=*/0),
+    });
+
+    REQUIRE(out.size() == 2);
+    CHECK(out[0].y == 30);
+    CHECK(out[1].x == 7);
+    CHECK(out[1].y == 5);
+}
+
 TEST_CASE("fractional absolute insets are preserved for paint") {
     ComputedStyle parent{};
     parent.position = ComputedStyle::Position::Relative;

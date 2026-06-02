@@ -93,6 +93,7 @@ inline sapp_mouse_cursor cursor_to_sokol(int c) {
         case 5: return SAPP_MOUSECURSOR_NOT_ALLOWED;
         case 6: return SAPP_MOUSECURSOR_RESIZE_EW;
         case 7: return SAPP_MOUSECURSOR_RESIZE_NS;
+        case 8: return SAPP_MOUSECURSOR_RESIZE_NWSE;
         default: return SAPP_MOUSECURSOR_DEFAULT;
     }
 }
@@ -116,8 +117,19 @@ inline Key key_to_affine(int sapp_keycode) {
         case SAPP_KEYCODE_DOWN:      return Key::ArrowDown;
         case SAPP_KEYCODE_HOME:      return Key::Home;
         case SAPP_KEYCODE_END:       return Key::End;
+        case SAPP_KEYCODE_A:         return Key::A;
+        case SAPP_KEYCODE_C:         return Key::C;
+        case SAPP_KEYCODE_V:         return Key::V;
+        case SAPP_KEYCODE_X:         return Key::X;
         default:                     return Key::Unknown;
     }
+}
+
+inline void apply_modifiers(Event& out, std::uint32_t modifiers) {
+    out.shift = (modifiers & SAPP_MODIFIER_SHIFT) != 0;
+    out.ctrl  = (modifiers & SAPP_MODIFIER_CTRL) != 0;
+    out.alt   = (modifiers & SAPP_MODIFIER_ALT) != 0;
+    out.super = (modifiers & SAPP_MODIFIER_SUPER) != 0;
 }
 
 inline std::string utf8_from_codepoint(std::uint32_t cp) {
@@ -146,6 +158,7 @@ inline std::string utf8_from_codepoint(std::uint32_t cp) {
 inline Event translate(const sapp_event* ev) {
     Event out{};
     if (!ev) return out;
+    apply_modifiers(out, ev->modifiers);
     switch (ev->type) {
         case SAPP_EVENTTYPE_MOUSE_MOVE:   out.type = EventType::MouseMove;  break;
         case SAPP_EVENTTYPE_MOUSE_DOWN:   out.type = EventType::MouseDown;  break;
@@ -648,11 +661,22 @@ inline void wire(sapp_desc& desc, Ui& ui, PerfHudOptions options) {
     state->recording_dir = options.recording_dir.empty()
         ? detail::default_recording_dir()
         : options.recording_dir;
+    ui.document().set_clipboard(
+        []() -> std::string {
+            const char* text = sapp_get_clipboard_string();
+            return text ? std::string(text) : std::string{};
+        },
+        [](std::string_view text) {
+            const std::string owned{text};
+            sapp_set_clipboard_string(owned.c_str());
+        });
     desc.user_data           = state;
     desc.init_userdata_cb    = detail::cb_init_;
     desc.frame_userdata_cb   = detail::cb_frame_;
     desc.event_userdata_cb   = detail::cb_event_;
     desc.cleanup_userdata_cb = detail::cb_cleanup_;
+    desc.enable_clipboard    = true;
+    if (desc.clipboard_size == 0) desc.clipboard_size = 1024 * 1024;
     // Request a GL 4.1 core context on the GL backend (ignored by D3D11/
     // Metal). sokol defaults to GL 4.3 on Linux, which fails to create a
     // context on drivers that cap lower — e.g. WSLg's Mesa/D3D12 (GL 4.2).

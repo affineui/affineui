@@ -624,7 +624,7 @@ body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
 .aui-select{display:flex;flex-direction:column;min-width:0;width:100%;position:relative}
 .aui-select>.form-select,.aui-select>.dcs-select{width:100%}
 .aui-select__menu[hidden]{display:none}
-.aui-select__menu:not([hidden]){display:flex!important;position:absolute!important;left:0;right:0;top:100%;margin-top:4px;flex-direction:column;z-index:200;min-width:100%;max-height:240px;overflow:auto}
+.aui-select__menu:not([hidden]){display:flex!important;position:fixed!important;flex-direction:column;z-index:400;max-height:240px;overflow:auto}
 .aui-select__menu .dropdown-item,.aui-select__menu .dcs-menu__item{border:0;background:transparent;text-align:left;font:inherit}
 .aui-bs-check{min-height:auto;margin-bottom:0;padding-left:1.5em}
 .aui-bs-form>.btn{align-self:center}.aui-bs-props>.btn,.aui-bs-props>.btn-group{align-self:flex-start}.aui-bs-props>.aui-bs-btn-row>.btn{flex:1 1 0}
@@ -694,7 +694,8 @@ body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
 .aui-demo-section>.dcs-subpanel__body>p:first-child{margin:0}
 .aui-root .dcs-props>.dcs-field[data-aui-widget=textarea]{height:auto;min-height:calc(var(--dcs-h-in)*3);align-items:flex-start}
 .aui-root .dcs-props>.dcs-field[data-aui-widget=textarea]>.dcs-field__label{padding-top:3px}
-.aui-root .dcs-props>.dcs-field[data-aui-widget=textarea]>.dcs-textarea{height:auto;min-height:calc(var(--dcs-h-in)*3)}
+.aui-root textarea.form-control,.aui-root textarea.dcs-textarea{text-align:left;resize:both;cursor:text}
+.aui-root .dcs-props>.dcs-field[data-aui-widget=textarea]>.dcs-textarea{height:auto;min-height:calc(var(--dcs-h-in)*3);resize:both;text-align:left}
 )CSS";
     css += R"CSS(
 @font-face{font-family:decius-icons;src:url("frameworks/fonts/decius-icons.woff2") format("woff2");font-weight:400;font-style:normal;font-display:block}
@@ -705,15 +706,15 @@ body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
 .aui-root>.aui-test-shell{margin:-24px;height:100vh;min-height:100vh}
 .aui-test-shell{display:flex;flex-direction:column;height:100vh;min-height:0;background:inherit;color:inherit}
 .aui-test-shell-inner{display:flex;flex:1 1 auto;min-height:0;flex-direction:column;overflow:hidden}
-.aui-test-topbar{display:flex;align-items:stretch;gap:0;height:48px;min-height:48px;max-height:48px;padding:0 144px 0 16px;box-sizing:border-box;border-bottom:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));background:var(--bs-body-bg,var(--dcs-surface-1,inherit));overflow:hidden;flex:0 0 auto}
+.aui-test-topbar{display:flex;align-items:stretch;flex-wrap:nowrap;gap:0;height:48px;min-height:48px;max-height:48px;padding:0 144px 0 16px;box-sizing:border-box;border-bottom:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));background:var(--bs-body-bg,var(--dcs-surface-1,inherit));overflow:hidden;white-space:nowrap;flex:0 0 auto}
 .aui-test-topbar.dcs-menubar{height:var(--dcs-h-lg);min-height:var(--dcs-h-lg);max-height:var(--dcs-h-lg);padding:0 144px 0 var(--dcs-s-3);gap:0}
 .aui-test-brand{display:flex;align-items:center;gap:8px;min-width:0;white-space:nowrap}
 .aui-test-brand h1{margin:0;font-size:1rem;font-weight:700;line-height:1.2;white-space:nowrap}
 .aui-test-brand p,.aui-test-subtitle p{margin:0}
 .aui-test-subtitle{display:flex;align-items:center;min-width:0;overflow:hidden;color:var(--bs-secondary-color,var(--dcs-text-mute,#6c757d))}
 .aui-test-subtitle p{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.aui-test-tweaks{display:flex;align-items:stretch;gap:0;min-width:0;margin-left:auto;height:100%;overflow:hidden}
-.aui-test-control{display:flex;align-items:center;gap:7px;height:100%;min-width:0;padding:0 10px;border-left:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));box-sizing:border-box}
+.aui-test-tweaks{display:flex;align-items:stretch;flex-wrap:nowrap;gap:0;min-width:0;margin-left:auto;height:100%;overflow:hidden}
+.aui-test-control{display:flex;align-items:center;flex:0 1 auto;gap:7px;height:100%;min-width:0;padding:0 10px;border-left:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));box-sizing:border-box;overflow:hidden}
 .aui-test-control-label{margin:0;color:var(--bs-secondary-color,var(--dcs-text-mute,#6c757d));font-size:var(--dcs-fs-xs,.72rem);font-weight:600;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
 .aui-test-segment-group{display:inline-flex;align-items:center;flex:0 0 auto;width:auto;min-width:0;max-width:none}
 .aui-test-segment-group.btn-group{display:inline-flex;height:30px;width:auto}
@@ -733,12 +734,12 @@ body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
 .aui-test-mobile-nav{display:none;padding:12px 16px;border-bottom:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)))}
 .aui-test-body{display:flex;flex:1 1 auto;min-height:0;align-items:stretch;overflow:hidden}
 .aui-test-nav{flex:0 0 256px;display:flex;flex-direction:column;gap:18px;min-height:0;max-height:100%;padding:18px 14px;box-sizing:border-box;border-right:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));background:linear-gradient(180deg,rgba(128,128,128,.055),rgba(128,128,128,.025));overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}
-.aui-test-nav-heading{margin:0 6px -4px;font-size:.78rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--bs-secondary-color,var(--dcs-text-dim,#6c757d))}
-.aui-test-nav-group{display:flex;flex-direction:column;gap:4px;min-width:0}
-.aui-test-nav-group-title{display:flex;align-items:center;gap:7px;margin:0 6px 2px;font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--bs-secondary-color,var(--dcs-text-mute,#6c757d))}
+.aui-test-nav-heading{flex:0 0 auto;margin:0 6px -4px;font-size:.78rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--bs-secondary-color,var(--dcs-text-dim,#6c757d))}
+.aui-test-nav-group{display:flex;flex:0 0 auto;flex-direction:column;gap:4px;min-width:0}
+.aui-test-nav-group-title{display:flex;align-items:center;flex:0 0 auto;gap:7px;margin:0 6px 2px;font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--bs-secondary-color,var(--dcs-text-mute,#6c757d))}
 .aui-test-nav-group-title>.aui-test-nav-icon{flex:0 0 14px;width:14px;font-size:13px;color:var(--bs-primary,var(--dcs-accent,#0d6efd));opacity:.82}
 .aui-test-nav-label{margin:0;min-width:0;color:inherit;font:inherit;letter-spacing:inherit;text-transform:inherit;overflow:hidden;text-overflow:ellipsis}
-.aui-test-nav-item{appearance:none;display:flex;align-items:center;gap:10px;width:100%;min-height:38px;padding:8px 10px;box-sizing:border-box;border:0;border-radius:0;background:transparent;color:var(--bs-body-color,var(--dcs-text,#222));font:inherit;font-weight:600;text-align:left;white-space:normal;cursor:pointer}
+.aui-test-nav-item{appearance:none;display:flex;align-items:center;flex:0 0 auto;gap:10px;width:100%;min-height:38px;padding:8px 10px;box-sizing:border-box;border:0;border-radius:0;background:transparent;color:var(--bs-body-color,var(--dcs-text,#222));font:inherit;font-weight:600;text-align:left;white-space:normal;cursor:pointer}
 .aui-test-nav-item>.aui-test-nav-icon{flex:0 0 18px;width:18px;height:18px;background:transparent;color:var(--bs-secondary-color,var(--dcs-text-dim,#6c757d));font-size:15px}
 .aui-test-nav-item:hover{background:rgba(128,128,128,.09)}
 .aui-test-nav-item.is-active{background:var(--bs-primary,var(--dcs-accent,#0d6efd));color:white;box-shadow:none}
@@ -1273,6 +1274,18 @@ View::Scope View::container(std::string_view classes,
     return Scope{this, &node};
 }
 
+View::Scope View::element(std::string_view tag,
+                          std::string_view classes,
+                          std::string_view key,
+                          std::source_location here) {
+    if (tag.empty()) {
+        diagnostics_.push_back("View::element requires a non-empty tag");
+        tag = "div";
+    }
+    auto& node = open_node(WidgetKind::Container, tag, classes, key, here, true);
+    return Scope{this, &node};
+}
+
 View::Scope View::panel(std::string_view key,
                         std::source_location here) {
     const auto recipe = default_element(theme_, FrameworkElement::Panel);
@@ -1596,6 +1609,7 @@ WidgetRef View::textarea(std::string_view label,
     auto& text_node = open_node(WidgetKind::TextArea, text_recipe.tag,
                                 text_recipe.classes, "__input", here, false);
     set_attr(text_node, "rows", std::to_string(std::max(rows, 1)));
+    set_attr(text_node, "style", "resize:both;text-align:left");
     if (!key.empty()) set_attr(text_node, "data-aui-name", key);
     set_text(text_node, value);
     close_node();
@@ -2007,6 +2021,18 @@ WidgetRef View::container_ref(std::string_view classes,
                               std::string_view key,
                               std::source_location here) {
     auto& node = open_node(WidgetKind::Container, "div", classes, key, here, false);
+    return ref_for_node(node, current_panel_id(stack_));
+}
+
+WidgetRef View::element_ref(std::string_view tag,
+                            std::string_view classes,
+                            std::string_view key,
+                            std::source_location here) {
+    if (tag.empty()) {
+        diagnostics_.push_back("View::element_ref requires a non-empty tag");
+        tag = "div";
+    }
+    auto& node = open_node(WidgetKind::Container, tag, classes, key, here, false);
     return ref_for_node(node, current_panel_id(stack_));
 }
 

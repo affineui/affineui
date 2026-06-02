@@ -1496,7 +1496,9 @@ TEST_CASE("class argument :not selector controls display") {
 
 TEST_CASE("Bootstrap 5 collapse selector controls display") {
     CssEnv env("<nav class=\"col-md-3 col-lg-2 d-md-block bg-body-tertiary sidebar collapse\">Hidden</nav>");
-    env.attach(read_text_file("examples/frameworks/css/bootstrap-5.3.8.min.css"));
+    env.attach(read_text_file(
+        AFFINEUI_TEST_SOURCE_DIR
+        "/examples/frameworks/css/bootstrap-5.3.8.min.css"));
     env.build_resolver(740, 920);
 
     auto* nav = env.find("nav");

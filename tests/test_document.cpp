@@ -533,6 +533,330 @@ TEST_CASE("UiControls script updates range input and Decius knob markup") {
     CHECK(hovered_attr_for_id(doc, "shape", "value") != "0.25");
 }
 
+TEST_CASE("UiControls script toggles Decius target menus") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-menubar__item { display: block; width: 64px; height: 28px; }
+        .dcs-menu[hidden] { display: none; }
+        .dcs-menu { display: flex; flex-direction: column; width: 132px; }
+        .dcs-menu__item { display: block; width: 132px; height: 24px; }
+        #cover { display: block; position: fixed; left: 0; top: 28px;
+                 width: 132px; height: 24px; }
+        </style>
+        <button id="file" class="dcs-menubar__item"
+                data-dcs-toggle="menu" data-dcs-target="#menu-file">File</button>
+        <div id="menu-file" class="dcs-menu" data-aui-name="file-menu" hidden>
+            <div id="open-item" class="dcs-menu__item"
+                 data-dcs-value="open">Open</div>
+            <div id="save-item" class="dcs-menu__item"
+                 data-dcs-value="save">Save</div>
+        </div>
+        <button id="cover">Covered</button>
+    )HTML");
+    doc.layout(260, 120, &painter);
+
+    auto click_at = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        doc.dispatch(down);
+
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        doc.dispatch(up);
+    };
+
+    auto file = find_hovered_id(doc, "file", 260, 120);
+    REQUIRE(file.x >= 0);
+    click_at(file);
+    doc.layout(260, 120, &painter);
+
+    file = find_hovered_id(doc, "file", 260, 120);
+    REQUIRE(file.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "file", "aria-expanded") == "true");
+
+    const auto open = find_hovered_chain_id(doc, "open-item", 260, 120);
+    REQUIRE(open.x >= 0);
+    click_at(open);
+    doc.layout(260, 120, &painter);
+
+    auto changes = doc.take_widget_changes();
+    REQUIRE(changes.size() == 1);
+    CHECK(changes.front().name == "file-menu");
+    CHECK(changes.front().value == "open");
+
+    file = find_hovered_id(doc, "file", 260, 120);
+    REQUIRE(file.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "file", "aria-expanded") == "false");
+    CHECK(find_hovered_chain_id(doc, "open-item", 260, 120).x < 0);
+}
+
+TEST_CASE("UiControls script toggles Decius popovers") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        #tweaks { display: block; width: 72px; height: 28px; }
+        .dcs-popover[hidden] { display: none; }
+        .dcs-popover { display: block; width: 140px; height: 48px; }
+        #pop-body { display: block; width: 140px; height: 48px; }
+        </style>
+        <button id="tweaks" data-dcs-toggle="popover"
+                data-dcs-target="#popover" data-dcs-placement="bottom-end">
+            Tweaks
+        </button>
+        <div id="popover" class="dcs-popover" hidden>
+            <div id="pop-body">Theme tweaks</div>
+        </div>
+    )HTML");
+    doc.layout(260, 140, &painter);
+
+    auto click_at = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        doc.dispatch(down);
+
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        doc.dispatch(up);
+    };
+
+    auto trigger = find_hovered_id(doc, "tweaks", 260, 140);
+    REQUIRE(trigger.x >= 0);
+    click_at(trigger);
+    doc.layout(260, 140, &painter);
+
+    trigger = find_hovered_id(doc, "tweaks", 260, 140);
+    REQUIRE(trigger.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "tweaks", "aria-expanded") == "true");
+    CHECK(find_hovered_chain_id(doc, "pop-body", 260, 140).x >= 0);
+
+    click_at(trigger);
+    doc.layout(260, 140, &painter);
+    trigger = find_hovered_id(doc, "tweaks", 260, 140);
+    REQUIRE(trigger.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "tweaks", "aria-expanded") == "false");
+    CHECK(find_hovered_chain_id(doc, "pop-body", 260, 140).x < 0);
+}
+
+TEST_CASE("UiControls script drags bounded Decius combos by combo width") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-combo { display: block; position: relative; width: 100px;
+                     height: 24px; margin: 8px; }
+        .dcs-combo__fill { display: block; position: absolute; left: 0;
+                           top: 0; width: var(--fill, 50%);
+                           height: 24px; background: #3dd68a; }
+        #combo-value { display: block; width: 50px; height: 24px;
+                       margin-left: 50px; }
+        </style>
+        <div id="combo" class="dcs-combo" data-dcs-combo
+             data-min="0" data-max="100" data-step="1"
+             data-value="50" style="--fill:50%">
+            <div class="dcs-combo__fill"></div>
+            <input id="combo-value" class="dcs-combo__value" type="number"
+                   value="50" data-aui-name="combo">
+        </div>
+    )HTML");
+    doc.layout(180, 80, &painter);
+
+    const auto input = find_hovered_id(doc, "combo-value", 180, 80);
+    REQUIRE(input.x >= 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = input;
+    doc.dispatch(down);
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {input.x + 10, input.y};
+    doc.dispatch(move);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = move.pos;
+    doc.dispatch(up);
+    doc.layout(180, 80, &painter);
+
+    const auto updated = find_hovered_id(doc, "combo-value", 180, 80);
+    REQUIRE(updated.x >= 0);
+    const double value =
+        std::stod(hovered_attr_for_id(doc, "combo-value", "value"));
+    CHECK(value >= 58.0);
+    CHECK(value <= 62.0);
+}
+
+TEST_CASE("UiControls script toggles raw Decius checks radios and button groups") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-check, .dcs-radio { display: flex; width: 180px; height: 24px; }
+        .dcs-check__box { display: block; width: 14px; height: 14px; }
+        .dcs-btn-group { display: flex; width: 180px; height: 28px; }
+        .dcs-btn { display: block; width: 60px; height: 28px; }
+        </style>
+        <label id="cast" class="dcs-check" aria-checked="true">
+            <span id="cast-box" class="dcs-check__box"></span>
+            <span>Cast shadows</span>
+        </label>
+        <label id="solver-a" class="dcs-radio" data-dcs-name="solver"
+               aria-checked="true">
+            <span class="dcs-check__box"></span><span>BVH</span>
+        </label>
+        <label id="solver-b" class="dcs-radio" data-dcs-name="solver"
+               aria-checked="false">
+            <span class="dcs-check__box"></span><span>Embree</span>
+        </label>
+        <div id="blend" class="dcs-btn-group" data-aui-name="blend">
+            <button id="blend-norm" class="dcs-btn" aria-pressed="true">Norm</button>
+            <button id="blend-add" class="dcs-btn">Add</button>
+            <button id="blend-mul" class="dcs-btn">Mul</button>
+        </div>
+    )HTML");
+    doc.layout(240, 160, &painter);
+
+    auto click_at = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        doc.dispatch(down);
+
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        doc.dispatch(up);
+    };
+
+    auto attr = [&](std::string_view id, std::string_view name) {
+        const auto p = find_hovered_chain_id(doc, id, 240, 160);
+        REQUIRE(p.x >= 0);
+        return hovered_attr_for_id(doc, id, name);
+    };
+
+    auto cast = find_hovered_chain_id(doc, "cast", 240, 160);
+    REQUIRE(cast.x >= 0);
+    click_at(cast);
+    CHECK(attr("cast", "aria-checked") == "false");
+
+    auto solver_b = find_hovered_chain_id(doc, "solver-b", 240, 160);
+    REQUIRE(solver_b.x >= 0);
+    click_at(solver_b);
+    CHECK(attr("solver-a", "aria-checked") == "false");
+    CHECK(attr("solver-b", "aria-checked") == "true");
+
+    auto add = find_hovered_chain_id(doc, "blend-add", 240, 160);
+    REQUIRE(add.x >= 0);
+    click_at(add);
+    CHECK(attr("blend-norm", "aria-pressed") == "false");
+    CHECK(attr("blend-add", "aria-pressed") == "true");
+
+    const auto changes = doc.take_widget_changes();
+    REQUIRE_FALSE(changes.empty());
+    CHECK(changes.back().name == "blend");
+    CHECK(changes.back().value == "Add");
+}
+
+TEST_CASE("UiControls script updates Decius list selection") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-list { display: block; width: 140px; }
+        .dcs-list__item { display: block; width: 140px; height: 24px; }
+        </style>
+        <div id="objects" class="dcs-list" data-dcs-select="multi"
+             data-aui-name="objects">
+            <div id="row-a" class="dcs-list__item" data-dcs-value="a">Alpha</div>
+            <div id="row-b" class="dcs-list__item" data-dcs-value="b">Beta</div>
+            <div id="row-c" class="dcs-list__item" data-dcs-value="c">Gamma</div>
+        </div>
+    )HTML");
+    doc.layout(220, 110, &painter);
+
+    auto click_at = [&](affineui::Point p,
+                        bool ctrl = false,
+                        bool shift = false) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        down.ctrl = ctrl;
+        down.shift = shift;
+        doc.dispatch(down);
+
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        up.ctrl = ctrl;
+        up.shift = shift;
+        doc.dispatch(up);
+    };
+
+    auto selected = [&](std::string_view id) {
+        const auto p = find_hovered_chain_id(doc, id, 220, 110);
+        REQUIRE(p.x >= 0);
+        return hovered_attr_for_id(doc, id, "aria-selected");
+    };
+
+    auto a = find_hovered_chain_id(doc, "row-a", 220, 110);
+    REQUIRE(a.x >= 0);
+    click_at(a);
+    CHECK(selected("row-a") == "true");
+    CHECK(selected("row-b") == "false");
+    CHECK(selected("row-c") == "false");
+
+    auto c = find_hovered_chain_id(doc, "row-c", 220, 110);
+    REQUIRE(c.x >= 0);
+    click_at(c, true);
+    CHECK(selected("row-a") == "true");
+    CHECK(selected("row-c") == "true");
+
+    auto b = find_hovered_chain_id(doc, "row-b", 220, 110);
+    REQUIRE(b.x >= 0);
+    click_at(b, false, true);
+    CHECK(selected("row-a") == "false");
+    CHECK(selected("row-b") == "true");
+    CHECK(selected("row-c") == "true");
+
+    auto changes = doc.take_widget_changes();
+    REQUIRE(changes.size() == 3);
+    CHECK(changes.back().name == "objects");
+    CHECK(changes.back().value == "b,c");
+}
+
 TEST_CASE("UiControls script emits named button activations") {
     affineui::Document doc;
     RecordingPainter painter;
@@ -1994,7 +2318,7 @@ TEST_CASE("Decius property slider fill stays constrained to track height") {
               <span class="dcs-field__label">Mix</span>
               <div class="dcs-slider">
                 <div class="dcs-slider__track">
-                  <div class="dcs-slider__fill"></div>
+                  <div id="mix__fill" class="dcs-slider__fill"></div>
                 </div>
               </div>
             </div>
@@ -2004,6 +2328,8 @@ TEST_CASE("Decius property slider fill stays constrained to track height") {
     doc.layout(360, 0, &painter);
     doc.draw(painter);
 
+    affineui::Rect track_rect{};
+    affineui::Rect fill_rect{};
     bool saw_gradient_at_track_height = false;
     bool saw_track_at_track_height = false;
     for (const auto& draw : painter.rounded_fill_draws) {
@@ -2013,6 +2339,7 @@ TEST_CASE("Decius property slider fill stays constrained to track height") {
             CAPTURE(draw.rect.w);
             CAPTURE(draw.rect.h);
             CHECK(draw.rect.h == 4);
+            track_rect = draw.rect;
             saw_track_at_track_height = true;
         }
     }
@@ -2024,10 +2351,33 @@ TEST_CASE("Decius property slider fill stays constrained to track height") {
             CAPTURE(draw.rect.w);
             CAPTURE(draw.rect.h);
             CHECK(draw.rect.h == 2);
+            fill_rect = draw.rect;
             saw_gradient_at_track_height = true;
         }
     }
     CHECK(saw_gradient_at_track_height);
+    CHECK(fill_rect.y == track_rect.y + 1);
+
+    REQUIRE(doc.set_attribute_by_id("mix__fill", "style", "width:82%"));
+    doc.layout(360, 0, &painter);
+
+    painter.rounded_fill_draws.clear();
+    painter.linear_gradient_draws.clear();
+    doc.draw(painter);
+
+    bool saw_updated_gradient = false;
+    for (const auto& draw : painter.linear_gradient_draws) {
+        if (same_color(draw.stop0, affineui::Color::rgb(0x2f, 0x86, 0xee))) {
+            CAPTURE(draw.rect.x);
+            CAPTURE(draw.rect.y);
+            CAPTURE(draw.rect.w);
+            CAPTURE(draw.rect.h);
+            CHECK(draw.rect.y == fill_rect.y);
+            CHECK(draw.rect.h == fill_rect.h);
+            saw_updated_gradient = true;
+        }
+    }
+    CHECK(saw_updated_gradient);
 }
 
 TEST_CASE("transparent side on circular border paints the missing quadrant") {
@@ -2278,6 +2628,122 @@ TEST_CASE("textarea text uses native edit viewport top inset") {
 
     CHECK(value->pos.x == 7);
     CHECK(value->pos.y == 12);
+}
+
+TEST_CASE("textarea click focuses multiline editor and inserts at caret") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        textarea {
+          display: block;
+          box-sizing: border-box;
+          width: 180px;
+          height: 80px;
+          border: 1px solid #000;
+          padding: 6px;
+          font-size: 12px;
+          line-height: 18px;
+          white-space: pre-wrap;
+        }
+        </style>
+        <textarea>alpha
+omega</textarea>
+    )HTML");
+    doc.layout(240, 0, &painter);
+    doc.draw(painter);
+
+    const auto textarea_pos = find_hovered_tag(doc, "textarea");
+    REQUIRE(textarea_pos.x >= 0);
+    const auto bounds = doc.hovered_info().bounds;
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {bounds.x + 52, bounds.y + 32};
+    doc.dispatch(down);
+
+    affineui::Event text{};
+    text.type = affineui::EventType::TextInput;
+    text.text = "!";
+    CHECK(doc.dispatch(text).redraw_requested);
+
+    painter.text_runs.clear();
+    doc.draw(painter);
+    CHECK(std::any_of(painter.text_runs.begin(), painter.text_runs.end(),
+                      [](const std::string& run) {
+                          return run.find('!') != std::string::npos;
+                      }));
+}
+
+TEST_CASE("textarea resize grip updates preferred size within css bounds") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        #notes {
+          display: block;
+          box-sizing: border-box;
+          width: 100px;
+          height: 40px;
+          min-width: 80px;
+          max-width: 130px;
+          min-height: 30px;
+          max-height: 55px;
+          resize: both;
+          border: 1px solid #000;
+          padding: 4px;
+        }
+        </style>
+        <textarea id="notes">Resize me</textarea>
+    )HTML");
+    doc.layout(240, 0, &painter);
+
+    const auto textarea_pos = find_hovered_id(doc, "notes", 240, 100);
+    REQUIRE(textarea_pos.x >= 0);
+    const auto before = doc.hovered_info().bounds;
+    CHECK(before.w == 100);
+    CHECK(before.h == 40);
+
+    affineui::Event hover{};
+    hover.type = affineui::EventType::MouseMove;
+    hover.pos = {before.x + before.w - 2, before.y + before.h - 2};
+    doc.dispatch(hover);
+    CHECK(doc.hovered_cursor() == 4);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = hover.pos;
+    doc.dispatch(down);
+
+    affineui::Event drag{};
+    drag.type = affineui::EventType::MouseMove;
+    drag.pos = {hover.pos.x + 80, hover.pos.y + 80};
+    CHECK(doc.dispatch(drag).redraw_requested);
+
+    doc.layout(240, 0, &painter);
+    const auto during_drag = doc.hovered_info().bounds;
+    CHECK(during_drag.w == 130);
+    CHECK(during_drag.h == 55);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = drag.pos;
+    doc.dispatch(up);
+
+    doc.layout(240, 0, &painter);
+    const auto resized_pos = find_hovered_id(doc, "notes", 240, 100);
+    REQUIRE(resized_pos.x >= 0);
+    const auto after = doc.hovered_info().bounds;
+    CHECK(after.w == 130);
+    CHECK(after.h == 55);
 }
 
 TEST_CASE("single-line flex text honors align-items center") {
@@ -3778,6 +4244,204 @@ TEST_CASE("double click selects a word for replacement") {
     doc.draw(painter);
     REQUIRE_FALSE(painter.text_runs.empty());
     CHECK(painter.text_runs.back() == "red cyan blue");
+}
+
+TEST_CASE("focused input supports command selection and clipboard editing") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        input { display: block; width: 200px; padding: 0; border: 0; }
+        </style>
+        <input value="alpha beta">
+    )HTML");
+    doc.layout(320, 0, &painter);
+
+    const auto input_pos = find_hovered_tag(doc, "input");
+    REQUIRE(input_pos.x >= 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = input_pos;
+    doc.dispatch(down);
+
+    affineui::Event select_all{};
+    select_all.type = affineui::EventType::KeyDown;
+    select_all.key = affineui::Key::A;
+    select_all.ctrl = true;
+    CHECK(doc.dispatch(select_all).redraw_requested);
+
+    affineui::Event copy{};
+    copy.type = affineui::EventType::KeyDown;
+    copy.key = affineui::Key::C;
+    copy.ctrl = true;
+    doc.dispatch(copy);
+
+    affineui::Event cut{};
+    cut.type = affineui::EventType::KeyDown;
+    cut.key = affineui::Key::X;
+    cut.ctrl = true;
+    CHECK(doc.dispatch(cut).redraw_requested);
+
+    affineui::Event paste{};
+    paste.type = affineui::EventType::KeyDown;
+    paste.key = affineui::Key::V;
+    paste.ctrl = true;
+    CHECK(doc.dispatch(paste).redraw_requested);
+
+    painter.text_runs.clear();
+    doc.draw(painter);
+    REQUIRE_FALSE(painter.text_runs.empty());
+    CHECK(painter.text_runs.back() == "alpha beta");
+}
+
+TEST_CASE("focused input supports shift selection and word deletion") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        input { display: block; width: 220px; padding: 0; border: 0; }
+        </style>
+        <input value="red green blue">
+    )HTML");
+    doc.layout(320, 0, &painter);
+
+    const auto input_pos = find_hovered_tag(doc, "input");
+    REQUIRE(input_pos.x >= 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = input_pos;
+    doc.dispatch(down);
+
+    affineui::Event end{};
+    end.type = affineui::EventType::KeyDown;
+    end.key = affineui::Key::End;
+    doc.dispatch(end);
+
+    affineui::Event word_backspace{};
+    word_backspace.type = affineui::EventType::KeyDown;
+    word_backspace.key = affineui::Key::Backspace;
+    word_backspace.ctrl = true;
+    CHECK(doc.dispatch(word_backspace).redraw_requested);
+
+    affineui::Event left{};
+    left.type = affineui::EventType::KeyDown;
+    left.key = affineui::Key::ArrowLeft;
+    left.shift = true;
+    CHECK(doc.dispatch(left).redraw_requested);
+    CHECK(doc.dispatch(left).redraw_requested);
+
+    affineui::Event text{};
+    text.type = affineui::EventType::TextInput;
+    text.text = "!!";
+    CHECK(doc.dispatch(text).redraw_requested);
+
+    painter.text_runs.clear();
+    doc.draw(painter);
+    REQUIRE_FALSE(painter.text_runs.empty());
+    CHECK(painter.text_runs.back() == "red gree!!");
+}
+
+TEST_CASE("scrollable block counts overflow through intermediate descendants") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .viewport {
+            width: 160px;
+            height: 60px;
+            overflow: auto;
+        }
+        .stack {
+            height: 20px;
+        }
+        .row {
+            height: 140px;
+        }
+        </style>
+        <div class="viewport">
+            <div class="stack">
+                <div class="row">Deep row</div>
+            </div>
+        </div>
+    )HTML");
+    doc.layout(200, 80, &painter);
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {10, 10};
+    doc.dispatch(move);
+
+    affineui::Event wheel{};
+    wheel.type = affineui::EventType::MouseWheel;
+    wheel.pos = {10, 10};
+    wheel.wheel_dy = -3.0f;
+    const auto result = doc.dispatch(wheel);
+
+    CHECK(result.redraw_requested);
+}
+
+TEST_CASE("vertical scrollbar thumb drag updates scroll position") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .viewport {
+            width: 120px;
+            height: 80px;
+            overflow: auto;
+        }
+        #row {
+            height: 240px;
+        }
+        </style>
+        <div class="viewport">
+            <div id="row">Deep row</div>
+        </div>
+    )HTML");
+    doc.layout(160, 100, &painter);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {115, 6};
+    (void)doc.dispatch(down);
+
+    affineui::Event drag{};
+    drag.type = affineui::EventType::MouseMove;
+    drag.pos = {115, 56};
+    CHECK(doc.dispatch(drag).redraw_requested);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = drag.pos;
+    (void)doc.dispatch(up);
+
+    affineui::Event probe{};
+    probe.type = affineui::EventType::MouseMove;
+    probe.pos = {10, 10};
+    doc.dispatch(probe);
+
+    const auto chain = doc.hovered_info_chain();
+    const auto row = std::find_if(
+        chain.begin(), chain.end(),
+        [](const affineui::Document::HoverInfo& info) {
+            return info.elem_id == "row";
+        });
+    REQUIRE(row != chain.end());
+    CHECK(row->bounds.y < 0);
 }
 
 TEST_CASE("range and color inputs use native control paint instead of text") {

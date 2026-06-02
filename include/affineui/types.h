@@ -61,6 +61,10 @@ enum class Key : std::uint16_t {
     ArrowDown,
     Home,
     End,
+    A,
+    C,
+    V,
+    X,
 };
 
 enum class EventType : std::uint8_t {
@@ -86,6 +90,10 @@ struct Event {
     Key         key{Key::Unknown};
     int         key_code{0};  // platform-native scancode (debug / passthrough)
     std::string text;  // valid for TextInput
+    bool        shift{false};
+    bool        ctrl{false};
+    bool        alt{false};
+    bool        super{false};  // Command on macOS, Windows/Super elsewhere.
 };
 
 /// Result of an event dispatch. If `redraw_requested` is true, the next

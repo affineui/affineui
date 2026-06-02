@@ -98,6 +98,14 @@ public:
     /// `<link rel=stylesheet href=...>`, etc.
     void set_resource_loader(ResourceLoader loader);
 
+    /// Clipboard bridge used by editor keyboard commands. Hosts that do
+    /// not provide hooks still get deterministic in-document copy/paste
+    /// through a small fallback clipboard, which keeps tests and embedded
+    /// render-only use working without platform dependencies.
+    using ClipboardGet = std::function<std::string()>;
+    using ClipboardSet = std::function<void(std::string_view)>;
+    void set_clipboard(ClipboardGet get, ClipboardSet set);
+
     /// Current document size after the last layout pass.
     Size content_size() const;
 
@@ -193,7 +201,8 @@ public:
     /// public header. Map onto your platform's cursor API on the
     /// host side (App does this for sokol_app).
     ///   0 = default, 1 = pointer, 2 = text, 3 = crosshair, 4 = move,
-    ///   5 = not-allowed, 6 = ew-resize, 7 = ns-resize
+    ///   5 = not-allowed, 6 = ew-resize, 7 = ns-resize,
+    ///   8 = nwse-resize
     int hovered_cursor() const;
 
 private:

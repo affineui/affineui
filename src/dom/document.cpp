@@ -39,6 +39,7 @@
 #include <exception>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -370,7 +371,9 @@ struct DocumentImpl {
         int              start_y{0};
         int              start_w{0};
         int              start_h{0};
+        int              last_x{0};
         bool             bipolar{false};
+        bool             bounded{false};
         bool             moved{false};
         bool             resize_x{false};
         bool             resize_y{false};
@@ -452,6 +455,7 @@ struct DocumentImpl {
     std::vector<int>           draw_first_child_indices;
     std::vector<int>           draw_list_ordinals;
     std::vector<int>           draw_list_counts_by_parent;
+    std::vector<int>           draw_paint_order;
 
     std::uint32_t              document_id{1};
     std::vector<DomWeakSlot>   dom_weak_slots;
@@ -3591,6 +3595,12 @@ void collect_blocks(detail::DocumentImpl& impl,
         if (auto kw = scan_inline_keyword(elem, "cursor"); !kw.empty()) {
             impl.style_store.computed(id).cursor = parse_cursor_keyword(kw);
         }
+        if (auto kw = scan_inline_keyword(elem, "resize"); !kw.empty()) {
+            const auto [resize, has_resize] = parse_resize_keyword(kw);
+            if (has_resize) {
+                impl.style_store.computed(id).resize = resize;
+            }
+        }
         impl.style_store.dirty(id) &=
             static_cast<std::uint8_t>(~detail::StyleStore::DirtyStyle);
 
@@ -4596,6 +4606,7 @@ bool block_is_scrollable_y(const detail::DocumentImpl& impl, int idx);
 bool block_clips_overflow(const detail::DocumentImpl& impl, int idx);
 int  scroll_offset_y_for(const std::vector<Block>& blocks,
                          const detail::StyleStore& styles, int idx);
+int  effective_z_index(const detail::DocumentImpl& impl, int idx);
 struct ScrollbarGeometry {
     Rect track{};
     Rect thumb{};
@@ -4909,7 +4920,21 @@ void Document::draw(Painter& painter) {
         }
     }
 
-    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
+    auto& paint_order = impl_->draw_paint_order;
+    paint_order.resize(impl_->blocks.size());
+    std::iota(paint_order.begin(), paint_order.end(), 0);
+#if !defined(AFFINEUI_STUB_BUILD)
+    std::stable_sort(paint_order.begin(), paint_order.end(),
+        [&](int a, int b) {
+            const int za = effective_z_index(*impl_, a);
+            const int zb = effective_z_index(*impl_, b);
+            if (za != zb) return za < zb;
+            return a < b;
+        });
+#endif
+
+    for (int paint_idx : paint_order) {
+        const std::size_t i = static_cast<std::size_t>(paint_idx);
         const auto& b  = impl_->blocks[i];
         // Synthetic line-boxes are layout-only. They don't carry
         // any visual style â€” skip the whole draw stanza.
@@ -6025,6 +6050,44 @@ void Document::draw(Painter& painter) {
             }
         }
 
+        if (block_has_class(b, "dcs-check__box") && b.parent_idx >= 0 &&
+            static_cast<std::size_t>(b.parent_idx) < impl_->blocks.size()) {
+            const auto& parent =
+                impl_->blocks[static_cast<std::size_t>(b.parent_idx)];
+            const bool decius_check = block_has_class(parent, "dcs-check");
+            const bool decius_radio = block_has_class(parent, "dcs-radio");
+            const auto* checked_attr = block_attr_value(parent, "aria-checked");
+            const bool checked = checked_attr && *checked_attr == "true";
+            if (checked && (decius_check || decius_radio)) {
+                const float bx = static_cast<float>(eff.x);
+                const float by = static_cast<float>(eff.y);
+                const float bw = static_cast<float>(eff.w);
+                const float bh = static_cast<float>(eff.h);
+                const Color white{0xFF, 0xFF, 0xFF, 0xFF};
+                if (decius_radio) {
+                    painter.fill_circle(bx + bw * 0.5f, by + bh * 0.5f,
+                                        std::max(2.0f, std::min(bw, bh) * 0.25f),
+                                        white);
+                } else {
+                    const float m = std::min(bw, bh);
+                    const float s = m / 20.0f;
+                    const float x0 = bx + 6.0f  * s;
+                    const float y0 = by + 10.0f * s;
+                    const float x1 = bx + 9.0f  * s;
+                    const float y1 = by + 13.0f * s;
+                    const float x2 = bx + 15.0f * s;
+                    const float y2 = by + 7.0f  * s;
+                    const float sw = std::max(1.0f, 3.0f * s);
+                    painter.stroke_line(x0, y0, x1, y1, white, sw);
+                    painter.stroke_line(x1, y1, x2, y2, white, sw);
+                    const float cap_r = sw * 0.5f;
+                    painter.fill_circle(x0, y0, cap_r, white);
+                    painter.fill_circle(x1, y1, cap_r, white);
+                    painter.fill_circle(x2, y2, cap_r, white);
+                }
+            }
+        }
+
         if (b.tag == "input" && b.input_type == "color") {
             std::uint32_t rgba = 0;
             const auto* value = block_attr_value(b, "value");
@@ -6164,6 +6227,17 @@ int scroll_offset_y_for(const std::vector<Block>& blocks,
 }
 
 #if !defined(AFFINEUI_STUB_BUILD)
+int effective_z_index(const detail::DocumentImpl& impl, int idx) {
+    int z = 0;
+    for (int cur = idx;
+         cur >= 0 && cur < static_cast<int>(impl.blocks.size());
+         cur = impl.blocks[static_cast<std::size_t>(cur)].parent_idx) {
+        const auto& block = impl.blocks[static_cast<std::size_t>(cur)];
+        z = std::max<int>(z, impl.style_store.computed(block.id).z_index_low);
+    }
+    return z;
+}
+
 const KeyframeBlock* find_keyframes(const detail::DocumentImpl& impl,
                                     std::uint32_t name_hash) {
     if (name_hash == 0) return nullptr;
@@ -6198,11 +6272,12 @@ bool rect_contains_float(const Rect& r, float x, float y) noexcept {
 #endif
 
 // Deepest block whose effective border-box (after applying ancestor scroll
-// offsets and CSS transforms) contains (x, y), or -1 if none. Walk in DFS
-// order so the *last* match wins.
+// offsets and CSS transforms) contains (x, y), or -1 if none. z-index buckets
+// win first, then normal document order breaks ties.
 int hit_test_blocks(const detail::DocumentImpl& impl, int x, int y) {
     const auto& blocks = impl.blocks;
     int hit = -1;
+    int hit_z = std::numeric_limits<int>::min();
     for (std::size_t i = 0; i < blocks.size(); ++i) {
 #if !defined(AFFINEUI_STUB_BUILD)
         const int dy = scroll_offset_y_for(
@@ -6215,20 +6290,28 @@ int hit_test_blocks(const detail::DocumentImpl& impl, int x, int y) {
 #if !defined(AFFINEUI_STUB_BUILD)
         const Mat2x3 transform =
             effective_transform_for(impl, static_cast<int>(i));
+        bool contains = false;
         if (!transform.is_identity()) {
             Mat2x3 inverse{};
             if (!invert_transform(transform, inverse)) continue;
             const Vec2 local = inverse.apply(
                 Vec2{static_cast<float>(x), static_cast<float>(y)});
-            if (rect_contains_float(eff, local.x, local.y)) {
-                hit = static_cast<int>(i);
-            }
-            continue;
+            contains = rect_contains_float(eff, local.x, local.y);
+        } else {
+            contains = rect_contains(eff, x, y);
         }
-#endif
+        if (contains) {
+            const int z = effective_z_index(impl, static_cast<int>(i));
+            if (z > hit_z || (z == hit_z && static_cast<int>(i) > hit)) {
+                hit = static_cast<int>(i);
+                hit_z = z;
+            }
+        }
+#else
         if (rect_contains(eff, x, y)) {
             hit = static_cast<int>(i);
         }
+#endif
     }
     return hit;
 }
@@ -6619,6 +6702,15 @@ bool restyle_block(detail::DocumentImpl& impl, int idx) {
                             block.parent_idx, sb_rs, rs);
     if (block.tag == "textarea") {
         apply_user_textarea_size(impl, elem, rs);
+    }
+    if (auto kw = scan_inline_keyword(elem, "cursor"); !kw.empty()) {
+        rs.computed.cursor = parse_cursor_keyword(kw);
+    }
+    if (auto kw = scan_inline_keyword(elem, "resize"); !kw.empty()) {
+        const auto [resize, has_resize] = parse_resize_keyword(kw);
+        if (has_resize) {
+            rs.computed.resize = resize;
+        }
     }
     const auto old_animation = block.animation;
     const auto old_computed = impl.style_store.computed(block.id);
@@ -7296,6 +7388,21 @@ lxb_dom_element_t* first_descendant_input(lxb_dom_element_t* elem) {
     return nullptr;
 }
 
+lxb_dom_element_t* first_descendant_tag(lxb_dom_element_t* elem,
+                                        std::string_view tag) {
+    if (!elem) return nullptr;
+    if (tag_name(elem) == tag) return elem;
+    for (auto* child = lxb_dom_node_first_child(lxb_dom_interface_node(elem));
+         child != nullptr; child = lxb_dom_node_next(child)) {
+        if (child->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        if (auto* found = first_descendant_tag(
+                lxb_dom_interface_element(child), tag)) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
 lxb_dom_element_t* nearest_checkbox_wrapper(lxb_dom_element_t* elem) {
     lxb_dom_element_t* decius_candidate = nullptr;
     for (auto* node = elem ? lxb_dom_interface_node(elem) : nullptr;
@@ -7307,6 +7414,8 @@ lxb_dom_element_t* nearest_checkbox_wrapper(lxb_dom_element_t* elem) {
         const bool checkbox_widget = widget == "checkbox";
         const bool decius_widget =
             std::find(classes.begin(), classes.end(), "dcs-check") !=
+                classes.end() ||
+            std::find(classes.begin(), classes.end(), "dcs-radio") !=
                 classes.end() ||
             std::find(classes.begin(), classes.end(), "dcs-switch") !=
                 classes.end();
@@ -7804,22 +7913,42 @@ bool find_live_control_at(detail::DocumentImpl& impl,
         out.elem = elem;
         out.block_idx = idx;
         out.bounds = block_border_visual_rect(impl, idx);
-        const bool has_min_attr = has_attr(elem, "min") ||
-                                  has_attr(elem, "data-min");
-        const bool has_max_attr = has_attr(elem, "max") ||
-                                  has_attr(elem, "data-max");
-        out.min = element_attr_double(elem, "min",
-                  element_attr_double(elem, "data-min", 0.0));
-        out.max = element_attr_double(elem, "max",
-                  element_attr_double(elem, "data-max", 1.0));
+        auto* combo = kind == LiveControlKind::NumericInput
+            ? nearest_ancestor_with_class(elem, "dcs-combo")
+            : nullptr;
+        const bool has_min_attr =
+            has_attr(elem, "min") || has_attr(elem, "data-min") ||
+            (combo && has_attr(combo, "data-min"));
+        const bool has_max_attr =
+            has_attr(elem, "max") || has_attr(elem, "data-max") ||
+            (combo && has_attr(combo, "data-max"));
+        out.min = element_attr_double(
+            combo, "data-min",
+            element_attr_double(elem, "min",
+                element_attr_double(elem, "data-min", 0.0)));
+        out.max = element_attr_double(
+            combo, "data-max",
+            element_attr_double(elem, "max",
+                element_attr_double(elem, "data-max", 1.0)));
         out.start_value = element_attr_double(
             elem, "value", element_attr_double(elem, "data-value", out.min));
         if (kind == LiveControlKind::NumericInput) {
+            out.bounded = combo != nullptr && (has_min_attr || has_max_attr);
+            if (combo != nullptr) {
+                const int combo_idx = block_index_for_exact_element(impl, combo);
+                if (combo_idx >= 0) {
+                    out.bounds = block_border_visual_rect(impl, combo_idx);
+                }
+            }
             if (!has_min_attr) out.min = out.start_value - 100000.0;
             if (!has_max_attr) out.max = out.start_value + 100000.0;
             out.step = element_attr_double(
-                elem, "step", element_attr_double(elem, "data-step", 0.01));
+                elem, "step",
+                element_attr_double(
+                    elem, "data-step",
+                    element_attr_double(combo, "data-step", 0.01)));
             if (out.step <= 0.0) out.step = 0.01;
+            out.last_x = point.x;
         }
         if (out.max <= out.min) out.max = out.min + 1.0;
         out.bipolar = has_attr(elem, "data-bipolar");
@@ -7883,8 +8012,23 @@ bool update_active_live_control(detail::DocumentImpl& impl, const Event& ev) {
         drag.kind == LiveControlKind::DeciusSlider) {
         value = value_from_x(drag.bounds, ev.pos.x, drag.min, drag.max);
     } else if (drag.kind == LiveControlKind::NumericInput) {
-        value = drag.start_value +
-                static_cast<double>(ev.pos.x - drag.start_x) * drag.step;
+        const double mult = ev.shift ? 4.0 : 1.0;
+        if (drag.bounded) {
+            const double width = std::max(1, drag.bounds.w);
+            value = drag.start_value +
+                    (static_cast<double>(ev.pos.x - drag.start_x) / width) *
+                        (drag.max - drag.min) * mult;
+        } else {
+            const double current = element_attr_double(
+                drag.elem, "value",
+                element_attr_double(drag.elem, "data-value", drag.start_value));
+            const double scaled_step =
+                std::max(drag.step, std::abs(current) / 100.0);
+            value = current +
+                    static_cast<double>(ev.pos.x - drag.last_x) *
+                        scaled_step * mult;
+            drag.last_x = ev.pos.x;
+        }
     } else if (drag.kind == LiveControlKind::DeciusFader) {
         value = value_from_y(drag.bounds, ev.pos.y, drag.min, drag.max);
     } else if (drag.kind == LiveControlKind::AuiKnob ||
@@ -7907,6 +8051,7 @@ bool is_checkbox_like_block(const Block& block) {
         return true;
     }
     return block_has_class(block, "dcs-check") ||
+           block_has_class(block, "dcs-radio") ||
            block_has_class(block, "dcs-switch");
 }
 
@@ -7928,22 +8073,89 @@ bool find_checkbox_control_at(detail::DocumentImpl& impl,
     return false;
 }
 
+bool class_list_contains(lxb_dom_element_t* elem, std::string_view cls);
+
+std::string radio_group_name(lxb_dom_element_t* elem,
+                             lxb_dom_element_t* input) {
+    if (input) {
+        auto name = attr_string(input, "name");
+        if (!name.empty()) return name;
+    }
+    auto name = attr_string(elem, "data-dcs-name");
+    if (!name.empty()) return name;
+    return attr_string(elem, "name");
+}
+
+bool radio_peer_matches(lxb_dom_element_t* peer,
+                        lxb_dom_element_t* current,
+                        std::string_view group_name) {
+    if (!peer || peer == current) return false;
+    const bool peer_radio = class_list_contains(peer, "dcs-radio") ||
+                            (tag_name(peer) == "input" &&
+                             attr_string(peer, "type") == "radio");
+    if (!peer_radio) return false;
+    if (!group_name.empty()) {
+        return radio_group_name(peer,
+                                tag_name(peer) == "input" ? peer : nullptr) ==
+               group_name;
+    }
+    return parent_element(peer) == parent_element(current);
+}
+
+bool uncheck_radio_peers(detail::DocumentImpl& impl,
+                         lxb_dom_element_t* current,
+                         std::string_view group_name) {
+    auto* root = parent_element(current);
+    if (!root) return false;
+    bool changed = false;
+    auto walk = [&](auto& self, lxb_dom_element_t* elem) -> void {
+        if (!elem) return;
+        if (radio_peer_matches(elem, current, group_name)) {
+            if (tag_name(elem) == "input") {
+                changed = remove_attribute_on_element(
+                    impl, elem, "checked") || changed;
+            } else {
+                changed = set_attribute_on_element(
+                    impl, elem, "aria-checked", "false") || changed;
+            }
+        }
+        for (auto* child = lxb_dom_node_first_child(lxb_dom_interface_node(elem));
+             child != nullptr; child = lxb_dom_node_next(child)) {
+            if (child->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+            self(self, lxb_dom_interface_element(child));
+        }
+    };
+    walk(walk, root);
+    return changed;
+}
+
 bool toggle_checkbox_control(detail::DocumentImpl& impl, int idx,
                              lxb_dom_element_t* elem) {
     if (!elem) return false;
     const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
     lxb_dom_element_t* input =
         block.tag == "input" ? elem : first_descendant_input(elem);
-    lxb_dom_element_t* visual_check = block_has_class(block, "dcs-check")
-        ? elem
-        : first_descendant_with_class(elem, "dcs-check");
-    const bool radio = input && attr_string(input, "type") == "radio";
+    lxb_dom_element_t* visual_check =
+        first_descendant_with_class(elem, "dcs-check__box");
+    if (!visual_check) {
+        visual_check = block_has_class(block, "dcs-check") ||
+                       block_has_class(block, "dcs-radio")
+            ? elem
+            : first_descendant_with_class(elem, "dcs-check");
+    }
+    const bool radio = (input && attr_string(input, "type") == "radio") ||
+                       block_has_class(block, "dcs-radio") ||
+                       class_list_contains(elem, "dcs-radio");
     const bool old_checked = input
         ? has_attr(input, "checked")
         : element_attr_true(elem, "aria-checked");
     const bool checked = radio ? true : !old_checked;
 
     bool changed = false;
+    if (radio && checked) {
+        changed = uncheck_radio_peers(
+            impl, elem, radio_group_name(elem, input)) || changed;
+    }
     if (input) {
         changed = checked
             ? (set_attribute_on_element(impl, input, "checked", "checked") || changed)
@@ -7951,16 +8163,17 @@ bool toggle_checkbox_control(detail::DocumentImpl& impl, int idx,
     }
     if (input != elem || has_attr(elem, "aria-checked") ||
         block_has_class(block, "dcs-check") ||
+        block_has_class(block, "dcs-radio") ||
         block_has_class(block, "dcs-switch") ||
         block_attr_value(block, "data-aui-widget")) {
-        changed = checked
-            ? (set_attribute_on_element(impl, elem, "aria-checked", "true") || changed)
-            : (remove_attribute_on_element(impl, elem, "aria-checked") || changed);
+        changed = set_attribute_on_element(
+            impl, elem, "aria-checked", checked ? "true" : "false") ||
+            changed;
     }
     if (visual_check != nullptr && visual_check != elem) {
-        changed = checked
-            ? (set_attribute_on_element(impl, visual_check, "aria-checked", "true") || changed)
-            : (remove_attribute_on_element(impl, visual_check, "aria-checked") || changed);
+        changed = set_attribute_on_element(
+            impl, visual_check, "aria-checked",
+            checked ? "true" : "false") || changed;
     }
     auto* wrapper = nearest_checkbox_wrapper(elem);
     if (wrapper != nullptr && wrapper != elem &&
@@ -8026,14 +8239,17 @@ bool find_button_group_option_at(detail::DocumentImpl& impl,
                                  lxb_dom_element_t*& out_option) {
     out_group = nullptr;
     out_option = nullptr;
+    lxb_dom_element_t* decius_group = nullptr;
     for (int idx = from_idx;
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
         const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
         auto* elem = element_for_block(impl, idx);
         if (!elem) continue;
-        if (!out_option && block.tag == "button" &&
-            block_has_attr(block, "value") && !block.is_disabled) {
+        if (!out_option && block.tag == "button" && !block.is_disabled &&
+            (block_has_attr(block, "value") ||
+             block_has_attr(block, "data-dcs-value") ||
+             block_has_class(block, "dcs-btn"))) {
             out_option = elem;
         }
         const auto* widget = block_attr_value(block, "data-aui-widget");
@@ -8041,6 +8257,13 @@ bool find_button_group_option_at(detail::DocumentImpl& impl,
             out_group = elem;
             return out_option != nullptr;
         }
+        if (!decius_group && block_has_class(block, "dcs-btn-group")) {
+            decius_group = elem;
+        }
+    }
+    if (decius_group && out_option) {
+        out_group = decius_group;
+        return true;
     }
     out_group = nullptr;
     out_option = nullptr;
@@ -8070,16 +8293,29 @@ std::string class_list_set(lxb_dom_element_t* elem,
     return out;
 }
 
+std::string button_group_option_value(lxb_dom_element_t* elem) {
+    if (!elem) return {};
+    auto value = attr_string(elem, "value");
+    if (!value.empty()) return value;
+    value = attr_string(elem, "data-dcs-value");
+    if (!value.empty()) return value;
+    value = node_text(lxb_dom_interface_node(elem));
+    return std::string(trim_css_ws(value));
+}
+
 bool update_button_group_option_states(detail::DocumentImpl& impl,
                                        lxb_dom_element_t* elem,
                                        std::string_view selected) {
     if (!elem) return false;
     bool changed = false;
-    if (tag_name(elem) == "button" && has_attr(elem, "value")) {
-        const bool active = attr_string(elem, "value") == selected;
-        changed = active
-            ? (set_attribute_on_element(impl, elem, "aria-pressed", "true") || changed)
-            : (remove_attribute_on_element(impl, elem, "aria-pressed") || changed);
+    if (tag_name(elem) == "button" &&
+        (has_attr(elem, "value") ||
+         has_attr(elem, "data-dcs-value") ||
+         class_list_contains(elem, "dcs-btn"))) {
+        const bool active = button_group_option_value(elem) == selected;
+        changed = set_attribute_on_element(
+            impl, elem, "aria-pressed", active ? "true" : "false") ||
+            changed;
         if (class_list_contains(elem, "btn")) {
             changed = set_attribute_on_element(
                 impl, elem, "class",
@@ -8099,7 +8335,7 @@ bool update_button_group_control(detail::DocumentImpl& impl,
                                  lxb_dom_element_t* group,
                                  lxb_dom_element_t* option) {
     if (!group || !option) return false;
-    const auto selected = attr_string(option, "value");
+    const auto selected = button_group_option_value(option);
     if (selected.empty()) return false;
     bool changed =
         set_attribute_on_element(impl, group, "data-value", selected);
@@ -8191,17 +8427,40 @@ bool hide_dropdown_menu(detail::DocumentImpl& impl, lxb_dom_element_t* group) {
     return changed;
 }
 
+std::string dropdown_menu_open_style(const detail::DocumentImpl& impl,
+                                     lxb_dom_element_t* group,
+                                     lxb_dom_element_t* menu) {
+    (void) menu;
+    int left = 0;
+    int top = 0;
+    int width = 160;
+    auto* anchor = first_descendant_tag(group, "select");
+    if (!anchor) anchor = group;
+    const int anchor_idx = block_index_for_element_or_ancestor(impl, anchor);
+    if (anchor_idx >= 0) {
+        const Rect rect = block_border_visual_rect(impl, anchor_idx);
+        left = rect.x;
+        top = rect.y + rect.h;
+        width = std::max(1, rect.w);
+    }
+    return "display:flex;position:fixed;left:" + std::to_string(left) +
+           "px;top:" + std::to_string(top) +
+           "px;width:" + std::to_string(width) +
+           "px;min-width:" + std::to_string(width) +
+           "px;max-height:240px;overflow:auto;flex-direction:column;z-index:400";
+}
+
 bool toggle_dropdown_menu(detail::DocumentImpl& impl, lxb_dom_element_t* group) {
     auto* menu = first_descendant_with_class(group, "aui-select__menu");
     if (!menu) return false;
     if (!has_attr(menu, "hidden")) {
         return hide_dropdown_menu(impl, group);
     }
+    const std::string open_style = dropdown_menu_open_style(impl, group, menu);
     bool changed = remove_attribute_on_element(impl, menu, "hidden");
     changed = set_attribute_on_element(
-        impl, menu, "style",
-        "display:flex;position:absolute;left:0;right:0;top:100%;"
-        "margin-top:4px;flex-direction:column;z-index:200") || changed;
+        impl, menu, "style", open_style) ||
+        changed;
     return changed;
 }
 
@@ -8306,7 +8565,9 @@ bool close_all_dcs_menus(detail::DocumentImpl& impl) {
 }
 
 std::string dcs_menu_open_style(const detail::DocumentImpl& impl,
-                                lxb_dom_element_t* trigger) {
+                                lxb_dom_element_t* trigger,
+                                lxb_dom_element_t* menu) {
+    (void) menu;
     int left = 0;
     int top = 0;
     const int trigger_idx =
@@ -8314,11 +8575,11 @@ std::string dcs_menu_open_style(const detail::DocumentImpl& impl,
     if (trigger_idx >= 0) {
         const Rect rect = block_border_visual_rect(impl, trigger_idx);
         left = rect.x;
-        top = rect.y + rect.h + 4;
+        top = rect.y + rect.h;
     }
     return "display:flex;position:fixed;left:" + std::to_string(left) +
            "px;top:" + std::to_string(top) +
-           "px;flex-direction:column;z-index:200";
+           "px;flex-direction:column;z-index:400";
 }
 
 bool toggle_dcs_menu(detail::DocumentImpl& impl,
@@ -8333,11 +8594,111 @@ bool toggle_dcs_menu(detail::DocumentImpl& impl,
         return changed;
     }
 
-    const std::string open_style = dcs_menu_open_style(impl, trigger);
+    const std::string open_style = dcs_menu_open_style(impl, trigger, menu);
     bool changed = close_all_dcs_menus(impl);
     changed = remove_attribute_on_element(impl, menu, "hidden") || changed;
     changed =
         set_attribute_on_element(impl, menu, "style", open_style) ||
+        changed;
+    changed =
+        set_attribute_on_element(impl, trigger, "aria-expanded", "true") ||
+        changed;
+    return changed;
+}
+
+bool is_dcs_popover_trigger(lxb_dom_element_t* elem) {
+    return elem && attr_string(elem, "data-dcs-toggle") == "popover" &&
+           !has_attr(elem, "disabled");
+}
+
+bool close_dcs_popover(detail::DocumentImpl& impl, lxb_dom_element_t* popover) {
+    if (!popover) return false;
+    bool changed = set_attribute_on_element(impl, popover, "hidden", "");
+    changed = remove_attribute_on_element(impl, popover, "style") || changed;
+    return changed;
+}
+
+bool close_all_dcs_popovers(detail::DocumentImpl& impl) {
+    std::vector<lxb_dom_element_t*> popovers;
+    auto collect = [&](lxb_dom_element_t* elem) {
+        if (class_list_contains(elem, "dcs-popover") &&
+            !has_attr(elem, "hidden")) {
+            popovers.push_back(elem);
+        }
+    };
+    walk_dom_elements(document_dom_root(impl), collect);
+
+    bool changed = false;
+    for (auto* popover : popovers) {
+        changed = close_dcs_popover(impl, popover) || changed;
+    }
+    return changed;
+}
+
+std::string dcs_popover_open_style(const detail::DocumentImpl& impl,
+                                   lxb_dom_element_t* trigger,
+                                   lxb_dom_element_t* popover) {
+    int left = 0;
+    int top = 0;
+    int pop_w = 220;
+    int pop_h = 120;
+    const int popover_idx =
+        block_index_for_element_or_ancestor(impl, popover);
+    if (popover_idx >= 0) {
+        const Rect pop_rect = block_border_visual_rect(impl, popover_idx);
+        if (pop_rect.w > 0) pop_w = pop_rect.w;
+        if (pop_rect.h > 0) pop_h = pop_rect.h;
+    }
+
+    const int trigger_idx =
+        block_index_for_element_or_ancestor(impl, trigger);
+    if (trigger_idx >= 0) {
+        const Rect rect = block_border_visual_rect(impl, trigger_idx);
+        const std::string placement = attr_string(trigger, "data-dcs-placement");
+        if (placement.rfind("top", 0) == 0) {
+            top = rect.y - pop_h - 6;
+        } else if (placement.rfind("left", 0) == 0) {
+            left = rect.x - pop_w - 6;
+            top = rect.y;
+        } else if (placement.rfind("right", 0) == 0) {
+            left = rect.x + rect.w + 6;
+            top = rect.y;
+        } else {
+            top = rect.y + rect.h + 6;
+        }
+        if (placement.find("end") != std::string::npos) {
+            left = rect.x + rect.w - pop_w;
+        } else if (placement.find("left") == std::string::npos &&
+                   placement.find("right") == std::string::npos) {
+            left = rect.x;
+        }
+    }
+
+    left = std::max(0, left);
+    top = std::max(0, top);
+    return "display:flex;position:fixed;left:" + std::to_string(left) +
+           "px;top:" + std::to_string(top) +
+           "px;z-index:400";
+}
+
+bool toggle_dcs_popover(detail::DocumentImpl& impl,
+                        lxb_dom_element_t* trigger,
+                        lxb_dom_element_t* popover) {
+    if (!trigger || !popover) return false;
+    if (!has_attr(popover, "hidden")) {
+        bool changed = close_dcs_popover(impl, popover);
+        changed =
+            set_attribute_on_element(impl, trigger, "aria-expanded", "false") ||
+            changed;
+        return changed;
+    }
+
+    const std::string open_style =
+        dcs_popover_open_style(impl, trigger, popover);
+    bool changed = close_all_dcs_popovers(impl);
+    changed = remove_attribute_on_element(impl, popover, "hidden") || changed;
+    changed =
+        set_attribute_on_element(impl, popover, "style", open_style) ||
         changed;
     changed =
         set_attribute_on_element(impl, trigger, "aria-expanded", "true") ||
@@ -8360,6 +8721,26 @@ bool find_dcs_menu_trigger_at(detail::DocumentImpl& impl,
         if (!menu || !class_list_contains(menu, "dcs-menu")) continue;
         out_trigger = elem;
         out_menu = menu;
+        return true;
+    }
+    return false;
+}
+
+bool find_dcs_popover_trigger_at(detail::DocumentImpl& impl,
+                                 int from_idx,
+                                 lxb_dom_element_t*& out_trigger,
+                                 lxb_dom_element_t*& out_popover) {
+    out_trigger = nullptr;
+    out_popover = nullptr;
+    for (int idx = from_idx;
+         idx >= 0 && idx < static_cast<int>(impl.blocks.size());
+         idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        auto* elem = element_for_block(impl, idx);
+        if (!is_dcs_popover_trigger(elem)) continue;
+        auto* popover = dcs_target_for_trigger(impl, elem);
+        if (!popover || !class_list_contains(popover, "dcs-popover")) continue;
+        out_trigger = elem;
+        out_popover = popover;
         return true;
     }
     return false;
@@ -9543,6 +9924,7 @@ DispatchResult Document::dispatch(const Event& ev) {
                 impl_->live_drag = pending_live_drag;
                 impl_->live_drag.start_x = ev.pos.x;
                 impl_->live_drag.start_y = ev.pos.y;
+                impl_->live_drag.last_x = ev.pos.x;
                 if (impl_->live_drag.kind == LiveControlKind::NumericInput) {
                     impl_->live_drag.defer_text_focus = true;
                     impl_->live_drag.focus_idx = target;
@@ -9668,9 +10050,26 @@ DispatchResult Document::dispatch(const Event& ev) {
                         changed_menu = true;
                     }
                 }
-                bool changed_selection = false;
+                bool changed_popover = false;
                 if (!toggled_checkbox && !changed_dropdown &&
                     !changed_button_group && !changed_menu) {
+                    lxb_dom_element_t* trigger_elem = nullptr;
+                    lxb_dom_element_t* popover_elem = nullptr;
+                    if (find_dcs_popover_trigger_at(*impl_,
+                                                    impl_->hovered_idx,
+                                                    trigger_elem,
+                                                    popover_elem)) {
+                        if (toggle_dcs_popover(*impl_, trigger_elem,
+                                               popover_elem)) {
+                            result.redraw_requested = true;
+                        }
+                        changed_popover = true;
+                    }
+                }
+                bool changed_selection = false;
+                if (!toggled_checkbox && !changed_dropdown &&
+                    !changed_button_group && !changed_menu &&
+                    !changed_popover) {
                     lxb_dom_element_t* select_box = nullptr;
                     lxb_dom_element_t* select_row = nullptr;
                     if (find_dcs_select_row_at(*impl_, impl_->hovered_idx,
@@ -9684,7 +10083,7 @@ DispatchResult Document::dispatch(const Event& ev) {
                 }
                 if (!toggled_checkbox && !changed_dropdown &&
                     !changed_button_group && !changed_menu &&
-                    !changed_selection) {
+                    !changed_popover && !changed_selection) {
                     lxb_dom_element_t* button_elem = nullptr;
                     if (find_button_control_at(*impl_, impl_->hovered_idx,
                                                button_elem) &&
@@ -9879,7 +10278,7 @@ int Document::hovered_cursor() const {
                                           resize_x, resize_y)) {
             if (resize_x && !resize_y) return 6;
             if (!resize_x && resize_y) return 7;
-            return 8;
+            return 4;
         }
     }
 #endif

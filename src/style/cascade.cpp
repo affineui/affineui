@@ -24,6 +24,7 @@
 #include <charconv>
 #include <cmath>
 #include <cctype>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -2161,6 +2162,22 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s,
             }
             break;
         }
+        case LXB_CSS_PROPERTY_Z_INDEX: {
+            const auto* v =
+                static_cast<const lxb_css_property_z_index_t*>(d->u.user);
+            if (v->type == LXB_CSS_Z_INDEX__INTEGER) {
+                const long raw = std::clamp(
+                    v->integer.num,
+                    static_cast<long>(std::numeric_limits<std::int16_t>::min()),
+                    static_cast<long>(std::numeric_limits<std::int16_t>::max()));
+                s.computed.z_index_low =
+                    static_cast<std::int16_t>(raw);
+            } else {
+                s.computed.z_index_low = 0;
+            }
+            s.computed.z_index_high = 0;
+            break;
+        }
         case LXB_CSS_PROPERTY_FLOAT: {
             const auto* v =
                 static_cast<const lxb_css_property_float_t*>(d->u.user);
@@ -2793,6 +2810,12 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s,
             awv(*v, s.computed.min_height, 0);
             break;
         }
+        case LXB_CSS_PROPERTY_MAX_HEIGHT: {
+            const auto* v =
+                static_cast<const lxb_css_property_max_height_t*>(d->u.user);
+            awv(*v, s.computed.max_height, -1);
+            break;
+        }
         case LXB_CSS_PROPERTY_OVERFLOW: {
             // CSS `overflow` shorthand applies the single value to both
             // overflow-x and overflow-y. AffineUI currently tracks only
@@ -3194,12 +3217,16 @@ public:
         s.computed.min_width = -1;
         s.computed.max_width = -1;
         s.computed.min_height = 0;
+        s.computed.max_height = -1;
+        s.computed.resize = ComputedStyle::Resize::None;
         // Percentage sizing (non-inherited; -1 = not a percentage).
         s.computed.width_pct_x100 = -1;
         s.computed.height_pct = -1;
         s.computed.flex_basis_pct = -1;
         s.computed.display = ComputedStyle::Display::Block;
         s.computed.position = ComputedStyle::Position::Static;
+        s.computed.z_index_low = 0;
+        s.computed.z_index_high = 0;
         s.computed.css_float = ComputedStyle::Float::None;
         s.computed.overflow_y = ComputedStyle::Overflow::Visible;
         // Positioned insets (non-inherited; CSS initial = auto).

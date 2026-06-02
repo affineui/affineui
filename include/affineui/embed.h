@@ -223,9 +223,11 @@ struct FrameTarget {
     /// sg_commit() once at the end of the frame.
     bool  commit = true;
 
-    /// Optional sub-rect of the target to draw into, in pixels. All-zero =
-    /// the whole target. Lets you place a panel at x,y of size w×h (the
-    /// document lays out at w×h). See docs/EMBEDDING_DESIGN.md §2.2.
+    /// Optional sub-rect of the target to draw into, in physical pixels.
+    /// All-zero = the whole target. The document lays out at
+    /// viewport.w / dpi_scale by viewport.h / dpi_scale CSS points, so
+    /// high-DPI rendering increases raster resolution without changing
+    /// authored CSS sizes. See docs/EMBEDDING_DESIGN.md §2.2.
     struct { int x = 0, y = 0, w = 0, h = 0; } viewport;
 
     struct {

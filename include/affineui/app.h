@@ -98,6 +98,9 @@ public:
     /// Current window size in logical pixels.
     Size window_size() const;
 
+    /// Current drawable framebuffer size in physical pixels.
+    Size framebuffer_size() const;
+
     /// Current display scale factor (1.0 = 1x, 2.0 = Retina-class).
     float dpi_scale() const;
 
