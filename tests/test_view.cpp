@@ -596,7 +596,13 @@ TEST_CASE("App dispatch supports numeric input horizontal drag") {
 
         affineui::Event drag{};
         drag.type = affineui::EventType::MouseMove;
-        drag.pos = {input.x + 40, input.y};
+        if (theme == affineui::ViewTheme::Decius) {
+            const auto combo_bounds = hovered_class_bounds(app, "dcs-combo");
+            REQUIRE(combo_bounds.w > 0);
+            drag.pos = {combo_bounds.x + combo_bounds.w - 4, input.y};
+        } else {
+            drag.pos = {input.x + 40, input.y};
+        }
         CHECK(app.dispatch(drag));
 
         affineui::Event up{};

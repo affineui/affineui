@@ -8311,6 +8311,12 @@ bool find_live_control_at(detail::DocumentImpl& impl,
         const bool has_max_attr =
             has_attr(elem, "max") || has_attr(elem, "data-max") ||
             (combo && has_attr(combo, "data-max"));
+        const bool has_fill_min_attr =
+            has_attr(elem, "data-fill-min") ||
+            (combo && has_attr(combo, "data-fill-min"));
+        const bool has_fill_max_attr =
+            has_attr(elem, "data-fill-max") ||
+            (combo && has_attr(combo, "data-fill-max"));
         out.min = element_attr_double(
             combo, "data-min",
             element_attr_double(elem, "min",
@@ -8319,18 +8325,34 @@ bool find_live_control_at(detail::DocumentImpl& impl,
             combo, "data-max",
             element_attr_double(elem, "max",
                 element_attr_double(elem, "data-max", 1.0)));
+        if (has_fill_min_attr) {
+            out.min = element_attr_double(
+                combo, "data-fill-min",
+                element_attr_double(elem, "data-fill-min", out.min));
+        }
+        if (has_fill_max_attr) {
+            out.max = element_attr_double(
+                combo, "data-fill-max",
+                element_attr_double(elem, "data-fill-max", out.max));
+        }
         out.start_value = element_attr_double(
             elem, "value", element_attr_double(elem, "data-value", out.min));
         if (kind == LiveControlKind::NumericInput) {
-            out.bounded = combo != nullptr && (has_min_attr || has_max_attr);
+            out.bounded = combo != nullptr &&
+                (has_min_attr || has_max_attr ||
+                 has_fill_min_attr || has_fill_max_attr);
             if (combo != nullptr) {
                 const int combo_idx = block_index_for_exact_element(impl, combo);
                 if (combo_idx >= 0) {
                     out.bounds = block_border_visual_rect(impl, combo_idx);
                 }
             }
-            if (!has_min_attr) out.min = out.start_value - 100000.0;
-            if (!has_max_attr) out.max = out.start_value + 100000.0;
+            if (!has_min_attr && !has_fill_min_attr) {
+                out.min = out.start_value - 100000.0;
+            }
+            if (!has_max_attr && !has_fill_max_attr) {
+                out.max = out.start_value + 100000.0;
+            }
             out.step = element_attr_double(
                 elem, "step",
                 element_attr_double(
@@ -8849,6 +8871,24 @@ int overlay_estimated_height(const detail::DocumentImpl& impl,
     return std::max(1, fallback);
 }
 
+int overlay_declared_outer_height(const detail::DocumentImpl& impl,
+                                  lxb_dom_element_t* elem,
+                                  int fallback) {
+    if (!elem || !impl.resolver) return overlay_estimated_height(impl, elem, fallback);
+
+    auto rs = impl.resolver->resolve(elem, impl.root_style);
+    const auto& cs = rs.computed;
+    if (cs.height > 0) {
+        int h = cs.height;
+        if (cs.box_sizing == detail::ComputedStyle::BoxSizing::ContentBox) {
+            h += cs.padding_top + cs.padding_bottom + cs.used_border_top() +
+                 cs.used_border_bottom();
+        }
+        return std::max(1, h);
+    }
+    return overlay_estimated_height(impl, elem, fallback);
+}
+
 struct OverlayPlacement {
     int left{8};
     int top{8};
@@ -8904,7 +8944,7 @@ OverlayPlacement place_anchored_overlay(const detail::DocumentImpl& impl,
     int left = anchor.x;
     int top = anchor.y + anchor.h + gap;
     if (side == "top") {
-        top = anchor.y - overlay_height - gap;
+        top = anchor.y - overlay_height;
         left = end_aligned ? anchor.x + anchor.w - overlay_width : anchor.x;
     } else if (side == "bottom") {
         top = anchor.y + anchor.h + gap;
@@ -8949,7 +8989,8 @@ std::string dropdown_menu_open_style(const detail::DocumentImpl& impl,
         width = std::max(1, anchor_rect.w);
     }
     const auto placed = place_anchored_overlay(
-        impl, anchor_rect, width, overlay_estimated_height(impl, menu, 160),
+        impl, anchor_rect, width,
+        overlay_declared_outer_height(impl, menu, 160),
         "bottom", 0);
     return "display:flex;position:fixed;left:" + std::to_string(placed.left) +
            "px;top:" + std::to_string(placed.top) +
@@ -9119,7 +9160,7 @@ std::string dcs_menu_open_style(const detail::DocumentImpl& impl,
     }
     const auto placed = place_anchored_overlay(
         impl, anchor_rect, overlay_width,
-        overlay_estimated_height(impl, menu, 160), "bottom", 0);
+        overlay_declared_outer_height(impl, menu, 160), "bottom", 0);
     std::string style = "display:flex;position:fixed;left:" +
         std::to_string(placed.left) + "px;top:" +
         std::to_string(placed.top) +
@@ -9237,7 +9278,8 @@ std::string dcs_popover_open_style(const detail::DocumentImpl& impl,
     std::string placement = attr_string(trigger, "data-dcs-placement");
     if (placement.empty()) placement = "bottom";
     const auto placed = place_anchored_overlay(
-        impl, anchor_rect, pop_w, pop_h, placement, 6);
+        impl, anchor_rect, pop_w,
+        overlay_declared_outer_height(impl, popover, pop_h), placement, 6);
     return "display:flex;position:fixed;left:" +
            std::to_string(placed.left) +
            "px;top:" + std::to_string(placed.top) +

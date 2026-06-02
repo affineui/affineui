@@ -810,8 +810,57 @@ TEST_CASE("fixed Decius menus flip upward to stay inside the viewport") {
     const auto open = find_hovered_chain_id(doc, "open-item", 180, 140);
     REQUIRE(open.x >= 0);
     const auto item_bounds = hovered_bounds_for_id(doc, "open-item");
+    const auto menu_bounds = hovered_bounds_for_id(doc, "menu-file");
     CHECK(item_bounds.y < trigger_bounds.y);
     CHECK(item_bounds.y >= 0);
+    CHECK(menu_bounds.y + menu_bounds.h == trigger_bounds.y);
+}
+
+TEST_CASE("top Decius popovers anchor to the trigger top edge") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        #tweaks { display: block; position: absolute; left: 80px; top: 72px;
+                  width: 72px; height: 28px; }
+        .dcs-popover[hidden] { display: none; }
+        .dcs-popover { display: block; width: 140px; height: 48px; }
+        #pop-body { display: block; width: 140px; height: 48px; }
+        </style>
+        <button id="tweaks" data-dcs-toggle="popover"
+                data-dcs-target="#popover" data-dcs-placement="top">
+            Tweaks
+        </button>
+        <div id="popover" class="dcs-popover" hidden>
+            <div id="pop-body">Theme tweaks</div>
+        </div>
+    )HTML");
+    doc.layout(260, 140, &painter);
+
+    auto trigger = find_hovered_id(doc, "tweaks", 260, 140);
+    REQUIRE(trigger.x >= 0);
+    const auto trigger_bounds = hovered_bounds_for_id(doc, "tweaks");
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = trigger;
+    doc.dispatch(down);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = trigger;
+    doc.dispatch(up);
+    doc.layout(260, 140, &painter);
+
+    const auto pop = find_hovered_chain_id(doc, "pop-body", 260, 140);
+    REQUIRE(pop.x >= 0);
+    const auto popover_bounds = hovered_bounds_for_id(doc, "popover");
+    REQUIRE(popover_bounds.y >= 0);
+    CHECK(popover_bounds.y + popover_bounds.h == trigger_bounds.y);
 }
 
 TEST_CASE("fixed inline geometry restyles against the viewport") {
@@ -974,6 +1023,66 @@ TEST_CASE("UiControls script maps bounded Decius combo value to bar position") {
         std::stod(hovered_attr_for_id(doc, "combo-value", "value"));
     CHECK(value >= 49.0);
     CHECK(value <= 51.0);
+    CHECK(hovered_attr_for_id(doc, "combo", "style") == "--fill:50%");
+}
+
+TEST_CASE("UiControls script maps generated Decius combo fill range to mouse position") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-combo { display: block; position: relative; width: 100px;
+                     height: 24px; margin: 8px; }
+        .dcs-combo__fill { display: block; position: absolute; left: 0;
+                           top: 0; width: var(--fill, 50%);
+                           height: 24px; background: #3dd68a; }
+        #combo-value { display: block; width: 50px; height: 24px;
+                       margin-left: 50px; }
+        </style>
+        <div id="combo" class="dcs-combo" data-dcs-combo
+             data-value="10" style="--fill:50%">
+            <div class="dcs-combo__fill"></div>
+            <input id="combo-value" class="dcs-combo__value" type="number"
+                   value="10" data-fill-min="9" data-fill-max="11"
+                   data-step="0.01" data-aui-name="combo">
+        </div>
+    )HTML");
+    doc.layout(180, 80, &painter);
+
+    const auto input = find_hovered_id(doc, "combo-value", 180, 80);
+    REQUIRE(input.x >= 0);
+    const auto combo_hit = find_hovered_chain_id(doc, "combo", 180, 80);
+    REQUIRE(combo_hit.x >= 0);
+    const auto combo_bounds = hovered_bounds_for_id(doc, "combo");
+    REQUIRE(combo_bounds.w == 100);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {combo_bounds.x + combo_bounds.w - 10, input.y};
+    doc.dispatch(down);
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {combo_bounds.x + combo_bounds.w / 2, input.y};
+    doc.dispatch(move);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = move.pos;
+    doc.dispatch(up);
+    doc.layout(180, 80, &painter);
+
+    const auto updated = find_hovered_id(doc, "combo-value", 180, 80);
+    REQUIRE(updated.x >= 0);
+    const double value =
+        std::stod(hovered_attr_for_id(doc, "combo-value", "value"));
+    CHECK(value >= 9.99);
+    CHECK(value <= 10.01);
     CHECK(hovered_attr_for_id(doc, "combo", "style") == "--fill:50%");
 }
 
