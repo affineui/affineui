@@ -608,6 +608,86 @@ TEST_CASE("UiControls script toggles Decius target menus") {
     CHECK(find_hovered_chain_id(doc, "open-item", 260, 120).x < 0);
 }
 
+TEST_CASE("UiControls script keeps one Decius popup layer open and closes outside") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .bar { display: flex; }
+        .dcs-menubar__item { display: block; width: 64px; height: 28px; }
+        #outside { display: block; position: absolute; left: 0; top: 92px;
+                   width: 180px; height: 28px; }
+        .dcs-menu[hidden], .dcs-popover[hidden] { display: none; }
+        .dcs-menu { display: flex; flex-direction: column; width: 132px; }
+        .dcs-menu__item { display: block; width: 132px; height: 24px; }
+        .dcs-popover { display: block; width: 140px; height: 48px; }
+        #pop-body { display: block; width: 140px; height: 48px; }
+        </style>
+        <div class="bar">
+            <button id="file" class="dcs-menubar__item"
+                    data-dcs-toggle="menu" data-dcs-target="#menu-file">File</button>
+            <button id="tweaks" class="dcs-menubar__item"
+                    data-dcs-toggle="popover" data-dcs-target="#popover">Tweaks</button>
+        </div>
+        <div id="menu-file" class="dcs-menu" hidden>
+            <div id="open-item" class="dcs-menu__item" data-dcs-value="open">Open</div>
+        </div>
+        <div id="popover" class="dcs-popover" hidden>
+            <div id="pop-body">Theme tweaks</div>
+        </div>
+        <button id="outside">Outside</button>
+    )HTML");
+    doc.layout(260, 140, &painter);
+
+    auto click_at = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        doc.dispatch(down);
+
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        doc.dispatch(up);
+    };
+
+    auto file = find_hovered_id(doc, "file", 260, 140);
+    REQUIRE(file.x >= 0);
+    click_at(file);
+    doc.layout(260, 140, &painter);
+    file = find_hovered_id(doc, "file", 260, 140);
+    REQUIRE(file.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "file", "aria-expanded") == "true");
+    CHECK(find_hovered_chain_id(doc, "open-item", 260, 140).x >= 0);
+
+    auto tweaks = find_hovered_id(doc, "tweaks", 260, 140);
+    REQUIRE(tweaks.x >= 0);
+    click_at(tweaks);
+    doc.layout(260, 140, &painter);
+    file = find_hovered_id(doc, "file", 260, 140);
+    REQUIRE(file.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "file", "aria-expanded") == "false");
+    tweaks = find_hovered_id(doc, "tweaks", 260, 140);
+    REQUIRE(tweaks.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "tweaks", "aria-expanded") == "true");
+    CHECK(find_hovered_chain_id(doc, "open-item", 260, 140).x < 0);
+    CHECK(find_hovered_chain_id(doc, "pop-body", 260, 140).x >= 0);
+
+    const auto outside = find_hovered_id(doc, "outside", 260, 140);
+    REQUIRE(outside.x >= 0);
+    click_at(outside);
+    doc.layout(260, 140, &painter);
+    tweaks = find_hovered_id(doc, "tweaks", 260, 140);
+    REQUIRE(tweaks.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "tweaks", "aria-expanded") == "false");
+    CHECK(find_hovered_chain_id(doc, "pop-body", 260, 140).x < 0);
+}
+
 TEST_CASE("fixed Decius menus stay under scrolled triggers without changing scroll extents") {
     affineui::Document doc;
     RecordingPainter painter;
@@ -684,6 +764,54 @@ TEST_CASE("fixed Decius menus stay under scrolled triggers without changing scro
     const auto open_bounds = hovered_bounds_for_id(doc, "open-item");
     REQUIRE(open_bounds.y >= 0);
     CHECK(open_bounds.y == trigger_bounds.y + trigger_bounds.h);
+}
+
+TEST_CASE("fixed Decius menus flip upward to stay inside the viewport") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        #file { display: block; position: absolute; left: 16px; top: 96px;
+                width: 80px; height: 24px; }
+        .dcs-menu[hidden] { display: none; }
+        .dcs-menu { display: flex; flex-direction: column; width: 132px; }
+        .dcs-menu__item { display: block; width: 132px; height: 24px; }
+        </style>
+        <button id="file" class="dcs-menubar__item"
+                data-dcs-toggle="menu" data-dcs-target="#menu-file">File</button>
+        <div id="menu-file" class="dcs-menu" hidden>
+            <div id="open-item" class="dcs-menu__item" data-dcs-value="open">Open</div>
+            <div class="dcs-menu__item">Save</div>
+            <div class="dcs-menu__item">Export</div>
+            <div class="dcs-menu__item">Close</div>
+        </div>
+    )HTML");
+    doc.layout(180, 140, &painter);
+
+    auto file = find_hovered_id(doc, "file", 180, 140);
+    REQUIRE(file.x >= 0);
+    const auto trigger_bounds = hovered_bounds_for_id(doc, "file");
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = file;
+    doc.dispatch(down);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = file;
+    doc.dispatch(up);
+    doc.layout(180, 140, &painter);
+
+    const auto open = find_hovered_chain_id(doc, "open-item", 180, 140);
+    REQUIRE(open.x >= 0);
+    const auto item_bounds = hovered_bounds_for_id(doc, "open-item");
+    CHECK(item_bounds.y < trigger_bounds.y);
+    CHECK(item_bounds.y >= 0);
 }
 
 TEST_CASE("fixed inline geometry restyles against the viewport") {

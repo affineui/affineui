@@ -233,6 +233,16 @@ TEST_CASE("View framework personalities apply default and explicit selectors") {
     CHECK(html.find(".aui-keycolor-swatch.is-active{border-color:var(--dcs-bg-app") !=
           std::string::npos);
     CHECK(html.find("0 0 0 4px var(--aui-swatch)") != std::string::npos);
+    CHECK(html.find(".aui-test-nav-item.is-active{background:var(--dcs-accent") !=
+          std::string::npos);
+    CHECK(html.find("color:var(--dcs-accent-text,#fff)") !=
+          std::string::npos);
+    CHECK(html.find(".aui-test-topbar{display:flex;align-items:stretch;flex-wrap:nowrap") !=
+          std::string::npos);
+    CHECK(html.find(".aui-test-control--top-density,.aui-test-control--top-accent{display:none}") !=
+          std::string::npos);
+    CHECK(html.find(".aui-test-control--top-style{display:none}") !=
+          std::string::npos);
 
     decius.find_widget("panel").selector(affineui::decius::selector::size,
                                          "med");
@@ -751,9 +761,12 @@ TEST_CASE("App dispatch invokes command dropdown and button-group callbacks") {
         const auto edit = find_hovered_tag_attr(app, "button", "value",
                                                 "Edit", 420, 420);
         REQUIRE(edit.x >= 0);
+        const auto edit_bounds = hovered_attr_bounds(app, "value", "Edit");
         const auto menu_bounds = hovered_class_bounds(app, "aui-select__menu");
         REQUIRE(menu_bounds.y >= 0);
         CHECK(menu_bounds.y == select_bounds.y + select_bounds.h);
+        CHECK(menu_bounds.w == select_bounds.w);
+        CHECK(edit_bounds.w >= menu_bounds.w - 2);
         click_at(edit);
         CHECK(mode == "Edit");
         app.document().layout(420, 420);
@@ -832,6 +845,7 @@ TEST_CASE("App command dropdowns stay anchored in scrolled panels") {
     const auto menu_bounds = hovered_class_bounds(app, "aui-select__menu");
     REQUIRE(menu_bounds.y >= 0);
     CHECK(menu_bounds.y == select_bounds.y + select_bounds.h);
+    CHECK(menu_bounds.w == select_bounds.w);
 
     click_at(edit);
     CHECK(mode == "Edit");
@@ -986,6 +1000,7 @@ TEST_CASE("App Decius colorfield menus stay anchored in scrolled panels") {
     const auto menu_bounds = hovered_class_bounds(app, "aui-color-menu");
     REQUIRE(menu_bounds.y >= 0);
     CHECK(menu_bounds.y == field_bounds.y + field_bounds.h);
+    CHECK(menu_bounds.w == field_bounds.w);
 
     click_at(green);
     CHECK(tint == "#3dd68a");

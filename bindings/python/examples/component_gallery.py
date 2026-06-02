@@ -313,7 +313,11 @@ class ComponentGalleryApp:
                 build=build_group,
             ).attr("role", "group")
 
-        v.container(classes="aui-test-control", key=key, build=build_control)
+        v.container(
+            classes=f"aui-test-control aui-test-control--{key}",
+            key=key,
+            build=build_control,
+        )
 
     def _build_selector_controls(self, v: ui.View) -> None:
         if self.is_decius():
@@ -357,7 +361,11 @@ class ComponentGalleryApp:
                 swatch.attr("title", f"{accent.title()} key color")
                 swatch.on_click(lambda value=accent: self.set_accent(value))
 
-        v.container(classes="aui-test-keycolor", key="top-accent", build=build_group)
+        v.container(
+            classes="aui-test-keycolor aui-test-control--top-accent",
+            key="top-accent",
+            build=build_group,
+        )
 
     def _topbar_class(self) -> str:
         if self.is_decius():

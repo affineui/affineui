@@ -8805,6 +8805,129 @@ bool update_dropdown_selection_states(detail::DocumentImpl& impl,
     return changed;
 }
 
+bool close_transient_layers(detail::DocumentImpl& impl,
+                            lxb_dom_element_t* except = nullptr);
+
+int viewport_width_for_overlay(const detail::DocumentImpl& impl) {
+    if (impl.media_viewport_width_px > 0) return impl.media_viewport_width_px;
+    return std::max(1, impl.content_size.width);
+}
+
+int viewport_height_for_overlay(const detail::DocumentImpl& impl) {
+    if (impl.media_viewport_height_px > 0) return impl.media_viewport_height_px;
+    return std::max(1, impl.content_size.height);
+}
+
+int overlay_item_count(lxb_dom_element_t* elem) {
+    if (!elem) return 0;
+    int count = 0;
+    for (auto* child = lxb_dom_node_first_child(lxb_dom_interface_node(elem));
+         child != nullptr; child = lxb_dom_node_next(child)) {
+        if (child->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* child_elem = lxb_dom_interface_element(child);
+        if (class_list_contains(child_elem, "dcs-menu__item") ||
+            class_list_contains(child_elem, "dropdown-item") ||
+            attr_string(child_elem, "role") == "option" ||
+            attr_string(child_elem, "role") == "menuitem") {
+            ++count;
+        }
+        count += overlay_item_count(child_elem);
+    }
+    return count;
+}
+
+int overlay_estimated_height(const detail::DocumentImpl& impl,
+                             lxb_dom_element_t* elem,
+                             int fallback) {
+    const int idx = block_index_for_exact_element(impl, elem);
+    if (idx >= 0) {
+        const Rect rect = block_border_visual_rect(impl, idx);
+        if (rect.h > 0) return rect.h;
+    }
+    const int count = overlay_item_count(elem);
+    if (count > 0) return std::clamp(count * 24 + 8, 24, 240);
+    return std::max(1, fallback);
+}
+
+struct OverlayPlacement {
+    int left{8};
+    int top{8};
+    int max_height{1};
+    std::string side{"bottom"};
+};
+
+OverlayPlacement place_anchored_overlay(const detail::DocumentImpl& impl,
+                                        Rect anchor,
+                                        int overlay_width,
+                                        int overlay_height,
+                                        std::string_view placement,
+                                        int gap) {
+    constexpr int edge = 8;
+    const int viewport_w = viewport_width_for_overlay(impl);
+    const int viewport_h = viewport_height_for_overlay(impl);
+    overlay_width = std::clamp(std::max(1, overlay_width), 1,
+                               std::max(1, viewport_w - edge * 2));
+    const int desired_height =
+        std::clamp(std::max(1, overlay_height), 1,
+                   std::max(1, viewport_h - edge * 2));
+
+    std::string side{"bottom"};
+    if (placement.rfind("top", 0) == 0) side = "top";
+    else if (placement.rfind("left", 0) == 0) side = "left";
+    else if (placement.rfind("right", 0) == 0) side = "right";
+    const bool end_aligned = placement.find("end") != std::string_view::npos;
+
+    const int above = anchor.y - edge;
+    const int below = viewport_h - (anchor.y + anchor.h) - edge;
+    const int left_space = anchor.x - edge;
+    const int right_space = viewport_w - (anchor.x + anchor.w) - edge;
+    if (side == "bottom" && below < desired_height + gap && above > below) {
+        side = "top";
+    } else if (side == "top" && above < desired_height + gap && below > above) {
+        side = "bottom";
+    } else if (side == "right" &&
+               right_space < overlay_width + gap && left_space > right_space) {
+        side = "left";
+    } else if (side == "left" &&
+               left_space < overlay_width + gap && right_space > left_space) {
+        side = "right";
+    }
+
+    int available_height = std::max(1, viewport_h - edge * 2);
+    if (side == "bottom") {
+        available_height = std::max(1, below);
+    } else if (side == "top") {
+        available_height = std::max(1, above);
+    }
+    overlay_height = std::min(desired_height, available_height);
+
+    int left = anchor.x;
+    int top = anchor.y + anchor.h + gap;
+    if (side == "top") {
+        top = anchor.y - overlay_height - gap;
+        left = end_aligned ? anchor.x + anchor.w - overlay_width : anchor.x;
+    } else if (side == "bottom") {
+        top = anchor.y + anchor.h + gap;
+        left = end_aligned ? anchor.x + anchor.w - overlay_width : anchor.x;
+    } else if (side == "left") {
+        left = anchor.x - overlay_width - gap;
+        top = anchor.y;
+    } else {
+        left = anchor.x + anchor.w + gap;
+        top = anchor.y;
+    }
+
+    const int max_left =
+        std::max(edge, viewport_w - overlay_width - edge);
+    const int max_top = std::max(edge, viewport_h - overlay_height - edge);
+    OverlayPlacement out;
+    out.left = std::clamp(left, edge, max_left);
+    out.top = std::clamp(top, edge, max_top);
+    out.max_height = overlay_height;
+    out.side = std::move(side);
+    return out;
+}
+
 bool hide_dropdown_menu(detail::DocumentImpl& impl, lxb_dom_element_t* group) {
     auto* menu = first_descendant_with_class(group, "aui-select__menu");
     if (!menu) return false;
@@ -8816,24 +8939,24 @@ bool hide_dropdown_menu(detail::DocumentImpl& impl, lxb_dom_element_t* group) {
 std::string dropdown_menu_open_style(const detail::DocumentImpl& impl,
                                      lxb_dom_element_t* group,
                                      lxb_dom_element_t* menu) {
-    (void) menu;
-    int left = 0;
-    int top = 0;
     int width = 160;
+    Rect anchor_rect{0, 0, width, 1};
     auto* anchor = first_descendant_tag(group, "select");
     if (!anchor) anchor = group;
     const int anchor_idx = block_index_for_element_or_ancestor(impl, anchor);
     if (anchor_idx >= 0) {
-        const Rect rect = block_border_visual_rect(impl, anchor_idx);
-        left = rect.x;
-        top = rect.y + rect.h;
-        width = std::max(1, rect.w);
+        anchor_rect = block_border_visual_rect(impl, anchor_idx);
+        width = std::max(1, anchor_rect.w);
     }
-    return "display:flex;position:fixed;left:" + std::to_string(left) +
-           "px;top:" + std::to_string(top) +
+    const auto placed = place_anchored_overlay(
+        impl, anchor_rect, width, overlay_estimated_height(impl, menu, 160),
+        "bottom", 0);
+    return "display:flex;position:fixed;left:" + std::to_string(placed.left) +
+           "px;top:" + std::to_string(placed.top) +
            "px;width:" + std::to_string(width) +
            "px;min-width:" + std::to_string(width) +
-           "px;max-height:240px;overflow:auto;flex-direction:column;z-index:400";
+           "px;max-height:" + std::to_string(placed.max_height) +
+           "px;overflow:auto;flex-direction:column;align-items:stretch;z-index:400";
 }
 
 bool toggle_dropdown_menu(detail::DocumentImpl& impl, lxb_dom_element_t* group) {
@@ -8843,7 +8966,8 @@ bool toggle_dropdown_menu(detail::DocumentImpl& impl, lxb_dom_element_t* group) 
         return hide_dropdown_menu(impl, group);
     }
     const std::string open_style = dropdown_menu_open_style(impl, group, menu);
-    bool changed = remove_attribute_on_element(impl, menu, "hidden");
+    bool changed = close_transient_layers(impl, menu);
+    changed = remove_attribute_on_element(impl, menu, "hidden") || changed;
     changed = set_attribute_on_element(
         impl, menu, "style", open_style) ||
         changed;
@@ -8880,6 +9004,32 @@ lxb_dom_node_t* document_dom_root(detail::DocumentImpl& impl) {
     if (!impl.doc) return nullptr;
     auto* body = lxb_html_document_body_element(impl.doc);
     return body ? lxb_dom_interface_node(body) : lxb_dom_interface_node(impl.doc);
+}
+
+bool close_dropdown_menu_element(detail::DocumentImpl& impl,
+                                 lxb_dom_element_t* menu) {
+    if (!menu) return false;
+    bool changed = set_attribute_on_element(impl, menu, "hidden", "");
+    changed = remove_attribute_on_element(impl, menu, "style") || changed;
+    return changed;
+}
+
+bool close_all_dropdown_menus(detail::DocumentImpl& impl,
+                              lxb_dom_element_t* except = nullptr) {
+    std::vector<lxb_dom_element_t*> menus;
+    auto collect = [&](lxb_dom_element_t* elem) {
+        if (elem != except && class_list_contains(elem, "aui-select__menu") &&
+            !has_attr(elem, "hidden")) {
+            menus.push_back(elem);
+        }
+    };
+    walk_dom_elements(document_dom_root(impl), collect);
+
+    bool changed = false;
+    for (auto* menu : menus) {
+        changed = close_dropdown_menu_element(impl, menu) || changed;
+    }
+    return changed;
 }
 
 std::string target_id_from_selector(std::string_view selector) {
@@ -8933,10 +9083,12 @@ bool close_dcs_menu(detail::DocumentImpl& impl, lxb_dom_element_t* menu) {
     return changed;
 }
 
-bool close_all_dcs_menus(detail::DocumentImpl& impl) {
+bool close_all_dcs_menus(detail::DocumentImpl& impl,
+                         lxb_dom_element_t* except = nullptr) {
     std::vector<lxb_dom_element_t*> menus;
     auto collect = [&](lxb_dom_element_t* elem) {
-        if (class_list_contains(elem, "dcs-menu") && !has_attr(elem, "hidden")) {
+        if (elem != except && class_list_contains(elem, "dcs-menu") &&
+            !has_attr(elem, "hidden")) {
             menus.push_back(elem);
         }
     };
@@ -8953,19 +9105,30 @@ bool close_all_dcs_menus(detail::DocumentImpl& impl) {
 std::string dcs_menu_open_style(const detail::DocumentImpl& impl,
                                 lxb_dom_element_t* trigger,
                                 lxb_dom_element_t* menu) {
-    (void) menu;
-    int left = 0;
-    int top = 0;
+    Rect anchor_rect{0, 0, 80, 1};
+    int overlay_width = class_list_contains(menu, "aui-color-menu") ? 160 : 180;
+    const bool stretch_to_anchor = class_list_contains(menu, "aui-color-menu");
     const int trigger_idx =
         block_index_for_element_or_ancestor(impl, trigger);
     if (trigger_idx >= 0) {
-        const Rect rect = block_border_visual_rect(impl, trigger_idx);
-        left = rect.x;
-        top = rect.y + rect.h;
+        anchor_rect = block_border_visual_rect(impl, trigger_idx);
+        if (stretch_to_anchor) {
+            overlay_width = std::max(1, anchor_rect.w);
+        }
     }
-    return "display:flex;position:fixed;left:" + std::to_string(left) +
-           "px;top:" + std::to_string(top) +
-           "px;flex-direction:column;z-index:400";
+    const auto placed = place_anchored_overlay(
+        impl, anchor_rect, overlay_width,
+        overlay_estimated_height(impl, menu, 160), "bottom", 0);
+    std::string style = "display:flex;position:fixed;left:" +
+        std::to_string(placed.left) + "px;top:" +
+        std::to_string(placed.top) +
+        "px;max-height:" + std::to_string(placed.max_height) +
+        "px;overflow:auto;flex-direction:column;align-items:stretch;z-index:400";
+    if (stretch_to_anchor) {
+        style += ";width:" + std::to_string(overlay_width) +
+                 "px;min-width:" + std::to_string(overlay_width) + "px";
+    }
+    return style;
 }
 
 bool toggle_dcs_menu(detail::DocumentImpl& impl,
@@ -8981,7 +9144,7 @@ bool toggle_dcs_menu(detail::DocumentImpl& impl,
     }
 
     const std::string open_style = dcs_menu_open_style(impl, trigger, menu);
-    bool changed = close_all_dcs_menus(impl);
+    bool changed = close_transient_layers(impl, menu);
     changed = remove_attribute_on_element(impl, menu, "hidden") || changed;
     changed =
         set_attribute_on_element(impl, menu, "style", open_style) ||
@@ -8997,6 +9160,23 @@ bool is_dcs_popover_trigger(lxb_dom_element_t* elem) {
            !has_attr(elem, "disabled");
 }
 
+bool set_all_dcs_popover_triggers_expanded(detail::DocumentImpl& impl,
+                                           std::string_view value) {
+    std::vector<lxb_dom_element_t*> triggers;
+    auto collect = [&](lxb_dom_element_t* elem) {
+        if (is_dcs_popover_trigger(elem)) triggers.push_back(elem);
+    };
+    walk_dom_elements(document_dom_root(impl), collect);
+
+    bool changed = false;
+    for (auto* trigger : triggers) {
+        changed =
+            set_attribute_on_element(impl, trigger, "aria-expanded", value) ||
+            changed;
+    }
+    return changed;
+}
+
 bool close_dcs_popover(detail::DocumentImpl& impl, lxb_dom_element_t* popover) {
     if (!popover) return false;
     bool changed = set_attribute_on_element(impl, popover, "hidden", "");
@@ -9004,10 +9184,11 @@ bool close_dcs_popover(detail::DocumentImpl& impl, lxb_dom_element_t* popover) {
     return changed;
 }
 
-bool close_all_dcs_popovers(detail::DocumentImpl& impl) {
+bool close_all_dcs_popovers(detail::DocumentImpl& impl,
+                            lxb_dom_element_t* except = nullptr) {
     std::vector<lxb_dom_element_t*> popovers;
     auto collect = [&](lxb_dom_element_t* elem) {
-        if (class_list_contains(elem, "dcs-popover") &&
+        if (elem != except && class_list_contains(elem, "dcs-popover") &&
             !has_attr(elem, "hidden")) {
             popovers.push_back(elem);
         }
@@ -9018,16 +9199,24 @@ bool close_all_dcs_popovers(detail::DocumentImpl& impl) {
     for (auto* popover : popovers) {
         changed = close_dcs_popover(impl, popover) || changed;
     }
+    changed = set_all_dcs_popover_triggers_expanded(impl, "false") || changed;
+    return changed;
+}
+
+bool close_transient_layers(detail::DocumentImpl& impl,
+                            lxb_dom_element_t* except) {
+    bool changed = false;
+    changed = close_all_dropdown_menus(impl, except) || changed;
+    changed = close_all_dcs_menus(impl, except) || changed;
+    changed = close_all_dcs_popovers(impl, except) || changed;
     return changed;
 }
 
 std::string dcs_popover_open_style(const detail::DocumentImpl& impl,
                                    lxb_dom_element_t* trigger,
                                    lxb_dom_element_t* popover) {
-    int left = 0;
-    int top = 0;
     int pop_w = 220;
-    int pop_h = 120;
+    int pop_h = 64;
     const int popover_idx =
         block_index_for_element_or_ancestor(impl, popover);
     if (popover_idx >= 0) {
@@ -9036,35 +9225,22 @@ std::string dcs_popover_open_style(const detail::DocumentImpl& impl,
         if (pop_rect.h > 0) pop_h = pop_rect.h;
     }
 
+    Rect anchor_rect{0, 0, 1, 1};
     const int trigger_idx =
         block_index_for_element_or_ancestor(impl, trigger);
     if (trigger_idx >= 0) {
-        const Rect rect = block_border_visual_rect(impl, trigger_idx);
-        const std::string placement = attr_string(trigger, "data-dcs-placement");
-        if (placement.rfind("top", 0) == 0) {
-            top = rect.y - pop_h - 6;
-        } else if (placement.rfind("left", 0) == 0) {
-            left = rect.x - pop_w - 6;
-            top = rect.y;
-        } else if (placement.rfind("right", 0) == 0) {
-            left = rect.x + rect.w + 6;
-            top = rect.y;
-        } else {
-            top = rect.y + rect.h + 6;
-        }
-        if (placement.find("end") != std::string::npos) {
-            left = rect.x + rect.w - pop_w;
-        } else if (placement.find("left") == std::string::npos &&
-                   placement.find("right") == std::string::npos) {
-            left = rect.x;
-        }
+        anchor_rect = block_border_visual_rect(impl, trigger_idx);
     }
 
-    left = std::max(0, left);
-    top = std::max(0, top);
-    return "display:flex;position:fixed;left:" + std::to_string(left) +
-           "px;top:" + std::to_string(top) +
-           "px;z-index:400";
+    std::string placement = attr_string(trigger, "data-dcs-placement");
+    if (placement.empty()) placement = "bottom";
+    const auto placed = place_anchored_overlay(
+        impl, anchor_rect, pop_w, pop_h, placement, 6);
+    return "display:flex;position:fixed;left:" +
+           std::to_string(placed.left) +
+           "px;top:" + std::to_string(placed.top) +
+           "px;max-height:" + std::to_string(placed.max_height) +
+           "px;overflow:auto;z-index:400";
 }
 
 bool toggle_dcs_popover(detail::DocumentImpl& impl,
@@ -9081,7 +9257,7 @@ bool toggle_dcs_popover(detail::DocumentImpl& impl,
 
     const std::string open_style =
         dcs_popover_open_style(impl, trigger, popover);
-    bool changed = close_all_dcs_popovers(impl);
+    bool changed = close_transient_layers(impl, popover);
     changed = remove_attribute_on_element(impl, popover, "hidden") || changed;
     changed =
         set_attribute_on_element(impl, popover, "style", open_style) ||
@@ -9334,6 +9510,32 @@ bool update_dcs_select_control(detail::DocumentImpl& impl,
 
     emit_widget_change(impl, box, dcs_selected_rows_value(rows));
     return changed;
+}
+
+bool is_open_transient_layer(lxb_dom_element_t* elem) {
+    return elem && !has_attr(elem, "hidden") &&
+           (class_list_contains(elem, "aui-select__menu") ||
+            class_list_contains(elem, "dcs-menu") ||
+            class_list_contains(elem, "dcs-popover"));
+}
+
+bool click_preserves_transient_layers(detail::DocumentImpl& impl,
+                                      int from_idx) {
+    for (int idx = from_idx;
+         idx >= 0 && idx < static_cast<int>(impl.blocks.size());
+         idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        auto* elem = element_for_block(impl, idx);
+        if (!elem) continue;
+        if (is_open_transient_layer(elem)) return true;
+        if (is_dcs_menu_trigger(elem) || is_dcs_popover_trigger(elem)) {
+            return true;
+        }
+        if (attr_string(elem, "data-aui-widget") == "dropdown" ||
+            tag_name(elem) == "select") {
+            return true;
+        }
+    }
+    return false;
 }
 
 // Generic chain-refresh helper used by both :hover (chain follows the
@@ -10397,6 +10599,15 @@ DispatchResult Document::dispatch(const Event& ev) {
 #if !defined(AFFINEUI_STUB_BUILD)
             if (impl_->ui_control_script_attached &&
                 ev.button == MouseButton::Left && !released_live_control) {
+                if (!click_preserves_transient_layers(*impl_, impl_->hovered_idx) &&
+                    close_transient_layers(*impl_)) {
+                    result.redraw_requested = true;
+                    impl_->hovered_idx =
+                        hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
+                    if (refresh_hover_chain(*impl_)) {
+                        result.redraw_requested = true;
+                    }
+                }
                 bool toggled_checkbox = false;
                 int check_idx = -1;
                 lxb_dom_element_t* check_elem = nullptr;
@@ -10514,6 +10725,12 @@ DispatchResult Document::dispatch(const Event& ev) {
             // ESC clears focus, matching the convention browsers use for
             // dismissing a focused control.
             if (ev.key == Key::Escape) {
+#if !defined(AFFINEUI_STUB_BUILD)
+                if (impl_->ui_control_script_attached &&
+                    close_transient_layers(*impl_)) {
+                    result.redraw_requested = true;
+                }
+#endif
                 if (set_focus(*impl_, -1)) result.redraw_requested = true;
                 break;
             }
