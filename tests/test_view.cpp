@@ -153,6 +153,22 @@ affineui::Rect hovered_attr_bounds(const affineui::App& app,
     return {-1, -1, 0, 0};
 }
 
+affineui::Rect hovered_tag_attr_bounds(const affineui::App& app,
+                                       std::string_view tag,
+                                       std::string_view attr_name,
+                                       std::string_view attr_value) {
+    const auto chain = app.document().hovered_info_chain();
+    for (const auto& info : chain) {
+        if (info.tag != tag) continue;
+        for (const auto& attr : info.attrs) {
+            if (attr.first == attr_name && attr.second == attr_value) {
+                return info.bounds;
+            }
+        }
+    }
+    return {-1, -1, 0, 0};
+}
+
 }  // namespace
 
 TEST_CASE("View emits remote create patches on first reconcile") {
@@ -637,7 +653,11 @@ TEST_CASE("App dispatch edits and resizes command textareas") {
                                                     "data-aui-name", "notes",
                                                     420, 240);
         REQUIRE(textarea.x >= 0);
-        const auto before = app.document().hovered_info().bounds;
+        const auto before = hovered_tag_attr_bounds(
+            app, "textarea", "data-aui-name", "notes");
+        REQUIRE(before.x >= 0);
+        CHECK(before.w > 32);
+        CHECK(before.h > 24);
 
         affineui::Event down{};
         down.type = affineui::EventType::MouseDown;

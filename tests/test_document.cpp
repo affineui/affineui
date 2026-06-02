@@ -1369,6 +1369,185 @@ TEST_CASE("UiControls script updates Decius list selection") {
     CHECK(changes.back().value == "b,c");
 }
 
+TEST_CASE("UiControls script toggles Decius tree chevrons without selecting rows") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-tree { display: block; width: 180px; }
+        .dcs-tree__row { display: flex; align-items: center; height: 24px; }
+        .dcs-tree__row[hidden] { display: none; }
+        .dcs-tree__chevron { display: block; width: 20px; height: 24px; }
+        .dcs-tree__label { flex: 1; }
+        </style>
+        <div id="scene" class="dcs-tree" data-dcs-select
+             data-aui-name="scene">
+            <div id="root" class="dcs-tree__row" style="--depth:0">
+                <span id="root-chev"
+                      class="dcs-tree__chevron dcs-tree__chevron--open"></span>
+                <span class="dcs-tree__label">Scene</span>
+            </div>
+            <div id="camera" class="dcs-tree__row" style="--depth:1">
+                <span class="dcs-tree__chevron"></span>
+                <span class="dcs-tree__label">Camera</span>
+            </div>
+        </div>
+    )HTML");
+    doc.layout(240, 90, &painter);
+
+    auto click_at = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        doc.dispatch(down);
+
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        doc.dispatch(up);
+        doc.layout(240, 90, &painter);
+    };
+
+    auto chev = find_hovered_chain_id(doc, "root-chev", 240, 90);
+    REQUIRE(chev.x >= 0);
+    click_at(chev);
+
+    chev = find_hovered_chain_id(doc, "root-chev", 240, 90);
+    REQUIRE(chev.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "root-chev", "class").find(
+              "dcs-tree__chevron--open") == std::string::npos);
+    CHECK(hovered_attr_for_id(doc, "root", "aria-selected") != "true");
+    CHECK(find_hovered_chain_id(doc, "camera", 240, 90).x < 0);
+
+    chev = find_hovered_chain_id(doc, "root-chev", 240, 90);
+    REQUIRE(chev.x >= 0);
+    click_at(chev);
+
+    chev = find_hovered_chain_id(doc, "root-chev", 240, 90);
+    REQUIRE(chev.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "root-chev", "class").find(
+              "dcs-tree__chevron--open") != std::string::npos);
+    CHECK(find_hovered_chain_id(doc, "camera", 240, 90).x >= 0);
+}
+
+TEST_CASE("UiControls script toggles Decius foldouts and subpanels") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-subpanel, .dcs-foldout {
+          display: flex; flex-direction: column; width: 180px;
+        }
+        .dcs-subpanel__header, .dcs-foldout__header {
+          display: flex; align-items: center; height: 24px;
+        }
+        .dcs-subpanel__chevron, .dcs-foldout__chevron {
+          display: block; width: 18px; height: 24px;
+        }
+        .dcs-subpanel__body, .dcs-foldout__body { height: 32px; }
+        .dcs-subpanel--collapsed .dcs-subpanel__body,
+        .dcs-foldout--collapsed > .dcs-foldout__body { display: none; }
+        </style>
+        <div id="props" class="dcs-subpanel" data-aui-name="props">
+            <div id="props-header" class="dcs-subpanel__header">
+                <span id="props-chev"
+                      class="dcs-subpanel__chevron dcs-subpanel__chevron--open"></span>
+                <span>Properties</span>
+            </div>
+            <div id="props-body" class="dcs-subpanel__body">X Y</div>
+        </div>
+        <div id="transform" class="dcs-foldout" data-aui-name="transform">
+            <div id="transform-header" class="dcs-foldout__header">
+                <span id="transform-chev"
+                      class="dcs-foldout__chevron dcs-foldout__chevron--open"></span>
+                <span>Transform</span>
+            </div>
+            <div id="transform-body" class="dcs-foldout__body">Scale</div>
+        </div>
+    )HTML");
+    doc.layout(240, 140, &painter);
+
+    auto click_at = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        doc.dispatch(down);
+
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        doc.dispatch(up);
+        doc.layout(240, 140, &painter);
+    };
+
+    auto props_header = find_hovered_chain_id(doc, "props-header", 240, 140);
+    REQUIRE(props_header.x >= 0);
+    click_at(props_header);
+    CHECK(hovered_attr_for_id(doc, "props", "class").find(
+              "dcs-subpanel--collapsed") != std::string::npos);
+    CHECK(find_hovered_chain_id(doc, "props-body", 240, 140).x < 0);
+
+    props_header = find_hovered_chain_id(doc, "props-header", 240, 140);
+    REQUIRE(props_header.x >= 0);
+    click_at(props_header);
+    CHECK(hovered_attr_for_id(doc, "props", "class").find(
+              "dcs-subpanel--collapsed") == std::string::npos);
+    CHECK(find_hovered_chain_id(doc, "props-body", 240, 140).x >= 0);
+
+    auto foldout_header =
+        find_hovered_chain_id(doc, "transform-header", 240, 140);
+    REQUIRE(foldout_header.x >= 0);
+    click_at(foldout_header);
+    CHECK(hovered_attr_for_id(doc, "transform", "class").find(
+              "dcs-foldout--collapsed") != std::string::npos);
+    CHECK(find_hovered_chain_id(doc, "transform-body", 240, 140).x < 0);
+}
+
+TEST_CASE("Decius radio uses selected accent text color") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-radio {
+          display: inline-flex; align-items: center; gap: 6px;
+          height: 24px; color: #dce6ff;
+        }
+        .dcs-check__box {
+          display: flex; align-items: center; justify-content: center;
+          width: 14px; height: 14px; border-radius: 50%;
+          background: #20232b; color: transparent;
+        }
+        .dcs-radio[aria-checked=true] .dcs-check__box {
+          background: #13b6c8; color: #0a1220;
+        }
+        </style>
+        <label id="solver" class="dcs-radio" aria-checked="true">
+            <span class="dcs-check__box"></span><span>Embree</span>
+        </label>
+    )HTML");
+    doc.layout(160, 50, &painter);
+    doc.draw(painter);
+
+    CHECK(saw_fill(painter, affineui::Color::rgb(0x13, 0xb6, 0xc8)));
+    CHECK(saw_fill(painter, affineui::Color::rgb(0x0a, 0x12, 0x20)));
+
+    const auto* label = find_text_draw(painter, "Embree");
+    REQUIRE(label != nullptr);
+    CHECK(label->pos.y < 20);
+}
+
 TEST_CASE("UiControls script emits named button activations") {
     affineui::Document doc;
     RecordingPainter painter;
@@ -3118,28 +3297,88 @@ TEST_CASE("textarea text uses native edit viewport top inset") {
     doc.set_html(R"HTML(
         <style>
         body { margin: 0; padding: 0; }
-        textarea {
+        .field {
           display: flex;
+          align-items: center;
+          height: 100px;
+        }
+        textarea {
+          display: inline-flex;
+          align-items: center;
           box-sizing: border-box;
           width: 292px;
-          height: 22px;
+          height: 80px;
           border: 1px solid #000;
           padding: 6px;
           font-size: 12px;
           line-height: 1.45;
         }
         </style>
-        <textarea>Dense native UI, browser semantics.</textarea>
+        <div class="field">
+          <textarea>Dense native UI, browser semantics.</textarea>
+        </div>
     )HTML");
     doc.layout(320, 0, &painter);
     doc.draw(painter);
 
+    const auto textarea_pos = find_hovered_tag(doc, "textarea");
+    REQUIRE(textarea_pos.x >= 0);
+    const auto bounds = doc.hovered_info().bounds;
     const auto* value =
         find_text_draw(painter, "Dense native UI, browser semantics.");
     REQUIRE(value != nullptr);
 
-    CHECK(value->pos.x == 7);
-    CHECK(value->pos.y == 12);
+    CHECK(value->pos.x == bounds.x + 7);
+    CHECK(value->pos.y == bounds.y + 12);
+}
+
+TEST_CASE("textarea caret paints on the clicked visual line") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        textarea {
+          display: block;
+          box-sizing: border-box;
+          width: 180px;
+          height: 80px;
+          border: 1px solid #000;
+          padding: 6px;
+          font-size: 12px;
+          line-height: 18px;
+          white-space: pre-wrap;
+        }
+        </style>
+        <textarea>alpha
+omega</textarea>
+    )HTML");
+    doc.layout(240, 0, &painter);
+    doc.draw(painter);
+
+    const auto textarea_pos = find_hovered_tag(doc, "textarea");
+    REQUIRE(textarea_pos.x >= 0);
+    const auto bounds = doc.hovered_info().bounds;
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {bounds.x + 8, bounds.y + 32};
+    doc.dispatch(down);
+
+    painter.stroke_line_draws.clear();
+    doc.draw(painter);
+
+    auto caret = std::find_if(
+        painter.stroke_line_draws.begin(),
+        painter.stroke_line_draws.end(),
+        [&](const RecordingPainter::StrokeLineDraw& line) {
+            return std::abs(line.x0 - line.x1) < 0.01f &&
+                   line.y0 >= bounds.y + 24;
+        });
+    REQUIRE(caret != painter.stroke_line_draws.end());
+    CHECK(caret->x0 <= bounds.x + 18);
 }
 
 TEST_CASE("textarea click focuses multiline editor and inserts at caret") {
@@ -3187,6 +3426,54 @@ omega</textarea>
     CHECK(std::any_of(painter.text_runs.begin(), painter.text_runs.end(),
                       [](const std::string& run) {
                           return run.find('!') != std::string::npos;
+                      }));
+}
+
+TEST_CASE("textarea caret hit testing follows soft wrapped text") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        textarea {
+          display: block;
+          box-sizing: border-box;
+          width: 50px;
+          height: 80px;
+          border: 1px solid #000;
+          padding: 4px;
+          font-size: 12px;
+          line-height: 18px;
+          white-space: pre-wrap;
+        }
+        </style>
+        <textarea>abcdefghi</textarea>
+    )HTML");
+    doc.layout(120, 0, &painter);
+    doc.draw(painter);
+
+    const auto textarea_pos = find_hovered_tag(doc, "textarea");
+    REQUIRE(textarea_pos.x >= 0);
+    const auto bounds = doc.hovered_info().bounds;
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {bounds.x + 6, bounds.y + 28};
+    doc.dispatch(down);
+
+    affineui::Event text{};
+    text.type = affineui::EventType::TextInput;
+    text.text = "!";
+    CHECK(doc.dispatch(text).redraw_requested);
+
+    painter.text_runs.clear();
+    doc.draw(painter);
+    CHECK(std::any_of(painter.text_runs.begin(), painter.text_runs.end(),
+                      [](const std::string& run) {
+                          return run.find("abcde!fghi") !=
+                                 std::string::npos;
                       }));
 }
 

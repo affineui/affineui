@@ -910,6 +910,19 @@ bool block_has_attr(const Block& block, std::string_view name) {
     return block_attr_value(block, name) != nullptr;
 }
 
+int block_attr_int(const Block& block,
+                   std::string_view name,
+                   int fallback,
+                   int min_value,
+                   int max_value) {
+    const auto* value = block_attr_value(block, name);
+    if (!value || value->empty()) return fallback;
+    char* end = nullptr;
+    const long parsed = std::strtol(value->c_str(), &end, 10);
+    if (end == value->c_str()) return fallback;
+    return std::clamp(static_cast<int>(parsed), min_value, max_value);
+}
+
 struct ScrollStateEntry {
 #if !defined(AFFINEUI_STUB_BUILD)
     lxb_dom_element_t* element{nullptr};
@@ -3994,9 +4007,14 @@ void collect_blocks(detail::DocumentImpl& impl,
         // Recurse â€” children get my_idx as their parent. Track whether
         // any blocks were appended; if not, this block is a leaf and
         // gets the concatenated descendant text.
+        // Textarea child text is the control value, not child layout content.
         const std::size_t before = impl.blocks.size();
-        collect_blocks(impl, child, rs, my_idx);
-        const bool is_leaf = (impl.blocks.size() == before);
+        if (impl.blocks[static_cast<std::size_t>(my_idx)].tag != "textarea") {
+            collect_blocks(impl, child, rs, my_idx);
+        }
+        const bool is_leaf =
+            impl.blocks[static_cast<std::size_t>(my_idx)].tag == "textarea" ||
+            (impl.blocks.size() == before);
         if (is_leaf) {
             auto& leaf = impl.blocks[static_cast<std::size_t>(my_idx)];
             if (leaf.tag == "input") {
@@ -4652,6 +4670,48 @@ void Document::layout(int viewport_width, int viewport_height,
         // Container blocks (no direct text â€” wrap child blocks) leave
         // intrinsic_h at 0 so Yoga sizes them from their children's
         // resolved heights + their own padding/border.
+        if (b.tag == "textarea" && b.text_control) {
+            if (measurer != nullptr) {
+                in.font = measurer->resolve_font(
+                    impl_->style_store.font_family_of(cs.font_id),
+                    cs.font_size_px, cs.font_weight, cs.font_style != 0);
+                const int ch =
+                    std::max(1, measurer->measure_text(in.font, "0"));
+                const int rows = block_attr_int(b, "rows", 2, 1, 1000);
+                const int cols = block_attr_int(b, "cols", 20, 1, 1000);
+                const int control_w =
+                    ch * cols + cs.padding_left + cs.padding_right +
+                    cs.used_border_left() + cs.used_border_right();
+                const int line_h = std::max(
+                    1, static_cast<int>(std::ceil(
+                           static_cast<float>(cs.font_size_px) *
+                           detail::effective_line_height_mult(cs))));
+                const int control_h =
+                    line_h * rows + cs.padding_top + cs.padding_bottom +
+                    cs.used_border_top() + cs.used_border_bottom();
+                if (cs.width < 0 && cs.width_pct_x100 < 0) {
+                    in.intrinsic_w_px = control_w;
+                }
+                if (cs.height < 0 && cs.height_pct < 0) {
+                    in.intrinsic_h_px = control_h;
+                }
+            } else {
+                const int ch = std::max(1, static_cast<int>(cs.font_size_px) / 2);
+                const int cols = block_attr_int(b, "cols", 20, 1, 1000);
+                if (cs.width < 0 && cs.width_pct_x100 < 0) {
+                    in.intrinsic_w_px =
+                        ch * cols + cs.padding_left + cs.padding_right +
+                        cs.used_border_left() + cs.used_border_right();
+                }
+                in.intrinsic_h_px =
+                    cs.font_size_px * block_attr_int(b, "rows", 2, 1, 1000) +
+                    cs.padding_top + cs.padding_bottom +
+                    cs.used_border_top() + cs.used_border_bottom();
+            }
+            inputs.push_back(in);
+            continue;
+        }
+
         if (b.text.empty()) {
             in.intrinsic_h_px = 0;
             inputs.push_back(in);
@@ -5904,11 +5964,13 @@ void Document::draw(Painter& painter) {
         if (!b.text.empty()) {
             const auto font = painter.resolve_font(
                 impl_->style_store.font_family_of(cs.font_id), cs.font_size_px, cs.font_weight, cs.font_style != 0);
+            const int textarea_idx_for_text = nearest_block_with_tag(
+                impl_->blocks, static_cast<int>(i), "textarea");
             int text_y = eff.y + used_border_top  + cs.padding_top;
             const bool single_line_text =
                 b.text.find('\n') == std::string::npos &&
                 b.text.find('\r') == std::string::npos;
-            if (single_line_text &&
+            if (single_line_text && textarea_idx_for_text < 0 &&
                 (cs.display == detail::ComputedStyle::Display::Flex ||
                  cs.display == detail::ComputedStyle::Display::InlineFlex)) {
                 const float content_h = static_cast<float>(
@@ -5929,18 +5991,7 @@ void Document::draw(Painter& painter) {
             }
 
             // Map ComputedStyle::TextAlign â†’ Painter::TextAlign.
-            const int textarea_idx = nearest_block_with_tag(
-                impl_->blocks, static_cast<int>(i), "textarea");
-            if (textarea_idx >= 0) {
-                // Native textarea value text is painted by the control's
-                // inner edit viewport, not directly from the element content
-                // edge. Model that viewport from the authored padding/border
-                // so the adjustment follows the box instead of a fixture.
-                const auto& textarea_cs = impl_->style_store.computed(
-                    impl_->blocks[static_cast<std::size_t>(textarea_idx)].id);
-                text_y += std::max(
-                    0, textarea_cs.padding_top - textarea_cs.used_border_top());
-            } else if (b.tag == "input" &&
+            if (textarea_idx_for_text < 0 && b.tag == "input" &&
                        b.input_type != "checkbox" &&
                        b.input_type != "radio") {
                 // Single-line native text inputs also paint through an edit
@@ -6057,6 +6108,15 @@ void Document::draw(Painter& painter) {
                 }
             }
 
+            if (b.text_control) {
+                const auto g = text_control_geometry(
+                    *impl_, static_cast<int>(i), painter);
+                text_x = g.text_x;
+                text_y = g.text_y;
+                content_w = g.content_w;
+                paint_align = g.align;
+            }
+
             // Add 1px slack to wrap width: measure rounds + draw word-
             // break can disagree at the edge (text whose natural width
             // exactly equals content_w sometimes wraps the last word
@@ -6145,7 +6205,7 @@ void Document::draw(Painter& painter) {
                                    : (is_justify ? content_w
                                                  : content_w + wrap_slack);
             const TextLayoutEntry* cached_text_layout = nullptr;
-            if (b.text_control && !b.placeholder_visible) {
+            if (b.text_control) {
                 TextControlGeometry g{};
                 g.font = font;
                 g.text_x = text_x;
@@ -6221,35 +6281,49 @@ void Document::draw(Painter& painter) {
                                   letter_spacing_px,
                                   paint_align);
             if (b.text_control && static_cast<int>(i) == impl_->focused_idx) {
-                const auto metrics = painter.text_metrics(font);
-                const float natural_line_h = metrics.line_height > 0.0f
-                    ? metrics.line_height
-                    : static_cast<float>(cs.font_size_px);
+                const TextLayoutEntry* caret_layout = cached_text_layout;
+                if (caret_layout == nullptr) {
+                    TextControlGeometry g{};
+                    g.font = font;
+                    g.text_x = text_x;
+                    g.text_y = text_y;
+                    g.content_w = content_w;
+                    g.letter_spacing_px = letter_spacing_px;
+                    g.line_height_mult = line_height_mult;
+                    g.align = paint_align;
+                    g.nowrap = force_single_line;
+                    caret_layout = &ensure_text_layout_entry(
+                        *impl_, static_cast<int>(i), g, b, painter);
+                }
+
+                const auto caret_offset =
+                    std::min(b.caret_offset, b.text_value.size());
+                auto it = std::lower_bound(
+                    caret_layout->caret_offsets.begin(),
+                    caret_layout->caret_offsets.end(), caret_offset);
+                std::size_t caret_index = it == caret_layout->caret_offsets.end()
+                    ? caret_layout->caret_offsets.size() - 1
+                    : static_cast<std::size_t>(
+                          std::distance(caret_layout->caret_offsets.begin(),
+                                        it));
+                if (caret_layout->caret_offsets[caret_index] != caret_offset) {
+                    caret_index = caret_index == 0 ? 0 : caret_index - 1;
+                }
+                const auto line = caret_layout->caret_lines[caret_index];
+                const float caret_x =
+                    aligned_line_origin_x(*caret_layout, line) +
+                    caret_layout->caret_x[caret_index];
+                const float natural_line_h =
+                    std::max(1.0f, caret_layout->natural_line_height);
                 const float css_line_h =
-                    static_cast<float>(cs.font_size_px) * line_height_mult;
+                    std::max(1.0f, caret_layout->css_line_height);
                 const float line_top =
                     static_cast<float>(text_y) +
+                    static_cast<float>(line) * css_line_h +
                     (css_line_h - natural_line_h) * 0.5f;
-                std::string caret_text;
-                if (!b.placeholder_visible && !b.text_value.empty()) {
-                    const std::size_t caret =
-                        std::min(b.caret_offset, b.text_value.size());
-                    caret_text = text_control_display_value(
-                        b, std::string_view(b.text_value).substr(0, caret));
-                }
-                const float tw = caret_text.empty()
-                    ? 0.0f
-                    : measure_text_width(caret_text);
-                float caret_x = static_cast<float>(text_x);
-                if (paint_align == Painter::TextAlign::Right) {
-                    caret_x += content_w;
-                } else if (paint_align == Painter::TextAlign::Center) {
-                    caret_x += (content_w + tw) * 0.5f;
-                } else {
-                    caret_x += tw;
-                }
                 const float y0 = std::floor(line_top + 2.0f) + 0.5f;
-                const float y1 = std::ceil(line_top + natural_line_h - 2.0f) + 0.5f;
+                const float y1 =
+                    std::ceil(line_top + natural_line_h - 2.0f) + 0.5f;
                 painter.stroke_line(caret_x, y0, caret_x, y1,
                                     detail::unpack_rgba(an.color_rgba),
                                     1.0f);
@@ -6402,11 +6476,15 @@ void Document::draw(Painter& painter) {
                 const float by = static_cast<float>(eff.y);
                 const float bw = static_cast<float>(eff.w);
                 const float bh = static_cast<float>(eff.h);
-                const Color white{0xFF, 0xFF, 0xFF, 0xFF};
+                Color mark_color =
+                    detail::unpack_rgba(an.color_rgba);
+                if (mark_color.a == 0) {
+                    mark_color = Color{0xFF, 0xFF, 0xFF, 0xFF};
+                }
                 if (decius_radio) {
                     painter.fill_circle(bx + bw * 0.5f, by + bh * 0.5f,
                                         std::max(2.0f, std::min(bw, bh) * 0.25f),
-                                        white);
+                                        mark_color);
                 } else {
                     const float m = std::min(bw, bh);
                     const float s = m / 20.0f;
@@ -6417,12 +6495,12 @@ void Document::draw(Painter& painter) {
                     const float x2 = bx + 15.0f * s;
                     const float y2 = by + 7.0f  * s;
                     const float sw = std::max(1.0f, 3.0f * s);
-                    painter.stroke_line(x0, y0, x1, y1, white, sw);
-                    painter.stroke_line(x1, y1, x2, y2, white, sw);
+                    painter.stroke_line(x0, y0, x1, y1, mark_color, sw);
+                    painter.stroke_line(x1, y1, x2, y2, mark_color, sw);
                     const float cap_r = sw * 0.5f;
-                    painter.fill_circle(x0, y0, cap_r, white);
-                    painter.fill_circle(x1, y1, cap_r, white);
-                    painter.fill_circle(x2, y2, cap_r, white);
+                    painter.fill_circle(x0, y0, cap_r, mark_color);
+                    painter.fill_circle(x1, y1, cap_r, mark_color);
+                    painter.fill_circle(x2, y2, cap_r, mark_color);
                 }
             }
         }
@@ -9640,6 +9718,224 @@ bool update_dcs_select_control(detail::DocumentImpl& impl,
     return changed;
 }
 
+bool find_decius_collapse_at(detail::DocumentImpl& impl,
+                             int from_idx,
+                             lxb_dom_element_t*& out_block,
+                             lxb_dom_element_t*& out_chevron,
+                             std::string_view& out_collapsed_class,
+                             std::string_view& out_chevron_open_class) {
+    out_block = nullptr;
+    out_chevron = nullptr;
+    out_collapsed_class = {};
+    out_chevron_open_class = {};
+    lxb_dom_element_t* hit = nullptr;
+    if (from_idx >= 0 && from_idx < static_cast<int>(impl.blocks.size())) {
+        hit = element_for_block(impl, from_idx);
+    }
+    if (!hit) return false;
+
+    for (int idx = from_idx;
+         idx >= 0 && idx < static_cast<int>(impl.blocks.size());
+         idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        auto* elem = element_for_block(impl, idx);
+        if (!elem) continue;
+        if (class_list_contains(elem, "dcs-subpanel__close") ||
+            class_list_contains(elem, "dcs-foldout__tools")) {
+            return false;
+        }
+        if (class_list_contains(elem, "dcs-subpanel__header")) {
+            auto* block = nearest_ancestor_with_class(elem, "dcs-subpanel");
+            if (!block) return false;
+            out_block = block;
+            out_chevron =
+                first_descendant_with_class(block, "dcs-subpanel__chevron");
+            out_collapsed_class = "dcs-subpanel--collapsed";
+            out_chevron_open_class = "dcs-subpanel__chevron--open";
+            return true;
+        }
+        if (class_list_contains(elem, "dcs-foldout__header")) {
+            auto* block = nearest_ancestor_with_class(elem, "dcs-foldout");
+            if (!block) return false;
+            out_block = block;
+            out_chevron =
+                first_descendant_with_class(block, "dcs-foldout__chevron");
+            out_collapsed_class = "dcs-foldout--collapsed";
+            out_chevron_open_class = "dcs-foldout__chevron--open";
+            return true;
+        }
+    }
+    return false;
+}
+
+bool toggle_decius_collapse_control(detail::DocumentImpl& impl, int from_idx) {
+    lxb_dom_element_t* block = nullptr;
+    lxb_dom_element_t* chevron = nullptr;
+    std::string_view collapsed_class;
+    std::string_view chevron_open_class;
+    if (!find_decius_collapse_at(impl, from_idx, block, chevron,
+                                 collapsed_class, chevron_open_class)) {
+        return false;
+    }
+
+    const bool collapsed = class_list_contains(block, collapsed_class);
+    const bool next_collapsed = !collapsed;
+    bool changed = set_attribute_on_element(
+        impl, block, "class",
+        class_list_set(block, collapsed_class, next_collapsed));
+    if (chevron) {
+        changed = set_attribute_on_element(
+            impl, chevron, "class",
+            class_list_set(chevron, chevron_open_class, !next_collapsed)) ||
+                  changed;
+    }
+    emit_widget_change(impl, block, next_collapsed ? "closed" : "open");
+    return changed;
+}
+
+int dcs_tree_row_depth(lxb_dom_element_t* row) {
+    const std::string depth_value =
+        find_decl_value(attr_string(row, "style"), "--depth");
+    if (depth_value.empty()) return 0;
+    char* end = nullptr;
+    const long parsed = std::strtol(depth_value.c_str(), &end, 10);
+    if (end == depth_value.c_str()) return 0;
+    return static_cast<int>(std::clamp<long>(parsed, 0, 128));
+}
+
+void collect_dcs_tree_rows(lxb_dom_element_t* elem,
+                           std::vector<lxb_dom_element_t*>& rows) {
+    if (!elem) return;
+    for (auto* child = lxb_dom_node_first_child(lxb_dom_interface_node(elem));
+         child != nullptr; child = lxb_dom_node_next(child)) {
+        if (child->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* child_elem = lxb_dom_interface_element(child);
+        if (class_list_contains(child_elem, "dcs-tree__row")) {
+            rows.push_back(child_elem);
+        }
+        collect_dcs_tree_rows(child_elem, rows);
+    }
+}
+
+bool dcs_tree_row_has_direct_child(
+    const std::vector<lxb_dom_element_t*>& rows,
+    std::size_t row_index,
+    int depth) {
+    for (std::size_t i = row_index + 1; i < rows.size(); ++i) {
+        const int child_depth = dcs_tree_row_depth(rows[i]);
+        if (child_depth <= depth) return false;
+        if (child_depth == depth + 1) return true;
+    }
+    return false;
+}
+
+bool refresh_dcs_tree_visibility(detail::DocumentImpl& impl,
+                                 lxb_dom_element_t* tree) {
+    std::vector<lxb_dom_element_t*> rows;
+    collect_dcs_tree_rows(tree, rows);
+    if (rows.empty()) return false;
+
+    std::vector<bool> open_by_depth(129, true);
+    bool changed = false;
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+        auto* row = rows[i];
+        const int depth = dcs_tree_row_depth(row);
+        bool visible = true;
+        for (int d = 0; d < depth && d < static_cast<int>(open_by_depth.size());
+             ++d) {
+            if (!open_by_depth[static_cast<std::size_t>(d)]) {
+                visible = false;
+                break;
+            }
+        }
+
+        changed = visible ? (remove_attribute_on_element(impl, row, "hidden") ||
+                             changed)
+                          : (set_attribute_on_element(impl, row, "hidden", "") ||
+                             changed);
+
+        if (auto* chevron =
+                first_descendant_with_class(row, "dcs-tree__chevron")) {
+            const bool has_child =
+                dcs_tree_row_has_direct_child(rows, i, depth);
+            changed = set_attribute_on_element(
+                          impl, chevron, "class",
+                          class_list_set(chevron, "dcs-tree__chevron--leaf",
+                                         !has_child)) ||
+                      changed;
+            open_by_depth[static_cast<std::size_t>(depth)] =
+                has_child && class_list_contains(
+                                 chevron, "dcs-tree__chevron--open");
+        } else {
+            open_by_depth[static_cast<std::size_t>(depth)] = true;
+        }
+        for (std::size_t d = static_cast<std::size_t>(depth + 1);
+             d < open_by_depth.size(); ++d) {
+            open_by_depth[d] = true;
+        }
+    }
+    return changed;
+}
+
+bool find_dcs_tree_chevron_at(detail::DocumentImpl& impl,
+                              int from_idx,
+                              lxb_dom_element_t*& out_tree,
+                              lxb_dom_element_t*& out_row,
+                              lxb_dom_element_t*& out_chevron) {
+    out_tree = nullptr;
+    out_row = nullptr;
+    out_chevron = nullptr;
+    for (int idx = from_idx;
+         idx >= 0 && idx < static_cast<int>(impl.blocks.size());
+         idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        auto* elem = element_for_block(impl, idx);
+        if (!elem) continue;
+        if (class_list_contains(elem, "dcs-tree__chevron")) {
+            if (class_list_contains(elem, "dcs-tree__chevron--leaf")) {
+                return false;
+            }
+            out_chevron = elem;
+        }
+        if (out_chevron && !out_row &&
+            class_list_contains(elem, "dcs-tree__row")) {
+            out_row = elem;
+        }
+        if (out_chevron && out_row &&
+            class_list_contains(elem, "dcs-tree")) {
+            out_tree = elem;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool toggle_dcs_tree_chevron_control(detail::DocumentImpl& impl, int from_idx) {
+    lxb_dom_element_t* tree = nullptr;
+    lxb_dom_element_t* row = nullptr;
+    lxb_dom_element_t* chevron = nullptr;
+    if (!find_dcs_tree_chevron_at(impl, from_idx, tree, row, chevron)) {
+        return false;
+    }
+
+    std::vector<lxb_dom_element_t*> rows;
+    collect_dcs_tree_rows(tree, rows);
+    const auto row_it = std::find(rows.begin(), rows.end(), row);
+    if (row_it == rows.end()) return false;
+    if (!dcs_tree_row_has_direct_child(
+            rows, static_cast<std::size_t>(row_it - rows.begin()),
+            dcs_tree_row_depth(row))) {
+        return false;
+    }
+
+    const bool open =
+        class_list_contains(chevron, "dcs-tree__chevron--open");
+    bool changed = set_attribute_on_element(
+        impl, chevron, "class",
+        class_list_set(chevron, "dcs-tree__chevron--open", !open));
+    changed = refresh_dcs_tree_visibility(impl, tree) || changed;
+    emit_widget_change(impl, tree, !open ? "open" : "closed");
+    return changed;
+}
+
 bool is_open_transient_layer(lxb_dom_element_t* elem) {
     return elem && !has_attr(elem, "hidden") &&
            (class_list_contains(elem, "aui-select__menu") ||
@@ -10054,9 +10350,21 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
             block,
             std::string_view(block.text_value).substr(begin, end - begin));
     };
-    entry.caret_offsets.push_back(0);
-    entry.caret_x.push_back(0.0f);
-    entry.caret_lines.push_back(0);
+    const auto push_caret = [&](std::size_t offset,
+                                float x,
+                                std::uint16_t caret_line) {
+        if (!entry.caret_offsets.empty() &&
+            entry.caret_offsets.back() == offset) {
+            entry.caret_x.back() = x;
+            entry.caret_lines.back() = caret_line;
+            return;
+        }
+        entry.caret_offsets.push_back(offset);
+        entry.caret_x.push_back(x);
+        entry.caret_lines.push_back(caret_line);
+    };
+
+    push_caret(0, 0.0f, 0);
     entry.line_widths.push_back(0.0f);
 
     std::size_t line_start = 0;
@@ -10072,20 +10380,37 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
             ++line;
             line_start = next;
             entry.line_widths.push_back(0.0f);
-            entry.caret_offsets.push_back(next);
-            entry.caret_x.push_back(0.0f);
-            entry.caret_lines.push_back(line);
+            push_caret(next, 0.0f, line);
             pos = next;
             continue;
         }
 
-        entry.caret_offsets.push_back(next);
-        entry.caret_x.push_back(
+        if (!g.nowrap && line_start < pos) {
+            const float next_width =
+                measure_text_advance(
+                    painter, g.font, display_segment(line_start, next),
+                    g.line_height_mult, g.letter_spacing_px);
+            if (next_width > g.content_w) {
+                entry.line_widths[static_cast<std::size_t>(line)] =
+                    measure_text_advance(
+                        painter, g.font, display_segment(line_start, pos),
+                        g.line_height_mult, g.letter_spacing_px);
+                if (line < std::numeric_limits<std::uint16_t>::max()) {
+                    ++line;
+                }
+                line_start = pos;
+                entry.line_widths.push_back(0.0f);
+                push_caret(pos, 0.0f, line);
+            }
+        }
+
+        push_caret(
+            next,
             measure_text_advance(
                 painter, g.font,
                 display_segment(line_start, next),
-                g.line_height_mult, g.letter_spacing_px));
-        entry.caret_lines.push_back(line);
+                g.line_height_mult, g.letter_spacing_px),
+            line);
         pos = next;
     }
     if (line_start <= block.text_value.size()) {
@@ -10819,10 +11144,31 @@ DispatchResult Document::dispatch(const Event& ev) {
                         changed_popover = true;
                     }
                 }
-                bool changed_selection = false;
+                bool changed_collapse = false;
                 if (!toggled_checkbox && !changed_dropdown &&
                     !changed_button_group && !changed_menu &&
                     !changed_popover) {
+                    if (toggle_decius_collapse_control(*impl_,
+                                                       impl_->hovered_idx)) {
+                        result.redraw_requested = true;
+                        changed_collapse = true;
+                    }
+                }
+                bool changed_tree = false;
+                if (!toggled_checkbox && !changed_dropdown &&
+                    !changed_button_group && !changed_menu &&
+                    !changed_popover && !changed_collapse) {
+                    if (toggle_dcs_tree_chevron_control(*impl_,
+                                                        impl_->hovered_idx)) {
+                        result.redraw_requested = true;
+                        changed_tree = true;
+                    }
+                }
+                bool changed_selection = false;
+                if (!toggled_checkbox && !changed_dropdown &&
+                    !changed_button_group && !changed_menu &&
+                    !changed_popover && !changed_collapse &&
+                    !changed_tree) {
                     lxb_dom_element_t* select_box = nullptr;
                     lxb_dom_element_t* select_row = nullptr;
                     if (find_dcs_select_row_at(*impl_, impl_->hovered_idx,
@@ -10836,7 +11182,8 @@ DispatchResult Document::dispatch(const Event& ev) {
                 }
                 if (!toggled_checkbox && !changed_dropdown &&
                     !changed_button_group && !changed_menu &&
-                    !changed_popover && !changed_selection) {
+                    !changed_popover && !changed_collapse &&
+                    !changed_tree && !changed_selection) {
                     lxb_dom_element_t* button_elem = nullptr;
                     if (find_button_control_at(*impl_, impl_->hovered_idx,
                                                button_elem) &&
