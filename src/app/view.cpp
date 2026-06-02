@@ -722,12 +722,12 @@ body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
 .aui-test-segment{flex:0 0 auto;width:auto;min-width:48px;white-space:nowrap}
 .aui-test-segment-group.dcs-btn-group>.aui-test-segment{flex:0 0 auto;width:auto;min-width:56px;height:100%;padding-left:10px;padding-right:10px}
 .aui-test-segment-group.btn-group>.aui-test-segment{flex:0 0 auto;width:auto;min-width:58px;height:100%;padding-left:10px;padding-right:10px}
-.aui-test-keycolor{display:flex;align-items:center;gap:6px;height:100%;padding:0 2px 0 10px;border-left:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));min-width:0;box-sizing:border-box}
+.aui-test-keycolor{display:flex;align-items:center;gap:5px;height:100%;padding:0 2px 0 10px;border-left:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));min-width:0;box-sizing:border-box}
 .aui-keycolor-label{margin:0;color:var(--dcs-text-mute,#6c757d);font-size:var(--dcs-fs-xs,.72rem);font-weight:600;letter-spacing:.06em;text-transform:uppercase}
-.aui-keycolor-swatch{--aui-swatch:#00b8d4;flex:0 0 15px;width:15px;height:15px;border-radius:50%;background:var(--aui-swatch);border:1px solid rgba(255,255,255,.24);box-shadow:inset 0 1px 0 rgba(255,255,255,.35),inset 0 -1px 1px rgba(0,0,0,.35),0 1px 2px rgba(0,0,0,.45);cursor:pointer}
+.aui-keycolor-swatch{--aui-swatch:#00b8d4;flex:0 0 18px;width:18px;height:18px;border-radius:50%;background:var(--aui-swatch);border:2px solid transparent;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),inset 0 -1px 1px rgba(0,0,0,.35),0 1px 2px rgba(0,0,0,.45);cursor:pointer;box-sizing:border-box}
 .aui-keycolor-swatch--cyan{--aui-swatch:#00b8d4}.aui-keycolor-swatch--green{--aui-swatch:#3dd68a}.aui-keycolor-swatch--orange{--aui-swatch:#ff8a3a}.aui-keycolor-swatch--violet{--aui-swatch:#8b6dff}
-.aui-keycolor-swatch:hover{box-shadow:inset 0 1px 0 rgba(255,255,255,.42),inset 0 -1px 1px rgba(0,0,0,.35),0 0 0 2px rgba(255,255,255,.12),0 1px 2px rgba(0,0,0,.45)}
-.aui-keycolor-swatch.is-active{box-shadow:inset 0 1px 0 rgba(255,255,255,.42),inset 0 -1px 1px rgba(0,0,0,.35),0 0 0 1px var(--dcs-bg-app,#1f222a),0 0 0 3px var(--aui-swatch),0 0 10px var(--aui-swatch)}
+.aui-keycolor-swatch:hover{border-color:rgba(255,255,255,.35);box-shadow:inset 0 1px 0 rgba(255,255,255,.42),inset 0 -1px 1px rgba(0,0,0,.35),0 1px 2px rgba(0,0,0,.45)}
+.aui-keycolor-swatch.is-active{border-color:var(--aui-swatch);box-shadow:inset 0 0 0 2px var(--dcs-bg-app,#1f222a),inset 0 1px 0 rgba(255,255,255,.42),inset 0 -1px 1px rgba(0,0,0,.35),0 1px 2px rgba(0,0,0,.45)}
 )CSS";
     css += R"CSS(
 .aui-test-perf-reserve{flex:1 1 auto;min-width:0}

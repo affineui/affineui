@@ -398,6 +398,15 @@ std::string hovered_attr_for_id(affineui::Document& doc,
     return {};
 }
 
+affineui::Rect hovered_bounds_for_id(affineui::Document& doc,
+                                     std::string_view elem_id) {
+    const auto chain = doc.hovered_info_chain();
+    for (const auto& info : chain) {
+        if (info.elem_id == elem_id) return info.bounds;
+    }
+    return {-1, -1, 0, 0};
+}
+
 std::string read_test_file(const std::filesystem::path& path) {
     std::ifstream f(path, std::ios::binary);
     if (!f.good()) return {};
@@ -597,6 +606,84 @@ TEST_CASE("UiControls script toggles Decius target menus") {
     REQUIRE(file.x >= 0);
     CHECK(hovered_attr_for_id(doc, "file", "aria-expanded") == "false");
     CHECK(find_hovered_chain_id(doc, "open-item", 260, 120).x < 0);
+}
+
+TEST_CASE("fixed Decius menus stay under scrolled triggers without changing scroll extents") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        #pane { display: block; width: 180px; height: 80px; overflow-y: auto; }
+        #spacer { display: block; height: 96px; }
+        #file { display: block; width: 80px; height: 24px; }
+        #tail { display: block; height: 180px; }
+        .dcs-menu[hidden] { display: none; }
+        .dcs-menu { display: flex; flex-direction: column; width: 132px; }
+        .dcs-menu__item { display: block; width: 132px; height: 24px; }
+        </style>
+        <div id="pane">
+            <div id="spacer"></div>
+            <button id="file" class="dcs-menubar__item"
+                    data-dcs-toggle="menu"
+                    data-dcs-target="#menu-file">File</button>
+            <div id="menu-file" class="dcs-menu"
+                 data-aui-name="file-menu" hidden>
+                <div id="open-item" class="dcs-menu__item"
+                     data-dcs-value="open">Open</div>
+                <div id="save-item" class="dcs-menu__item"
+                     data-dcs-value="save">Save</div>
+                <div class="dcs-menu__item">Export</div>
+                <div class="dcs-menu__item">Import</div>
+                <div class="dcs-menu__item">Recent</div>
+                <div class="dcs-menu__item">Close</div>
+            </div>
+            <div id="tail"></div>
+        </div>
+    )HTML");
+    doc.layout(240, 120, &painter);
+
+    affineui::Event wheel{};
+    wheel.type = affineui::EventType::MouseWheel;
+    wheel.pos = {10, 10};
+    wheel.wheel_dy = -3.0f;
+    CHECK(doc.dispatch(wheel).redraw_requested);
+    doc.layout(240, 120, &painter);
+
+    auto file = find_hovered_id(doc, "file", 240, 120);
+    REQUIRE(file.x >= 0);
+    doc.layout(240, 120, &painter);
+    file = find_hovered_id(doc, "file", 240, 120);
+    REQUIRE(file.x >= 0);
+    const auto trigger_bounds = hovered_bounds_for_id(doc, "file");
+    REQUIRE(trigger_bounds.y >= 0);
+    const auto before_size = doc.content_size();
+
+    auto click_at = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        doc.dispatch(down);
+
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        doc.dispatch(up);
+    };
+
+    click_at(file);
+    doc.layout(240, 120, &painter);
+    CHECK(doc.content_size().height == before_size.height);
+
+    const auto open = find_hovered_chain_id(doc, "open-item", 240, 120);
+    REQUIRE(open.x >= 0);
+    const auto open_bounds = hovered_bounds_for_id(doc, "open-item");
+    REQUIRE(open_bounds.y >= 0);
+    CHECK(open_bounds.y == trigger_bounds.y + trigger_bounds.h);
 }
 
 TEST_CASE("UiControls script toggles Decius popovers") {

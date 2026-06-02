@@ -216,6 +216,9 @@ TEST_CASE("View framework personalities apply default and explicit selectors") {
     CHECK(html.find("data-dcs-style=\"flat\"") != std::string::npos);
     CHECK(html.find("data-dcs-density=\"compact\"") != std::string::npos);
     CHECK(html.find("data-aui-size=\"lg\"") != std::string::npos);
+    CHECK(html.find(".aui-keycolor-swatch.is-active{border-color:var(--aui-swatch)") !=
+          std::string::npos);
+    CHECK(html.find("0 0 0 3px var(--aui-swatch)") == std::string::npos);
 
     decius.find_widget("panel").selector(affineui::decius::selector::size,
                                          "med");
@@ -747,6 +750,51 @@ TEST_CASE("App dispatch invokes command dropdown and button-group callbacks") {
         click_at(local);
         CHECK(space == "Local");
     }
+}
+
+TEST_CASE("App load_view preserves named scroll panels across control reloads") {
+    auto make_view = [](bool checked) {
+        affineui::View view{affineui::ViewTheme::Decius};
+        view.begin();
+        {
+            auto panel = view.container({}, "controls-panel-body");
+            panel.attr("style",
+                       "display:block;position:absolute;left:0;top:0;"
+                       "width:180px;height:80px;overflow-y:auto;");
+            view.container({}, "controls-spacer-top")
+                .attr("style", "display:block;height:96px");
+            view.checkbox("Loop Selection", checked, "controls-loop")
+                .on_change([](std::string_view) {});
+            view.container({}, "controls-spacer-bottom")
+                .attr("style", "display:block;height:180px");
+        }
+        view.end();
+        return view;
+    };
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    app.load_view(make_view(false));
+    app.document().layout(240, 120);
+
+    affineui::Event wheel{};
+    wheel.type = affineui::EventType::MouseWheel;
+    wheel.pos = {10, 10};
+    wheel.wheel_dy = -3.0f;
+    CHECK(app.dispatch(wheel));
+    app.document().layout(240, 120);
+
+    const auto before = find_hovered_widget(app, "controls-loop", 240, 120);
+    REQUIRE(before.x >= 0);
+
+    app.load_view(make_view(true));
+    app.document().layout(240, 120);
+
+    const auto after = find_hovered_widget(app, "controls-loop", 240, 120);
+    REQUIRE(after.x >= 0);
+    CHECK(after.y >= before.y - 4);
+    CHECK(after.y <= before.y + 4);
 }
 
 TEST_CASE("App dispatch invokes Decius colorfield menu callbacks") {

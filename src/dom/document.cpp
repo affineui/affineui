@@ -905,6 +905,83 @@ bool block_has_attr(const Block& block, std::string_view name) {
     return block_attr_value(block, name) != nullptr;
 }
 
+struct ScrollStateEntry {
+#if !defined(AFFINEUI_STUB_BUILD)
+    lxb_dom_element_t* element{nullptr};
+#endif
+    std::string elem_id;
+    std::string aui_name;
+    std::string tag;
+    int scroll_y{0};
+};
+
+std::vector<ScrollStateEntry> snapshot_scroll_state(
+        const detail::DocumentImpl& impl,
+        bool include_elements) {
+    std::vector<ScrollStateEntry> out;
+    for (const auto& block : impl.blocks) {
+        if (block.scroll_y <= 0) continue;
+        ScrollStateEntry entry{};
+#if !defined(AFFINEUI_STUB_BUILD)
+        if (include_elements) {
+            entry.element = impl.style_store.element_of(block.id);
+        }
+#else
+        (void)include_elements;
+#endif
+        entry.elem_id = block.elem_id;
+        if (const auto* name = block_attr_value(block, "data-aui-name")) {
+            entry.aui_name = *name;
+        }
+        entry.tag = block.tag;
+        entry.scroll_y = block.scroll_y;
+        out.push_back(std::move(entry));
+    }
+    return out;
+}
+
+void restore_scroll_state(detail::DocumentImpl& impl,
+                          const std::vector<ScrollStateEntry>& state) {
+    if (state.empty()) return;
+
+    std::vector<bool> used(state.size(), false);
+    for (auto& block : impl.blocks) {
+        const auto* name = block_attr_value(block, "data-aui-name");
+        std::size_t best = state.size();
+        int best_score = 0;
+#if !defined(AFFINEUI_STUB_BUILD)
+        auto* element = impl.style_store.element_of(block.id);
+#endif
+        for (std::size_t i = 0; i < state.size(); ++i) {
+            if (used[i]) continue;
+            const auto& entry = state[i];
+            int score = 0;
+#if !defined(AFFINEUI_STUB_BUILD)
+            if (entry.element != nullptr && entry.element == element) {
+                score = 100;
+            } else
+#endif
+            if (!entry.aui_name.empty() && name &&
+                entry.aui_name == *name) {
+                score = 80;
+            } else if (!entry.elem_id.empty() &&
+                       entry.elem_id == block.elem_id) {
+                score = 70;
+            }
+            if (score > 0 && !entry.tag.empty() && entry.tag == block.tag) {
+                score += 5;
+            }
+            if (score > best_score) {
+                best_score = score;
+                best = i;
+            }
+        }
+        if (best == state.size()) continue;
+        block.scroll_y = state[best].scroll_y;
+        used[best] = true;
+    }
+}
+
 double block_attr_double(const Block& block,
                          std::string_view name,
                          double fallback) {
@@ -3894,6 +3971,8 @@ Document::Document(Document&&) noexcept            = default;
 Document& Document::operator=(Document&&) noexcept = default;
 
 void Document::set_html(std::string_view html) {
+    const auto previous_scroll =
+        snapshot_scroll_state(*impl_, /*include_elements=*/false);
     impl_->html.assign(html);
     impl_->blocks.clear();
     impl_->style_store.reset();
@@ -4023,6 +4102,7 @@ void Document::set_html(std::string_view html) {
                         : lxb_dom_interface_node(impl_->doc),
                    impl_->root_style,
                    /*parent_idx=*/-1);
+    restore_scroll_state(*impl_, previous_scroll);
     for (const auto& b : impl_->blocks) {
         if (b.animation.active && b.animation.name_hash != 0) {
             ++impl_->animation_candidate_count;
@@ -4542,8 +4622,25 @@ void Document::layout(int viewport_width, int viewport_height,
         impl_->blocks[i].bounds_f = to_float(r);
     }
 
+    auto block_is_fixed_position = [&](std::size_t i) {
+        return layout_styles[i].position ==
+               detail::ComputedStyle::Position::Fixed;
+    };
+    auto block_is_in_fixed_subtree = [&](std::size_t i) {
+        int idx = static_cast<int>(i);
+        while (idx >= 0) {
+            if (block_is_fixed_position(static_cast<std::size_t>(idx))) {
+                return true;
+            }
+            idx = impl_->blocks[static_cast<std::size_t>(idx)].parent_idx;
+        }
+        return false;
+    };
+
     int max_bottom = 0;
-    for (const auto& b : impl_->blocks) {
+    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
+        if (block_is_in_fixed_subtree(i)) continue;
+        const auto& b = impl_->blocks[i];
         const int bottom = b.bounds.y + b.bounds.h;
         if (bottom > max_bottom) max_bottom = bottom;
     }
@@ -4562,6 +4659,7 @@ void Document::layout(int viewport_width, int viewport_height,
     // own descendants).
     for (auto& b : impl_->blocks) b.content_h = b.bounds.h;
     for (std::size_t i = impl_->blocks.size(); i-- > 0; ) {
+        if (block_is_fixed_position(i)) continue;
         const auto& child = impl_->blocks[i];
         if (child.parent_idx < 0) continue;
         auto& parent = impl_->blocks[static_cast<std::size_t>(child.parent_idx)];
@@ -4569,6 +4667,17 @@ void Document::layout(int viewport_width, int viewport_height,
             (child.bounds.y - parent.bounds.y) + child.content_h;
         if (child_bottom_in_parent > parent.content_h)
             parent.content_h = child_bottom_in_parent;
+    }
+    using Overflow = detail::ComputedStyle::Overflow;
+    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
+        auto& block = impl_->blocks[i];
+        const auto ov = layout_styles[i].overflow_y;
+        if (ov == Overflow::Scroll || ov == Overflow::Auto) {
+            const int max_scroll = std::max(0, block.content_h - block.bounds.h);
+            block.scroll_y = std::clamp(block.scroll_y, 0, max_scroll);
+        } else {
+            block.scroll_y = 0;
+        }
     }
 
 #if !defined(AFFINEUI_STUB_BUILD)
@@ -4604,6 +4713,8 @@ namespace {
 #if !defined(AFFINEUI_STUB_BUILD)
 bool block_is_scrollable_y(const detail::DocumentImpl& impl, int idx);
 bool block_clips_overflow(const detail::DocumentImpl& impl, int idx);
+int  nearest_clip_ancestor_for_block(const detail::DocumentImpl& impl,
+                                     int idx);
 int  scroll_offset_y_for(const std::vector<Block>& blocks,
                          const detail::StyleStore& styles, int idx);
 int  effective_z_index(const detail::DocumentImpl& impl, int idx);
@@ -4986,10 +5097,8 @@ void Document::draw(Painter& painter) {
         // (overflow: hidden | clip | scroll | auto). CSS clips descendant
         // paint to the padding box, not the border box, so the ancestor's
         // own border remains visible above clipped children.
-        int clip_idx = b.parent_idx;
-        while (clip_idx >= 0 && !block_clips_overflow(*impl_, clip_idx)) {
-            clip_idx = impl_->blocks[static_cast<std::size_t>(clip_idx)].parent_idx;
-        }
+        const int clip_idx =
+            nearest_clip_ancestor_for_block(*impl_, static_cast<int>(i));
         const bool clipped = (clip_idx >= 0);
         Rect active_clip_rect{};
         if (clipped) {
@@ -6211,13 +6320,21 @@ int scroll_offset_y_for(const std::vector<Block>& blocks,
     int sum = 0;
 #if !defined(AFFINEUI_STUB_BUILD)
     using O = detail::ComputedStyle::Overflow;
+    using P = detail::ComputedStyle::Position;
+    if (idx >= 0 && static_cast<std::size_t>(idx) < blocks.size() &&
+        styles.computed(blocks[static_cast<std::size_t>(idx)].id).position ==
+            P::Fixed) {
+        return 0;
+    }
     int p = (idx >= 0) ? blocks[static_cast<std::size_t>(idx)].parent_idx : -1;
     while (p >= 0) {
         const auto& pb = blocks[static_cast<std::size_t>(p)];
-        const auto ov = styles.computed(pb.id).overflow_y;
+        const auto& pcs = styles.computed(pb.id);
+        const auto ov = pcs.overflow_y;
         if ((ov == O::Scroll || ov == O::Auto) && pb.scroll_y != 0) {
             sum += pb.scroll_y;
         }
+        if (pcs.position == P::Fixed) break;
         p = pb.parent_idx;
     }
 #else
@@ -6892,6 +7009,8 @@ void recollect_blocks_from_current_dom(detail::DocumentImpl& impl) {
 #if !defined(AFFINEUI_STUB_BUILD)
     if (!impl.doc) return;
 
+    const auto previous_scroll =
+        snapshot_scroll_state(impl, /*include_elements=*/true);
     impl.blocks.clear();
     impl.style_store.reset();
     impl.animation_candidate_count = 0;
@@ -6925,6 +7044,7 @@ void recollect_blocks_from_current_dom(detail::DocumentImpl& impl) {
                         : lxb_dom_interface_node(impl.doc),
                    impl.root_style,
                    /*parent_idx=*/-1);
+    restore_scroll_state(impl, previous_scroll);
     for (const auto& block : impl.blocks) {
         if (block.animation.active && block.animation.name_hash != 0) {
             ++impl.animation_candidate_count;
@@ -9065,6 +9185,34 @@ bool block_clips_overflow(const detail::DocumentImpl& impl, int idx) {
     using O = detail::ComputedStyle::Overflow;
     return ov == O::Hidden || ov == O::Clip
         || ov == O::Scroll || ov == O::Auto;
+}
+
+int nearest_fixed_ancestor_or_self(const detail::DocumentImpl& impl, int idx) {
+    using P = detail::ComputedStyle::Position;
+    while (idx >= 0 && idx < static_cast<int>(impl.blocks.size())) {
+        const auto& b = impl.blocks[static_cast<std::size_t>(idx)];
+        if (impl.style_store.computed(b.id).position == P::Fixed) {
+            return idx;
+        }
+        idx = b.parent_idx;
+    }
+    return -1;
+}
+
+int nearest_clip_ancestor_for_block(const detail::DocumentImpl& impl, int idx) {
+    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return -1;
+    const int fixed_idx = nearest_fixed_ancestor_or_self(impl, idx);
+    const int fixed_parent =
+        fixed_idx >= 0
+            ? impl.blocks[static_cast<std::size_t>(fixed_idx)].parent_idx
+            : -2;
+    int clip_idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx;
+    while (clip_idx >= 0) {
+        if (fixed_idx >= 0 && clip_idx == fixed_parent) break;
+        if (block_clips_overflow(impl, clip_idx)) return clip_idx;
+        clip_idx = impl.blocks[static_cast<std::size_t>(clip_idx)].parent_idx;
+    }
+    return -1;
 }
 
 // True iff this block accepts scroll input on its Y axis.
