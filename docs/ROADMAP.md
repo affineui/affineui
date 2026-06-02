@@ -168,6 +168,18 @@ mutation. Public surface (`mount`, `use_state`, `on_click`,
       visible block range plus overscan, preserve stable row ids, and
       expose the same local and browser reconciliation contract as
       other command-tree widgets.
+- [ ] Command-tree List and Tree widgets should create their framework
+      list/tree containers by default. Rows must pack with no clickable
+      dead space between entries, matching panels like Photo Edit
+      Layers; an explicit non-default option can opt out when callers
+      really want bare rows.
+- [ ] Value-editor conformance matrix: cover integer sliders, float
+      sliders with multiple display precisions/formatting rules, and
+      numeric value editors with and without visible slider fill. The
+      no-slider value editor must match the Decius JavaScript scrub
+      behavior: mouse delta scales by roughly 1/100 of the current
+      value, with a non-zero minimum step so values near zero remain
+      movable.
 - [ ] `on_change` / `on_input` handlers (today they're stubs)
 - [ ] `examples/05_imm_todo` — keyed list rendering, exercises
       add/remove/reorder
