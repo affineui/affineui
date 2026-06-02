@@ -816,6 +816,66 @@ TEST_CASE("fixed Decius menus flip upward to stay inside the viewport") {
     CHECK(menu_bounds.y + menu_bounds.h == trigger_bounds.y);
 }
 
+TEST_CASE("hidden auto-height Decius color menus flip upward flush to the trigger") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; font-size: 12px; }
+        #tint { display: block; position: absolute; left: 40px; top: 160px;
+                width: 180px; height: 20px; }
+        .dcs-menu[hidden] { display: none; }
+        .dcs-menu { display: flex; flex-direction: column; position: fixed;
+                    width: 180px; padding: 2px; border: 1px solid #222; }
+        .dcs-menu__item { display: flex; align-items: center; height: 20px;
+                          width: 100%; box-sizing: border-box; }
+        </style>
+        <button id="tint" data-dcs-toggle="menu"
+                data-dcs-target="#tint-menu">Tint</button>
+        <div id="tint-menu" class="dcs-menu aui-color-menu" hidden>
+            <button id="color-0" class="dcs-menu__item aui-color-option"
+                    value="#33aaff">#33aaff</button>
+            <button class="dcs-menu__item aui-color-option"
+                    value="#3a3d45">#3a3d45</button>
+            <button class="dcs-menu__item aui-color-option"
+                    value="#3bb7ff">#3bb7ff</button>
+            <button class="dcs-menu__item aui-color-option"
+                    value="#3dd68a">#3dd68a</button>
+            <button class="dcs-menu__item aui-color-option"
+                    value="#8b6dff">#8b6dff</button>
+            <button class="dcs-menu__item aui-color-option"
+                    value="#cf6b3a">#cf6b3a</button>
+            <button class="dcs-menu__item aui-color-option"
+                    value="#ff8a3a">#ff8a3a</button>
+        </div>
+    )HTML");
+    doc.layout(260, 190, &painter);
+
+    auto tint = find_hovered_chain_id(doc, "tint", 260, 190);
+    REQUIRE(tint.x >= 0);
+    const auto trigger_bounds = hovered_bounds_for_id(doc, "tint");
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = tint;
+    doc.dispatch(down);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = tint;
+    doc.dispatch(up);
+    doc.layout(260, 190, &painter);
+
+    const auto first = find_hovered_chain_id(doc, "color-0", 260, 190);
+    REQUIRE(first.x >= 0);
+    const auto menu_bounds = hovered_bounds_for_id(doc, "tint-menu");
+    REQUIRE(menu_bounds.y >= 0);
+    CHECK(menu_bounds.y + menu_bounds.h == trigger_bounds.y);
+}
+
 TEST_CASE("top Decius popovers anchor to the trigger top edge") {
     affineui::Document doc;
     RecordingPainter painter;

@@ -8858,6 +8858,74 @@ int overlay_item_count(lxb_dom_element_t* elem) {
     return count;
 }
 
+bool element_has_direct_text(lxb_dom_element_t* elem) {
+    if (!elem) return false;
+    for (auto* child = lxb_dom_node_first_child(lxb_dom_interface_node(elem));
+         child != nullptr; child = lxb_dom_node_next(child)) {
+        if (child->type != LXB_DOM_NODE_TYPE_TEXT) continue;
+        if (!node_text(child).empty()) return true;
+    }
+    return false;
+}
+
+int computed_border_padding_height(const detail::ComputedStyle& cs) {
+    return cs.padding_top + cs.padding_bottom +
+           cs.used_border_top() + cs.used_border_bottom();
+}
+
+int computed_outer_declared_height(const detail::ComputedStyle& cs) {
+    if (cs.height <= 0) return 0;
+    int h = cs.height;
+    if (cs.box_sizing == detail::ComputedStyle::BoxSizing::ContentBox) {
+        h += computed_border_padding_height(cs);
+    }
+    return std::max(1, h);
+}
+
+int estimate_hidden_overlay_height_from_css(const detail::DocumentImpl& impl,
+                                            lxb_dom_element_t* elem,
+                                            int depth = 0) {
+    if (!elem || !impl.resolver || depth > 8) return 0;
+
+    auto rs = impl.resolver->resolve(elem, impl.root_style);
+    const auto& cs = rs.computed;
+    if (depth > 0 &&
+        cs.display == detail::ComputedStyle::Display::None) {
+        return 0;
+    }
+
+    if (const int declared = computed_outer_declared_height(cs); declared > 0) {
+        return declared;
+    }
+
+    int children_h = 0;
+    for (auto* child = lxb_dom_node_first_child(lxb_dom_interface_node(elem));
+         child != nullptr; child = lxb_dom_node_next(child)) {
+        if (child->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* child_elem = lxb_dom_interface_element(child);
+        auto child_rs = impl.resolver->resolve(child_elem, impl.root_style);
+        const auto& child_cs = child_rs.computed;
+        if (child_cs.position == detail::ComputedStyle::Position::Absolute ||
+            child_cs.position == detail::ComputedStyle::Position::Fixed) {
+            continue;
+        }
+        children_h += estimate_hidden_overlay_height_from_css(
+            impl, child_elem, depth + 1);
+    }
+
+    int content_h = children_h;
+    if (content_h <= 0 && element_has_direct_text(elem)) {
+        content_h = std::max(
+            1,
+            static_cast<int>(std::ceil(
+                static_cast<float>(cs.font_size_px) *
+                detail::effective_line_height_mult(cs))));
+    }
+
+    if (content_h <= 0) return 0;
+    return std::max(1, content_h + computed_border_padding_height(cs));
+}
+
 int overlay_estimated_height(const detail::DocumentImpl& impl,
                              lxb_dom_element_t* elem,
                              int fallback) {
@@ -8865,6 +8933,11 @@ int overlay_estimated_height(const detail::DocumentImpl& impl,
     if (idx >= 0) {
         const Rect rect = block_border_visual_rect(impl, idx);
         if (rect.h > 0) return rect.h;
+    }
+    if (const int css_estimate =
+            estimate_hidden_overlay_height_from_css(impl, elem);
+        css_estimate > 0) {
+        return std::clamp(css_estimate, 1, 240);
     }
     const int count = overlay_item_count(elem);
     if (count > 0) return std::clamp(count * 24 + 8, 24, 240);
@@ -8878,13 +8951,9 @@ int overlay_declared_outer_height(const detail::DocumentImpl& impl,
 
     auto rs = impl.resolver->resolve(elem, impl.root_style);
     const auto& cs = rs.computed;
-    if (cs.height > 0) {
-        int h = cs.height;
-        if (cs.box_sizing == detail::ComputedStyle::BoxSizing::ContentBox) {
-            h += cs.padding_top + cs.padding_bottom + cs.used_border_top() +
-                 cs.used_border_bottom();
-        }
-        return std::max(1, h);
+    if (const int declared = computed_outer_declared_height(cs);
+        declared > 0) {
+        return declared;
     }
     return overlay_estimated_height(impl, elem, fallback);
 }
