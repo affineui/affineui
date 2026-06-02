@@ -686,6 +686,54 @@ TEST_CASE("fixed Decius menus stay under scrolled triggers without changing scro
     CHECK(open_bounds.y == trigger_bounds.y + trigger_bounds.h);
 }
 
+TEST_CASE("fixed inline geometry restyles against the viewport") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        #host {
+            display: block;
+            position: relative;
+            margin-left: 48px;
+            margin-top: 36px;
+            width: 160px;
+            height: 120px;
+            background: #222;
+        }
+        #overlay {
+            display: block;
+            position: fixed;
+            left: 20px;
+            top: 30px;
+            width: 40px;
+            height: 24px;
+            background: #4d9fff;
+        }
+        </style>
+        <div id="host">
+            <div id="overlay"></div>
+        </div>
+    )HTML");
+    doc.layout(260, 180, &painter);
+
+    auto overlay = find_hovered_id(doc, "overlay", 260, 180);
+    REQUIRE(overlay.x >= 0);
+    CHECK(doc.hovered_info().bounds.x == 20);
+    CHECK(doc.hovered_info().bounds.y == 30);
+
+    REQUIRE(doc.set_attribute_by_id(
+        "overlay", "style",
+        "display:block;position:fixed;left:80px;top:50px;"
+        "width:40px;height:24px;background:#4d9fff"));
+
+    overlay = find_hovered_id(doc, "overlay", 260, 180);
+    REQUIRE(overlay.x >= 0);
+    CHECK(doc.hovered_info().bounds.x == 80);
+    CHECK(doc.hovered_info().bounds.y == 50);
+}
+
 TEST_CASE("UiControls script toggles Decius popovers") {
     affineui::Document doc;
     RecordingPainter painter;

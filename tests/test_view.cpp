@@ -139,6 +139,20 @@ affineui::Rect hovered_class_bounds(const affineui::App& app,
     return {-1, -1, 0, 0};
 }
 
+affineui::Rect hovered_attr_bounds(const affineui::App& app,
+                                   std::string_view attr_name,
+                                   std::string_view attr_value) {
+    const auto chain = app.document().hovered_info_chain();
+    for (const auto& info : chain) {
+        for (const auto& attr : info.attrs) {
+            if (attr.first == attr_name && attr.second == attr_value) {
+                return info.bounds;
+            }
+        }
+    }
+    return {-1, -1, 0, 0};
+}
+
 }  // namespace
 
 TEST_CASE("View emits remote create patches on first reconcile") {
@@ -216,9 +230,9 @@ TEST_CASE("View framework personalities apply default and explicit selectors") {
     CHECK(html.find("data-dcs-style=\"flat\"") != std::string::npos);
     CHECK(html.find("data-dcs-density=\"compact\"") != std::string::npos);
     CHECK(html.find("data-aui-size=\"lg\"") != std::string::npos);
-    CHECK(html.find(".aui-keycolor-swatch.is-active{border-color:var(--aui-swatch)") !=
+    CHECK(html.find(".aui-keycolor-swatch.is-active{border-color:var(--dcs-bg-app") !=
           std::string::npos);
-    CHECK(html.find("0 0 0 3px var(--aui-swatch)") == std::string::npos);
+    CHECK(html.find("0 0 0 4px var(--aui-swatch)") != std::string::npos);
 
     decius.find_widget("panel").selector(affineui::decius::selector::size,
                                          "med");
@@ -752,6 +766,77 @@ TEST_CASE("App dispatch invokes command dropdown and button-group callbacks") {
     }
 }
 
+TEST_CASE("App command dropdowns stay anchored in scrolled panels") {
+    affineui::View view{affineui::ViewTheme::Decius};
+    std::string mode;
+
+    view.begin();
+    {
+        auto panel = view.container({}, "controls-panel-body");
+        panel.attr("style",
+                   "display:block;position:absolute;left:0;top:0;"
+                   "width:220px;height:90px;overflow-y:auto;");
+        view.container({}, "controls-spacer-top")
+            .attr("style", "display:block;height:96px");
+        view.dropdown("Mode", {"Object", "Edit", "Render"}, "Object", "mode")
+            .on_change([&](std::string_view next) {
+                mode = std::string(next);
+            });
+        view.container({}, "controls-spacer-bottom")
+            .attr("style", "display:block;height:180px");
+    }
+    view.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    app.load_view(view);
+    app.document().layout(280, 160);
+
+    auto click_at = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        app.dispatch(down);
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        app.dispatch(up);
+    };
+
+    affineui::Event wheel{};
+    wheel.type = affineui::EventType::MouseWheel;
+    wheel.pos = {10, 10};
+    wheel.wheel_dy = -3.0f;
+    CHECK(app.dispatch(wheel));
+    app.document().layout(280, 160);
+
+    const auto select = find_hovered_tag_attr(app, "select",
+                                              "data-aui-name", "mode",
+                                              280, 160);
+    REQUIRE(select.x >= 0);
+    const auto select_bounds = hovered_attr_bounds(app, "data-aui-name", "mode");
+    REQUIRE(select_bounds.y >= 0);
+    app.document().layout(280, 160);
+    const auto before_size = app.document().content_size();
+
+    click_at(select);
+    app.document().layout(280, 160);
+    CHECK(app.document().content_size().height == before_size.height);
+
+    const auto edit = find_hovered_tag_attr(app, "button", "value",
+                                            "Edit", 280, 180);
+    REQUIRE(edit.x >= 0);
+    const auto menu_bounds = hovered_class_bounds(app, "aui-select__menu");
+    REQUIRE(menu_bounds.y >= 0);
+    CHECK(menu_bounds.y == select_bounds.y + select_bounds.h);
+
+    click_at(edit);
+    CHECK(mode == "Edit");
+}
+
 TEST_CASE("App load_view preserves named scroll panels across control reloads") {
     auto make_view = [](bool checked) {
         affineui::View view{affineui::ViewTheme::Decius};
@@ -833,6 +918,75 @@ TEST_CASE("App dispatch invokes Decius colorfield menu callbacks") {
     const auto green = find_hovered_tag_attr(app, "button", "data-dcs-value",
                                              "#3dd68a", 360, 220);
     REQUIRE(green.x >= 0);
+    click_at(green);
+    CHECK(tint == "#3dd68a");
+}
+
+TEST_CASE("App Decius colorfield menus stay anchored in scrolled panels") {
+    affineui::View view{affineui::ViewTheme::Decius};
+    std::string tint;
+
+    view.begin();
+    {
+        auto panel = view.container({}, "controls-panel-body");
+        panel.attr("style",
+                   "display:block;position:absolute;left:0;top:0;"
+                   "width:240px;height:96px;overflow-y:auto;");
+        view.container({}, "controls-spacer-top")
+            .attr("style", "display:block;height:96px");
+        view.input("Tint", "#3bb7ff", "color", "tint")
+            .on_change([&](std::string_view next) {
+                tint = std::string(next);
+            });
+        view.container({}, "controls-spacer-bottom")
+            .attr("style", "display:block;height:180px");
+    }
+    view.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    app.load_view(view);
+    app.document().layout(300, 180);
+
+    auto click_at = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        app.dispatch(down);
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        app.dispatch(up);
+    };
+
+    affineui::Event wheel{};
+    wheel.type = affineui::EventType::MouseWheel;
+    wheel.pos = {10, 10};
+    wheel.wheel_dy = -3.0f;
+    CHECK(app.dispatch(wheel));
+    app.document().layout(300, 180);
+
+    const auto field = find_hovered_widget(app, "tint", 300, 180);
+    REQUIRE(field.x >= 0);
+    const auto field_bounds = hovered_attr_bounds(app, "data-aui-name", "tint");
+    REQUIRE(field_bounds.y >= 0);
+    app.document().layout(300, 180);
+    const auto before_size = app.document().content_size();
+
+    click_at(field);
+    app.document().layout(300, 180);
+    CHECK(app.document().content_size().height == before_size.height);
+
+    const auto green = find_hovered_tag_attr(app, "button", "data-dcs-value",
+                                             "#3dd68a", 300, 220);
+    REQUIRE(green.x >= 0);
+    const auto menu_bounds = hovered_class_bounds(app, "aui-color-menu");
+    REQUIRE(menu_bounds.y >= 0);
+    CHECK(menu_bounds.y == field_bounds.y + field_bounds.h);
+
     click_at(green);
     CHECK(tint == "#3dd68a");
 }

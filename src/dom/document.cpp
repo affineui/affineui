@@ -6954,7 +6954,7 @@ bool update_absolute_geometry(detail::DocumentImpl& impl,
 
     const auto& parent = impl.blocks[static_cast<std::size_t>(block.parent_idx)];
     const auto& parent_cs = impl.style_store.computed(parent.id);
-    const Rect containing{
+    Rect containing{
         parent.bounds.x + parent_cs.used_border_left(),
         parent.bounds.y + parent_cs.used_border_top(),
         std::max(0, parent.bounds.w - parent_cs.used_border_left() -
@@ -6962,6 +6962,15 @@ bool update_absolute_geometry(detail::DocumentImpl& impl,
         std::max(0, parent.bounds.h - parent_cs.used_border_top() -
                          parent_cs.used_border_bottom())
     };
+    if (cs.position == detail::ComputedStyle::Position::Fixed &&
+        impl.media_viewport_width_px > 0) {
+        const int viewport_h =
+            impl.media_viewport_height_px > 0
+                ? impl.media_viewport_height_px
+                : std::max(impl.content_size.height, parent.bounds.h);
+        containing = Rect{0, 0, impl.media_viewport_width_px,
+                          std::max(0, viewport_h)};
+    }
 
     const auto resolve_horizontal_inset = [&](std::int16_t value,
                                               bool is_pct) {

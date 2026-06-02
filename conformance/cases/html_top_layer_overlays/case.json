@@ -1,0 +1,10 @@
+{
+  "width": 900,
+  "height": 620,
+  "dpi": 1.0,
+  "tolerance": 2,
+  "threshold": 6.0,
+  "steps": [
+    { "snapshot": "initial" }
+  ]
+}

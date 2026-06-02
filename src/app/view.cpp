@@ -727,7 +727,7 @@ body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
 .aui-keycolor-swatch{--aui-swatch:#00b8d4;flex:0 0 18px;width:18px;height:18px;border-radius:50%;background:var(--aui-swatch);border:2px solid transparent;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),inset 0 -1px 1px rgba(0,0,0,.35),0 1px 2px rgba(0,0,0,.45);cursor:pointer;box-sizing:border-box}
 .aui-keycolor-swatch--cyan{--aui-swatch:#00b8d4}.aui-keycolor-swatch--green{--aui-swatch:#3dd68a}.aui-keycolor-swatch--orange{--aui-swatch:#ff8a3a}.aui-keycolor-swatch--violet{--aui-swatch:#8b6dff}
 .aui-keycolor-swatch:hover{border-color:rgba(255,255,255,.35);box-shadow:inset 0 1px 0 rgba(255,255,255,.42),inset 0 -1px 1px rgba(0,0,0,.35),0 1px 2px rgba(0,0,0,.45)}
-.aui-keycolor-swatch.is-active{border-color:var(--aui-swatch);box-shadow:inset 0 0 0 2px var(--dcs-bg-app,#1f222a),inset 0 1px 0 rgba(255,255,255,.42),inset 0 -1px 1px rgba(0,0,0,.35),0 1px 2px rgba(0,0,0,.45)}
+.aui-keycolor-swatch.is-active{border-color:var(--dcs-bg-app,#1f222a);box-shadow:0 0 0 2px var(--dcs-bg-app,#1f222a),0 0 0 4px var(--aui-swatch),inset 0 1px 0 rgba(255,255,255,.42),inset 0 -1px 1px rgba(0,0,0,.35),0 1px 2px rgba(0,0,0,.45)}
 )CSS";
     css += R"CSS(
 .aui-test-perf-reserve{flex:1 1 auto;min-width:0}
