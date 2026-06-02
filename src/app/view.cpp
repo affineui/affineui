@@ -625,8 +625,10 @@ body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
 .aui-select>.form-select,.aui-select>.dcs-select{width:100%}
 .aui-select__menu[hidden]{display:none}
 .aui-select__menu:not([hidden]){display:flex!important;position:fixed!important;flex-direction:column;align-items:stretch;z-index:400;max-height:240px;overflow:auto}
-.aui-select__menu .dropdown-item,.aui-select__menu .dcs-menu__item{border:0;background:transparent;text-align:left;font:inherit;width:100%;box-sizing:border-box}
-.aui-select__menu .dcs-menu__item{margin-left:calc(var(--dcs-s-2)*-1);margin-right:calc(var(--dcs-s-2)*-1);width:calc(100% + var(--dcs-s-2)*2)}
+.aui-select__menu.dcs-menu{max-width:none}
+.aui-select__menu .dropdown-item,.aui-select__menu .dcs-menu__item{border:0;background:transparent;text-align:left;font:inherit;box-sizing:border-box;max-width:none}
+.aui-select__menu .dropdown-item{width:100%}
+.aui-select__menu .dcs-menu__item{align-self:stretch;width:auto}
 .aui-bs-check{min-height:auto;margin-bottom:0;padding-left:1.5em}
 .aui-bs-form>.btn{align-self:center}.aui-bs-props>.btn,.aui-bs-props>.btn-group{align-self:flex-start}.aui-bs-props>.aui-bs-btn-row>.btn{flex:1 1 0}
 .aui-root>.card.aui-bs-form,.aui-root>.card.aui-bs-props,.aui-root>.card.aui-bs-col{gap:1rem}
@@ -1666,7 +1668,7 @@ WidgetRef View::dropdown(std::string_view label,
         menu_classes = "dropdown-menu aui-select__menu";
         item_classes = "dropdown-item";
     } else if (theme_ == ViewTheme::Decius) {
-        menu_classes = "dcs-menu aui-select__menu";
+        menu_classes = "dcs-menu dcs-menu--select aui-select__menu";
         item_classes = "dcs-menu__item";
     }
     auto& menu = open_node(WidgetKind::Container, "div", menu_classes,

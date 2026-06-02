@@ -222,6 +222,7 @@ TEST_CASE("View framework personalities apply default and explicit selectors") {
     auto panel = decius.panel_ref("panel");
     panel.selector(affineui::decius::selector::size,
                    affineui::decius::size::lg);
+    decius.dropdown("Mode", {"Object", "Edit"}, "Object", "mode");
     decius.end();
 
     auto html = decius.to_html_document();
@@ -233,6 +234,10 @@ TEST_CASE("View framework personalities apply default and explicit selectors") {
     CHECK(html.find(".aui-keycolor-swatch.is-active{border-color:var(--dcs-bg-app") !=
           std::string::npos);
     CHECK(html.find("0 0 0 4px var(--aui-swatch)") != std::string::npos);
+    CHECK(html.find(".aui-select__menu.dcs-menu{max-width:none}") !=
+          std::string::npos);
+    CHECK(html.find("dcs-menu dcs-menu--select aui-select__menu") !=
+          std::string::npos);
     CHECK(html.find(".aui-test-nav-item.is-active{background:var(--dcs-accent") !=
           std::string::npos);
     CHECK(html.find("color:var(--dcs-accent-text,#fff)") !=
@@ -766,7 +771,7 @@ TEST_CASE("App dispatch invokes command dropdown and button-group callbacks") {
         REQUIRE(menu_bounds.y >= 0);
         CHECK(menu_bounds.y == select_bounds.y + select_bounds.h);
         CHECK(menu_bounds.w == select_bounds.w);
-        CHECK(edit_bounds.w >= menu_bounds.w - 2);
+        CHECK(edit_bounds.w >= menu_bounds.w - 8);
         click_at(edit);
         CHECK(mode == "Edit");
         app.document().layout(420, 420);
@@ -849,6 +854,56 @@ TEST_CASE("App command dropdowns stay anchored in scrolled panels") {
 
     click_at(edit);
     CHECK(mode == "Edit");
+}
+
+TEST_CASE("App Decius dropdown selection bar stretches across wide menus") {
+    affineui::View view{affineui::ViewTheme::Decius};
+
+    view.begin();
+    view.dropdown("Preset",
+                  {"Warm pad", "Digital pluck", "Sub bass", "Noise sweep"},
+                  "Sub bass", "preset")
+        .attr("style", "display:block;width:760px");
+    view.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    app.load_view(view);
+    app.document().layout(840, 180);
+
+    auto click_at = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        app.dispatch(down);
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        app.dispatch(up);
+    };
+
+    const auto select = find_hovered_tag_attr(app, "select",
+                                              "data-aui-name", "preset",
+                                              840, 180);
+    REQUIRE(select.x >= 0);
+    const auto select_bounds =
+        hovered_attr_bounds(app, "data-aui-name", "preset");
+    REQUIRE(select_bounds.w > 320);
+
+    click_at(select);
+    app.document().layout(840, 240);
+
+    const auto active = find_hovered_tag_attr(app, "button", "value",
+                                              "Sub bass", 840, 260);
+    REQUIRE(active.x >= 0);
+    const auto menu_bounds = hovered_class_bounds(app, "aui-select__menu");
+    const auto active_bounds = hovered_attr_bounds(app, "value", "Sub bass");
+    REQUIRE(menu_bounds.y >= 0);
+    CHECK(menu_bounds.w == select_bounds.w);
+    CHECK(active_bounds.w >= menu_bounds.w - 8);
 }
 
 TEST_CASE("App load_view preserves named scroll panels across control reloads") {

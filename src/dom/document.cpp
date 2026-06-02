@@ -8955,6 +8955,7 @@ std::string dropdown_menu_open_style(const detail::DocumentImpl& impl,
            "px;top:" + std::to_string(placed.top) +
            "px;width:" + std::to_string(width) +
            "px;min-width:" + std::to_string(width) +
+           "px;max-width:" + std::to_string(width) +
            "px;max-height:" + std::to_string(placed.max_height) +
            "px;overflow:auto;flex-direction:column;align-items:stretch;z-index:400";
 }
@@ -9126,7 +9127,8 @@ std::string dcs_menu_open_style(const detail::DocumentImpl& impl,
         "px;overflow:auto;flex-direction:column;align-items:stretch;z-index:400";
     if (stretch_to_anchor) {
         style += ";width:" + std::to_string(overlay_width) +
-                 "px;min-width:" + std::to_string(overlay_width) + "px";
+                 "px;min-width:" + std::to_string(overlay_width) +
+                 "px;max-width:" + std::to_string(overlay_width) + "px";
     }
     return style;
 }
