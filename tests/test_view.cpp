@@ -790,6 +790,52 @@ TEST_CASE("App dispatch invokes command dropdown and button-group callbacks") {
     }
 }
 
+TEST_CASE("App dispatch lets named Decius buttons inside visual groups click") {
+    affineui::View view{affineui::ViewTheme::Decius};
+    std::string tool = "scale";
+
+    view.begin();
+    {
+        auto group = view.container("dcs-btn-group", "tool-group");
+        group.attr("style", "display:flex;width:160px;height:28px");
+        view.button("Scale", true, "tool-scale")
+            .cls("dcs-btn dcs-btn--primary")
+            .attr("style", "display:block;width:80px;height:28px")
+            .attr("aria-pressed", "true")
+            .on_click([&] { tool = "scale"; });
+        view.button("Rotate", false, "tool-rotate")
+            .cls("dcs-btn")
+            .attr("style", "display:block;width:80px;height:28px")
+            .attr("aria-pressed", "false")
+            .on_click([&] { tool = "rotate"; });
+    }
+    view.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    app.load_view(view);
+    app.document().layout(260, 120);
+
+    auto click_at = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        app.dispatch(down);
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        app.dispatch(up);
+    };
+
+    const auto rotate = find_hovered_widget(app, "tool-rotate", 260, 120);
+    REQUIRE(rotate.x >= 0);
+    click_at(rotate);
+    CHECK(tool == "rotate");
+}
+
 TEST_CASE("App command dropdowns stay anchored in scrolled panels") {
     affineui::View view{affineui::ViewTheme::Decius};
     std::string mode;

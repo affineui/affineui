@@ -8670,6 +8670,16 @@ bool find_button_group_option_at(detail::DocumentImpl& impl,
         }
     }
     if (decius_group && out_option) {
+        // A bare .dcs-btn-group can be either a segmented selector or just
+        // a visual grouping for independently-bound buttons. Generated
+        // button_group widgets mark the outer field with data-aui-widget;
+        // otherwise a named child button should keep its own on_click path.
+        if (has_attr(out_option, "data-aui-name") &&
+            attr_string(decius_group, "data-aui-widget") != "button-group") {
+            out_group = nullptr;
+            out_option = nullptr;
+            return false;
+        }
         out_group = decius_group;
         return true;
     }
@@ -8728,6 +8738,11 @@ bool update_button_group_option_states(detail::DocumentImpl& impl,
             changed = set_attribute_on_element(
                 impl, elem, "class",
                 active ? "btn btn-primary" : "btn btn-outline-primary") || changed;
+        }
+        if (class_list_contains(elem, "dcs-btn")) {
+            changed = set_attribute_on_element(
+                impl, elem, "class",
+                class_list_set(elem, "dcs-btn--primary", active)) || changed;
         }
     }
     for (auto* child = lxb_dom_node_first_child(lxb_dom_interface_node(elem));

@@ -1220,7 +1220,8 @@ TEST_CASE("UiControls script toggles raw Decius checks radios and button groups"
             <span class="dcs-check__box"></span><span>Embree</span>
         </label>
         <div id="blend" class="dcs-btn-group" data-aui-name="blend">
-            <button id="blend-norm" class="dcs-btn" aria-pressed="true">Norm</button>
+            <button id="blend-norm" class="dcs-btn dcs-btn--primary"
+                    aria-pressed="true">Norm</button>
             <button id="blend-add" class="dcs-btn">Add</button>
             <button id="blend-mul" class="dcs-btn">Mul</button>
         </div>
@@ -1263,11 +1264,37 @@ TEST_CASE("UiControls script toggles raw Decius checks radios and button groups"
     click_at(add);
     CHECK(attr("blend-norm", "aria-pressed") == "false");
     CHECK(attr("blend-add", "aria-pressed") == "true");
+    CHECK(attr("blend-norm", "class").find("dcs-btn--primary") ==
+          std::string::npos);
+    CHECK(attr("blend-add", "class").find("dcs-btn--primary") !=
+          std::string::npos);
+
+    auto mul = find_hovered_chain_id(doc, "blend-mul", 240, 160);
+    REQUIRE(mul.x >= 0);
+    click_at(mul);
+    CHECK(attr("blend-norm", "aria-pressed") == "false");
+    CHECK(attr("blend-add", "aria-pressed") == "false");
+    CHECK(attr("blend-mul", "aria-pressed") == "true");
+    CHECK(attr("blend-add", "class").find("dcs-btn--primary") ==
+          std::string::npos);
+    CHECK(attr("blend-mul", "class").find("dcs-btn--primary") !=
+          std::string::npos);
+
+    auto norm = find_hovered_chain_id(doc, "blend-norm", 240, 160);
+    REQUIRE(norm.x >= 0);
+    click_at(norm);
+    CHECK(attr("blend-norm", "aria-pressed") == "true");
+    CHECK(attr("blend-add", "aria-pressed") == "false");
+    CHECK(attr("blend-mul", "aria-pressed") == "false");
+    CHECK(attr("blend-norm", "class").find("dcs-btn--primary") !=
+          std::string::npos);
+    CHECK(attr("blend-mul", "class").find("dcs-btn--primary") ==
+          std::string::npos);
 
     const auto changes = doc.take_widget_changes();
     REQUIRE_FALSE(changes.empty());
     CHECK(changes.back().name == "blend");
-    CHECK(changes.back().value == "Add");
+    CHECK(changes.back().value == "Norm");
 }
 
 TEST_CASE("UiControls script updates Decius list selection") {
