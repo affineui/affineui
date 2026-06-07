@@ -32,6 +32,9 @@ public:
         ResourceLoader resource_loader{};
         bool        perf_overlay{false};
         DebugOverlayCorner perf_overlay_corner{DebugOverlayCorner::top_right};
+        // Called after an interaction changed the dock layout (e.g. a splitter
+        // drag). The app reads document().dock_pane_sizes() and persists them.
+        std::function<void()> on_layout_changed{};
     };
 
     App();
@@ -58,6 +61,12 @@ public:
     /// Install or replace the user stylesheet (sits above document
     /// stylesheets in the cascade as `author` origin).
     void set_stylesheet(std::string_view css);
+
+    /// As above, with the stylesheet's base URL so its relative url()s (icon
+    /// fonts, images) resolve against the location it was loaded from — the
+    /// same resolution a <link>ed sheet gets. Use with read_framework_bundle's
+    /// out_base_url.
+    void set_stylesheet(std::string_view css, std::string_view base_url);
 
     /// Immediate-mode entry point. The view function is invoked when
     /// AffineUI knows the UI definition could have changed (a state

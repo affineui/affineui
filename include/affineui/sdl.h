@@ -86,12 +86,17 @@ inline Key key_to_affine(SDL_Keycode sym) {
         case SDLK_DOWN:      return Key::ArrowDown;
         case SDLK_HOME:      return Key::Home;
         case SDLK_END:       return Key::End;
-        case SDLK_a:         return Key::A;
-        case SDLK_c:         return Key::C;
-        case SDLK_v:         return Key::V;
-        case SDLK_x:         return Key::X;
-        default:             return Key::Unknown;
+        default: break;
     }
+    // SDLK letters (a–z) and digits (0–9) are contiguous ASCII ranges, as are
+    // the matching Key enum members; map by offset rather than per-key cases.
+    if (sym >= SDLK_a && sym <= SDLK_z) {
+        return static_cast<Key>(static_cast<int>(Key::A) + (sym - SDLK_a));
+    }
+    if (sym >= SDLK_0 && sym <= SDLK_9) {
+        return static_cast<Key>(static_cast<int>(Key::Digit0) + (sym - SDLK_0));
+    }
+    return Key::Unknown;
 }
 
 inline void apply_key_modifiers(Event& out, SDL_Keymod mods) {

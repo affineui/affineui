@@ -101,7 +101,15 @@ struct BlockLayoutInput {
 /// for any text-bearing leaves — pass the live painter so text wraps
 /// against real font metrics. nullptr is OK (text leaves fall back to
 /// their `intrinsic_h_px`).
+///
+/// `viewport_height_px` is the height of the initial containing block (the
+/// viewport). It is what `position: fixed` boxes resolve against — a
+/// `position:fixed; inset:0` (or `top:0;bottom:0`, or `height:100%`) element
+/// fills the viewport rather than collapsing. In-flow content may still exceed
+/// it (the document's scrollable content height is computed separately). Pass 0
+/// to leave the available height undefined (legacy "grow to content").
 void layout_blocks_with_yoga(int viewport_width_px,
+                             int viewport_height_px,
                              std::span<const BlockLayoutInput> inputs,
                              std::span<Rect> out_bounds,
                              Painter* measurer = nullptr,

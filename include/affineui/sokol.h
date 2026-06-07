@@ -117,12 +117,19 @@ inline Key key_to_affine(int sapp_keycode) {
         case SAPP_KEYCODE_DOWN:      return Key::ArrowDown;
         case SAPP_KEYCODE_HOME:      return Key::Home;
         case SAPP_KEYCODE_END:       return Key::End;
-        case SAPP_KEYCODE_A:         return Key::A;
-        case SAPP_KEYCODE_C:         return Key::C;
-        case SAPP_KEYCODE_V:         return Key::V;
-        case SAPP_KEYCODE_X:         return Key::X;
-        default:                     return Key::Unknown;
+        default: break;
     }
+    // Letters A–Z and digits 0–9 are contiguous in both enums, so map by
+    // offset rather than listing every case.
+    if (sapp_keycode >= SAPP_KEYCODE_A && sapp_keycode <= SAPP_KEYCODE_Z) {
+        return static_cast<Key>(
+            static_cast<int>(Key::A) + (sapp_keycode - SAPP_KEYCODE_A));
+    }
+    if (sapp_keycode >= SAPP_KEYCODE_0 && sapp_keycode <= SAPP_KEYCODE_9) {
+        return static_cast<Key>(
+            static_cast<int>(Key::Digit0) + (sapp_keycode - SAPP_KEYCODE_0));
+    }
+    return Key::Unknown;
 }
 
 inline void apply_modifiers(Event& out, std::uint32_t modifiers) {

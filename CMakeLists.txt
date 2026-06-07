@@ -48,7 +48,14 @@ option(AFFINEUI_HOST_PROVIDES_LEXBOR       "Host already builds lexbor"         
 option(AFFINEUI_HOST_PROVIDES_YOGA         "Host already builds Yoga"            OFF)
 
 # ─── Defaults ────────────────────────────────────────────────────────────────
-set(CMAKE_CXX_STANDARD 20)
+# We compile in C++23 mode to harden our own build: C++23 makes the standard
+# library's string / string_view constructors from std::nullptr_t `= delete`,
+# so passing nullptr where a string is expected becomes a COMPILE error instead
+# of runtime UB (we hit exactly that footgun once). IMPORTANT: our *code* stays
+# C++20-compatible — we do NOT use C++23 language/library features, so the
+# amalgamated single-header SDK still compiles cleanly in a consumer's C++20
+# build (it simply doesn't get the deleted-nullptr-ctor protection there).
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD 11)

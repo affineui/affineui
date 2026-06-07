@@ -325,6 +325,30 @@ enum class FrameworkElement {
     KnobGroup,
     KnobLabel,
     KnobInput,
+    // General app-shell / data components (themed structural widgets).
+    Toolbar,
+    ToolbarSeparator,
+    IconButton,
+    Menubar,
+    MenubarItem,
+    Menu,
+    MenuItem,
+    DockHost,
+    DockPanel,
+    DockPanelTab,
+    DockPanelBody,
+    Splitter,
+    Tree,
+    TreeRow,
+    List,
+    ListItem,
+    Table,
+    Foldout,
+    FoldoutHeader,
+    FoldoutBody,
+    Statusbar,
+    StatusbarItem,
+    Notification,
 };
 
 struct ElementRecipe {
@@ -332,11 +356,27 @@ struct ElementRecipe {
     std::string_view classes;
 };
 
+// The "personality module": translates semantic widgets (FrameworkElement)
+// into concrete DOM/CSS for one CSS framework, and owns that framework's
+// version (which both names its stylesheet bundle and lets it branch markup
+// across framework versions). Cross-framework components go through this;
+// components clearly specific to one framework may emit their classes directly
+// instead of adding recipes to every personality.
 class ViewFramework {
 public:
     virtual ~ViewFramework() = default;
 
+    /// Default stylesheet href (for the personality's default version).
     [[nodiscard]] virtual std::string_view stylesheet_href() const noexcept = 0;
+    /// The framework version this personality ships with / targets by default.
+    [[nodiscard]] virtual std::string_view default_version() const noexcept = 0;
+    /// A short framework id stamped on the document root (e.g. "decius",
+    /// "bootstrap", "") so the interaction layer can tell personalities apart.
+    [[nodiscard]] virtual std::string_view framework_id() const noexcept = 0;
+    /// Format the stylesheet bundle href for a specific version. Empty when the
+    /// personality has no external stylesheet (Plain).
+    [[nodiscard]] virtual std::string bundle_href(
+        std::string_view version) const = 0;
     [[nodiscard]] virtual Color background_color() const noexcept = 0;
     [[nodiscard]] virtual ElementRecipe element(FrameworkElement element,
                                                 bool primary = false) const noexcept = 0;
@@ -355,6 +395,15 @@ class PlainFramework final : public ViewFramework {
 public:
     [[nodiscard]] std::string_view stylesheet_href() const noexcept override {
         return {};
+    }
+    [[nodiscard]] std::string_view default_version() const noexcept override {
+        return {};
+    }
+    [[nodiscard]] std::string_view framework_id() const noexcept override {
+        return {};
+    }
+    [[nodiscard]] std::string bundle_href(std::string_view) const override {
+        return {};  // Plain has no external stylesheet.
     }
 
     [[nodiscard]] Color background_color() const noexcept override {
@@ -416,6 +465,15 @@ public:
     [[nodiscard]] std::string_view stylesheet_href() const noexcept override {
         return "frameworks/css/bootstrap-5.3.8.min.css";
     }
+    [[nodiscard]] std::string_view default_version() const noexcept override {
+        return bootstrap::default_version;
+    }
+    [[nodiscard]] std::string_view framework_id() const noexcept override {
+        return "bootstrap";
+    }
+    [[nodiscard]] std::string bundle_href(std::string_view version) const override {
+        return "frameworks/css/bootstrap-" + std::string(version) + ".min.css";
+    }
 
     [[nodiscard]] Color background_color() const noexcept override {
         return Color{0xFF, 0xFF, 0xFF, 0xFF};
@@ -447,6 +505,29 @@ public:
             case FrameworkElement::KnobGroup:     return {"div", "aui-bs-field"};
             case FrameworkElement::KnobLabel:     return {"label", "aui-bs-field__label form-label"};
             case FrameworkElement::KnobInput:     return {"input", "form-range"};
+            case FrameworkElement::Toolbar:          return {"div", "btn-toolbar gap-2 align-items-center"};
+            case FrameworkElement::ToolbarSeparator: return {"div", "vr"};
+            case FrameworkElement::IconButton:       return {"button", "btn btn-light btn-sm"};
+            case FrameworkElement::Menubar:          return {"nav", "navbar navbar-expand"};
+            case FrameworkElement::MenubarItem:      return {"button", "btn btn-link nav-link"};
+            case FrameworkElement::Menu:             return {"div", "dropdown-menu"};
+            case FrameworkElement::MenuItem:         return {"button", "dropdown-item"};
+            case FrameworkElement::DockHost:         return {"div", "d-flex flex-column"};
+            case FrameworkElement::DockPanel:        return {"section", "card"};
+            case FrameworkElement::DockPanelTab:     return {"button", "nav-link active"};
+            case FrameworkElement::DockPanelBody:    return {"div", "card-body"};
+            case FrameworkElement::Splitter:         return {"div", "aui-bs-splitter"};
+            case FrameworkElement::Tree:             return {"div", "list-group"};
+            case FrameworkElement::TreeRow:          return {"button", "list-group-item list-group-item-action"};
+            case FrameworkElement::List:             return {"div", "list-group"};
+            case FrameworkElement::ListItem:         return {"button", "list-group-item list-group-item-action"};
+            case FrameworkElement::Table:            return {"table", "table"};
+            case FrameworkElement::Foldout:          return {"div", "accordion-item"};
+            case FrameworkElement::FoldoutHeader:    return {"button", "accordion-button"};
+            case FrameworkElement::FoldoutBody:      return {"div", "accordion-body"};
+            case FrameworkElement::Statusbar:        return {"div", "d-flex align-items-center gap-2 small text-body-secondary"};
+            case FrameworkElement::StatusbarItem:    return {"span", ""};
+            case FrameworkElement::Notification:     return {"div", "toast show"};
         }
         return {"div", {}};
     }
@@ -482,7 +563,17 @@ public:
 class DeciusFramework final : public ViewFramework {
 public:
     [[nodiscard]] std::string_view stylesheet_href() const noexcept override {
-        return "frameworks/css/decius-css-0.5.2.bundle.min.css";
+        return "frameworks/css/decius-css-0.6.2.bundle.min.css";
+    }
+    [[nodiscard]] std::string_view default_version() const noexcept override {
+        return decius::default_version;
+    }
+    [[nodiscard]] std::string_view framework_id() const noexcept override {
+        return "decius";
+    }
+    [[nodiscard]] std::string bundle_href(std::string_view version) const override {
+        return "frameworks/css/decius-css-" + std::string(version) +
+               ".bundle.min.css";
     }
 
     [[nodiscard]] Color background_color() const noexcept override {
@@ -517,6 +608,30 @@ public:
             case FrameworkElement::KnobGroup:     return {"div", "dcs-field"};
             case FrameworkElement::KnobLabel:     return {"span", "dcs-field__label"};
             case FrameworkElement::KnobInput:     return {"div", "dcs-knob"};
+            case FrameworkElement::Toolbar:          return {"div", "dcs-toolbar"};
+            case FrameworkElement::ToolbarSeparator: return {"span", "dcs-toolbar__sep"};
+            case FrameworkElement::IconButton:
+                return {"button", "dcs-btn dcs-btn--icon dcs-btn--ghost"};
+            case FrameworkElement::Menubar:          return {"nav", "dcs-menubar"};
+            case FrameworkElement::MenubarItem:      return {"button", "dcs-menubar__item"};
+            case FrameworkElement::Menu:             return {"div", "dcs-menu"};
+            case FrameworkElement::MenuItem:         return {"button", "dcs-menu__item"};
+            case FrameworkElement::DockHost:         return {"div", "dcs-dock dcs-dock--v"};
+            case FrameworkElement::DockPanel:        return {"section", "dcs-dockpane"};
+            case FrameworkElement::DockPanelTab:     return {"button", "dcs-dockpane__tab"};
+            case FrameworkElement::DockPanelBody:    return {"div", "dcs-dockpane__body"};
+            case FrameworkElement::Splitter:         return {"div", "dcs-splitter"};
+            case FrameworkElement::Tree:             return {"div", "dcs-tree"};
+            case FrameworkElement::TreeRow:          return {"button", "dcs-tree__row"};
+            case FrameworkElement::List:             return {"div", "dcs-list"};
+            case FrameworkElement::ListItem:         return {"button", "dcs-list__item"};
+            case FrameworkElement::Table:            return {"table", "dcs-table"};
+            case FrameworkElement::Foldout:          return {"div", "dcs-foldout"};
+            case FrameworkElement::FoldoutHeader:    return {"button", "dcs-foldout__header"};
+            case FrameworkElement::FoldoutBody:      return {"div", "dcs-foldout__body"};
+            case FrameworkElement::Statusbar:        return {"div", "dcs-statusbar"};
+            case FrameworkElement::StatusbarItem:    return {"span", "dcs-statusbar__item"};
+            case FrameworkElement::Notification:     return {"div", "dcs-toast"};
         }
         return {"div", {}};
     }
@@ -562,6 +677,40 @@ public:
     }
 };
 
+}  // namespace
+
+namespace decius {
+std::string bundle_href(std::string_view version) {
+    return "frameworks/css/decius-css-" + std::string(version) +
+           ".bundle.min.css";
+}
+}  // namespace decius
+
+FrameworkVersion FrameworkVersion::parse(std::string_view text) noexcept {
+    FrameworkVersion out;
+    int* fields[] = {&out.major, &out.minor, &out.patch};
+    int idx = 0;
+    std::size_t i = 0;
+    while (i < text.size() && idx < 3) {
+        if (text[i] < '0' || text[i] > '9') {
+            // Separators advance to the next field; anything else ends parsing.
+            if (text[i] == '.') { ++idx; ++i; continue; }
+            break;
+        }
+        int value = 0;
+        while (i < text.size() && text[i] >= '0' && text[i] <= '9') {
+            value = value * 10 + (text[i] - '0');
+            ++i;
+        }
+        *fields[idx] = value;
+        if (i < text.size() && text[i] == '.') { ++idx; ++i; }
+        else break;
+    }
+    return out;
+}
+
+namespace {
+
 const ViewFramework& framework_for(ViewTheme theme) {
     static const PlainFramework plain;
     static const BootstrapFramework bootstrap;
@@ -575,27 +724,48 @@ const ViewFramework& framework_for(ViewTheme theme) {
     return bootstrap;
 }
 
-std::string theme_link(ViewTheme theme) {
-    const auto href = framework_for(theme).stylesheet_href();
+// Resolve the framework version to use: the View's explicit override if set,
+// else the personality's default.
+std::string resolved_version(ViewTheme theme, std::string_view override_version) {
+    if (!override_version.empty()) return std::string(override_version);
+    return std::string(framework_for(theme).default_version());
+}
+
+std::string theme_link(ViewTheme theme, std::string_view version) {
+    const auto& framework = framework_for(theme);
+    const std::string ver = resolved_version(theme, version);
+    const std::string href =
+        ver.empty() ? std::string(framework.stylesheet_href())
+                    : framework.bundle_href(ver);
     if (href.empty()) return {};
-    std::string out = "<link rel=\"stylesheet\" href=\"";
-    out += href;
-    out += "\">";
-    return out;
+    return "<link rel=\"stylesheet\" href=\"" + href + "\">";
 }
 
 std::vector<WidgetAttribute> document_attrs(
     ViewTheme theme,
+    std::string_view version,
     const std::vector<WidgetAttribute>& explicit_attrs) {
     auto attrs = explicit_attrs;
-    framework_for(theme).adjust_document_attrs(attrs);
+    const auto& framework = framework_for(theme);
+    framework.adjust_document_attrs(attrs);
+    // Stamp the framework id + resolved version on the root so the interaction
+    // layer (and version-branching personalities) can read them off the DOM.
+    const auto fid = framework.framework_id();
+    if (!fid.empty()) {
+        set_attr(attrs, "data-aui-framework", std::string(fid));
+        const std::string ver = resolved_version(theme, version);
+        if (!ver.empty()) {
+            set_attr(attrs, "data-aui-framework-version", ver);
+        }
+    }
     return attrs;
 }
 
 std::string body_attrs(ViewTheme theme,
+                       std::string_view version,
                        const std::vector<WidgetAttribute>& explicit_attrs) {
     std::string out;
-    append_attrs_html(document_attrs(theme, explicit_attrs), out);
+    append_attrs_html(document_attrs(theme, version, explicit_attrs), out);
     return out;
 }
 
@@ -897,6 +1067,17 @@ WidgetNode* find_widget_impl(WidgetNode& node, std::string_view name) {
 
 }  // namespace
 
+std::string framework_bundle_href(ViewTheme theme, std::string_view version) {
+    const auto& framework = framework_for(theme);
+    const std::string ver = resolved_version(theme, version);
+    return ver.empty() ? std::string(framework.stylesheet_href())
+                       : framework.bundle_href(ver);
+}
+
+std::string_view framework_default_version(ViewTheme theme) {
+    return framework_for(theme).default_version();
+}
+
 void RemotePatchQueue::clear() {
     patches_.clear();
 }
@@ -1045,6 +1226,24 @@ std::string_view WidgetRef::name() const {
     return name_;
 }
 
+std::string_view WidgetRef::attr_value(std::string_view name,
+                                       std::string_view fallback) const {
+    if (const auto* n = node()) {
+        if (const auto* a = find_attr(n->attrs, name)) return a->value;
+    }
+    return fallback;
+}
+
+std::string_view WidgetRef::text_value() const {
+    if (const auto* n = node()) return n->text;
+    return {};
+}
+
+bool WidgetRef::has_attr(std::string_view name) const {
+    if (const auto* n = node()) return find_attr(n->attrs, name) != nullptr;
+    return false;
+}
+
 WidgetRef& WidgetRef::named(std::string_view name) {
     if (owner_) {
         if (auto* n = owner_->resolve_widget_ref(*this)) {
@@ -1143,24 +1342,25 @@ WidgetRef WidgetRef::find_widget(std::string_view name) const {
                  : WidgetRef{owner_, root->id, {}, name};
 }
 
-View::Scope::Scope(View* owner, WidgetNode* node) noexcept
-    : owner_(owner), node_(node) {}
+View::Scope::Scope(View* owner, WidgetNode* node, std::size_t unwind_to) noexcept
+    : owner_(owner), node_(node), unwind_to_(unwind_to) {}
 
 View::Scope::~Scope() {
-    if (owner_) owner_->close_node();
+    if (owner_) owner_->close_to(unwind_to_);
 }
 
 View::Scope::Scope(Scope&& other) noexcept
-    : owner_(other.owner_), node_(other.node_) {
+    : owner_(other.owner_), node_(other.node_), unwind_to_(other.unwind_to_) {
     other.owner_ = nullptr;
     other.node_ = nullptr;
 }
 
 View::Scope& View::Scope::operator=(Scope&& other) noexcept {
     if (this == &other) return *this;
-    if (owner_) owner_->close_node();
+    if (owner_) owner_->close_to(unwind_to_);
     owner_ = other.owner_;
     node_ = other.node_;
+    unwind_to_ = other.unwind_to_;
     other.owner_ = nullptr;
     other.node_ = nullptr;
     return *this;
@@ -1280,7 +1480,7 @@ View::Scope View::container(std::string_view classes,
                             std::string_view key,
                             std::source_location here) {
     auto& node = open_node(WidgetKind::Container, "div", classes, key, here, true);
-    return Scope{this, &node};
+    return scope_here(node);
 }
 
 View::Scope View::element(std::string_view tag,
@@ -1292,7 +1492,7 @@ View::Scope View::element(std::string_view tag,
         tag = "div";
     }
     auto& node = open_node(WidgetKind::Container, tag, classes, key, here, true);
-    return Scope{this, &node};
+    return scope_here(node);
 }
 
 View::Scope View::panel(std::string_view key,
@@ -1300,7 +1500,7 @@ View::Scope View::panel(std::string_view key,
     const auto recipe = default_element(theme_, FrameworkElement::Panel);
     auto& node = open_node(WidgetKind::Panel, recipe.tag, recipe.classes,
                            key, here, true);
-    return Scope{this, &node};
+    return scope_here(node);
 }
 
 View::Scope View::card(std::string_view title,
@@ -1318,7 +1518,7 @@ View::Scope View::card(std::string_view title,
         heading(3, title, default_class(theme_, FrameworkElement::CardTitle),
                 "__title", here);
     }
-    return Scope{this, &node};
+    return scope_here(node);
 }
 
 WidgetRef View::heading(int level,
@@ -1450,6 +1650,46 @@ WidgetRef View::checkbox(std::string_view label,
                            "__label", here, false);
     set_text(span, label);
     close_node();
+    return ref_for_node(group, current_panel_id(stack_));
+}
+
+WidgetRef View::toggle(std::string_view label, bool on, std::string_view key,
+                       std::source_location here) {
+    // Off-Decius personalities have no switch primitive; a checkbox is the
+    // idiomatic on/off control there.
+    if (theme_ != ViewTheme::Decius) {
+        return checkbox(label, on, key, here);
+    }
+
+    const auto group_recipe = default_element(theme_, FrameworkElement::CheckboxGroup);
+    auto& group = open_node(WidgetKind::Checkbox, group_recipe.tag,
+                            group_recipe.classes, key, here, true);
+    set_attr(group, "data-aui-widget", "toggle");
+    if (on) set_attr(group, "aria-checked", "true");
+    else remove_attr(group, "aria-checked");
+
+    const auto label_recipe = default_element(theme_, FrameworkElement::CheckboxLabel);
+    auto& label_node = open_node(WidgetKind::Container, label_recipe.tag,
+                                 label_recipe.classes, "__label", here, false);
+    set_text(label_node, label);
+
+    // The switch track; the knob is the CSS ::after. The core interaction layer
+    // treats .dcs-switch like a checkbox (it toggles aria-checked on press).
+    auto& sw = open_node(WidgetKind::Checkbox, "div", "dcs-switch", "__switch",
+                         here, true);
+    set_attr(sw, "role", "switch");
+    if (on) set_attr(sw, "aria-checked", "true");
+    else remove_attr(sw, "aria-checked");
+
+    auto& input = open_node(WidgetKind::Checkbox, "input", {}, "__input", here,
+                            false);
+    set_attr(input, "type", "checkbox");
+    set_attr(input, "style", "display:none");
+    if (on) set_attr(input, "checked", "checked");
+    else remove_attr(input, "checked");
+
+    close_node();  // switch
+    close_node();  // group
     return ref_for_node(group, current_panel_id(stack_));
 }
 
@@ -2052,6 +2292,1289 @@ WidgetRef View::panel_ref(std::string_view key, std::source_location here) {
     return ref_for_node(node, current_panel_id(stack_));
 }
 
+// ── App-shell / structural component builders ───────────────────────────────
+
+View::Scope View::toolbar(std::string_view key, std::source_location here) {
+    const auto r = default_element(theme_, FrameworkElement::Toolbar);
+    auto& node = open_node(WidgetKind::Container, r.tag, r.classes, key, here, true);
+    return scope_here(node);
+}
+
+View::Scope View::floating_toolbar(const FloatingToolbarOptions& opts,
+                                   std::string_view key,
+                                   std::source_location here) {
+    std::string cls = "dcs-toolbar";
+    cls += opts.vertical ? " dcs-toolbar--v" : " dcs-toolbar--h";
+    if (opts.small) cls += " dcs-toolbar--sm";
+    cls += " dcs-toolbar--floating";
+    auto& node = open_node(WidgetKind::Container, "div", cls, key, here, true);
+    if (!opts.position.empty()) set_attr(node, "style", opts.position);
+    // Mark the container draggable (decius data-dcs-drag); the grip below is the
+    // grab handle, and drag-bounds (if given) constrains movement.
+    set_attr(node, "data-dcs-drag", "");
+    if (!opts.drag_bounds.empty()) {
+        set_attr(node, "data-dcs-drag-bounds", opts.drag_bounds);
+    }
+    // Grip drag handle (a horizontal grip for a vertical rail, and vice versa).
+    auto& grip = open_node(WidgetKind::Container, "span",
+                           opts.vertical ? "dcs-grip dcs-grip--h"
+                                         : "dcs-grip dcs-grip--v",
+                           "__grip", here, false);
+    set_attr(grip, "data-dcs-drag-handle", "");
+    return scope_here(node);
+}
+
+WidgetRef View::toolbar_separator(std::string_view key,
+                                  std::source_location here) {
+    const auto r = default_element(theme_, FrameworkElement::ToolbarSeparator);
+    auto& node = open_node(WidgetKind::Container, r.tag, r.classes, key, here, false);
+    return ref_for_node(node, current_panel_id(stack_));
+}
+
+WidgetRef View::icon_button(std::string_view icon,
+                            std::string_view key,
+                            std::source_location here) {
+    const auto r = default_element(theme_, FrameworkElement::IconButton);
+    auto& node = open_node(WidgetKind::Button, r.tag, r.classes, key, here, true);
+    set_attr(node, "type", "button");
+    // Icon glyph child (Decius icon font: <i class="di di-NAME">).
+    auto& glyph = open_node(WidgetKind::Container, "i",
+                            "di di-" + std::string(icon), "__icon", here, false);
+    (void) glyph;
+    close_node();
+    return ref_for_node(node, current_panel_id(stack_));
+}
+
+View::Scope View::menu_bar(std::string_view key, std::source_location here) {
+    const auto r = default_element(theme_, FrameworkElement::Menubar);
+    auto& node = open_node(WidgetKind::Container, r.tag, r.classes, key, here, true);
+    return scope_here(node);
+}
+
+WidgetRef View::menu_button(std::string_view label,
+                            std::string_view menu_id,
+                            std::string_view key,
+                            std::source_location here) {
+    const auto r = default_element(theme_, FrameworkElement::MenubarItem);
+    auto& node = open_node(WidgetKind::Button, r.tag, r.classes, key, here, false);
+    set_attr(node, "type", "button");
+    set_attr(node, "data-dcs-toggle", "menu");
+    set_attr(node, "data-dcs-target", "#" + std::string(menu_id));
+    set_text(node, label);
+    return ref_for_node(node, current_panel_id(stack_));
+}
+
+WidgetRef View::menu_button(std::string_view label,
+                            const std::function<void(View&)>& build,
+                            std::string_view key, std::source_location here) {
+    // The trigger button.
+    const auto r = default_element(theme_, FrameworkElement::MenubarItem);
+    auto& node = open_node(WidgetKind::Button, r.tag, r.classes, key, here, false);
+    set_attr(node, "type", "button");
+    const std::string menu_id =
+        "aui-menu-" + dom_id_fragment(key.empty() ? node.remote_id
+                                                  : std::string(key));
+    set_attr(node, "data-dcs-toggle", "menu");
+    set_attr(node, "data-dcs-target", "#" + menu_id);
+    set_text(node, label);
+    auto ref = ref_for_node(node, current_panel_id(stack_));
+    // The dropdown menu, emitted as the trigger's sibling (positioned at the
+    // trigger when opened). Linked by the generated id.
+    menu(menu_id, build, here);
+    return ref;
+}
+
+WidgetRef View::menu_brand(std::string_view title, std::string_view icon,
+                           std::string_view key, std::source_location here) {
+    const bool decius = theme_ == ViewTheme::Decius;
+    auto& node = open_node(WidgetKind::Container, decius ? "div" : "span",
+                           decius ? "dcs-menubar__brand" : "navbar-brand", key,
+                           here, true);
+    if (!icon.empty()) {
+        open_node(WidgetKind::Container, "i", "di di-" + std::string(icon),
+                  "__icon", here, false);
+    }
+    auto& label = open_node(WidgetKind::Container, "span", {}, "__title", here,
+                            false);
+    set_text(label, title);
+    close_node();  // brand
+    return ref_for_node(node, current_panel_id(stack_));
+}
+
+WidgetRef View::menu_spacer(std::string_view key, std::source_location here) {
+    const bool decius = theme_ == ViewTheme::Decius;
+    auto& node = open_node(WidgetKind::Container, "div",
+                           decius ? "dcs-menubar__spacer" : "ms-auto", key,
+                           here, false);
+    if (!decius) set_attr(node, "style", "flex:1");
+    return ref_for_node(node, current_panel_id(stack_));
+}
+
+WidgetRef View::menu_meta(std::string_view text, std::string_view key,
+                          std::source_location here) {
+    const bool decius = theme_ == ViewTheme::Decius;
+    auto& node = open_node(WidgetKind::Container, "div",
+                           decius ? "dcs-menubar__meta"
+                                  : "navbar-text text-body-secondary",
+                           key, here, false);
+    set_text(node, text);
+    return ref_for_node(node, current_panel_id(stack_));
+}
+
+WidgetRef View::menu(std::string_view id,
+                     const std::function<void(View&)>& build,
+                     std::source_location here) {
+    auto& node = open_node(WidgetKind::Container, "div", "dcs-menu", id, here,
+                           true);
+    set_attr(node, "id", std::string(id));
+    set_attr(node, "hidden", "");
+    if (build) build(*this);
+    close_node();
+    return ref_for_node(node, current_panel_id(stack_));
+}
+
+WidgetRef View::menu_item(std::string_view label, std::string_view icon,
+                          std::string_view shortcut, std::string_view key,
+                          std::source_location here) {
+    auto& node = open_node(WidgetKind::Button, "div", "dcs-menu__item", key,
+                           here, true);
+    if (!icon.empty()) {
+        auto& ic = open_node(WidgetKind::Container, "span", "dcs-menu__icon",
+                             "__icon", here, true);
+        (void) ic;
+        open_node(WidgetKind::Container, "i", "di di-" + std::string(icon),
+                  "__icon-glyph", here, false);
+        close_node();  // icon
+    }
+    auto& lbl = open_node(WidgetKind::Container, "span", "dcs-menu__label-text",
+                          "__label", here, false);
+    set_text(lbl, label);
+    if (!shortcut.empty()) {
+        auto& sc = open_node(WidgetKind::Container, "span", "dcs-menu__shortcut",
+                             "__shortcut", here, false);
+        set_text(sc, shortcut);
+    }
+    close_node();  // item
+    return ref_for_node(node, current_panel_id(stack_));
+}
+
+WidgetRef View::menu_separator(std::string_view key, std::source_location here) {
+    auto& node = open_node(WidgetKind::Container, "div", "dcs-menu__sep", key,
+                           here, false);
+    return ref_for_node(node, current_panel_id(stack_));
+}
+
+WidgetRef View::submenu(std::string_view label,
+                        const std::function<void(View&)>& build,
+                        std::string_view icon, std::string_view key,
+                        std::source_location here) {
+    auto& node = open_node(WidgetKind::Container, "div",
+                           "dcs-menu__item dcs-menu__item--has-sub", key, here,
+                           true);
+    if (!icon.empty()) {
+        auto& ic = open_node(WidgetKind::Container, "span", "dcs-menu__icon",
+                             "__icon", here, true);
+        (void) ic;
+        open_node(WidgetKind::Container, "i", "di di-" + std::string(icon),
+                  "__icon-glyph", here, false);
+        close_node();  // icon
+    }
+    auto& lbl = open_node(WidgetKind::Container, "span", "dcs-menu__label-text",
+                          "__label", here, false);
+    set_text(lbl, label);
+    // Caret marking the row as a submenu opener.
+    {
+        auto& caret = open_node(WidgetKind::Container, "span",
+                                "dcs-menu__caret", "__caret", here, true);
+        (void) caret;
+        open_node(WidgetKind::Container, "i", "di di-chevron-right",
+                  "__caret-glyph", here, false);
+        close_node();  // caret
+    }
+    // Nested submenu — revealed on hover (pure-CSS via --has-sub > __sub).
+    {
+        auto& sub = open_node(WidgetKind::Container, "div", "dcs-menu__sub",
+                              "__sub", here, true);
+        (void) sub;
+        if (build) build(*this);
+        close_node();  // sub
+    }
+    close_node();  // item
+    return ref_for_node(node, current_panel_id(stack_));
+}
+
+View::Scope View::dock_panel(std::string_view title,
+                             std::string_view tabpanel_id,
+                             std::string_view classes,
+                             std::string_view key,
+                             std::source_location here) {
+    const std::size_t depth_before = stack_.size();  // unwind here on close
+    std::string pane_classes{default_class(theme_, FrameworkElement::DockPanel)};
+    if (!classes.empty()) { pane_classes += ' '; pane_classes += classes; }
+    const auto pane_recipe = default_element(theme_, FrameworkElement::DockPanel);
+    auto& pane = open_node(WidgetKind::Container, pane_recipe.tag, pane_classes,
+                           key, here, true);
+    (void) pane;  // unwound via depth_before; ref only needed for child opens
+
+    // Tab bar with a single selected tab targeting the body.
+    {
+        auto& tabbar = open_node(WidgetKind::Container, "div",
+                                 "dcs-dockpane__tabbar", "__tabbar", here, true);
+        (void) tabbar;
+        auto& tabs = open_node(WidgetKind::Container, "div",
+                               "dcs-dockpane__tabs", "__tabs", here, true);
+        (void) tabs;
+        const auto tab_recipe = default_element(theme_, FrameworkElement::DockPanelTab);
+        auto& tab = open_node(WidgetKind::Button, tab_recipe.tag,
+                              tab_recipe.classes, "__tab", here, false);
+        set_attr(tab, "type", "button");
+        set_attr(tab, "aria-selected", "true");
+        set_attr(tab, "data-dcs-target", "#" + std::string(tabpanel_id));
+        set_text(tab, title);
+        close_node();  // tabs
+        close_node();  // tabbar
+    }
+
+    // Body (the build scope target). Carries the id the tab points at.
+    const auto body_recipe = default_element(theme_, FrameworkElement::DockPanelBody);
+    auto& body = open_node(WidgetKind::Container, body_recipe.tag,
+                           body_recipe.classes, tabpanel_id, here, true);
+    set_attr(body, "id", std::string(tabpanel_id));
+    // The returned Scope owns BOTH the pane and the body: the caller fills the
+    // body, and when the scope unwinds it closes body then pane back to the
+    // depth before the pane was opened. (A single close would leak the pane.)
+    return Scope{this, &body, depth_before};
+}
+
+// ── Declarative docking engine ──────────────────────────────────────────────
+
+// Recorded dockable declarations gathered during a document_view build, before
+// the layout is resolved + emitted.
+struct View::DockRecorder {
+    struct Spec {
+        std::string                id;
+        std::string                title;
+        std::string                icon;     // di glyph for the tab (empty = none)
+        std::string                parent;   // empty = the document/center
+        Dock                       side{Dock::Left};
+        DockState                  state{DockState::Docked};
+        std::optional<int>         size;
+        std::optional<DockCorner>          anchor;      // floating anchor corner
+        std::optional<std::pair<int, int>> offset;      // floating pos (px)
+        std::optional<std::pair<int, int>> float_size;  // floating size (px)
+        std::function<void(View&)> content;
+        std::function<void(View&)> toolbar;   // tab toolbar (empty = none)
+    };
+    std::function<void(View&)> document_content;
+    std::function<void(View&)> document_toolbar;  // document tab toolbar
+    std::string                document_title{"Document"};
+    std::string                document_icon;
+    std::vector<Spec>          panels;
+
+    [[nodiscard]] const Spec* find(std::string_view id) const {
+        for (const auto& p : panels)
+            if (p.id == id) return &p;
+        return nullptr;
+    }
+};
+
+// The resolved layout: a tree of splits (dcs-dock) and leaves (dcs-dockpane).
+struct View::DockNode {
+    bool                  split{false};
+    bool                  vertical{false};   // split orientation (column)
+    std::vector<DockNode> children;          // split children (splitter between)
+    // Leaf:
+    std::string                       id;
+    std::string                       title;
+    std::string                       icon;
+    bool                              is_document{false};
+    std::string                       active_tab;
+    std::optional<int>                size;     // px flex-basis
+    std::optional<std::pair<int, int>> float_size;  // default tearoff size
+    std::function<void(View&)>        content;
+    std::function<void(View&)>        toolbar;  // tab toolbar (empty = none)
+    std::vector<const DockRecorder::Spec*> tabs;  // Dock::Tab co-panels
+};
+
+namespace {
+// A leaf's default flex-basis (px) when none was given, by which edge it sits
+// on. Center/document gets flex:1 (basis 0 here meaning "grow").
+int default_dock_size(Dock side) {
+    switch (side) {
+        case Dock::Left:
+        case Dock::Right:  return 280;
+        case Dock::Top:
+        case Dock::Bottom: return 160;
+        case Dock::Tab:    return 0;
+    }
+    return 0;
+}
+
+// A panel's EFFECTIVE placement: the runtime override (drag-to-dock / tearoff,
+// supplied via the placement provider) wins over the declared DockLocation —
+// the structural analogue of the saved-size-wins rule. Returns plain fields so
+// it can live at file scope (the Spec nested type is private to View).
+struct EffPlacement {
+    std::string        parent;
+    Dock               side{Dock::Left};
+    bool               floating{false};
+    std::optional<int> size;
+    int x{0}, y{0}, w{0}, h{0};
+};
+EffPlacement effective_placement(
+    std::string_view id, std::string parent, Dock side, DockState state,
+    std::optional<int> size, std::optional<std::pair<int, int>> offset,
+    std::optional<std::pair<int, int>> float_size,
+    const std::function<Document::DockPlacement(std::string_view)>& provider) {
+    EffPlacement e;
+    e.parent = std::move(parent);
+    e.side = side;
+    e.size = size;
+    e.floating =
+        (state == DockState::Detached || state == DockState::Tearoff);
+    if (offset) { e.x = offset->first; e.y = offset->second; }
+    if (float_size) { e.w = float_size->first; e.h = float_size->second; }
+    if (provider) {
+        const auto ov = provider(id);
+        if (ov.present) {
+            e.floating = ov.floating;
+            if (ov.floating) {
+                e.x = ov.x;
+                e.y = ov.y;
+                if (ov.w > 0) e.w = ov.w;
+                if (ov.h > 0) e.h = ov.h;
+            } else {
+                e.parent = ov.parent.empty() ? std::string("__document__")
+                                             : ov.parent;
+                e.side = static_cast<Dock>(ov.side);
+                if (ov.size > 0) e.size = ov.size;
+            }
+        }
+    }
+    return e;
+}
+}  // namespace
+
+View::DockNode View::resolve_dock(const DockRecorder& rec,
+                                  std::string_view node_id,
+                                  bool is_document) const {
+    DockNode base;
+    base.id = std::string(node_id);
+    if (is_document) {
+        base.is_document = true;
+        base.title = rec.document_title;
+        base.icon = rec.document_icon;
+        base.content = rec.document_content;
+        base.toolbar = rec.document_toolbar;
+    }
+    // A panel's effective placement (runtime override wins over the declared
+    // DockLocation), used for every structural decision below.
+    auto eff = [&](const DockRecorder::Spec& s) {
+        return effective_placement(s.id, s.parent, s.side, s.state, s.size,
+                                   s.offset, s.float_size,
+                                   dock_placement_provider_);
+    };
+    int slot = 0;  // this node's slot size in px (0 = flexible: the center, or a
+                   // sharing child nested inside another pane's slot)
+    if (!is_document) {
+        if (const auto* spec = rec.find(node_id)) {
+            base.title = spec->title;
+            base.icon = spec->icon;
+            base.content = spec->content;
+            base.toolbar = spec->toolbar;
+            base.float_size = spec->float_size;
+            const auto e = eff(*spec);
+            // Saved size (from the workspace) wins over the declared seed.
+            const int saved =
+                dock_size_provider_ ? dock_size_provider_(node_id) : 0;
+            slot = saved > 0 ? saved
+                             : (e.size ? *e.size : default_dock_size(e.side));
+        }
+    }
+
+    // Tabs: panels whose EFFECTIVE parent is here with Dock::Tab become co-tabs.
+    for (const auto& p : rec.panels) {
+        const auto e = eff(p);
+        if (e.parent == node_id && e.side == Dock::Tab && !e.floating)
+            base.tabs.push_back(&p);
+    }
+    if (dock_active_tab_provider_) {
+        const std::string active = dock_active_tab_provider_(node_id);
+        if (active == base.id) {
+            base.active_tab.clear();
+        } else {
+            for (const auto* t : base.tabs) {
+                if (t && t->id == active) {
+                    base.active_tab = active;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Directional children wrap `base` in splits, applied in DECLARATION ORDER
+    // (the order they were listed in their container). Each panel wraps the
+    // current accumulated layout on its side; so a panel docked Bottom after
+    // the side panels spans the full width below them, etc. Floating panels are
+    // skipped here (they are emitted as overlays by document_view).
+    for (const auto& p : rec.panels) {
+        const auto e = eff(p);
+        if (e.parent != node_id || e.side == Dock::Tab || e.floating) continue;
+        DockNode sub = resolve_dock(rec, p.id, false);
+        // A child docked INTO a non-document node shares that node's slot, so it
+        // must drop its own fixed basis (keeping it is what blew nested docks
+        // out). The document keeps its children sized.
+        if (!is_document) sub.size.reset();
+        DockNode split;
+        split.split = true;
+        split.vertical = (e.side == Dock::Top || e.side == Dock::Bottom);
+        if (e.side == Dock::Left || e.side == Dock::Top) {
+            split.children.push_back(std::move(sub));
+            split.children.push_back(std::move(base));
+        } else {
+            split.children.push_back(std::move(base));
+            split.children.push_back(std::move(sub));
+        }
+        base = std::move(split);
+    }
+    // The OUTERMOST node carries this node's slot size: whether it stayed a bare
+    // leaf or became a split group, it occupies the slot the pane would have had
+    // (the group's sharing children split it). The center stays flexible.
+    if (!is_document && slot > 0) base.size = slot;
+    return base;
+}
+
+void View::emit_dock_node(const DockNode& node, bool is_root,
+                          const DockRecorder* rec,
+                          std::source_location here) {
+    if (node.split) {
+        std::string cls = "dcs-dock";
+        if (node.vertical) cls += " dcs-dock--v";
+        auto& dock = open_node(WidgetKind::Container, "div", cls,
+                               "dock-" + node.id,
+                               std::source_location::current(), true);
+        // A split GROUP that occupies a fixed slot (a nested dock replacing a
+        // sized pane) carries that basis; the root/center group flexes to fill.
+        set_attr(dock, "style",
+                 (node.size && *node.size > 0)
+                     ? ("flex:0 0 " + std::to_string(*node.size) +
+                        "px;min-width:0;min-height:0")
+                     : std::string("flex:1;min-width:0;min-height:0"));
+        for (std::size_t i = 0; i < node.children.size(); ++i) {
+            if (i > 0) splitter(node.vertical, "split-" + node.id + "-" +
+                                                   std::to_string(i));
+            emit_dock_node(node.children[i], false, rec, here);
+        }
+        close_node();
+        return;
+    }
+
+    // Leaf: a dcs-dockpane carrying the panel(s). Build it directly so we can
+    // set the flex-basis the resolver computed.
+    const std::string body_id = node.id + "-body";
+    std::string pane_cls = "dcs-dockpane";
+    if (node.is_document) pane_cls += " dcs-dockpane--center";
+    auto& pane = open_node(WidgetKind::Container, "section", pane_cls,
+                           "pane-" + node.id, std::source_location::current(),
+                           true);
+    if (node.is_document) {
+        set_attr(pane, "style", "flex:1;min-width:0;min-height:0");
+    } else if (node.size && *node.size > 0) {
+        set_attr(pane, "style",
+                 "flex:0 0 " + std::to_string(*node.size) +
+                     "px;min-width:0;min-height:0");
+    } else {
+        // A nested sharing leaf (its slot belongs to the enclosing group): grow
+        // to split that group's space evenly with its siblings.
+        set_attr(pane, "style", "flex:1;min-width:0;min-height:0");
+    }
+
+    const bool primary_selected = node.active_tab.empty();
+
+    // Tab bar: the primary tab plus any Dock::Tab co-panels.
+    {
+        auto& tabbar = open_node(WidgetKind::Container, "div",
+                                 "dcs-dockpane__tabbar", "__tabbar",
+                                 std::source_location::current(), true);
+        (void) tabbar;
+        auto& tabs = open_node(WidgetKind::Container, "div",
+                               "dcs-dockpane__tabs", "__tabs",
+                               std::source_location::current(), true);
+        (void) tabs;
+        auto emit_tab = [&](std::string_view title, std::string_view icon,
+                            std::string_view target, bool selected,
+                            std::string_view k,
+                            std::optional<std::pair<int, int>> float_size) {
+            auto& tab = open_node(WidgetKind::Button, "button",
+                                  "dcs-dockpane__tab", k,
+                                  std::source_location::current(), true);
+            set_attr(tab, "type", "button");
+            set_attr(tab, "aria-selected", selected ? "true" : "false");
+            set_attr(tab, "data-dcs-target", "#" + std::string(target));
+            if (float_size && float_size->first > 0 && float_size->second > 0) {
+                set_attr(tab, "data-dcs-tearout-width",
+                         std::to_string(float_size->first));
+                set_attr(tab, "data-dcs-tearout-height",
+                         std::to_string(float_size->second));
+            }
+            if (!icon.empty()) {
+                open_node(WidgetKind::Container, "i",
+                          "di di-" + std::string(icon), "__tab-icon",
+                          std::source_location::current(), false);
+            }
+            // Title in its own span so the icon + label are distinct children.
+            auto& label = open_node(WidgetKind::Container, "span",
+                                    "dcs-dockpane__tab-label", "__tab-label",
+                                    std::source_location::current(), false);
+            set_text(label, title);
+            close_node();  // tab
+        };
+        emit_tab(node.title, node.icon, body_id, primary_selected, "__tab",
+                 node.float_size);
+        int ti = 0;
+        for (const auto* t : node.tabs) {
+            emit_tab(t->title, t->icon, t->id + "-body",
+                     node.active_tab == t->id,
+                     "__tab-" + std::to_string(ti++), t->float_size);
+        }
+        close_node();  // tabs
+
+        // Optional tab toolbar: the strip beside the tabs (filter buttons, a
+        // search field, a viewport's mode/tool controls). Mirrors the decius
+        // dcs-dockpane__toolbars > dcs-dockpane__toolbar[data-dcs-tabtoolbar]
+        // structure so the bundle styles it (border-left separator, etc.).
+        if (node.toolbar) {
+            auto& toolbars = open_node(WidgetKind::Container, "div",
+                                       "dcs-dockpane__toolbars", "__toolbars",
+                                       std::source_location::current(), true);
+            (void) toolbars;
+            auto& toolbar = open_node(WidgetKind::Container, "div",
+                                      "dcs-dockpane__toolbar", "__toolbar",
+                                      std::source_location::current(), true);
+            set_attr(toolbar, "data-dcs-tabtoolbar", "#" + body_id);
+            node.toolbar(*this);
+            close_node();  // toolbar
+            close_node();  // toolbars
+        }
+        close_node();  // tabbar
+    }
+
+    // Body: the primary tabpanel (the leaf's content) plus tab co-panels.
+    {
+        auto& body = open_node(WidgetKind::Container, "div",
+                               "dcs-dockpane__body", body_id,
+                               std::source_location::current(), true);
+        set_attr(body, "id", body_id);
+        if (node.is_document) set_attr(body, "data-dcs-float-host", "");
+        if (!primary_selected) set_attr(body, "hidden", "");
+        else remove_attr(body, "hidden");
+        if (primary_selected && node.content) node.content(*this);
+        if (primary_selected && node.is_document && rec) {
+            emit_floating_dock_panels(*rec, here);
+        }
+        close_node();  // body
+        for (const auto* t : node.tabs) {
+            const std::string tab_body_id = t->id + "-body";
+            const bool selected = node.active_tab == t->id;
+            auto& tbody = open_node(WidgetKind::Container, "div",
+                                    "dcs-dockpane__body", tab_body_id,
+                                    std::source_location::current(), true);
+            set_attr(tbody, "id", tab_body_id);
+            if (!selected) set_attr(tbody, "hidden", "");
+            else remove_attr(tbody, "hidden");
+            if (selected && t->content) t->content(*this);
+            close_node();
+        }
+    }
+
+    close_node();  // pane
+    (void) is_root;
+}
+
+void View::emit_floating_dock_panels(const DockRecorder& rec,
+                                     std::source_location here) {
+    // Floating panels overlay the document body: any panel whose effective
+    // placement is floating (declared DockState::Tearoff, or torn off at
+    // runtime via the placement override). The floating chrome moves the
+    // tearoff, while the embedded dock tab/title is still a real dock source
+    // for re-docking.
+    for (const auto& s : rec.panels) {
+        const auto e = effective_placement(s.id, s.parent, s.side, s.state,
+                                           s.size, s.offset, s.float_size,
+                                           dock_placement_provider_);
+        if (!e.floating) continue;
+        std::vector<const DockRecorder::Spec*> tabs;
+        for (const auto& t : rec.panels) {
+            if (&t == &s) continue;
+            const auto te = effective_placement(
+                t.id, t.parent, t.side, t.state, t.size, t.offset,
+                t.float_size, dock_placement_provider_);
+            if (!te.floating && te.parent == s.id && te.side == Dock::Tab)
+                tabs.push_back(&t);
+        }
+        std::string active_tab;
+        if (dock_active_tab_provider_) {
+            const std::string active = dock_active_tab_provider_(s.id);
+            for (const auto* t : tabs) {
+                if (t && t->id == active) {
+                    active_tab = active;
+                    break;
+                }
+            }
+        }
+        const bool primary_selected = active_tab.empty();
+
+        const int w = e.w > 0 ? e.w : 320;
+        const int h = e.h > 0 ? e.h : 240;
+        auto& panel = open_node(WidgetKind::Container, "section",
+                                "dcs-panel dcs-panel--floating", "float-" + s.id,
+                                here, true);
+        set_attr(panel, "style",
+                 "position:absolute;left:" + std::to_string(e.x) + "px;top:" +
+                     std::to_string(e.y) + "px;width:" + std::to_string(w) +
+                     "px;height:" + std::to_string(h) +
+                     "px;z-index:60;display:flex;flex-direction:column");
+        set_attr(panel, "data-dcs-drag", "");
+        set_attr(panel, "data-dcs-drag-bounds", ".dcs-dock--floathost");
+        set_attr(panel, "data-dcs-dock-id", s.id);
+
+        std::string dock_cls = "dcs-dockpane";
+        dock_cls += tabs.empty()
+            ? " dcs-dockpane--single-tab dcs-dockpane--title-only"
+            : " dcs-dockpane--multi-tab";
+        auto& dock = open_node(WidgetKind::Container, "section", dock_cls,
+                               "pane-" + s.id, here, true);
+        set_attr(dock, "style", "flex:1;min-width:0;min-height:0");
+
+        auto emit_tab = [&](const DockRecorder::Spec& spec,
+                            bool selected,
+                            std::string_view key,
+                            bool title_tab) {
+            std::string cls = "dcs-dockpane__tab";
+            if (title_tab) cls += " dcs-panel__title dcs-panel__title--dock-tab";
+            auto& tab = open_node(WidgetKind::Button, "button", cls, key, here,
+                                  true);
+            set_attr(tab, "type", "button");
+            set_attr(tab, "aria-selected", selected ? "true" : "false");
+            set_attr(tab, "data-dcs-target", "#" + spec.id + "-body");
+            if (title_tab) set_attr(tab, "data-dcs-title-tab", "");
+            if (spec.float_size && spec.float_size->first > 0 &&
+                spec.float_size->second > 0) {
+                set_attr(tab, "data-dcs-tearout-width",
+                         std::to_string(spec.float_size->first));
+                set_attr(tab, "data-dcs-tearout-height",
+                         std::to_string(spec.float_size->second));
+            }
+            if (!spec.icon.empty()) {
+                open_node(WidgetKind::Container, "i", "di di-" + spec.icon,
+                          "__tab-icon", here, false);
+                close_node();
+            }
+            auto& label = open_node(WidgetKind::Container, "span",
+                                    "dcs-dockpane__tab-label", "__tab-label",
+                                    here, false);
+            set_text(label, spec.title);
+            close_node();  // tab
+        };
+
+        if (tabs.empty()) {
+            auto& hd = open_node(WidgetKind::Container, "header",
+                                 "dcs-panel__header dcs-dockpane__titlebar",
+                                 "__fh-" + s.id, here, true);
+            set_attr(hd, "data-dcs-drag-handle", "");
+            emit_tab(s, true, "__title-tab-" + s.id, true);
+            open_node(WidgetKind::Container, "div", "dcs-panel__tools",
+                      "__ftools-" + s.id, here, false);
+            close_node();  // tools
+            close_node();  // titlebar
+        } else {
+            auto& hd = open_node(WidgetKind::Container, "header",
+                                 "dcs-panel__header", "__fh-" + s.id, here,
+                                 true);
+            set_attr(hd, "data-dcs-drag-handle", "");
+            auto& title = open_node(WidgetKind::Container, "span",
+                                    "dcs-panel__title", "__ft-" + s.id, here,
+                                    true);
+            (void) title;
+            if (!s.icon.empty()) {
+                open_node(WidgetKind::Container, "i", "di di-" + s.icon,
+                          "__fi-" + s.id, here, false);
+                close_node();
+            }
+            auto& label = open_node(WidgetKind::Container, "span",
+                                    "dcs-panel__titletext", "__fl-" + s.id,
+                                    here, false);
+            set_text(label, s.title);
+            close_node();  // label
+            close_node();  // title
+            close_node();  // header
+
+            auto& tabbar = open_node(WidgetKind::Container, "div",
+                                     "dcs-dockpane__tabbar",
+                                     "__tabbar-" + s.id, here, true);
+            set_attr(tabbar, "data-dcs-drag-handle", "");
+            open_node(WidgetKind::Container, "div", "dcs-dockpane__tabs",
+                      "__tabs-" + s.id, here, true);
+            emit_tab(s, primary_selected, "__tab-" + s.id, false);
+            int ti = 0;
+            for (const auto* t : tabs) {
+                emit_tab(*t, active_tab == t->id,
+                         "__tab-" + std::to_string(ti++), false);
+            }
+            close_node();  // tabs
+            auto emit_toolbar = [&](const DockRecorder::Spec& spec,
+                                    std::string_view key) {
+                if (!spec.toolbar) return;
+                const bool selected =
+                    (&spec == &s) ? primary_selected : active_tab == spec.id;
+                auto& toolbar = open_node(WidgetKind::Container, "div",
+                                          "dcs-dockpane__toolbar", key, here,
+                                          true);
+                set_attr(toolbar, "data-dcs-tabtoolbar", "#" + spec.id + "-body");
+                if (!selected) set_attr(toolbar, "hidden", "");
+                else remove_attr(toolbar, "hidden");
+                spec.toolbar(*this);
+                close_node();
+            };
+            open_node(WidgetKind::Container, "div", "dcs-dockpane__toolbars",
+                      "__toolbars-" + s.id, here, true);
+            emit_toolbar(s, "__toolbar-" + s.id);
+            int tbi = 0;
+            for (const auto* t : tabs) {
+                emit_toolbar(*t, "__toolbar-" + std::to_string(tbi++));
+            }
+            close_node();  // toolbars
+            close_node();  // tabbar
+            auto& shelf = open_node(WidgetKind::Container, "div",
+                                    "dcs-dockpane__shelf", "__shelf-" + s.id,
+                                    here, false);
+            set_attr(shelf, "hidden", "");
+            close_node();  // shelf
+        }
+
+        auto& body = open_node(WidgetKind::Container, "div", "dcs-dockpane__body",
+                               s.id + "-body", here, true);
+        set_attr(body, "id", s.id + "-body");
+        if (!primary_selected) set_attr(body, "hidden", "");
+        else remove_attr(body, "hidden");
+        if (primary_selected && s.content) s.content(*this);
+        close_node();
+        for (const auto* t : tabs) {
+            const bool selected = active_tab == t->id;
+            auto& tbody = open_node(WidgetKind::Container, "div",
+                                    "dcs-dockpane__body", t->id + "-body",
+                                    here, true);
+            set_attr(tbody, "id", t->id + "-body");
+            if (!selected) set_attr(tbody, "hidden", "");
+            else remove_attr(tbody, "hidden");
+            if (selected && t->content) t->content(*this);
+            close_node();
+        }
+        close_node();  // dockpane
+        close_node();  // panel
+    }
+}
+
+WidgetRef View::document_view(std::string_view key,
+                              const std::function<void(View&)>& build,
+                              std::source_location here) {
+    // Collect declarations.
+    DockRecorder recorder;
+    DockRecorder* prev = dock_recorder_;
+    dock_recorder_ = &recorder;
+    if (build) build(*this);
+    dock_recorder_ = prev;
+
+    // Resolve the layout (declared seed). The container IS the root dock, so we
+    // open it with the resolved root's orientation and emit its children
+    // directly (no double dcs-dock wrapper).
+    DockNode tree = resolve_dock(recorder, "__document__", true);
+    // The root dock is the positioned coordinate frame for dock previews. The
+    // active document body hosts floating panels so overlays cannot affect the
+    // split tree's flex sizing.
+    std::string cls = "dcs-dock dcs-dock--floathost";
+    if (tree.split && tree.vertical) cls += " dcs-dock--v";
+    auto& root = open_node(WidgetKind::Container, "div", cls, key, here, true);
+    set_attr(root, "style",
+             "flex:1 1 0px;min-width:0;min-height:0;position:relative");
+    set_attr(root, "data-dcs-float-host", "");
+    auto ref = ref_for_node(root, current_panel_id(stack_));
+    if (tree.split) {
+        for (std::size_t i = 0; i < tree.children.size(); ++i) {
+            if (i > 0) splitter(tree.vertical, "split-root-" + std::to_string(i));
+            emit_dock_node(tree.children[i], false, &recorder, here);
+        }
+    } else {
+        emit_dock_node(tree, false, &recorder, here);
+    }
+
+    // Drop indicator overlay (hidden until a dock drag hovers a zone). Reuses
+    // decius .dcs-drop--valid for the highlight; the interaction positions it.
+    auto& dropind = open_node(WidgetKind::Container, "div",
+                              "dcs-drop dcs-drop--valid", "dock-dropind", here,
+                              true);
+    set_attr(dropind, "id", "__dropind");
+    set_attr(dropind, "hidden", "");
+    set_attr(dropind, "style",
+             "position:absolute;pointer-events:none;z-index:200;display:none;"
+             "left:0px;top:0px;width:0px;height:0px");
+    close_node();  // drop indicator
+
+    close_node();  // container/root dock
+    return ref;
+}
+
+DockHandle View::document(const std::function<void(View&)>& content,
+                          std::string_view title, std::string_view icon,
+                          std::source_location here) {
+    (void) here;
+    if (!dock_recorder_) {
+        diagnostics_.push_back("View::document() called outside document_view");
+        return {};
+    }
+    dock_recorder_->document_content = content;
+    dock_recorder_->document_title = std::string(title);
+    dock_recorder_->document_icon = std::string(icon);
+    DockHandle h;
+    h.id = "__document__";
+    h.owner_ = this;
+    return h;
+}
+
+void View::attach_dock_toolbar(std::string_view id,
+                               const std::function<void(View&)>& build) {
+    if (!dock_recorder_) {
+        diagnostics_.push_back(
+            "DockHandle::toolbar() called outside document_view");
+        return;
+    }
+    if (id == "__document__") {
+        dock_recorder_->document_toolbar = build;
+        return;
+    }
+    for (auto& p : dock_recorder_->panels) {
+        if (p.id == id) {
+            p.toolbar = build;
+            return;
+        }
+    }
+}
+
+DockHandle& DockHandle::toolbar(const std::function<void(View&)>& build) {
+    if (owner_) owner_->attach_dock_toolbar(id, build);
+    return *this;
+}
+
+void View::set_dock_size_provider(std::function<int(std::string_view)> fn) {
+    dock_size_provider_ = std::move(fn);
+}
+
+void View::set_dock_placement_provider(
+    std::function<Document::DockPlacement(std::string_view)> fn) {
+    dock_placement_provider_ = std::move(fn);
+}
+
+void View::set_dock_active_tab_provider(
+    std::function<std::string(std::string_view)> fn) {
+    dock_active_tab_provider_ = std::move(fn);
+}
+
+DockHandle View::dockpanel(std::string_view title,
+                           const DockLocation& where,
+                           const std::function<void(View&)>& content,
+                           std::string_view icon,
+                           std::string_view key,
+                           std::source_location here) {
+    (void) here;
+    if (!dock_recorder_) {
+        diagnostics_.push_back("View::dockpanel() called outside document_view");
+        return {};
+    }
+    DockRecorder::Spec spec;
+    spec.id = key.empty() ? dom_id_fragment(title) : std::string(key);
+    spec.title = std::string(title);
+    spec.icon = std::string(icon);
+    spec.parent = where.parent ? *where.parent : std::string{"__document__"};
+    spec.side = where.side ? *where.side : Dock::Left;
+    spec.state = where.state;
+    spec.size = where.size;
+    spec.anchor = where.anchor;
+    spec.offset = where.offset;
+    spec.float_size = where.float_size;
+    spec.content = content;
+    dock_recorder_->panels.push_back(std::move(spec));
+    DockHandle h;
+    h.id = key.empty() ? dom_id_fragment(title) : std::string(key);
+    h.owner_ = this;
+    return h;
+}
+
+View::Scope View::foldout(std::string_view title, bool expanded,
+                          std::string_view key, std::source_location here) {
+    const std::size_t depth_before = stack_.size();  // unwind here on close
+    const bool decius = theme_ == ViewTheme::Decius;
+
+    std::string fold_cls = decius ? "dcs-foldout" : "aui-foldout";
+    if (!expanded) fold_cls += decius ? " dcs-foldout--collapsed"
+                                      : " aui-foldout--collapsed";
+    auto& fold = open_node(WidgetKind::Container, "div", fold_cls, key, here,
+                           true);
+    (void) fold;
+
+    // Header: clickable row the collapse interaction toggles. Chevron + title.
+    {
+        auto& header = open_node(WidgetKind::Container, "div",
+                                 decius ? "dcs-foldout__header"
+                                        : "aui-foldout__header",
+                                 "__header", here, true);
+        (void) header;
+        std::string chev_cls = decius ? "dcs-foldout__chevron"
+                                      : "aui-foldout__chevron";
+        if (expanded) chev_cls += decius ? " dcs-foldout__chevron--open"
+                                         : " aui-foldout__chevron--open";
+        auto& chev = open_node(WidgetKind::Container, "span", chev_cls,
+                               "__chevron", here, true);
+        (void) chev;
+        open_node(WidgetKind::Container, "i", "di di-chevron-right",
+                  "__chevron-icon", here, false);
+        close_node();  // chevron
+        auto& title_node = open_node(WidgetKind::Container, "span",
+                                     decius ? "dcs-foldout__title"
+                                            : "aui-foldout__title",
+                                     "__title", here, false);
+        set_text(title_node, title);
+        close_node();  // header
+    }
+
+    // Body — the returned scope's fill target.
+    auto& body = open_node(WidgetKind::Container, "div",
+                           decius ? "dcs-foldout__body" : "aui-foldout__body",
+                           "__body", here, true);
+    set_text(body, {});
+    return Scope{this, &body, depth_before};
+}
+
+WidgetRef View::vec(std::string_view label,
+                    const std::vector<std::string>& channels,
+                    const std::vector<double>& values, std::string_view key,
+                    std::source_location here) {
+    if (channels.size() < 2 || channels.size() > 4) {
+        diagnostics_.push_back(
+            "View::vec expects 2-4 channels; got " +
+            std::to_string(channels.size()));
+    }
+    const auto group_recipe = default_element(theme_, FrameworkElement::FieldGroup);
+    auto& group = open_node(WidgetKind::Container, group_recipe.tag,
+                            group_recipe.classes, key, here, true);
+    set_attr(group, "data-aui-widget", "vec");
+
+    const auto label_recipe = default_element(theme_, FrameworkElement::FieldLabel);
+    auto& label_node = open_node(WidgetKind::Container, label_recipe.tag,
+                                 label_recipe.classes, "__label", here, false);
+    set_text(label_node, label);
+
+    auto& vec_node = open_node(WidgetKind::Container, "div",
+                               theme_ == ViewTheme::Decius ? "dcs-vec"
+                                                           : "aui-vec",
+                               "__vec", here, true);
+    (void) vec_node;
+    for (std::size_t i = 0; i < channels.size(); ++i) {
+        const double value = i < values.size() ? values[i] : 0.0;
+        combo(channels[i], value, 0.01,
+              std::string(key.empty() ? "vec" : key) + "-" +
+                  std::to_string(i),
+              here);
+    }
+    close_node();  // vec
+    close_node();  // group
+    return ref_for_node(group, current_panel_id(stack_));
+}
+
+WidgetRef View::splitter(bool horizontal, std::string_view key,
+                         std::source_location here) {
+    std::string cls{default_class(theme_, FrameworkElement::Splitter)};
+    if (theme_ == ViewTheme::Decius && horizontal) cls += " dcs-splitter--h";
+    auto& node = open_node(WidgetKind::Container, "div", cls, key, here, false);
+    set_attr(node, "data-dcs-splitter", horizontal ? "h" : "v");
+    // A resize handle owns its cursor. (The bundle sets it via a child-combinator
+    // rule that the rule-fill scanner skips, so make it explicit/inline.)
+    set_attr(node, "style", horizontal ? "cursor:row-resize" : "cursor:col-resize");
+    return ref_for_node(node, current_panel_id(stack_));
+}
+
+View::Scope View::tree(std::string_view key, std::source_location here) {
+    const auto r = default_element(theme_, FrameworkElement::Tree);
+    auto& node = open_node(WidgetKind::Container, r.tag, r.classes, key, here, true);
+    set_attr(node, "data-dcs-select", "single");
+    return scope_here(node);
+}
+
+WidgetRef View::tree_row(std::string_view label, bool selected, int depth,
+                         std::string_view key, std::source_location here) {
+    TreeRowOptions opts;
+    opts.depth = depth;
+    opts.selected = selected;
+    return tree_row(label, opts, key, here);
+}
+
+WidgetRef View::tree_row(std::string_view label, const TreeRowOptions& opts,
+                         std::string_view key, std::source_location here) {
+    const auto r = default_element(theme_, FrameworkElement::TreeRow);
+    // For Decius the row is the canonical <div class="dcs-tree__row"> with
+    // chevron / icon / label / meta children. For other themes (e.g. the
+    // Bootstrap list-group-item button) fall back to a labeled row.
+    const bool decius = theme_ == ViewTheme::Decius;
+    auto& node = open_node(WidgetKind::Container,
+                           decius ? "div" : r.tag, r.classes, key, here,
+                           decius);
+    set_attr(node, "aria-selected", opts.selected ? "true" : "false");
+    if (opts.draggable) set_attr(node, "draggable", "true");
+    if (opts.depth > 0) {
+        set_attr(node, "style", "--depth:" + std::to_string(opts.depth));
+    }
+
+    if (!decius) {
+        set_attr(node, "type", "button");
+        set_text(node, label);
+        return ref_for_node(node, current_panel_id(stack_));
+    }
+
+    // Chevron: open/closed glyph when expandable, else an empty placeholder
+    // span (keeps labels aligned across leaf and branch rows).
+    {
+        std::string chev_cls = "dcs-tree__chevron";
+        if (opts.expandable && opts.expanded) chev_cls += " dcs-tree__chevron--open";
+        auto& chev = open_node(WidgetKind::Container, "span", chev_cls,
+                               "__chevron", here, true);
+        (void) chev;
+        if (opts.expandable) {
+            open_node(WidgetKind::Container, "i", "di di-chevron-right",
+                      "__chevron-icon", here, false);
+        }
+        close_node();  // chevron
+    }
+    // Type icon.
+    if (!opts.icon.empty()) {
+        auto& icon = open_node(WidgetKind::Container, "span", "dcs-tree__icon",
+                               "__icon", here, true);
+        (void) icon;
+        open_node(WidgetKind::Container, "i",
+                  "di di-" + std::string(opts.icon), "__icon-glyph", here,
+                  false);
+        close_node();  // icon
+    }
+    // Label.
+    {
+        auto& lbl = open_node(WidgetKind::Container, "span", "dcs-tree__label",
+                              "__label", here, false);
+        set_text(lbl, label);
+    }
+    // Trailing meta icon (e.g. visibility eye).
+    if (!opts.meta_icon.empty()) {
+        auto& meta = open_node(WidgetKind::Container, "span", "dcs-tree__meta",
+                               "__meta", here, true);
+        (void) meta;
+        open_node(WidgetKind::Container, "i",
+                  "di di-" + std::string(opts.meta_icon), "__meta-glyph", here,
+                  false);
+        close_node();  // meta
+    }
+
+    close_node();  // row
+    return ref_for_node(node, current_panel_id(stack_));
+}
+
+View::Scope View::status_bar(std::string_view key, std::source_location here) {
+    const auto r = default_element(theme_, FrameworkElement::Statusbar);
+    auto& node = open_node(WidgetKind::Container, r.tag, r.classes, key, here, true);
+    return scope_here(node);
+}
+
+WidgetRef View::color_field(std::string_view label,
+                            std::string_view value,
+                            const std::vector<std::string>& swatches,
+                            std::string_view key,
+                            std::source_location here) {
+    const auto group_recipe = default_element(theme_, FrameworkElement::FieldGroup);
+    auto& group = open_node(WidgetKind::Container, group_recipe.tag,
+                            group_recipe.classes, key, here, true);
+    set_attr(group, "data-aui-widget", "color");
+    set_attr(group, "data-value", value);
+
+    const auto label_recipe = default_element(theme_, FrameworkElement::FieldLabel);
+    auto& label_node = open_node(WidgetKind::Container, label_recipe.tag,
+                                 label_recipe.classes, "__label", here, false);
+    set_text(label_node, label);
+
+    // Swatch trigger button — opens the picker popup via the menu toggle the
+    // interaction layer already drives.
+    const std::string menu_id =
+        std::string(key.empty() ? "color" : key) + "__picker";
+    auto& trigger = open_node(WidgetKind::Button, "button",
+                              "dcs-swatch", "__trigger", here, false);
+    set_attr(trigger, "type", "button");
+    set_attr(trigger, "data-dcs-toggle", "menu");
+    set_attr(trigger, "data-dcs-target", "#" + menu_id);
+    set_attr(trigger, "data-dcs-placement", "bottom");
+    set_attr(trigger, "style", "background:" + std::string(value));
+
+    // Popup menu of swatches.
+    auto& menu = open_node(WidgetKind::Container, "div",
+                           "dcs-menu dcs-menu--swatches", "__menu", here, true);
+    set_attr(menu, "id", menu_id);
+    set_attr(menu, "hidden", "");
+    for (std::size_t i = 0; i < swatches.size(); ++i) {
+        auto& sw = open_node(WidgetKind::Button, "button", "dcs-swatch",
+                             "__swatch-" + std::to_string(i), here, false);
+        set_attr(sw, "type", "button");
+        set_attr(sw, "data-dcs-value", swatches[i]);
+        set_attr(sw, "style", "background:" + swatches[i]);
+    }
+    close_node();  // menu
+    return ref_for_node(group, current_panel_id(stack_));
+}
+
+WidgetRef View::colorfield(std::string_view label, std::string_view value,
+                           std::string_view key, std::source_location here) {
+    const auto group_recipe = default_element(theme_, FrameworkElement::FieldGroup);
+    auto& group = open_node(WidgetKind::Container, group_recipe.tag,
+                            group_recipe.classes, key, here, true);
+    set_attr(group, "data-aui-widget", "colorfield");
+    set_attr(group, "data-value", value);
+
+    const auto label_recipe = default_element(theme_, FrameworkElement::FieldLabel);
+    auto& label_node = open_node(WidgetKind::Container, label_recipe.tag,
+                                 label_recipe.classes, "__label", here, false);
+    set_text(label_node, label);
+
+    if (theme_ != ViewTheme::Decius) {
+        // Non-Decius personalities: a native color input is the idiomatic
+        // control. (ex11 is Decius-only; this keeps the component portable.)
+        auto& input = open_node(WidgetKind::TextInput, "input", "form-control",
+                                "__input", here, false);
+        set_attr(input, "type", "color");
+        set_attr(input, "value", value);
+        close_node();  // group
+        return ref_for_node(group, current_panel_id(stack_));
+    }
+
+    // Canonical Decius color field: chip + editable hex + caret → picker
+    // popover. The chip drag-scrub and hex/picker sync are driven by the core
+    // interaction layer; the caret's popover toggle is already handled there.
+    const std::string base =
+        dom_id_fragment(key.empty() ? group.remote_id : std::string(key));
+    const std::string field_id = "aui-cf-" + base;
+    const std::string picker_id = field_id + "-picker";
+
+    auto& field = open_node(WidgetKind::Container, "div", "dcs-colorfield",
+                            "__field", here, true);
+    set_attr(field, "id", field_id);
+    set_attr(field, "style", "position:relative");
+
+    auto& chip = open_node(WidgetKind::Container, "span", "dcs-colorfield__chip",
+                           "__chip", here, false);
+    set_attr(chip, "data-dcs-color", value);
+    set_attr(chip, "title",
+             "drag: \xE2\x86\x90\xE2\x86\x92 hue \xC2\xB7 \xE2\x86\x95 value "
+             "\xC2\xB7 Ctrl saturation");
+    set_attr(chip, "style", "background:" + std::string(value));
+
+    auto& hex = open_node(WidgetKind::TextInput, "input", "dcs-colorfield__hex",
+                          "__hex", here, false);
+    set_attr(hex, "type", "text");
+    set_attr(hex, "value", value);
+    set_attr(hex, "spellcheck", "false");
+
+    auto& caret = open_node(WidgetKind::Container, "span",
+                            "dcs-colorfield__caret", "__caret", here, true);
+    set_attr(caret, "data-dcs-toggle", "popover");
+    set_attr(caret, "data-dcs-target", "#" + picker_id);
+    open_node(WidgetKind::Container, "i", "di di-chevron-down", "__caret-icon",
+              here, false);
+    close_node();  // caret
+
+    // Picker popover: SV square + hue bar + preview/hex. Hidden until the
+    // caret toggles it. (The HSV math + cursor sync is the interaction layer's
+    // job; this is the canonical structure it drives.)
+    auto& pop = open_node(WidgetKind::Container, "div", "dcs-popover",
+                          "__picker", here, true);
+    set_attr(pop, "id", picker_id);
+    set_attr(pop, "style", "width:204px");
+    set_attr(pop, "hidden", "");
+    {
+        auto& body = open_node(WidgetKind::Container, "div", "dcs-popover__body",
+                               "__pop-body", here, true);
+        set_attr(body, "style",
+                 "padding:var(--dcs-s-3);display:flex;flex-direction:column;"
+                 "gap:var(--dcs-s-2)");
+        auto& sv = open_node(WidgetKind::Container, "div", "dcs-color-square",
+                             "__sv", here, true);
+        set_attr(sv, "style", "aspect-ratio:1.4/1");
+        open_node(WidgetKind::Container, "div", "dcs-color-square__cursor",
+                  "__sv-cursor", here, false);
+        close_node();  // sv
+        auto& hue = open_node(WidgetKind::Container, "div", "dcs-hue-bar",
+                              "__hue", here, true);
+        (void) hue;
+        open_node(WidgetKind::Container, "div", "dcs-hue-bar__cursor",
+                  "__hue-cursor", here, false);
+        close_node();  // hue
+        close_node();  // body
+    }
+    close_node();  // popover
+
+    close_node();  // field
+    close_node();  // group
+    return ref_for_node(group, current_panel_id(stack_));
+}
+
+WidgetRef View::combo(std::string_view label, double value, double step,
+                      std::string_view key, std::source_location here) {
+    // A bare dcs-combo (no field wrapper). Decius-specific control; for other
+    // personalities fall back to a plain number input.
+    if (theme_ != ViewTheme::Decius) {
+        auto& input = open_node(WidgetKind::TextInput, "input", "form-control",
+                                key, here, false);
+        set_attr(input, "type", "number");
+        set_attr(input, "value", number(value));
+        set_attr(input, "step", number(step));
+        if (!label.empty()) set_attr(input, "aria-label", label);
+        return ref_for_node(input, current_panel_id(stack_));
+    }
+
+    auto& combo = open_node(WidgetKind::Container, "div", "dcs-combo", key,
+                            here, true);
+    set_attr(combo, "role", "spinbutton");
+    set_attr(combo, "aria-valuenow", number(value));
+    set_attr(combo, "data-dcs-combo", "");
+    set_attr(combo, "data-value", number(value));
+    set_attr(combo, "data-step", number(step));
+    if (!label.empty()) set_attr(combo, "data-label", label);
+    set_attr(combo, "style", "--fill:" + percent(0.5));
+
+    open_node(WidgetKind::Container, "div", "dcs-combo__fill", "__fill", here,
+              false);
+
+    // The channel label (e.g. "X") — the element the dcs-combo__label CSS
+    // styles. (decius.js builds this from data-label at runtime; we have no JS,
+    // so the builder emits it.)
+    if (!label.empty()) {
+        auto& lbl = open_node(WidgetKind::Container, "div", "dcs-combo__label",
+                              "__label", here, false);
+        set_text(lbl, label);
+    }
+
+    auto& input = open_node(WidgetKind::TextInput, "input", "dcs-combo__value",
+                            "__input", here, false);
+    set_attr(input, "type", "number");
+    set_attr(input, "value", number(value));
+    set_attr(input, "data-fill-min", number(value - 1.0));
+    set_attr(input, "data-fill-max", number(value + 1.0));
+
+    close_node();  // combo
+    return ref_for_node(combo, current_panel_id(stack_));
+}
+
 WidgetRef View::find_widget(std::string_view name) {
     for (auto it = widget_names_.rbegin(); it != widget_names_.rend(); ++it) {
         if (it->first != name) continue;
@@ -2062,6 +3585,11 @@ WidgetRef View::find_widget(std::string_view name) {
     auto* found = find_widget_node_under(root_.id, name);
     return found ? ref_for_node(*found, root_.id, name)
                  : WidgetRef{this, root_.id, {}, name};
+}
+
+void View::note_component_type_mismatch(std::string_view name) {
+    diagnostics_.push_back("component<T>(\"" + std::string(name) +
+                           "\"): widget exists but is not of the requested type");
 }
 
 std::vector<WidgetClickBinding> View::click_bindings() const {
@@ -2099,12 +3627,12 @@ std::string View::to_html_fragment() const {
 std::string View::to_html_document() const {
     std::string out;
     out += "<!doctype html><html><head><meta charset=\"utf-8\">";
-    out += theme_link(theme_);
+    out += theme_link(theme_, framework_version_);
     out += "<style>";
     out += command_widget_style();
     out += "</style>";
     out += "</head><body";
-    out += body_attrs(theme_, document_attrs_);
+    out += body_attrs(theme_, framework_version_, document_attrs_);
     out += "><main id=\"aui-root\" class=\"aui-root\">";
     out += to_html_fragment();
     out += "</main></body></html>";
@@ -2203,6 +3731,13 @@ void View::close_node() {
                          static_cast<std::ptrdiff_t>(node->cursor),
                          node->children.end());
     stack_.pop_back();
+}
+
+void View::close_to(std::size_t target) {
+    // Unwind the open-node stack down to `target` (never past the root). Lets a
+    // single Scope own several nested levels opened by a compound builder.
+    if (target < 1) target = 1;
+    while (stack_.size() > target) close_node();
 }
 
 void View::set_attr(WidgetNode& node,

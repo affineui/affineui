@@ -4235,6 +4235,24 @@ lxb_css_property_state_transform(lxb_css_parser_t *parser,
                 return lxb_css_parser_failed(parser);
             }
         }
+        else if (lxb_css_transform_function_is(token, "rotatex", 7)) {
+            if (!lxb_css_transform_parse_rotate(parser, fn)) {
+                return lxb_css_parser_failed(parser);
+            }
+            fn->type = LXB_CSS_TRANSFORM_FUNCTION_ROTATE_X;
+        }
+        else if (lxb_css_transform_function_is(token, "rotatey", 7)) {
+            if (!lxb_css_transform_parse_rotate(parser, fn)) {
+                return lxb_css_parser_failed(parser);
+            }
+            fn->type = LXB_CSS_TRANSFORM_FUNCTION_ROTATE_Y;
+        }
+        else if (lxb_css_transform_function_is(token, "rotatez", 7)) {
+            if (!lxb_css_transform_parse_rotate(parser, fn)) {
+                return lxb_css_parser_failed(parser);
+            }
+            fn->type = LXB_CSS_TRANSFORM_FUNCTION_ROTATE_Z;
+        }
         else if (lxb_css_transform_function_is(token, "matrix", 6)) {
             if (!lxb_css_transform_parse_matrix(parser, fn)) {
                 return lxb_css_parser_failed(parser);

@@ -19,7 +19,11 @@
 //
 
 #include "affineui/app.h"
+#include "affineui/callback.h"
 #include "affineui/document.h"
+#include "affineui/keymap.h"
+#include "affineui/object.h"
+#include "affineui/weak_ref.h"
 #include "affineui/embed.h"
 #include "affineui/painter.h"
 #include "affineui/renderer.h"
@@ -27,6 +31,8 @@
 #include "affineui/types.h"
 #include "affineui/ui.h"
 #include "affineui/view.h"
+#include "affineui/components.h"
+#include "affineui/inspector.h"
 #include "affineui/version.h"
 
 #ifndef AFFINEUI_NO_IMM

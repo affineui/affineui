@@ -1,109 +1,462 @@
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>AffineUI - Decius game editor</title>
-  <link rel="stylesheet" href="../frameworks/css/decius-css-0.5.2.bundle.min.css">
-  <style>
-body{margin:0;background:#14161c}
-.app{height:100vh;background:var(--dcs-bg-app);display:flex;flex-direction:column;overflow:hidden}
-.center{flex:1;min-height:0;display:flex;gap:1px;background:var(--dcs-line)}
-.left{flex:0 0 260px}.right{flex:0 0 340px}.main{flex:1;min-width:0}
-.viewport-grid{height:100%;position:relative;background:linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),radial-gradient(circle at 52% 42%,#4b5368,#171a22 72%);background-size:24px 24px,24px 24px,auto}
-.gizmo{position:absolute;left:46%;top:35%;width:180px;height:120px;border:1px solid rgba(77,159,255,.75);box-shadow:0 0 0 1px rgba(77,159,255,.18),0 12px 32px rgba(0,0,0,.45)}
-.gizmo:before{content:"";position:absolute;left:42px;top:-26px;width:94px;height:170px;border:1px dashed rgba(255,255,255,.25)}
-.gizmo-axis{position:absolute;background:var(--dcs-accent)}.gx{left:-30px;top:58px;width:240px;height:2px}.gy{left:88px;top:-38px;width:2px;height:196px}
-.prop-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}.prop-row span{flex:0 0 92px;color:var(--dcs-text-mute);font-size:var(--dcs-fs-xs);text-transform:uppercase;letter-spacing:.08em}.prop-row .dcs-input{flex:1}
-.asset-strip{display:flex;gap:8px;padding:10px;overflow:hidden}.asset{width:88px;height:68px;background:var(--dcs-well);border:1px solid var(--dcs-line-soft);border-radius:var(--dcs-r-2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
-.asset i{font-size:20px;color:var(--dcs-accent)}
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Decius Game Editor — reference (decius.css ground truth)</title>
+<!--
+  GROUND-TRUTH reference for examples/11_decius_game_editor.
+
+  This is the SAME game/scene editor the C++ sample builds, but authored in
+  pure decius.css + decius.js (the real web framework). Open it in a browser to
+  see exactly what the C++ AffineUI version should look like and behave like,
+  and A/B the two to find renderer/component fidelity gaps. The C++ app uses
+  the AffineUI component API + affineui_app to produce equivalent markup; this
+  file is the canonical structure those builders target.
+-->
+<link rel="stylesheet" href="../frameworks/css/decius-css-0.6.2.bundle.min.css" />
+<style>
+  html, body { height: 100%; margin: 0; }
+  .ge-app { position: fixed; inset: 0; display: flex; flex-direction: column;
+            background: var(--dcs-bg-app); color: var(--dcs-text); overflow: hidden; }
+
+  /* The center viewport's body + tabpanel must be a flex chain so the canvas
+     fills it (this is what lets a torn-off floating panel, positioned inside
+     the data-dcs-float-host canvas, actually be sized and visible). Mirrors
+     DENDER's .dn-viewport rules. */
+  .dn-viewport { position: relative; min-width: 0; }
+  .dn-viewport > .dcs-dockpane__body { padding: 0; display: flex; }
+  .dn-viewport > .dcs-dockpane__body > [data-dcs-tabpanel] { flex: 1; min-width: 0; min-height: 0; display: flex; }
+
+  /* The faux-3D viewport canvas (custom to this app — the document content). */
+  .ge-vp-canvas { position: relative; flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden;
+    background: radial-gradient(120% 90% at 50% 8%, #50545d 0%, #3a3d45 38%, #292b31 78%, #202228 100%); }
+  .ge-vp-grid { position: absolute; inset: 0; opacity: .65;
+    background-image:
+      linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
+    background-size: 32px 32px; transform: skewY(-10deg) scale(1.1); }
+  .ge-cube { position: absolute; left: calc(50% - 56px); top: calc(42% - 56px);
+    width: 112px; height: 112px; border: 2px solid var(--dcs-accent);
+    background: linear-gradient(135deg, #777d88, #444853);
+    box-shadow: 0 22px 50px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.12);
+    transform: rotateX(58deg) rotateZ(45deg); }
+  .ge-vp-stats { position: absolute; left: 12px; top: 10px; color: #d7dae1;
+    font-size: var(--dcs-fs-xs); line-height: 1.5; text-shadow: 0 1px 2px rgba(0,0,0,.8); pointer-events: none; }
+
+  .ge-asset-strip { display: flex; gap: 8px; padding: 10px; overflow: auto; }
+  .ge-asset { width: 88px; height: 64px; flex: 0 0 auto; background: var(--dcs-well);
+    border: 1px solid var(--dcs-line-soft); border-radius: var(--dcs-r-2);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+  .ge-asset i { font-size: 20px; color: var(--dcs-accent); }
+  .ge-asset span { font-size: var(--dcs-fs-xs); color: var(--dcs-text-dim); }
+</style>
 </head>
-<body class="dcs" data-dcs-density="compact" data-dcs-style="3d">
-<div class="app">
-  <div class="dcs-menubar">
+<body class="dcs" data-dcs-density="compact" data-dcs-accent="cyan">
+
+<div class="ge-app">
+
+  <!-- ============================ MENUBAR ============================ -->
+  <nav class="dcs-menubar">
     <div class="dcs-menubar__brand"><i class="di di-decius"></i> Decius Forge</div>
-    <button class="dcs-menubar__item">File</button><button class="dcs-menubar__item">Edit</button><button class="dcs-menubar__item">Build</button>
+    <button class="dcs-menubar__item" data-dcs-toggle="menu" data-dcs-target="#menu-file">File</button>
+    <button class="dcs-menubar__item" data-dcs-toggle="menu" data-dcs-target="#menu-edit">Edit</button>
+    <button class="dcs-menubar__item" data-dcs-toggle="menu" data-dcs-target="#menu-build">Build</button>
     <div class="dcs-menubar__spacer"></div>
     <div class="dcs-menubar__meta">Scene: ruins_arena_03</div>
-  </div>
-  <div class="center">
-    <aside class="left dcs-dockpane">
-      <div class="dcs-dockpane__tabs"><button class="dcs-dockpane__tab" aria-selected="true"><i class="di di-folder"></i> Hierarchy</button></div>
+  </nav>
+
+  <!-- ============================ WORK AREA (dock + splitters) ============================ -->
+  <div class="dcs-dock dcs-dock--v dn-workarea" style="flex:1;min-height:0;">
+    <div class="dcs-dock" style="flex:1;min-height:0;">
+
+      <!-- ===== LEFT: Hierarchy (outliner) ===== -->
+      <div class="dcs-dockpane" style="flex:0 0 260px;min-width:0;">
+        <div class="dcs-dockpane__tabbar">
+          <div class="dcs-dockpane__tabs">
+            <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#outliner-body">
+              <i class="di di-folder-open"></i> Hierarchy
+            </button>
+          </div>
+          <div class="dcs-dockpane__toolbars">
+            <div class="dcs-dockpane__toolbar" data-dcs-tabtoolbar="#outliner-body">
+              <button class="dcs-btn dcs-btn--icon dcs-btn--sm dcs-btn--ghost" data-dcs-tip="Filter"><i class="di di-eq"></i></button>
+            </div>
+          </div>
+        </div>
+        <div class="dcs-dockpane__shelf" hidden></div>
+        <div class="dcs-dockpane__body">
+          <div id="outliner-body" data-dcs-tabpanel>
+            <div class="dcs-tree" id="outliner-tree" data-dcs-select="single">
+              <div class="dcs-tree__row" draggable="true" style="--depth:0">
+                <span class="dcs-tree__chevron dcs-tree__chevron--open"><i class="di di-chevron-right"></i></span>
+                <span class="dcs-tree__icon"><i class="di di-cube"></i></span>
+                <span class="dcs-tree__label">WorldRoot</span>
+              </div>
+              <div class="dcs-tree__row" draggable="true" aria-selected="true" style="--depth:1">
+                <span class="dcs-tree__chevron"></span>
+                <span class="dcs-tree__icon"><i class="di di-sphere"></i></span>
+                <span class="dcs-tree__label">Hero_mesh_high</span>
+                <span class="dcs-tree__meta"><i class="di di-eye" data-dcs-tip="Hide"></i></span>
+              </div>
+              <div class="dcs-tree__row" draggable="true" style="--depth:1">
+                <span class="dcs-tree__chevron"></span>
+                <span class="dcs-tree__icon"><i class="di di-light"></i></span>
+                <span class="dcs-tree__label">KeyLight</span>
+              </div>
+              <div class="dcs-tree__row" draggable="true" style="--depth:1">
+                <span class="dcs-tree__chevron"></span>
+                <span class="dcs-tree__icon"><i class="di di-spline"></i></span>
+                <span class="dcs-tree__label">SplineRig</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dcs-splitter" data-dcs-splitter></div>
+
+      <!-- ===== CENTER: 3D Viewport (the document view — permanent, single tab) ===== -->
+      <div class="dcs-dockpane dcs-dockpane--center dn-viewport" style="flex:1;min-width:0;">
+        <div class="dcs-dockpane__tabbar">
+          <div class="dcs-dockpane__tabs">
+            <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#vp-body">
+              <i class="di di-cube"></i> Lit View
+            </button>
+          </div>
+          <div class="dcs-dockpane__toolbars">
+            <div class="dcs-dockpane__toolbar" data-dcs-tabtoolbar="#vp-body">
+              <div class="dcs-select dcs-select--btn" data-dcs-toggle="menu" data-dcs-target="#menu-mode" data-dcs-tip="Mode">
+                <span class="dcs-select__label">Object Mode</span>
+                <span class="dcs-select__caret"><i class="di di-chevron-down"></i></span>
+              </div>
+              <span class="dcs-toolbar__sep"></span>
+              <button class="dcs-menubar__item" data-dcs-toggle="menu" data-dcs-target="#menu-view">View</button>
+              <button class="dcs-menubar__item" data-dcs-toggle="menu" data-dcs-target="#menu-add">Add</button>
+              <span class="dcs-toolbar__spacer"></span>
+              <button class="dcs-btn dcs-btn--icon dcs-btn--ghost" aria-pressed="true" data-dcs-tip="Gizmo"><i class="di di-gizmo"></i></button>
+              <div class="dcs-btn-group" data-dcs-tip="Shading">
+                <button class="dcs-btn dcs-btn--icon" data-dcs-radio="shade"><i class="di di-view-wire"></i></button>
+                <button class="dcs-btn dcs-btn--icon" aria-pressed="true" data-dcs-radio="shade"><i class="di di-view-solid"></i></button>
+                <button class="dcs-btn dcs-btn--icon" data-dcs-radio="shade"><i class="di di-view-render"></i></button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="dcs-dockpane__shelf" hidden></div>
+        <div class="dcs-dockpane__body">
+          <div id="vp-body" data-dcs-tabpanel>
+            <div class="ge-vp-canvas" data-dcs-float-host>
+              <div class="ge-vp-grid"></div>
+              <div class="ge-cube"></div>
+              <div class="ge-vp-stats"><div><b>User Perspective</b></div><div>(1) Collection | Hero_mesh_high</div></div>
+
+              <!-- floating tear-off tool rail -->
+              <div class="dcs-toolbar dcs-toolbar--v dcs-toolbar--sm dcs-toolbar--floating dn-toolrail"
+                   style="left:8px;top:8px" data-dcs-drag-bounds=".ge-vp-canvas">
+                <span class="dcs-grip dcs-grip--h" data-dcs-drag-handle></span>
+                <button class="dcs-btn dcs-btn--icon dcs-btn--sm dcs-btn--ghost" aria-pressed="true" data-dcs-radio="tool" data-dcs-tip="Select"><i class="di di-cross-target"></i></button>
+                <button class="dcs-btn dcs-btn--icon dcs-btn--sm dcs-btn--ghost" data-dcs-radio="tool" data-dcs-tip="Move"><i class="di di-move"></i></button>
+                <button class="dcs-btn dcs-btn--icon dcs-btn--sm dcs-btn--ghost" data-dcs-radio="tool" data-dcs-tip="Rotate"><i class="di di-rotate"></i></button>
+                <button class="dcs-btn dcs-btn--icon dcs-btn--sm dcs-btn--ghost" data-dcs-radio="tool" data-dcs-tip="Scale"><i class="di di-scale"></i></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dcs-splitter" data-dcs-splitter></div>
+
+      <!-- ===== RIGHT: Inspector (foldouts + props) ===== -->
+      <div class="dcs-dockpane dn-props" style="flex:0 0 320px;min-width:0;">
+        <div class="dcs-dockpane__tabbar">
+          <div class="dcs-dockpane__tabs">
+            <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#props-body">
+              <i class="di di-cog"></i> Inspector
+            </button>
+          </div>
+          <div class="dcs-dockpane__toolbars">
+            <div class="dcs-dockpane__toolbar" data-dcs-tabtoolbar="#props-body">
+              <div class="dcs-search">
+                <i class="di di-search" aria-hidden="true"></i>
+                <input class="dcs-input dcs-input--sm" type="search" placeholder="Search…">
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="dcs-dockpane__shelf" hidden></div>
+        <div class="dcs-dockpane__body">
+          <div id="props-body" data-dcs-tabpanel>
+            <!-- datablock header -->
+            <div class="dcs-row dn-datablock" style="gap:var(--dcs-s-2);align-items:center;padding:var(--dcs-s-2)">
+              <i class="di di-sphere" style="color:var(--dcs-accent)"></i>
+              <input class="dcs-input" type="text" value="Hero_mesh_high" style="flex:1" />
+              <button class="dcs-btn dcs-btn--icon" data-dcs-tip="Browse"><i class="di di-more-h"></i></button>
+            </div>
+
+            <div class="dcs-foldouts">
+              <div class="dcs-foldout">
+                <div class="dcs-foldout__header">
+                  <span class="dcs-foldout__chevron"><i class="di di-chevron-right"></i></span>
+                  <span class="dcs-foldout__title">Material</span>
+                </div>
+                <div class="dcs-foldout__body">
+                  <div class="dcs-props">
+                    <div class="dcs-field">
+                      <span class="dcs-field__label">Roughness</span>
+                      <div class="dcs-slider" data-dcs-slider data-min="0" data-max="1" data-value="0.62">
+                        <div class="dcs-slider__track"><div class="dcs-slider__fill" style="width:62%"></div><div class="dcs-slider__thumb" style="left:62%"></div></div>
+                      </div>
+                    </div>
+                    <div class="dcs-field">
+                      <span class="dcs-field__label">Tint</span>
+                      <div class="dcs-colorfield" id="tint-field" style="position:relative">
+                        <span class="dcs-colorfield__chip" id="tint-chip" title="drag: ←→ hue · ↕ value · Ctrl saturation" style="background:#4d9fff"></span>
+                        <input class="dcs-colorfield__hex" id="tint-hex-inline" value="#4D9FFF" spellcheck="false">
+                        <span class="dcs-colorfield__caret" data-dcs-toggle="popover" data-dcs-target="#tint-picker" data-dcs-placement="bottom"><i class="di di-chevron-down"></i></span>
+                      </div>
+                    </div>
+                    <div class="dcs-field">
+                      <span class="dcs-field__label">Cast shadows</span>
+                      <div class="dcs-check" aria-checked="true"><div class="dcs-check__box"><i class="di di-check"></i></div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="dcs-foldout">
+                <div class="dcs-foldout__header">
+                  <span class="dcs-foldout__chevron"><i class="di di-chevron-right"></i></span>
+                  <span class="dcs-foldout__title">Transform</span>
+                </div>
+                <div class="dcs-foldout__body">
+                  <div class="dcs-props">
+                    <div class="dcs-field">
+                      <span class="dcs-field__label">Location</span>
+                      <div class="dcs-vec">
+                        <div data-dcs-combo data-label="X" data-value="12.0" data-step="0.01" data-suffix=" m"></div>
+                        <div data-dcs-combo data-label="Y" data-value="4.2"  data-step="0.01" data-suffix=" m"></div>
+                        <div data-dcs-combo data-label="Z" data-value="-8.5" data-step="0.01" data-suffix=" m"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Display: the remaining channel controls — a multi-button
+                   (segmented group), a checkbox, an on/off switch, a textarea. -->
+              <div class="dcs-foldout">
+                <div class="dcs-foldout__header">
+                  <span class="dcs-foldout__chevron"><i class="di di-chevron-right"></i></span>
+                  <span class="dcs-foldout__title">Display</span>
+                </div>
+                <div class="dcs-foldout__body">
+                  <div class="dcs-props">
+                    <div class="dcs-field">
+                      <span class="dcs-field__label">Blend</span>
+                      <div class="dcs-btn-group">
+                        <button class="dcs-btn" aria-pressed="true" data-dcs-radio="blend">Normal</button>
+                        <button class="dcs-btn" data-dcs-radio="blend">Add</button>
+                        <button class="dcs-btn" data-dcs-radio="blend">Multiply</button>
+                      </div>
+                    </div>
+                    <div class="dcs-field">
+                      <span class="dcs-field__label">Visible</span>
+                      <div class="dcs-check" aria-checked="true"><div class="dcs-check__box"><i class="di di-check"></i></div></div>
+                    </div>
+                    <div class="dcs-field">
+                      <span class="dcs-field__label">Wireframe</span>
+                      <div class="dcs-switch" role="switch"></div>
+                    </div>
+                    <div class="dcs-field" style="align-items:flex-start">
+                      <span class="dcs-field__label">Notes</span>
+                      <textarea class="dcs-textarea" rows="3">Weathered sandstone — chipped along the lower edge.</textarea>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="dcs-btn-row" style="padding:var(--dcs-s-3);gap:var(--dcs-s-2)">
+              <button class="dcs-btn">Duplicate</button>
+              <button class="dcs-btn">Delete</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="dcs-splitter dcs-splitter--h" data-dcs-splitter="h"></div>
+
+    <!-- ===== BOTTOM: Assets ===== -->
+    <div class="dcs-dockpane dn-assets" style="flex:0 0 120px;min-height:0;">
+      <div class="dcs-dockpane__tabbar">
+        <div class="dcs-dockpane__tabs">
+          <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#assets-body">
+            <i class="di di-image"></i> Assets
+          </button>
+          <button class="dcs-dockpane__tab" data-dcs-target="#console-body">
+            <i class="di di-file"></i> Console
+          </button>
+        </div>
+      </div>
+      <div class="dcs-dockpane__shelf" hidden></div>
       <div class="dcs-dockpane__body">
-        <div class="dcs-tree">
-          <div id="object-0" class="dcs-tree__row"><span class="dcs-tree__chevron"></span><i class="di di-cube"></i><span class="dcs-tree__label">WorldRoot</span><span class="dcs-tree__meta">12</span></div>
-          <div id="object-1" class="dcs-tree__row" aria-selected="true"><span class="dcs-tree__chevron"></span><i class="di di-sphere"></i><span class="dcs-tree__label">Hero_mesh_high</span><span class="dcs-tree__meta">42k</span></div>
-          <div id="object-2" class="dcs-tree__row"><span class="dcs-tree__chevron"></span><i class="di di-light"></i><span class="dcs-tree__label">KeyLight</span><span class="dcs-tree__meta">8k</span></div>
-          <div id="object-3" class="dcs-tree__row"><span class="dcs-tree__chevron"></span><i class="di di-spline"></i><span class="dcs-tree__label">SplineRig</span><span class="dcs-tree__meta">16</span></div>
+        <div id="assets-body" data-dcs-tabpanel>
+          <div class="ge-asset-strip">
+            <div class="ge-asset"><i class="di di-mesh"></i><span>Hero</span></div>
+            <div class="ge-asset"><i class="di di-texture"></i><span>Albedo</span></div>
+            <div class="ge-asset"><i class="di di-curve"></i><span>Rig</span></div>
+            <div class="ge-asset"><i class="di di-camera"></i><span>Shot A</span></div>
+          </div>
+        </div>
+        <div id="console-body" data-dcs-tabpanel hidden>
+          <div class="ge-console" style="padding:var(--dcs-s-3);display:flex;flex-direction:column;gap:var(--dcs-s-1);font-size:12px">
+            <div class="dcs-statusbar__item--ok">Scene 'ruins_arena_03' loaded — 3 objects</div>
+            <div>Baked lighting cache is up to date</div>
+            <div>Hero_mesh_high: 2 ngons triangulated on import</div>
+            <div class="dcs-statusbar__item--ok">Ready</div>
+          </div>
         </div>
       </div>
-    </aside>
-    <main class="main dcs-dockpane">
-      <div class="dcs-dockpane__tabs">
-        <button class="dcs-dockpane__tab" aria-selected="true"><i class="di di-view-lit"></i> Lit View</button>
-        <button class="dcs-dockpane__tab"><i class="di di-view-wire"></i> Wire</button>
-        <div class="dcs-dockpane__tools">
-          <button class="dcs-btn dcs-btn--icon dcs-btn--sm" aria-pressed="true"><i class="di di-select"></i></button>
-          <button class="dcs-btn dcs-btn--icon dcs-btn--sm"><i class="di di-move"></i></button>
-          <button class="dcs-btn dcs-btn--icon dcs-btn--sm"><i class="di di-rotate"></i></button>
-          <button class="dcs-btn dcs-btn--icon dcs-btn--sm"><i class="di di-scale"></i></button>
-        </div>
-      </div>
-      <div class="dcs-dockpane__body dcs-viewport">
-        <div class="viewport-grid"><div class="gizmo"><div class="gizmo-axis gx"></div><div class="gizmo-axis gy"></div></div></div>
-        <div class="dcs-viewport__overlay dcs-viewport__overlay--tl"><div class="dcs-viewport__floater">
-          <button id="play" class="dcs-btn dcs-btn--primary"><i class="di di-play"></i> Play</button>
-          <button id="snap" class="dcs-btn dcs-btn--icon" aria-pressed="true"><i class="di di-snap"></i></button>
-          <button class="dcs-btn dcs-btn--icon" aria-pressed="true"><i class="di di-grid"></i></button>
-        </div></div>
-      </div>
-    </main>
-    <aside class="right dcs-dockpane">
-      <div class="dcs-dockpane__tabs"><button class="dcs-dockpane__tab" aria-selected="true"><i class="di di-cog"></i> Inspector</button></div>
-      <div class="dcs-dockpane__body" style="padding:12px">
-        <h3 id="inspector-title" style="margin:0 0 12px;font-size:16px">Hero_mesh_high</h3>
-        <div class="prop-row"><span>Name</span><input class="dcs-input" value="Hero_mesh_high"></div>
-        <div class="prop-row"><span>Position</span><input class="dcs-input" value="12.0, 4.2, -8.5"></div>
-        <div class="prop-row"><span>Rotation</span><input class="dcs-input" value="0, 45, 0"></div>
-        <div class="prop-row"><span>Material</span><input class="dcs-input" value="M_hero_worn"></div>
-        <div style="margin:14px 0"><div id="roughness" data-dcs-slider data-min="0" data-max="1" data-value=".62" class="dcs-slider"><div class="dcs-slider__track"><div class="dcs-slider__tick" style="left:25%"></div><div class="dcs-slider__tick" style="left:50%"></div><div class="dcs-slider__tick" style="left:75%"></div><div id="roughness__fill" class="dcs-slider__fill" style="width:62%"></div><div id="roughness__thumb" class="dcs-slider__thumb" style="left:62%"></div></div></div></div>
-        <div id="cast-shadows" class="dcs-check" aria-checked="true"><div class="dcs-check__box"><i class="di di-check"></i></div><span>Cast shadows</span></div>
-        <div class="dcs-row"><div id="gpu-skinning" class="dcs-switch" aria-checked="true"></div><span>GPU skinning</span></div>
-      </div>
-    </aside>
-  </div>
-  <div class="dcs-dockpane" style="height:118px;flex:0 0 118px">
-    <div class="dcs-dockpane__tabs"><button class="dcs-dockpane__tab" aria-selected="true"><i class="di di-image"></i> Assets</button></div>
-    <div class="asset-strip">
-      <div class="asset"><i class="di di-mesh"></i><span>Hero</span></div>
-      <div class="asset"><i class="di di-texture"></i><span>Albedo</span></div>
-      <div class="asset"><i class="di di-curve"></i><span>Rig</span></div>
-      <div class="asset"><i class="di di-camera"></i><span>Shot A</span></div>
     </div>
   </div>
-  <div class="dcs-statusbar"><div class="dcs-statusbar__item dcs-statusbar__item--ok">READY</div><div class="dcs-statusbar__sep"></div><div class="dcs-statusbar__item">60.0 FPS</div><div class="dcs-statusbar__spacer"></div><div class="dcs-statusbar__item dcs-statusbar__item--accent">GPU 42%</div></div>
+
+  <!-- ============================ STATUS BAR ============================ -->
+  <div class="dcs-statusbar">
+    <div class="dcs-statusbar__item dcs-statusbar__item--ok">READY</div>
+    <div class="dcs-statusbar__sep"></div>
+    <div class="dcs-statusbar__item">60.0 FPS</div>
+    <div class="dcs-statusbar__spacer"></div>
+    <div class="dcs-statusbar__item dcs-statusbar__item--accent">GPU 42%</div>
+  </div>
 </div>
-<script src="../common/decius_demo_interactions.js"></script>
+
+<!-- Menus targeted by the menubar / toolbars above. Items are dcs-menu__item
+     divs (icon / label / shortcut spans); submenus use --has-sub + a caret;
+     dcs-menu__sep divides groups. -->
+<div class="dcs-menu" id="menu-file" hidden>
+  <div class="dcs-menu__item"><span class="dcs-menu__icon"><i class="di di-file"></i></span><span class="dcs-menu__label-text">New Scene</span><span class="dcs-menu__shortcut">Ctrl N</span></div>
+  <div class="dcs-menu__item"><span class="dcs-menu__icon"><i class="di di-folder-open"></i></span><span class="dcs-menu__label-text">Open Scene</span><span class="dcs-menu__shortcut">Ctrl O</span></div>
+  <div class="dcs-menu__item dcs-menu__item--has-sub"><span class="dcs-menu__label-text">Open Recent</span><span class="dcs-menu__caret"><i class="di di-chevron-right"></i></span></div>
+  <div class="dcs-menu__sep"></div>
+  <div class="dcs-menu__item"><span class="dcs-menu__icon"><i class="di di-save"></i></span><span class="dcs-menu__label-text">Save Scene</span><span class="dcs-menu__shortcut">Ctrl S</span></div>
+  <div class="dcs-menu__item dcs-menu__item--has-sub"><span class="dcs-menu__label-text">Export</span><span class="dcs-menu__caret"><i class="di di-chevron-right"></i></span></div>
+</div>
+<div class="dcs-menu" id="menu-edit" hidden>
+  <div class="dcs-menu__item"><span class="dcs-menu__label-text">Undo</span><span class="dcs-menu__shortcut">Ctrl Z</span></div>
+  <div class="dcs-menu__item"><span class="dcs-menu__label-text">Redo</span><span class="dcs-menu__shortcut">Ctrl ⇧ Z</span></div>
+  <div class="dcs-menu__sep"></div>
+  <div class="dcs-menu__item"><span class="dcs-menu__label-text">Duplicate</span><span class="dcs-menu__shortcut">⇧ D</span></div>
+  <div class="dcs-menu__item"><span class="dcs-menu__label-text">Delete</span><span class="dcs-menu__shortcut">Del</span></div>
+</div>
+<div class="dcs-menu" id="menu-build" hidden>
+  <div class="dcs-menu__item"><span class="dcs-menu__label-text">Build Lighting</span></div>
+  <div class="dcs-menu__item"><span class="dcs-menu__label-text">Bake Navmesh</span></div>
+</div>
+
+<!-- Dropdown color picker for the Tint colorfield. The chip toggles this
+     popover (stock decius); the SV-square + hue-bar are Decius color-picker
+     primitives. The HSV math / drag-to-pick / hex sync is app-level JS — in a
+     real app that lives in your app code (see the photo sample's ui.js); the
+     small script at the bottom of this file wires it so the reference is a
+     functional ground truth. -->
+<div class="dcs-popover" id="tint-picker" style="width:204px" hidden>
+  <div class="dcs-popover__body" style="padding:var(--dcs-s-3);display:flex;flex-direction:column;gap:var(--dcs-s-2)">
+    <div class="dcs-color-square" id="tint-sv" style="aspect-ratio:1.4/1"><div class="dcs-color-square__cursor" id="tint-sv-cursor"></div></div>
+    <div class="dcs-hue-bar" id="tint-hue"><div class="dcs-hue-bar__cursor" id="tint-hue-cursor"></div></div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <div id="tint-preview" style="width:22px;height:22px;flex:0 0 auto;border-radius:var(--dcs-r-1);background:#4d9fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35)"></div>
+      <input class="dcs-input" id="tint-hex" type="text" value="#4D9FFF" style="flex:1;min-width:0;font-family:var(--dcs-font-mono)">
+      <button class="dcs-btn dcs-btn--icon dcs-btn--sm" title="Pick colour from screen"><i class="di di-eyedropper"></i></button>
+    </div>
+  </div>
+</div>
+
+<script src="decius.min.js"></script>
 <script>
-(() => {
-  const names = ["WorldRoot", "Hero_mesh_high", "KeyLight", "SplineRig"];
-  document.querySelectorAll(".dcs-tree__row[id]").forEach((row, index) => {
-    row.addEventListener("click", () => {
-      document.querySelectorAll(".dcs-tree__row[aria-selected]").forEach(el => el.removeAttribute("aria-selected"));
-      row.setAttribute("aria-selected", "true");
-      document.getElementById("inspector-title").textContent = names[index];
+// ── Functional color field for the Tint property ────────────────────────────
+// NOTE: the Decius colorfield interaction (drag-scrub chip + editable hex +
+// chevron→picker) was implemented in decius-css (commit "Uniform channel
+// widgets + color field") but is NOT present in the current shipped decius.js
+// build — a regression in decius-css. This self-contained script reproduces
+// the documented contract so the reference is a working ground truth:
+//   • drag the chip horizontally → hue, vertically → value, Ctrl-drag → saturation
+//   • editable hex value (right-justified input)
+//   • chevron opens the popover picker (SV square + hue bar), kept in sync
+(function () {
+  const field = document.getElementById('tint-field');
+  const chip  = document.getElementById('tint-chip');
+  const hexIn = document.getElementById('tint-hex-inline');
+  const sv = document.getElementById('tint-sv'), svc = document.getElementById('tint-sv-cursor');
+  const hue = document.getElementById('tint-hue'), huec = document.getElementById('tint-hue-cursor');
+  const popHex = document.getElementById('tint-hex');
+  if (!field || !chip) return;
+
+  const hsv = { h: 210, s: 0.70, v: 1.0 };
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  function hsvToRgb(h, s, v) {
+    h /= 360; const i = Math.floor(h * 6), f = h * 6 - i;
+    const p = v*(1-s), q = v*(1-f*s), t = v*(1-(1-f)*s);
+    const [r,g,b] = [[v,t,p],[q,v,p],[p,v,t],[p,q,v],[t,p,v],[v,p,q]][i % 6];
+    return { r: Math.round(r*255), g: Math.round(g*255), b: Math.round(b*255) };
+  }
+  const toHex = (r,g,b) => '#' + [r,g,b].map(x => x.toString(16).padStart(2,'0')).join('').toUpperCase();
+  function parseHex(s){ const m=/^#?([0-9a-f]{6})$/i.exec((s||'').trim()); if(!m)return null;
+    const n=parseInt(m[1],16); return {r:(n>>16)&255,g:(n>>8)&255,b:n&255}; }
+  function rgbToHsv(r,g,b){ r/=255;g/=255;b/=255; const mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn;
+    let h=0; if(d){ if(mx===r)h=((g-b)/d)%6; else if(mx===g)h=(b-r)/d+2; else h=(r-g)/d+4; h*=60; if(h<0)h+=360; }
+    return { h, s: mx?d/mx:0, v: mx }; }
+
+  const preview = document.getElementById('tint-preview');
+  function render(focusedHex) {
+    const c = hsvToRgb(hsv.h, hsv.s, hsv.v), h = toHex(c.r,c.g,c.b);
+    chip.style.background = h;
+    if (preview) preview.style.background = h;
+    if (hexIn && hexIn !== focusedHex) hexIn.value = h;
+    if (sv) { const hh = hsvToRgb(hsv.h,1,1); sv.style.setProperty('--hue', toHex(hh.r,hh.g,hh.b));
+      svc.style.left=(hsv.s*100)+'%'; svc.style.top=((1-hsv.v)*100)+'%'; huec.style.left=(hsv.h/360*100)+'%'; }
+    if (popHex && popHex !== focusedHex) popHex.value = h;
+  }
+  function drag(el, fn) {
+    if (!el) return;
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation(); el.setPointerCapture?.(e.pointerId); fn(e);
+      const mv = ev => fn(ev);
+      const up = () => { el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); };
+      el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up);
     });
+  }
+  // Inline chip drag-scrub (canonical decius ColorChip math): ←→ hue,
+  // ↕ value, Ctrl/Meta+←→ saturation. Snapshot model: deltas measured from the
+  // pointerdown origin against a captured start HSV (no drift).
+  chip.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation(); chip.setPointerCapture?.(e.pointerId);
+    const sx = e.clientX, sy = e.clientY, s0 = { ...hsv };
+    const move = (ev) => {
+      const dx = ev.clientX - sx, dy = sy - ev.clientY;
+      let h = s0.h, s = s0.s;
+      const v = clamp(s0.v + dy / 200, 0, 1);
+      if (ev.ctrlKey || ev.metaKey) s = clamp(s0.s + dx / 200, 0, 1);
+      else { h = (s0.h + dx) % 360; if (h < 0) h += 360; }
+      hsv.h = h; hsv.s = s; hsv.v = v; render();
+    };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
   });
-  document.getElementById("play").addEventListener("click", (ev) => {
-    const btn = ev.currentTarget;
-    const playing = btn.textContent.includes("Play");
-    btn.innerHTML = playing ? '<i class="di di-pause"></i> Pause' : '<i class="di di-play"></i> Play';
-  });
-  document.getElementById("snap").addEventListener("click", (ev) => {
-    const btn = ev.currentTarget;
-    if (btn.getAttribute("aria-pressed") === "true") btn.removeAttribute("aria-pressed");
-    else btn.setAttribute("aria-pressed", "true");
-  });
+  // Inline editable hex.
+  if (hexIn) hexIn.addEventListener('change', () => { const rgb = parseHex(hexIn.value);
+    if (rgb) Object.assign(hsv, rgbToHsv(rgb.r,rgb.g,rgb.b)); render(hexIn); });
+  // Popover SV square + hue bar.
+  drag(sv, (e) => { const r = sv.getBoundingClientRect();
+    hsv.s = clamp((e.clientX-r.left)/r.width,0,1); hsv.v = clamp(1-(e.clientY-r.top)/r.height,0,1); render(); });
+  drag(hue, (e) => { const r = hue.getBoundingClientRect();
+    hsv.h = clamp((e.clientX-r.left)/r.width,0,1)*360; render(); });
+  if (popHex) popHex.addEventListener('change', () => { const rgb = parseHex(popHex.value);
+    if (rgb) Object.assign(hsv, rgbToHsv(rgb.r,rgb.g,rgb.b)); render(popHex); });
+
+  render();
 })();
 </script>
 </body>

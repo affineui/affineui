@@ -1,4 +1,5 @@
 #include <affineui/app.h>
+#include <affineui/components.h>
 #include <affineui/document.h>
 #include <affineui/types.h>
 #include <affineui/view.h>
@@ -184,10 +185,29 @@ PYBIND11_MODULE(_affineui, m) {
         .value("ArrowDown", affineui::Key::ArrowDown)
         .value("Home", affineui::Key::Home)
         .value("End", affineui::Key::End)
-        .value("A", affineui::Key::A)
-        .value("C", affineui::Key::C)
-        .value("V", affineui::Key::V)
-        .value("X", affineui::Key::X);
+        .value("A", affineui::Key::A).value("B", affineui::Key::B)
+        .value("C", affineui::Key::C).value("D", affineui::Key::D)
+        .value("E", affineui::Key::E).value("F", affineui::Key::F)
+        .value("G", affineui::Key::G).value("H", affineui::Key::H)
+        .value("I", affineui::Key::I).value("J", affineui::Key::J)
+        .value("K", affineui::Key::K).value("L", affineui::Key::L)
+        .value("M", affineui::Key::M).value("N", affineui::Key::N)
+        .value("O", affineui::Key::O).value("P", affineui::Key::P)
+        .value("Q", affineui::Key::Q).value("R", affineui::Key::R)
+        .value("S", affineui::Key::S).value("T", affineui::Key::T)
+        .value("U", affineui::Key::U).value("V", affineui::Key::V)
+        .value("W", affineui::Key::W).value("X", affineui::Key::X)
+        .value("Y", affineui::Key::Y).value("Z", affineui::Key::Z)
+        .value("Digit0", affineui::Key::Digit0)
+        .value("Digit1", affineui::Key::Digit1)
+        .value("Digit2", affineui::Key::Digit2)
+        .value("Digit3", affineui::Key::Digit3)
+        .value("Digit4", affineui::Key::Digit4)
+        .value("Digit5", affineui::Key::Digit5)
+        .value("Digit6", affineui::Key::Digit6)
+        .value("Digit7", affineui::Key::Digit7)
+        .value("Digit8", affineui::Key::Digit8)
+        .value("Digit9", affineui::Key::Digit9);
 
     py::enum_<affineui::EventType>(
             m,
@@ -325,6 +345,24 @@ PYBIND11_MODULE(_affineui, m) {
         .value("Bootstrap", affineui::ViewTheme::Bootstrap)
         .value("Decius", affineui::ViewTheme::Decius);
 
+    py::enum_<affineui::WidgetKind>(m, "WidgetKind")
+        .value("Root", affineui::WidgetKind::Root)
+        .value("Container", affineui::WidgetKind::Container)
+        .value("Text", affineui::WidgetKind::Text)
+        .value("RawHtml", affineui::WidgetKind::RawHtml)
+        .value("Heading", affineui::WidgetKind::Heading)
+        .value("Panel", affineui::WidgetKind::Panel)
+        .value("Button", affineui::WidgetKind::Button)
+        .value("Checkbox", affineui::WidgetKind::Checkbox)
+        .value("Slider", affineui::WidgetKind::Slider)
+        .value("Knob", affineui::WidgetKind::Knob)
+        .value("TextInput", affineui::WidgetKind::TextInput)
+        .value("TextArea", affineui::WidgetKind::TextArea)
+        .value("Dropdown", affineui::WidgetKind::Dropdown)
+        .value("ButtonGroup", affineui::WidgetKind::ButtonGroup)
+        .value("VirtualList", affineui::WidgetKind::VirtualList)
+        .value("Card", affineui::WidgetKind::Card);
+
     py::enum_<affineui::DocumentScript>(m, "DocumentScript")
         .value("UiControls", affineui::DocumentScript::UiControls);
 
@@ -376,6 +414,19 @@ PYBIND11_MODULE(_affineui, m) {
         .def("name", [](const affineui::WidgetRef& ref) {
             return std::string{ref.name()};
         })
+        .def("attr_value",
+             [](const affineui::WidgetRef& ref, const std::string& name,
+                const std::string& fallback) {
+                 return std::string{ref.attr_value(name, fallback)};
+             },
+             py::arg("name"), py::arg("fallback") = "",
+             "Read an attribute value (empty/fallback if the node is gone).")
+        .def("text_value", [](const affineui::WidgetRef& ref) {
+            return std::string{ref.text_value()};
+        }, "Read the node's text (empty if the node is gone).")
+        .def("has_attr", [](const affineui::WidgetRef& ref, const std::string& name) {
+            return ref.has_attr(name);
+        }, py::arg("name"))
         .def("named", [](affineui::WidgetRef& ref, const std::string& name) -> affineui::WidgetRef& {
             return ref.named(name);
         }, py::return_value_policy::reference_internal)
@@ -717,8 +768,281 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("name"),
              py::keep_alive<0, 1>(),
              "Return a stable WidgetRef by user key. Empty refs are safe.")
+        // ── App-shell / structural component builders ───────────────────
+        // Scope builders take a Pythonic `build` callback (called immediately
+        // with the same View) instead of exposing a raw RAII Scope to Python;
+        // every returned WidgetRef keeps the View alive (keep_alive<0,1>).
+        .def("toolbar",
+             [](affineui::View& view, const std::string& key, py::object build) {
+                 auto scope = view.toolbar(key);
+                 auto ref = scope.ref();
+                 if (!build.is_none()) build(&view);
+                 return ref;
+             },
+             py::arg("key") = "", py::arg("build") = py::none(),
+             py::keep_alive<0, 1>(),
+             "Add a toolbar row; fill it via the build callback.")
+        .def("toolbar_separator",
+             [](affineui::View& view, const std::string& key) {
+                 return view.toolbar_separator(key);
+             },
+             py::arg("key") = "", py::keep_alive<0, 1>(),
+             "Add a separator inside a toolbar.")
+        .def("icon_button",
+             [](affineui::View& view, const std::string& icon,
+                const std::string& key) {
+                 return view.icon_button(icon, key);
+             },
+             py::arg("icon"), py::arg("key") = "", py::keep_alive<0, 1>(),
+             "Add an icon-only ghost button (icon = Decius icon name).")
+        .def("menu_bar",
+             [](affineui::View& view, const std::string& key, py::object build) {
+                 auto scope = view.menu_bar(key);
+                 auto ref = scope.ref();
+                 if (!build.is_none()) build(&view);
+                 return ref;
+             },
+             py::arg("key") = "", py::arg("build") = py::none(),
+             py::keep_alive<0, 1>(),
+             "Add a menubar row; fill it with menu_button()s.")
+        .def("menu_button",
+             [](affineui::View& view, const std::string& label,
+                const std::string& menu_id, const std::string& key) {
+                 return view.menu_button(label, menu_id, key);
+             },
+             py::arg("label"), py::arg("menu_id"), py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a menubar button that opens the menu with id menu_id.")
+        .def("dock_panel",
+             [](affineui::View& view, const std::string& title,
+                const std::string& tabpanel_id, const std::string& classes,
+                const std::string& key, py::object build) {
+                 auto scope = view.dock_panel(title, tabpanel_id, classes, key);
+                 auto ref = scope.ref();
+                 if (!build.is_none()) build(&view);
+                 return ref;
+             },
+             py::arg("title"), py::arg("tabpanel_id"), py::arg("classes") = "",
+             py::arg("key") = "", py::arg("build") = py::none(),
+             py::keep_alive<0, 1>(),
+             "Add a dockable panel (titled tab + body); fill the body via build.")
+        .def("splitter",
+             [](affineui::View& view, bool horizontal, const std::string& key) {
+                 return view.splitter(horizontal, key);
+             },
+             py::arg("horizontal") = false, py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a drag splitter between docked regions.")
+        .def("tree",
+             [](affineui::View& view, const std::string& key, py::object build) {
+                 auto scope = view.tree(key);
+                 auto ref = scope.ref();
+                 if (!build.is_none()) build(&view);
+                 return ref;
+             },
+             py::arg("key") = "", py::arg("build") = py::none(),
+             py::keep_alive<0, 1>(),
+             "Add a tree container; fill it with tree_row()s.")
+        .def("tree_row",
+             [](affineui::View& view, const std::string& label, bool selected,
+                int depth, const std::string& key) {
+                 return view.tree_row(label, selected, depth, key);
+             },
+             py::arg("label"), py::arg("selected") = false, py::arg("depth") = 0,
+             py::arg("key") = "", py::keep_alive<0, 1>(),
+             "Add a selectable tree row at the given depth.")
+        .def("status_bar",
+             [](affineui::View& view, const std::string& key, py::object build) {
+                 auto scope = view.status_bar(key);
+                 auto ref = scope.ref();
+                 if (!build.is_none()) build(&view);
+                 return ref;
+             },
+             py::arg("key") = "", py::arg("build") = py::none(),
+             py::keep_alive<0, 1>(),
+             "Add a status bar row; fill it via the build callback.")
+        .def("color_field",
+             [](affineui::View& view, const std::string& label,
+                const std::string& value,
+                const std::vector<std::string>& swatches,
+                const std::string& key) {
+                 return view.color_field(label, value, swatches, key);
+             },
+             py::arg("label"), py::arg("value") = "",
+             py::arg("swatches") = std::vector<std::string>{}, py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a color field that opens a swatch picker popup.")
         .def("to_html_fragment", &affineui::View::to_html_fragment)
-        .def("to_html_document", &affineui::View::to_html_document);
+        .def("to_html_document", &affineui::View::to_html_document)
+        // ── Strongly-typed component queries ────────────────────────────
+        // Each returns a typed wrapper over a WidgetRef. Querying the wrong
+        // type yields a wrapper whose .validity is WrongType (still attached,
+        // but typed accessors are inert) and logs a diagnostic; a missing id
+        // yields NotPresent. Never raises / never crashes. keep_alive<0,1>
+        // ties the wrapper (and its inner ref) to this View.
+        .def("button_at", &affineui::View::component<affineui::Button>,
+             py::arg("name"), py::keep_alive<0, 1>())
+        .def("checkbox_at", &affineui::View::component<affineui::Checkbox>,
+             py::arg("name"), py::keep_alive<0, 1>())
+        .def("text_field_at", &affineui::View::component<affineui::TextField>,
+             py::arg("name"), py::keep_alive<0, 1>())
+        .def("dropdown_at", &affineui::View::component<affineui::Dropdown>,
+             py::arg("name"), py::keep_alive<0, 1>())
+        .def("slider_at", &affineui::View::component<affineui::Slider>,
+             py::arg("name"), py::keep_alive<0, 1>())
+        .def("color_field_at", &affineui::View::component<affineui::ColorField>,
+             py::arg("name"), py::keep_alive<0, 1>())
+        .def("dock_panel_at", &affineui::View::component<affineui::DockPanel>,
+             py::arg("name"), py::keep_alive<0, 1>())
+        .def("foldout_at", &affineui::View::component<affineui::Foldout>,
+             py::arg("name"), py::keep_alive<0, 1>());
+
+    // ── Typed component wrappers ────────────────────────────────────────
+    py::enum_<affineui::ComponentValidity>(m, "ComponentValidity")
+        .value("Valid", affineui::ComponentValidity::Valid)
+        .value("WrongType", affineui::ComponentValidity::WrongType)
+        .value("NotPresent", affineui::ComponentValidity::NotPresent);
+
+    // Common surface shared by every typed component (validity + generic ops).
+    // Bound per-class below via a helper that registers the shared methods.
+    const auto bind_component_base = [](auto& cls) {
+        using T = typename std::decay_t<decltype(cls)>::type;
+        cls.def("__bool__", [](const T& c) { return static_cast<bool>(c); })
+           .def_property_readonly("valid", [](const T& c) { return c.valid(); })
+           .def_property_readonly("validity", [](const T& c) { return c.validity(); })
+           .def_property_readonly("attached", [](const T& c) { return c.attached(); })
+           .def_property_readonly("id", [](const T& c) { return std::string{c.id()}; })
+           .def_property_readonly("kind", [](const T& c) { return c.kind(); })
+           .def_property("visible",
+                         [](const T& c) { return c.visible(); },
+                         [](T& c, bool on) { c.set_visible(on); })
+           .def("attr",
+                [](const T& c, const std::string& n, const std::string& f) {
+                    return std::string{c.attr(n, f)};
+                }, py::arg("name"), py::arg("fallback") = "")
+           .def("set_attr",
+                [](T& c, const std::string& n, const std::string& v) {
+                    c.set_attr(n, v);
+                }, py::arg("name"), py::arg("value"))
+           .def_property("text",
+                         [](const T& c) { return std::string{c.text()}; },
+                         [](T& c, const std::string& t) { c.set_text(t); });
+    };
+
+    {
+        py::class_<affineui::Button> cls(m, "Button");
+        cls.def(py::init<>());
+        bind_component_base(cls);
+        cls.def_property("label",
+                         [](const affineui::Button& b) { return std::string{b.label()}; },
+                         [](affineui::Button& b, const std::string& t) { b.set_label(t); })
+           .def_property("enabled",
+                         [](const affineui::Button& b) { return b.enabled(); },
+                         [](affineui::Button& b, bool on) { b.set_enabled(on); })
+           .def("on_click",
+                [](affineui::Button& b, py::function cb) {
+                    auto callback = keep_python_function(std::move(cb));
+                    b.on_click([callback] {
+                        call_python_function("Button.on_click", callback);
+                    });
+                }, py::arg("callback"));
+    }
+    {
+        py::class_<affineui::Checkbox> cls(m, "Checkbox");
+        cls.def(py::init<>());
+        bind_component_base(cls);
+        cls.def_property("checked",
+                         [](const affineui::Checkbox& c) { return c.checked(); },
+                         [](affineui::Checkbox& c, bool on) { c.set_checked(on); })
+           .def("on_change",
+                [](affineui::Checkbox& c, py::function cb) {
+                    auto callback = keep_python_function(std::move(cb));
+                    c.on_change([callback](std::string_view v) {
+                        call_python_function("Checkbox.on_change", callback,
+                                             std::string(v));
+                    });
+                }, py::arg("callback"));
+    }
+    {
+        py::class_<affineui::TextField> cls(m, "TextField");
+        cls.def(py::init<>());
+        bind_component_base(cls);
+        cls.def_property("value",
+                         [](const affineui::TextField& t) { return t.value(); },
+                         [](affineui::TextField& t, const std::string& v) { t.set_value(v); })
+           .def("on_change",
+                [](affineui::TextField& t, py::function cb) {
+                    auto callback = keep_python_function(std::move(cb));
+                    t.on_change([callback](std::string_view v) {
+                        call_python_function("TextField.on_change", callback,
+                                             std::string(v));
+                    });
+                }, py::arg("callback"));
+    }
+    {
+        py::class_<affineui::Dropdown> cls(m, "Dropdown");
+        cls.def(py::init<>());
+        bind_component_base(cls);
+        cls.def_property("selected",
+                         [](const affineui::Dropdown& d) { return d.selected(); },
+                         [](affineui::Dropdown& d, const std::string& v) { d.set_selected(v); })
+           .def("on_change",
+                [](affineui::Dropdown& d, py::function cb) {
+                    auto callback = keep_python_function(std::move(cb));
+                    d.on_change([callback](std::string_view v) {
+                        call_python_function("Dropdown.on_change", callback,
+                                             std::string(v));
+                    });
+                }, py::arg("callback"));
+    }
+    {
+        py::class_<affineui::Slider> cls(m, "Slider");
+        cls.def(py::init<>());
+        bind_component_base(cls);
+        cls.def("value",
+                [](const affineui::Slider& s, double fallback) { return s.value(fallback); },
+                py::arg("fallback") = 0.0)
+           .def("on_change",
+                [](affineui::Slider& s, py::function cb) {
+                    auto callback = keep_python_function(std::move(cb));
+                    s.on_change([callback](std::string_view v) {
+                        call_python_function("Slider.on_change", callback,
+                                             std::string(v));
+                    });
+                }, py::arg("callback"));
+    }
+    {
+        py::class_<affineui::ColorField> cls(m, "ColorField");
+        cls.def(py::init<>());
+        bind_component_base(cls);
+        cls.def_property("color",
+                         [](const affineui::ColorField& c) { return c.color(); },
+                         [](affineui::ColorField& c, const std::string& v) { c.set_color(v); })
+           .def("on_change",
+                [](affineui::ColorField& c, py::function cb) {
+                    auto callback = keep_python_function(std::move(cb));
+                    c.on_change([callback](std::string_view v) {
+                        call_python_function("ColorField.on_change", callback,
+                                             std::string(v));
+                    });
+                }, py::arg("callback"));
+    }
+    {
+        py::class_<affineui::DockPanel> cls(m, "DockPanel");
+        cls.def(py::init<>());
+        bind_component_base(cls);
+        cls.def_property("active_tab",
+                         [](const affineui::DockPanel& d) { return std::string{d.active_tab()}; },
+                         [](affineui::DockPanel& d, const std::string& t) { d.set_active_tab(t); });
+    }
+    {
+        py::class_<affineui::Foldout> cls(m, "Foldout");
+        cls.def(py::init<>());
+        bind_component_base(cls);
+        cls.def_property("open",
+                         [](const affineui::Foldout& f) { return f.open(); },
+                         [](affineui::Foldout& f, bool on) { f.set_open(on); });
+    }
 
     py::class_<affineui::App>(m, "App")
         .def(py::init([](const std::string& title,

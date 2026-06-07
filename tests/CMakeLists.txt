@@ -12,6 +12,11 @@ add_executable(affineui_tests
     test_main.cpp
     test_animation.cpp
     test_version.cpp
+    test_callback.cpp
+    test_object.cpp
+    test_inspector.cpp
+    test_components.cpp
+    test_app_template.cpp
     test_document.cpp
     test_bootstrap.cpp
     test_imm_callsite.cpp
@@ -25,6 +30,11 @@ target_link_libraries(affineui_tests PRIVATE
     affineui::affineui
     doctest::doctest
 )
+# The app-template tests link the sidecar template library when examples are
+# built. (affineui::app is defined under examples/common/app.)
+if(TARGET affineui::app)
+    target_link_libraries(affineui_tests PRIVATE affineui::app)
+endif()
 # Cascade test pokes at internal headers (StyleStore, ResolvedStyle).
 # That's the appropriate level of intimacy for a cascade test — the
 # public API doesn't expose ComputedStyle by design.

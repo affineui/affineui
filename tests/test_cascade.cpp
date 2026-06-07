@@ -623,6 +623,44 @@ TEST_CASE("transform functions reach animated style") {
     CHECK(rs.animated.rotation == doctest::Approx(1.570796f));
 }
 
+TEST_CASE("3D rotate transform functions are parsed (not dropped) and applied") {
+    // rotateZ is an in-plane rotation; rotateX/Y are approximated as
+    // foreshortening scale (2.5D). Crucially the whole transform must NOT be
+    // discarded just because it contains a 3D function (the viewport cube uses
+    // `rotateX(58deg) rotateZ(45deg)` — previously lexbor failed the declaration
+    // and the element rendered flat).
+    {
+        CssEnv env("<div id=\"c\"></div>");
+        env.attach("#c { transform: rotateZ(45deg); }");
+        env.build_resolver();
+        auto* c = env.find("div");
+        REQUIRE(c != nullptr);
+        const auto rs = env.resolver->resolve(c, affineui::detail::ResolvedStyle{});
+        CHECK(rs.animated.rotation == doctest::Approx(0.7853982f));  // 45°
+        CHECK(rs.animated.scale_y == doctest::Approx(1.0f));
+    }
+    {
+        CssEnv env("<div id=\"c\"></div>");
+        env.attach("#c { transform: rotateX(60deg); }");
+        env.build_resolver();
+        auto* c = env.find("div");
+        REQUIRE(c != nullptr);
+        const auto rs = env.resolver->resolve(c, affineui::detail::ResolvedStyle{});
+        CHECK(rs.animated.scale_y == doctest::Approx(0.5f).epsilon(0.01));  // cos60
+        CHECK(rs.animated.rotation == doctest::Approx(0.0f));
+    }
+    {
+        CssEnv env("<div id=\"c\"></div>");
+        env.attach("#c { transform: rotateX(58deg) rotateZ(45deg); }");
+        env.build_resolver();
+        auto* c = env.find("div");
+        REQUIRE(c != nullptr);
+        const auto rs = env.resolver->resolve(c, affineui::detail::ResolvedStyle{});
+        CHECK(rs.animated.rotation == doctest::Approx(0.7853982f));  // rotateZ kept
+        CHECK(rs.animated.scale_y < 0.95f);                          // rotateX foreshortened
+    }
+}
+
 TEST_CASE("transform-origin reaches animated style") {
     CssEnv env("<div class=\"needle\"></div>");
     env.attach(".needle { transform-origin: 50% 100%; }");

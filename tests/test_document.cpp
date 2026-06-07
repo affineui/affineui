@@ -3,6 +3,7 @@
 #include "affineui/document.h"
 #include "affineui/painter.h"
 #include "affineui/ui.h"
+#include "affineui/view.h"
 #include "decius_interactions.h"
 
 #include <algorithm>
@@ -449,6 +450,14 @@ TEST_CASE("UiControls script opt-in owns default widget behavior") {
     const auto p = find_hovered_id(doc, "check", 220, 80);
     REQUIRE(p.x >= 0);
 
+    auto send = [&](affineui::EventType type, affineui::Point pos) {
+        affineui::Event e{};
+        e.type = type;
+        e.button = affineui::MouseButton::Left;
+        e.pos = pos;
+        return doc.dispatch(e);
+    };
+
     auto click = [&] {
         affineui::Event down{};
         down.type = affineui::EventType::MouseDown;
@@ -602,6 +611,75 @@ TEST_CASE("UiControls script toggles Decius target menus") {
     CHECK(changes.front().name == "file-menu");
     CHECK(changes.front().value == "open");
 
+    file = find_hovered_id(doc, "file", 260, 120);
+    REQUIRE(file.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "file", "aria-expanded") == "false");
+    CHECK(find_hovered_chain_id(doc, "open-item", 260, 120).x < 0);
+}
+
+TEST_CASE("UiControls script selects Decius menus on down and activates on up") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-menubar__item { display: block; width: 64px; height: 28px; }
+        .dcs-menu[hidden] { display: none; }
+        .dcs-menu { display: flex; flex-direction: column; width: 132px; }
+        .dcs-menu__item { display: block; width: 132px; height: 24px; }
+        </style>
+        <button id="file" class="dcs-menubar__item"
+                data-dcs-toggle="menu" data-dcs-target="#menu-file">File</button>
+        <div id="menu-file" class="dcs-menu" data-aui-name="file-menu" hidden>
+            <div id="open-item" class="dcs-menu__item"
+                 data-dcs-value="open">Open</div>
+        </div>
+    )HTML");
+    doc.layout(260, 120, &painter);
+
+    auto send = [&](affineui::EventType type, affineui::Point p) {
+        affineui::Event e{};
+        e.type = type;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        return doc.dispatch(e);
+    };
+
+    auto file = find_hovered_id(doc, "file", 260, 120);
+    REQUIRE(file.x >= 0);
+    CHECK(send(affineui::EventType::MouseDown, file).redraw_requested);
+    CHECK(doc.take_widget_changes().empty());
+    doc.layout(260, 120, &painter);
+
+    file = find_hovered_id(doc, "file", 260, 120);
+    REQUIRE(file.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "file", "aria-expanded") == "true");
+    auto open = find_hovered_chain_id(doc, "open-item", 260, 120);
+    REQUIRE(open.x >= 0);
+
+    send(affineui::EventType::MouseUp, file);
+    doc.layout(260, 120, &painter);
+    file = find_hovered_id(doc, "file", 260, 120);
+    REQUIRE(file.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "file", "aria-expanded") == "true");
+
+    CHECK(send(affineui::EventType::MouseDown, open).redraw_requested);
+    CHECK(doc.take_widget_changes().empty());
+    doc.layout(260, 120, &painter);
+    open = find_hovered_chain_id(doc, "open-item", 260, 120);
+    REQUIRE(open.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "open-item", "class").find(
+              "dcs-menu__item--active") != std::string::npos);
+
+    CHECK(send(affineui::EventType::MouseUp, open).redraw_requested);
+    auto changes = doc.take_widget_changes();
+    REQUIRE(changes.size() == 1);
+    CHECK(changes.front().name == "file-menu");
+    CHECK(changes.front().value == "open");
+
+    doc.layout(260, 120, &painter);
     file = find_hovered_id(doc, "file", 260, 120);
     REQUIRE(file.x >= 0);
     CHECK(hovered_attr_for_id(doc, "file", "aria-expanded") == "false");
@@ -1317,24 +1395,28 @@ TEST_CASE("UiControls script updates Decius list selection") {
     )HTML");
     doc.layout(220, 110, &painter);
 
-    auto click_at = [&](affineui::Point p,
-                        bool ctrl = false,
-                        bool shift = false) {
+    auto mouse_down_at = [&](affineui::Point p,
+                             bool ctrl = false,
+                             bool shift = false) {
         affineui::Event down{};
         down.type = affineui::EventType::MouseDown;
         down.button = affineui::MouseButton::Left;
         down.pos = p;
         down.ctrl = ctrl;
         down.shift = shift;
-        doc.dispatch(down);
+        return doc.dispatch(down);
+    };
 
+    auto mouse_up_at = [&](affineui::Point p,
+                           bool ctrl = false,
+                           bool shift = false) {
         affineui::Event up{};
         up.type = affineui::EventType::MouseUp;
         up.button = affineui::MouseButton::Left;
         up.pos = p;
         up.ctrl = ctrl;
         up.shift = shift;
-        doc.dispatch(up);
+        return doc.dispatch(up);
     };
 
     auto selected = [&](std::string_view id) {
@@ -1345,23 +1427,26 @@ TEST_CASE("UiControls script updates Decius list selection") {
 
     auto a = find_hovered_chain_id(doc, "row-a", 220, 110);
     REQUIRE(a.x >= 0);
-    click_at(a);
+    mouse_down_at(a);
     CHECK(selected("row-a") == "true");
     CHECK(selected("row-b") == "false");
     CHECK(selected("row-c") == "false");
+    mouse_up_at(a);
 
     auto c = find_hovered_chain_id(doc, "row-c", 220, 110);
     REQUIRE(c.x >= 0);
-    click_at(c, true);
+    mouse_down_at(c, true);
     CHECK(selected("row-a") == "true");
     CHECK(selected("row-c") == "true");
+    mouse_up_at(c, true);
 
     auto b = find_hovered_chain_id(doc, "row-b", 220, 110);
     REQUIRE(b.x >= 0);
-    click_at(b, false, true);
+    mouse_down_at(b, false, true);
     CHECK(selected("row-a") == "false");
     CHECK(selected("row-b") == "true");
     CHECK(selected("row-c") == "true");
+    mouse_up_at(b, false, true);
 
     auto changes = doc.take_widget_changes();
     REQUIRE(changes.size() == 3);
@@ -1435,6 +1520,410 @@ TEST_CASE("UiControls script toggles Decius tree chevrons without selecting rows
     CHECK(find_hovered_chain_id(doc, "camera", 240, 90).x >= 0);
 }
 
+TEST_CASE("Full decius bundle: horizontal dock splitter reports NS cursor") {
+    std::ifstream in(AFFINEUI_TEST_SOURCE_DIR
+        "/examples/frameworks/css/decius-css-0.6.2.bundle.min.css",
+        std::ios::binary);
+    REQUIRE(in.good());
+    std::string bundle((std::istreambuf_iterator<char>(in)),
+                       std::istreambuf_iterator<char>());
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_user_stylesheet(bundle);
+    doc.set_html(R"HTML(
+      <div class="dcs" data-dcs-density="compact" data-dcs-accent="cyan">
+        <div class="dcs-dock dcs-dock--v" style="width:200px;height:120px">
+          <div style="flex:0 0 60px"></div>
+          <div class="dcs-splitter dcs-splitter--h" data-dcs-splitter="h"></div>
+          <div style="flex:1"></div>
+        </div>
+      </div>
+    )HTML");
+    doc.layout(220, 140, &painter);
+    int got = -99;
+    for (int y = 58; y <= 63; ++y) {
+        affineui::Event mv{};
+        mv.type = affineui::EventType::MouseMove;
+        mv.pos = {100, y};
+        doc.dispatch(mv);
+        const int c = doc.hovered_cursor();
+        if (c == 6 || c == 7) { got = c; break; }
+    }
+    CHECK(got == 7);   // 7 = NS up/down (not 6 = EW left/right)
+}
+
+TEST_CASE("Splitter cursor resolves row-resize from the decius rules ALONE "
+          "(no inline cursor) — .dcs-splitter--h must beat base col-resize") {
+    const char* rules =
+        ".dcs-splitter{cursor:col-resize}"
+        ".dcs-dock--v>.dcs-splitter,.dcs-splitter--h{cursor:row-resize}"
+        ".dcs-dock--v{display:flex;flex-direction:column}"
+        ".pane{height:40px}.dcs-splitter--h{height:6px;width:120px}";
+    const char* htmlbody = R"HTML(
+        <div class="dcs-dock dcs-dock--v">
+          <div class="pane"></div>
+          <div class="dcs-splitter dcs-splitter--h" data-dcs-splitter="h"></div>
+          <div class="pane"></div>
+        </div>)HTML";
+    // (A) rules in an author <style> block.
+    {
+        affineui::Document doc;
+        RecordingPainter painter;
+        doc.set_html(std::string("<style>body{margin:0;padding:0}") + rules +
+                     "</style>" + htmlbody);
+        doc.layout(140, 100, &painter);
+        affineui::Event mv{};
+        mv.type = affineui::EventType::MouseMove;
+        mv.pos = {60, 43};
+        doc.dispatch(mv);
+        CHECK(doc.hovered_cursor() == 7);  // author <style> path
+    }
+    // (B) rules in the USER stylesheet (how the game editor loads decius).
+    {
+        affineui::Document doc;
+        RecordingPainter painter;
+        doc.set_user_stylesheet(rules);
+        doc.set_html(std::string("<style>body{margin:0;padding:0}</style>") +
+                     htmlbody);
+        doc.layout(140, 100, &painter);
+        affineui::Event mv{};
+        mv.type = affineui::EventType::MouseMove;
+        mv.pos = {60, 43};
+        doc.dispatch(mv);
+        CHECK(doc.hovered_cursor() == 7);  // user-stylesheet path
+    }
+}
+
+TEST_CASE("Horizontal splitter resolves row-resize even with a base "
+          ".dcs-splitter{col-resize} rule present (direction, not thinness)") {
+    // The decius bundle has `.dcs-splitter{cursor:col-resize}` (base) AND
+    // `.dcs-dock--v>.dcs-splitter,.dcs-splitter--h{cursor:row-resize}`. The
+    // bottom (horizontal) splitter must end up row-resize (NS, up/down) — the
+    // base col-resize must NOT win. (User: "left-right cursor for an up-down
+    // splitter".) Inline cursor:row-resize (set by View::splitter) must also win.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>body{margin:0;padding:0}
+        .dcs-splitter{cursor:col-resize}
+        .dcs-dock--v>.dcs-splitter,.dcs-splitter--h{cursor:row-resize}
+        .dcs-dock--v{display:flex;flex-direction:column}
+        .pane{height:40px}
+        .dcs-splitter--h{height:6px;width:120px}
+        </style>
+        <div class="dcs-dock dcs-dock--v">
+          <div class="pane"></div>
+          <div class="dcs-splitter dcs-splitter--h" data-dcs-splitter="h"
+               style="cursor:row-resize"></div>
+          <div class="pane"></div>
+        </div>
+    )HTML");
+    doc.layout(140, 100, &painter);
+    affineui::Event mv{};
+    mv.type = affineui::EventType::MouseMove;
+    mv.pos = {60, 43};
+    doc.dispatch(mv);
+    CHECK(doc.hovered_cursor() == 7);  // 7 = NS (up/down), not 6 (EW left/right)
+}
+
+TEST_CASE("A row-resize (horizontal dock) splitter reports the NS up/down "
+          "cursor on hover") {
+    // The bottom-panel splitter is a horizontal bar dragged up/down. View emits
+    // it with inline cursor:row-resize + dcs-splitter--h. Hovering it must yield
+    // protocol code 7 (RESIZE_NS) so the OS shows the up/down cursor.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>body{margin:0;padding:0}
+        .dcs-splitter--h{height:6px;width:120px;cursor:row-resize}</style>
+        <div class="dcs-splitter dcs-splitter--h" data-dcs-splitter="h"
+             style="cursor:row-resize"></div>
+    )HTML");
+    doc.layout(140, 40, &painter);
+    affineui::Event mv{};
+    mv.type = affineui::EventType::MouseMove;
+    mv.pos = {60, 3};
+    doc.dispatch(mv);
+    CHECK(doc.hovered_cursor() == 7);   // 7 = RESIZE_NS (up/down)
+
+    // And a vertical (column) splitter -> EW (left/right) = 6.
+    affineui::Document doc2;
+    RecordingPainter painter2;
+    doc2.set_html(R"HTML(
+        <style>body{margin:0;padding:0}
+        .dcs-splitter{width:6px;height:120px;cursor:col-resize}</style>
+        <div class="dcs-splitter" data-dcs-splitter="v" style="cursor:col-resize"></div>
+    )HTML");
+    doc2.layout(40, 140, &painter2);
+    affineui::Event mv2{};
+    mv2.type = affineui::EventType::MouseMove;
+    mv2.pos = {3, 60};
+    doc2.dispatch(mv2);
+    CHECK(doc2.hovered_cursor() == 6);  // 6 = RESIZE_EW (left/right)
+}
+
+TEST_CASE("Class mutation re-cascades a child-combinator rule keyed on the "
+          "ancestor's compound class") {
+    // The exact shape decius uses to collapse a foldout: a rule keyed on a
+    // *compound* class (.fold.fold--collapsed) with a child combinator at the
+    // descendant body. Toggling the collapsed class on the parent must hide the
+    // body purely through the cascade — no element ever sets `hidden`/`display`
+    // directly. This isolates the renderer behaviour the foldout relies on.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .fold { display: flex; flex-direction: column; width: 120px; }
+        .fold__body { height: 30px; }
+        .fold--collapsed > .fold__body { display: none; }
+        </style>
+        <div id="a" class="fold"><div id="a-body" class="fold__body">A</div></div>
+        <div id="b" class="fold fold--collapsed">
+            <div id="b-body" class="fold__body">B</div>
+        </div>
+    )HTML");
+    doc.layout(160, 120, &painter);
+
+    // STATIC: the child-combinator rule keyed on the compound ancestor class
+    // must already apply at load — 'a' open (body visible), 'b' collapsed
+    // (body display:none, so not hit-testable).
+    CHECK(find_hovered_chain_id(doc, "a-body", 160, 120).x >= 0);
+    CHECK(find_hovered_chain_id(doc, "b-body", 160, 120).x < 0);
+
+    // DYNAMIC (the common foldout round-trip — starts visible): adding the
+    // collapsed class to 'a' hides a-body via re-cascade of the descendant
+    // rule; removing it again must bring a-body back. a-body kept its box
+    // through the collapse, so this exercises the restyle path.
+    REQUIRE(doc.set_attribute_by_id("a", "class", "fold fold--collapsed"));
+    doc.layout(160, 120, &painter);
+    CHECK(find_hovered_chain_id(doc, "a-body", 160, 120).x < 0);
+    REQUIRE(doc.set_attribute_by_id("a", "class", "fold"));
+    doc.layout(160, 120, &painter);
+    CHECK(find_hovered_chain_id(doc, "a-body", 160, 120).x >= 0);
+
+    // DYNAMIC (the reveal case — hidden at load, so it never had a box):
+    // removing the collapsed class from 'b' must create b-body's box and show
+    // it. This is the path box-collection's display:none skip used to strand.
+    REQUIRE(doc.set_attribute_by_id("b", "class", "fold"));
+    doc.layout(160, 120, &painter);
+    CHECK(find_hovered_chain_id(doc, "b-body", 160, 120).x >= 0);
+}
+
+TEST_CASE("Tree icon glyph inherits the selected-row accent (descendant selector "
+          "keyed on an ancestor attribute, color inherited to the inner glyph)") {
+    // Decius colours tree icons muted normally and accent on the selected row,
+    // via `.dcs-tree__row[aria-selected=true] .dcs-tree__icon{color:accent}` on
+    // the *span*, with the glyph <i> inheriting that colour. This is the same
+    // ancestor-keyed-selector shape the foldout relies on; verify the renderer
+    // matches it AND inherits the colour down to the painted glyph.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-tree__row { display: flex; align-items: center; height: 20px; }
+        .dcs-tree__icon { color: #808080; }
+        .dcs-tree__row[aria-selected=true] .dcs-tree__icon { color: #13b6c8; }
+        </style>
+        <div class="dcs-tree">
+          <div class="dcs-tree__row"><span class="dcs-tree__icon"><i>N</i></span></div>
+          <div class="dcs-tree__row" aria-selected="true">
+            <span class="dcs-tree__icon"><i>S</i></span>
+          </div>
+        </div>
+    )HTML");
+    doc.layout(120, 60, &painter);
+    doc.draw(painter);
+    // The glyph inherits its colour from the .dcs-tree__icon span: muted on the
+    // normal row, accent on the selected row (the ancestor-keyed rule must win).
+    const auto* normal = find_text_draw(painter, "N");
+    const auto* selected = find_text_draw(painter, "S");
+    REQUIRE(normal != nullptr);
+    REQUIRE(selected != nullptr);
+    CHECK(same_color(normal->color, affineui::Color::rgb(0x80, 0x80, 0x80)));
+    CHECK(same_color(selected->color, affineui::Color::rgb(0x13, 0xb6, 0xc8)));
+}
+
+TEST_CASE("A custom-property override from an attribute selector resolves through "
+          "var() (decius density spacing scale)") {
+    // Decius sets its spacing scale on the root and overrides it per density:
+    // `[data-dcs-density=compact]{--dcs-s-1:1px}` etc., then consumes it as
+    // `gap:var(--dcs-s-1)`. If the attribute-conditional override doesn't win
+    // (or var() doesn't pick it up), every compact gap/padding is wrong — which
+    // would read as "the vec spacing looks off". Verify the override resolves.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .theme { --gap: 2px; }
+        .theme[data-dcs-density=compact] { --gap: 8px; }
+        .row { display: flex; gap: var(--gap); width: 100px; }
+        .row > * { flex: 1 1 0; min-width: 0; height: 10px; }
+        .a { background: #ff0000; } .b { background: #00ff00; }
+        </style>
+        <div class="theme" data-dcs-density="compact">
+          <div class="row"><div class="a"></div><div class="b"></div></div>
+        </div>
+    )HTML");
+    doc.layout(140, 40, &painter);
+    doc.draw(painter);
+    const auto* a = find_fill_draw(painter, affineui::Color::rgb(0xff, 0, 0));
+    const auto* b = find_fill_draw(painter, affineui::Color::rgb(0, 0xff, 0));
+    REQUIRE(a != nullptr);
+    REQUIRE(b != nullptr);
+    // The compact override (--gap:8px) must win over the base (2px): 100px row,
+    // one 8px gap, two items of (100-8)/2 = 46px each.
+    CHECK(a->rect.w == 46);
+    CHECK(b->rect.x - (a->rect.x + a->rect.w) == 8);
+}
+
+TEST_CASE("Vec channel combos share width evenly with only the declared gap "
+          "between them (the inner number input must not bloat the combo)") {
+    // The transform/vec widget is a flex row of .dcs-combo cells, each
+    // flex:1 1 0 so they share the row equally, separated only by the small
+    // `gap`. The cell holds a number <input> (flex:1; min-width:0) that must be
+    // allowed to shrink — otherwise the cells bloat and the spacing looks wrong.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-vec { display: flex; gap: 6px; width: 156px; }
+        .dcs-vec > .dcs-combo { flex: 1 1 0; min-width: 0; height: 20px;
+                                display: inline-flex; align-items: stretch; }
+        .dcs-combo__label { flex: 0 0 auto; padding: 0 4px; }
+        .dcs-combo__value { flex: 1; min-width: 0; }
+        .x { background: #ff0000; } .y { background: #00ff00; } .z { background: #0000ff; }
+        </style>
+        <div class="dcs-vec">
+          <div class="dcs-combo x"><div class="dcs-combo__label">X</div>
+            <input class="dcs-combo__value" type="number" value="12"></div>
+          <div class="dcs-combo y"><div class="dcs-combo__label">Y</div>
+            <input class="dcs-combo__value" type="number" value="4.2"></div>
+          <div class="dcs-combo z"><div class="dcs-combo__label">Z</div>
+            <input class="dcs-combo__value" type="number" value="-8.5"></div>
+        </div>
+    )HTML");
+    doc.layout(220, 60, &painter);
+    doc.draw(painter);
+    const auto* x = find_fill_draw(painter, affineui::Color::rgb(0xff, 0, 0));
+    const auto* y = find_fill_draw(painter, affineui::Color::rgb(0, 0xff, 0));
+    const auto* z = find_fill_draw(painter, affineui::Color::rgb(0, 0, 0xff));
+    REQUIRE(x != nullptr);
+    REQUIRE(y != nullptr);
+    REQUIRE(z != nullptr);
+    // 156px row, two 6px gaps = 12px, leaving 144px split three ways = 48px each.
+    CHECK(x->rect.w == 48);
+    CHECK(y->rect.w == 48);
+    CHECK(z->rect.w == 48);
+    // The only space between cells is the 6px gap — not a larger spread.
+    CHECK(y->rect.x - (x->rect.x + x->rect.w) == 6);
+    CHECK(z->rect.x - (y->rect.x + y->rect.w) == 6);
+}
+
+TEST_CASE("Clicking a foldout's title TEXT toggles it, and the collapse rule "
+          "living in the USER stylesheet re-cascades (the game-editor setup)") {
+    // Two game-editor-faithful conditions in one: (1) the header has only a
+    // title (no chevron), so the click lands on the title's TEXT block — the
+    // matcher must walk up past it to the header (a prior early-return bailed on
+    // text clicks, so clicking a foldout title never toggled it); (2) decius is
+    // loaded as the USER stylesheet (App::set_stylesheet), so the collapse rule
+    // is NOT in the document's <style> — the toggle must re-match against it.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_user_stylesheet(
+        ".dcs-foldout{overflow:hidden}"
+        ".dcs-foldout__header{display:flex;height:24px}"
+        ".dcs-foldout__body{padding:4px}"
+        ".dcs-foldout--collapsed>.dcs-foldout__body{display:none}");
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <div class="dcs-foldout">
+          <div id="hdr" class="dcs-foldout__header">
+            <span class="dcs-foldout__title">Material</span>
+          </div>
+          <div class="dcs-foldout__body">
+            <div id="field" style="height:22px">Roughness</div>
+          </div>
+        </div>
+    )HTML");
+    doc.layout(240, 160, &painter);
+    REQUIRE(find_hovered_chain_id(doc, "field", 240, 160).x >= 0);
+
+    auto h = find_hovered_chain_id(doc, "hdr", 240, 160);
+    REQUIRE(h.x >= 0);
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = h;
+    doc.dispatch(down);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = h;
+    doc.dispatch(up);
+    doc.layout(240, 160, &painter);
+    CHECK(find_hovered_chain_id(doc, "field", 240, 160).x < 0);
+}
+
+TEST_CASE("Foldout with nested body content collapses + expands on header click "
+          "(the game-editor inspector shape)") {
+    // The game-editor foldout body holds nested .dcs-props > fields (not simple
+    // text). Reproduce that exact shape and drive it through real mouse-down
+    // clicks (the toggle fires on press) to prove collapse hides the whole
+    // nested subtree and expand brings it all back.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-foldout { overflow: hidden; }
+        .dcs-foldout__header { display: flex; align-items: center; height: 24px; }
+        .dcs-foldout__chevron { width: 16px; height: 16px; display: flex; }
+        .dcs-foldout__title { flex: 1; }
+        .dcs-foldout__body { padding: 2px 8px 8px 8px; }
+        .dcs-foldout--collapsed > .dcs-foldout__body { display: none; }
+        .dcs-props { display: flex; flex-direction: column; gap: 4px; }
+        .dcs-field { display: flex; height: 22px; }
+        </style>
+        <div class="dcs-foldouts">
+          <div id="fold" class="dcs-foldout">
+            <div id="fold-header" class="dcs-foldout__header">
+              <span class="dcs-foldout__chevron dcs-foldout__chevron--open"><i>G</i></span>
+              <span class="dcs-foldout__title">Material</span>
+            </div>
+            <div class="dcs-foldout__body">
+              <div class="dcs-props"><div id="field1" class="dcs-field">Roughness</div></div>
+            </div>
+          </div>
+        </div>
+    )HTML");
+    doc.layout(240, 160, &painter);
+
+    auto press = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        doc.dispatch(down);
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        doc.dispatch(up);
+        doc.layout(240, 160, &painter);
+    };
+
+    REQUIRE(find_hovered_chain_id(doc, "field1", 240, 160).x >= 0);   // expanded
+    press(find_hovered_chain_id(doc, "fold-header", 240, 160));
+    CHECK(find_hovered_chain_id(doc, "field1", 240, 160).x < 0);      // collapsed
+    press(find_hovered_chain_id(doc, "fold-header", 240, 160));
+    CHECK(find_hovered_chain_id(doc, "field1", 240, 160).x >= 0);     // expanded
+}
+
 TEST_CASE("UiControls script toggles Decius foldouts and subpanels") {
     affineui::Document doc;
     RecordingPainter painter;
@@ -1490,9 +1979,17 @@ TEST_CASE("UiControls script toggles Decius foldouts and subpanels") {
         doc.layout(240, 140, &painter);
     };
 
+    // Collapsibles toggle on mouse-DOWN, so the click's own hover-chain
+    // snapshot predates the layout that refreshes cached attrs; re-hover the
+    // (always-present) header to read the class against the post-click layout.
+    auto rehover = [&](const char* id) {
+        find_hovered_chain_id(doc, id, 240, 140);
+    };
+
     auto props_header = find_hovered_chain_id(doc, "props-header", 240, 140);
     REQUIRE(props_header.x >= 0);
     click_at(props_header);
+    rehover("props-header");
     CHECK(hovered_attr_for_id(doc, "props", "class").find(
               "dcs-subpanel--collapsed") != std::string::npos);
     CHECK(find_hovered_chain_id(doc, "props-body", 240, 140).x < 0);
@@ -1500,6 +1997,7 @@ TEST_CASE("UiControls script toggles Decius foldouts and subpanels") {
     props_header = find_hovered_chain_id(doc, "props-header", 240, 140);
     REQUIRE(props_header.x >= 0);
     click_at(props_header);
+    rehover("props-header");
     CHECK(hovered_attr_for_id(doc, "props", "class").find(
               "dcs-subpanel--collapsed") == std::string::npos);
     CHECK(find_hovered_chain_id(doc, "props-body", 240, 140).x >= 0);
@@ -1508,6 +2006,7 @@ TEST_CASE("UiControls script toggles Decius foldouts and subpanels") {
         find_hovered_chain_id(doc, "transform-header", 240, 140);
     REQUIRE(foldout_header.x >= 0);
     click_at(foldout_header);
+    rehover("transform-header");
     CHECK(hovered_attr_for_id(doc, "transform", "class").find(
               "dcs-foldout--collapsed") != std::string::npos);
     CHECK(find_hovered_chain_id(doc, "transform-body", 240, 140).x < 0);
@@ -1564,6 +2063,14 @@ TEST_CASE("UiControls script emits named button activations") {
     const auto p = find_hovered_attr(doc, "data-aui-name", "run", 180, 80);
     REQUIRE(p.x >= 0);
 
+    auto send = [&](affineui::EventType type, affineui::Point pos) {
+        affineui::Event e{};
+        e.type = type;
+        e.button = affineui::MouseButton::Left;
+        e.pos = pos;
+        return doc.dispatch(e);
+    };
+
     auto click = [&] {
         affineui::Event down{};
         down.type = affineui::EventType::MouseDown;
@@ -1582,10 +2089,20 @@ TEST_CASE("UiControls script emits named button activations") {
     CHECK(doc.take_activated_widgets().empty());
 
     doc.attach_script(affineui::DocumentScript::UiControls);
-    click();
-    const auto activations = doc.take_activated_widgets();
+    send(affineui::EventType::MouseDown, p);
+    CHECK(doc.take_activated_widgets().empty());
+    send(affineui::EventType::MouseUp, p);
+    auto activations = doc.take_activated_widgets();
     REQUIRE(activations.size() == 1);
     CHECK(activations[0] == "run");
+
+    send(affineui::EventType::MouseDown, p);
+    send(affineui::EventType::MouseUp, {170, 70});
+    CHECK(doc.take_activated_widgets().empty());
+
+    send(affineui::EventType::MouseDown, {170, 70});
+    send(affineui::EventType::MouseUp, p);
+    CHECK(doc.take_activated_widgets().empty());
 }
 
 TEST_CASE("UiControls script emits named widget changes") {
@@ -1959,7 +2476,7 @@ TEST_CASE("real Decius checkbox remains visible after rerender and hover restyle
            find_rounded_fill_draw(painter, checked_fill) != nullptr));
     const auto* icon = find_text_draw(painter, "\xEE\x80\x9B");
     REQUIRE(icon != nullptr);
-    CHECK(same_color(icon->color, affineui::Color::rgb(0x0a, 0x12, 0x20)));
+    CHECK(same_color(icon->color, affineui::Color::rgb(0x05, 0x07, 0x0d)));
     CHECK(find_text_draw(painter, "Hard sync") != nullptr);
 }
 
@@ -2003,7 +2520,7 @@ TEST_CASE("real Decius checkbox generated icon updates after live aria mutation"
            find_rounded_fill_draw(painter, checked_fill) != nullptr));
     const auto* icon = find_text_draw(painter, "\xEE\x80\x9B");
     REQUIRE(icon != nullptr);
-    CHECK(same_color(icon->color, affineui::Color::rgb(0x0a, 0x12, 0x20)));
+    CHECK(same_color(icon->color, affineui::Color::rgb(0x05, 0x07, 0x0d)));
     CHECK(find_text_draw(painter, "Hard sync") != nullptr);
 }
 
@@ -2320,7 +2837,7 @@ TEST_CASE("real Decius checkbox survives unrelated live control mutation") {
            find_rounded_fill_draw(painter, checked_fill) != nullptr));
     const auto* icon = find_text_draw(painter, "\xEE\x80\x9B");
     REQUIRE(icon != nullptr);
-    CHECK(same_color(icon->color, affineui::Color::rgb(0x0a, 0x12, 0x20)));
+    CHECK(same_color(icon->color, affineui::Color::rgb(0x05, 0x07, 0x0d)));
     CHECK(find_text_draw(painter, "Hard sync") != nullptr);
 }
 
@@ -2386,7 +2903,7 @@ TEST_CASE("dark synth checkbox survives real page live control interactions") {
            find_rounded_fill_draw(painter, checked_fill) != nullptr));
     const auto* icon = find_text_draw(painter, "\xEE\x80\x9B");
     REQUIRE(icon != nullptr);
-    CHECK(same_color(icon->color, affineui::Color::rgb(0x0a, 0x12, 0x20)));
+    CHECK(same_color(icon->color, affineui::Color::rgb(0x05, 0x07, 0x0d)));
     CHECK(find_text_draw(painter, "Hard sync") != nullptr);
 }
 
@@ -2611,7 +3128,7 @@ TEST_CASE("dark synth C++ value interactions keep checked checkbox visible") {
            find_rounded_fill_draw(painter, checked_fill) != nullptr));
     const auto* icon = find_text_draw(painter, "\xEE\x80\x9B");
     REQUIRE(icon != nullptr);
-    CHECK(same_color(icon->color, affineui::Color::rgb(0x0a, 0x12, 0x20)));
+    CHECK(same_color(icon->color, affineui::Color::rgb(0x05, 0x07, 0x0d)));
     CHECK(find_text_draw(painter, "Hard sync") != nullptr);
 }
 
@@ -2665,7 +3182,7 @@ TEST_CASE("live Decius checkbox state survives ordinary viewport relayout") {
            find_rounded_fill_draw(painter, checked_fill) != nullptr));
     const auto* icon = find_text_draw(painter, "\xEE\x80\x9B");
     REQUIRE(icon != nullptr);
-    CHECK(same_color(icon->color, affineui::Color::rgb(0x0a, 0x12, 0x20)));
+    CHECK(same_color(icon->color, affineui::Color::rgb(0x05, 0x07, 0x0d)));
 }
 
 TEST_CASE("game editor inspector keeps Decius check and switch interactive across rerenders") {
@@ -5735,4 +6252,1424 @@ TEST_CASE("live text mutation updates a leaf without reparsing") {
     CHECK(std::find(painter.text_runs.begin(), painter.text_runs.end(),
                     "0.42") != painter.text_runs.end());
     CHECK_FALSE(doc.take_dirty_rects().empty());
+}
+
+TEST_CASE("UiControls: dragging a dcs-splitter redistributes pane flex-basis") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    // A horizontal dock: two 200px panes separated by a draggable splitter.
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dock { display: flex; width: 440px; height: 200px; }
+        .pane { min-width: 0; }
+        .left  { flex: 0 0 200px; }
+        .right { flex: 0 0 200px; }
+        .split { flex: 0 0 8px; cursor: col-resize; background: #888; }
+        </style>
+        <div class="dock">
+            <div id="left" class="pane left">L</div>
+            <div id="split" class="split" data-dcs-splitter="v"></div>
+            <div id="right" class="pane right">R</div>
+        </div>
+    )HTML");
+    doc.layout(440, 200, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    // Sanity: initial pane widths.
+    auto left_p = find_hovered_id(doc, "left", 440, 200);
+    REQUIRE(left_p.x >= 0);
+    const int left_w0 = doc.hovered_info().bounds.w;
+    CHECK(left_w0 == 200);
+
+    // Grab the splitter and drag right by +40px.
+    auto split_p = find_hovered_id(doc, "split", 440, 200);
+    REQUIRE(split_p.x >= 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = split_p;
+    doc.dispatch(down);
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {split_p.x + 40, split_p.y};
+    doc.dispatch(move);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = {split_p.x + 40, split_p.y};
+    const auto result = doc.dispatch(up);
+    CHECK_FALSE(result.layout_changed);
+
+    doc.layout(440, 200, &painter);
+
+    // Left pane grew ~40px, right pane shrank ~40px; total budget preserved.
+    auto left_after = find_hovered_id(doc, "left", 440, 200);
+    REQUIRE(left_after.x >= 0);
+    const int left_w1 = doc.hovered_info().bounds.w;
+    auto right_after = find_hovered_id(doc, "right", 440, 200);
+    REQUIRE(right_after.x >= 0);
+    const int right_w1 = doc.hovered_info().bounds.w;
+
+    CHECK(left_w1 == 240);
+    CHECK(right_w1 == 160);
+    CHECK(left_w1 + right_w1 == 400);
+}
+
+TEST_CASE("UiControls: a splitter next to a flex:1 grower never freezes it — "
+          "the document keeps filling the window after a drag (regression)") {
+    // Regression for the reported game-editor bug: the old splitter wrote
+    // `flex:0 0 <px>` onto BOTH siblings, so a drag froze the flex:1
+    // center/document at a fixed pixel size. The layout then detached from the
+    // far window edge and window-resize stopped resizing the document (a dead
+    // band appeared on the right/bottom). The splitter must pin only the FIXED
+    // side and leave the grower as flex:1.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dock   { display: flex; width: 100%; height: 200px; }
+        .left   { flex: 0 0 200px; min-width: 0; }
+        .split  { flex: 0 0 8px; cursor: col-resize; }
+        .center { flex: 1; min-width: 0; }
+        </style>
+        <div class="dock">
+            <div id="left" class="left">L</div>
+            <div id="split" class="split" data-dcs-splitter="v"></div>
+            <div id="center" class="center">C</div>
+        </div>
+    )HTML");
+    doc.layout(440, 200, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    // Initial: left 200, center fills the rest (440 - 200 - 8 = 232).
+    find_hovered_id(doc, "center", 440, 200);
+    CHECK(doc.hovered_info().bounds.w == 232);
+
+    // Grab the splitter, drag right +40 -> left grows to 240.
+    auto split_p = find_hovered_id(doc, "split", 440, 200);
+    REQUIRE(split_p.x >= 0);
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = split_p;
+    doc.dispatch(down);
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {split_p.x + 40, split_p.y};
+    doc.dispatch(move);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = {split_p.x + 40, split_p.y};
+    const auto result = doc.dispatch(up);
+    CHECK_FALSE(result.layout_changed);
+
+    // Same window size: left pinned to 240, center took the remainder.
+    doc.layout(440, 200, &painter);
+    find_hovered_id(doc, "left", 440, 200);
+    CHECK(doc.hovered_info().bounds.w == 240);
+    find_hovered_id(doc, "center", 440, 200);
+    CHECK(doc.hovered_info().bounds.w == 192);  // 440 - 240 - 8
+
+    // THE REGRESSION CHECK: grow the window by 100px. The center (still flex:1)
+    // must absorb all of it; the pinned left stays put. (Old bug: center frozen
+    // at 192 -> dead band on the right, document never grows.)
+    doc.layout(540, 200, &painter);
+    find_hovered_id(doc, "left", 540, 200);
+    CHECK(doc.hovered_info().bounds.w == 240);   // pinned, unchanged
+    find_hovered_id(doc, "center", 540, 200);
+    CHECK(doc.hovered_info().bounds.w == 292);   // 540 - 240 - 8 -> GREW
+}
+
+TEST_CASE("UiControls: splitter with the grower on the prev side pins only the "
+          "next (fixed) pane and the grower keeps filling the window") {
+    // The Inspector case: [center(flex:1) | splitter | right(fixed)]. Dragging
+    // must resize the fixed right pane and leave the center growing.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dock   { display: flex; width: 100%; height: 200px; }
+        .center { flex: 1; min-width: 0; }
+        .split  { flex: 0 0 8px; cursor: col-resize; }
+        .right  { flex: 0 0 200px; min-width: 0; }
+        </style>
+        <div class="dock">
+            <div id="center" class="center">C</div>
+            <div id="split" class="split" data-dcs-splitter="v"></div>
+            <div id="right" class="right">R</div>
+        </div>
+    )HTML");
+    doc.layout(440, 200, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    // Grab the splitter, drag right +40 -> the right pane shrinks to 160.
+    auto split_p = find_hovered_id(doc, "split", 440, 200);
+    REQUIRE(split_p.x >= 0);
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = split_p;
+    doc.dispatch(down);
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {split_p.x + 40, split_p.y};
+    doc.dispatch(move);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = {split_p.x + 40, split_p.y};
+    const auto result = doc.dispatch(up);
+    CHECK_FALSE(result.layout_changed);
+
+    doc.layout(440, 200, &painter);
+    find_hovered_id(doc, "right", 440, 200);
+    CHECK(doc.hovered_info().bounds.w == 160);  // 200 - 40, pinned
+    find_hovered_id(doc, "center", 440, 200);
+    CHECK(doc.hovered_info().bounds.w == 272);  // 440 - 8 - 160
+
+    // Window grows by 100: the right pane stays pinned, the center absorbs it.
+    doc.layout(540, 200, &painter);
+    find_hovered_id(doc, "right", 540, 200);
+    CHECK(doc.hovered_info().bounds.w == 160);
+    find_hovered_id(doc, "center", 540, 200);
+    CHECK(doc.hovered_info().bounds.w == 372);  // 540 - 8 - 160 -> GREW
+}
+
+TEST_CASE("UiControls: nested two-grow splitter resizes vertically without "
+          "requesting dock-size persistence") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock { display: flex; width: 260px; height: 300px; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-height: 0; }
+        .pane { flex: 1; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        </style>
+        <div class="dcs-dock dcs-dock--v">
+          <section id="top" class="dcs-dockpane pane" data-aui-name="pane-Hierarchy"></section>
+          <div id="split" class="dcs-splitter dcs-splitter--h"
+               data-dcs-splitter="h"></div>
+          <section id="bottom" class="dcs-dockpane pane" data-aui-name="pane-Console"></section>
+        </div>
+    )HTML");
+    doc.layout(260, 300, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto split_p = find_hovered_id(doc, "split", 260, 300);
+    REQUIRE(split_p.x >= 0);
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = split_p;
+    doc.dispatch(down);
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {split_p.x, split_p.y + 40};
+    doc.dispatch(move);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = move.pos;
+    const auto result = doc.dispatch(up);
+
+    CHECK_FALSE(result.layout_changed);
+    doc.layout(260, 300, &painter);
+    find_hovered_id(doc, "top", 260, 300);
+    CHECK(doc.hovered_info().bounds.h > 170);
+    find_hovered_id(doc, "bottom", 260, 300);
+    CHECK(doc.hovered_info().bounds.h < 120);
+}
+
+TEST_CASE("UiControls: clicking a dock-pane tab switches the active body") {
+    // decius tab semantics: a .dcs-dockpane__tab[data-dcs-target="#body"] click
+    // reveals its body and hides the pane's other bodies; aria-selected tracks
+    // the active tab.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dockpane { display: flex; flex-direction: column; width: 300px; }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 18px; }
+        .dcs-dockpane__body { height: 120px; }
+        [hidden] { display: none; }
+        </style>
+        <section class="dcs-dockpane">
+          <div class="dcs-dockpane__tabbar">
+            <div class="dcs-dockpane__tabs">
+              <button id="tabA" class="dcs-dockpane__tab" type="button"
+                      aria-selected="true" data-dcs-target="#bodyA">A</button>
+              <button id="tabB" class="dcs-dockpane__tab" type="button"
+                      aria-selected="false" data-dcs-target="#bodyB">B</button>
+            </div>
+          </div>
+          <div class="dcs-dockpane__body" id="bodyA">Content A</div>
+          <div class="dcs-dockpane__body" id="bodyB" hidden>Content B</div>
+        </section>
+    )HTML");
+    doc.layout(300, 200, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    // Initially A is visible, B is hidden.
+    CHECK(find_hovered_id(doc, "bodyA", 300, 200).x >= 0);
+    CHECK(find_hovered_id(doc, "bodyB", 300, 200).x < 0);
+
+    // Click tab B.
+    auto tabB = find_hovered_id(doc, "tabB", 300, 200);
+    REQUIRE(tabB.x >= 0);
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = tabB;
+    doc.dispatch(down);
+    doc.layout(300, 200, &painter);
+
+    // The switch happens on down, before release.
+    CHECK(find_hovered_id(doc, "bodyB", 300, 200).x >= 0);
+    CHECK(find_hovered_id(doc, "bodyA", 300, 200).x < 0);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = tabB;
+    doc.dispatch(up);
+    doc.layout(300, 200, &painter);
+
+    // Now B is visible and A is hidden — the tab switched.
+    CHECK(find_hovered_id(doc, "bodyB", 300, 200).x >= 0);
+    CHECK(find_hovered_id(doc, "bodyA", 300, 200).x < 0);
+}
+
+TEST_CASE("UiControls: dragging a floating element by its handle repositions it "
+          "within its drag-bounds") {
+    // decius float drag: a [data-dcs-drag] container is moved by a
+    // [data-dcs-drag-handle] inside it, writing inline left/top, clamped to the
+    // [data-dcs-drag-bounds] container.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .host  { position: relative; width: 400px; height: 300px; }
+        .float { position: absolute; left: 10px; top: 10px; width: 60px; height: 40px; }
+        .grip  { display: block; width: 60px; height: 14px; }
+        </style>
+        <div class="host">
+          <div id="float" class="float" data-dcs-drag data-dcs-drag-bounds=".host">
+            <span id="grip" class="grip" data-dcs-drag-handle></span>
+          </div>
+        </div>
+    )HTML");
+    doc.layout(400, 300, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    // The grip sits at the float's top-left (10,10).
+    auto grip = find_hovered_id(doc, "grip", 400, 300);
+    REQUIRE(grip.x >= 0);
+    CHECK(doc.hovered_info().bounds.x == 10);
+    CHECK(doc.hovered_info().bounds.y == 10);
+
+    auto press = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        doc.dispatch(e);
+    };
+    // Grab the grip and drag by (+40,+50).
+    press(affineui::EventType::MouseDown, grip);
+    press(affineui::EventType::MouseMove, {grip.x + 40, grip.y + 50});
+    press(affineui::EventType::MouseUp, {grip.x + 40, grip.y + 50});
+    doc.layout(400, 300, &painter);
+
+    // The float (hence its grip) moved to top-left (50,60).
+    find_hovered_id(doc, "grip", 400, 300);
+    CHECK(doc.hovered_info().bounds.x == 50);
+    CHECK(doc.hovered_info().bounds.y == 60);
+
+    // Drag far past the bounds — it clamps so the 60x40 float stays inside the
+    // 400x300 host (max left 340, max top 260).
+    auto grip2 = find_hovered_id(doc, "grip", 400, 300);
+    press(affineui::EventType::MouseDown, grip2);
+    press(affineui::EventType::MouseMove, {grip2.x + 10000, grip2.y + 10000});
+    press(affineui::EventType::MouseUp, {grip2.x + 10000, grip2.y + 10000});
+    doc.layout(400, 300, &painter);
+    find_hovered_id(doc, "grip", 400, 300);
+    CHECK(doc.hovered_info().bounds.x == 340);
+    CHECK(doc.hovered_info().bounds.y == 260);
+}
+
+TEST_CASE("UiControls: dragging a dock tab OUT of its pane tears it off into a "
+          "floating placement override; a clean click does not") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    // A float-host with a 200px pane on the left and empty host area to drop in.
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost { position: relative; width: 600px; height: 400px; display: flex; }
+        .dcs-dockpane { width: 200px; height: 400px; display: flex; flex-direction: column; }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .dcs-dockpane__body { height: 360px; }
+        [hidden] { display: none; }
+        </style>
+        <div class="dcs-dock dcs-dock--floathost">
+          <section class="dcs-dockpane">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button id="tabX" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#X-body">X</button>
+            </div></div>
+            <div class="dcs-dockpane__body" id="X-body">content</div>
+          </section>
+        </div>
+    )HTML");
+    doc.layout(600, 400, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto down = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseDown;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+    auto move = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseMove; e.pos = p;
+        doc.dispatch(e);
+    };
+    auto up = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseUp;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+
+    // A clean click (press + release in place) must NOT tear off.
+    auto tab = find_hovered_id(doc, "tabX", 600, 400);
+    REQUIRE(tab.x >= 0);
+    down(tab);
+    up(tab);
+    CHECK(doc.dock_override("X").present == false);
+
+    // A drag that ends OUTSIDE the pane tears the panel off -> floating override.
+    find_hovered_id(doc, "tabX", 600, 400);  // re-hover the tab
+    down(tab);
+    move({400, 200});   // past threshold and outside the 200px-wide pane
+    up({400, 200});
+    const auto ov = doc.dock_override("X");
+    CHECK(ov.present == true);
+    CHECK(ov.floating == true);
+    CHECK(ov.w > 0);
+    CHECK(ov.h > 0);
+}
+
+TEST_CASE("UiControls: dropping a dragged tab on another pane's edge zone docks "
+          "it there (docked placement override, not floating)") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    // Two side-by-side panes (A: x[0,300), B: x[300,600)) in a float-host.
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost { position: relative; width: 600px; height: 400px; display: flex; }
+        .dcs-dockpane { width: 300px; height: 400px; display: flex; flex-direction: column; }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .dcs-dockpane__body { height: 360px; }
+        [hidden] { display: none; }
+        </style>
+        <div class="dcs-dock dcs-dock--floathost">
+          <section class="dcs-dockpane" data-aui-name="pane-A">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button id="tabA" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#A-body">A</button>
+            </div></div>
+            <div class="dcs-dockpane__body" id="A-body">A</div>
+          </section>
+          <section class="dcs-dockpane" data-aui-name="pane-B">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button id="tabB" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#B-body">B</button>
+            </div></div>
+            <div class="dcs-dockpane__body" id="B-body">B</div>
+          </section>
+        </div>
+    )HTML");
+    doc.layout(600, 400, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto down = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseDown;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+    auto move = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseMove; e.pos = p;
+        doc.dispatch(e);
+    };
+    auto up = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseUp;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+
+    // Drag B's tab onto pane A's LEFT edge zone (x≈40 < 28% of 300).
+    auto tabB = find_hovered_id(doc, "tabB", 600, 400);
+    REQUIRE(tabB.x >= 0);
+    down(tabB);
+    move({40, 200});
+    up({40, 200});
+
+    const auto ov = doc.dock_override("B");
+    CHECK(ov.present == true);
+    CHECK(ov.floating == false);
+    CHECK(ov.parent == "A");
+    CHECK(ov.side == 0);  // Dock::Left
+}
+
+TEST_CASE("UiControls: a tab dropped within 32px of the dock-area edge docks to "
+          "the whole-area edge (parent=__document__), decius Ke") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost { position: relative; width: 600px; height: 400px; display: flex; }
+        .dcs-dockpane { width: 300px; height: 400px; display: flex; flex-direction: column; }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .dcs-dockpane__body { height: 360px; }
+        [hidden] { display: none; }
+        </style>
+        <div class="dcs-dock dcs-dock--floathost">
+          <section class="dcs-dockpane" data-aui-name="pane-A">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button id="tabA" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#A-body">A</button>
+            </div></div><div class="dcs-dockpane__body" id="A-body">A</div>
+          </section>
+          <section class="dcs-dockpane" data-aui-name="pane-B">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button id="tabB" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#B-body">B</button>
+            </div></div><div class="dcs-dockpane__body" id="B-body">B</div>
+          </section>
+        </div>
+    )HTML");
+    doc.layout(600, 400, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    auto ev = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{}; e.type = t; e.button = affineui::MouseButton::Left;
+        e.pos = p; doc.dispatch(e);
+    };
+    auto tabB = find_hovered_id(doc, "tabB", 600, 400);
+    REQUIRE(tabB.x >= 0);
+    ev(affineui::EventType::MouseDown, tabB);
+    ev(affineui::EventType::MouseMove, {8, 200});   // within 32px of the left edge
+    ev(affineui::EventType::MouseUp, {8, 200});
+    const auto ov = doc.dock_override("B");
+    CHECK(ov.present == true);
+    CHECK(ov.floating == false);
+    CHECK(ov.parent == "__document__");  // docked to the whole-area edge
+    CHECK(ov.side == 0);                 // Left
+}
+
+TEST_CASE("UiControls: co-tab dropped on a pane bottom preview splits out of "
+          "its source pane") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost { position: relative; width: 600px; height: 420px; display: flex; flex-direction: column; }
+        .top { height: 320px; display: flex; }
+        .hierarchy { width: 240px; height: 320px; display: flex; flex-direction: column; }
+        .center { flex: 1; height: 320px; display: flex; flex-direction: column; }
+        .assets { height: 100px; display: flex; flex-direction: column; }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .dcs-dockpane__body { flex: 1; }
+        .dcs-dockpane__body[hidden] { display: none; }
+        .dcs-drop { background: rgb(17, 34, 51); }
+        </style>
+        <div class="dcs-dock dcs-dock--floathost">
+          <div class="top">
+            <section class="dcs-dockpane hierarchy" data-aui-name="pane-Hierarchy">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Hierarchy-body">Hierarchy</button>
+              </div></div><div class="dcs-dockpane__body" id="Hierarchy-body">Hierarchy</div>
+            </section>
+            <section class="dcs-dockpane dcs-dockpane--center center" data-aui-name="pane-__document__">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Doc-body">Doc</button>
+              </div></div><div class="dcs-dockpane__body" id="Doc-body">Doc</div>
+            </section>
+          </div>
+          <section class="dcs-dockpane assets" data-aui-name="pane-Assets">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button id="tabAssets" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Assets-body">Assets</button>
+              <button id="tabConsole" class="dcs-dockpane__tab" aria-selected="false" data-dcs-target="#Console-body">Console</button>
+            </div></div>
+            <div class="dcs-dockpane__body" id="Assets-body">Assets</div>
+            <div class="dcs-dockpane__body" id="Console-body" hidden>Console</div>
+          </section>
+        </div>
+    )HTML");
+    doc.layout(600, 420, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto ev = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        doc.dispatch(e);
+    };
+    auto console_tab = find_hovered_id(doc, "tabConsole", 600, 420);
+    REQUIRE(console_tab.x >= 0);
+    auto hierarchy_body = find_hovered_id(doc, "Hierarchy-body", 600, 420);
+    REQUIRE(hierarchy_body.x >= 0);
+    const auto hierarchy_bounds = doc.hovered_info().bounds;
+    const affineui::Point hierarchy_bottom{
+        hierarchy_bounds.x + hierarchy_bounds.w / 2,
+        hierarchy_bounds.y + std::max(1, hierarchy_bounds.h - 4)};
+    ev(affineui::EventType::MouseDown, console_tab);
+    ev(affineui::EventType::MouseMove, hierarchy_bottom);
+    // Commit the visible preview even if the release event lands a few pixels
+    // away from the last move target.
+    ev(affineui::EventType::MouseUp, {300, 210});
+
+    const auto console = doc.dock_override("Console");
+    CHECK(console.present == true);
+    CHECK(console.floating == false);
+    CHECK(console.parent == "Hierarchy");
+    CHECK(console.side == 3);  // Dock::Bottom
+    CHECK(doc.dock_override("Assets").present == false);
+}
+
+TEST_CASE("UiControls: dock preview target clears after leaving a valid pane") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost { position: relative; width: 600px; height: 420px; display: flex; flex-direction: column; }
+        .top { height: 320px; display: flex; }
+        .hierarchy { width: 240px; height: 320px; display: flex; flex-direction: column; }
+        .center { flex: 1; height: 320px; display: flex; flex-direction: column; }
+        .assets { height: 100px; display: flex; flex-direction: column; }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .dcs-dockpane__body { flex: 1; }
+        .dcs-dockpane__body[hidden] { display: none; }
+        </style>
+        <div class="dcs-dock dcs-dock--floathost">
+          <div class="top">
+            <section class="dcs-dockpane hierarchy" data-aui-name="pane-Hierarchy">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Hierarchy-body">Hierarchy</button>
+              </div></div><div class="dcs-dockpane__body" id="Hierarchy-body">Hierarchy</div>
+            </section>
+            <section class="dcs-dockpane dcs-dockpane--center center" data-aui-name="pane-__document__">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Doc-body">Doc</button>
+              </div></div><div class="dcs-dockpane__body" id="Doc-body">Doc</div>
+            </section>
+          </div>
+          <section class="dcs-dockpane assets" data-aui-name="pane-Assets">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button id="tabAssets" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Assets-body">Assets</button>
+              <button id="tabConsole" class="dcs-dockpane__tab" aria-selected="false" data-dcs-target="#Console-body">Console</button>
+            </div></div>
+            <div class="dcs-dockpane__body" id="Assets-body">Assets</div>
+            <div class="dcs-dockpane__body" id="Console-body" hidden>Console</div>
+          </section>
+          <div id="__dropind" class="dcs-drop dcs-drop--valid" hidden
+               style="position:absolute;pointer-events:none;z-index:200"></div>
+        </div>
+    )HTML");
+    doc.layout(600, 420, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto ev = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        return doc.dispatch(e);
+    };
+    auto console_tab = find_hovered_id(doc, "tabConsole", 600, 420);
+    REQUIRE(console_tab.x >= 0);
+    auto hierarchy_body = find_hovered_id(doc, "Hierarchy-body", 600, 420);
+    REQUIRE(hierarchy_body.x >= 0);
+    const auto hierarchy_bounds = doc.hovered_info().bounds;
+    const affineui::Point hierarchy_bottom{
+        hierarchy_bounds.x + hierarchy_bounds.w / 2,
+        hierarchy_bounds.y + std::max(1, hierarchy_bounds.h - 4)};
+    const affineui::Point document_center{420, 180};
+    const auto preview_fill = affineui::Color::rgba(0, 184, 212, 46);
+
+    ev(affineui::EventType::MouseDown, console_tab);
+    ev(affineui::EventType::MouseMove, hierarchy_bottom);
+    doc.layout(600, 420, &painter);
+    painter.fill_colors.clear();
+    painter.fill_draws.clear();
+    doc.draw(painter);
+    CHECK(saw_fill(painter, preview_fill));
+
+    const auto leave_result = ev(affineui::EventType::MouseMove, {-1, -1});
+    CHECK(leave_result.redraw_requested);
+    doc.layout(600, 420, &painter);
+    painter.fill_colors.clear();
+    painter.fill_draws.clear();
+    doc.draw(painter);
+    CHECK_FALSE(saw_fill(painter, preview_fill));
+
+    ev(affineui::EventType::MouseMove, hierarchy_bottom);
+    doc.layout(600, 420, &painter);
+    painter.fill_colors.clear();
+    painter.fill_draws.clear();
+    doc.draw(painter);
+    CHECK(saw_fill(painter, preview_fill));
+
+    ev(affineui::EventType::MouseMove, document_center);
+    doc.layout(600, 420, &painter);
+    painter.fill_colors.clear();
+    painter.fill_draws.clear();
+    doc.draw(painter);
+    CHECK_FALSE(saw_fill(painter, preview_fill));
+
+    ev(affineui::EventType::MouseUp, document_center);
+
+    const auto console = doc.dock_override("Console");
+    CHECK(console.present == true);
+    CHECK(console.floating == true);
+    CHECK_FALSE(console.parent == "Hierarchy");
+    CHECK_FALSE(console.side == 3);
+}
+
+TEST_CASE("UiControls: co-tab can edge-dock against its own source pane") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost { position: relative; width: 600px; height: 260px; display: flex; }
+        .assets { width: 300px; height: 260px; display: flex; flex-direction: column; }
+        .other { flex: 1; height: 260px; display: flex; flex-direction: column; }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .dcs-dockpane__body { flex: 1; }
+        .dcs-dockpane__body[hidden] { display: none; }
+        </style>
+        <div class="dcs-dock dcs-dock--floathost">
+          <section class="dcs-dockpane assets" data-aui-name="pane-Assets">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button id="tabAssets" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Assets-body">Assets</button>
+              <button id="tabConsole" class="dcs-dockpane__tab" aria-selected="false" data-dcs-target="#Console-body">Console</button>
+            </div></div>
+            <div class="dcs-dockpane__body" id="Assets-body">Assets</div>
+            <div class="dcs-dockpane__body" id="Console-body" hidden>Console</div>
+          </section>
+          <section class="dcs-dockpane other" data-aui-name="pane-Other">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Other-body">Other</button>
+            </div></div><div class="dcs-dockpane__body" id="Other-body">Other</div>
+          </section>
+          <div id="__dropind" class="dcs-drop dcs-drop--valid" hidden
+               style="position:absolute;pointer-events:none;z-index:200"></div>
+        </div>
+    )HTML");
+    doc.layout(600, 260, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto ev = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        return doc.dispatch(e);
+    };
+
+    auto console_tab = find_hovered_id(doc, "tabConsole", 600, 260);
+    REQUIRE(console_tab.x >= 0);
+    auto assets_p = find_hovered_attr(doc, "data-aui-name", "pane-Assets", 600, 260);
+    REQUIRE(assets_p.x >= 0);
+    affineui::Rect pane_bounds{};
+    for (const auto& info : doc.hovered_info_chain()) {
+        for (const auto& attr : info.attrs) {
+            if (attr.first == "data-aui-name" && attr.second == "pane-Assets") {
+                pane_bounds = info.bounds;
+            }
+        }
+    }
+    REQUIRE(pane_bounds.w > 0);
+
+    const affineui::Point source_right_zone{
+        pane_bounds.x + pane_bounds.w * 2 / 3,
+        pane_bounds.y + pane_bounds.h / 2};
+
+    ev(affineui::EventType::MouseDown, console_tab);
+    const auto move_result =
+        ev(affineui::EventType::MouseMove, source_right_zone);
+    CHECK(move_result.redraw_requested);
+    doc.layout(600, 260, &painter);
+    painter.fill_colors.clear();
+    painter.fill_draws.clear();
+    doc.draw(painter);
+    CHECK(saw_fill(painter, affineui::Color::rgba(0, 184, 212, 46)));
+    ev(affineui::EventType::MouseUp, source_right_zone);
+
+    const auto console = doc.dock_override("Console");
+    CHECK(console.present == true);
+    CHECK(console.floating == false);
+    CHECK(console.parent == "Assets");
+    CHECK(console.side == 1);  // Dock::Right
+}
+
+TEST_CASE("UiControls: View dock tab switches from Assets to Console") {
+    constexpr int W = 520;
+    constexpr int H = 260;
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_user_stylesheet(R"CSS(
+        html, body { width: 520px; height: 260px; margin: 0; padding: 0; }
+        #aui-root { width: 520px; height: 260px; min-height: 0; padding: 0; }
+        .shell { width: 520px; height: 260px; display: flex; flex-direction: column; }
+        .dcs-dock { display: flex; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dock--floathost { position: relative; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+        .dcs-dockpane--center { flex: 1; }
+        .dcs-dockpane__tabbar { flex: 0 0 24px; display: flex; min-width: 0; }
+        .dcs-dockpane__tabs { display: flex; min-width: 0; }
+        .dcs-dockpane__tab { display: inline-flex; padding: 0 12px; white-space: nowrap; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        [hidden] { display: none; }
+    )CSS");
+
+    auto html = [&]() {
+        affineui::View v{affineui::ViewTheme::Decius};
+        v.set_dock_active_tab_provider([&](std::string_view id) {
+            return doc.dock_active_tab(id);
+        });
+        v.begin();
+        {
+            auto shell = v.container("shell", "shell");
+            (void) shell;
+            v.document_view("workarea", [&](affineui::View& dv) {
+                dv.document([](affineui::View& p) { p.text("Viewport", "viewport-text"); },
+                            "View", "cube");
+                auto assets = dv.dockpanel(
+                    "Assets",
+                    affineui::DockLocation::docked(affineui::Dock::Bottom, 90),
+                    [](affineui::View& p) { p.text("Asset body", "assets-text"); },
+                    "image", "Assets");
+                dv.dockpanel(
+                    "Console", affineui::DockLocation::tab().in(assets),
+                    [](affineui::View& p) { p.text("Console body", "console-text"); },
+                    "file", "Console");
+            });
+        }
+        v.end();
+        return v.to_html_document();
+    };
+    auto rebuild = [&]() {
+        doc.set_html(html());
+        doc.attach_script(affineui::DocumentScript::UiControls);
+        doc.layout(W, H, &painter);
+    };
+
+    const auto initial_html = html();
+    CHECK(initial_html.find("Asset body") != std::string::npos);
+    CHECK(initial_html.find("Console body") == std::string::npos);
+    doc.set_html(initial_html);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.layout(W, H, &painter);
+
+    CHECK(find_hovered_attr(doc, "data-aui-name", "Assets-body", W, H).x >= 0);
+    CHECK(find_hovered_attr(doc, "data-aui-name", "Console-body", W, H).x < 0);
+    const auto tab = find_hovered_attr(doc, "data-dcs-target",
+                                       "#Console-body", W, H);
+    REQUIRE(tab.x >= 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = tab;
+    const auto down_result = doc.dispatch(down);
+    CHECK(down_result.layout_changed);
+    CHECK(down_result.invalidate_view);
+    doc.layout(W, H, &painter);
+    CHECK(doc.dock_active_tab("Assets") == "Console");
+
+    // The app rebuilds immediately from the down event, so the newly selected
+    // panel creates its DOM before the mouse button is released.
+    const auto active_html = html();
+    CHECK(active_html.find("Console body") != std::string::npos);
+    CHECK(active_html.find("Asset body") == std::string::npos);
+    rebuild();
+    painter.text_draws.clear();
+    doc.draw(painter);
+    CHECK(find_text_draw(painter, "Console body") != nullptr);
+    CHECK(find_text_draw(painter, "Asset body") == nullptr);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = tab;
+    const auto up_result = doc.dispatch(up);
+    CHECK_FALSE(up_result.layout_changed);
+}
+
+TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
+          "repeatedly without shell text corruption") {
+    constexpr int W = 720;
+    constexpr int H = 520;
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_user_stylesheet(R"CSS(
+        html, body { width: 720px; height: 520px; margin: 0; padding: 0; }
+        #aui-root {
+            width: 720px;
+            height: 520px;
+            min-height: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        .ge-app { width: 720px; height: 520px; display: flex; flex-direction: column; }
+        .dcs-menubar { flex: 0 0 24px; display: flex; align-items: center; }
+        .dcs-statusbar { flex: 0 0 20px; display: flex; align-items: center; }
+        .dcs-dock { display: flex; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dock--floathost { position: relative; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+        .dcs-dockpane--center { flex: 1; }
+        .dcs-dockpane__tabbar { flex: 0 0 24px; display: flex; min-width: 0; }
+        .dcs-dockpane__tabs { display: flex; min-width: 0; }
+        .dcs-dockpane__tab { display: inline-flex; padding: 0 12px; white-space: nowrap; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-panel--floating { position: absolute; }
+        [hidden] { display: none; }
+    )CSS");
+
+    auto rebuild = [&]() {
+        affineui::View v{affineui::ViewTheme::Decius};
+        v.set_dock_placement_provider([&](std::string_view id) {
+            return doc.dock_override(id);
+        });
+        v.set_dock_active_tab_provider([&](std::string_view id) {
+            return doc.dock_active_tab(id);
+        });
+        v.begin();
+        {
+            auto app = v.container("ge-app", "app");
+            (void) app;
+            {
+                auto menu = v.container("dcs-menubar", "menubar");
+                (void) menu;
+                v.text("File Edit Build", "menu-text");
+            }
+            v.document_view("workarea", [&](affineui::View& dv) {
+                dv.document(
+                    [](affineui::View& p) { p.text("Viewport", "viewport-text"); },
+                    "View", "cube");
+                dv.dockpanel(
+                    "Hierarchy",
+                    affineui::DockLocation::docked(affineui::Dock::Left, 240),
+                    [](affineui::View& p) { p.text("WorldRoot Hero mesh", "hierarchy-text"); },
+                    "layers", "Hierarchy");
+                auto assets = dv.dockpanel(
+                    "Assets",
+                    affineui::DockLocation::docked(affineui::Dock::Bottom, 110),
+                    [](affineui::View& p) { p.text("Hero Albedo Rig Shot", "assets-text"); },
+                    "image", "Assets");
+                dv.dockpanel(
+                    "Console", affineui::DockLocation::tab().in(assets),
+                    [](affineui::View& p) { p.text("READY Scene loaded", "console-text"); },
+                    "file", "Console");
+            });
+            {
+                auto status = v.container("dcs-statusbar", "statusbar");
+                (void) status;
+                v.text("READY 60 FPS", "status-text");
+            }
+        }
+        v.end();
+        doc.set_html(v.to_html_document());
+        doc.attach_script(affineui::DocumentScript::UiControls);
+        doc.layout(W, H, &painter);
+    };
+
+    auto bounds_for_attr = [&](std::string_view name, std::string_view value) {
+        const auto p = find_hovered_attr(doc, name, value, W, H);
+        REQUIRE(p.x >= 0);
+        for (const auto& info : doc.hovered_info_chain()) {
+            for (const auto& attr : info.attrs) {
+                if (attr.first == name && attr.second == value) {
+                    return info.bounds;
+                }
+            }
+        }
+        FAIL("missing bounds for expected element");
+        return affineui::Rect{};
+    };
+    auto assert_shell_text = [&]() {
+        const auto menu = bounds_for_attr("data-aui-name", "menubar");
+        const auto status = bounds_for_attr("data-aui-name", "statusbar");
+        CHECK(menu.w > 600);
+        CHECK(status.w > 600);
+        CHECK(status.y > menu.y);
+        painter.text_draws.clear();
+        doc.draw(painter);
+        bool saw_status = false;
+        bool saw_menu = false;
+        for (const auto& draw : painter.text_draws) {
+            if (draw.text == "READY 60 FPS") {
+                saw_status = true;
+                CHECK(draw.max_width > 80.0f);
+            }
+            if (draw.text == "File Edit Build") {
+                saw_menu = true;
+                CHECK(draw.max_width > 100.0f);
+            }
+        }
+        CHECK(saw_status);
+        CHECK(saw_menu);
+    };
+
+    auto ev = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        const auto result = doc.dispatch(e);
+        if (result.layout_changed) rebuild();
+    };
+
+    auto drag_console_to = [&](affineui::Point target) {
+        const auto tab = find_hovered_attr(doc, "data-dcs-target",
+                                           "#Console-body", W, H);
+        REQUIRE(tab.x >= 0);
+        ev(affineui::EventType::MouseDown, tab);
+        ev(affineui::EventType::MouseMove, target);
+        ev(affineui::EventType::MouseUp, target);
+    };
+
+    rebuild();
+    for (int i = 0; i < 3; ++i) {
+        const auto hierarchy = bounds_for_attr("data-aui-name", "pane-Hierarchy");
+        drag_console_to({hierarchy.x + hierarchy.w / 2,
+                         hierarchy.y + std::max(1, hierarchy.h - 4)});
+        auto console = doc.dock_override("Console");
+        CHECK(console.present);
+        CHECK_FALSE(console.floating);
+        CHECK(console.parent == "Hierarchy");
+        CHECK(console.side == 3);
+        assert_shell_text();
+
+        const auto assets = bounds_for_attr("data-aui-name", "pane-Assets");
+        drag_console_to({assets.x + assets.w / 2,
+                         assets.y + assets.h / 2});
+        console = doc.dock_override("Console");
+        CHECK(console.present);
+        CHECK_FALSE(console.floating);
+        CHECK(console.parent == "Assets");
+        CHECK(console.side == 4);
+        assert_shell_text();
+    }
+}
+
+TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
+          "document body") {
+    constexpr int W = 720;
+    constexpr int H = 520;
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_user_stylesheet(R"CSS(
+        html, body { width: 720px; height: 520px; margin: 0; padding: 0; }
+        #aui-root {
+            width: 720px;
+            height: 520px;
+            min-height: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        .ge-app { width: 720px; height: 520px; display: flex; flex-direction: column; }
+        .dcs-menubar { flex: 0 0 24px; display: flex; align-items: center; }
+        .dcs-statusbar { flex: 0 0 20px; display: flex; align-items: center; }
+        .dcs-dock { display: flex; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dock--floathost { position: relative; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+        .dcs-dockpane--center { flex: 1; }
+        .dcs-dockpane__tabbar { flex: 0 0 24px; display: flex; min-width: 0; }
+        .dcs-dockpane__tabs { display: flex; min-width: 0; }
+        .dcs-dockpane__tab { display: inline-flex; padding: 0 12px; white-space: nowrap; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-panel--floating { position: absolute; }
+        [hidden] { display: none; }
+    )CSS");
+
+    auto rebuild = [&]() {
+        affineui::View v{affineui::ViewTheme::Decius};
+        v.set_dock_placement_provider([&](std::string_view id) {
+            return doc.dock_override(id);
+        });
+        v.set_dock_active_tab_provider([&](std::string_view id) {
+            return doc.dock_active_tab(id);
+        });
+        v.begin();
+        {
+            auto app = v.container("ge-app", "app");
+            (void) app;
+            {
+                auto menu = v.container("dcs-menubar", "menubar");
+                (void) menu;
+                v.text("File Edit Build", "menu-text");
+            }
+            v.document_view("workarea", [&](affineui::View& dv) {
+                dv.document(
+                    [](affineui::View& p) { p.text("Viewport", "viewport-text"); },
+                    "View", "cube");
+                dv.dockpanel(
+                    "Hierarchy",
+                    affineui::DockLocation::docked(affineui::Dock::Left, 240),
+                    [](affineui::View& p) { p.text("WorldRoot Hero mesh", "hierarchy-text"); },
+                    "layers", "Hierarchy");
+                auto assets = dv.dockpanel(
+                    "Assets",
+                    affineui::DockLocation::docked(affineui::Dock::Bottom, 110),
+                    [](affineui::View& p) { p.text("Hero Albedo Rig Shot", "assets-text"); },
+                    "image", "Assets");
+                dv.dockpanel(
+                    "Console", affineui::DockLocation::tab().in(assets),
+                    [](affineui::View& p) { p.text("READY Scene loaded", "console-text"); },
+                    "file", "Console");
+            });
+            {
+                auto status = v.container("dcs-statusbar", "statusbar");
+                (void) status;
+                v.text("READY 60 FPS", "status-text");
+            }
+        }
+        v.end();
+        doc.set_html(v.to_html_document());
+        doc.attach_script(affineui::DocumentScript::UiControls);
+        doc.layout(W, H, &painter);
+    };
+
+    auto bounds_for_attr = [&](std::string_view name, std::string_view value) {
+        const auto p = find_hovered_attr(doc, name, value, W, H);
+        REQUIRE(p.x >= 0);
+        for (const auto& info : doc.hovered_info_chain()) {
+            for (const auto& attr : info.attrs) {
+                if (attr.first == name && attr.second == value) {
+                    return info.bounds;
+                }
+            }
+        }
+        FAIL("missing bounds for expected element");
+        return affineui::Rect{};
+    };
+    auto bounds_for_attr_nearby = [&](std::string_view name,
+                                      std::string_view value) {
+        const auto p = find_hovered_attr(doc, name, value, W, H + 80);
+        REQUIRE(p.x >= 0);
+        for (const auto& info : doc.hovered_info_chain()) {
+            for (const auto& attr : info.attrs) {
+                if (attr.first == name && attr.second == value) {
+                    return info.bounds;
+                }
+            }
+        }
+        FAIL("missing bounds for expected element");
+        return affineui::Rect{};
+    };
+    auto bounds_for_id = [&](std::string_view id) {
+        const auto p = find_hovered_chain_id(doc, id, W, H);
+        REQUIRE(p.x >= 0);
+        return hovered_bounds_for_id(doc, id);
+    };
+    auto ev = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        const auto result = doc.dispatch(e);
+        if (result.layout_changed) rebuild();
+        return result;
+    };
+
+    rebuild();
+    const auto doc_body = bounds_for_id("__document__-body");
+    const affineui::Point drop{
+        doc_body.x + doc_body.w / 2,
+        doc_body.y + doc_body.h / 2};
+    const auto tab = find_hovered_attr(doc, "data-dcs-target",
+                                       "#Console-body", W, H);
+    REQUIRE(tab.x >= 0);
+
+    ev(affineui::EventType::MouseDown, tab);
+    ev(affineui::EventType::MouseMove, drop);
+    ev(affineui::EventType::MouseUp, drop);
+
+    const auto console = doc.dock_override("Console");
+    CHECK(console.present);
+    CHECK(console.floating);
+    CHECK(console.w == 320);
+    CHECK(console.h == 240);
+
+    const auto doc_body_after = bounds_for_id("__document__-body");
+    const auto floating = bounds_for_attr("data-aui-name", "float-Console");
+    CHECK(floating.w == 320);
+    CHECK(floating.h == 240);
+    CHECK(floating.x >= doc_body_after.x);
+    CHECK(floating.y >= doc_body_after.y);
+    CHECK(floating.x + floating.w <= doc_body_after.x + doc_body_after.w);
+    CHECK(floating.y + floating.h <= doc_body_after.y + doc_body_after.h);
+
+    const auto assets = bounds_for_attr_nearby("data-aui-name", "pane-Assets");
+    const auto status = bounds_for_attr_nearby("data-aui-name", "statusbar");
+    CHECK(std::abs((assets.y + assets.h) - status.y) <= 1);
+}
+
+TEST_CASE("UiControls: a 'panels' tab dropped on the document body does NOT dock "
+          "(dock-kind mismatch) — it tears off") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost { position: relative; width: 600px; height: 400px; display: flex; }
+        .dcs-dockpane { height: 400px; display: flex; flex-direction: column; }
+        .dcs-dockpane--center { flex: 1; }
+        .side { flex: 0 0 200px; }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .dcs-dockpane__body { flex: 1; }
+        [hidden] { display: none; }
+        </style>
+        <div class="dcs-dock dcs-dock--floathost">
+          <section class="dcs-dockpane dcs-dockpane--center" data-aui-name="pane-__document__">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#doc-body">Doc</button>
+            </div></div><div class="dcs-dockpane__body" id="doc-body">doc</div>
+          </section>
+          <section class="dcs-dockpane side" data-aui-name="pane-P">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button id="tabP" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#P-body">P</button>
+            </div></div><div class="dcs-dockpane__body" id="P-body">p</div>
+          </section>
+        </div>
+    )HTML");
+    doc.layout(600, 400, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    auto ev = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{}; e.type = t; e.button = affineui::MouseButton::Left;
+        e.pos = p; doc.dispatch(e);
+    };
+    auto tabP = find_hovered_id(doc, "tabP", 600, 400);
+    REQUIRE(tabP.x >= 0);
+    ev(affineui::EventType::MouseDown, tabP);
+    ev(affineui::EventType::MouseMove, {220, 220});  // over the document BODY
+    ev(affineui::EventType::MouseUp, {220, 220});
+    const auto ov = doc.dock_override("P");
+    // No dock into the document (kind mismatch) -> it tore off into a float.
+    CHECK(ov.present == true);
+    CHECK(ov.floating == true);
+}
+
+TEST_CASE("UiControls: moving floating tearoff chrome does not re-dock the "
+          "panel") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost { position: relative; width: 600px; height: 400px; display: flex; }
+        .target { flex: 0 0 280px; height: 400px; display: flex; flex-direction: column; }
+        .doc-host { position: absolute; left: 300px; top: 30px; width: 260px; height: 320px; }
+        .dcs-panel--floating { position: absolute; left: 330px; top: 40px; width: 180px; height: 150px; }
+        .dcs-panel--floating > .dcs-dockpane { width: 100%; height: 100%; display: flex; flex-direction: column; }
+        .dcs-panel__header { height: 30px; display: flex; }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .move-zone { flex: 1; display: block; }
+        .dcs-dockpane__body { flex: 1; }
+        </style>
+        <div class="dcs-dock dcs-dock--floathost">
+          <section class="dcs-dockpane target" data-aui-name="pane-A">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button id="tabA" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#A-body">A</button>
+            </div></div><div class="dcs-dockpane__body" id="A-body">A</div>
+          </section>
+          <div class="doc-host" data-dcs-float-host></div>
+          <section class="dcs-panel dcs-panel--floating" data-dcs-drag
+                   data-dcs-drag-bounds=".dcs-dock--floathost" data-dcs-dock-id="P">
+            <section class="dcs-dockpane dcs-dockpane--title-only" data-aui-name="pane-P">
+              <header class="dcs-panel__header dcs-dockpane__titlebar" data-dcs-drag-handle>
+                <button id="tabP" class="dcs-dockpane__tab dcs-panel__title dcs-panel__title--dock-tab"
+                        aria-selected="true" data-dcs-title-tab data-dcs-target="#P-body">P</button>
+                <span id="moveHandle" class="move-zone" data-dcs-drag-handle></span>
+              </header>
+              <div class="dcs-dockpane__body" id="P-body">P</div>
+            </section>
+          </section>
+        </div>
+    )HTML");
+    doc.layout(600, 400, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto ev = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        doc.dispatch(e);
+    };
+    auto grip = find_hovered_id(doc, "moveHandle", 600, 400);
+    REQUIRE(grip.x >= 0);
+    ev(affineui::EventType::MouseDown, grip);
+    ev(affineui::EventType::MouseMove, {140, 160});
+    ev(affineui::EventType::MouseUp, {140, 160});
+
+    const auto ov = doc.dock_override("P");
+    CHECK(ov.present == true);
+    CHECK(ov.floating == true);
+    CHECK(ov.x >= 300);
+    CHECK(ov.y >= 30);
+}
+
+TEST_CASE("UiControls: dragging a floating tearoff title tab re-docks it") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost { position: relative; width: 600px; height: 400px; display: flex; }
+        .target { flex: 0 0 280px; height: 400px; display: flex; flex-direction: column; }
+        .doc-host { position: absolute; left: 300px; top: 30px; width: 260px; height: 320px; }
+        .dcs-panel--floating { position: absolute; left: 330px; top: 40px; width: 180px; height: 150px; }
+        .dcs-panel--floating > .dcs-dockpane { width: 100%; height: 100%; display: flex; flex-direction: column; }
+        .dcs-panel__header { height: 30px; display: flex; }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .move-zone { flex: 1; display: block; }
+        .dcs-dockpane__body { flex: 1; }
+        </style>
+        <div class="dcs-dock dcs-dock--floathost">
+          <section class="dcs-dockpane target" data-aui-name="pane-A">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button id="tabA" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#A-body">A</button>
+            </div></div><div class="dcs-dockpane__body" id="A-body">A</div>
+          </section>
+          <div class="doc-host" data-dcs-float-host></div>
+          <section class="dcs-panel dcs-panel--floating" data-dcs-drag
+                   data-dcs-drag-bounds=".dcs-dock--floathost" data-dcs-dock-id="P">
+            <section class="dcs-dockpane dcs-dockpane--title-only" data-aui-name="pane-P">
+              <header class="dcs-panel__header dcs-dockpane__titlebar" data-dcs-drag-handle>
+                <button id="tabP" class="dcs-dockpane__tab dcs-panel__title dcs-panel__title--dock-tab"
+                        aria-selected="true" data-dcs-title-tab data-dcs-target="#P-body">P</button>
+                <span class="move-zone" data-dcs-drag-handle></span>
+              </header>
+              <div class="dcs-dockpane__body" id="P-body">P</div>
+            </section>
+          </section>
+        </div>
+    )HTML");
+    doc.layout(600, 400, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto ev = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        doc.dispatch(e);
+    };
+    auto tab = find_hovered_id(doc, "tabP", 600, 400);
+    REQUIRE(tab.x >= 0);
+    ev(affineui::EventType::MouseDown, tab);
+    ev(affineui::EventType::MouseMove, {140, 200});
+    ev(affineui::EventType::MouseUp, {140, 200});
+
+    const auto ov = doc.dock_override("P");
+    CHECK(ov.present == true);
+    CHECK(ov.floating == false);
+    CHECK(ov.parent == "A");
+    CHECK(ov.side == 4);  // Dock::Tab
+}
+
+TEST_CASE("UiControls: document-kind tabs do not enter the panel tearoff path") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost { position: relative; width: 600px; height: 400px; display: flex; }
+        .dcs-dockpane { flex: 1; height: 400px; display: flex; flex-direction: column; }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .dcs-dockpane__body { flex: 1; }
+        </style>
+        <div class="dcs-dock dcs-dock--floathost">
+          <section class="dcs-dockpane dcs-dockpane--center" data-aui-name="pane-__document__">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button id="docTab" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#doc-body">Doc</button>
+            </div></div><div class="dcs-dockpane__body" id="doc-body">doc</div>
+          </section>
+        </div>
+    )HTML");
+    doc.layout(600, 400, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto ev = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        doc.dispatch(e);
+    };
+    auto tab = find_hovered_id(doc, "docTab", 600, 400);
+    REQUIRE(tab.x >= 0);
+    ev(affineui::EventType::MouseDown, tab);
+    ev(affineui::EventType::MouseMove, {500, 220});
+    ev(affineui::EventType::MouseUp, {500, 220});
+
+    CHECK(doc.dock_override("__document__").present == false);
+}
+
+TEST_CASE("UiControls: splitter is inert without the script attached") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dock { display: flex; width: 440px; height: 200px; }
+        .left  { flex: 0 0 200px; min-width: 0; }
+        .right { flex: 0 0 200px; min-width: 0; }
+        .split { flex: 0 0 8px; background: #888; }
+        </style>
+        <div class="dock">
+            <div id="left" class="left">L</div>
+            <div id="split" class="split" data-dcs-splitter="v"></div>
+            <div id="right" class="right">R</div>
+        </div>
+    )HTML");
+    doc.layout(440, 200, &painter);
+    // No attach_script -> dragging the splitter must not resize anything.
+    auto split_p = find_hovered_id(doc, "split", 440, 200);
+    REQUIRE(split_p.x >= 0);
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = split_p;
+    doc.dispatch(down);
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {split_p.x + 40, split_p.y};
+    doc.dispatch(move);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = {split_p.x + 40, split_p.y};
+    doc.dispatch(up);
+    doc.layout(440, 200, &painter);
+    auto left_after = find_hovered_id(doc, "left", 440, 200);
+    REQUIRE(left_after.x >= 0);
+    CHECK(doc.hovered_info().bounds.w == 200);
 }

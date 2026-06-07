@@ -33,6 +33,26 @@ affineui::ViewTheme style_from_args(int argc, char** argv) {
     return affineui::ViewTheme::Bootstrap;
 }
 
+bool high_dpi_from_args(int argc, char** argv) {
+    bool high_dpi = true;
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg{argv[i]};
+        std::string_view value;
+        if (arg == "--dpi" && i + 1 < argc) {
+            value = argv[++i];
+        } else if (arg.starts_with("--dpi=")) {
+            value = arg.substr(6);
+        }
+
+        if (value == "retina" || value == "high" || value == "hidpi") {
+            high_dpi = true;
+        } else if (value == "normal" || value == "1x") {
+            high_dpi = false;
+        }
+    }
+    return high_dpi;
+}
+
 std::string_view style_name(affineui::ViewTheme style) {
     switch (style) {
         case affineui::ViewTheme::Decius:    return "decius";
@@ -207,6 +227,7 @@ affineui::View build_view(affineui::ViewTheme style) {
 
 int main(int argc, char** argv) {
     const auto style = style_from_args(argc, argv);
+    const bool high_dpi = high_dpi_from_args(argc, argv);
 
     affineui::App::Config config;
     config.title = "AffineUI - command panel (";
@@ -215,6 +236,7 @@ int main(int argc, char** argv) {
     config.width = 720;
     config.height = 520;
     config.asset_folders = {"examples", "."};
+    config.high_dpi = high_dpi;
 
     affineui::App app{config};
     app.load_view(build_view(style));

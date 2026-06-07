@@ -56,6 +56,9 @@ from lexbor_cpp_compat import (copy_source_tree, default_platform,
 PUBLIC_HEADERS = [
     "include/affineui/version.h",
     "include/affineui/types.h",
+    "include/affineui/weak_ref.h",    # versioned weak refs; depends on types.h
+    "include/affineui/callback.h",    # safe callbacks; depends on weak_ref.h
+    "include/affineui/keymap.h",      # keybindings; depends on types.h
     "include/affineui/embed.h",       # depends only on types.h; before renderer/ui
     "include/affineui/themes.h",
     "include/affineui/geom.h",

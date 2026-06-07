@@ -85,6 +85,10 @@ function(affineui_add_sdl_example name)
     affineui_copy_example_browser_files(${name})
 endfunction()
 
+# Shared app/DCC tool-core template that the showcase samples build on
+# (#include "affineui_app.h"). EXAMPLE code — the library never depends on it.
+add_subdirectory(common/app)
+
 add_subdirectory(00_hello)
 add_subdirectory(01_bootstrap)
 add_subdirectory(02_hello_sdl)

@@ -15,6 +15,7 @@ namespace affineui::detail {
 #if defined(AFFINEUI_STUB_BUILD)
 
 void layout_blocks_with_yoga(int /*viewport_width_px*/,
+                             int /*viewport_height_px*/,
                              std::span<const BlockLayoutInput> /*inputs*/,
                              std::span<Rect> out_bounds,
                              Painter* /*measurer*/,
@@ -113,7 +114,8 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
                  bool suppress_auto_margin_right,
                  const std::array<GridTrackHint, kMaxGridTrackHints>&
                      grid_columns,
-                 std::uint8_t grid_column_count) {
+                 std::uint8_t grid_column_count,
+                 int viewport_width, int viewport_height) {
     // ── Box-sizing ─────────────────────────────────────────────────
     // Yoga's *default* is border-box, but the CSS default is
     // content-box (width/height size the content; padding+border add
@@ -170,6 +172,45 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
             else
                 YGNodeStyleSetPosition(node, YGEdgeLeft,
                     static_cast<float>(cs.inset_left));
+        }
+
+        // `position: fixed` resolves against the VIEWPORT (the initial
+        // containing block), not its DOM/Yoga parent. Yoga maps fixed→absolute
+        // and would otherwise resolve insets / percentage sizes against the
+        // (content-sized) parent — collapsing a `fixed; inset:0` shell to zero
+        // height and taking the whole app layout down with it. So when the
+        // viewport size is known, give a fixed box its viewport-derived size
+        // directly: opposing insets (e.g. inset:0) define the size, and a
+        // percentage height/width resolves against the viewport. Only fill in
+        // dimensions the author left auto.
+        if (cs.position == ComputedStyle::Position::Fixed &&
+            viewport_width > 0 && viewport_height > 0) {
+            const float vw = static_cast<float>(viewport_width);
+            const float vh = static_cast<float>(viewport_height);
+            const bool auto_w = cs.width < 0 && cs.width_pct_x100 < 0;
+            const bool auto_h = cs.height < 0 && cs.height_pct < 0;
+            if (auto_w && cs.inset_has.left && cs.inset_has.right) {
+                const float l = cs.inset_has.left_pct
+                    ? vw * (cs.inset_left / 100.0f) : float(cs.inset_left);
+                const float r = cs.inset_has.right_pct
+                    ? vw * (cs.inset_right / 100.0f) : float(cs.inset_right);
+                YGNodeStyleSetWidth(node, std::max(0.0f, vw - l - r));
+            }
+            if (auto_h && cs.inset_has.top && cs.inset_has.bottom) {
+                const float t = cs.inset_has.top_pct
+                    ? vh * (cs.inset_top / 100.0f) : float(cs.inset_top);
+                const float b = cs.inset_has.bottom_pct
+                    ? vh * (cs.inset_bottom / 100.0f) : float(cs.inset_bottom);
+                YGNodeStyleSetHeight(node, std::max(0.0f, vh - t - b));
+            }
+            // A percentage size on a fixed box resolves against the viewport
+            // (Yoga can't, since the parent's size is indefinite).
+            if (cs.height_pct >= 0) {
+                YGNodeStyleSetHeight(node, vh * (cs.height_pct / 100.0f));
+            }
+            if (cs.width_pct_x100 >= 0) {
+                YGNodeStyleSetWidth(node, vw * (cs.width_pct_x100 / 10000.0f));
+            }
         }
     }
     if (cs.css_float != ComputedStyle::Float::None && !flex_parent) {
@@ -596,6 +637,7 @@ float baseline_cb(YGNodeConstRef node, float /*width*/, float height) {
 }
 
 void layout_blocks_with_yoga(int viewport_width_px,
+                             int viewport_height_px,
                              std::span<const BlockLayoutInput> inputs,
                              std::span<Rect> out_bounds,
                              Painter* measurer,
@@ -690,7 +732,8 @@ void layout_blocks_with_yoga(int viewport_width_px,
                     auto_margin_overrides[i].left,
                     auto_margin_overrides[i].right,
                     inputs[i].grid_columns,
-                    inputs[i].grid_column_count);
+                    inputs[i].grid_column_count,
+                    viewport_width_px, viewport_height_px);
 
         // Wire the measure callback for text-bearing leaves. Yoga
         // will call back during layout with the constraint width;

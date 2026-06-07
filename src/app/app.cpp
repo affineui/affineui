@@ -133,6 +133,16 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
     if (result.redraw_requested || result.invalidate_view) {
         impl.dirty = true;
     }
+    if (result.layout_changed && impl.config.on_layout_changed) {
+        try {
+            impl.config.on_layout_changed();
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "AffineUI on_layout_changed failed: %s\n",
+                         e.what());
+        } catch (...) {
+            std::fprintf(stderr, "AffineUI on_layout_changed failed\n");
+        }
+    }
 
     bool consumed = result.redraw_requested || result.invalidate_view;
     if (ev.type == EventType::MouseUp && ev.button == MouseButton::Left &&
@@ -256,6 +266,7 @@ void App::load_view(const View& view) {
 }
 bool App::load_html_file(std::string_view)     { return false; }
 void App::set_stylesheet(std::string_view css) { impl_->document.set_user_stylesheet(css); impl_->dirty = true; impl_->animations_active = false; }
+void App::set_stylesheet(std::string_view css, std::string_view base_url) { impl_->document.set_user_stylesheet(css, base_url); impl_->dirty = true; impl_->animations_active = false; }
 void App::mount(std::function<void()> view_fn) { impl_->view_fn = std::move(view_fn); impl_->dirty = true; impl_->animations_active = false; }
 void App::invalidate() { impl_->dirty = true; impl_->animations_active = false; }
 
@@ -298,6 +309,7 @@ sapp_mouse_cursor map_cursor(int c) {
         case 6: return SAPP_MOUSECURSOR_RESIZE_EW;
         case 7: return SAPP_MOUSECURSOR_RESIZE_NS;
         case 8: return SAPP_MOUSECURSOR_RESIZE_NWSE;
+        case 9: return SAPP_MOUSECURSOR_RESIZE_NESW;
         default: return SAPP_MOUSECURSOR_DEFAULT;
     }
 }
@@ -315,12 +327,18 @@ Key key_to_affine(int sapp_keycode) {
         case SAPP_KEYCODE_DOWN:      return Key::ArrowDown;
         case SAPP_KEYCODE_HOME:      return Key::Home;
         case SAPP_KEYCODE_END:       return Key::End;
-        case SAPP_KEYCODE_A:         return Key::A;
-        case SAPP_KEYCODE_C:         return Key::C;
-        case SAPP_KEYCODE_V:         return Key::V;
-        case SAPP_KEYCODE_X:         return Key::X;
-        default:                     return Key::Unknown;
+        default: break;
     }
+    // Letters A–Z and digits 0–9 are contiguous in both enums; map by offset.
+    if (sapp_keycode >= SAPP_KEYCODE_A && sapp_keycode <= SAPP_KEYCODE_Z) {
+        return static_cast<Key>(
+            static_cast<int>(Key::A) + (sapp_keycode - SAPP_KEYCODE_A));
+    }
+    if (sapp_keycode >= SAPP_KEYCODE_0 && sapp_keycode <= SAPP_KEYCODE_9) {
+        return static_cast<Key>(
+            static_cast<int>(Key::Digit0) + (sapp_keycode - SAPP_KEYCODE_0));
+    }
+    return Key::Unknown;
 }
 
 void apply_modifiers(Event& out, std::uint32_t modifiers) {

@@ -44,7 +44,7 @@ BlockLayoutInput make_input(const ComputedStyle& cs,
 std::vector<Rect> run(int viewport_w,
                       std::vector<BlockLayoutInput> inputs) {
     std::vector<Rect> out(inputs.size());
-    layout_blocks_with_yoga(viewport_w, inputs, out, nullptr);
+    layout_blocks_with_yoga(viewport_w, 0, inputs, out, nullptr);
     return out;
 }
 
@@ -206,6 +206,42 @@ TEST_CASE("fixed positioned children resolve against the viewport") {
     CHECK(out[1].y == 5);
 }
 
+TEST_CASE("position:fixed inset:0 fills the viewport so a flex column distributes") {
+    // Regression: a `position:fixed; inset:0` app shell must size to the
+    // viewport (not its content-sized parent) — otherwise a flex-column shell
+    // collapses to zero and its flex:1 child (the dock work area) disappears.
+    // This was the root cause of the whole dock layout collapsing.
+    ComputedStyle shell{};
+    shell.position = ComputedStyle::Position::Fixed;
+    shell.display = ComputedStyle::Display::Flex;
+    shell.flex_direction = ComputedStyle::FlexDirection::Column;
+    shell.inset_top = shell.inset_right = shell.inset_bottom = shell.inset_left = 0;
+    shell.inset_has.top = shell.inset_has.right =
+        shell.inset_has.bottom = shell.inset_has.left = 1;
+
+    ComputedStyle bar{};        // fixed-height top/bottom bars
+    bar.flex_grow = 0; bar.flex_shrink = 0; bar.flex_basis = 40;
+    ComputedStyle grow{};       // the work area: flex:1, min-height:0
+    grow.flex_grow = 1; grow.flex_shrink = 1; grow.min_height = 0;
+
+    std::vector<BlockLayoutInput> inputs{
+        make_input(shell),
+        make_input(bar,  0, /*parent=*/0),
+        make_input(grow, 0, /*parent=*/0),
+        make_input(bar,  0, /*parent=*/0),
+    };
+    std::vector<Rect> out(inputs.size());
+    layout_blocks_with_yoga(1024, 768, inputs, out, nullptr);
+
+    REQUIRE(out.size() == 4);
+    CHECK(out[0].h == 768);        // shell fills the viewport height
+    CHECK(out[0].w == 1024);
+    CHECK(out[1].h == 40);         // top bar
+    CHECK(out[2].h == 768 - 80);   // grow fills the remainder (768 - two 40px bars)
+    CHECK(out[2].y == 40);         // positioned after the top bar
+    CHECK(out[3].y == 768 - 40);   // bottom bar pinned to the bottom
+}
+
 TEST_CASE("fractional absolute insets are preserved for paint") {
     ComputedStyle parent{};
     parent.position = ComputedStyle::Position::Relative;
@@ -232,7 +268,7 @@ TEST_CASE("fractional absolute insets are preserved for paint") {
     };
     std::vector<Rect> out(inputs.size());
     std::vector<RectF> out_f(inputs.size());
-    layout_blocks_with_yoga(200, inputs, out, nullptr, out_f);
+    layout_blocks_with_yoga(200, 0, inputs, out, nullptr, out_f);
 
     REQUIRE(out.size() == 2);
     CHECK(out[1].y == 34);

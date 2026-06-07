@@ -37,6 +37,20 @@ public:
         std::string value;
     };
 
+    /// A runtime override of a dockable panel's placement, produced by
+    /// drag-to-dock / tearoff interactions and read back by the app so the next
+    /// resolve_dock re-seeds from it (the same "interaction → persist → re-seed"
+    /// rail as dock_pane_sizes, but for *structure* rather than just size).
+    /// `side` uses the View's Dock order: 0=Left,1=Right,2=Top,3=Bottom,4=Tab.
+    struct DockPlacement {
+        bool        present{false};   ///< false = no override for this panel
+        bool        floating{false};  ///< true = torn off into a floating panel
+        std::string parent;           ///< docked: target pane id ("" = document)
+        int         side{0};          ///< docked: Dock side
+        int         size{0};          ///< docked: px flex-basis (0 = default)
+        int         x{0}, y{0}, w{0}, h{0};  ///< floating: rect in float-host px
+    };
+
     Document();
     ~Document();
 
@@ -51,6 +65,13 @@ public:
     /// Inject (or replace) the user stylesheet. Applied on top of the
     /// document's own <style> blocks and <link> imports.
     void set_user_stylesheet(std::string_view css);
+
+    /// As above, but `base_url` is the stylesheet's own location (e.g. the
+    /// directory a framework bundle was loaded from). url()s inside the sheet —
+    /// @font-face src, background images — resolve relative to it, exactly as
+    /// for a <link href=...>ed sheet. Without it, the sheet's relative url()s
+    /// have no base and will not resolve.
+    void set_user_stylesheet(std::string_view css, std::string_view base_url);
 
     /// Reapply stylesheets without re-parsing the DOM. Cheap; intended
     /// for hot-reload workflows.
@@ -85,6 +106,27 @@ public:
     /// Values are serialized strings so language bindings and remote
     /// transports can forward them without ABI-specific variant machinery.
     std::vector<WidgetChange> take_widget_changes();
+
+    /// The current fixed pixel size of every dock pane that has one, keyed by
+    /// the pane id (the dockpanel key). Reads the live flex-basis, so it
+    /// reflects splitter drags — the app persists this to restore the layout.
+    /// The flexible center/document pane (no fixed basis) is omitted.
+    [[nodiscard]] std::vector<std::pair<std::string, int>> dock_pane_sizes() const;
+
+    /// Runtime dock-placement override for a panel (empty `present=false` if the
+    /// panel has not been moved/torn-off this session). Set by drag-to-dock and
+    /// tearoff interactions; the app wires this into the View's dock-placement
+    /// provider so a rebuild re-seeds the moved/floating layout.
+    [[nodiscard]] DockPlacement dock_override(std::string_view panel_id) const;
+
+    /// All accumulated dock-placement overrides, for the app to persist.
+    [[nodiscard]] std::vector<std::pair<std::string, DockPlacement>>
+    dock_overrides() const;
+
+    /// Active tab for a dock leaf, keyed by the leaf/pane id. Empty means the
+    /// primary panel is active. Updated by dock-tab clicks so View can rebuild
+    /// inactive tab bodies as empty placeholders and create content on show.
+    [[nodiscard]] std::string dock_active_tab(std::string_view pane_id) const;
 
     /// Attach/detach optional C++ behavior scripts. This is the native
     /// equivalent of including a page script: without it, Document remains a

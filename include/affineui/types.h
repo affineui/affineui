@@ -61,10 +61,13 @@ enum class Key : std::uint16_t {
     ArrowDown,
     Home,
     End,
-    A,
-    C,
-    V,
-    X,
+    // Letters A–Z. Editing keys (A/C/V/X) live here too; DCC-style apps bind
+    // the full set for commands and tools (e.g. Ctrl Z undo, G/R/S transforms).
+    A, B, C, D, E, F, G, H, I, J, K, L, M,
+    N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
+    // Top-row digits 0–9.
+    Digit0, Digit1, Digit2, Digit3, Digit4,
+    Digit5, Digit6, Digit7, Digit8, Digit9,
 };
 
 enum class EventType : std::uint8_t {
@@ -102,6 +105,9 @@ struct Event {
 struct DispatchResult {
     bool redraw_requested{false};
     bool invalidate_view{false};
+    // Set when an interaction changed the dock layout (e.g. a splitter drag
+    // finished) so the app can persist the new arrangement.
+    bool layout_changed{false};
 };
 
 /// Resource loader hook. Given a URL ("app:///main.css", "https://...",

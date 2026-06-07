@@ -70,11 +70,11 @@ app.load_html("<main><h1>Hello</h1><p>Native sokol window.</p></main>")
 app.launch(native=True)
 ```
 
-Command-tree hello panel:
+Command-tree component gallery:
 
 ```powershell
-python bindings/python/examples/hello_panel.py
-python bindings/python/examples/hello_panel.py --style=decius
+python bindings/python/examples/component_gallery.py
+python bindings/python/examples/component_gallery.py --style=decius
 ```
 
 The example passes `asset_folders=["examples"]` to the app so framework
@@ -84,6 +84,6 @@ checked-in demo assets. If omitted, the default asset folder is `"."`.
 Headless check:
 
 ```powershell
-python bindings/python/examples/hello_panel.py --headless
-python bindings/python/examples/hello_panel.py --headless --style=decius
+python bindings/python/examples/component_gallery.py --headless
+python bindings/python/examples/component_gallery.py --headless --style=decius
 ```

@@ -1014,7 +1014,23 @@ void apply_transform_value(const lxb_css_property_transform_t& transform,
                 s.scale_y *= static_cast<float>(fn.numbers[1].num);
                 break;
             case LXB_CSS_TRANSFORM_FUNCTION_ROTATE:
+            case LXB_CSS_TRANSFORM_FUNCTION_ROTATE_Z:
+                // rotateZ() is an in-plane rotation about the Z axis — identical
+                // to the 2D rotate().
                 s.rotation += angle_to_radians(fn.angle);
+                break;
+            case LXB_CSS_TRANSFORM_FUNCTION_ROTATE_X:
+                // 2.5D approximation: a 2D rasterizer has no perspective, so a
+                // tilt about the X axis is shown as vertical foreshortening
+                // (scale Y by |cos θ|). Not a true 3D projection, but it keeps
+                // tilted/3D-styled elements (e.g. a faux-3D cube) recognizable
+                // instead of dropping the whole transform.
+                s.scale_y *= static_cast<float>(
+                    std::abs(std::cos(angle_to_radians(fn.angle))));
+                break;
+            case LXB_CSS_TRANSFORM_FUNCTION_ROTATE_Y:
+                s.scale_x *= static_cast<float>(
+                    std::abs(std::cos(angle_to_radians(fn.angle))));
                 break;
             case LXB_CSS_TRANSFORM_FUNCTION_MATRIX:
                 s.scale_x *= static_cast<float>(fn.numbers[0].num);
