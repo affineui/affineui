@@ -6727,8 +6727,7 @@ TEST_CASE("UiControls: dropping a dragged tab on another pane's edge zone docks 
     CHECK(ov.side == 0);  // Dock::Left
 }
 
-TEST_CASE("UiControls: a tab dropped within 32px of the dock-area edge docks to "
-          "the whole-area edge (parent=__document__), decius Ke") {
+TEST_CASE("UiControls: viewport edge docking does not steal a pane edge") {
     affineui::Document doc;
     RecordingPainter painter;
     doc.set_html(R"HTML(
@@ -6762,12 +6761,12 @@ TEST_CASE("UiControls: a tab dropped within 32px of the dock-area edge docks to 
     auto tabB = find_hovered_id(doc, "tabB", 600, 400);
     REQUIRE(tabB.x >= 0);
     ev(affineui::EventType::MouseDown, tabB);
-    ev(affineui::EventType::MouseMove, {8, 200});   // within 32px of the left edge
+    ev(affineui::EventType::MouseMove, {8, 200});   // pane edge wins under cursor
     ev(affineui::EventType::MouseUp, {8, 200});
     const auto ov = doc.dock_override("B");
     CHECK(ov.present == true);
     CHECK(ov.floating == false);
-    CHECK(ov.parent == "__document__");  // docked to the whole-area edge
+    CHECK(ov.parent == "A");
     CHECK(ov.side == 0);                 // Left
 }
 
@@ -7285,6 +7284,11 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
             bounds_for_attr("data-aui-name", "pane-Hierarchy");
         CHECK(std::abs(hierarchy.w - initial_hierarchy_w) <= 1);
     };
+    auto assert_hierarchy_body_visible = [&]() {
+        painter.text_draws.clear();
+        doc.draw(painter);
+        CHECK(find_text_draw(painter, "WorldRoot Hero mesh") != nullptr);
+    };
     for (int i = 0; i < 3; ++i) {
         const auto hierarchy = bounds_for_attr("data-aui-name", "pane-Hierarchy");
         drag_console_to({hierarchy.x + hierarchy.w / 2,
@@ -7308,6 +7312,76 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
         assert_hierarchy_width_stable();
         assert_shell_text();
     }
+
+    auto hierarchy = bounds_for_attr("data-aui-name", "pane-Hierarchy");
+    drag_console_to({hierarchy.x + hierarchy.w / 2,
+                     hierarchy.y + hierarchy.h / 2});
+    auto console = doc.dock_override("Console");
+    CHECK(console.present);
+    CHECK_FALSE(console.floating);
+    CHECK(console.parent == "Hierarchy");
+    CHECK(console.side == 4);
+    assert_shell_text();
+
+    hierarchy = bounds_for_attr("data-aui-name", "pane-Hierarchy");
+    drag_console_to({hierarchy.x + hierarchy.w / 2,
+                     hierarchy.y + std::max(1, hierarchy.h - 4)});
+    console = doc.dock_override("Console");
+    CHECK(console.present);
+    CHECK_FALSE(console.floating);
+    CHECK(console.parent == "Hierarchy");
+    CHECK(console.side == 3);
+    assert_hierarchy_width_stable();
+    assert_shell_text();
+
+    auto assets = bounds_for_attr("data-aui-name", "pane-Assets");
+    drag_console_to({assets.x + assets.w / 2,
+                     assets.y + assets.h / 2});
+    console = doc.dock_override("Console");
+    CHECK(console.present);
+    CHECK_FALSE(console.floating);
+    CHECK(console.parent == "Assets");
+    CHECK(console.side == 4);
+    assert_hierarchy_width_stable();
+    assert_shell_text();
+    assert_hierarchy_body_visible();
+
+    hierarchy = bounds_for_attr("data-aui-name", "pane-Hierarchy");
+    drag_console_to({hierarchy.x + hierarchy.w / 2,
+                     hierarchy.y + hierarchy.h / 2});
+    console = doc.dock_override("Console");
+    CHECK(console.present);
+    CHECK_FALSE(console.floating);
+    CHECK(console.parent == "Hierarchy");
+    CHECK(console.side == 4);
+
+    auto assets_body = bounds_for_attr("data-aui-name", "Assets-body");
+    drag_console_to({assets_body.x + assets_body.w / 2,
+                     assets_body.y + std::max(1, assets_body.h - 2)});
+    console = doc.dock_override("Console");
+    CHECK(console.present);
+    CHECK_FALSE(console.floating);
+    CHECK(console.parent == "Assets");
+    CHECK(console.side == 3);
+
+    hierarchy = bounds_for_attr("data-aui-name", "pane-Hierarchy");
+    drag_console_to({hierarchy.x + hierarchy.w / 2,
+                     hierarchy.y + hierarchy.h / 2});
+    console = doc.dock_override("Console");
+    CHECK(console.present);
+    CHECK_FALSE(console.floating);
+    CHECK(console.parent == "Hierarchy");
+    CHECK(console.side == 4);
+
+    assets_body = bounds_for_attr("data-aui-name", "Assets-body");
+    drag_console_to({assets_body.x + assets_body.w / 2,
+                     assets_body.y + 2});
+    console = doc.dock_override("Console");
+    CHECK(console.present);
+    CHECK_FALSE(console.floating);
+    CHECK(console.parent == "Assets");
+    CHECK(console.side == 2);
+    assert_shell_text();
 }
 
 TEST_CASE("UiControls: View panel tearoff uses a default size inside the "

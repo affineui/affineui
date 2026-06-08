@@ -10593,8 +10593,9 @@ bool tear_off_panel(detail::DocumentImpl& impl, std::string_view panel_id,
 
 // ── Drop zones (drag-to-dock / re-dock) ─────────────────────────────────────
 // Faithful port of decius.js Je/je/Ke (see [[decius-js-docking-algorithm]]):
-//  • Ke: within 32px of the dock area's outer edge -> dock to the WHOLE-AREA edge
-//        (parent = the document/root).
+//  • Ke: within 32px of the viewport outer edge -> dock to the WHOLE-AREA edge
+//        (parent = the document/root), unless a pane edge under the cursor is a
+//        better local target.
 //  • else the .dcs-dockpane under the cursor (dock-kind must match the dragged
 //    tab's kind): over its tabbar -> center (co-tab); else je() picks the
 //    nearest edge if within the outer 22%, else center. The document
@@ -10658,6 +10659,30 @@ bool point_over_pane_tabbar(detail::DocumentImpl& impl, lxb_dom_element_t* pane,
     return false;
 }
 
+bool selected_pane_body_bounds(detail::DocumentImpl& impl,
+                               lxb_dom_element_t* pane,
+                               Rect& out) {
+    if (!pane) return false;
+    lxb_dom_element_t* fallback = nullptr;
+    for (auto* c = lxb_dom_node_first_child(lxb_dom_interface_node(pane)); c;
+         c = lxb_dom_node_next(c)) {
+        if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* e = lxb_dom_interface_element(c);
+        if (!class_list_contains(e, "dcs-dockpane__body")) continue;
+        if (!fallback) fallback = e;
+        if (has_attr(e, "hidden")) continue;
+        const int bi = block_index_for_exact_element(impl, e);
+        if (bi < 0) return false;
+        out = impl.blocks[static_cast<std::size_t>(bi)].bounds;
+        return out.w > 0 && out.h > 0;
+    }
+    if (!fallback) return false;
+    const int bi = block_index_for_exact_element(impl, fallback);
+    if (bi < 0) return false;
+    out = impl.blocks[static_cast<std::size_t>(bi)].bounds;
+    return out.w > 0 && out.h > 0;
+}
+
 DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
                                std::string_view drag_kind) {
     DropTarget out;
@@ -10674,31 +10699,36 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
     if (!(pt.x >= hx && pt.x < hx + hw && pt.y >= hy && pt.y < hy + hh))
         return out;  // outside the dock area -> no target (caller tears off)
 
-    // (Ke) window-edge: outer 32px of the dock area -> dock to the area edge.
+    // (Ke) window-edge: JS checks the browser viewport, not the dock workarea.
+    // Keep the preview rect root-relative, but do the gesture band against the
+    // viewport so chrome below/above the dock does not make panel edges vanish.
     constexpr int kWin = 32;
-    DropZone we = DropZone::None;
-    if (pt.x < hx + kWin) we = DropZone::Left;
-    else if (pt.x > hx + hw - kWin) we = DropZone::Right;
-    else if (pt.y < hy + kWin) we = DropZone::Top;
-    else if (pt.y > hy + hh - kWin) we = DropZone::Bottom;
-    if (we != DropZone::None) {
-        out.parent = "__document__";
-        out.zone = we;
-        out.valid = true;
+    const int vw = viewport_width_for_overlay(impl);
+    const int vh = viewport_height_for_overlay(impl);
+    DropTarget window_edge;
+    if (pt.x < kWin) window_edge.zone = DropZone::Left;
+    else if (pt.x > vw - kWin) window_edge.zone = DropZone::Right;
+    else if (pt.y < kWin) window_edge.zone = DropZone::Top;
+    else if (pt.y > vh - kWin) window_edge.zone = DropZone::Bottom;
+    if (window_edge.zone != DropZone::None) {
+        window_edge.parent = "__document__";
+        window_edge.valid = true;
         const int sw = hw * 30 / 100, sh = hh * 30 / 100;
-        switch (we) {
-            case DropZone::Left:   out.x = 0;       out.y = 0;       out.w = sw; out.h = hh; break;
-            case DropZone::Right:  out.x = hw - sw; out.y = 0;       out.w = sw; out.h = hh; break;
-            case DropZone::Top:    out.x = 0;       out.y = 0;       out.w = hw; out.h = sh; break;
-            case DropZone::Bottom: out.x = 0;       out.y = hh - sh; out.w = hw; out.h = sh; break;
+        switch (window_edge.zone) {
+            case DropZone::Left:   window_edge.x = 0;       window_edge.y = 0;       window_edge.w = sw; window_edge.h = hh; break;
+            case DropZone::Right:  window_edge.x = hw - sw; window_edge.y = 0;       window_edge.w = sw; window_edge.h = hh; break;
+            case DropZone::Top:    window_edge.x = 0;       window_edge.y = 0;       window_edge.w = hw; window_edge.h = sh; break;
+            case DropZone::Bottom: window_edge.x = 0;       window_edge.y = hh - sh; window_edge.w = hw; window_edge.h = sh; break;
             default: break;
         }
-        return out;
     }
 
     // (Ne) the dock pane under the cursor (same dock-kind). Source panes are
     // still valid targets: dropping back onto the source center is a no-op
     // cancel, while source edge zones can split a tab beside its former stack.
+    // Pane edge drops win over the viewport band. This keeps shallow bottom
+    // panes (Assets/Console shelves) dockable on their own bottom edge even
+    // when they sit near the app's bottom chrome.
     // Walk later blocks first so floating overlays and nested hit targets win
     // over older docked panes that happen to sit underneath them.
     for (int i = static_cast<int>(impl.blocks.size()) - 1; i >= 0; --i) {
@@ -10722,11 +10752,22 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
             // corners become triangular ownership regions and narrow panes
             // keep usable side targets.
             constexpr double kT = 0.22;
-            const double x = b.w > 0
-                                 ? (pt.x - b.x) / static_cast<double>(b.w)
+            Rect zone_bounds = b;
+            Rect body_bounds{};
+            if (selected_pane_body_bounds(impl, e, body_bounds) &&
+                pt.x >= body_bounds.x &&
+                pt.x < body_bounds.x + body_bounds.w &&
+                pt.y >= body_bounds.y &&
+                pt.y < body_bounds.y + body_bounds.h) {
+                zone_bounds = body_bounds;
+            }
+            const double x = zone_bounds.w > 0
+                                 ? (pt.x - zone_bounds.x) /
+                                       static_cast<double>(zone_bounds.w)
                                  : 0.5;
-            const double y = b.h > 0
-                                 ? (pt.y - b.y) / static_cast<double>(b.h)
+            const double y = zone_bounds.h > 0
+                                 ? (pt.y - zone_bounds.y) /
+                                       static_cast<double>(zone_bounds.h)
                                  : 0.5;
             const double dists[] = {x, 1.0 - x, y, 1.0 - y};
             const DropZone zones[] = {DropZone::Left, DropZone::Right,
@@ -10741,6 +10782,7 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
             }
         }
         out.valid = true;
+        if (out.zone == DropZone::Tab && window_edge.valid) return window_edge;
         switch (out.zone) {
             case DropZone::Left:   out.x = lx;             out.y = ly;             out.w = b.w / 2; out.h = b.h;     break;
             case DropZone::Right:  out.x = lx + b.w - b.w / 2; out.y = ly;         out.w = b.w / 2; out.h = b.h;     break;
@@ -10750,6 +10792,7 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
         }
         return out;
     }
+    if (window_edge.valid) return window_edge;
     return out;
 }
 
