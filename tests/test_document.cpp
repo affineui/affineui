@@ -6907,6 +6907,89 @@ TEST_CASE("UiControls: dock preview uses the topmost element's dock ancestor") {
     CHECK(ov.floating);
 }
 
+TEST_CASE("UiControls: dock preview zones ignore active body offsets") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost {
+            position: relative;
+            width: 520px;
+            height: 360px;
+        }
+        .dcs-dockpane {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+        }
+        .target {
+            left: 20px;
+            top: 40px;
+            width: 320px;
+            height: 220px;
+        }
+        .source {
+            left: 380px;
+            top: 20px;
+            width: 110px;
+            height: 120px;
+        }
+        .dcs-dockpane__tabbar { flex: 0 0 24px; }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .dcs-dockpane__body { flex: 1; }
+        .target > .dcs-dockpane__body {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 130px;
+            height: 80px;
+        }
+        .dcs-drop { background: rgb(0,184,212); }
+        </style>
+        <div class="dcs-dock dcs-dock--floathost">
+          <section class="dcs-dockpane target" data-aui-name="pane-Target">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Target-body">Target</button>
+            </div></div><div class="dcs-dockpane__body" id="Target-body">Log text</div>
+          </section>
+          <section class="dcs-dockpane source" data-aui-name="pane-Source">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button id="tabSource" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Source-body">Source</button>
+            </div></div><div class="dcs-dockpane__body" id="Source-body">Source</div>
+          </section>
+          <div id="__dropind" class="dcs-drop dcs-drop--valid" hidden
+               style="position:absolute;pointer-events:none;z-index:200"></div>
+        </div>
+    )HTML");
+    doc.layout(520, 360, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    auto ev = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        doc.dispatch(e);
+    };
+
+    const auto tab = find_hovered_id(doc, "tabSource", 520, 360);
+    REQUIRE(tab.x >= 0);
+    ev(affineui::EventType::MouseDown, tab);
+    ev(affineui::EventType::MouseMove, {120, 190});
+    doc.layout(520, 360, &painter);
+    painter.fill_colors.clear();
+    painter.fill_draws.clear();
+    doc.draw(painter);
+
+    const auto* preview =
+        find_fill_draw(painter, affineui::Color::rgba(0, 184, 212, 46));
+    REQUIRE(preview != nullptr);
+    CHECK(preview->rect.x == 20);
+    CHECK(preview->rect.y == 40);
+    CHECK(preview->rect.w == 320);
+    CHECK(preview->rect.h == 220);
+}
+
 TEST_CASE("UiControls: floating tearoff targets accept tabs but not edge splits") {
     affineui::Document doc;
     RecordingPainter painter;

@@ -11067,28 +11067,36 @@ bool point_over_pane_tabbar(detail::DocumentImpl& impl, lxb_dom_element_t* pane,
     return false;
 }
 
-bool selected_pane_body_bounds(detail::DocumentImpl& impl,
-                               lxb_dom_element_t* pane,
-                               Rect& out) {
-    if (!pane) return false;
-    lxb_dom_element_t* fallback = nullptr;
+bool is_dockpane_top_chrome(lxb_dom_element_t* elem) {
+    return elem &&
+           (class_list_contains(elem, "dcs-dockpane__tabbar") ||
+            class_list_contains(elem, "dcs-dockpane__titlebar") ||
+            class_list_contains(elem, "dcs-dockpane__shelf"));
+}
+
+Rect dockpane_zone_bounds(detail::DocumentImpl& impl,
+                          lxb_dom_element_t* pane,
+                          Rect pane_bounds) {
+    if (!pane) return pane_bounds;
+    int top = pane_bounds.y;
+    const int bottom = pane_bounds.y + pane_bounds.h;
     for (auto* c = lxb_dom_node_first_child(lxb_dom_interface_node(pane)); c;
          c = lxb_dom_node_next(c)) {
         if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
         auto* e = lxb_dom_interface_element(c);
-        if (!class_list_contains(e, "dcs-dockpane__body")) continue;
-        if (!fallback) fallback = e;
-        if (has_attr(e, "hidden")) continue;
+        if (!is_dockpane_top_chrome(e)) continue;
         const int bi = block_index_for_exact_element(impl, e);
-        if (bi < 0) return false;
-        out = impl.blocks[static_cast<std::size_t>(bi)].bounds;
-        return out.w > 0 && out.h > 0;
+        if (bi < 0) continue;
+        const auto& cb = impl.blocks[static_cast<std::size_t>(bi)].bounds;
+        if (cb.w <= 0 || cb.h <= 0) continue;
+        if (cb.y <= top + 2 && cb.y + cb.h > top) {
+            top = std::min(bottom, std::max(top, cb.y + cb.h));
+        }
     }
-    if (!fallback) return false;
-    const int bi = block_index_for_exact_element(impl, fallback);
-    if (bi < 0) return false;
-    out = impl.blocks[static_cast<std::size_t>(bi)].bounds;
-    return out.w > 0 && out.h > 0;
+    if (top >= bottom) return pane_bounds;
+    pane_bounds.y = top;
+    pane_bounds.h = bottom - top;
+    return pane_bounds;
 }
 
 DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
@@ -11161,17 +11169,12 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
             // decides which edges are eligible, then the closest eligible edge
             // is chosen in pixels. That keeps top/bottom zones usable on very
             // wide shallow shelves, instead of compressing them into a few
-            // normalized-distance pixels near the midpoint.
+            // normalized-distance pixels near the midpoint. The tabbar/title
+            // chrome is already a center-tab target, so edge zones start at the
+            // stable content slot below chrome; active tab bodies may scroll,
+            // overflow, or be lazily recreated and should not warp the zones.
             constexpr double kT = 0.22;
-            Rect zone_bounds = b;
-            Rect body_bounds{};
-            if (selected_pane_body_bounds(impl, e, body_bounds) &&
-                pt.x >= body_bounds.x &&
-                pt.x < body_bounds.x + body_bounds.w &&
-                pt.y >= body_bounds.y &&
-                pt.y < body_bounds.y + body_bounds.h) {
-                zone_bounds = body_bounds;
-            }
+            Rect zone_bounds = dockpane_zone_bounds(impl, e, b);
             const double dx = pt.x - zone_bounds.x;
             const double dy = pt.y - zone_bounds.y;
             const double w = std::max(1, zone_bounds.w);
