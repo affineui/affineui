@@ -1280,6 +1280,51 @@ TEST_CASE("single-number flex shorthand uses zero percent basis") {
     CHECK(rs.computed.flex_basis == -1);
 }
 
+TEST_CASE("three-part flex shorthand keeps a pixel basis and zero shrink") {
+    CssEnv env("<main><section>fixed</section><article>grow</article></main>");
+    env.attach("section { flex: 0 0 110px; }"
+               "article { flex: 1 1 0px; }");
+    env.build_resolver();
+
+    auto* section = env.find("section");
+    auto* article = env.find("article");
+    REQUIRE(section != nullptr);
+    REQUIRE(article != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(section, parent);
+    const auto article_rs = env.resolver->resolve(article, parent);
+
+    CHECK(rs.computed.flex_grow == 0);
+    CHECK(rs.computed.flex_shrink == 0);
+    CHECK(rs.computed.flex_basis_pct == -1);
+    CHECK(rs.computed.flex_basis == 110);
+
+    CHECK(article_rs.computed.flex_grow == 1);
+    CHECK(article_rs.computed.flex_shrink == 1);
+    CHECK(article_rs.computed.flex_basis_pct == -1);
+    CHECK(article_rs.computed.flex_basis == 0);
+}
+
+TEST_CASE("inline styles outrank class rules for layout properties") {
+    CssEnv env("<main><section class=\"dock\" style=\"height:0;flex:1 1 0px\">"
+               "dock</section></main>");
+    env.attach(".dock { height: 100%; flex: 0 0 200px; }");
+    env.build_resolver();
+
+    auto* section = env.find("section");
+    REQUIRE(section != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(section, parent);
+
+    CHECK(rs.computed.height == 0);
+    CHECK(rs.computed.height_pct == -1);
+    CHECK(rs.computed.flex_grow == 1);
+    CHECK(rs.computed.flex_shrink == 1);
+    CHECK(rs.computed.flex_basis == 0);
+}
+
 TEST_CASE("font-size in px lands in ComputedStyle, not AnimatedStyle") {
     CssEnv env("<h1>hi</h1>");
     env.attach("h1 { font-size: 42px; }");

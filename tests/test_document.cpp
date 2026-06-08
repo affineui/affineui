@@ -6946,7 +6946,7 @@ TEST_CASE("UiControls: dock preview target clears after leaving a valid pane") {
 TEST_CASE("UiControls: co-tab can edge-dock against its own source pane") {
     affineui::Document doc;
     RecordingPainter painter;
-    doc.set_html(R"HTML(
+    const char* html = R"HTML(
         <style>
         html, body { margin: 0; padding: 0; }
         .dcs-dock--floathost { position: relative; width: 600px; height: 260px; display: flex; }
@@ -6973,7 +6973,8 @@ TEST_CASE("UiControls: co-tab can edge-dock against its own source pane") {
           <div id="__dropind" class="dcs-drop dcs-drop--valid" hidden
                style="position:absolute;pointer-events:none;z-index:200"></div>
         </div>
-    )HTML");
+    )HTML";
+    doc.set_html(html);
     doc.layout(600, 260, &painter);
     doc.attach_script(affineui::DocumentScript::UiControls);
 
@@ -6999,9 +7000,33 @@ TEST_CASE("UiControls: co-tab can edge-dock against its own source pane") {
     }
     REQUIRE(pane_bounds.w > 0);
 
-    const affineui::Point source_right_zone{
-        pane_bounds.x + pane_bounds.w * 2 / 3,
+    const affineui::Point source_center{
+        pane_bounds.x + pane_bounds.w / 2,
         pane_bounds.y + pane_bounds.h / 2};
+
+    ev(affineui::EventType::MouseDown, console_tab);
+    const auto center_move_result =
+        ev(affineui::EventType::MouseMove, source_center);
+    CHECK(center_move_result.redraw_requested);
+    doc.layout(600, 260, &painter);
+    painter.fill_colors.clear();
+    painter.fill_draws.clear();
+    doc.draw(painter);
+    CHECK(saw_fill(painter, affineui::Color::rgba(0, 184, 212, 46)));
+    const auto center_up_result =
+        ev(affineui::EventType::MouseUp, source_center);
+    CHECK_FALSE(center_up_result.layout_changed);
+    CHECK(doc.dock_override("Console").present == false);
+
+    doc.set_html(html);
+    doc.layout(600, 260, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    console_tab = find_hovered_id(doc, "tabConsole", 600, 260);
+    REQUIRE(console_tab.x >= 0);
+
+    const affineui::Point source_right_zone{
+        pane_bounds.x + pane_bounds.w - std::max(2, pane_bounds.w / 20),
+        pane_bounds.y + pane_bounds.h / 5};
 
     ev(affineui::EventType::MouseDown, console_tab);
     const auto move_result =
@@ -7253,6 +7278,13 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
     };
 
     rebuild();
+    const int initial_hierarchy_w =
+        bounds_for_attr("data-aui-name", "pane-Hierarchy").w;
+    auto assert_hierarchy_width_stable = [&]() {
+        const auto hierarchy =
+            bounds_for_attr("data-aui-name", "pane-Hierarchy");
+        CHECK(std::abs(hierarchy.w - initial_hierarchy_w) <= 1);
+    };
     for (int i = 0; i < 3; ++i) {
         const auto hierarchy = bounds_for_attr("data-aui-name", "pane-Hierarchy");
         drag_console_to({hierarchy.x + hierarchy.w / 2,
@@ -7262,6 +7294,7 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
         CHECK_FALSE(console.floating);
         CHECK(console.parent == "Hierarchy");
         CHECK(console.side == 3);
+        assert_hierarchy_width_stable();
         assert_shell_text();
 
         const auto assets = bounds_for_attr("data-aui-name", "pane-Assets");
@@ -7272,6 +7305,7 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
         CHECK_FALSE(console.floating);
         CHECK(console.parent == "Assets");
         CHECK(console.side == 4);
+        assert_hierarchy_width_stable();
         assert_shell_text();
     }
 }
@@ -7369,20 +7403,6 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
         FAIL("missing bounds for expected element");
         return affineui::Rect{};
     };
-    auto bounds_for_attr_nearby = [&](std::string_view name,
-                                      std::string_view value) {
-        const auto p = find_hovered_attr(doc, name, value, W, H + 80);
-        REQUIRE(p.x >= 0);
-        for (const auto& info : doc.hovered_info_chain()) {
-            for (const auto& attr : info.attrs) {
-                if (attr.first == name && attr.second == value) {
-                    return info.bounds;
-                }
-            }
-        }
-        FAIL("missing bounds for expected element");
-        return affineui::Rect{};
-    };
     auto bounds_for_id = [&](std::string_view id) {
         const auto p = find_hovered_chain_id(doc, id, W, H);
         REQUIRE(p.x >= 0);
@@ -7426,8 +7446,10 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
     CHECK(floating.x + floating.w <= doc_body_after.x + doc_body_after.w);
     CHECK(floating.y + floating.h <= doc_body_after.y + doc_body_after.h);
 
-    const auto assets = bounds_for_attr_nearby("data-aui-name", "pane-Assets");
-    const auto status = bounds_for_attr_nearby("data-aui-name", "statusbar");
+    const auto assets = bounds_for_attr("data-aui-name", "pane-Assets");
+    const auto status = bounds_for_attr("data-aui-name", "statusbar");
+    CHECK(status.y + status.h <= H);
+    CHECK(assets.y + assets.h <= status.y);
     CHECK(std::abs((assets.y + assets.h) - status.y) <= 1);
 }
 

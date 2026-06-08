@@ -2755,11 +2755,16 @@ void View::emit_dock_node(const DockNode& node, bool is_root,
                                std::source_location::current(), true);
         // A split GROUP that occupies a fixed slot (a nested dock replacing a
         // sized pane) carries that basis; the root/center group flexes to fill.
+        const std::string split_style_prefix =
+            std::string("display:flex;") +
+            (node.vertical ? "flex-direction:column;" : "");
         set_attr(dock, "style",
                  (node.size && *node.size > 0)
-                     ? ("flex:0 0 " + std::to_string(*node.size) +
+                     ? (split_style_prefix + "flex:0 0 " +
+                        std::to_string(*node.size) +
                         "px;min-width:0;min-height:0")
-                     : std::string("flex:1;min-width:0;min-height:0"));
+                     : (split_style_prefix +
+                        "flex:1 1 0px;min-width:0;min-height:0"));
         for (std::size_t i = 0; i < node.children.size(); ++i) {
             if (i > 0) splitter(node.vertical, "split-" + node.id + "-" +
                                                    std::to_string(i));
@@ -2778,7 +2783,7 @@ void View::emit_dock_node(const DockNode& node, bool is_root,
                            "pane-" + node.id, std::source_location::current(),
                            true);
     if (node.is_document) {
-        set_attr(pane, "style", "flex:1;min-width:0;min-height:0");
+        set_attr(pane, "style", "flex:1 1 0px;min-width:0;min-height:0");
     } else if (node.size && *node.size > 0) {
         set_attr(pane, "style",
                  "flex:0 0 " + std::to_string(*node.size) +
@@ -2786,7 +2791,7 @@ void View::emit_dock_node(const DockNode& node, bool is_root,
     } else {
         // A nested sharing leaf (its slot belongs to the enclosing group): grow
         // to split that group's space evenly with its siblings.
-        set_attr(pane, "style", "flex:1;min-width:0;min-height:0");
+        set_attr(pane, "style", "flex:1 1 0px;min-width:0;min-height:0");
     }
 
     const bool primary_selected = node.active_tab.empty();
@@ -2865,13 +2870,14 @@ void View::emit_dock_node(const DockNode& node, bool is_root,
                                "dcs-dockpane__body", body_id,
                                std::source_location::current(), true);
         set_attr(body, "id", body_id);
-        if (node.is_document) set_attr(body, "data-dcs-float-host", "");
+        if (node.is_document) {
+            set_attr(body, "data-dcs-float-host", "");
+            set_attr(body, "style",
+                     "position:relative;overflow:hidden;min-width:0;min-height:0");
+        }
         if (!primary_selected) set_attr(body, "hidden", "");
         else remove_attr(body, "hidden");
         if (primary_selected && node.content) node.content(*this);
-        if (primary_selected && node.is_document && rec) {
-            emit_floating_dock_panels(*rec, here);
-        }
         close_node();  // body
         for (const auto* t : node.tabs) {
             const std::string tab_body_id = t->id + "-body";
@@ -2893,11 +2899,11 @@ void View::emit_dock_node(const DockNode& node, bool is_root,
 
 void View::emit_floating_dock_panels(const DockRecorder& rec,
                                      std::source_location here) {
-    // Floating panels overlay the document body: any panel whose effective
+    // Floating panels overlay the dock root: any panel whose effective
     // placement is floating (declared DockState::Tearoff, or torn off at
-    // runtime via the placement override). The floating chrome moves the
-    // tearoff, while the embedded dock tab/title is still a real dock source
-    // for re-docking.
+    // runtime via the placement override). The interaction layer clamps their
+    // coordinates to the active document body, while the embedded dock tab/title
+    // is still a real dock source for re-docking.
     for (const auto& s : rec.panels) {
         const auto e = effective_placement(s.id, s.parent, s.side, s.state,
                                            s.size, s.offset, s.float_size,
@@ -2933,7 +2939,8 @@ void View::emit_floating_dock_panels(const DockRecorder& rec,
                  "position:absolute;left:" + std::to_string(e.x) + "px;top:" +
                      std::to_string(e.y) + "px;width:" + std::to_string(w) +
                      "px;height:" + std::to_string(h) +
-                     "px;z-index:60;display:flex;flex-direction:column");
+                     "px;z-index:60;display:flex;flex-direction:column;"
+                     "pointer-events:auto");
         set_attr(panel, "data-dcs-drag", "");
         set_attr(panel, "data-dcs-drag-bounds", ".dcs-dock--floathost");
         set_attr(panel, "data-dcs-dock-id", s.id);
@@ -2968,7 +2975,6 @@ void View::emit_floating_dock_panels(const DockRecorder& rec,
             if (!spec.icon.empty()) {
                 open_node(WidgetKind::Container, "i", "di di-" + spec.icon,
                           "__tab-icon", here, false);
-                close_node();
             }
             auto& label = open_node(WidgetKind::Container, "span",
                                     "dcs-dockpane__tab-label", "__tab-label",
@@ -2985,7 +2991,6 @@ void View::emit_floating_dock_panels(const DockRecorder& rec,
             emit_tab(s, true, "__title-tab-" + s.id, true);
             open_node(WidgetKind::Container, "div", "dcs-panel__tools",
                       "__ftools-" + s.id, here, false);
-            close_node();  // tools
             close_node();  // titlebar
         } else {
             auto& hd = open_node(WidgetKind::Container, "header",
@@ -2999,13 +3004,11 @@ void View::emit_floating_dock_panels(const DockRecorder& rec,
             if (!s.icon.empty()) {
                 open_node(WidgetKind::Container, "i", "di di-" + s.icon,
                           "__fi-" + s.id, here, false);
-                close_node();
             }
             auto& label = open_node(WidgetKind::Container, "span",
                                     "dcs-panel__titletext", "__fl-" + s.id,
                                     here, false);
             set_text(label, s.title);
-            close_node();  // label
             close_node();  // title
             close_node();  // header
 
@@ -3049,7 +3052,6 @@ void View::emit_floating_dock_panels(const DockRecorder& rec,
                                     "dcs-dockpane__shelf", "__shelf-" + s.id,
                                     here, false);
             set_attr(shelf, "hidden", "");
-            close_node();  // shelf
         }
 
         auto& body = open_node(WidgetKind::Container, "div", "dcs-dockpane__body",
@@ -3089,14 +3091,19 @@ WidgetRef View::document_view(std::string_view key,
     // open it with the resolved root's orientation and emit its children
     // directly (no double dcs-dock wrapper).
     DockNode tree = resolve_dock(recorder, "__document__", true);
-    // The root dock is the positioned coordinate frame for dock previews. The
-    // active document body hosts floating panels so overlays cannot affect the
-    // split tree's flex sizing.
+    // The root dock is the positioned coordinate frame for dock previews and
+    // floating panels. Floats live in an absolute overlay so they cannot affect
+    // the split tree's flex sizing, while drag math clamps them to the document
+    // body marked with data-dcs-float-host.
     std::string cls = "dcs-dock dcs-dock--floathost";
     if (tree.split && tree.vertical) cls += " dcs-dock--v";
     auto& root = open_node(WidgetKind::Container, "div", cls, key, here, true);
-    set_attr(root, "style",
-             "flex:1 1 0px;min-width:0;min-height:0;position:relative");
+    std::string root_style = "display:flex;";
+    if (tree.split && tree.vertical) root_style += "flex-direction:column;";
+    root_style +=
+        "flex:1 1 0px;height:0;min-width:0;min-height:0;"
+        "position:relative;overflow:hidden";
+    set_attr(root, "style", root_style);
     set_attr(root, "data-dcs-float-host", "");
     auto ref = ref_for_node(root, current_panel_id(stack_));
     if (tree.split) {
@@ -3106,6 +3113,17 @@ WidgetRef View::document_view(std::string_view key,
         }
     } else {
         emit_dock_node(tree, false, &recorder, here);
+    }
+    {
+        auto& float_layer = open_node(WidgetKind::Container, "div",
+                                      "dcs-dock__float-layer",
+                                      "dock-float-layer", here, true);
+        (void) float_layer;
+        set_attr(float_layer, "style",
+                 "position:absolute;left:0px;top:0px;width:0px;height:0px;"
+                 "overflow:visible;z-index:60;pointer-events:none");
+        emit_floating_dock_panels(recorder, here);
+        close_node();
     }
 
     // Drop indicator overlay (hidden until a dock drag hovers a zone). Reuses

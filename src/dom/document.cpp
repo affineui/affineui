@@ -10548,14 +10548,16 @@ bool tear_off_panel(detail::DocumentImpl& impl, std::string_view panel_id,
     constexpr int kDefaultH = 240;
     constexpr int kMargin = 8;
     const Rect host = document_float_host_bounds(impl);
+    const Rect root = root_float_host_bounds(impl);
     auto* tab = find_dockpane_tab_for_panel_id(impl, panel_id);
     int w = positive_int_attr(tab, "data-dcs-tearout-width", kDefaultW);
     int h = positive_int_attr(tab, "data-dcs-tearout-height", kDefaultH);
     // Place so the title lands near the cursor, clamped into the document
-    // content float host. Runtime floating overrides are host-relative because
-    // View emits tearoffs inside the document body, matching Decius.
-    const int hx = host.x;
-    const int hy = host.y;
+    // content float host. Runtime floating overrides are root-relative because
+    // View emits tearoffs as root overlays, while the allowed rectangle remains
+    // the document body.
+    const int hx = root.w > 0 ? root.x : host.x;
+    const int hy = root.h > 0 ? root.y : host.y;
     const int hw = host.w;
     const int hh = host.h;
     if (hw > kMargin * 2) {
@@ -10564,16 +10566,18 @@ bool tear_off_panel(detail::DocumentImpl& impl, std::string_view panel_id,
     if (hh > kMargin * 2) {
         h = std::max(1, std::min(h, hh - kMargin * 2));
     }
+    const int host_x = host.x - hx;
+    const int host_y = host.y - hy;
     int x = drop.x - hx - 60;
     int y = drop.y - hy - 12;
     if (hw > 0) {
-        const int lo = kMargin;
-        const int hi = hw - w - kMargin;
+        const int lo = host_x + kMargin;
+        const int hi = host_x + hw - w - kMargin;
         x = std::clamp(x, lo, std::max(lo, hi));
     }
     if (hh > 0) {
-        const int lo = kMargin;
-        const int hi = hh - h - kMargin;
+        const int lo = host_y + kMargin;
+        const int hi = host_y + hh - h - kMargin;
         y = std::clamp(y, lo, std::max(lo, hi));
     }
     Document::DockPlacement p;
@@ -10592,9 +10596,9 @@ bool tear_off_panel(detail::DocumentImpl& impl, std::string_view panel_id,
 //  • Ke: within 32px of the dock area's outer edge -> dock to the WHOLE-AREA edge
 //        (parent = the document/root).
 //  • else the .dcs-dockpane under the cursor (dock-kind must match the dragged
-//    tab's kind; floats + the dragged pane excluded): over its tabbar -> center
-//    (co-tab); else je() picks the nearest edge if within the outer 22%, else
-//    center. The document (--center, kind "documents") is only a target for
+//    tab's kind): over its tabbar -> center (co-tab); else je() picks the
+//    nearest edge if within the outer 22%, else center. The document
+//    (--center, kind "documents") is only a target for
 //    documents-kind tabs and only via window-edge / its tabbar — a body drop
 //    there yields no target, so the caller tears off.
 enum class DropZone { None, Left, Right, Top, Bottom, Tab };
@@ -10655,7 +10659,6 @@ bool point_over_pane_tabbar(detail::DocumentImpl& impl, lxb_dom_element_t* pane,
 }
 
 DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
-                               lxb_dom_element_t* dragged_pane,
                                std::string_view drag_kind) {
     DropTarget out;
     int hx = 0, hy = 0, hw = 0, hh = 0;
@@ -10693,9 +10696,9 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
         return out;
     }
 
-    // (Ne) the dock pane under the cursor (same dock-kind). Center/no-op drops
-    // onto the source pane are ignored, but edge zones on the source pane remain
-    // valid so a tab stack can split one tab beside its former siblings.
+    // (Ne) the dock pane under the cursor (same dock-kind). Source panes are
+    // still valid targets: dropping back onto the source center is a no-op
+    // cancel, while source edge zones can split a tab beside its former stack.
     // Walk later blocks first so floating overlays and nested hit targets win
     // over older docked panes that happen to sit underneath them.
     for (int i = static_cast<int>(impl.blocks.size()) - 1; i >= 0; --i) {
@@ -10705,42 +10708,36 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
         const auto& b = impl.blocks[static_cast<std::size_t>(i)].bounds;
         if (!(pt.x >= b.x && pt.x < b.x + b.w && pt.y >= b.y && pt.y < b.y + b.h))
             continue;
-        const bool is_source_pane = e == dragged_pane;
         if (dock_kind_of(e) != drag_kind) return out;  // kind mismatch -> tearoff
         const std::string id = pane_panel_id(e);
         if (id.empty()) return out;
         out.parent = id;
         const int lx = b.x - hx, ly = b.y - hy;
-        if (!is_source_pane &&
-            (ancestor_with_class(e, "dcs-panel--floating") ||
-             point_over_pane_tabbar(impl, e, pt))) {
+        if (ancestor_with_class(e, "dcs-panel--floating") ||
+            point_over_pane_tabbar(impl, e, pt)) {
             out.zone = DropZone::Tab;
         } else {
-            // je(): nearest edge within the outer 22%, else center.
+            // Edge intent is percentage-based: choose the closest normalized
+            // edge within the cutoff, otherwise use the center/tab zone. The
+            // corners become triangular ownership regions and narrow panes
+            // keep usable side targets.
             constexpr double kT = 0.22;
-            const double sx = pt.x - b.x, sy = pt.y - b.y;
-            const double a = b.w * kT, r = b.h * kT;
-            const bool L = sx < a, R = sx > b.w - a, T = sy < r, B = sy > b.h - r;
-            if (is_source_pane) {
-                // Center-docking onto the source pane is a no-op, so the source
-                // pane has no center section. Divide its whole rect among the
-                // four edge docks so dragging over it still gives feedback.
-                const double dl = sx, dr = b.w - sx, dt = sy, db = b.h - sy;
-                const double mn = std::min(std::min(dl, dr), std::min(dt, db));
-                out.zone = mn == dl ? DropZone::Left
-                         : mn == dr ? DropZone::Right
-                         : mn == dt ? DropZone::Top
-                                    : DropZone::Bottom;
-            } else if (!(L || R || T || B)) {
-                out.zone = DropZone::Tab;
-            } else {
-                const double dl = L ? sx : 1e9, dr = R ? b.w - sx : 1e9,
-                             dt = T ? sy : 1e9, db = B ? b.h - sy : 1e9;
-                const double mn = std::min(std::min(dl, dr), std::min(dt, db));
-                out.zone = mn == dl ? DropZone::Left
-                         : mn == dr ? DropZone::Right
-                         : mn == dt ? DropZone::Top
-                                    : DropZone::Bottom;
+            const double x = b.w > 0
+                                 ? (pt.x - b.x) / static_cast<double>(b.w)
+                                 : 0.5;
+            const double y = b.h > 0
+                                 ? (pt.y - b.y) / static_cast<double>(b.h)
+                                 : 0.5;
+            const double dists[] = {x, 1.0 - x, y, 1.0 - y};
+            const DropZone zones[] = {DropZone::Left, DropZone::Right,
+                                      DropZone::Top, DropZone::Bottom};
+            double best = kT;
+            out.zone = DropZone::Tab;
+            for (int zi = 0; zi < 4; ++zi) {
+                if (dists[zi] < best) {
+                    best = dists[zi];
+                    out.zone = zones[zi];
+                }
             }
         }
         out.valid = true;
@@ -10800,7 +10797,16 @@ bool apply_dock(detail::DocumentImpl& impl, std::string_view panel_id,
         case DropZone::Tab:    p.side = 4; break;
         default: return false;
     }
-    impl.dock_overrides[std::string(panel_id)] = p;
+    const std::string key(panel_id);
+    if (const auto it = impl.dock_overrides.find(key);
+        it != impl.dock_overrides.end()) {
+        const auto& old = it->second;
+        if (old.present && !old.floating && old.parent == p.parent &&
+            old.side == p.side && old.size == p.size) {
+            return false;
+        }
+    }
+    impl.dock_overrides[key] = p;
     return true;
 }
 
@@ -11919,8 +11925,7 @@ DispatchResult Document::dispatch(const Event& ev) {
                 if (impl_->tab_drag.dragging) {
                     ensure_interaction_layout();
                     const auto t = compute_drop_target(
-                        *impl_, ev.pos, impl_->tab_drag.pane,
-                        dock_kind_of(impl_->tab_drag.pane));
+                        *impl_, ev.pos, dock_kind_of(impl_->tab_drag.pane));
                     const bool indicator_was_visible =
                         impl_->tab_drag.drop_indicator_visible;
                     impl_->tab_drag.drop_valid = t.valid;
@@ -12319,10 +12324,18 @@ DispatchResult Document::dispatch(const Event& ev) {
                     } else {
                         ensure_interaction_layout();
                         t = compute_drop_target(
-                            *impl_, ev.pos, td.pane, dock_kind_of(td.pane));
+                            *impl_, ev.pos, dock_kind_of(td.pane));
                     }
                     if (t.valid) {
-                        changed_dock = apply_dock(*impl_, td.panel_id, t);
+                        bool source_center_noop = false;
+                        if (t.zone == DropZone::Tab && td.pane) {
+                            const std::string source_id = pane_panel_id(td.pane);
+                            source_center_noop =
+                                !source_id.empty() && source_id == t.parent;
+                        }
+                        changed_dock = source_center_noop
+                                           ? false
+                                           : apply_dock(*impl_, td.panel_id, t);
                     } else {
                         // Not over a zone: tear off if released outside the pane.
                         bool outside = true;
