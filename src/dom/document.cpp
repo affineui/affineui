@@ -25,6 +25,7 @@
 #include "internal/animated_style.h"
 #include "internal/computed_style.h"
 #include "internal/element_id.h"
+#include "internal/embed_log.h"
 #include "internal/style_resolver.h"
 #include "internal/style_store.h"
 #include "layout/yoga_adapter.h"
@@ -39,8 +40,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
+#include <fstream>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <numeric>
 #include <string>
 #include <string_view>
@@ -59,6 +62,42 @@
 namespace affineui {
 
 namespace {
+
+std::string env_value(const char* name) {
+#if defined(_MSC_VER)
+    char* value = nullptr;
+    std::size_t len = 0;
+    if (_dupenv_s(&value, &len, name) != 0 || value == nullptr) return {};
+    std::string out(value);
+    std::free(value);
+    return out;
+#else
+    const char* value = std::getenv(name);
+    return value ? std::string(value) : std::string();
+#endif
+}
+
+bool dock_trace_enabled() {
+    const std::string flag = env_value("AFFINEUI_DOCK_TRACE");
+    if (!flag.empty() && flag != "0") return true;
+    return !env_value("AFFINEUI_DOCK_TRACE_FILE").empty();
+}
+
+void dock_trace(std::string msg) {
+    if (!dock_trace_enabled()) return;
+    msg.insert(0, "[affineui:dock] ");
+    static std::mutex mutex;
+    std::lock_guard<std::mutex> lock(mutex);
+    const std::string path = env_value("AFFINEUI_DOCK_TRACE_FILE");
+    if (!path.empty()) {
+        std::ofstream out(path, std::ios::app);
+        if (out) {
+            out << msg << '\n';
+            return;
+        }
+    }
+    detail::log_msg(LogLevel::debug, msg.c_str());
+}
 
 // A laid-out, paintable block. Style data lives in the Document's
 // StyleStore (SoA); Block just carries the handle + the cheap, block-
@@ -6975,6 +7014,42 @@ int hit_test_blocks(const detail::DocumentImpl& impl, int x, int y) {
     return hit;
 }
 
+std::string block_trace_name(const Block& b) {
+    std::string out = b.tag.empty() ? "?" : b.tag;
+    if (!b.elem_id.empty()) out += "#" + b.elem_id;
+    for (const auto& attr : b.attrs) {
+        if (attr.first == "data-aui-name") {
+            out += "[" + attr.second + "]";
+            break;
+        }
+    }
+    if (!b.classes.empty()) {
+        out += ".";
+        const std::size_t n = std::min<std::size_t>(b.classes.size(), 3);
+        for (std::size_t i = 0; i < n; ++i) {
+            if (i > 0) out += ".";
+            out += b.classes[i];
+        }
+    }
+    out += "@(" + std::to_string(b.bounds.x) + "," +
+           std::to_string(b.bounds.y) + "," + std::to_string(b.bounds.w) +
+           "x" + std::to_string(b.bounds.h) + ")";
+    return out;
+}
+
+std::string hit_chain_summary(const detail::DocumentImpl& impl, int idx) {
+    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return "none";
+    std::string out;
+    int depth = 0;
+    while (idx >= 0 && idx < static_cast<int>(impl.blocks.size()) && depth < 8) {
+        if (!out.empty()) out += " <- ";
+        out += block_trace_name(impl.blocks[static_cast<std::size_t>(idx)]);
+        idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx;
+        ++depth;
+    }
+    return out;
+}
+
 }  // namespace
 
 namespace {
@@ -10698,6 +10773,7 @@ bool switch_dockpane_tab(detail::DocumentImpl& impl, lxb_dom_element_t* tab) {
     if (!pane_id.empty() && !active_id.empty()) {
         if (active_id == pane_id) impl.dock_active_tabs.erase(pane_id);
         else impl.dock_active_tabs[pane_id] = active_id;
+        dock_trace("active-tab pane=" + pane_id + " active=" + active_id);
     }
     emit_widget_change(impl, tab, "tab");
     return changed;
@@ -10803,6 +10879,11 @@ bool tear_off_panel(detail::DocumentImpl& impl, std::string_view panel_id,
     p.w = w;
     p.h = h;
     impl.dock_overrides[std::string(panel_id)] = p;
+    dock_trace("tearoff panel=" + std::string(panel_id) +
+               " drop=(" + std::to_string(drop.x) + "," +
+               std::to_string(drop.y) + ") rect=(" + std::to_string(p.x) +
+               "," + std::to_string(p.y) + "," + std::to_string(p.w) +
+               "x" + std::to_string(p.h) + ")");
     return true;
 }
 
@@ -10825,6 +10906,24 @@ struct DropTarget {
     int x{0}, y{0}, w{0}, h{0};   // highlight rect in float-host coords
     bool        valid{false};
 };
+
+const char* drop_zone_name(DropZone zone) {
+    switch (zone) {
+        case DropZone::Left: return "left";
+        case DropZone::Right: return "right";
+        case DropZone::Top: return "top";
+        case DropZone::Bottom: return "bottom";
+        case DropZone::Tab: return "tab";
+        default: return "none";
+    }
+}
+
+std::string drop_target_summary(const DropTarget& t) {
+    if (!t.valid) return "invalid";
+    return "parent=" + t.parent + " zone=" + drop_zone_name(t.zone) +
+           " preview=(" + std::to_string(t.x) + "," + std::to_string(t.y) +
+           "," + std::to_string(t.w) + "x" + std::to_string(t.h) + ")";
+}
 
 // A pane's dock-kind: data-dcs-dock-kind, else "documents" for the center, else
 // "panels". A drag only docks into a pane of the same kind (decius J()).
@@ -11051,7 +11150,11 @@ bool set_drop_indicator(detail::DocumentImpl& impl, const DropTarget* t) {
 bool apply_dock(detail::DocumentImpl& impl, std::string_view panel_id,
                 const DropTarget& t) {
     if (panel_id.empty() || !t.valid || t.zone == DropZone::None) return false;
-    if (t.parent.empty() || t.parent == panel_id) return false;
+    if (t.parent.empty() || t.parent == panel_id) {
+        dock_trace("dock-noop panel=" + std::string(panel_id) +
+                   " target=" + drop_target_summary(t));
+        return false;
+    }
     Document::DockPlacement p;
     p.present = true;
     p.floating = false;
@@ -11070,6 +11173,9 @@ bool apply_dock(detail::DocumentImpl& impl, std::string_view panel_id,
         const auto& old = it->second;
         if (old.present && !old.floating && old.parent == p.parent &&
             old.side == p.side && old.size == p.size) {
+            dock_trace("dock-noop-same panel=" + key +
+                       " parent=" + p.parent +
+                       " side=" + std::to_string(p.side));
             return false;
         }
     }
@@ -11077,6 +11183,9 @@ bool apply_dock(detail::DocumentImpl& impl, std::string_view panel_id,
     if (p.side == 4) {
         impl.dock_active_tabs[p.parent] = key;
     }
+    dock_trace("dock panel=" + key + " parent=" + p.parent +
+               " side=" + std::to_string(p.side) +
+               " zone=" + drop_zone_name(t.zone));
     return true;
 }
 
@@ -12188,6 +12297,12 @@ DispatchResult Document::dispatch(const Event& ev) {
                     if (arm_tab_drag_from_pending_press(
                             *impl_, impl_->pending_tab_press)) {
                         impl_->tab_drag.dragging = true;
+                        dock_trace("tab-drag-start panel=" +
+                                   impl_->tab_drag.panel_id +
+                                   " from=" +
+                                   pane_panel_id(impl_->tab_drag.pane) +
+                                   " at=(" + std::to_string(ev.pos.x) + "," +
+                                   std::to_string(ev.pos.y) + ")");
                     }
                     impl_->pending_tab_press = {};
                 }
@@ -12202,6 +12317,28 @@ DispatchResult Document::dispatch(const Event& ev) {
                     ensure_interaction_layout();
                     const auto t = compute_drop_target(
                         *impl_, ev.pos, dock_kind_of(impl_->tab_drag.pane));
+                    const bool target_changed =
+                        impl_->tab_drag.drop_valid != t.valid ||
+                        impl_->tab_drag.drop_parent !=
+                            (t.valid ? t.parent : std::string()) ||
+                        impl_->tab_drag.drop_zone !=
+                            (t.valid ? static_cast<int>(t.zone)
+                                     : static_cast<int>(DropZone::None)) ||
+                        impl_->tab_drag.drop_x != t.x ||
+                        impl_->tab_drag.drop_y != t.y ||
+                        impl_->tab_drag.drop_w != t.w ||
+                        impl_->tab_drag.drop_h != t.h;
+                    if (target_changed) {
+                        const int hit =
+                            hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
+                        dock_trace("preview panel=" +
+                                   impl_->tab_drag.panel_id +
+                                   " at=(" + std::to_string(ev.pos.x) + "," +
+                                   std::to_string(ev.pos.y) + ") " +
+                                   drop_target_summary(t) +
+                                   " hit=" +
+                                   hit_chain_summary(*impl_, hit));
+                    }
                     const bool indicator_was_visible =
                         impl_->tab_drag.drop_indicator_visible;
                     impl_->tab_drag.drop_valid = t.valid;
@@ -12482,6 +12619,11 @@ DispatchResult Document::dispatch(const Event& ev) {
                     impl_->pending_tab_press.start_x = ev.pos.x;
                     impl_->pending_tab_press.start_y = ev.pos.y;
                     impl_->pending_tab_press.switched_on_down = switched;
+                    dock_trace("tab-press panel=" + panel_id +
+                               " pane=" + pane_panel_id(pane) +
+                               " switched=" + (switched ? "1" : "0") +
+                               " at=(" + std::to_string(ev.pos.x) + "," +
+                               std::to_string(ev.pos.y) + ")");
                     if (dock_kind_of(pane) == "documents") {
                         break;
                     }
@@ -12561,6 +12703,11 @@ DispatchResult Document::dispatch(const Event& ev) {
                     p.w = r.w;
                     p.h = r.h;
                     impl_->dock_overrides[fr.panel_id] = p;
+                    dock_trace("float-resize panel=" + fr.panel_id +
+                               " rect=(" + std::to_string(p.x) + "," +
+                               std::to_string(p.y) + "," +
+                               std::to_string(p.w) + "x" +
+                               std::to_string(p.h) + ")");
                     result.layout_changed = true;
                 }
                 result.redraw_requested = true;
@@ -12600,6 +12747,11 @@ DispatchResult Document::dispatch(const Event& ev) {
                     p.w = fd.elem_w;
                     p.h = fd.elem_h;
                     impl_->dock_overrides[fd.panel_id] = p;
+                    dock_trace("float-move panel=" + fd.panel_id +
+                               " rect=(" + std::to_string(p.x) + "," +
+                               std::to_string(p.y) + "," +
+                               std::to_string(p.w) + "x" +
+                               std::to_string(p.h) + ")");
                     result.layout_changed = true;  // re-seed + rebuild
                     result.redraw_requested = true;
                 } else {
@@ -12646,6 +12798,11 @@ DispatchResult Document::dispatch(const Event& ev) {
                         changed_dock = source_center_noop
                                            ? false
                                            : apply_dock(*impl_, td.panel_id, t);
+                        if (source_center_noop) {
+                            dock_trace("dock-cancel-source-center panel=" +
+                                       td.panel_id +
+                                       " target=" + drop_target_summary(t));
+                        }
                     } else {
                         // Not over a zone: tear off if released outside the pane.
                         bool outside = true;
@@ -12664,6 +12821,10 @@ DispatchResult Document::dispatch(const Event& ev) {
                         if (outside)
                             changed_dock = tear_off_panel(*impl_, td.panel_id,
                                                           td.pane, ev.pos);
+                        else
+                            dock_trace("tab-drag-cancel panel=" + td.panel_id +
+                                       " at=(" + std::to_string(ev.pos.x) +
+                                       "," + std::to_string(ev.pos.y) + ")");
                     }
                     if (changed_dock) {
                         result.layout_changed = true;  // app re-seeds + rebuilds
