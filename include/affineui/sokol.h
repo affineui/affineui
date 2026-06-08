@@ -94,6 +94,7 @@ inline sapp_mouse_cursor cursor_to_sokol(int c) {
         case 6: return SAPP_MOUSECURSOR_RESIZE_EW;
         case 7: return SAPP_MOUSECURSOR_RESIZE_NS;
         case 8: return SAPP_MOUSECURSOR_RESIZE_NWSE;
+        case 9: return SAPP_MOUSECURSOR_RESIZE_NESW;
         default: return SAPP_MOUSECURSOR_DEFAULT;
     }
 }

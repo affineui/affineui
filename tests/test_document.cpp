@@ -7309,6 +7309,7 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
         CHECK_FALSE(console.floating);
         CHECK(console.parent == "Assets");
         CHECK(console.side == 4);
+        CHECK(doc.dock_active_tab("Assets") == "Console");
         assert_hierarchy_width_stable();
         assert_shell_text();
     }
@@ -7321,6 +7322,7 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
     CHECK_FALSE(console.floating);
     CHECK(console.parent == "Hierarchy");
     CHECK(console.side == 4);
+    CHECK(doc.dock_active_tab("Hierarchy") == "Console");
     assert_shell_text();
 
     hierarchy = bounds_for_attr("data-aui-name", "pane-Hierarchy");
@@ -7342,6 +7344,7 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
     CHECK_FALSE(console.floating);
     CHECK(console.parent == "Assets");
     CHECK(console.side == 4);
+    CHECK(doc.dock_active_tab("Assets") == "Console");
     assert_hierarchy_width_stable();
     assert_shell_text();
     assert_hierarchy_body_visible();
@@ -7354,10 +7357,14 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
     CHECK_FALSE(console.floating);
     CHECK(console.parent == "Hierarchy");
     CHECK(console.side == 4);
+    CHECK(doc.dock_active_tab("Hierarchy") == "Console");
 
     auto assets_body = bounds_for_attr("data-aui-name", "Assets-body");
-    drag_console_to({assets_body.x + assets_body.w / 2,
-                     assets_body.y + std::max(1, assets_body.h - 2)});
+    const int shelf_probe_x =
+        assets_body.x + std::min(std::max(24, assets_body.w / 12),
+                                 std::max(24, assets_body.w - 24));
+    drag_console_to({shelf_probe_x,
+                     assets_body.y + std::max(1, assets_body.h * 6 / 7)});
     console = doc.dock_override("Console");
     CHECK(console.present);
     CHECK_FALSE(console.floating);
@@ -7372,10 +7379,11 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
     CHECK_FALSE(console.floating);
     CHECK(console.parent == "Hierarchy");
     CHECK(console.side == 4);
+    CHECK(doc.dock_active_tab("Hierarchy") == "Console");
 
     assets_body = bounds_for_attr("data-aui-name", "Assets-body");
-    drag_console_to({assets_body.x + assets_body.w / 2,
-                     assets_body.y + 2});
+    drag_console_to({shelf_probe_x,
+                     assets_body.y + std::max(1, assets_body.h / 7)});
     console = doc.dock_override("Console");
     CHECK(console.present);
     CHECK_FALSE(console.floating);
@@ -7519,6 +7527,34 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
     CHECK(floating.y >= doc_body_after.y);
     CHECK(floating.x + floating.w <= doc_body_after.x + doc_body_after.w);
     CHECK(floating.y + floating.h <= doc_body_after.y + doc_body_after.h);
+
+    const affineui::Point resize_start{floating.x + floating.w - 2,
+                                       floating.y + floating.h - 2};
+    ev(affineui::EventType::MouseMove, resize_start);
+    CHECK(doc.hovered_cursor() == 8);
+    ev(affineui::EventType::MouseDown, resize_start);
+    ev(affineui::EventType::MouseMove,
+       {resize_start.x + 70, resize_start.y + 45});
+    ev(affineui::EventType::MouseUp,
+       {resize_start.x + 70, resize_start.y + 45});
+
+    const auto resized_console = doc.dock_override("Console");
+    CHECK(resized_console.present);
+    CHECK(resized_console.floating);
+    CHECK(resized_console.x == console.x);
+    CHECK(resized_console.y == console.y);
+    CHECK(resized_console.w > console.w);
+    CHECK(resized_console.h > console.h);
+    const auto resized_floating =
+        bounds_for_attr("data-aui-name", "float-Console");
+    CHECK(resized_floating.w == resized_console.w);
+    CHECK(resized_floating.h == resized_console.h);
+    CHECK(resized_floating.x >= doc_body_after.x);
+    CHECK(resized_floating.y >= doc_body_after.y);
+    CHECK(resized_floating.x + resized_floating.w <=
+          doc_body_after.x + doc_body_after.w);
+    CHECK(resized_floating.y + resized_floating.h <=
+          doc_body_after.y + doc_body_after.h);
 
     const auto assets = bounds_for_attr("data-aui-name", "pane-Assets");
     const auto status = bounds_for_attr("data-aui-name", "statusbar");

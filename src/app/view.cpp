@@ -3073,6 +3073,22 @@ void View::emit_floating_dock_panels(const DockRecorder& rec,
             close_node();
         }
         close_node();  // dockpane
+        auto& resize_zones = open_node(WidgetKind::Container, "div",
+                                       "dcs-panel__resize-zones",
+                                       "__resize-zones-" + s.id, here, true);
+        (void) resize_zones;
+        const char* dirs[] = {"n", "s", "w", "e", "nw", "ne", "sw", "se"};
+        for (const char* dir : dirs) {
+            auto& zone = open_node(
+                WidgetKind::Container, "div",
+                std::string("dcs-panel__resize-zone dcs-panel__resize-zone--") +
+                    dir,
+                std::string("__resize-zone-") + dir + "-" + s.id, here, false);
+            set_attr(zone, "data-dir", dir);
+        }
+        close_node();  // resize zones
+        open_node(WidgetKind::Container, "div", "dcs-panel__resize",
+                  "__resize-" + s.id, here, false);
         close_node();  // panel
     }
 }

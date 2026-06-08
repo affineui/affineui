@@ -427,6 +427,26 @@ struct DocumentImpl {
                                             //   dockable, e.g. a float toolbar)
     } float_drag;
 
+    // A floating tearoff panel being resized from one of the JS-compatible
+    // synthetic edge/corner zones.
+    struct FloatResize {
+        lxb_dom_element_t* elem{nullptr};
+        int                dir{0};          // bitmask: n=1,s=2,w=4,e=8
+        int                start_x{0};
+        int                start_y{0};
+        int                elem_doc_x{0};
+        int                elem_doc_y{0};
+        int                elem_w{0};
+        int                elem_h{0};
+        int                cb_x{0};
+        int                cb_y{0};
+        int                bounds_x{0};
+        int                bounds_y{0};
+        int                bounds_w{0};
+        int                bounds_h{0};
+        std::string        panel_id;
+    } float_resize;
+
     // A dock-pane tab pressed and possibly being dragged. The tab switches on
     // mouse-down; if the press turns into a drag, the release docks or tears
     // off the already-selected panel.
@@ -9690,6 +9710,40 @@ std::string with_float_position(std::string_view style, int left, int top) {
     return out;
 }
 
+std::string with_float_rect(std::string_view style,
+                            int left,
+                            int top,
+                            int width,
+                            int height) {
+    std::string out;
+    std::size_t i = 0;
+    while (i < style.size()) {
+        const std::size_t semi = style.find(';', i);
+        const std::string_view decl = style.substr(
+            i, semi == std::string_view::npos ? semi : semi - i);
+        i = (semi == std::string_view::npos) ? style.size() : semi + 1;
+        const std::size_t colon = decl.find(':');
+        if (colon != std::string_view::npos) {
+            const std::string_view prop = trim_css_ws(decl.substr(0, colon));
+            if (prop == "left" || prop == "top" || prop == "right" ||
+                prop == "bottom" || prop == "width" || prop == "height" ||
+                prop == "transform")
+                continue;
+        }
+        const std::string_view t = trim_css_ws(decl);
+        if (!t.empty()) {
+            if (!out.empty()) out += ';';
+            out += t;
+        }
+    }
+    if (!out.empty()) out += ';';
+    out += "left:" + std::to_string(left) + "px;top:" +
+           std::to_string(top) + "px;width:" + std::to_string(width) +
+           "px;height:" + std::to_string(height) +
+           "px;right:auto;bottom:auto;transform:none";
+    return out;
+}
+
 // The [data-dcs-drag-bounds] container for `dragged`: the selector (.class or
 // #id) is matched against the float's ancestors (the bounds box always encloses
 // the float). Returns null if there is no selector / no match.
@@ -9739,6 +9793,110 @@ Rect document_float_host_bounds(detail::DocumentImpl& impl) {
         }
     }
     return best_area > 0 ? best : fallback;
+}
+
+enum FloatResizeDir {
+    FloatResizeN = 1,
+    FloatResizeS = 2,
+    FloatResizeW = 4,
+    FloatResizeE = 8,
+};
+
+int float_resize_dir_for_point(const Rect& b, Point p) {
+    if (b.w <= 0 || b.h <= 0) return 0;
+    constexpr int kEdge = 5;
+    constexpr int kCorner = 12;
+    const int dx = p.x - b.x;
+    const int dy = p.y - b.y;
+    if (dx < 0 || dy < 0 || dx >= b.w || dy >= b.h) return 0;
+    if (dx < kCorner && dy < kCorner) return FloatResizeN | FloatResizeW;
+    if (dx >= b.w - kCorner && dy < kCorner) return FloatResizeN | FloatResizeE;
+    if (dx < kCorner && dy >= b.h - kCorner) return FloatResizeS | FloatResizeW;
+    if (dx >= b.w - kCorner && dy >= b.h - kCorner)
+        return FloatResizeS | FloatResizeE;
+    if (dy < kEdge) return FloatResizeN;
+    if (dy >= b.h - kEdge) return FloatResizeS;
+    if (dx < kEdge) return FloatResizeW;
+    if (dx >= b.w - kEdge) return FloatResizeE;
+    return 0;
+}
+
+int cursor_for_float_resize_dir(int dir) {
+    const bool n = (dir & FloatResizeN) != 0;
+    const bool s = (dir & FloatResizeS) != 0;
+    const bool w = (dir & FloatResizeW) != 0;
+    const bool e = (dir & FloatResizeE) != 0;
+    if ((n && w) || (s && e)) return 8;  // nwse
+    if ((n && e) || (s && w)) return 9;  // nesw
+    if (w || e) return 6;
+    if (n || s) return 7;
+    return 0;
+}
+
+bool floating_resize_enabled(lxb_dom_element_t* elem) {
+    if (!elem || attr_string(elem, "data-dcs-resize") == "false") return false;
+    if (class_list_contains(elem, "dcs-panel--floating")) return true;
+    return class_list_contains(elem, "dcs-toolbar--floating") &&
+           attr_string(elem, "data-dcs-resize") == "true";
+}
+
+bool find_float_resize_at(detail::DocumentImpl& impl, int from_idx, Point point,
+                          detail::DocumentImpl::FloatResize& out) {
+    for (int idx = from_idx;
+         idx >= 0 && idx < static_cast<int>(impl.blocks.size());
+         idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        auto* elem = element_for_block(impl, idx);
+        if (elem && (class_list_contains(elem, "dcs-dockpane__tab") ||
+                     class_list_contains(elem, "dcs-dockpane__tab-close") ||
+                     class_list_contains(elem, "dcs-panel__title--dock-tab"))) {
+            return false;
+        }
+        if (!floating_resize_enabled(elem)) continue;
+        const int bidx = block_index_for_exact_element(impl, elem);
+        if (bidx < 0) return false;
+        const auto& blk = impl.blocks[static_cast<std::size_t>(bidx)];
+        const int dir = float_resize_dir_for_point(blk.bounds, point);
+        if (dir == 0) return false;
+        const auto cs = impl.style_store.computed(blk.id);
+        const int cur_left =
+            (cs.inset_has.left && !cs.inset_has.left_pct) ? cs.inset_left : 0;
+        const int cur_top =
+            (cs.inset_has.top && !cs.inset_has.top_pct) ? cs.inset_top : 0;
+        out = {};
+        out.elem = elem;
+        out.dir = dir;
+        out.start_x = point.x;
+        out.start_y = point.y;
+        out.elem_doc_x = blk.bounds.x;
+        out.elem_doc_y = blk.bounds.y;
+        out.elem_w = blk.bounds.w;
+        out.elem_h = blk.bounds.h;
+        out.cb_x = blk.bounds.x - cur_left;
+        out.cb_y = blk.bounds.y - cur_top;
+        out.panel_id = attr_string(elem, "data-dcs-dock-id");
+        if (auto* be = resolve_drag_bounds_elem(
+                impl, elem, attr_string(elem, "data-dcs-drag-bounds"))) {
+            const int beidx = block_index_for_exact_element(impl, be);
+            if (beidx >= 0) {
+                const auto& bb = impl.blocks[static_cast<std::size_t>(beidx)];
+                out.bounds_x = bb.bounds.x;
+                out.bounds_y = bb.bounds.y;
+                out.bounds_w = bb.bounds.w;
+                out.bounds_h = bb.bounds.h;
+            }
+        }
+        if (!out.panel_id.empty()) {
+            const Rect hb = document_float_host_bounds(impl);
+            if (hb.w > 0 && hb.h > 0) {
+                out.bounds_x = hb.x;
+                out.bounds_y = hb.y;
+                out.bounds_w = hb.w;
+                out.bounds_h = hb.h;
+            }
+        }
+        return true;
+    }
+    return false;
 }
 
 bool find_float_drag_at(detail::DocumentImpl& impl, int from_idx, Point point,
@@ -9834,6 +9992,63 @@ bool update_float_drag(detail::DocumentImpl& impl, const Event& ev) {
         impl, d.elem, "style",
         with_float_position(attr_string(d.elem, "style"), x - d.cb_x,
                             y - d.cb_y));
+}
+
+Rect float_resize_rect(const detail::DocumentImpl::FloatResize& d,
+                       const Event& ev) {
+    constexpr int kMinW = 160;
+    constexpr int kMinH = 80;
+    const int dx = ev.pos.x - d.start_x;
+    const int dy = ev.pos.y - d.start_y;
+    int left = d.elem_doc_x;
+    int top = d.elem_doc_y;
+    int right = d.elem_doc_x + d.elem_w;
+    int bottom = d.elem_doc_y + d.elem_h;
+    if (d.dir & FloatResizeW) left += dx;
+    if (d.dir & FloatResizeE) right += dx;
+    if (d.dir & FloatResizeN) top += dy;
+    if (d.dir & FloatResizeS) bottom += dy;
+
+    if (right - left < kMinW) {
+        if (d.dir & FloatResizeW) left = right - kMinW;
+        else right = left + kMinW;
+    }
+    if (bottom - top < kMinH) {
+        if (d.dir & FloatResizeN) top = bottom - kMinH;
+        else bottom = top + kMinH;
+    }
+
+    if (d.bounds_w > 0 && d.bounds_h > 0) {
+        const int max_right = d.bounds_x + d.bounds_w;
+        const int max_bottom = d.bounds_y + d.bounds_h;
+        if (d.dir & FloatResizeW) {
+            left = std::clamp(left, d.bounds_x, std::max(d.bounds_x, right - kMinW));
+        }
+        if (d.dir & FloatResizeE) {
+            right = std::clamp(right, left + kMinW,
+                               std::max(left + kMinW, max_right));
+        }
+        if (d.dir & FloatResizeN) {
+            top = std::clamp(top, d.bounds_y, std::max(d.bounds_y, bottom - kMinH));
+        }
+        if (d.dir & FloatResizeS) {
+            bottom = std::clamp(bottom, top + kMinH,
+                                std::max(top + kMinH, max_bottom));
+        }
+    }
+
+    return {left, top, std::max(kMinW, right - left),
+            std::max(kMinH, bottom - top)};
+}
+
+bool update_float_resize(detail::DocumentImpl& impl, const Event& ev) {
+    auto& d = impl.float_resize;
+    if (!d.elem) return false;
+    const Rect r = float_resize_rect(d, ev);
+    return set_attribute_on_element(
+        impl, d.elem, "style",
+        with_float_rect(attr_string(d.elem, "style"), r.x - d.cb_x,
+                        r.y - d.cb_y, r.w, r.h));
 }
 
 bool is_dcs_menu_trigger(lxb_dom_element_t* elem) {
@@ -10747,10 +10962,11 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
             point_over_pane_tabbar(impl, e, pt)) {
             out.zone = DropZone::Tab;
         } else {
-            // Edge intent is percentage-based: choose the closest normalized
-            // edge within the cutoff, otherwise use the center/tab zone. The
-            // corners become triangular ownership regions and narrow panes
-            // keep usable side targets.
+            // Edge intent mirrors decius.js edgeZone(): a percentage band
+            // decides which edges are eligible, then the closest eligible edge
+            // is chosen in pixels. That keeps top/bottom zones usable on very
+            // wide shallow shelves, instead of compressing them into a few
+            // normalized-distance pixels near the midpoint.
             constexpr double kT = 0.22;
             Rect zone_bounds = b;
             Rect body_bounds{};
@@ -10761,18 +10977,26 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
                 pt.y < body_bounds.y + body_bounds.h) {
                 zone_bounds = body_bounds;
             }
-            const double x = zone_bounds.w > 0
-                                 ? (pt.x - zone_bounds.x) /
-                                       static_cast<double>(zone_bounds.w)
-                                 : 0.5;
-            const double y = zone_bounds.h > 0
-                                 ? (pt.y - zone_bounds.y) /
-                                       static_cast<double>(zone_bounds.h)
-                                 : 0.5;
-            const double dists[] = {x, 1.0 - x, y, 1.0 - y};
+            const double dx = pt.x - zone_bounds.x;
+            const double dy = pt.y - zone_bounds.y;
+            const double w = std::max(1, zone_bounds.w);
+            const double h = std::max(1, zone_bounds.h);
+            const double x_band = w * kT;
+            const double y_band = h * kT;
+            const bool near_l = dx < x_band;
+            const bool near_r = dx > w - x_band;
+            const bool near_t = dy < y_band;
+            const bool near_b = dy > h - y_band;
+            const double inf = std::numeric_limits<double>::infinity();
+            const double dists[] = {
+                near_l ? dx : inf,
+                near_r ? w - dx : inf,
+                near_t ? dy : inf,
+                near_b ? h - dy : inf,
+            };
             const DropZone zones[] = {DropZone::Left, DropZone::Right,
                                       DropZone::Top, DropZone::Bottom};
-            double best = kT;
+            double best = inf;
             out.zone = DropZone::Tab;
             for (int zi = 0; zi < 4; ++zi) {
                 if (dists[zi] < best) {
@@ -10850,6 +11074,9 @@ bool apply_dock(detail::DocumentImpl& impl, std::string_view panel_id,
         }
     }
     impl.dock_overrides[key] = p;
+    if (p.side == 4) {
+        impl.dock_active_tabs[p.parent] = key;
+    }
     return true;
 }
 
@@ -11938,6 +12165,12 @@ DispatchResult Document::dispatch(const Event& ev) {
                 }
                 break;
             }
+            if (impl_->float_resize.elem) {
+                if (update_float_resize(*impl_, ev)) {
+                    result.redraw_requested = true;
+                }
+                break;
+            }
             if (impl_->float_drag.elem) {
                 if (update_float_drag(*impl_, ev)) {
                     result.redraw_requested = true;
@@ -12025,6 +12258,7 @@ DispatchResult Document::dispatch(const Event& ev) {
             impl_->scrollbar_drag = {};
 #if !defined(AFFINEUI_STUB_BUILD)
             impl_->splitter_drag = {};
+            impl_->float_resize = {};
             impl_->pending_tab_press = {};
             impl_->pressed_button = nullptr;
 #endif
@@ -12067,6 +12301,18 @@ DispatchResult Document::dispatch(const Event& ev) {
                         set_element_class(*impl_, selem,
                                           "dcs-splitter--active", true);
                     }
+                    break;
+                }
+            }
+            // Floating tearoff resize from the synthetic JS-compatible edge and
+            // corner zones. This has priority over chrome dragging.
+            if (impl_->ui_control_script_attached &&
+                ev.button == MouseButton::Left) {
+                detail::DocumentImpl::FloatResize fr{};
+                if (find_float_resize_at(*impl_, impl_->hovered_idx, ev.pos,
+                                         fr)) {
+                    impl_->float_resize = fr;
+                    result.redraw_requested = true;
                     break;
                 }
             }
@@ -12297,6 +12543,27 @@ DispatchResult Document::dispatch(const Event& ev) {
                 impl_->splitter_drag = {};
                 // A pane was resized — let the app persist the new dock layout.
                 result.layout_changed = persist_layout;
+                break;
+            }
+            if (impl_->float_resize.elem) {
+                if (update_float_resize(*impl_, ev)) {
+                    result.redraw_requested = true;
+                }
+                const auto fr = impl_->float_resize;
+                const Rect r = float_resize_rect(fr, ev);
+                impl_->float_resize = {};
+                if (!fr.panel_id.empty()) {
+                    Document::DockPlacement p;
+                    p.present = true;
+                    p.floating = true;
+                    p.x = r.x - fr.cb_x;
+                    p.y = r.y - fr.cb_y;
+                    p.w = r.w;
+                    p.h = r.h;
+                    impl_->dock_overrides[fr.panel_id] = p;
+                    result.layout_changed = true;
+                }
+                result.redraw_requested = true;
                 break;
             }
             if (impl_->float_drag.elem) {
@@ -12765,10 +13032,10 @@ detail::ComputedStyle::Cursor effective_cursor(
 
 // Translate the internal Cursor enum to the stable integer protocol that
 // App's map_cursor() consumes: 0 default, 1 pointer, 2 text, 3 crosshair,
-// 4 move/all, 5 not-allowed, 6 ew-resize, 7 ns-resize. Explicit on purpose —
-// do NOT lean on enum ordinals lining up with the protocol codes (they don't,
-// and that mismatch silently showed a diagonal cursor for ew-resize and a
-// plain arrow for ns-resize).
+// 4 move/all, 5 not-allowed, 6 ew-resize, 7 ns-resize, 8 nwse-resize,
+// 9 nesw-resize. Explicit on purpose — do NOT lean on enum ordinals lining up
+// with the protocol codes (they don't, and that mismatch silently showed a
+// diagonal cursor for ew-resize and a plain arrow for ns-resize).
 int cursor_protocol_code(detail::ComputedStyle::Cursor c) {
     using C = detail::ComputedStyle::Cursor;
     switch (c) {
@@ -12803,6 +13070,10 @@ int Document::hovered_cursor() const {
             if (resize_x && !resize_y) return 6;
             if (!resize_x && resize_y) return 7;
             return 4;
+        }
+        detail::DocumentImpl::FloatResize fr{};
+        if (find_float_resize_at(*impl_, idx, impl_->last_mouse_pos, fr)) {
+            return cursor_for_float_resize_dir(fr.dir);
         }
     }
 #endif

@@ -48,6 +48,7 @@ inline SDL_SystemCursor cursor_to_sdl(int c) {
         case 6: return SDL_SYSTEM_CURSOR_SIZEWE;
         case 7: return SDL_SYSTEM_CURSOR_SIZENS;
         case 8: return SDL_SYSTEM_CURSOR_SIZENWSE;
+        case 9: return SDL_SYSTEM_CURSOR_SIZENESW;
         default: return SDL_SYSTEM_CURSOR_ARROW;
     }
 }
@@ -57,8 +58,8 @@ namespace detail {
 // per kind; we lazily fill the slots so we only pay for the cursors we
 // actually use. Pointers live for process lifetime.
 inline SDL_Cursor* get_cached_cursor(int c) {
-    static SDL_Cursor* cache[9] = {nullptr};
-    const int idx = (c < 0 || c > 8) ? 0 : c;
+    static SDL_Cursor* cache[10] = {nullptr};
+    const int idx = (c < 0 || c > 9) ? 0 : c;
     if (!cache[idx]) {
         cache[idx] = SDL_CreateSystemCursor(cursor_to_sdl(c));
     }
