@@ -493,6 +493,11 @@ struct DocumentImpl {
         lxb_dom_element_t* tab{nullptr};    // the grabbed tab button
         lxb_dom_element_t* pane{nullptr};   // its enclosing .dcs-dockpane
         std::string        panel_id;        // dockpanel id (target body minus -body)
+        std::string        source_pane_id;
+        std::string        drag_kind{"panels"};
+        std::string        label;
+        Rect               source_pane_bounds{};
+        bool               source_pane_bounds_valid{false};
         int                start_x{0};
         int                start_y{0};
         bool               dragging{false}; // moved past the threshold
@@ -10167,13 +10172,24 @@ std::string tab_drag_ghost_style(Point p) {
 }
 
 bool update_tab_drag_ghost(detail::DocumentImpl& impl,
-                           lxb_dom_element_t* tab,
+                           std::string_view label_text,
                            Point p) {
-    if (!impl.doc || !tab) return false;
+    if (!impl.doc) return false;
     const std::string style = tab_drag_ghost_style(p);
     if (impl.tab_drag_ghost) {
-        return set_attribute_on_element(impl, impl.tab_drag_ghost, "style",
-                                        style);
+        bool changed = set_attribute_on_element(
+            impl, impl.tab_drag_ghost, "style", style);
+        changed = remove_attribute_on_element(impl, impl.tab_drag_ghost,
+                                              "hidden") || changed;
+        return changed;
+    }
+    if (auto* existing = find_dom_element_by_id(impl, "__dockghost")) {
+        impl.tab_drag_ghost = existing;
+        bool changed = set_attribute_on_element(impl, existing, "style",
+                                                style);
+        changed = remove_attribute_on_element(impl, existing, "hidden") ||
+                  changed;
+        return changed;
     }
 
     auto* body = lxb_html_document_body_element(impl.doc);
@@ -10190,8 +10206,7 @@ bool update_tab_drag_ghost(detail::DocumentImpl& impl,
     lxb_dom_element_set_attribute(ghost, as_lxb("style"), 5,
                                   as_lxb(style), style.size());
 
-    std::string label = std::string(trim_css_ws(node_text(
-        lxb_dom_interface_node(tab))));
+    std::string label = std::string(trim_css_ws(label_text));
     if (label.empty()) label = "Panel";
     lxb_dom_node_text_content_set(lxb_dom_interface_node(ghost),
                                   as_lxb(label), label.size());
@@ -10209,15 +10224,14 @@ bool remove_tab_drag_ghost(detail::DocumentImpl& impl) {
         ghost = find_dom_element_by_id(impl, "__dockghost");
     }
     if (!ghost) return false;
-    Rect old_rect{};
-    const int idx = block_index_for_exact_element(impl, ghost);
-    if (idx >= 0) old_rect = subtree_visual_rect(impl, idx);
-    lxb_dom_node_destroy(lxb_dom_interface_node(ghost));
-    impl.tab_drag_ghost = nullptr;
-    recollect_blocks_from_current_dom(impl);
-    if (rect_valid(old_rect)) add_dirty_rect(impl, old_rect);
-    impl.paint_dirty = true;
-    return true;
+    bool changed = set_attribute_on_element(impl, ghost, "hidden", "");
+    changed = set_attribute_on_element(
+                  impl, ghost, "style",
+                  "position:fixed;z-index:1000;pointer-events:none;"
+                  "display:none;left:0px;top:0px") ||
+              changed;
+    impl.paint_dirty = impl.paint_dirty || changed;
+    return changed;
 }
 
 bool is_dcs_menu_trigger(lxb_dom_element_t* elem) {
@@ -11034,6 +11048,30 @@ std::string pane_panel_id(lxb_dom_element_t* pane) {
     return n.rfind("pane-", 0) == 0 ? n.substr(5) : std::string();
 }
 
+void capture_tab_drag_metadata(detail::DocumentImpl& impl,
+                               detail::DocumentImpl::TabDrag& drag,
+                               lxb_dom_element_t* tab,
+                               lxb_dom_element_t* pane) {
+    drag.source_pane_id = pane_panel_id(pane);
+    drag.drag_kind = dock_kind_of(pane);
+    drag.label.clear();
+    if (tab) {
+        drag.label = std::string(
+            trim_css_ws(node_text(lxb_dom_interface_node(tab))));
+    }
+    drag.source_pane_bounds = {};
+    drag.source_pane_bounds_valid = false;
+    if (pane) {
+        const int pi = block_index_for_exact_element(impl, pane);
+        if (pi >= 0) {
+            drag.source_pane_bounds =
+                impl.blocks[static_cast<std::size_t>(pi)].bounds;
+            drag.source_pane_bounds_valid =
+                drag.source_pane_bounds.w > 0 && drag.source_pane_bounds.h > 0;
+        }
+    }
+}
+
 bool arm_tab_drag_from_pending_press(
     detail::DocumentImpl& impl,
     const detail::DocumentImpl::PendingTabPress& press) {
@@ -11048,6 +11086,7 @@ bool arm_tab_drag_from_pending_press(
     impl.tab_drag.start_x = press.start_x;
     impl.tab_drag.start_y = press.start_y;
     impl.tab_drag.switched_on_down = press.switched_on_down;
+    capture_tab_drag_metadata(impl, impl.tab_drag, tab, pane);
     return true;
 }
 
@@ -12400,7 +12439,7 @@ DispatchResult Document::dispatch(const Event& ev) {
                         dock_trace("tab-drag-start panel=" +
                                    impl_->tab_drag.panel_id +
                                    " from=" +
-                                   pane_panel_id(impl_->tab_drag.pane) +
+                                   impl_->tab_drag.source_pane_id +
                                    " at=(" + std::to_string(ev.pos.x) + "," +
                                    std::to_string(ev.pos.y) + ")");
                     }
@@ -12416,7 +12455,7 @@ DispatchResult Document::dispatch(const Event& ev) {
                 if (impl_->tab_drag.dragging) {
                     ensure_interaction_layout();
                     const auto t = compute_drop_target(
-                        *impl_, ev.pos, dock_kind_of(impl_->tab_drag.pane));
+                        *impl_, ev.pos, impl_->tab_drag.drag_kind);
                     const bool target_changed =
                         impl_->tab_drag.drop_valid != t.valid ||
                         impl_->tab_drag.drop_parent !=
@@ -12456,7 +12495,7 @@ DispatchResult Document::dispatch(const Event& ev) {
                         result.redraw_requested = true;
                     }
                     if (update_tab_drag_ghost(
-                            *impl_, impl_->tab_drag.tab, ev.pos)) {
+                            *impl_, impl_->tab_drag.label, ev.pos)) {
                         result.redraw_requested = true;
                     }
                 }
@@ -12738,6 +12777,8 @@ DispatchResult Document::dispatch(const Event& ev) {
                     impl_->tab_drag.start_x = ev.pos.x;
                     impl_->tab_drag.start_y = ev.pos.y;
                     impl_->tab_drag.switched_on_down = switched;
+                    capture_tab_drag_metadata(
+                        *impl_, impl_->tab_drag, tab_elem, pane);
                 }
             }
             if (has_pending_live_drag) {
@@ -12894,12 +12935,12 @@ DispatchResult Document::dispatch(const Event& ev) {
                     } else {
                         ensure_interaction_layout();
                         t = compute_drop_target(
-                            *impl_, ev.pos, dock_kind_of(td.pane));
+                            *impl_, ev.pos, td.drag_kind);
                     }
                     if (t.valid) {
                         bool source_center_noop = false;
-                        if (t.zone == DropZone::Tab && td.pane) {
-                            const std::string source_id = pane_panel_id(td.pane);
+                        if (t.zone == DropZone::Tab) {
+                            const std::string& source_id = td.source_pane_id;
                             source_center_noop =
                                 !source_id.empty() && source_id == t.parent;
                         }
@@ -12914,21 +12955,15 @@ DispatchResult Document::dispatch(const Event& ev) {
                     } else {
                         // Not over a zone: tear off if released outside the pane.
                         bool outside = true;
-                        if (td.pane) {
-                            const int pi =
-                                block_index_for_exact_element(*impl_, td.pane);
-                            if (pi >= 0) {
-                                const auto& pb =
-                                    impl_->blocks[static_cast<std::size_t>(pi)]
-                                        .bounds;
-                                outside =
-                                    !(ev.pos.x >= pb.x && ev.pos.x < pb.x + pb.w &&
-                                      ev.pos.y >= pb.y && ev.pos.y < pb.y + pb.h);
-                            }
+                        if (td.source_pane_bounds_valid) {
+                            const auto& pb = td.source_pane_bounds;
+                            outside =
+                                !(ev.pos.x >= pb.x && ev.pos.x < pb.x + pb.w &&
+                                  ev.pos.y >= pb.y && ev.pos.y < pb.y + pb.h);
                         }
                         if (outside)
                             changed_dock = tear_off_panel(*impl_, td.panel_id,
-                                                          td.pane, ev.pos);
+                                                          nullptr, ev.pos);
                         else
                             dock_trace("tab-drag-cancel panel=" + td.panel_id +
                                        " at=(" + std::to_string(ev.pos.x) +
