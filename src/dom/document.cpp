@@ -506,6 +506,7 @@ struct DocumentImpl {
         bool               drop_indicator_visible{false};
         bool               switched_on_down{false};
     } tab_drag;
+    lxb_dom_element_t* tab_drag_ghost{nullptr};
 
     struct PendingTabPress {
         std::string panel_id;
@@ -4440,7 +4441,9 @@ void Document::set_html(std::string_view html) {
     impl_->scrollbar_drag = {};
     impl_->splitter_drag = {};
     impl_->float_drag = {};
+    impl_->float_resize = {};
     impl_->tab_drag = {};
+    impl_->tab_drag_ghost = nullptr;
     impl_->live_drag = {};
 #else
     impl_->scrollbar_drag = {};
@@ -6969,14 +6972,22 @@ bool rect_contains_float(const Rect& r, float x, float y) noexcept {
 }
 #endif
 
-// Deepest block whose effective border-box (after applying ancestor scroll
-// offsets and CSS transforms) contains (x, y), or -1 if none. z-index buckets
-// win first, then normal document order breaks ties.
-int hit_test_blocks(const detail::DocumentImpl& impl, int x, int y) {
+bool hit_test_skip_for_dock_target(const Block& block) {
+    return block.elem_id == "__dropind" || block.elem_id == "__dockghost" ||
+           block_has_class(block, "dcs-drop") ||
+           block_has_class(block, "dcs-dockpane__tab-ghost");
+}
+
+int hit_test_blocks_impl(const detail::DocumentImpl& impl,
+                         int x,
+                         int y,
+                         bool skip_dock_overlay) {
     const auto& blocks = impl.blocks;
     int hit = -1;
     int hit_z = std::numeric_limits<int>::min();
     for (std::size_t i = 0; i < blocks.size(); ++i) {
+        if (skip_dock_overlay && hit_test_skip_for_dock_target(blocks[i]))
+            continue;
 #if !defined(AFFINEUI_STUB_BUILD)
         const int dy = scroll_offset_y_for(
             blocks, impl.style_store, static_cast<int>(i));
@@ -7012,6 +7023,19 @@ int hit_test_blocks(const detail::DocumentImpl& impl, int x, int y) {
 #endif
     }
     return hit;
+}
+
+// Deepest block whose effective border-box (after applying ancestor scroll
+// offsets and CSS transforms) contains (x, y), or -1 if none. z-index buckets
+// win first, then normal document order breaks ties.
+int hit_test_blocks(const detail::DocumentImpl& impl, int x, int y) {
+    return hit_test_blocks_impl(impl, x, y, false);
+}
+
+int hit_test_blocks_for_dock_target(const detail::DocumentImpl& impl,
+                                    int x,
+                                    int y) {
+    return hit_test_blocks_impl(impl, x, y, true);
 }
 
 std::string block_trace_name(const Block& b) {
@@ -8028,6 +8052,16 @@ const lxb_dom_element_t* element_for_block(const detail::DocumentImpl& impl,
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return nullptr;
     return impl.style_store.element_of(
         impl.blocks[static_cast<std::size_t>(idx)].id);
+}
+
+lxb_dom_element_t* element_for_block_or_ancestor(detail::DocumentImpl& impl,
+                                                 int idx) {
+    for (int cur = idx;
+         cur >= 0 && cur < static_cast<int>(impl.blocks.size());
+         cur = impl.blocks[static_cast<std::size_t>(cur)].parent_idx) {
+        if (auto* elem = element_for_block(impl, cur)) return elem;
+    }
+    return nullptr;
 }
 
 lxb_dom_element_t* find_dom_element_by_id(lxb_dom_node_t* root,
@@ -10126,6 +10160,66 @@ bool update_float_resize(detail::DocumentImpl& impl, const Event& ev) {
                         r.y - d.cb_y, r.w, r.h));
 }
 
+std::string tab_drag_ghost_style(Point p) {
+    return "position:fixed;z-index:1000;pointer-events:none;left:" +
+        std::to_string(p.x + 10) + "px;top:" + std::to_string(p.y + 8) +
+        "px";
+}
+
+bool update_tab_drag_ghost(detail::DocumentImpl& impl,
+                           lxb_dom_element_t* tab,
+                           Point p) {
+    if (!impl.doc || !tab) return false;
+    const std::string style = tab_drag_ghost_style(p);
+    if (impl.tab_drag_ghost) {
+        return set_attribute_on_element(impl, impl.tab_drag_ghost, "style",
+                                        style);
+    }
+
+    auto* body = lxb_html_document_body_element(impl.doc);
+    if (!body) return false;
+    auto* ghost = lxb_dom_document_create_element(
+        lxb_dom_interface_document(impl.doc), as_lxb("div"), 3, nullptr);
+    if (!ghost) return false;
+    constexpr std::string_view ghost_id = "__dockghost";
+    constexpr std::string_view ghost_class = "dcs-dockpane__tab-ghost";
+    lxb_dom_element_set_attribute(ghost, as_lxb("id"), 2,
+                                  as_lxb(ghost_id), ghost_id.size());
+    lxb_dom_element_set_attribute(ghost, as_lxb("class"), 5,
+                                  as_lxb(ghost_class), ghost_class.size());
+    lxb_dom_element_set_attribute(ghost, as_lxb("style"), 5,
+                                  as_lxb(style), style.size());
+
+    std::string label = std::string(trim_css_ws(node_text(
+        lxb_dom_interface_node(tab))));
+    if (label.empty()) label = "Panel";
+    lxb_dom_node_text_content_set(lxb_dom_interface_node(ghost),
+                                  as_lxb(label), label.size());
+    lxb_dom_node_insert_child(lxb_dom_interface_node(body),
+                              lxb_dom_interface_node(ghost));
+    impl.tab_drag_ghost = ghost;
+    recollect_blocks_from_current_dom(impl);
+    impl.paint_dirty = true;
+    return true;
+}
+
+bool remove_tab_drag_ghost(detail::DocumentImpl& impl) {
+    auto* ghost = impl.tab_drag_ghost;
+    if (!ghost) {
+        ghost = find_dom_element_by_id(impl, "__dockghost");
+    }
+    if (!ghost) return false;
+    Rect old_rect{};
+    const int idx = block_index_for_exact_element(impl, ghost);
+    if (idx >= 0) old_rect = subtree_visual_rect(impl, idx);
+    lxb_dom_node_destroy(lxb_dom_interface_node(ghost));
+    impl.tab_drag_ghost = nullptr;
+    recollect_blocks_from_current_dom(impl);
+    if (rect_valid(old_rect)) add_dirty_rect(impl, old_rect);
+    impl.paint_dirty = true;
+    return true;
+}
+
 bool is_dcs_menu_trigger(lxb_dom_element_t* elem) {
     return elem && attr_string(elem, "data-dcs-toggle") == "menu" &&
            !has_attr(elem, "disabled");
@@ -11037,24 +11131,26 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
         }
     }
 
-    // (Ne) the dock pane under the cursor (same dock-kind). Source panes are
-    // still valid targets: dropping back onto the source center is a no-op
-    // cancel, while source edge zones can split a tab beside its former stack.
-    // Pane edge drops win over the viewport band. This keeps shallow bottom
-    // panes (Assets/Console shelves) dockable on their own bottom edge even
-    // when they sit near the app's bottom chrome.
-    // Walk later blocks first so floating overlays and nested hit targets win
-    // over older docked panes that happen to sit underneath them.
-    for (int i = static_cast<int>(impl.blocks.size()) - 1; i >= 0; --i) {
-        auto* e = element_for_block(impl, i);
-        if (!e) continue;
-        if (!class_list_contains(e, "dcs-dockpane")) continue;
-        const auto& b = impl.blocks[static_cast<std::size_t>(i)].bounds;
-        if (!(pt.x >= b.x && pt.x < b.x + b.w && pt.y >= b.y && pt.y < b.y + b.h))
-            continue;
-        if (dock_kind_of(e) != drag_kind) return out;  // kind mismatch -> tearoff
+    // (Ne) the dock pane under the cursor (same dock-kind). Mirror JS
+    // elementFromPoint(...).closest('.dcs-dockpane') instead of scanning all
+    // pane rectangles; otherwise stale/overlapping bounds can make a visually
+    // unrelated pane own the preview.
+    const int hit = hit_test_blocks_for_dock_target(impl, pt.x, pt.y);
+    auto* hit_elem = element_for_block_or_ancestor(impl, hit);
+    auto* e = ancestor_with_class(hit_elem, "dcs-dockpane");
+    if (e) {
+        const int bi = block_index_for_exact_element(impl, e);
+        if (bi < 0) return window_edge.valid ? window_edge : out;
+        const auto& b = impl.blocks[static_cast<std::size_t>(bi)].bounds;
+        if (!(pt.x >= b.x && pt.x < b.x + b.w && pt.y >= b.y &&
+              pt.y < b.y + b.h)) {
+            return window_edge.valid ? window_edge : out;
+        }
+        if (dock_kind_of(e) != drag_kind) {
+            return window_edge.valid ? window_edge : out;
+        }
         const std::string id = pane_panel_id(e);
-        if (id.empty()) return out;
+        if (id.empty()) return window_edge.valid ? window_edge : out;
         out.parent = id;
         const int lx = b.x - hx, ly = b.y - hy;
         if (ancestor_with_class(e, "dcs-panel--floating") ||
@@ -12276,6 +12372,7 @@ DispatchResult Document::dispatch(const Event& ev) {
             }
             if (impl_->float_resize.elem) {
                 if (update_float_resize(*impl_, ev)) {
+                    impl_->content_size = Size{0, 0};
                     result.redraw_requested = true;
                 }
                 break;
@@ -12353,6 +12450,10 @@ DispatchResult Document::dispatch(const Event& ev) {
                     impl_->tab_drag.drop_indicator_visible = t.valid;
                     if (set_drop_indicator(*impl_, t.valid ? &t : nullptr) ||
                         indicator_was_visible != t.valid) {
+                        result.redraw_requested = true;
+                    }
+                    if (update_tab_drag_ghost(
+                            *impl_, impl_->tab_drag.tab, ev.pos)) {
                         result.redraw_requested = true;
                     }
                 }
@@ -12689,6 +12790,7 @@ DispatchResult Document::dispatch(const Event& ev) {
             }
             if (impl_->float_resize.elem) {
                 if (update_float_resize(*impl_, ev)) {
+                    impl_->content_size = Size{0, 0};
                     result.redraw_requested = true;
                 }
                 const auto fr = impl_->float_resize;
@@ -12769,6 +12871,9 @@ DispatchResult Document::dispatch(const Event& ev) {
                 impl_->tab_drag = {};
                 impl_->pending_tab_press = {};
                 if (td.dragging) {
+                    if (remove_tab_drag_ghost(*impl_)) {
+                        result.redraw_requested = true;
+                    }
                     if (set_drop_indicator(*impl_, nullptr)) {  // hide
                         result.redraw_requested = true;
                     }

@@ -2717,6 +2717,7 @@ View::DockNode View::resolve_dock(const DockRecorder& rec,
     // current accumulated layout on its side; so a panel docked Bottom after
     // the side panels spans the full width below them, etc. Floating panels are
     // skipped here (they are emitted as overlays by document_view).
+    int split_index = 0;
     for (const auto& p : rec.panels) {
         const auto e = eff(p);
         if (e.parent != node_id || e.side == Dock::Tab || e.floating) continue;
@@ -2727,6 +2728,8 @@ View::DockNode View::resolve_dock(const DockRecorder& rec,
         if (!is_document) sub.size.reset();
         DockNode split;
         split.split = true;
+        split.id = std::string(node_id) + "__split" +
+                   std::to_string(split_index++);
         split.vertical = (e.side == Dock::Top || e.side == Dock::Bottom);
         if (e.side == Dock::Left || e.side == Dock::Top) {
             split.children.push_back(std::move(sub));
@@ -2929,6 +2932,13 @@ void View::emit_floating_dock_panels(const DockRecorder& rec,
             }
         }
         const bool primary_selected = active_tab.empty();
+        bool has_any_toolbar = static_cast<bool>(s.toolbar);
+        for (const auto* t : tabs) {
+            if (t && t->toolbar) {
+                has_any_toolbar = true;
+                break;
+            }
+        }
 
         const int w = e.w > 0 ? e.w : 320;
         const int h = e.h > 0 ? e.h : 240;
@@ -2949,6 +2959,7 @@ void View::emit_floating_dock_panels(const DockRecorder& rec,
         dock_cls += tabs.empty()
             ? " dcs-dockpane--single-tab dcs-dockpane--title-only"
             : " dcs-dockpane--multi-tab";
+        if (has_any_toolbar) dock_cls += " dcs-dockpane--shelved";
         auto& dock = open_node(WidgetKind::Container, "section", dock_cls,
                                "pane-" + s.id, here, true);
         set_attr(dock, "style", "flex:1;min-width:0;min-height:0");
@@ -2982,6 +2993,20 @@ void View::emit_floating_dock_panels(const DockRecorder& rec,
             set_text(label, spec.title);
             close_node();  // tab
         };
+        auto emit_toolbar = [&](const DockRecorder::Spec& spec,
+                                std::string_view key) {
+            if (!spec.toolbar) return;
+            const bool selected =
+                (&spec == &s) ? primary_selected : active_tab == spec.id;
+            auto& toolbar = open_node(WidgetKind::Container, "div",
+                                      "dcs-dockpane__toolbar", key, here,
+                                      true);
+            set_attr(toolbar, "data-dcs-tabtoolbar", "#" + spec.id + "-body");
+            if (!selected) set_attr(toolbar, "hidden", "");
+            else remove_attr(toolbar, "hidden");
+            spec.toolbar(*this);
+            close_node();
+        };
 
         if (tabs.empty()) {
             auto& hd = open_node(WidgetKind::Container, "header",
@@ -2993,25 +3018,6 @@ void View::emit_floating_dock_panels(const DockRecorder& rec,
                       "__ftools-" + s.id, here, false);
             close_node();  // titlebar
         } else {
-            auto& hd = open_node(WidgetKind::Container, "header",
-                                 "dcs-panel__header", "__fh-" + s.id, here,
-                                 true);
-            set_attr(hd, "data-dcs-drag-handle", "");
-            auto& title = open_node(WidgetKind::Container, "span",
-                                    "dcs-panel__title", "__ft-" + s.id, here,
-                                    true);
-            (void) title;
-            if (!s.icon.empty()) {
-                open_node(WidgetKind::Container, "i", "di di-" + s.icon,
-                          "__fi-" + s.id, here, false);
-            }
-            auto& label = open_node(WidgetKind::Container, "span",
-                                    "dcs-panel__titletext", "__fl-" + s.id,
-                                    here, false);
-            set_text(label, s.title);
-            close_node();  // title
-            close_node();  // header
-
             auto& tabbar = open_node(WidgetKind::Container, "div",
                                      "dcs-dockpane__tabbar",
                                      "__tabbar-" + s.id, here, true);
@@ -3025,33 +3031,22 @@ void View::emit_floating_dock_panels(const DockRecorder& rec,
                          "__tab-" + std::to_string(ti++), false);
             }
             close_node();  // tabs
-            auto emit_toolbar = [&](const DockRecorder::Spec& spec,
-                                    std::string_view key) {
-                if (!spec.toolbar) return;
-                const bool selected =
-                    (&spec == &s) ? primary_selected : active_tab == spec.id;
-                auto& toolbar = open_node(WidgetKind::Container, "div",
-                                          "dcs-dockpane__toolbar", key, here,
-                                          true);
-                set_attr(toolbar, "data-dcs-tabtoolbar", "#" + spec.id + "-body");
-                if (!selected) set_attr(toolbar, "hidden", "");
-                else remove_attr(toolbar, "hidden");
-                spec.toolbar(*this);
-                close_node();
-            };
             open_node(WidgetKind::Container, "div", "dcs-dockpane__toolbars",
                       "__toolbars-" + s.id, here, true);
+            close_node();  // toolbars
+            close_node();  // tabbar
+        }
+        if (has_any_toolbar) {
+            auto& shelf = open_node(WidgetKind::Container, "div",
+                                    "dcs-dockpane__shelf", "__shelf-" + s.id,
+                                    here, true);
+            (void) shelf;
             emit_toolbar(s, "__toolbar-" + s.id);
             int tbi = 0;
             for (const auto* t : tabs) {
                 emit_toolbar(*t, "__toolbar-" + std::to_string(tbi++));
             }
-            close_node();  // toolbars
-            close_node();  // tabbar
-            auto& shelf = open_node(WidgetKind::Container, "div",
-                                    "dcs-dockpane__shelf", "__shelf-" + s.id,
-                                    here, false);
-            set_attr(shelf, "hidden", "");
+            close_node();  // shelf
         }
 
         auto& body = open_node(WidgetKind::Container, "div", "dcs-dockpane__body",

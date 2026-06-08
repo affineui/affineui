@@ -6770,6 +6770,210 @@ TEST_CASE("UiControls: viewport edge docking does not steal a pane edge") {
     CHECK(ov.side == 0);                 // Left
 }
 
+TEST_CASE("UiControls: dock tab drag shows a transient title ghost") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost { position: relative; width: 600px; height: 300px; display: flex; }
+        .dcs-dockpane { width: 300px; height: 300px; display: flex; flex-direction: column; }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .dcs-dockpane__body { flex: 1; }
+        .dcs-dockpane__tab-ghost {
+            position: fixed;
+            display: inline-flex;
+            height: 24px;
+            padding: 0 8px;
+            align-items: center;
+            color: rgb(255,255,255);
+            background: rgb(16,24,32);
+        }
+        </style>
+        <div class="dcs-dock dcs-dock--floathost">
+          <section class="dcs-dockpane" data-aui-name="pane-A">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button id="tabA" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#A-body">A</button>
+            </div></div><div class="dcs-dockpane__body" id="A-body">A</div>
+          </section>
+          <section class="dcs-dockpane" data-aui-name="pane-B">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button id="tabB" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#B-body">B</button>
+            </div></div><div class="dcs-dockpane__body" id="B-body">B</div>
+          </section>
+        </div>
+    )HTML");
+    doc.layout(600, 300, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto ev = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        doc.dispatch(e);
+    };
+
+    const auto tab = find_hovered_id(doc, "tabB", 600, 300);
+    REQUIRE(tab.x >= 0);
+    ev(affineui::EventType::MouseDown, tab);
+    ev(affineui::EventType::MouseMove, {90, 190});
+    doc.layout(600, 300, &painter);
+    painter.text_draws.clear();
+    doc.draw(painter);
+    const bool saw_ghost_text = std::any_of(
+        painter.text_draws.begin(), painter.text_draws.end(),
+        [](const RecordingPainter::TextDraw& draw) {
+            return draw.text == "B" && draw.pos.x >= 90 && draw.pos.x < 140 &&
+                   draw.pos.y >= 190 && draw.pos.y < 235;
+        });
+    CHECK(saw_ghost_text);
+
+    ev(affineui::EventType::MouseUp, {90, 190});
+    doc.layout(600, 300, &painter);
+    painter.text_draws.clear();
+    doc.draw(painter);
+    const bool ghost_gone = std::none_of(
+        painter.text_draws.begin(), painter.text_draws.end(),
+        [](const RecordingPainter::TextDraw& draw) {
+            return draw.text == "B" && draw.pos.x >= 90 && draw.pos.x < 140 &&
+                   draw.pos.y >= 190 && draw.pos.y < 235;
+        });
+    CHECK(ghost_gone);
+}
+
+TEST_CASE("UiControls: dock preview uses the topmost element's dock ancestor") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost { position: relative; width: 520px; height: 400px; }
+        .dcs-dockpane { position: absolute; display: flex; flex-direction: column; }
+        .behind { left: 0; top: 0; width: 300px; height: 360px; z-index: 1; }
+        .source { left: 360px; top: 0; width: 130px; height: 140px; z-index: 1; }
+        .console-log {
+            position: absolute;
+            left: 0;
+            top: 220px;
+            width: 300px;
+            height: 160px;
+            z-index: 10;
+            background: rgb(20,24,32);
+        }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .dcs-dockpane__body { flex: 1; }
+        .dcs-drop { background: rgb(0,184,212); }
+        </style>
+        <div class="dcs-dock dcs-dock--floathost">
+          <section class="dcs-dockpane behind" data-aui-name="pane-Behind">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Behind-body">Behind</button>
+            </div></div><div class="dcs-dockpane__body" id="Behind-body">Behind</div>
+          </section>
+          <section class="dcs-dockpane source" data-aui-name="pane-Source">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button id="tabSource" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Source-body">Source</button>
+            </div></div><div class="dcs-dockpane__body" id="Source-body">Source</div>
+          </section>
+          <div id="consoleText" class="console-log">Ready</div>
+          <div id="__dropind" class="dcs-drop dcs-drop--valid" hidden
+               style="position:absolute;pointer-events:none;z-index:200"></div>
+        </div>
+    )HTML");
+    doc.layout(520, 400, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    auto ev = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        return doc.dispatch(e);
+    };
+
+    const auto tab = find_hovered_id(doc, "tabSource", 520, 400);
+    REQUIRE(tab.x >= 0);
+    ev(affineui::EventType::MouseDown, tab);
+    ev(affineui::EventType::MouseMove, {150, 300});
+    doc.layout(520, 400, &painter);
+    painter.fill_colors.clear();
+    painter.fill_draws.clear();
+    doc.draw(painter);
+    CHECK_FALSE(saw_fill(painter, affineui::Color::rgba(0, 184, 212, 46)));
+
+    ev(affineui::EventType::MouseUp, {150, 300});
+    const auto ov = doc.dock_override("Source");
+    CHECK(ov.present);
+    CHECK(ov.floating);
+}
+
+TEST_CASE("UiControls: floating tearoff targets accept tabs but not edge splits") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost { position: relative; width: 640px; height: 420px; display: flex; }
+        .source { width: 220px; height: 420px; display: flex; flex-direction: column; }
+        .dcs-panel--floating {
+            position: absolute;
+            left: 300px;
+            top: 60px;
+            width: 220px;
+            height: 180px;
+        }
+        .dcs-panel--floating > .dcs-dockpane {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .dcs-dockpane__body { flex: 1; }
+        </style>
+        <div class="dcs-dock dcs-dock--floathost">
+          <section class="dcs-dockpane source" data-aui-name="pane-Source">
+            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+              <button id="tabSource" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Source-body">Source</button>
+            </div></div><div class="dcs-dockpane__body" id="Source-body">Source</div>
+          </section>
+          <section class="dcs-panel dcs-panel--floating" data-dcs-drag
+                   data-dcs-drag-bounds=".dcs-dock--floathost" data-dcs-dock-id="Float">
+            <section class="dcs-dockpane" data-aui-name="pane-Float">
+              <div class="dcs-dockpane__tabbar" data-dcs-drag-handle>
+                <div class="dcs-dockpane__tabs">
+                  <button id="tabFloat" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Float-body">Float</button>
+                </div>
+                <div class="dcs-dockpane__toolbars"></div>
+              </div>
+              <div class="dcs-dockpane__body" id="Float-body">Float</div>
+            </section>
+          </section>
+        </div>
+    )HTML");
+    doc.layout(640, 420, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    auto ev = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        doc.dispatch(e);
+    };
+
+    const auto tab = find_hovered_id(doc, "tabSource", 640, 420);
+    REQUIRE(tab.x >= 0);
+    ev(affineui::EventType::MouseDown, tab);
+    ev(affineui::EventType::MouseMove, {410, 230});
+    ev(affineui::EventType::MouseUp, {410, 230});
+
+    const auto ov = doc.dock_override("Source");
+    CHECK(ov.present);
+    CHECK_FALSE(ov.floating);
+    CHECK(ov.parent == "Float");
+    CHECK(ov.side == 4);
+}
+
 TEST_CASE("UiControls: co-tab dropped on a pane bottom preview splits out of "
           "its source pane") {
     affineui::Document doc;
