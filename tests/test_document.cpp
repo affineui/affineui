@@ -7428,6 +7428,167 @@ TEST_CASE("UiControls: View dock tab switches from Assets to Console") {
     CHECK_FALSE(up_result.layout_changed);
 }
 
+TEST_CASE("UiControls: dragging the primary dock tab leaves sibling tabs behind") {
+    constexpr int W = 640;
+    constexpr int H = 360;
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_user_stylesheet(R"CSS(
+        html, body { width: 640px; height: 360px; margin: 0; padding: 0; }
+        #aui-root { width: 640px; height: 360px; min-height: 0; padding: 0; }
+        .shell { width: 640px; height: 360px; display: flex; flex-direction: column; }
+        .dcs-dock { display: flex; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dock--floathost { position: relative; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+        .dcs-dockpane--center { flex: 1; }
+        .dcs-dockpane__tabbar { flex: 0 0 24px; display: flex; min-width: 0; }
+        .dcs-dockpane__tabs { display: flex; min-width: 0; }
+        .dcs-dockpane__tab { display: inline-flex; padding: 0 12px; white-space: nowrap; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        [hidden] { display: none; }
+    )CSS");
+
+    auto rebuild = [&]() {
+        affineui::View v{affineui::ViewTheme::Decius};
+        v.set_dock_placement_provider([&](std::string_view id) {
+            return doc.dock_override(id);
+        });
+        v.set_dock_active_tab_provider([&](std::string_view id) {
+            return doc.dock_active_tab(id);
+        });
+        v.begin();
+        {
+            auto shell = v.container("shell", "shell");
+            (void) shell;
+            v.document_view("workarea", [&](affineui::View& dv) {
+                dv.document(
+                    [](affineui::View& p) { p.text("Viewport", "viewport-text"); },
+                    "View", "cube");
+                dv.dockpanel(
+                    "Hierarchy",
+                    affineui::DockLocation::docked(affineui::Dock::Left, 180),
+                    [](affineui::View& p) { p.text("Hierarchy body", "hierarchy-text"); },
+                    "layers", "Hierarchy");
+                auto assets = dv.dockpanel(
+                    "Assets",
+                    affineui::DockLocation::docked(affineui::Dock::Bottom, 90),
+                    [](affineui::View& p) { p.text("Assets body", "assets-text"); },
+                    "image", "Assets");
+                dv.dockpanel(
+                    "Console", affineui::DockLocation::tab().in(assets),
+                    [](affineui::View& p) { p.text("Console body", "console-text"); },
+                    "file", "Console");
+                dv.dockpanel(
+                    "Log", affineui::DockLocation::tab().in(assets),
+                    [](affineui::View& p) { p.text("Log body", "log-text"); },
+                    "terminal", "Log");
+            });
+        }
+        v.end();
+        doc.set_html(v.to_html_document());
+        doc.attach_script(affineui::DocumentScript::UiControls);
+        doc.layout(W, H, &painter);
+    };
+    auto bounds_for_attr = [&](std::string_view name, std::string_view value) {
+        const auto p = find_hovered_attr(doc, name, value, W, H);
+        REQUIRE(p.x >= 0);
+        for (const auto& info : doc.hovered_info_chain()) {
+            for (const auto& attr : info.attrs) {
+                if (attr.first == name && attr.second == value) {
+                    return info.bounds;
+                }
+            }
+        }
+        FAIL("missing bounds for expected element");
+        return affineui::Rect{};
+    };
+    auto ev = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        const auto result = doc.dispatch(e);
+        if (result.layout_changed) rebuild();
+        return result;
+    };
+
+    SUBCASE("dragged to another pane") {
+        rebuild();
+        const auto tab = find_hovered_attr(doc, "data-dcs-target",
+                                           "#Assets-body", W, H);
+        REQUIRE(tab.x >= 0);
+        const auto hierarchy = bounds_for_attr("data-aui-name", "pane-Hierarchy");
+        const affineui::Point hierarchy_bottom{
+            hierarchy.x + hierarchy.w / 2,
+            hierarchy.y + std::max(1, hierarchy.h - 4)};
+
+        ev(affineui::EventType::MouseDown, tab);
+        ev(affineui::EventType::MouseMove, hierarchy_bottom);
+        ev(affineui::EventType::MouseUp, hierarchy_bottom);
+
+        const auto assets = doc.dock_override("Assets");
+        CHECK(assets.present);
+        CHECK_FALSE(assets.floating);
+        CHECK(assets.parent == "Hierarchy");
+        CHECK(assets.side == 3);
+
+        const auto console = doc.dock_override("Console");
+        CHECK(console.present);
+        CHECK_FALSE(console.floating);
+        CHECK(console.parent == "__document__");
+        CHECK(console.side == 3);
+
+        const auto log = doc.dock_override("Log");
+        CHECK(log.present);
+        CHECK_FALSE(log.floating);
+        CHECK(log.parent == "Console");
+        CHECK(log.side == 4);
+
+        CHECK(find_hovered_attr(doc, "data-aui-name", "pane-Console", W, H).x >= 0);
+        CHECK(find_hovered_attr(doc, "data-dcs-target", "#Log-body", W, H).x >= 0);
+        CHECK(find_hovered_attr(doc, "data-aui-name", "pane-Assets", W, H).x >= 0);
+    }
+
+    SUBCASE("dragged to the side of its own source group") {
+        rebuild();
+        const auto tab = find_hovered_attr(doc, "data-dcs-target",
+                                           "#Assets-body", W, H);
+        REQUIRE(tab.x >= 0);
+        const auto source = bounds_for_attr("data-aui-name", "pane-Assets");
+        const affineui::Point source_bottom{
+            source.x + source.w / 2,
+            source.y + std::max(1, source.h - 4)};
+
+        ev(affineui::EventType::MouseDown, tab);
+        ev(affineui::EventType::MouseMove, source_bottom);
+        ev(affineui::EventType::MouseUp, source_bottom);
+
+        const auto assets = doc.dock_override("Assets");
+        CHECK(assets.present);
+        CHECK_FALSE(assets.floating);
+        CHECK(assets.parent == "Console");
+        CHECK(assets.side == 3);
+
+        const auto console = doc.dock_override("Console");
+        CHECK(console.present);
+        CHECK_FALSE(console.floating);
+        CHECK(console.parent == "__document__");
+        CHECK(console.side == 3);
+
+        const auto log = doc.dock_override("Log");
+        CHECK(log.present);
+        CHECK_FALSE(log.floating);
+        CHECK(log.parent == "Console");
+        CHECK(log.side == 4);
+
+        CHECK(find_hovered_attr(doc, "data-aui-name", "pane-Console", W, H).x >= 0);
+        CHECK(find_hovered_attr(doc, "data-dcs-target", "#Log-body", W, H).x >= 0);
+        CHECK(find_hovered_attr(doc, "data-aui-name", "pane-Assets", W, H).x >= 0);
+    }
+}
+
 TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
           "repeatedly without shell text corruption") {
     constexpr int W = 720;

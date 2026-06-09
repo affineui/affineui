@@ -2594,6 +2594,8 @@ struct View::DockNode {
     std::function<void(View&)>        content;
     std::function<void(View&)>        toolbar;  // tab toolbar (empty = none)
     std::vector<const DockRecorder::Spec*> tabs;  // Dock::Tab co-panels
+    std::string                       placement_parent;
+    Dock                              placement_side{Dock::Left};
 };
 
 namespace {
@@ -2684,6 +2686,8 @@ View::DockNode View::resolve_dock(const DockRecorder& rec,
             base.toolbar = spec->toolbar;
             base.float_size = spec->float_size;
             const auto e = eff(*spec);
+            base.placement_parent = e.parent;
+            base.placement_side = e.side;
             // Saved size (from the workspace) wins over the declared seed.
             const int saved =
                 dock_size_provider_ ? dock_size_provider_(node_id) : 0;
@@ -2795,6 +2799,11 @@ void View::emit_dock_node(const DockNode& node, bool is_root,
         // A nested sharing leaf (its slot belongs to the enclosing group): grow
         // to split that group's space evenly with its siblings.
         set_attr(pane, "style", "flex:1 1 0px;min-width:0;min-height:0");
+    }
+    if (!node.is_document) {
+        set_attr(pane, "data-aui-dock-parent", node.placement_parent);
+        set_attr(pane, "data-aui-dock-side",
+                 std::to_string(static_cast<int>(node.placement_side)));
     }
 
     const bool primary_selected = node.active_tab.empty();
@@ -2963,6 +2972,11 @@ void View::emit_floating_dock_panels(const DockRecorder& rec,
         auto& dock = open_node(WidgetKind::Container, "section", dock_cls,
                                "pane-" + s.id, here, true);
         set_attr(dock, "style", "flex:1;min-width:0;min-height:0");
+        set_attr(dock, "data-aui-dock-floating", "true");
+        set_attr(dock, "data-aui-dock-x", std::to_string(e.x));
+        set_attr(dock, "data-aui-dock-y", std::to_string(e.y));
+        set_attr(dock, "data-aui-dock-w", std::to_string(w));
+        set_attr(dock, "data-aui-dock-h", std::to_string(h));
 
         auto emit_tab = [&](const DockRecorder::Spec& spec,
                             bool selected,

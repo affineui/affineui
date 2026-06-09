@@ -496,6 +496,8 @@ struct DocumentImpl {
         std::string        source_pane_id;
         std::string        drag_kind{"panels"};
         std::string        label;
+        std::vector<std::string> source_tab_ids;
+        Document::DockPlacement source_placement;
         Rect               source_pane_bounds{};
         bool               source_pane_bounds_valid{false};
         int                start_x{0};
@@ -10921,6 +10923,18 @@ int positive_int_attr(lxb_dom_element_t* elem, std::string_view name,
     return static_cast<int>(std::min<long>(parsed, 10000));
 }
 
+int int_attr(lxb_dom_element_t* elem, std::string_view name, int fallback) {
+    if (!elem) return fallback;
+    const std::string value = attr_string(elem, name);
+    if (value.empty()) return fallback;
+    char* end = nullptr;
+    const long parsed = std::strtol(value.c_str(), &end, 10);
+    if (end == value.c_str()) return fallback;
+    return static_cast<int>(
+        std::clamp<long>(parsed, std::numeric_limits<int>::min(),
+                         std::numeric_limits<int>::max()));
+}
+
 lxb_dom_element_t* find_dockpane_tab_for_panel_id(detail::DocumentImpl& impl,
                                                   std::string_view panel_id) {
     if (panel_id.empty()) return nullptr;
@@ -11048,6 +11062,51 @@ std::string pane_panel_id(lxb_dom_element_t* pane) {
     return n.rfind("pane-", 0) == 0 ? n.substr(5) : std::string();
 }
 
+std::vector<std::string> dockpane_tab_ids(detail::DocumentImpl& impl,
+                                          lxb_dom_element_t* pane) {
+    std::vector<std::string> out;
+    if (!pane) return out;
+    for (int i = 0; i < static_cast<int>(impl.blocks.size()); ++i) {
+        auto* elem = element_for_block(impl, i);
+        if (!elem || !class_list_contains(elem, "dcs-dockpane__tab")) {
+            continue;
+        }
+        if (ancestor_with_class(elem, "dcs-dockpane") != pane) continue;
+        const std::string id = dockpane_tab_panel_id(elem);
+        if (!id.empty() &&
+            std::find(out.begin(), out.end(), id) == out.end()) {
+            out.push_back(id);
+        }
+    }
+    return out;
+}
+
+Document::DockPlacement source_placement_for_pane(lxb_dom_element_t* pane,
+                                                  const Rect& bounds) {
+    Document::DockPlacement p;
+    if (!pane) return p;
+    if (attr_string(pane, "data-aui-dock-floating") == "true") {
+        p.present = true;
+        p.floating = true;
+        p.x = int_attr(pane, "data-aui-dock-x", bounds.x);
+        p.y = int_attr(pane, "data-aui-dock-y", bounds.y);
+        p.w = int_attr(pane, "data-aui-dock-w", bounds.w);
+        p.h = int_attr(pane, "data-aui-dock-h", bounds.h);
+        return p;
+    }
+    if (!has_attr(pane, "data-aui-dock-side")) return p;
+    p.present = true;
+    p.floating = false;
+    p.parent = attr_string(pane, "data-aui-dock-parent");
+    p.side = int_attr(pane, "data-aui-dock-side", 0);
+    if (p.side == 0 || p.side == 1) {
+        p.size = bounds.w;
+    } else if (p.side == 2 || p.side == 3) {
+        p.size = bounds.h;
+    }
+    return p;
+}
+
 void capture_tab_drag_metadata(detail::DocumentImpl& impl,
                                detail::DocumentImpl::TabDrag& drag,
                                lxb_dom_element_t* tab,
@@ -11059,6 +11118,8 @@ void capture_tab_drag_metadata(detail::DocumentImpl& impl,
         drag.label = std::string(
             trim_css_ws(node_text(lxb_dom_interface_node(tab))));
     }
+    drag.source_tab_ids = dockpane_tab_ids(impl, pane);
+    drag.source_placement = {};
     drag.source_pane_bounds = {};
     drag.source_pane_bounds_valid = false;
     if (pane) {
@@ -11068,6 +11129,8 @@ void capture_tab_drag_metadata(detail::DocumentImpl& impl,
                 impl.blocks[static_cast<std::size_t>(pi)].bounds;
             drag.source_pane_bounds_valid =
                 drag.source_pane_bounds.w > 0 && drag.source_pane_bounds.h > 0;
+            drag.source_placement =
+                source_placement_for_pane(pane, drag.source_pane_bounds);
         }
     }
 }
@@ -11283,20 +11346,84 @@ bool set_drop_indicator(detail::DocumentImpl& impl, const DropTarget* t) {
     return changed;
 }
 
+std::string primary_drag_reanchor_anchor(
+    std::string_view panel_id,
+    const detail::DocumentImpl::TabDrag* drag) {
+    if (!drag || panel_id.empty() || panel_id != drag->source_pane_id ||
+        drag->source_tab_ids.size() <= 1 || !drag->source_placement.present) {
+        return {};
+    }
+    for (const auto& id : drag->source_tab_ids) {
+        if (id != panel_id) return id;
+    }
+    return {};
+}
+
+bool reanchor_tabs_left_by_primary_drag(
+    detail::DocumentImpl& impl,
+    std::string_view panel_id,
+    const detail::DocumentImpl::TabDrag* drag) {
+    const std::string anchor = primary_drag_reanchor_anchor(panel_id, drag);
+    if (anchor.empty()) return false;
+
+    std::vector<std::string> remaining;
+    remaining.reserve(drag->source_tab_ids.size() - 1);
+    for (const auto& id : drag->source_tab_ids) {
+        if (id != panel_id) remaining.push_back(id);
+    }
+
+    auto anchor_placement = drag->source_placement;
+    if (!anchor_placement.floating && anchor_placement.parent == anchor) {
+        anchor_placement.parent = "__document__";
+    }
+    impl.dock_overrides[anchor] = anchor_placement;
+    impl.dock_active_tabs.erase(std::string(panel_id));
+    impl.dock_active_tabs.erase(anchor);
+
+    for (std::size_t i = 1; i < remaining.size(); ++i) {
+        Document::DockPlacement tab;
+        tab.present = true;
+        tab.floating = false;
+        tab.parent = anchor;
+        tab.side = 4;
+        impl.dock_overrides[remaining[i]] = tab;
+    }
+
+    dock_trace("dock-reanchor source=" + std::string(panel_id) +
+               " anchor=" + anchor +
+               " tabs=" + std::to_string(remaining.size()));
+    return true;
+}
+
 // Record a docked placement override: dock `panel_id` to a side of (or as a tab
 // of) the target pane. The app re-resolves the layout on rebuild.
 bool apply_dock(detail::DocumentImpl& impl, std::string_view panel_id,
-                const DropTarget& t) {
+                const DropTarget& t,
+                const detail::DocumentImpl::TabDrag* drag = nullptr) {
     if (panel_id.empty() || !t.valid || t.zone == DropZone::None) return false;
-    if (t.parent.empty() || t.parent == panel_id) {
+    if (t.parent.empty()) {
         dock_trace("dock-noop panel=" + std::string(panel_id) +
                    " target=" + drop_target_summary(t));
         return false;
     }
+    std::string parent = t.parent;
+    if (parent == panel_id) {
+        if (t.zone == DropZone::Tab) {
+            dock_trace("dock-noop panel=" + std::string(panel_id) +
+                       " target=" + drop_target_summary(t));
+            return false;
+        }
+        parent = primary_drag_reanchor_anchor(panel_id, drag);
+        if (parent.empty()) {
+            dock_trace("dock-noop panel=" + std::string(panel_id) +
+                       " target=" + drop_target_summary(t));
+            return false;
+        }
+    }
     Document::DockPlacement p;
     p.present = true;
     p.floating = false;
-    p.parent = t.parent;
+    p.parent = parent;
     switch (t.zone) {
         case DropZone::Left:   p.side = 0; break;
         case DropZone::Right:  p.side = 1; break;
@@ -11317,6 +11444,7 @@ bool apply_dock(detail::DocumentImpl& impl, std::string_view panel_id,
             return false;
         }
     }
+    reanchor_tabs_left_by_primary_drag(impl, panel_id, drag);
     impl.dock_overrides[key] = p;
     if (p.side == 4) {
         impl.dock_active_tabs[p.parent] = key;
@@ -12946,7 +13074,8 @@ DispatchResult Document::dispatch(const Event& ev) {
                         }
                         changed_dock = source_center_noop
                                            ? false
-                                           : apply_dock(*impl_, td.panel_id, t);
+                                           : apply_dock(*impl_, td.panel_id, t,
+                                                        &td);
                         if (source_center_noop) {
                             dock_trace("dock-cancel-source-center panel=" +
                                        td.panel_id +
