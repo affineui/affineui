@@ -85,7 +85,11 @@ bool dock_trace_enabled() {
 
 void dock_trace(std::string msg) {
     if (!dock_trace_enabled()) return;
-    msg.insert(0, "[affineui:dock] ");
+    static std::atomic<std::uint64_t> sequence{1};
+    msg.insert(0, "[affineui:dock #" +
+                      std::to_string(sequence.fetch_add(
+                          1, std::memory_order_relaxed)) +
+                      "] ");
     static std::mutex mutex;
     std::lock_guard<std::mutex> lock(mutex);
     const std::string path = env_value("AFFINEUI_DOCK_TRACE_FILE");
@@ -408,6 +412,7 @@ struct DocumentImpl {
     // them back to re-seed resolve_dock). See Document::dock_override.
     std::unordered_map<std::string, Document::DockPlacement> dock_overrides;
     std::unordered_map<std::string, std::string> dock_active_tabs;
+    std::string last_dock_trace_signature;
 
     struct ScrollbarDrag {
         int block_idx{-1};
@@ -4721,6 +4726,9 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
                                           const TextControlGeometry& g,
                                           const Block& block,
                                           Painter& painter);
+void dock_trace_state(detail::DocumentImpl& impl, std::string_view reason);
+void dock_trace_state_if_changed(detail::DocumentImpl& impl,
+                                 std::string_view reason);
 #endif
 }  // namespace
 
@@ -5276,6 +5284,7 @@ void Document::layout(int viewport_width, int viewport_height,
         }
         impl_->pending_dirty_roots.clear();
     }
+    dock_trace_state_if_changed(*impl_, "layout");
 #endif
 }
 
@@ -10884,6 +10893,7 @@ bool switch_dockpane_tab(detail::DocumentImpl& impl, lxb_dom_element_t* tab) {
         if (active_id == pane_id) impl.dock_active_tabs.erase(pane_id);
         else impl.dock_active_tabs[pane_id] = active_id;
         dock_trace("active-tab pane=" + pane_id + " active=" + active_id);
+        dock_trace_state(impl, "after-active-tab");
     }
     emit_widget_change(impl, tab, "tab");
     return changed;
@@ -11006,6 +11016,7 @@ bool tear_off_panel(detail::DocumentImpl& impl, std::string_view panel_id,
                std::to_string(drop.y) + ") rect=(" + std::to_string(p.x) +
                "," + std::to_string(p.y) + "," + std::to_string(p.w) +
                "x" + std::to_string(p.h) + ")");
+    dock_trace_state(impl, "after-tearoff");
     return true;
 }
 
@@ -11079,6 +11090,215 @@ std::vector<std::string> dockpane_tab_ids(detail::DocumentImpl& impl,
         }
     }
     return out;
+}
+
+std::string dock_side_name(int side) {
+    switch (side) {
+        case 0: return "left";
+        case 1: return "right";
+        case 2: return "top";
+        case 3: return "bottom";
+        case 4: return "tab";
+        default: return std::to_string(side);
+    }
+}
+
+std::string dock_rect_summary(const Rect& r) {
+    return "(" + std::to_string(r.x) + "," + std::to_string(r.y) + "," +
+           std::to_string(r.w) + "x" + std::to_string(r.h) + ")";
+}
+
+std::string dock_placement_summary(const Document::DockPlacement& p) {
+    if (!p.present) return "none";
+    if (p.floating) {
+        return "float rect=(" + std::to_string(p.x) + "," +
+               std::to_string(p.y) + "," + std::to_string(p.w) + "x" +
+               std::to_string(p.h) + ")";
+    }
+    return "dock parent=" + (p.parent.empty() ? std::string("__document__")
+                                               : p.parent) +
+           " side=" + dock_side_name(p.side) +
+           (p.size > 0 ? " size=" + std::to_string(p.size) : "");
+}
+
+std::string sorted_join(std::vector<std::string> parts,
+                        std::string_view sep = ",") {
+    std::sort(parts.begin(), parts.end());
+    parts.erase(std::unique(parts.begin(), parts.end()), parts.end());
+    std::string out;
+    for (const auto& p : parts) {
+        if (!out.empty()) out += sep;
+        out += p;
+    }
+    return out;
+}
+
+struct DockGraphRel {
+    bool floating{false};
+    std::string parent;
+    int side{0};
+};
+
+void add_rendered_dock_relations(
+    detail::DocumentImpl& impl,
+    std::unordered_map<std::string, DockGraphRel>& rels) {
+    for (int i = 0; i < static_cast<int>(impl.blocks.size()); ++i) {
+        auto* pane = element_for_block(impl, i);
+        if (!pane || !class_list_contains(pane, "dcs-dockpane")) continue;
+        const std::string id = pane_panel_id(pane);
+        if (id.empty() || id == "__document__") continue;
+
+        if (attr_string(pane, "data-aui-dock-floating") == "true") {
+            rels[id] = DockGraphRel{true, {}, 0};
+        } else {
+            const std::string side = attr_string(pane, "data-aui-dock-side");
+            if (!side.empty()) {
+                rels[id] = DockGraphRel{
+                    false,
+                    attr_string(pane, "data-aui-dock-parent").empty()
+                        ? std::string("__document__")
+                        : attr_string(pane, "data-aui-dock-parent"),
+                    int_attr(pane, "data-aui-dock-side", 0)};
+            }
+        }
+
+        const auto tabs = dockpane_tab_ids(impl, pane);
+        for (const auto& tab_id : tabs) {
+            if (tab_id.empty() || tab_id == id) continue;
+            rels[tab_id] = DockGraphRel{false, id, 4};
+        }
+    }
+}
+
+void apply_override_dock_relations(
+    const detail::DocumentImpl& impl,
+    std::unordered_map<std::string, DockGraphRel>& rels) {
+    for (const auto& [id, p] : impl.dock_overrides) {
+        if (!p.present) continue;
+        if (p.floating) {
+            rels[id] = DockGraphRel{true, {}, 0};
+        } else {
+            rels[id] = DockGraphRel{
+                false,
+                p.parent.empty() ? std::string("__document__") : p.parent,
+                p.side};
+        }
+    }
+}
+
+std::string dock_graph_warning_summary(
+    const std::unordered_map<std::string, DockGraphRel>& rels) {
+    std::vector<std::string> warnings;
+    for (const auto& [id, rel] : rels) {
+        if (rel.floating) continue;
+        std::vector<std::string> path;
+        std::string cur = id;
+        for (int depth = 0; depth < 32; ++depth) {
+            const auto it = rels.find(cur);
+            if (it == rels.end() || it->second.floating ||
+                it->second.parent.empty() ||
+                it->second.parent == "__document__") {
+                if (it != rels.end() && !it->second.floating &&
+                    !it->second.parent.empty() &&
+                    it->second.parent != "__document__" &&
+                    rels.find(it->second.parent) == rels.end()) {
+                    warnings.push_back("missing-parent:" + cur + "->" +
+                                       it->second.parent);
+                }
+                break;
+            }
+            const auto hit =
+                std::find(path.begin(), path.end(), cur);
+            if (hit != path.end()) {
+                std::string cycle;
+                for (auto ci = hit; ci != path.end(); ++ci) {
+                    if (!cycle.empty()) cycle += "->";
+                    cycle += *ci;
+                }
+                if (!cycle.empty()) cycle += "->" + cur;
+                warnings.push_back("cycle:" + cycle);
+                break;
+            }
+            path.push_back(cur);
+            cur = it->second.parent;
+        }
+    }
+    if (warnings.empty()) return "none";
+    return sorted_join(std::move(warnings), ";");
+}
+
+std::string dock_trace_snapshot(detail::DocumentImpl& impl) {
+    std::vector<std::string> override_parts;
+    override_parts.reserve(impl.dock_overrides.size());
+    for (const auto& [id, p] : impl.dock_overrides) {
+        override_parts.push_back(id + "=" + dock_placement_summary(p));
+    }
+
+    std::vector<std::string> active_parts;
+    active_parts.reserve(impl.dock_active_tabs.size());
+    for (const auto& [pane, active] : impl.dock_active_tabs) {
+        active_parts.push_back(pane + "->" + active);
+    }
+
+    std::unordered_map<std::string, DockGraphRel> graph;
+    add_rendered_dock_relations(impl, graph);
+    apply_override_dock_relations(impl, graph);
+    std::vector<std::string> graph_parts;
+    graph_parts.reserve(graph.size());
+    for (const auto& [id, rel] : graph) {
+        graph_parts.push_back(
+            id + "->" +
+            (rel.floating ? std::string("float")
+                          : rel.parent + ":" + dock_side_name(rel.side)));
+    }
+
+    std::vector<std::string> rendered_parts;
+    for (int i = 0; i < static_cast<int>(impl.blocks.size()); ++i) {
+        auto* pane = element_for_block(impl, i);
+        if (!pane || !class_list_contains(pane, "dcs-dockpane")) continue;
+        const std::string id = pane_panel_id(pane);
+        if (id.empty()) continue;
+        const auto& b = impl.blocks[static_cast<std::size_t>(i)];
+        std::string placement;
+        if (id == "__document__") {
+            placement = "document";
+        } else if (attr_string(pane, "data-aui-dock-floating") == "true") {
+            placement = "float";
+        } else if (!attr_string(pane, "data-aui-dock-side").empty()) {
+            const std::string parent = attr_string(pane, "data-aui-dock-parent");
+            placement = (parent.empty() ? std::string("__document__")
+                                        : parent) +
+                        ":" + dock_side_name(
+                            int_attr(pane, "data-aui-dock-side", 0));
+        } else {
+            placement = "unplaced";
+        }
+        rendered_parts.push_back(
+            id + "@" + dock_rect_summary(b.bounds) + ":" + placement +
+            ":tabs=[" + sorted_join(dockpane_tab_ids(impl, pane), "|") + "]");
+    }
+
+    return "overrides={" + sorted_join(std::move(override_parts), ";") +
+           "} active={" + sorted_join(std::move(active_parts), ";") +
+           "} graph={" + sorted_join(std::move(graph_parts), ";") +
+           "} warnings={" + dock_graph_warning_summary(graph) +
+           "} rendered={" + sorted_join(std::move(rendered_parts), ";") + "}";
+}
+
+void dock_trace_state(detail::DocumentImpl& impl, std::string_view reason) {
+    if (!dock_trace_enabled()) return;
+    const std::string snapshot = dock_trace_snapshot(impl);
+    impl.last_dock_trace_signature = snapshot;
+    dock_trace("state reason=" + std::string(reason) + " " + snapshot);
+}
+
+void dock_trace_state_if_changed(detail::DocumentImpl& impl,
+                                 std::string_view reason) {
+    if (!dock_trace_enabled()) return;
+    const std::string snapshot = dock_trace_snapshot(impl);
+    if (snapshot == impl.last_dock_trace_signature) return;
+    impl.last_dock_trace_signature = snapshot;
+    dock_trace("state reason=" + std::string(reason) + " " + snapshot);
 }
 
 Document::DockPlacement source_placement_for_pane(lxb_dom_element_t* pane,
@@ -11452,6 +11672,7 @@ bool apply_dock(detail::DocumentImpl& impl, std::string_view panel_id,
     dock_trace("dock panel=" + key + " parent=" + p.parent +
                " side=" + std::to_string(p.side) +
                " zone=" + drop_zone_name(t.zone));
+    dock_trace_state(impl, "after-dock");
     return true;
 }
 
@@ -12568,6 +12789,15 @@ DispatchResult Document::dispatch(const Event& ev) {
                                    impl_->tab_drag.panel_id +
                                    " from=" +
                                    impl_->tab_drag.source_pane_id +
+                                   " source-placement=" +
+                                   dock_placement_summary(
+                                       impl_->tab_drag.source_placement) +
+                                   " source-tabs=[" +
+                                   sorted_join(
+                                       impl_->tab_drag.source_tab_ids, "|") +
+                                   "] source-bounds=" +
+                                   dock_rect_summary(
+                                       impl_->tab_drag.source_pane_bounds) +
                                    " at=(" + std::to_string(ev.pos.x) + "," +
                                    std::to_string(ev.pos.y) + ")");
                     }
@@ -12578,7 +12808,24 @@ DispatchResult Document::dispatch(const Event& ev) {
                 if (!impl_->tab_drag.dragging) {
                     const int dx = ev.pos.x - impl_->tab_drag.start_x;
                     const int dy = ev.pos.y - impl_->tab_drag.start_y;
-                    if (dx * dx + dy * dy > 36) impl_->tab_drag.dragging = true;
+                    if (dx * dx + dy * dy > 36) {
+                        impl_->tab_drag.dragging = true;
+                        dock_trace("tab-drag-start panel=" +
+                                   impl_->tab_drag.panel_id +
+                                   " from=" +
+                                   impl_->tab_drag.source_pane_id +
+                                   " source-placement=" +
+                                   dock_placement_summary(
+                                       impl_->tab_drag.source_placement) +
+                                   " source-tabs=[" +
+                                   sorted_join(
+                                       impl_->tab_drag.source_tab_ids, "|") +
+                                   "] source-bounds=" +
+                                   dock_rect_summary(
+                                       impl_->tab_drag.source_pane_bounds) +
+                                   " at=(" + std::to_string(ev.pos.x) + "," +
+                                   std::to_string(ev.pos.y) + ")");
+                    }
                 }
                 if (impl_->tab_drag.dragging) {
                     ensure_interaction_layout();
@@ -12982,6 +13229,7 @@ DispatchResult Document::dispatch(const Event& ev) {
                                std::to_string(p.y) + "," +
                                std::to_string(p.w) + "x" +
                                std::to_string(p.h) + ")");
+                    dock_trace_state(*impl_, "after-float-resize");
                     result.layout_changed = true;
                 }
                 result.redraw_requested = true;
@@ -13026,6 +13274,7 @@ DispatchResult Document::dispatch(const Event& ev) {
                                std::to_string(p.y) + "," +
                                std::to_string(p.w) + "x" +
                                std::to_string(p.h) + ")");
+                    dock_trace_state(*impl_, "after-float-move");
                     result.layout_changed = true;  // re-seed + rebuild
                     result.redraw_requested = true;
                 } else {
