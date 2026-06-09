@@ -7881,10 +7881,61 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
         .dcs-dockpane__tab { display: inline-flex; padding: 0 12px; white-space: nowrap; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
         .dcs-splitter { flex: 0 0 6px; }
-        .dcs-panel--floating { position: absolute; }
+        .dcs-panel--floating {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .dcs-panel--floating > .dcs-dockpane {
+            flex: 1 1 auto;
+            min-width: 0;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .dcs-panel__header {
+            flex: 0 0 24px;
+            display: flex;
+            align-items: center;
+            min-width: 0;
+        }
+        .dcs-panel__title { flex: 1 1 auto; }
+        .dcs-dockpane__titlebar > .dcs-panel__title.dcs-panel__title--dock-tab {
+            flex: 0 1 auto;
+        }
+        .dcs-panel__tools { flex: 1 1 auto; align-self: stretch; }
+        .dcs-panel__resize-zones {
+            position: absolute;
+            inset: 0;
+            z-index: 4;
+            pointer-events: none;
+        }
+        .dcs-panel__resize-zone {
+            position: absolute;
+            pointer-events: auto;
+            background: transparent;
+        }
+        .dcs-panel__resize-zone--n { top: 0; left: 0; right: 0; height: 5px; }
+        .dcs-panel__resize-zone--s { bottom: 0; left: 0; right: 0; height: 5px; }
+        .dcs-panel__resize-zone--w { top: 0; left: 0; bottom: 0; width: 5px; }
+        .dcs-panel__resize-zone--e { top: 0; right: 0; bottom: 0; width: 5px; }
+        .dcs-panel__resize-zone--nw { top: 0; left: 0; width: 12px; height: 12px; }
+        .dcs-panel__resize-zone--ne { top: 0; right: 0; width: 12px; height: 12px; }
+        .dcs-panel__resize-zone--sw { bottom: 0; left: 0; width: 12px; height: 12px; }
+        .dcs-panel__resize-zone--se { bottom: 0; right: 0; width: 12px; height: 12px; }
+        .dcs-panel__resize {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            width: 14px;
+            height: 14px;
+            pointer-events: none;
+        }
         [hidden] { display: none; }
     )CSS");
 
+    std::string last_html;
     auto rebuild = [&]() {
         affineui::View v{affineui::ViewTheme::Decius};
         v.set_dock_placement_provider([&](std::string_view id) {
@@ -7928,7 +7979,8 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
             }
         }
         v.end();
-        doc.set_html(v.to_html_document());
+        last_html = v.to_html_document();
+        doc.set_html(last_html);
         doc.attach_script(affineui::DocumentScript::UiControls);
         doc.layout(W, H, &painter);
     };
@@ -7979,6 +8031,7 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
     CHECK(console.floating);
     CHECK(console.w == 320);
     CHECK(console.h == 240);
+    CHECK(last_html.find("dcs-dockpane--title-only") != std::string::npos);
 
     const auto doc_body_after = bounds_for_id("__document__-body");
     const auto floating = bounds_for_attr("data-aui-name", "float-Console");
@@ -8017,11 +8070,99 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
     CHECK(resized_floating.y + resized_floating.h <=
           doc_body_after.y + doc_body_after.h);
 
+    const affineui::Point title_empty{
+        resized_floating.x + resized_floating.w -
+            std::min(24, std::max(8, resized_floating.w / 8)),
+        resized_floating.y + 12};
+    const affineui::Point title_move{
+        title_empty.x - 36,
+        title_empty.y - 28};
+    ev(affineui::EventType::MouseDown, title_empty);
+    ev(affineui::EventType::MouseMove, title_move);
+    ev(affineui::EventType::MouseUp, title_move);
+
+    const auto moved_console = doc.dock_override("Console");
+    CHECK(moved_console.present);
+    CHECK(moved_console.floating);
+    CHECK(moved_console.x < resized_console.x);
+    CHECK(moved_console.y < resized_console.y);
+    CHECK(moved_console.w == resized_console.w);
+    CHECK(moved_console.h == resized_console.h);
+
+    const auto moved_floating =
+        bounds_for_attr("data-aui-name", "float-Console");
+    CHECK(moved_floating.x < resized_floating.x);
+    CHECK(moved_floating.y < resized_floating.y);
+    CHECK(moved_floating.w == resized_floating.w);
+    CHECK(moved_floating.h == resized_floating.h);
+    CHECK(moved_floating.x >= doc_body_after.x);
+    CHECK(moved_floating.y >= doc_body_after.y);
+    CHECK(moved_floating.x + moved_floating.w <=
+          doc_body_after.x + doc_body_after.w);
+    CHECK(moved_floating.y + moved_floating.h <=
+          doc_body_after.y + doc_body_after.h);
+
     const auto assets = bounds_for_attr("data-aui-name", "pane-Assets");
     const auto status = bounds_for_attr("data-aui-name", "statusbar");
     CHECK(status.y + status.h <= H);
     CHECK(assets.y + assets.h <= status.y);
     CHECK(std::abs((assets.y + assets.h) - status.y) <= 1);
+
+    const auto title_tab = find_hovered_attr(doc, "data-dcs-target",
+                                             "#Console-body", W, H);
+    REQUIRE(title_tab.x >= 0);
+    const auto hierarchy =
+        bounds_for_attr("data-aui-name", "pane-Hierarchy");
+    const affineui::Point hierarchy_center{
+        hierarchy.x + hierarchy.w / 2,
+        hierarchy.y + hierarchy.h / 2};
+    ev(affineui::EventType::MouseDown, title_tab);
+    ev(affineui::EventType::MouseMove, hierarchy_center);
+    ev(affineui::EventType::MouseUp, hierarchy_center);
+
+    const auto redocked_console = doc.dock_override("Console");
+    CHECK(redocked_console.present);
+    CHECK_FALSE(redocked_console.floating);
+    CHECK(redocked_console.parent == "Hierarchy");
+    CHECK(redocked_console.side == 4);
+    CHECK(doc.dock_active_tab("Hierarchy") == "Console");
+
+    const auto doc_body_redock = bounds_for_id("__document__-body");
+    const affineui::Point second_tearoff_drop{
+        doc_body_redock.x + doc_body_redock.w / 2,
+        doc_body_redock.y + doc_body_redock.h / 2};
+    const auto redocked_title_tab =
+        find_hovered_attr(doc, "data-dcs-target", "#Console-body", W, H);
+    REQUIRE(redocked_title_tab.x >= 0);
+    ev(affineui::EventType::MouseDown, redocked_title_tab);
+    ev(affineui::EventType::MouseMove, second_tearoff_drop);
+    ev(affineui::EventType::MouseUp, second_tearoff_drop);
+
+    const auto refloated_console = doc.dock_override("Console");
+    CHECK(refloated_console.present);
+    CHECK(refloated_console.floating);
+    const auto refloated_panel =
+        bounds_for_attr("data-aui-name", "float-Console");
+    const affineui::Point float_center{
+        refloated_panel.x + refloated_panel.w / 2,
+        refloated_panel.y + refloated_panel.h / 2};
+    const auto assets_tab = find_hovered_attr(doc, "data-dcs-target",
+                                              "#Assets-body", W, H);
+    REQUIRE(assets_tab.x >= 0);
+    ev(affineui::EventType::MouseDown, assets_tab);
+    ev(affineui::EventType::MouseMove, float_center);
+    ev(affineui::EventType::MouseUp, float_center);
+
+    const auto tabbed_assets = doc.dock_override("Assets");
+    CHECK(tabbed_assets.present);
+    CHECK_FALSE(tabbed_assets.floating);
+    CHECK(tabbed_assets.parent == "Console");
+    CHECK(tabbed_assets.side == 4);
+    CHECK(doc.dock_override("Console").floating);
+    CHECK(doc.dock_active_tab("Console") == "Assets");
+    CHECK(last_html.find("dcs-dockpane--multi-tab") != std::string::npos);
+    CHECK(find_hovered_attr(doc, "data-dcs-target", "#Assets-body", W, H).x >= 0);
+    CHECK(find_hovered_attr(doc, "data-dcs-target", "#Console-body", W, H).x >= 0);
 }
 
 TEST_CASE("UiControls: a 'panels' tab dropped on the document body does NOT dock "

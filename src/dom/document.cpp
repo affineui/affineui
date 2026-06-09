@@ -6988,10 +6988,17 @@ bool rect_contains_float(const Rect& r, float x, float y) noexcept {
 }
 #endif
 
+bool hit_test_skip_for_pointer(const Block& block) {
+    return block_has_class(block, "dcs-panel__resize-zones") ||
+           block_has_class(block, "dcs-panel__resize");
+}
+
 bool hit_test_skip_for_dock_target(const Block& block) {
-    return block.elem_id == "__dropind" || block.elem_id == "__dockghost" ||
+    return hit_test_skip_for_pointer(block) ||
+           block.elem_id == "__dropind" || block.elem_id == "__dockghost" ||
            block_has_class(block, "dcs-drop") ||
-           block_has_class(block, "dcs-dockpane__tab-ghost");
+           block_has_class(block, "dcs-dockpane__tab-ghost") ||
+           block_has_class(block, "dcs-panel__resize-zone");
 }
 
 int hit_test_blocks_impl(const detail::DocumentImpl& impl,
@@ -7002,6 +7009,7 @@ int hit_test_blocks_impl(const detail::DocumentImpl& impl,
     int hit = -1;
     int hit_z = std::numeric_limits<int>::min();
     for (std::size_t i = 0; i < blocks.size(); ++i) {
+        if (hit_test_skip_for_pointer(blocks[i])) continue;
         if (skip_dock_overlay && hit_test_skip_for_dock_target(blocks[i]))
             continue;
 #if !defined(AFFINEUI_STUB_BUILD)
@@ -9958,6 +9966,15 @@ int cursor_for_float_resize_dir(int dir) {
     return 0;
 }
 
+int float_resize_dir_from_token(std::string_view dir) {
+    int out = 0;
+    if (dir.find('n') != std::string_view::npos) out |= FloatResizeN;
+    if (dir.find('s') != std::string_view::npos) out |= FloatResizeS;
+    if (dir.find('w') != std::string_view::npos) out |= FloatResizeW;
+    if (dir.find('e') != std::string_view::npos) out |= FloatResizeE;
+    return out;
+}
+
 bool floating_resize_enabled(lxb_dom_element_t* elem) {
     if (!elem || attr_string(elem, "data-dcs-resize") == "false") return false;
     if (class_list_contains(elem, "dcs-panel--floating")) return true;
@@ -9967,6 +9984,7 @@ bool floating_resize_enabled(lxb_dom_element_t* elem) {
 
 bool find_float_resize_at(detail::DocumentImpl& impl, int from_idx, Point point,
                           detail::DocumentImpl::FloatResize& out) {
+    int explicit_dir = 0;
     for (int idx = from_idx;
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
@@ -9976,11 +9994,36 @@ bool find_float_resize_at(detail::DocumentImpl& impl, int from_idx, Point point,
                      class_list_contains(elem, "dcs-panel__title--dock-tab"))) {
             return false;
         }
+        if (elem && explicit_dir == 0 &&
+            class_list_contains(elem, "dcs-panel__resize-zone")) {
+            explicit_dir = float_resize_dir_from_token(attr_string(elem, "data-dir"));
+            if (explicit_dir == 0) {
+                const std::string classes = attr_string(elem, "class");
+                if (classes.find("--nw") != std::string::npos)
+                    explicit_dir = FloatResizeN | FloatResizeW;
+                else if (classes.find("--ne") != std::string::npos)
+                    explicit_dir = FloatResizeN | FloatResizeE;
+                else if (classes.find("--sw") != std::string::npos)
+                    explicit_dir = FloatResizeS | FloatResizeW;
+                else if (classes.find("--se") != std::string::npos)
+                    explicit_dir = FloatResizeS | FloatResizeE;
+                else if (classes.find("--n") != std::string::npos)
+                    explicit_dir = FloatResizeN;
+                else if (classes.find("--s") != std::string::npos)
+                    explicit_dir = FloatResizeS;
+                else if (classes.find("--w") != std::string::npos)
+                    explicit_dir = FloatResizeW;
+                else if (classes.find("--e") != std::string::npos)
+                    explicit_dir = FloatResizeE;
+            }
+        }
         if (!floating_resize_enabled(elem)) continue;
         const int bidx = block_index_for_exact_element(impl, elem);
         if (bidx < 0) return false;
         const auto& blk = impl.blocks[static_cast<std::size_t>(bidx)];
-        const int dir = float_resize_dir_for_point(blk.bounds, point);
+        const int dir = explicit_dir != 0
+            ? explicit_dir
+            : float_resize_dir_for_point(blk.bounds, point);
         if (dir == 0) return false;
         const auto cs = impl.style_store.computed(blk.id);
         const int cur_left =
