@@ -11658,6 +11658,70 @@ bool reanchor_tabs_left_by_primary_drag(
     return true;
 }
 
+std::unordered_map<std::string, DockGraphRel> current_dock_graph(
+    detail::DocumentImpl& impl) {
+    std::unordered_map<std::string, DockGraphRel> graph;
+    add_rendered_dock_relations(impl, graph);
+    apply_override_dock_relations(impl, graph);
+    return graph;
+}
+
+bool dock_graph_reaches(
+    const std::unordered_map<std::string, DockGraphRel>& graph,
+    std::string_view from,
+    std::string_view target) {
+    if (from.empty() || target.empty()) return false;
+    std::string cur(from);
+    for (int depth = 0; depth < 32; ++depth) {
+        const auto it = graph.find(cur);
+        if (it == graph.end() || it->second.floating ||
+            it->second.parent.empty() ||
+            it->second.parent == "__document__") {
+            return false;
+        }
+        if (it->second.parent == target) return true;
+        cur = it->second.parent;
+    }
+    return false;
+}
+
+void prune_stale_dock_active_tabs(detail::DocumentImpl& impl) {
+    const auto graph = current_dock_graph(impl);
+    for (auto it = impl.dock_active_tabs.begin();
+         it != impl.dock_active_tabs.end();) {
+        const auto rel = graph.find(it->second);
+        if (rel == graph.end() || rel->second.floating ||
+            rel->second.side != 4 || rel->second.parent != it->first) {
+            it = impl.dock_active_tabs.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+bool reparent_descendant_target_out_of_dragged_subtree(
+    detail::DocumentImpl& impl,
+    std::string_view panel_id,
+    std::string_view target_id,
+    const detail::DocumentImpl::TabDrag* drag) {
+    if (!drag || panel_id.empty() || target_id.empty() ||
+        !drag->source_placement.present) {
+        return false;
+    }
+    const auto graph = current_dock_graph(impl);
+    if (!dock_graph_reaches(graph, target_id, panel_id)) return false;
+
+    auto target_slot = drag->source_placement;
+    if (!target_slot.floating && target_slot.parent == target_id) {
+        target_slot.parent = "__document__";
+    }
+    impl.dock_overrides[std::string(target_id)] = target_slot;
+    dock_trace("dock-cycle-break moving=" + std::string(panel_id) +
+               " target=" + std::string(target_id) +
+               " target-slot=" + dock_placement_summary(target_slot));
+    return true;
+}
+
 // Record a docked placement override: dock `panel_id` to a side of (or as a tab
 // of) the target pane. The app re-resolves the layout on rebuild.
 bool apply_dock(detail::DocumentImpl& impl, std::string_view panel_id,
@@ -11708,10 +11772,13 @@ bool apply_dock(detail::DocumentImpl& impl, std::string_view panel_id,
         }
     }
     reanchor_tabs_left_by_primary_drag(impl, panel_id, drag);
+    reparent_descendant_target_out_of_dragged_subtree(impl, panel_id, parent,
+                                                      drag);
     impl.dock_overrides[key] = p;
     if (p.side == 4) {
         impl.dock_active_tabs[p.parent] = key;
     }
+    prune_stale_dock_active_tabs(impl);
     dock_trace("dock panel=" + key + " parent=" + p.parent +
                " side=" + std::to_string(p.side) +
                " zone=" + drop_zone_name(t.zone));
