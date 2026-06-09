@@ -7452,6 +7452,12 @@ TEST_CASE("UiControls: dragging the primary dock tab leaves sibling tabs behind"
 
     auto rebuild = [&]() {
         affineui::View v{affineui::ViewTheme::Decius};
+        v.set_dock_size_provider([](std::string_view id) -> int {
+            // Stale workspace data for a tab that later becomes the replacement
+            // anchor must not override the live source slot captured at drag
+            // time.
+            return id == "Console" ? 170 : 0;
+        });
         v.set_dock_placement_provider([&](std::string_view id) {
             return doc.dock_override(id);
         });
@@ -7520,6 +7526,7 @@ TEST_CASE("UiControls: dragging the primary dock tab leaves sibling tabs behind"
                                            "#Assets-body", W, H);
         REQUIRE(tab.x >= 0);
         const auto hierarchy = bounds_for_attr("data-aui-name", "pane-Hierarchy");
+        const auto source = bounds_for_attr("data-aui-name", "pane-Assets");
         const affineui::Point hierarchy_bottom{
             hierarchy.x + hierarchy.w / 2,
             hierarchy.y + std::max(1, hierarchy.h - 4)};
@@ -7549,6 +7556,12 @@ TEST_CASE("UiControls: dragging the primary dock tab leaves sibling tabs behind"
         CHECK(find_hovered_attr(doc, "data-aui-name", "pane-Console", W, H).x >= 0);
         CHECK(find_hovered_attr(doc, "data-dcs-target", "#Log-body", W, H).x >= 0);
         CHECK(find_hovered_attr(doc, "data-aui-name", "pane-Assets", W, H).x >= 0);
+        const auto console_bounds =
+            bounds_for_attr("data-aui-name", "pane-Console");
+        CHECK(std::abs(console_bounds.x - source.x) <= 1);
+        CHECK(std::abs(console_bounds.y - source.y) <= 1);
+        CHECK(std::abs(console_bounds.w - source.w) <= 1);
+        CHECK(std::abs(console_bounds.h - source.h) <= 1);
     }
 
     SUBCASE("dragged to the side of its own source group") {

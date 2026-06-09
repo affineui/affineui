@@ -2620,6 +2620,7 @@ struct EffPlacement {
     std::string        parent;
     Dock               side{Dock::Left};
     bool               floating{false};
+    bool               override_has_size{false};
     std::optional<int> size;
     int x{0}, y{0}, w{0}, h{0};
 };
@@ -2649,7 +2650,10 @@ EffPlacement effective_placement(
                 e.parent = ov.parent.empty() ? std::string("__document__")
                                              : ov.parent;
                 e.side = static_cast<Dock>(ov.side);
-                if (ov.size > 0) e.size = ov.size;
+                if (ov.size > 0) {
+                    e.size = ov.size;
+                    e.override_has_size = true;
+                }
             }
         }
     }
@@ -2691,8 +2695,11 @@ View::DockNode View::resolve_dock(const DockRecorder& rec,
             // Saved size (from the workspace) wins over the declared seed.
             const int saved =
                 dock_size_provider_ ? dock_size_provider_(node_id) : 0;
-            slot = saved > 0 ? saved
-                             : (e.size ? *e.size : default_dock_size(e.side));
+            slot = e.override_has_size
+                       ? *e.size
+                       : (saved > 0
+                              ? saved
+                              : (e.size ? *e.size : default_dock_size(e.side)));
         }
     }
 
