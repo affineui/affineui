@@ -74,6 +74,14 @@ conformance/browser/node_modules/
 
 # Demo runtime traces
 affineui_mouse_path*.json
+dock-disappear-*.log
+
+# Local example 11 editor state / scratch exports
+game_editor.prefs.toml
+game_editor.workspace.toml
+ex11_dump.html
+conformance/cases/_ex11/
+conformance/cases/_ex11ref/
 
 # git worktrees created by agents
 .claude/worktrees/
