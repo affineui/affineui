@@ -1,5 +1,17 @@
 cmake_minimum_required(VERSION 3.20)
 
+# CMake 4 removed compatibility with cmake_minimum_required < 3.5. Several
+# bundled third-party CMake projects (doctest, etc.) still ship those old
+# declarations, so we raise the policy floor here so they keep configuring.
+# Applies to FetchContent'd / add_subdirectory'd targets too because the
+# variable is read at every `cmake_minimum_required()` call.
+if(POLICY CMP0000)
+    cmake_policy(VERSION 3.20)
+endif()
+if(NOT DEFINED CMAKE_POLICY_VERSION_MINIMUM)
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+endif()
+
 # ─── Project ─────────────────────────────────────────────────────────────────
 project(affineui
     VERSION 0.0.1
@@ -51,11 +63,20 @@ option(AFFINEUI_HOST_PROVIDES_YOGA         "Host already builds Yoga"           
 # We compile in C++23 mode to harden our own build: C++23 makes the standard
 # library's string / string_view constructors from std::nullptr_t `= delete`,
 # so passing nullptr where a string is expected becomes a COMPILE error instead
-# of runtime UB (we hit exactly that footgun once). IMPORTANT: our *code* stays
-# C++20-compatible — we do NOT use C++23 language/library features, so the
-# amalgamated single-header SDK still compiles cleanly in a consumer's C++20
-# build (it simply doesn't get the deleted-nullptr-ctor protection there).
-set(CMAKE_CXX_STANDARD 23)
+# of runtime UB (we hit exactly that footgun once). The code uses NO C++23
+# language or library features, so the baseline standard is 20 — that's what
+# CI verifies, what every wheel ships against, and what the amalgamated
+# single-header SDK promises to consumers. Local development can opt into 23
+# via -DAFFINEUI_DEV_CXX23=ON (the `dev` preset enables it by default) to
+# get the extra nullptr-to-string_view safety net.
+option(AFFINEUI_DEV_CXX23
+    "Use C++23 locally for extra deleted-nullptr-ctor protection. CI and \
+wheel builds stay on C++20." OFF)
+if(AFFINEUI_DEV_CXX23)
+    set(CMAKE_CXX_STANDARD 23)
+else()
+    set(CMAKE_CXX_STANDARD 20)
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD 11)

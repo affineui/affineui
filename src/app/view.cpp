@@ -227,9 +227,12 @@ std::string dom_id_fragment(std::string_view text) {
 }
 
 std::string number(double value) {
+    // snprintf, not std::to_chars: Apple's libc++ gates the
+    // floating-point to_chars overload to the macOS 13.3 SDK, and the
+    // wheel deployment target (11.0) doesn't have it.
     char buf[64]{};
-    auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), value);
-    if (ec == std::errc{}) return std::string(buf, ptr);
+    const int n = std::snprintf(buf, sizeof(buf), "%g", value);
+    if (n > 0 && n < static_cast<int>(sizeof(buf))) return std::string(buf, n);
     std::ostringstream out;
     out << value;
     return out.str();

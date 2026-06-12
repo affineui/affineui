@@ -25,6 +25,7 @@
 #include <charconv>
 #include <cmath>
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <limits>
 #include <memory>
@@ -1383,9 +1384,13 @@ std::string evaluate_calc(std::string_view input, double rem, double em,
         calc_ws(input, j);
         if (r.ok && (r.dims == 0 || r.dims == 1 || r.dims == 2) &&
             j < input.size() && input[j] == ')') {
+            // snprintf, not std::to_chars: Apple's libc++ gates the
+            // floating-point to_chars overload to the macOS 13.3 SDK,
+            // and the deployment target we ship wheels against (11.0)
+            // doesn't have it.
             char buf[40];
-            auto tc = std::to_chars(buf, buf + sizeof(buf), r.v);
-            out.append(buf, tc.ptr);
+            const int n = std::snprintf(buf, sizeof(buf), "%g", r.v);
+            if (n > 0 && n < static_cast<int>(sizeof(buf))) out.append(buf, n);
             if (r.dims == 1) out += "px";
             else if (r.dims == 2) out += "%";
             i = j + 1;

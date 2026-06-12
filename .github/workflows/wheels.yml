@@ -24,12 +24,12 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      publish:
-        description: 'Publish built wheels to PyPI (requires Trusted Publisher)'
+      publish_target:
+        description: 'Where to publish (none = build + smoke-test only)'
         required: false
-        default: 'false'
+        default: 'none'
         type: choice
-        options: ['false', 'true']
+        options: ['none', 'testpypi', 'pypi']
 
 concurrency:
   group: wheels-${{ github.ref }}
@@ -75,14 +75,19 @@ jobs:
           CIBW_ARCHS_WINDOWS: 'AMD64'
 
           # Linux container deps: sokol_app needs X11/GL/ALSA headers. The
-          # manylinux_2_28 base is AlmaLinux 9, so dnf/yum names. We also
-          # bring xvfb so headless wheels can be tested against an in-memory
-          # X server.
+          # manylinux_2_28 default GCC handles C++20 (our baseline) cleanly.
+          # xvfb is for the headless smoke test (sokol_app expects an X
+          # connection even when we never call sapp_run).
           CIBW_BEFORE_ALL_LINUX: |
             yum install -y \
               libX11-devel libXi-devel libXcursor-devel \
               libxkbcommon-devel mesa-libGL-devel alsa-lib-devel \
               ninja-build xorg-x11-server-Xvfb
+
+          # CMake 4 removed compat with cmake_minimum_required < 3.5; some
+          # vendored CMake projects (doctest) still ship those. Belt-and-
+          # braces — CMakeLists.txt also sets this variable.
+          CIBW_ENVIRONMENT: 'CMAKE_POLICY_VERSION_MINIMUM=3.5'
 
           # The Python smoke tests are headless (no `sapp_run`), but sokol_app
           # on Linux still expects an X connection during construction; xvfb
@@ -114,14 +119,45 @@ jobs:
           name: sdist
           path: sdist/*.tar.gz
 
-  publish:
+  publish_testpypi:
+    name: Publish to TestPyPI (dry run)
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    # TestPyPI is the dry-run path — only on manual dispatch with the
+    # matching choice. Use this to validate the publish flow before tagging.
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish_target == 'testpypi'
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/affineui
+    permissions:
+      id-token: write  # OIDC for Trusted Publisher
+    steps:
+      - name: Download wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: 'wheels-*'
+          merge-multiple: true
+      - name: Download sdist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  publish_pypi:
     name: Publish to PyPI
     needs: [build_wheels, build_sdist]
     runs-on: ubuntu-latest
-    # Tags `v*` always publish. Manual runs publish only when the input is set.
+    # Tags `v*` always publish to live PyPI. Manual dispatch publishes only
+    # when the user explicitly picks `pypi` (default is `none` for build-
+    # only smoke runs).
     if: |
       startsWith(github.ref, 'refs/tags/v') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_target == 'pypi')
     environment:
       name: pypi
       url: https://pypi.org/p/affineui

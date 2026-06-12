@@ -191,7 +191,7 @@ def test_view_panel_uses_framework_selectors():
     decius.end()
     decius_html = decius.to_html_document()
     assert not decius.diagnostics()
-    assert "decius-css-0.5.2.bundle.min.css" in decius_html
+    assert "decius-css-0.6.2.bundle.min.css" in decius_html
     assert "dcs-panel dcs-panel--bordered" in decius_html
     assert "dcs-input" in decius_html
     assert 'data-aui-style="flat"' in decius_html
