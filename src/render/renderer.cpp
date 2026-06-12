@@ -204,13 +204,13 @@ struct PreparedFrame {
     Rect display_list_diff_largest_bounds{};
 };
 
-bool rect_valid(const Rect& r) {
+bool renderer_rect_valid(const Rect& r) {
     return r.w > 0 && r.h > 0;
 }
 
-Rect union_rect(const Rect& a, const Rect& b) {
-    if (!rect_valid(a)) return b;
-    if (!rect_valid(b)) return a;
+Rect renderer_union_rect(const Rect& a, const Rect& b) {
+    if (!renderer_rect_valid(a)) return b;
+    if (!renderer_rect_valid(b)) return a;
     const int x0 = std::min(a.x, b.x);
     const int y0 = std::min(a.y, b.y);
     const int x1 = std::max(a.x + a.w, b.x + b.w);
@@ -219,7 +219,7 @@ Rect union_rect(const Rect& a, const Rect& b) {
 }
 
 Rect inflate_and_clip(Rect r, int pad, int w, int h) {
-    if (!rect_valid(r) || w <= 0 || h <= 0) return {};
+    if (!renderer_rect_valid(r) || w <= 0 || h <= 0) return {};
     const int x0 = std::clamp(r.x - pad, 0, w);
     const int y0 = std::clamp(r.y - pad, 0, h);
     const int x1 = std::clamp(r.x + r.w + pad, 0, w);
@@ -500,7 +500,7 @@ PreparedFrame prepare_frame(detail::RendererImpl& impl,
     const auto dirty_rects = doc.take_dirty_rects();
     frame.dirty_rects = static_cast<std::uint32_t>(dirty_rects.size());
     for (const auto& r : dirty_rects) {
-        frame.dirty_bounds = union_rect(frame.dirty_bounds, r);
+        frame.dirty_bounds = renderer_union_rect(frame.dirty_bounds, r);
     }
     frame.dirty_bounds = inflate_and_clip(frame.dirty_bounds, 2,
                                           frame.pt_w, frame.pt_h);
@@ -531,7 +531,7 @@ PreparedFrame prepare_frame(detail::RendererImpl& impl,
             const auto diff = detail::display_list_diff_bounds(
                 impl.cached_display_list, builder.list());
             frame.display_list_diff_bounds_known =
-                diff.known && rect_valid(diff.bounds);
+                diff.known && renderer_rect_valid(diff.bounds);
             frame.display_list_diff_changed_ops = diff.changed_ops;
             frame.display_list_diff_first_kind = diff.first_changed_kind;
             frame.display_list_diff_first_old_bounds = diff.first_old_bounds;
@@ -553,12 +553,12 @@ PreparedFrame prepare_frame(detail::RendererImpl& impl,
     frame.raster_bounds = frame.dirty_bounds;
     if (frame.display_list_diff_bounds_known) {
         frame.raster_bounds =
-            union_rect(frame.raster_bounds, frame.display_list_diff_bounds);
+            renderer_union_rect(frame.raster_bounds, frame.display_list_diff_bounds);
         frame.raster_bounds = inflate_and_clip(frame.raster_bounds, 2,
                                               frame.pt_w, frame.pt_h);
     }
     const std::uint64_t dirty_area =
-        rect_valid(frame.raster_bounds)
+        renderer_rect_valid(frame.raster_bounds)
             ? static_cast<std::uint64_t>(frame.raster_bounds.w) *
                   static_cast<std::uint64_t>(frame.raster_bounds.h)
             : 0;
@@ -793,7 +793,7 @@ void rasterize_root_layer_region(detail::RendererImpl& impl,
                                  int pt_h,
                                  float dpi_scale,
                                  const Rect& dirty) {
-    if (!rect_valid(dirty)) return;
+    if (!renderer_rect_valid(dirty)) return;
     const auto raster_start = std::chrono::steady_clock::now();
     auto& layer = impl.root_layer;
     sg_pass pass{};
@@ -1023,12 +1023,12 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
         static_cast<std::uint64_t>(std::max(frame.pt_w, 1)) *
         static_cast<std::uint64_t>(std::max(frame.pt_h, 1));
     const std::uint64_t dirty_area =
-        rect_valid(frame.raster_bounds)
+        renderer_rect_valid(frame.raster_bounds)
             ? static_cast<std::uint64_t>(frame.raster_bounds.w) *
                   static_cast<std::uint64_t>(frame.raster_bounds.h)
             : 0;
     const bool dirty_covers_frame =
-        !rect_valid(frame.raster_bounds) ||
+        !renderer_rect_valid(frame.raster_bounds) ||
         (frame_area > 0 && dirty_area * 100u >= frame_area * 80u);
     const bool has_retained_surface =
         impl_->root_layer.color_img.id != SG_INVALID_ID;
@@ -1088,7 +1088,7 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
         const bool bounded_known_partial =
             impl_->root_layer.valid &&
             frame.display_list_changed &&
-            rect_valid(frame.raster_bounds) &&
+            renderer_rect_valid(frame.raster_bounds) &&
             frame.display_list_diff_bounds_known &&
             !frame.paint_dirty &&
             frame_area > 0 &&
@@ -1098,7 +1098,7 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
             (bounded_known_partial ||
              (impl_->root_layer.valid &&
               frame.display_list_changed &&
-              rect_valid(frame.raster_bounds) &&
+              renderer_rect_valid(frame.raster_bounds) &&
               frame.display_list_diff_bounds_known &&
               !frame.viewport_changed &&
               !frame.paint_dirty));
@@ -1133,7 +1133,7 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
                     t.dpi_scale, frame.pt_w, frame.pt_h);
             }
             for (std::size_t i = 0; i < exposed_count; ++i) {
-                if (rect_valid(exposed_regions[i])) {
+                if (renderer_rect_valid(exposed_regions[i])) {
                     rasterize_root_layer_region(*impl_, frame.pt_w, frame.pt_h,
                                                 t.dpi_scale, exposed_regions[i]);
                 }

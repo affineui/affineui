@@ -247,7 +247,7 @@ std::string trim_ascii_ws(std::string_view value) {
     return std::string(value);
 }
 
-std::string strip_css_quotes(std::string value) {
+std::string nvg_strip_css_quotes(std::string value) {
     if (value.size() >= 2) {
         const char first = value.front();
         if ((first == '"' || first == '\'') && value.back() == first) {
@@ -272,7 +272,7 @@ std::vector<std::string> split_font_family_list(std::string_view family) {
             continue;
         }
         if (c != ',') continue;
-        auto item = strip_css_quotes(trim_ascii_ws(family.substr(start, i - start)));
+        auto item = nvg_strip_css_quotes(trim_ascii_ws(family.substr(start, i - start)));
         if (!item.empty()) out.push_back(std::move(item));
         start = i + 1;
     }

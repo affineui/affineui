@@ -67,9 +67,13 @@ PUBLIC_HEADERS = [
     "include/affineui/computed_style.h",
     "include/affineui/display_list.h",
     "include/affineui/document.h",
+    "include/affineui/object.h",        # ObjectBase; needed by view + inspector
+    "include/affineui/view.h",          # depends on callback + document + types
+    "include/affineui/components.h",    # depends on view
+    "include/affineui/inspector.h",     # depends on object + view
     "include/affineui/renderer.h",
     "include/affineui/ui.h",
-    "include/affineui/app.h",
+    "include/affineui/app.h",           # load_view(const View&)
     "include/affineui/imm.h",
     "include/affineui/c_api.h",       # extern "C" surface; self-contained
     "include/affineui/affineui.h",    # umbrella last
@@ -112,6 +116,7 @@ ENGINE_SOURCES = [
     "src/affineui.cpp",
     "src/app/app.cpp",
     "src/app/event.cpp",
+    "src/app/view.cpp",
     "src/dom/document.cpp",
     "src/dom/dom_view.cpp",
     "src/dom/lexbor_bridge.cpp",
@@ -408,7 +413,10 @@ def read_external_text(root: Path, path: Path) -> str:
     if rel == "external/yoga/yoga/event/event.cpp":
         text = re.sub(r"\bNode\b", "EventSubscriberNode", text)
     if rel == "external/yoga/yoga/YGNodeStyle.cpp":
-        text = text.replace("Style::", "facebook::yoga::Style::")
+        # In the flattened TU, bare `Style` is ambiguous with affineui's
+        # own Style type. Word-boundary-qualify every reference (covers
+        # both `Style::foo` and bare-type uses like `Style next = ...`).
+        text = re.sub(r"\bStyle\b", "facebook::yoga::Style", text)
 
     if rel.startswith("external/nanovg/src/"):
         # NanoVG and Fontstash do not expose an upstream static-prefix macro
