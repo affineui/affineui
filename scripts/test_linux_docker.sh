@@ -45,7 +45,7 @@ docker run --rm \
         set -euo pipefail
         apt-get update -qq
         apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build \
+            build-essential cmake ninja-build git ca-certificates \
             libx11-dev libxi-dev libxcursor-dev \
             libgl1-mesa-dev libasound2-dev \
             xvfb >/dev/null
