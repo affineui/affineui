@@ -3,8 +3,9 @@
 #include "dender_components.h"
 
 #include <algorithm>
-#include <charconv>
+#include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 #include <sstream>
 #include <string>
 #include <type_traits>
@@ -17,11 +18,14 @@ namespace dender {
 namespace {
 
 double parse_double_or(std::string_view value, double fallback) noexcept {
-    double out = fallback;
-    const auto* first = value.data();
-    const auto* last = first + value.size();
-    const auto [ptr, ec] = std::from_chars(first, last, out);
-    return ec == std::errc{} && ptr != first ? out : fallback;
+    // strtod, not std::from_chars: Apple's libc++ leaves the
+    // floating-point from_chars overload `= delete`'d.
+    if (value.empty()) return fallback;
+    std::string tmp(value);
+    char* end = nullptr;
+    errno = 0;
+    double out = std::strtod(tmp.c_str(), &end);
+    return (end != tmp.c_str() && errno != ERANGE) ? out : fallback;
 }
 
 std::string number(double value) {

@@ -18,7 +18,9 @@
 // different mapping can iterate property_count()/property_at() itself and call
 // the View components directly.
 
+#include <cerrno>
 #include <charconv>
+#include <cstdlib>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -31,10 +33,15 @@ namespace affineui {
 
 namespace detail {
 inline double parse_double_or(std::string_view s, double fallback) {
-    double out = fallback;
-    const auto* first = s.data();
-    const auto [ptr, ec] = std::from_chars(first, first + s.size(), out);
-    return ec == std::errc{} && ptr != first ? out : fallback;
+    // strtod, not std::from_chars: Apple's libc++ leaves the
+    // floating-point from_chars overload `= delete`'d. Copy the view
+    // into a null-terminated buffer so strtod can't walk past s.size().
+    if (s.empty()) return fallback;
+    std::string tmp(s);
+    char* end = nullptr;
+    errno = 0;
+    double out = std::strtod(tmp.c_str(), &end);
+    return (end != tmp.c_str() && errno != ERANGE) ? out : fallback;
 }
 inline bool parse_bool(std::string_view s) {
     return s == "true" || s == "1" || s == "on" || s == "yes";

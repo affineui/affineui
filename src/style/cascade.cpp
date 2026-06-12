@@ -21,9 +21,11 @@
 #include "internal/style_resolver.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <charconv>
 #include <cmath>
 #include <cctype>
+#include <cstdlib>
 #include <limits>
 #include <memory>
 #include <string>
@@ -1264,11 +1266,18 @@ CalcVal calc_factor(std::string_view s, std::size_t& i,
         inner.v *= sign;
         return inner;
     }
-    // Number (from_chars handles a leading sign and a bare ".5").
+    // Number (strtod handles a leading sign and a bare ".5"). We use
+    // strtod rather than std::from_chars because Apple's libc++ leaves
+    // the floating-point from_chars overload `= delete`'d. Copy the
+    // remainder into a null-terminated buffer so strtod can't walk past
+    // s.size() if s isn't itself null-terminated.
     double num = 0.0;
-    auto fc = std::from_chars(s.data() + i, s.data() + s.size(), num);
-    if (fc.ec != std::errc()) return {};
-    i = static_cast<std::size_t>(fc.ptr - s.data());
+    std::string tmp(s.data() + i, s.size() - i);
+    char* end = nullptr;
+    errno = 0;
+    num = std::strtod(tmp.c_str(), &end);
+    if (end == tmp.c_str() || errno == ERANGE) return {};
+    i += static_cast<std::size_t>(end - tmp.c_str());
     const std::size_t us = i;
     while (i < s.size() && std::isalpha(static_cast<unsigned char>(s[i]))) ++i;
     std::string_view unit = s.substr(us, i - us);

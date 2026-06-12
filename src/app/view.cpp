@@ -1,9 +1,11 @@
 #include "affineui/view.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <charconv>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <initializer_list>
 #include <sstream>
 #include <utility>
@@ -239,11 +241,14 @@ double normalized_value(double value, double min, double max) {
 }
 
 double parse_double_or(std::string_view text, double fallback) {
-    double value = fallback;
-    const auto* first = text.data();
-    const auto* last = first + text.size();
-    const auto [ptr, ec] = std::from_chars(first, last, value);
-    return (ec == std::errc{} && ptr != first) ? value : fallback;
+    // strtod, not std::from_chars: Apple's libc++ leaves the
+    // floating-point from_chars overload `= delete`'d.
+    if (text.empty()) return fallback;
+    std::string tmp(text);
+    char* end = nullptr;
+    errno = 0;
+    double value = std::strtod(tmp.c_str(), &end);
+    return (end != tmp.c_str() && errno != ERANGE) ? value : fallback;
 }
 
 std::string percent(double fraction) {

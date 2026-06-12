@@ -2,7 +2,8 @@
 
 #include "game_editor_styles.h"
 
-#include <charconv>
+#include <cerrno>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -23,10 +24,14 @@ namespace {
 constexpr const char* kDeciusVersion = "0.6.2";
 
 double parse_double(std::string_view s, double fallback) {
-    double out = fallback;
-    const auto* first = s.data();
-    const auto [ptr, ec] = std::from_chars(first, first + s.size(), out);
-    return ec == std::errc{} && ptr != first ? out : fallback;
+    // strtod, not std::from_chars: Apple's libc++ leaves the
+    // floating-point from_chars overload `= delete`'d.
+    if (s.empty()) return fallback;
+    std::string tmp(s);
+    char* end = nullptr;
+    errno = 0;
+    double out = std::strtod(tmp.c_str(), &end);
+    return (end != tmp.c_str() && errno != ERANGE) ? out : fallback;
 }
 
 // A memento command for a single string/number property edit, with drag
