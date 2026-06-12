@@ -45,11 +45,49 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
-# Ready to enable (validated locally on macOS, not yet wired as CI jobs):
-#   * macOS — nanovg_sokol.h now ships an MSL shader variant, so the auto
-#     backend is Metal on Apple (GL still selectable via AFFINEUI_BACKEND=gl).
-#     A macos-latest job can build + test both backends.
-#   * Amalgamator (two-file dist) — tools/amalgamate.py emits a buildable
-#     sokol_gfx two-file SDK (manifest tracks nanovg_sokol + sokol_gfx/glue,
-#     no GL paint path). The job should *compile* the generated affineui.cpp
-#     for each backend, not just emit it.
+  macos:
+    name: macOS (Metal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        run: brew install ninja
+      # Backend auto-resolves to metal on Apple now that nanovg_sokol.h
+      # ships MSL shaders. external/ is vendored, no fetch needed.
+      - name: Configure
+        run: cmake --preset release
+      - name: Build
+        run: cmake --build build/release --parallel
+      - name: Test
+        run: ctest --test-dir build/release --output-on-failure
+
+  amalgamate:
+    name: Amalgamation (compile two-file SDK)
+    runs-on: macos-latest
+    needs: macos
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        run: brew install ninja
+      - name: Configure + generate amalgamation
+        run: |
+          cmake --preset release
+          cmake --build build/release --target amalgamate
+      - name: Compile amalgamation (Metal default)
+        run: |
+          clang++ -std=c++20 -x objective-c++ \
+            -DSOKOL_METAL -DSOKOL_NO_ENTRY -DAFFINEUI_BACKEND_METAL \
+            -I build/release/dist \
+            -c build/release/dist/affineui.cpp -o /tmp/amalg_metal.o
+      - name: Compile amalgamation (GL default)
+        run: |
+          clang++ -std=c++20 -x objective-c++ \
+            -DSOKOL_GLCORE -DSOKOL_NO_ENTRY -DAFFINEUI_BACKEND_GL \
+            -I build/release/dist \
+            -c build/release/dist/affineui.cpp -o /tmp/amalg_gl.o
+      - name: Compile amalgamation (adapter, AFFINEUI_WITH_SOKOL)
+        run: |
+          clang++ -std=c++20 -x objective-c++ \
+            -DSOKOL_METAL -DSOKOL_NO_ENTRY -DAFFINEUI_BACKEND_METAL -DAFFINEUI_WITH_SOKOL \
+            -I build/release/dist \
+            -c build/release/dist/affineui.cpp -o /tmp/amalg_metal_adapter.o

@@ -88,3 +88,4 @@ conformance/cases/_ex11ref/
 
 # Background agent status board (local only)
 .agent-status/
+build-linux/
