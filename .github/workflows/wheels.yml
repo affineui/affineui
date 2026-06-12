@@ -62,6 +62,12 @@ jobs:
           CIBW_BUILD: 'cp39-* cp310-* cp311-* cp312-* cp313-*'
           CIBW_SKIP: 'pp* *-musllinux_* *-win32 *-manylinux_i686'
 
+          # Linux: opt into manylinux_2_28 (AlmaLinux 9 + gcc-toolset-13).
+          # cibuildwheel's default is still manylinux2014 (CentOS 7 + GCC 10),
+          # whose libstdc++ doesn't ship <source_location> — a C++20 header
+          # the code uses via affineui/view.h.
+          CIBW_MANYLINUX_X86_64_IMAGE: 'manylinux_2_28'
+
           # macOS: single universal2 wheel covers Intel + Apple Silicon.
           CIBW_ARCHS_MACOS: 'universal2'
           # macOS deployment target: 11.0 lines up with Apple Silicon shipping.

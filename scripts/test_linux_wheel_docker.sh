@@ -70,7 +70,10 @@ done
 
 # Mirror the wheels.yml env so the local run matches CI byte-for-byte. The
 # Linux package install + xvfb-run test wrapper come from wheels.yml.
+# manylinux_2_28 (AlmaLinux 9 + gcc-toolset-13) is required — cibuildwheel's
+# default manylinux2014 (CentOS 7 + GCC 10) lacks <source_location>.
 export CIBW_BUILD="${ONLY}"
+export CIBW_MANYLINUX_X86_64_IMAGE="manylinux_2_28"
 export CIBW_BEFORE_ALL_LINUX="yum install -y libX11-devel libXi-devel libXcursor-devel libxkbcommon-devel mesa-libGL-devel alsa-lib-devel ninja-build xorg-x11-server-Xvfb"
 export CIBW_ENVIRONMENT="CMAKE_POLICY_VERSION_MINIMUM=3.5"
 export CIBW_TEST_REQUIRES="pytest"
