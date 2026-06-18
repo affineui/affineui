@@ -71,6 +71,7 @@ PUBLIC_HEADERS = [
     "include/affineui/view.h",          # depends on callback + document + types
     "include/affineui/components.h",    # depends on view
     "include/affineui/inspector.h",     # depends on object + view
+    "include/affineui/automation.h",   # depends on document + types
     "include/affineui/renderer.h",
     "include/affineui/ui.h",
     "include/affineui/app.h",           # load_view(const View&)
@@ -116,6 +117,7 @@ ENGINE_SOURCES = [
     "src/affineui.cpp",
     "src/app/app.cpp",
     "src/app/event.cpp",
+    "src/app/automation.cpp",
     "src/app/view.cpp",
     "src/dom/document.cpp",
     "src/dom/dom_view.cpp",

@@ -51,6 +51,33 @@ public:
         int         x{0}, y{0}, w{0}, h{0};  ///< floating: rect in float-host px
     };
 
+    /// The CURRENT dock arrangement, read live from the DOM (the dock structure
+    /// IS the DOM — decius.js semantics). The View's document_view() replays
+    /// this on re-emit so drag-to-dock / tearoff surgery survives view reloads;
+    /// apps can serialize it for workspace persistence. `flex` strings are the
+    /// inline `flex:` value of each child in its parent split ("1 1 240px",
+    /// "0 0 320px", "1", or empty for default).
+    struct DockLayout {
+        struct Node {
+            bool                     split{false};
+            bool                     vertical{false};  ///< split orientation
+            std::string              flex;             ///< slot flex in parent
+            std::vector<Node>        children;         ///< split children
+            // Leaf (a dockpane):
+            std::string              kind;     ///< "panels" / "documents"
+            std::vector<std::string> tabs;     ///< panel ids, in tab order
+            std::string              active;   ///< active panel id ("" = first)
+        };
+        struct Float {
+            int  x{0}, y{0}, w{0}, h{0};  ///< rect in workspace-root px
+            bool title_only{false};       ///< single-tab title-bar mode
+            Node pane;                    ///< the floating dockpane (leaf)
+        };
+        bool               present{false};  ///< false = no dock in the DOM
+        Node               root;            ///< the workspace split tree
+        std::vector<Float> floats;
+    };
+
     Document();
     ~Document();
 
@@ -122,6 +149,21 @@ public:
     /// All accumulated dock-placement overrides, for the app to persist.
     [[nodiscard]] std::vector<std::pair<std::string, DockPlacement>>
     dock_overrides() const;
+
+    /// The current dock arrangement, read live from the DOM (see DockLayout).
+    /// Wire into View::set_dock_layout_provider so view rebuilds re-emit the
+    /// user's arrangement instead of the declared seed.
+    [[nodiscard]] DockLayout dock_layout() const;
+
+    /// Border-box rect of the first element matching `target`, in document
+    /// coordinates (valid after layout). Target forms:
+    ///   "#id"            — by id attribute
+    ///   "[name=value]"   — by attribute equality (e.g. "[data-dcs-target=#x]")
+    ///   "name"           — by data-aui-name (the View widget key)
+    /// Returns w<=0 when not found / not laid out. Drives the automation
+    /// scripting layer (affineui/automation.h) and programmatic scroll/anchor
+    /// use cases.
+    [[nodiscard]] Rect find_element_rect(std::string_view target) const;
 
     /// Active tab for a dock leaf, keyed by the leaf/pane id. Empty means the
     /// primary panel is active. Updated by dock-tab clicks so View can rebuild

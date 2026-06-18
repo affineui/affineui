@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include "affineui/automation.h"
 #include "affineui/document.h"
 #include "affineui/painter.h"
 #include "affineui/ui.h"
@@ -414,6 +415,56 @@ std::string read_test_file(const std::filesystem::path& path) {
     std::stringstream ss;
     ss << f.rdbuf();
     return ss.str();
+}
+
+// ── Document::DockLayout assertions (the dock structure IS the DOM) ─────────
+using DockLayoutNode = affineui::Document::DockLayout::Node;
+
+bool dock_leaf_has_tab(const DockLayoutNode& n, std::string_view tab) {
+    return !n.split &&
+           std::find(n.tabs.begin(), n.tabs.end(), tab) != n.tabs.end();
+}
+
+// The (first) LEAF that carries `tab` in its tab row, or nullptr.
+const DockLayoutNode* find_dock_leaf(const DockLayoutNode& n,
+                                     std::string_view tab) {
+    if (!n.split) return dock_leaf_has_tab(n, tab) ? &n : nullptr;
+    for (const auto& c : n.children) {
+        if (const auto* found = find_dock_leaf(c, tab)) return found;
+    }
+    return nullptr;
+}
+
+// The split node that directly holds `child`, or nullptr (child == root).
+const DockLayoutNode* find_dock_parent(const DockLayoutNode& root,
+                                       const DockLayoutNode* child) {
+    if (!root.split) return nullptr;
+    for (const auto& c : root.children) {
+        if (&c == child) return &root;
+        if (const auto* found = find_dock_parent(c, child)) return found;
+    }
+    return nullptr;
+}
+
+int dock_child_index(const DockLayoutNode& parent, const DockLayoutNode* child) {
+    for (std::size_t i = 0; i < parent.children.size(); ++i) {
+        if (&parent.children[i] == child) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+std::vector<std::string> dock_tree_tabs(const DockLayoutNode& n) {
+    std::vector<std::string> out;
+    if (!n.split) return n.tabs;
+    for (const auto& c : n.children) {
+        auto sub = dock_tree_tabs(c);
+        out.insert(out.end(), sub.begin(), sub.end());
+    }
+    return out;
+}
+
+bool dock_tree_has_tab(const DockLayoutNode& n, std::string_view tab) {
+    return find_dock_leaf(n, tab) != nullptr;
 }
 
 }  // namespace
@@ -6503,6 +6554,7 @@ TEST_CASE("UiControls: clicking a dock-pane tab switches the active body") {
         .dcs-dockpane { display: flex; flex-direction: column; width: 300px; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 18px; }
         .dcs-dockpane__body { height: 120px; }
+        [data-dcs-tabpanel] { height: 100px; }
         [hidden] { display: none; }
         </style>
         <section class="dcs-dockpane">
@@ -6514,8 +6566,10 @@ TEST_CASE("UiControls: clicking a dock-pane tab switches the active body") {
                       aria-selected="false" data-dcs-target="#bodyB">B</button>
             </div>
           </div>
-          <div class="dcs-dockpane__body" id="bodyA">Content A</div>
-          <div class="dcs-dockpane__body" id="bodyB" hidden>Content B</div>
+          <div class="dcs-dockpane__body">
+            <div id="bodyA" data-dcs-tabpanel>Content A</div>
+            <div id="bodyB" data-dcs-tabpanel hidden>Content B</div>
+          </div>
         </section>
     )HTML");
     doc.layout(300, 200, &painter);
@@ -6611,26 +6665,40 @@ TEST_CASE("UiControls: dragging a floating element by its handle repositions it 
 }
 
 TEST_CASE("UiControls: dragging a dock tab OUT of its pane tears it off into a "
-          "floating placement override; a clean click does not") {
+          "floating panel; a clean click does not") {
     affineui::Document doc;
     RecordingPainter painter;
-    // A float-host with a 200px pane on the left and empty host area to drop in.
+    // Canonical workspace: a NON-dock float host wrapping ONE dock holding a
+    // 200px panels pane and the documents center pane.
     doc.set_html(R"HTML(
         <style>
         html, body { margin: 0; padding: 0; }
         .dcs-dock--floathost { position: relative; width: 600px; height: 400px; display: flex; }
-        .dcs-dockpane { width: 200px; height: 400px; display: flex; flex-direction: column; }
+        .dcs-dock { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
-        .dcs-dockpane__body { height: 360px; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
+        [data-dcs-tabpanel][hidden] { display: none; }
         </style>
-        <div class="dcs-dock dcs-dock--floathost">
-          <section class="dcs-dockpane">
-            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-              <button id="tabX" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#X-body">X</button>
-            </div></div>
-            <div class="dcs-dockpane__body" id="X-body">content</div>
-          </section>
+        <div class="dcs-dock--floathost" data-dcs-float-host>
+          <div class="dcs-dock">
+            <section class="dcs-dockpane" data-aui-name="pane-X" style="flex:0 0 200px">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button id="tabX" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#X-body">X</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="X-body" data-dcs-tabpanel>content</div></div>
+            </section>
+            <section class="dcs-dockpane dcs-dockpane--center" data-aui-name="pane-__document__" style="flex:1 1 0">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Doc-body">Doc</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="Doc-body" data-dcs-tabpanel>doc</div></div>
+            </section>
+          </div>
         </div>
     )HTML");
     doc.layout(600, 400, &painter);
@@ -6654,47 +6722,65 @@ TEST_CASE("UiControls: dragging a dock tab OUT of its pane tears it off into a "
     REQUIRE(tab.x >= 0);
     down(tab);
     up(tab);
-    CHECK(doc.dock_override("X").present == false);
+    {
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        CHECK(layout.floats.empty());
+        CHECK(dock_tree_has_tab(layout.root, "X"));
+    }
 
-    // A drag that ends OUTSIDE the pane tears the panel off -> floating override.
+    // A drag dropped in free space (here: over the wrong-kind document pane)
+    // tears the panel off into a floating panel; the emptied source pane is
+    // removed from the split tree.
     find_hovered_id(doc, "tabX", 600, 400);  // re-hover the tab
     down(tab);
-    move({400, 200});   // past threshold and outside the 200px-wide pane
+    move({400, 200});   // past threshold, over the documents-kind center pane
     up({400, 200});
-    const auto ov = doc.dock_override("X");
-    CHECK(ov.present == true);
-    CHECK(ov.floating == true);
-    CHECK(ov.w > 0);
-    CHECK(ov.h > 0);
+    const auto layout = doc.dock_layout();
+    REQUIRE(layout.present);
+    REQUIRE(layout.floats.size() == 1);
+    CHECK(layout.floats[0].pane.tabs == std::vector<std::string>{"X"});
+    CHECK(layout.floats[0].title_only == true);
+    CHECK(layout.floats[0].w > 0);
+    CHECK(layout.floats[0].h > 0);
+    CHECK_FALSE(dock_tree_has_tab(layout.root, "X"));
+    CHECK(dock_tree_has_tab(layout.root, "Doc"));  // the document pane survives
 }
 
-TEST_CASE("UiControls: dropping a dragged tab on another pane's edge zone docks "
-          "it there (docked placement override, not floating)") {
+TEST_CASE("UiControls: dropping a dragged tab on another pane's edge zone "
+          "splits the target there (DOM surgery, not floating)") {
     affineui::Document doc;
     RecordingPainter painter;
-    // Two side-by-side panes (A: x[0,300), B: x[300,600)) in a float-host.
+    // Two side-by-side panes (A: x[0,300), B: x[300,600)) in a workspace dock.
     doc.set_html(R"HTML(
         <style>
         html, body { margin: 0; padding: 0; }
         .dcs-dock--floathost { position: relative; width: 600px; height: 400px; display: flex; }
-        .dcs-dockpane { width: 300px; height: 400px; display: flex; flex-direction: column; }
+        .dcs-dock { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
-        .dcs-dockpane__body { height: 360px; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
+        [data-dcs-tabpanel][hidden] { display: none; }
         </style>
-        <div class="dcs-dock dcs-dock--floathost">
-          <section class="dcs-dockpane" data-aui-name="pane-A">
-            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-              <button id="tabA" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#A-body">A</button>
-            </div></div>
-            <div class="dcs-dockpane__body" id="A-body">A</div>
-          </section>
-          <section class="dcs-dockpane" data-aui-name="pane-B">
-            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-              <button id="tabB" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#B-body">B</button>
-            </div></div>
-            <div class="dcs-dockpane__body" id="B-body">B</div>
-          </section>
+        <div class="dcs-dock--floathost" data-dcs-float-host>
+          <div class="dcs-dock">
+            <section class="dcs-dockpane" data-aui-name="pane-A" style="flex:0 0 300px">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button id="tabA" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#A-body">A</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="A-body" data-dcs-tabpanel>A</div></div>
+            </section>
+            <section class="dcs-dockpane" data-aui-name="pane-B" style="flex:1 1 0">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button id="tabB" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#B-body">B</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="B-body" data-dcs-tabpanel>B</div></div>
+            </section>
+          </div>
         </div>
     )HTML");
     doc.layout(600, 400, &painter);
@@ -6713,18 +6799,25 @@ TEST_CASE("UiControls: dropping a dragged tab on another pane's edge zone docks 
         e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
     };
 
-    // Drag B's tab onto pane A's LEFT edge zone (x≈40 < 28% of 300).
+    // Drag B's tab onto pane A's LEFT edge zone (x≈40 < 22% of 300).
     auto tabB = find_hovered_id(doc, "tabB", 600, 400);
     REQUIRE(tabB.x >= 0);
     down(tabB);
     move({40, 200});
     up({40, 200});
 
-    const auto ov = doc.dock_override("B");
-    CHECK(ov.present == true);
-    CHECK(ov.floating == false);
-    CHECK(ov.parent == "A");
-    CHECK(ov.side == 0);  // Dock::Left
+    // A fresh single-tab pane holding B was inserted as A's LEFT sibling in
+    // the same horizontal dock; B's emptied source pane is gone. No floats.
+    const auto layout = doc.dock_layout();
+    REQUIRE(layout.present);
+    CHECK(layout.floats.empty());
+    REQUIRE(layout.root.split);
+    CHECK_FALSE(layout.root.vertical);
+    REQUIRE(layout.root.children.size() == 2);
+    CHECK_FALSE(layout.root.children[0].split);
+    CHECK_FALSE(layout.root.children[1].split);
+    CHECK(layout.root.children[0].tabs == std::vector<std::string>{"B"});
+    CHECK(layout.root.children[1].tabs == std::vector<std::string>{"A"});
 }
 
 TEST_CASE("UiControls: viewport edge docking does not steal a pane edge") {
@@ -6734,22 +6827,31 @@ TEST_CASE("UiControls: viewport edge docking does not steal a pane edge") {
         <style>
         html, body { margin: 0; padding: 0; }
         .dcs-dock--floathost { position: relative; width: 600px; height: 400px; display: flex; }
-        .dcs-dockpane { width: 300px; height: 400px; display: flex; flex-direction: column; }
+        .dcs-dock { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
-        .dcs-dockpane__body { height: 360px; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
+        [data-dcs-tabpanel][hidden] { display: none; }
         </style>
-        <div class="dcs-dock dcs-dock--floathost">
-          <section class="dcs-dockpane" data-aui-name="pane-A">
-            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-              <button id="tabA" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#A-body">A</button>
-            </div></div><div class="dcs-dockpane__body" id="A-body">A</div>
-          </section>
-          <section class="dcs-dockpane" data-aui-name="pane-B">
-            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-              <button id="tabB" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#B-body">B</button>
-            </div></div><div class="dcs-dockpane__body" id="B-body">B</div>
-          </section>
+        <div class="dcs-dock--floathost" data-dcs-float-host>
+          <div class="dcs-dock">
+            <section class="dcs-dockpane" data-aui-name="pane-A" style="flex:0 0 300px">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button id="tabA" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#A-body">A</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="A-body" data-dcs-tabpanel>A</div></div>
+            </section>
+            <section class="dcs-dockpane" data-aui-name="pane-B" style="flex:1 1 0">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button id="tabB" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#B-body">B</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="B-body" data-dcs-tabpanel>B</div></div>
+            </section>
+          </div>
         </div>
     )HTML");
     doc.layout(600, 400, &painter);
@@ -6758,16 +6860,26 @@ TEST_CASE("UiControls: viewport edge docking does not steal a pane edge") {
         affineui::Event e{}; e.type = t; e.button = affineui::MouseButton::Left;
         e.pos = p; doc.dispatch(e);
     };
+    // Drop at x=8: within the 32px window-edge band AND within pane A's left
+    // edge zone. The pane edge under the cursor wins, so the fresh pane lands
+    // as a direct sibling of A in the WORKSPACE dock (root.children order) —
+    // a window-edge split would instead wrap the workspace dock in a new one
+    // (root.children[1] would be a nested split, not the A leaf).
     auto tabB = find_hovered_id(doc, "tabB", 600, 400);
     REQUIRE(tabB.x >= 0);
     ev(affineui::EventType::MouseDown, tabB);
     ev(affineui::EventType::MouseMove, {8, 200});   // pane edge wins under cursor
     ev(affineui::EventType::MouseUp, {8, 200});
-    const auto ov = doc.dock_override("B");
-    CHECK(ov.present == true);
-    CHECK(ov.floating == false);
-    CHECK(ov.parent == "A");
-    CHECK(ov.side == 0);                 // Left
+    const auto layout = doc.dock_layout();
+    REQUIRE(layout.present);
+    CHECK(layout.floats.empty());
+    REQUIRE(layout.root.split);
+    CHECK_FALSE(layout.root.vertical);
+    REQUIRE(layout.root.children.size() == 2);
+    CHECK_FALSE(layout.root.children[0].split);  // leaf, not a wrapped dock
+    CHECK_FALSE(layout.root.children[1].split);
+    CHECK(layout.root.children[0].tabs == std::vector<std::string>{"B"});
+    CHECK(layout.root.children[1].tabs == std::vector<std::string>{"A"});
 }
 
 TEST_CASE("UiControls: dock tab drag shows a transient title ghost") {
@@ -6861,21 +6973,29 @@ TEST_CASE("UiControls: dock preview uses the topmost element's dock ancestor") {
             z-index: 10;
             background: rgb(20,24,32);
         }
+        .dcs-dock { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; }
+        .dcs-panel--floating { position: absolute; }
         .dcs-drop { background: rgb(0,184,212); }
+        [hidden] { display: none; }
+        [data-dcs-tabpanel][hidden] { display: none; }
         </style>
-        <div class="dcs-dock dcs-dock--floathost">
-          <section class="dcs-dockpane behind" data-aui-name="pane-Behind">
-            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-              <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Behind-body">Behind</button>
-            </div></div><div class="dcs-dockpane__body" id="Behind-body">Behind</div>
-          </section>
-          <section class="dcs-dockpane source" data-aui-name="pane-Source">
-            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-              <button id="tabSource" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Source-body">Source</button>
-            </div></div><div class="dcs-dockpane__body" id="Source-body">Source</div>
-          </section>
+        <div class="dcs-dock--floathost" data-dcs-float-host>
+          <div class="dcs-dock">
+            <section class="dcs-dockpane behind" data-aui-name="pane-Behind">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Behind-body">Behind</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="Behind-body" data-dcs-tabpanel>Behind</div></div>
+            </section>
+            <section class="dcs-dockpane source" data-aui-name="pane-Source">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button id="tabSource" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Source-body">Source</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="Source-body" data-dcs-tabpanel>Source</div></div>
+            </section>
+          </div>
           <div id="consoleText" class="console-log">Ready</div>
           <div id="__dropind" class="dcs-drop dcs-drop--valid" hidden
                style="position:absolute;pointer-events:none;z-index:200"></div>
@@ -6894,6 +7014,9 @@ TEST_CASE("UiControls: dock preview uses the topmost element's dock ancestor") {
     const auto tab = find_hovered_id(doc, "tabSource", 520, 400);
     REQUIRE(tab.x >= 0);
     ev(affineui::EventType::MouseDown, tab);
+    // (150,300) is geometrically inside pane Behind, but the TOPMOST element
+    // there is the z-raised console overlay, which has no dockpane ancestor —
+    // so there is no valid target and no preview.
     ev(affineui::EventType::MouseMove, {150, 300});
     doc.layout(520, 400, &painter);
     painter.fill_colors.clear();
@@ -6901,10 +7024,15 @@ TEST_CASE("UiControls: dock preview uses the topmost element's dock ancestor") {
     doc.draw(painter);
     CHECK_FALSE(saw_fill(painter, affineui::Color::rgba(0, 184, 212, 46)));
 
+    // Dropping there is a free-space drop: the tab tears off into a float.
     ev(affineui::EventType::MouseUp, {150, 300});
-    const auto ov = doc.dock_override("Source");
-    CHECK(ov.present);
-    CHECK(ov.floating);
+    const auto layout = doc.dock_layout();
+    REQUIRE(layout.present);
+    REQUIRE(layout.floats.size() == 1);
+    CHECK(layout.floats[0].pane.tabs == std::vector<std::string>{"Source"});
+    CHECK(layout.floats[0].title_only == true);
+    CHECK_FALSE(dock_tree_has_tab(layout.root, "Source"));
+    CHECK(dock_tree_has_tab(layout.root, "Behind"));
 }
 
 TEST_CASE("UiControls: dock preview zones ignore active body offsets") {
@@ -6997,29 +7125,42 @@ TEST_CASE("UiControls: floating tearoff targets accept tabs but not edge splits"
         <style>
         html, body { margin: 0; padding: 0; }
         .dcs-dock--floathost { position: relative; width: 640px; height: 420px; display: flex; }
-        .source { width: 220px; height: 420px; display: flex; flex-direction: column; }
+        .dcs-dock { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-panel--floating {
             position: absolute;
             left: 300px;
             top: 60px;
             width: 220px;
             height: 180px;
+            z-index: 60;
         }
         .dcs-panel--floating > .dcs-dockpane {
             width: 100%;
             height: 100%;
-            display: flex;
-            flex-direction: column;
         }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
-        .dcs-dockpane__body { flex: 1; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        [hidden] { display: none; }
+        [data-dcs-tabpanel][hidden] { display: none; }
         </style>
-        <div class="dcs-dock dcs-dock--floathost">
-          <section class="dcs-dockpane source" data-aui-name="pane-Source">
-            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-              <button id="tabSource" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Source-body">Source</button>
-            </div></div><div class="dcs-dockpane__body" id="Source-body">Source</div>
-          </section>
+        <div class="dcs-dock--floathost" data-dcs-float-host>
+          <div class="dcs-dock">
+            <section class="dcs-dockpane" data-aui-name="pane-Source" style="flex:0 0 220px">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button id="tabSource" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Source-body">Source</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="Source-body" data-dcs-tabpanel>Source</div></div>
+            </section>
+            <section class="dcs-dockpane dcs-dockpane--center" data-aui-name="pane-__document__" style="flex:1 1 0">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Doc-body">Doc</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="Doc-body" data-dcs-tabpanel>doc</div></div>
+            </section>
+          </div>
           <section class="dcs-panel dcs-panel--floating" data-dcs-drag
                    data-dcs-drag-bounds=".dcs-dock--floathost" data-dcs-dock-id="Float">
             <section class="dcs-dockpane" data-aui-name="pane-Float">
@@ -7029,7 +7170,7 @@ TEST_CASE("UiControls: floating tearoff targets accept tabs but not edge splits"
                 </div>
                 <div class="dcs-dockpane__toolbars"></div>
               </div>
-              <div class="dcs-dockpane__body" id="Float-body">Float</div>
+              <div class="dcs-dockpane__body"><div id="Float-body" data-dcs-tabpanel>Float</div></div>
             </section>
           </section>
         </div>
@@ -7044,17 +7185,25 @@ TEST_CASE("UiControls: floating tearoff targets accept tabs but not edge splits"
         doc.dispatch(e);
     };
 
+    // Drop near the floating pane's BOTTOM edge: floating panes are always a
+    // center/tab target (never an edge split), so the tab JOINS the float's
+    // tab row instead of splitting it.
     const auto tab = find_hovered_id(doc, "tabSource", 640, 420);
     REQUIRE(tab.x >= 0);
     ev(affineui::EventType::MouseDown, tab);
     ev(affineui::EventType::MouseMove, {410, 230});
     ev(affineui::EventType::MouseUp, {410, 230});
 
-    const auto ov = doc.dock_override("Source");
-    CHECK(ov.present);
-    CHECK_FALSE(ov.floating);
-    CHECK(ov.parent == "Float");
-    CHECK(ov.side == 4);
+    const auto layout = doc.dock_layout();
+    REQUIRE(layout.present);
+    REQUIRE(layout.floats.size() == 1);
+    CHECK(layout.floats[0].pane.tabs ==
+          std::vector<std::string>{"Float", "Source"});
+    CHECK(layout.floats[0].pane.active == "Source");
+    CHECK_FALSE(layout.floats[0].title_only);
+    // The emptied source pane left the split tree; the document pane remains.
+    CHECK_FALSE(dock_tree_has_tab(layout.root, "Source"));
+    CHECK(dock_tree_has_tab(layout.root, "Doc"));
 }
 
 TEST_CASE("UiControls: co-tab dropped on a pane bottom preview splits out of "
@@ -7064,37 +7213,44 @@ TEST_CASE("UiControls: co-tab dropped on a pane bottom preview splits out of "
     doc.set_html(R"HTML(
         <style>
         html, body { margin: 0; padding: 0; }
-        .dcs-dock--floathost { position: relative; width: 600px; height: 420px; display: flex; flex-direction: column; }
-        .top { height: 320px; display: flex; }
-        .hierarchy { width: 240px; height: 320px; display: flex; flex-direction: column; }
-        .center { flex: 1; height: 320px; display: flex; flex-direction: column; }
-        .assets { height: 100px; display: flex; flex-direction: column; }
+        .dcs-dock--floathost { position: relative; width: 600px; height: 420px; display: flex; }
+        .dcs-dock { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
-        .dcs-dockpane__body { flex: 1; }
-        .dcs-dockpane__body[hidden] { display: none; }
-        .dcs-drop { background: rgb(17, 34, 51); }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-panel--floating { position: absolute; }
+        [hidden] { display: none; }
+        [data-dcs-tabpanel][hidden] { display: none; }
         </style>
-        <div class="dcs-dock dcs-dock--floathost">
-          <div class="top">
-            <section class="dcs-dockpane hierarchy" data-aui-name="pane-Hierarchy">
+        <div class="dcs-dock--floathost" data-dcs-float-host>
+          <div class="dcs-dock dcs-dock--v">
+            <div class="dcs-dock" style="flex:0 0 320px">
+              <section class="dcs-dockpane" data-aui-name="pane-Hierarchy" style="flex:0 0 240px">
+                <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                  <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Hierarchy-body">Hierarchy</button>
+                </div></div>
+                <div class="dcs-dockpane__body"><div id="Hierarchy-body" data-dcs-tabpanel>Hierarchy</div></div>
+              </section>
+              <section class="dcs-dockpane dcs-dockpane--center" data-aui-name="pane-__document__" style="flex:1 1 0">
+                <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                  <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Doc-body">Doc</button>
+                </div></div>
+                <div class="dcs-dockpane__body"><div id="Doc-body" data-dcs-tabpanel>Doc</div></div>
+              </section>
+            </div>
+            <section class="dcs-dockpane" data-aui-name="pane-Assets" style="flex:1 1 0">
               <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-                <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Hierarchy-body">Hierarchy</button>
-              </div></div><div class="dcs-dockpane__body" id="Hierarchy-body">Hierarchy</div>
-            </section>
-            <section class="dcs-dockpane dcs-dockpane--center center" data-aui-name="pane-__document__">
-              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-                <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Doc-body">Doc</button>
-              </div></div><div class="dcs-dockpane__body" id="Doc-body">Doc</div>
+                <button id="tabAssets" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Assets-body">Assets</button>
+                <button id="tabConsole" class="dcs-dockpane__tab" aria-selected="false" data-dcs-target="#Console-body">Console</button>
+              </div></div>
+              <div class="dcs-dockpane__body">
+                <div id="Assets-body" data-dcs-tabpanel>Assets</div>
+                <div id="Console-body" data-dcs-tabpanel hidden>Console</div>
+              </div>
             </section>
           </div>
-          <section class="dcs-dockpane assets" data-aui-name="pane-Assets">
-            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-              <button id="tabAssets" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Assets-body">Assets</button>
-              <button id="tabConsole" class="dcs-dockpane__tab" aria-selected="false" data-dcs-target="#Console-body">Console</button>
-            </div></div>
-            <div class="dcs-dockpane__body" id="Assets-body">Assets</div>
-            <div class="dcs-dockpane__body" id="Console-body" hidden>Console</div>
-          </section>
         </div>
     )HTML");
     doc.layout(600, 420, &painter);
@@ -7109,24 +7265,45 @@ TEST_CASE("UiControls: co-tab dropped on a pane bottom preview splits out of "
     };
     auto console_tab = find_hovered_id(doc, "tabConsole", 600, 420);
     REQUIRE(console_tab.x >= 0);
-    auto hierarchy_body = find_hovered_id(doc, "Hierarchy-body", 600, 420);
-    REQUIRE(hierarchy_body.x >= 0);
-    const auto hierarchy_bounds = doc.hovered_info().bounds;
+    auto hierarchy_p =
+        find_hovered_attr(doc, "data-aui-name", "pane-Hierarchy", 600, 420);
+    REQUIRE(hierarchy_p.x >= 0);
+    affineui::Rect hierarchy_bounds{};
+    for (const auto& info : doc.hovered_info_chain()) {
+        for (const auto& attr : info.attrs) {
+            if (attr.first == "data-aui-name" &&
+                attr.second == "pane-Hierarchy") {
+                hierarchy_bounds = info.bounds;
+            }
+        }
+    }
+    REQUIRE(hierarchy_bounds.h > 0);
     const affineui::Point hierarchy_bottom{
         hierarchy_bounds.x + hierarchy_bounds.w / 2,
         hierarchy_bounds.y + std::max(1, hierarchy_bounds.h - 4)};
     ev(affineui::EventType::MouseDown, console_tab);
     ev(affineui::EventType::MouseMove, hierarchy_bottom);
-    // Commit the visible preview even if the release event lands a few pixels
-    // away from the last move target.
-    ev(affineui::EventType::MouseUp, {300, 210});
+    ev(affineui::EventType::MouseUp, hierarchy_bottom);
 
-    const auto console = doc.dock_override("Console");
-    CHECK(console.present == true);
-    CHECK(console.floating == false);
-    CHECK(console.parent == "Hierarchy");
-    CHECK(console.side == 3);  // Dock::Bottom
-    CHECK(doc.dock_override("Assets").present == false);
+    // Surgery: Console moved into a FRESH pane that splits Hierarchy on its
+    // bottom edge (Hierarchy's parent dock is horizontal, so the target gets
+    // wrapped in a new vertical dock). Assets keeps its own tab.
+    const auto layout = doc.dock_layout();
+    REQUIRE(layout.present);
+    CHECK(layout.floats.empty());
+    const auto* console_leaf = find_dock_leaf(layout.root, "Console");
+    REQUIRE(console_leaf != nullptr);
+    CHECK(console_leaf->tabs == std::vector<std::string>{"Console"});
+    const auto* wrap = find_dock_parent(layout.root, console_leaf);
+    REQUIRE(wrap != nullptr);
+    CHECK(wrap->vertical);
+    REQUIRE(wrap->children.size() == 2);
+    CHECK(wrap->children[0].tabs == std::vector<std::string>{"Hierarchy"});
+    CHECK(&wrap->children[1] == console_leaf);  // below Hierarchy
+    const auto* assets_leaf = find_dock_leaf(layout.root, "Assets");
+    REQUIRE(assets_leaf != nullptr);
+    CHECK(assets_leaf->tabs == std::vector<std::string>{"Assets"});
+    CHECK(assets_leaf->active == "Assets");
 }
 
 TEST_CASE("UiControls: dock preview target clears after leaving a valid pane") {
@@ -7135,36 +7312,44 @@ TEST_CASE("UiControls: dock preview target clears after leaving a valid pane") {
     doc.set_html(R"HTML(
         <style>
         html, body { margin: 0; padding: 0; }
-        .dcs-dock--floathost { position: relative; width: 600px; height: 420px; display: flex; flex-direction: column; }
-        .top { height: 320px; display: flex; }
-        .hierarchy { width: 240px; height: 320px; display: flex; flex-direction: column; }
-        .center { flex: 1; height: 320px; display: flex; flex-direction: column; }
-        .assets { height: 100px; display: flex; flex-direction: column; }
+        .dcs-dock--floathost { position: relative; width: 600px; height: 420px; display: flex; }
+        .dcs-dock { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
-        .dcs-dockpane__body { flex: 1; }
-        .dcs-dockpane__body[hidden] { display: none; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-panel--floating { position: absolute; }
+        [hidden] { display: none; }
+        [data-dcs-tabpanel][hidden] { display: none; }
         </style>
-        <div class="dcs-dock dcs-dock--floathost">
-          <div class="top">
-            <section class="dcs-dockpane hierarchy" data-aui-name="pane-Hierarchy">
+        <div class="dcs-dock--floathost" data-dcs-float-host>
+          <div class="dcs-dock dcs-dock--v">
+            <div class="dcs-dock" style="flex:0 0 320px">
+              <section class="dcs-dockpane" data-aui-name="pane-Hierarchy" style="flex:0 0 240px">
+                <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                  <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Hierarchy-body">Hierarchy</button>
+                </div></div>
+                <div class="dcs-dockpane__body"><div id="Hierarchy-body" data-dcs-tabpanel>Hierarchy</div></div>
+              </section>
+              <section class="dcs-dockpane dcs-dockpane--center" data-aui-name="pane-__document__" style="flex:1 1 0">
+                <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                  <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Doc-body">Doc</button>
+                </div></div>
+                <div class="dcs-dockpane__body"><div id="Doc-body" data-dcs-tabpanel>Doc</div></div>
+              </section>
+            </div>
+            <section class="dcs-dockpane" data-aui-name="pane-Assets" style="flex:1 1 0">
               <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-                <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Hierarchy-body">Hierarchy</button>
-              </div></div><div class="dcs-dockpane__body" id="Hierarchy-body">Hierarchy</div>
-            </section>
-            <section class="dcs-dockpane dcs-dockpane--center center" data-aui-name="pane-__document__">
-              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-                <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Doc-body">Doc</button>
-              </div></div><div class="dcs-dockpane__body" id="Doc-body">Doc</div>
+                <button id="tabAssets" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Assets-body">Assets</button>
+                <button id="tabConsole" class="dcs-dockpane__tab" aria-selected="false" data-dcs-target="#Console-body">Console</button>
+              </div></div>
+              <div class="dcs-dockpane__body">
+                <div id="Assets-body" data-dcs-tabpanel>Assets</div>
+                <div id="Console-body" data-dcs-tabpanel hidden>Console</div>
+              </div>
             </section>
           </div>
-          <section class="dcs-dockpane assets" data-aui-name="pane-Assets">
-            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-              <button id="tabAssets" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Assets-body">Assets</button>
-              <button id="tabConsole" class="dcs-dockpane__tab" aria-selected="false" data-dcs-target="#Console-body">Console</button>
-            </div></div>
-            <div class="dcs-dockpane__body" id="Assets-body">Assets</div>
-            <div class="dcs-dockpane__body" id="Console-body" hidden>Console</div>
-          </section>
           <div id="__dropind" class="dcs-drop dcs-drop--valid" hidden
                style="position:absolute;pointer-events:none;z-index:200"></div>
         </div>
@@ -7181,9 +7366,19 @@ TEST_CASE("UiControls: dock preview target clears after leaving a valid pane") {
     };
     auto console_tab = find_hovered_id(doc, "tabConsole", 600, 420);
     REQUIRE(console_tab.x >= 0);
-    auto hierarchy_body = find_hovered_id(doc, "Hierarchy-body", 600, 420);
-    REQUIRE(hierarchy_body.x >= 0);
-    const auto hierarchy_bounds = doc.hovered_info().bounds;
+    auto hierarchy_p =
+        find_hovered_attr(doc, "data-aui-name", "pane-Hierarchy", 600, 420);
+    REQUIRE(hierarchy_p.x >= 0);
+    affineui::Rect hierarchy_bounds{};
+    for (const auto& info : doc.hovered_info_chain()) {
+        for (const auto& attr : info.attrs) {
+            if (attr.first == "data-aui-name" &&
+                attr.second == "pane-Hierarchy") {
+                hierarchy_bounds = info.bounds;
+            }
+        }
+    }
+    REQUIRE(hierarchy_bounds.h > 0);
     const affineui::Point hierarchy_bottom{
         hierarchy_bounds.x + hierarchy_bounds.w / 2,
         hierarchy_bounds.y + std::max(1, hierarchy_bounds.h - 4)};
@@ -7220,42 +7415,65 @@ TEST_CASE("UiControls: dock preview target clears after leaving a valid pane") {
     doc.draw(painter);
     CHECK_FALSE(saw_fill(painter, preview_fill));
 
+    // Releasing over the wrong-kind document body is a free-space drop: the
+    // co-tab tears off into a float; Assets keeps its own tab; nothing docked
+    // into (or below) Hierarchy.
     ev(affineui::EventType::MouseUp, document_center);
 
-    const auto console = doc.dock_override("Console");
-    CHECK(console.present == true);
-    CHECK(console.floating == true);
-    CHECK_FALSE(console.parent == "Hierarchy");
-    CHECK_FALSE(console.side == 3);
+    const auto layout = doc.dock_layout();
+    REQUIRE(layout.present);
+    REQUIRE(layout.floats.size() == 1);
+    CHECK(layout.floats[0].pane.tabs == std::vector<std::string>{"Console"});
+    CHECK(layout.floats[0].title_only == true);
+    CHECK_FALSE(dock_tree_has_tab(layout.root, "Console"));
+    const auto* hierarchy_leaf = find_dock_leaf(layout.root, "Hierarchy");
+    REQUIRE(hierarchy_leaf != nullptr);
+    CHECK(hierarchy_leaf->tabs == std::vector<std::string>{"Hierarchy"});
+    const auto* assets_leaf = find_dock_leaf(layout.root, "Assets");
+    REQUIRE(assets_leaf != nullptr);
+    CHECK(assets_leaf->tabs == std::vector<std::string>{"Assets"});
 }
 
-TEST_CASE("UiControls: co-tab can edge-dock against its own source pane") {
+TEST_CASE("UiControls: a co-tab dropped on its own source pane tears off "
+          "(the source pane is never a target)") {
+    // Strict decius.js semantics: releasing a drag back inside the source pane
+    // is the Photoshop tearoff gesture. The old "cancel inside the source
+    // bounds" and "edge-dock against your own pane" behaviors are gone.
     affineui::Document doc;
     RecordingPainter painter;
     const char* html = R"HTML(
         <style>
         html, body { margin: 0; padding: 0; }
         .dcs-dock--floathost { position: relative; width: 600px; height: 260px; display: flex; }
-        .assets { width: 300px; height: 260px; display: flex; flex-direction: column; }
-        .other { flex: 1; height: 260px; display: flex; flex-direction: column; }
+        .dcs-dock { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
-        .dcs-dockpane__body { flex: 1; }
-        .dcs-dockpane__body[hidden] { display: none; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-panel--floating { position: absolute; }
+        [hidden] { display: none; }
+        [data-dcs-tabpanel][hidden] { display: none; }
         </style>
-        <div class="dcs-dock dcs-dock--floathost">
-          <section class="dcs-dockpane assets" data-aui-name="pane-Assets">
-            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-              <button id="tabAssets" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Assets-body">Assets</button>
-              <button id="tabConsole" class="dcs-dockpane__tab" aria-selected="false" data-dcs-target="#Console-body">Console</button>
-            </div></div>
-            <div class="dcs-dockpane__body" id="Assets-body">Assets</div>
-            <div class="dcs-dockpane__body" id="Console-body" hidden>Console</div>
-          </section>
-          <section class="dcs-dockpane other" data-aui-name="pane-Other">
-            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-              <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Other-body">Other</button>
-            </div></div><div class="dcs-dockpane__body" id="Other-body">Other</div>
-          </section>
+        <div class="dcs-dock--floathost" data-dcs-float-host>
+          <div class="dcs-dock">
+            <section class="dcs-dockpane" data-aui-name="pane-Assets" style="flex:0 0 300px">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button id="tabAssets" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Assets-body">Assets</button>
+                <button id="tabConsole" class="dcs-dockpane__tab" aria-selected="false" data-dcs-target="#Console-body">Console</button>
+              </div></div>
+              <div class="dcs-dockpane__body">
+                <div id="Assets-body" data-dcs-tabpanel>Assets</div>
+                <div id="Console-body" data-dcs-tabpanel hidden>Console</div>
+              </div>
+            </section>
+            <section class="dcs-dockpane" data-aui-name="pane-Other" style="flex:1 1 0">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Other-body">Other</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="Other-body" data-dcs-tabpanel>Other</div></div>
+            </section>
+          </div>
           <div id="__dropind" class="dcs-drop dcs-drop--valid" hidden
                style="position:absolute;pointer-events:none;z-index:200"></div>
         </div>
@@ -7270,6 +7488,20 @@ TEST_CASE("UiControls: co-tab can edge-dock against its own source pane") {
         e.button = affineui::MouseButton::Left;
         e.pos = p;
         return doc.dispatch(e);
+    };
+    auto check_tearoff = [&]() {
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        REQUIRE(layout.floats.size() == 1);
+        CHECK(layout.floats[0].pane.tabs ==
+              std::vector<std::string>{"Console"});
+        CHECK(layout.floats[0].title_only == true);
+        CHECK_FALSE(dock_tree_has_tab(layout.root, "Console"));
+        // The sibling tab stays docked in the source pane.
+        const auto* assets_leaf = find_dock_leaf(layout.root, "Assets");
+        REQUIRE(assets_leaf != nullptr);
+        CHECK(assets_leaf->tabs == std::vector<std::string>{"Assets"});
+        CHECK(dock_tree_has_tab(layout.root, "Other"));
     };
 
     auto console_tab = find_hovered_id(doc, "tabConsole", 600, 260);
@@ -7290,6 +7522,8 @@ TEST_CASE("UiControls: co-tab can edge-dock against its own source pane") {
         pane_bounds.x + pane_bounds.w / 2,
         pane_bounds.y + pane_bounds.h / 2};
 
+    // Drop on the source pane's CENTER: no preview (the source pane is not a
+    // target), and the release tears Console off into a float.
     ev(affineui::EventType::MouseDown, console_tab);
     const auto center_move_result =
         ev(affineui::EventType::MouseMove, source_center);
@@ -7298,12 +7532,16 @@ TEST_CASE("UiControls: co-tab can edge-dock against its own source pane") {
     painter.fill_colors.clear();
     painter.fill_draws.clear();
     doc.draw(painter);
-    CHECK(saw_fill(painter, affineui::Color::rgba(0, 184, 212, 46)));
+    CHECK_FALSE(saw_fill(painter, affineui::Color::rgba(0, 184, 212, 46)));
     const auto center_up_result =
         ev(affineui::EventType::MouseUp, source_center);
-    CHECK_FALSE(center_up_result.layout_changed);
-    CHECK(doc.dock_override("Console").present == false);
+    CHECK(center_up_result.layout_changed);
+    check_tearoff();
 
+    // The source pane's own RIGHT edge band: a MULTI-tab pane's edge zones ARE
+    // valid for its own tab (the "split Console out of Assets" gesture —
+    // upstreamed to decius.js dockDropDecision as well). The drop splits the
+    // pane: Console gets a fresh pane to the right of Assets.
     doc.set_html(html);
     doc.layout(600, 260, &painter);
     doc.attach_script(affineui::DocumentScript::UiControls);
@@ -7312,24 +7550,31 @@ TEST_CASE("UiControls: co-tab can edge-dock against its own source pane") {
 
     const affineui::Point source_right_zone{
         pane_bounds.x + pane_bounds.w - std::max(2, pane_bounds.w / 20),
-        pane_bounds.y + pane_bounds.h / 5};
+        pane_bounds.y + pane_bounds.h / 2};
 
     ev(affineui::EventType::MouseDown, console_tab);
     const auto move_result =
         ev(affineui::EventType::MouseMove, source_right_zone);
     CHECK(move_result.redraw_requested);
-    doc.layout(600, 260, &painter);
-    painter.fill_colors.clear();
-    painter.fill_draws.clear();
-    doc.draw(painter);
-    CHECK(saw_fill(painter, affineui::Color::rgba(0, 184, 212, 46)));
     ev(affineui::EventType::MouseUp, source_right_zone);
-
-    const auto console = doc.dock_override("Console");
-    CHECK(console.present == true);
-    CHECK(console.floating == false);
-    CHECK(console.parent == "Assets");
-    CHECK(console.side == 1);  // Dock::Right
+    {
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        CHECK(layout.floats.empty());
+        const auto* assets_leaf = find_dock_leaf(layout.root, "Assets");
+        REQUIRE(assets_leaf != nullptr);
+        CHECK(assets_leaf->tabs == std::vector<std::string>{"Assets"});
+        const auto* console_leaf = find_dock_leaf(layout.root, "Console");
+        REQUIRE(console_leaf != nullptr);
+        CHECK(console_leaf->tabs == std::vector<std::string>{"Console"});
+        // Console sits in the same split as Assets, AFTER it (right edge).
+        const auto* parent = find_dock_parent(layout.root, console_leaf);
+        REQUIRE(parent != nullptr);
+        CHECK(dock_child_index(*parent, assets_leaf) >= 0);
+        CHECK(dock_child_index(*parent, console_leaf) >
+              dock_child_index(*parent, assets_leaf));
+        CHECK(dock_tree_has_tab(layout.root, "Other"));
+    }
 }
 
 TEST_CASE("UiControls: View dock tab switches from Assets to Console") {
@@ -7428,6 +7673,226 @@ TEST_CASE("UiControls: View dock tab switches from Assets to Console") {
     CHECK_FALSE(up_result.layout_changed);
 }
 
+TEST_CASE("UiScript: bottom pane docks to the bottom of Hierarchy and back "
+          "again, repeatedly (in-window crash sequence)") {
+    // The exact gesture sequence reported crashing in the windowed editor:
+    // drag the bottom pane's tab to the BOTTOM of Hierarchy (vertical split
+    // under it), then back to the bottom area, several times — with the
+    // editor's reload-after-every-layout-change loop in play.
+    constexpr int W = 640;
+    constexpr int H = 360;
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_user_stylesheet(R"CSS(
+        html, body { width: 640px; height: 360px; margin: 0; padding: 0; }
+        #aui-root { width: 640px; height: 360px; min-height: 0; padding: 0; }
+        .shell { width: 640px; height: 360px; display: flex; flex-direction: column; }
+        .dcs-dock { display: flex; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dock--floathost { position: relative; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+        .dcs-dockpane--center { flex: 1; }
+        .dcs-dockpane__tabbar { flex: 0 0 24px; display: flex; min-width: 0; }
+        .dcs-dockpane__tabs { display: flex; min-width: 0; }
+        .dcs-dockpane__tab { display: inline-flex; padding: 0 12px; white-space: nowrap; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        [hidden] { display: none; }
+    )CSS");
+
+    auto rebuild = [&]() {
+        affineui::View v{affineui::ViewTheme::Decius};
+        v.set_dock_layout_provider([&] { return doc.dock_layout(); });
+        v.begin();
+        {
+            auto shell = v.container("shell", "shell");
+            (void) shell;
+            v.document_view("workarea", [&](affineui::View& dv) {
+                dv.document(
+                    [](affineui::View& p) { p.text("Viewport", "vp-text"); },
+                    "View", "cube");
+                dv.dockpanel(
+                    "Hierarchy",
+                    affineui::DockLocation::docked(affineui::Dock::Left, 180),
+                    [](affineui::View& p) { p.text("H body", "h-text"); },
+                    "layers", "Hierarchy");
+                dv.dockpanel(
+                    "Assets",
+                    affineui::DockLocation::docked(affineui::Dock::Bottom, 90),
+                    [](affineui::View& p) { p.text("A body", "a-text"); },
+                    "image", "Assets");
+            });
+        }
+        v.end();
+        doc.set_html(v.to_html_document());
+        doc.attach_script(affineui::DocumentScript::UiControls);
+        doc.layout(W, H, &painter);
+    };
+    rebuild();
+
+    affineui::UiScript ui(doc, W, H, &painter);
+    ui.set_step_hook([&](const affineui::DispatchResult& r) {
+        if (r.layout_changed) rebuild();
+    });
+    const std::vector<std::string> all = {"__document__", "Hierarchy",
+                                          "Assets"};
+    auto expect_valid = [&](const char* when) {
+        const auto issues =
+            affineui::UiScript::validate_dock_layout(doc.dock_layout(), all);
+        for (const auto& i : issues) {
+            FAIL_CHECK(when << ": " << i);
+        }
+        REQUIRE(issues.empty());
+    };
+
+    for (int round = 0; round < 3; ++round) {
+        // Bottom pane tab → bottom band of Hierarchy: splits under it.
+        REQUIRE(ui.drag("[data-dcs-target=#Assets-body]", "pane-Hierarchy",
+                        affineui::UiScript::Anchor::Bottom));
+        expect_valid("after dock under Hierarchy");
+        // ... and back again: to the bottom band of the workspace (over the
+        // document pane's lower edge — window-edge band docks it back at the
+        // workspace level, the original arrangement).
+        REQUIRE(ui.drag("[data-dcs-target=#Assets-body]", "pane-__document__",
+                        affineui::UiScript::Anchor::Bottom));
+        expect_valid("after dock back to the bottom");
+    }
+}
+
+TEST_CASE("UiControls: game-editor-shaped tearoff — press reload, doc toolbar, "
+          "panel toolbar rides along, second gesture survives") {
+    // Mirrors the REAL game editor sequence that crashed in-window: the press
+    // selects the tab which triggers an app reload MID-GESTURE (selection
+    // changed), the release tears the panel off over the document body, the
+    // layout_changed reload replays the surgery, and a SECOND gesture follows.
+    // The document pane has a tab toolbar (viewport toolbar) and the dragged
+    // panel has its own toolbar that must ride along into the float.
+    constexpr int W = 640;
+    constexpr int H = 360;
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_user_stylesheet(R"CSS(
+        html, body { width: 640px; height: 360px; margin: 0; padding: 0; }
+        #aui-root { width: 640px; height: 360px; min-height: 0; padding: 0; }
+        .shell { width: 640px; height: 360px; display: flex; flex-direction: column; }
+        .dcs-dock { display: flex; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dock--floathost { position: relative; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+        .dcs-dockpane--center { flex: 1; }
+        .dcs-dockpane__tabbar { flex: 0 0 24px; display: flex; min-width: 0; }
+        .dcs-dockpane__tabs { display: flex; min-width: 0; }
+        .dcs-dockpane__tab { display: inline-flex; padding: 0 12px; white-space: nowrap; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        [hidden] { display: none; }
+    )CSS");
+
+    auto rebuild = [&]() {
+        affineui::View v{affineui::ViewTheme::Decius};
+        v.set_dock_layout_provider([&] { return doc.dock_layout(); });
+        v.begin();
+        {
+            auto shell = v.container("shell", "shell");
+            (void) shell;
+            v.document_view("workarea", [&](affineui::View& dv) {
+                dv.document(
+                     [](affineui::View& p) { p.text("Viewport", "vp-text"); },
+                     "View", "cube")
+                    .toolbar([](affineui::View& tb) {
+                        tb.button("Mode", false, "vp-mode-btn");
+                    });
+                dv.dockpanel(
+                      "Hierarchy",
+                      affineui::DockLocation::docked(affineui::Dock::Left, 180),
+                      [](affineui::View& p) { p.text("H body", "h-text"); },
+                      "layers", "Hierarchy")
+                    .toolbar([](affineui::View& tb) {
+                        tb.button("Filter", false, "h-filter-btn");
+                    });
+                dv.dockpanel(
+                    "Inspector",
+                    affineui::DockLocation::docked(affineui::Dock::Right, 160),
+                    [](affineui::View& p) { p.text("I body", "i-text"); },
+                    "cog", "Inspector");
+            });
+        }
+        v.end();
+        doc.set_html(v.to_html_document());
+        doc.attach_script(affineui::DocumentScript::UiControls);
+        doc.layout(W, H, &painter);
+    };
+    auto ev = [&](affineui::EventType t, affineui::Point p, bool reload_after) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        const auto result = doc.dispatch(e);
+        if (reload_after || result.layout_changed) rebuild();
+        return result;
+    };
+
+    rebuild();
+    // Gesture 1: press the Hierarchy tab (app reloads on the press, like the
+    // editor's selection reload), drag to the document body, release → tearoff.
+    auto tab = find_hovered_attr(doc, "data-dcs-target", "#Hierarchy-body", W, H);
+    REQUIRE(tab.x >= 0);
+    ev(affineui::EventType::MouseDown, tab, /*reload_after=*/true);
+    REQUIRE(find_hovered_id(doc, "__document__-host", W, H).x >= 0);
+    const auto host = hovered_bounds_for_id(doc, "__document__-host");
+    const affineui::Point drop{host.x + host.w / 2, host.y + host.h / 2};
+    ev(affineui::EventType::MouseMove, drop, false);
+    ev(affineui::EventType::MouseUp, drop, false);
+
+    auto layout = doc.dock_layout();
+    REQUIRE(layout.floats.size() == 1);
+    CHECK(layout.floats[0].pane.tabs == std::vector<std::string>{"Hierarchy"});
+    // The panel toolbar rode along into the float (replay keeps it bound).
+    CHECK(find_hovered_attr(doc, "data-dcs-tabtoolbar", "#Hierarchy-body", W, H)
+              .x >= 0);
+
+    // Gesture 2 (the in-window crash): drag the float's title tab back onto
+    // the Inspector pane to re-dock — after the reload replay. Bounds are
+    // probed BEFORE the press: once a drag is armed, the drop indicator
+    // overlay follows the cursor and steals hover probes.
+    REQUIRE(find_hovered_attr(doc, "data-aui-name", "pane-Inspector", W, H).x >=
+            0);
+    affineui::Rect insp{-1, -1, 0, 0};
+    for (const auto& info : doc.hovered_info_chain()) {
+        for (const auto& attr : info.attrs) {
+            if (attr.first == "data-aui-name" &&
+                attr.second == "pane-Inspector") {
+                insp = info.bounds;
+            }
+        }
+    }
+    REQUIRE(insp.w > 0);
+    auto title = find_hovered_attr(doc, "data-dcs-target", "#Hierarchy-body",
+                                   W, H);
+    REQUIRE(title.x >= 0);
+    ev(affineui::EventType::MouseDown, title, /*reload_after=*/true);
+    // Aim at the middle of the Inspector pane (center → join as tab).
+    const affineui::Point redock{insp.x + insp.w / 2, insp.y + insp.h / 2};
+    ev(affineui::EventType::MouseMove, redock, false);
+    ev(affineui::EventType::MouseUp, redock, false);
+
+    layout = doc.dock_layout();
+    CHECK(layout.floats.empty());
+    bool joined = false;
+    std::function<void(const affineui::Document::DockLayout::Node&)> find_join =
+        [&](const affineui::Document::DockLayout::Node& n) {
+            if (!n.split &&
+                std::find(n.tabs.begin(), n.tabs.end(), "Hierarchy") !=
+                    n.tabs.end() &&
+                std::find(n.tabs.begin(), n.tabs.end(), "Inspector") !=
+                    n.tabs.end())
+                joined = true;
+            for (const auto& c : n.children) find_join(c);
+        };
+    find_join(layout.root);
+    CHECK(joined);
+}
+
 TEST_CASE("UiControls: dragging the primary dock tab leaves sibling tabs behind") {
     constexpr int W = 640;
     constexpr int H = 360;
@@ -7452,15 +7917,10 @@ TEST_CASE("UiControls: dragging the primary dock tab leaves sibling tabs behind"
 
     auto rebuild = [&]() {
         affineui::View v{affineui::ViewTheme::Decius};
-        v.set_dock_size_provider([](std::string_view id) -> int {
-            // Stale workspace data for a tab that later becomes the replacement
-            // anchor must not override the live source slot captured at drag
-            // time.
-            return id == "Console" ? 170 : 0;
-        });
-        v.set_dock_placement_provider([&](std::string_view id) {
-            return doc.dock_override(id);
-        });
+        // Replay the live dock arrangement (the DOM surgery result) on every
+        // re-emit; without this the rebuild would re-seed the declared layout
+        // and wipe the drag's effect.
+        v.set_dock_layout_provider([&] { return doc.dock_layout(); });
         v.set_dock_active_tab_provider([&](std::string_view id) {
             return doc.dock_active_tab(id);
         });
@@ -7535,24 +7995,29 @@ TEST_CASE("UiControls: dragging the primary dock tab leaves sibling tabs behind"
         ev(affineui::EventType::MouseMove, hierarchy_bottom);
         ev(affineui::EventType::MouseUp, hierarchy_bottom);
 
-        const auto assets = doc.dock_override("Assets");
-        CHECK(assets.present);
-        CHECK_FALSE(assets.floating);
-        CHECK(assets.parent == "Hierarchy");
-        CHECK(assets.side == 3);
+        // Assets moved into a fresh pane below Hierarchy; the sibling tabs
+        // (Console, Log) stay behind in the source pane — they are real DOM
+        // children, nothing re-anchors.
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        CHECK(layout.floats.empty());
+        const auto* assets_leaf = find_dock_leaf(layout.root, "Assets");
+        REQUIRE(assets_leaf != nullptr);
+        CHECK(assets_leaf->tabs == std::vector<std::string>{"Assets"});
+        const auto* wrap = find_dock_parent(layout.root, assets_leaf);
+        REQUIRE(wrap != nullptr);
+        CHECK(wrap->vertical);
+        REQUIRE(wrap->children.size() == 2);
+        CHECK(wrap->children[0].tabs == std::vector<std::string>{"Hierarchy"});
+        CHECK(&wrap->children[1] == assets_leaf);  // below Hierarchy
+        const auto* source_leaf = find_dock_leaf(layout.root, "Console");
+        REQUIRE(source_leaf != nullptr);
+        CHECK(source_leaf->tabs ==
+              std::vector<std::string>{"Console", "Log"});
+        CHECK(source_leaf->active == "Console");  // first survivor activated
 
-        const auto console = doc.dock_override("Console");
-        CHECK(console.present);
-        CHECK_FALSE(console.floating);
-        CHECK(console.parent == "__document__");
-        CHECK(console.side == 3);
-
-        const auto log = doc.dock_override("Log");
-        CHECK(log.present);
-        CHECK_FALSE(log.floating);
-        CHECK(log.parent == "Console");
-        CHECK(log.side == 4);
-
+        // The surviving pane keeps the source slot's geometry (the replay
+        // names it after its new primary tab, Console).
         CHECK(find_hovered_attr(doc, "data-aui-name", "pane-Console", W, H).x >= 0);
         CHECK(find_hovered_attr(doc, "data-dcs-target", "#Log-body", W, H).x >= 0);
         CHECK(find_hovered_attr(doc, "data-aui-name", "pane-Assets", W, H).x >= 0);
@@ -7564,41 +8029,36 @@ TEST_CASE("UiControls: dragging the primary dock tab leaves sibling tabs behind"
         CHECK(std::abs(console_bounds.h - source.h) <= 1);
     }
 
-    SUBCASE("dragged to the side of its own source group") {
+    SUBCASE("dropped back on its own source pane: tears off, siblings stay") {
         rebuild();
         const auto tab = find_hovered_attr(doc, "data-dcs-target",
                                            "#Assets-body", W, H);
         REQUIRE(tab.x >= 0);
         const auto source = bounds_for_attr("data-aui-name", "pane-Assets");
-        const affineui::Point source_bottom{
-            source.x + source.w / 2,
-            source.y + std::max(1, source.h - 4)};
+        const affineui::Point source_center{
+            source.x + source.w / 2, source.y + source.h / 2};
 
         ev(affineui::EventType::MouseDown, tab);
-        ev(affineui::EventType::MouseMove, source_bottom);
-        ev(affineui::EventType::MouseUp, source_bottom);
+        ev(affineui::EventType::MouseMove, source_center);
+        ev(affineui::EventType::MouseUp, source_center);
 
-        const auto assets = doc.dock_override("Assets");
-        CHECK(assets.present);
-        CHECK_FALSE(assets.floating);
-        CHECK(assets.parent == "Console");
-        CHECK(assets.side == 3);
-
-        const auto console = doc.dock_override("Console");
-        CHECK(console.present);
-        CHECK_FALSE(console.floating);
-        CHECK(console.parent == "__document__");
-        CHECK(console.side == 3);
-
-        const auto log = doc.dock_override("Log");
-        CHECK(log.present);
-        CHECK_FALSE(log.floating);
-        CHECK(log.parent == "Console");
-        CHECK(log.side == 4);
+        // Strict decius.js: the source pane is never a target — releasing the
+        // primary tab over its own pane is a tearoff. The co-tabs stay docked.
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        REQUIRE(layout.floats.size() == 1);
+        CHECK(layout.floats[0].pane.tabs == std::vector<std::string>{"Assets"});
+        CHECK(layout.floats[0].title_only == true);
+        CHECK_FALSE(dock_tree_has_tab(layout.root, "Assets"));
+        const auto* source_leaf = find_dock_leaf(layout.root, "Console");
+        REQUIRE(source_leaf != nullptr);
+        CHECK(source_leaf->tabs ==
+              std::vector<std::string>{"Console", "Log"});
+        CHECK(dock_tree_has_tab(layout.root, "Hierarchy"));
 
         CHECK(find_hovered_attr(doc, "data-aui-name", "pane-Console", W, H).x >= 0);
         CHECK(find_hovered_attr(doc, "data-dcs-target", "#Log-body", W, H).x >= 0);
-        CHECK(find_hovered_attr(doc, "data-aui-name", "pane-Assets", W, H).x >= 0);
+        CHECK(find_hovered_attr(doc, "data-aui-name", "float-Assets", W, H).x >= 0);
     }
 }
 
@@ -7626,9 +8086,9 @@ TEST_CASE("UiControls: dragging a dock parent onto its child preserves both pane
 
     auto rebuild = [&]() {
         affineui::View v{affineui::ViewTheme::Decius};
-        v.set_dock_placement_provider([&](std::string_view id) {
-            return doc.dock_override(id);
-        });
+        // Replay the live dock arrangement so each rebuild round-trips the
+        // surgery instead of re-seeding the declared layout.
+        v.set_dock_layout_provider([&] { return doc.dock_layout(); });
         v.set_dock_active_tab_provider([&](std::string_view id) {
             return doc.dock_active_tab(id);
         });
@@ -7685,34 +8145,66 @@ TEST_CASE("UiControls: dragging a dock parent onto its child preserves both pane
         ev(affineui::EventType::MouseUp, target);
     };
 
+    // "Dock cycles" are impossible by construction now: a tab drop is plain
+    // DOM surgery (tabs move between real panes), so dragging panes onto each
+    // other in any order must keep both alive. Round-trip Console out of and
+    // Assets into the same panes and check every step's tree.
     rebuild();
-    auto assets = bounds_for_attr("data-aui-name", "pane-Assets");
-    drag_tab_to("#Console-body", {assets.x + 4, assets.y + assets.h / 2});
 
-    auto console_override = doc.dock_override("Console");
-    CHECK(console_override.present);
-    CHECK_FALSE(console_override.floating);
-    CHECK(console_override.parent == "Assets");
-    CHECK(console_override.side == 0);
-    CHECK(doc.dock_active_tab("Assets").empty());
+    // 1. Drag Console out to the workspace LEFT window edge: it becomes its
+    //    own pane at the workspace level.
+    const auto assets = bounds_for_attr("data-aui-name", "pane-Assets");
+    drag_tab_to("#Console-body", {10, assets.y - 40});
+    {
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        CHECK(layout.floats.empty());
+        const auto* console_leaf = find_dock_leaf(layout.root, "Console");
+        REQUIRE(console_leaf != nullptr);
+        CHECK(console_leaf->tabs == std::vector<std::string>{"Console"});
+        const auto* assets_leaf = find_dock_leaf(layout.root, "Assets");
+        REQUIRE(assets_leaf != nullptr);
+        CHECK(assets_leaf->tabs == std::vector<std::string>{"Assets"});
+        CHECK(dock_tree_has_tab(layout.root, "__document__"));
+    }
     CHECK(find_hovered_attr(doc, "data-aui-name", "pane-Console", W, H).x >= 0);
     CHECK(find_hovered_attr(doc, "data-aui-name", "pane-Assets", W, H).x >= 0);
 
+    // 2. Drag the Assets tab onto the Console pane's CENTER: Assets joins
+    //    Console's tab row (just a tab move — no cycle, no lost pane).
     const auto console = bounds_for_attr("data-aui-name", "pane-Console");
     drag_tab_to("#Assets-body",
-                {console.x + console.w / 2, console.y + console.h - 8});
+                {console.x + console.w / 2, console.y + console.h / 2});
+    {
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        CHECK(layout.floats.empty());
+        const auto* leaf = find_dock_leaf(layout.root, "Console");
+        REQUIRE(leaf != nullptr);
+        CHECK(leaf->tabs == std::vector<std::string>{"Console", "Assets"});
+        CHECK(leaf->active == "Assets");
+        CHECK(dock_tree_has_tab(layout.root, "__document__"));
+    }
+    CHECK(find_hovered_attr(doc, "data-dcs-target", "#Assets-body", W, H).x >= 0);
+    CHECK(find_hovered_attr(doc, "data-dcs-target", "#Console-body", W, H).x >= 0);
 
-    const auto assets_override = doc.dock_override("Assets");
-    console_override = doc.dock_override("Console");
-    CHECK(assets_override.present);
-    CHECK_FALSE(assets_override.floating);
-    CHECK(assets_override.parent == "Console");
-    CHECK(assets_override.side == 3);
-    CHECK(console_override.present);
-    CHECK_FALSE(console_override.floating);
-    CHECK(console_override.parent == "__document__");
-    CHECK(console_override.side == 3);
-    CHECK(doc.dock_active_tab("Assets").empty());
+    // 3. Round-trip back: drag Assets to the BOTTOM window edge — it splits
+    //    back out into its own pane; Console keeps its pane. Both survive.
+    const auto merged = bounds_for_attr("data-aui-name", "pane-Console");
+    drag_tab_to("#Assets-body",
+                {merged.x + merged.w + 80, H - 10});
+    {
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        CHECK(layout.floats.empty());
+        const auto* console_leaf = find_dock_leaf(layout.root, "Console");
+        REQUIRE(console_leaf != nullptr);
+        CHECK(console_leaf->tabs == std::vector<std::string>{"Console"});
+        const auto* assets_leaf = find_dock_leaf(layout.root, "Assets");
+        REQUIRE(assets_leaf != nullptr);
+        CHECK(assets_leaf->tabs == std::vector<std::string>{"Assets"});
+        CHECK(dock_tree_has_tab(layout.root, "__document__"));
+    }
     CHECK(find_hovered_attr(doc, "data-aui-name", "pane-Console", W, H).x >= 0);
     CHECK(find_hovered_attr(doc, "data-aui-name", "pane-Assets", W, H).x >= 0);
 }
@@ -7751,9 +8243,9 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
 
     auto rebuild = [&]() {
         affineui::View v{affineui::ViewTheme::Decius};
-        v.set_dock_placement_provider([&](std::string_view id) {
-            return doc.dock_override(id);
-        });
+        // Replay the live dock arrangement (the DOM surgery result) on every
+        // rebuild — this is the same wiring as a real app.
+        v.set_dock_layout_provider([&] { return doc.dock_layout(); });
         v.set_dock_active_tab_provider([&](std::string_view id) {
             return doc.dock_active_tab(id);
         });
@@ -7852,6 +8344,44 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
         ev(affineui::EventType::MouseUp, target);
     };
 
+    // Structural probes against the live dock tree (the override store is
+    // dead — the dock structure IS the DOM).
+    auto console_split_from = [&](std::string_view neighbor_tab,
+                                  bool console_after) {
+        // Console is a single-tab leaf sharing a split with `neighbor_tab`'s
+        // leaf; `console_after` gives the expected order in that split.
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        CHECK(layout.floats.empty());
+        const auto* console_leaf = find_dock_leaf(layout.root, "Console");
+        REQUIRE(console_leaf != nullptr);
+        CHECK(console_leaf->tabs == std::vector<std::string>{"Console"});
+        const auto* parent = find_dock_parent(layout.root, console_leaf);
+        REQUIRE(parent != nullptr);
+        CHECK(parent->vertical);  // every probe here splits top/bottom
+        const auto* neighbor_leaf = find_dock_leaf(*parent, neighbor_tab);
+        REQUIRE(neighbor_leaf != nullptr);
+        const int ci = dock_child_index(*parent, console_leaf);
+        REQUIRE(ci >= 0);
+        bool neighbor_before = false, neighbor_after = false;
+        for (std::size_t i = 0; i < parent->children.size(); ++i) {
+            if (find_dock_leaf(parent->children[i], neighbor_tab)) {
+                if (static_cast<int>(i) < ci) neighbor_before = true;
+                if (static_cast<int>(i) > ci) neighbor_after = true;
+            }
+        }
+        CHECK((console_after ? neighbor_before : neighbor_after));
+    };
+    auto console_tabbed_into = [&](std::string_view host_tab) {
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        CHECK(layout.floats.empty());
+        const auto* leaf = find_dock_leaf(layout.root, "Console");
+        REQUIRE(leaf != nullptr);
+        CHECK(dock_leaf_has_tab(*leaf, host_tab));  // joined that pane's row
+        CHECK(leaf->active == "Console");
+    };
+
     rebuild();
     const int initial_hierarchy_w =
         bounds_for_attr("data-aui-name", "pane-Hierarchy").w;
@@ -7866,61 +8396,36 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
         CHECK(find_text_draw(painter, "WorldRoot Hero mesh") != nullptr);
     };
     for (int i = 0; i < 3; ++i) {
+        // Console (sourced from the Assets pane) onto Hierarchy's bottom edge
+        // band: a fresh Console pane splits in below Hierarchy.
         const auto hierarchy = bounds_for_attr("data-aui-name", "pane-Hierarchy");
         drag_console_to({hierarchy.x + hierarchy.w / 2,
                          hierarchy.y + std::max(1, hierarchy.h - 4)});
-        auto console = doc.dock_override("Console");
-        CHECK(console.present);
-        CHECK_FALSE(console.floating);
-        CHECK(console.parent == "Hierarchy");
-        CHECK(console.side == 3);
+        console_split_from("Hierarchy", /*console_after=*/true);
         assert_hierarchy_width_stable();
         assert_shell_text();
 
+        // And back onto the Assets pane's center: it re-joins the tab row.
         const auto assets = bounds_for_attr("data-aui-name", "pane-Assets");
         drag_console_to({assets.x + assets.w / 2,
                          assets.y + assets.h / 2});
-        console = doc.dock_override("Console");
-        CHECK(console.present);
-        CHECK_FALSE(console.floating);
-        CHECK(console.parent == "Assets");
-        CHECK(console.side == 4);
-        CHECK(doc.dock_active_tab("Assets") == "Console");
+        console_tabbed_into("Assets");
         assert_hierarchy_width_stable();
         assert_shell_text();
     }
 
+    // Center drop on Hierarchy: Console joins Hierarchy's tab row.
     auto hierarchy = bounds_for_attr("data-aui-name", "pane-Hierarchy");
     drag_console_to({hierarchy.x + hierarchy.w / 2,
                      hierarchy.y + hierarchy.h / 2});
-    auto console = doc.dock_override("Console");
-    CHECK(console.present);
-    CHECK_FALSE(console.floating);
-    CHECK(console.parent == "Hierarchy");
-    CHECK(console.side == 4);
-    CHECK(doc.dock_active_tab("Hierarchy") == "Console");
+    console_tabbed_into("Hierarchy");
     assert_shell_text();
 
-    hierarchy = bounds_for_attr("data-aui-name", "pane-Hierarchy");
-    drag_console_to({hierarchy.x + hierarchy.w / 2,
-                     hierarchy.y + std::max(1, hierarchy.h - 4)});
-    console = doc.dock_override("Console");
-    CHECK(console.present);
-    CHECK_FALSE(console.floating);
-    CHECK(console.parent == "Hierarchy");
-    CHECK(console.side == 3);
-    assert_hierarchy_width_stable();
-    assert_shell_text();
-
+    // From Hierarchy back into Assets' center.
     auto assets = bounds_for_attr("data-aui-name", "pane-Assets");
     drag_console_to({assets.x + assets.w / 2,
                      assets.y + assets.h / 2});
-    console = doc.dock_override("Console");
-    CHECK(console.present);
-    CHECK_FALSE(console.floating);
-    CHECK(console.parent == "Assets");
-    CHECK(console.side == 4);
-    CHECK(doc.dock_active_tab("Assets") == "Console");
+    console_tabbed_into("Assets");
     assert_hierarchy_width_stable();
     assert_shell_text();
     assert_hierarchy_body_visible();
@@ -7928,43 +8433,30 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
     hierarchy = bounds_for_attr("data-aui-name", "pane-Hierarchy");
     drag_console_to({hierarchy.x + hierarchy.w / 2,
                      hierarchy.y + hierarchy.h / 2});
-    console = doc.dock_override("Console");
-    CHECK(console.present);
-    CHECK_FALSE(console.floating);
-    CHECK(console.parent == "Hierarchy");
-    CHECK(console.side == 4);
-    CHECK(doc.dock_active_tab("Hierarchy") == "Console");
+    console_tabbed_into("Hierarchy");
 
-    auto assets_body = bounds_for_attr("data-aui-name", "Assets-body");
-    const int shelf_probe_x =
-        assets_body.x + std::min(std::max(24, assets_body.w / 12),
-                                 std::max(24, assets_body.w - 24));
-    drag_console_to({shelf_probe_x,
-                     assets_body.y + std::max(1, assets_body.h * 6 / 7)});
-    console = doc.dock_override("Console");
-    CHECK(console.present);
-    CHECK_FALSE(console.floating);
-    CHECK(console.parent == "Assets");
-    CHECK(console.side == 3);
+    // Probe the Assets PANE's bottom edge band (the tabpanel is content-sized
+    // under the canonical shape, so zone math must aim at the pane rect);
+    // Console (sourced from Hierarchy) splits in BELOW Assets.
+    auto assets_pane = bounds_for_attr("data-aui-name", "pane-Assets");
+    drag_console_to({assets_pane.x + assets_pane.w / 2,
+                     assets_pane.y + std::max(1, assets_pane.h * 9 / 10)});
+    console_split_from("Assets", /*console_after=*/true);
 
     hierarchy = bounds_for_attr("data-aui-name", "pane-Hierarchy");
     drag_console_to({hierarchy.x + hierarchy.w / 2,
                      hierarchy.y + hierarchy.h / 2});
-    console = doc.dock_override("Console");
-    CHECK(console.present);
-    CHECK_FALSE(console.floating);
-    CHECK(console.parent == "Hierarchy");
-    CHECK(console.side == 4);
-    CHECK(doc.dock_active_tab("Hierarchy") == "Console");
+    console_tabbed_into("Hierarchy");
 
-    assets_body = bounds_for_attr("data-aui-name", "Assets-body");
-    drag_console_to({shelf_probe_x,
-                     assets_body.y + std::max(1, assets_body.h / 7)});
-    console = doc.dock_override("Console");
-    CHECK(console.present);
-    CHECK_FALSE(console.floating);
-    CHECK(console.parent == "Assets");
-    CHECK(console.side == 2);
+    // Top edge band of the Assets pane: zone bands start BELOW the tabbar
+    // chrome (dockpane_zone_bounds), so probe just under the Assets tab row;
+    // Console splits in ABOVE Assets.
+    assets_pane = bounds_for_attr("data-aui-name", "pane-Assets");
+    const auto assets_tab_rect =
+        bounds_for_attr("data-dcs-target", "#Assets-body");
+    drag_console_to({assets_pane.x + assets_pane.w / 2,
+                     assets_tab_rect.y + assets_tab_rect.h + 4});
+    console_split_from("Assets", /*console_after=*/false);
     assert_shell_text();
 }
 
@@ -8053,9 +8545,9 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
     std::string last_html;
     auto rebuild = [&]() {
         affineui::View v{affineui::ViewTheme::Decius};
-        v.set_dock_placement_provider([&](std::string_view id) {
-            return doc.dock_override(id);
-        });
+        // Replay the live dock arrangement (the tearoff/redock surgery) on
+        // every rebuild — this also exercises the replay round-trip.
+        v.set_dock_layout_provider([&] { return doc.dock_layout(); });
         v.set_dock_active_tab_provider([&](std::string_view id) {
             return doc.dock_active_tab(id);
         });
@@ -8129,7 +8621,8 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
     };
 
     rebuild();
-    const auto doc_body = bounds_for_id("__document__-body");
+    const auto doc_body = bounds_for_id("__document__-host");
+    const auto source_pane = bounds_for_attr("data-aui-name", "pane-Assets");
     const affineui::Point drop{
         doc_body.x + doc_body.w / 2,
         doc_body.y + doc_body.h / 2};
@@ -8141,22 +8634,36 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
     ev(affineui::EventType::MouseMove, drop);
     ev(affineui::EventType::MouseUp, drop);
 
-    const auto console = doc.dock_override("Console");
-    CHECK(console.present);
-    CHECK(console.floating);
-    CHECK(console.w == 320);
-    CHECK(console.h == 240);
+    // Tearoff default size: min(420, source pane width) x min(360, source
+    // pane height); the float spawns clamped INSIDE the document-body float
+    // host with an 8px margin.
+    const int expected_w = std::min(420, source_pane.w);
+    const int expected_h = std::min(360, source_pane.h);
+    {
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        REQUIRE(layout.floats.size() == 1);
+        CHECK(layout.floats[0].pane.tabs ==
+              std::vector<std::string>{"Console"});
+        CHECK(layout.floats[0].title_only == true);
+        CHECK(layout.floats[0].w == expected_w);
+        CHECK(layout.floats[0].h == expected_h);
+        CHECK_FALSE(dock_tree_has_tab(layout.root, "Console"));
+    }
     CHECK(last_html.find("dcs-dockpane--title-only") != std::string::npos);
 
-    const auto doc_body_after = bounds_for_id("__document__-body");
+    const auto doc_body_after = bounds_for_id("__document__-host");
+    const auto workarea = bounds_for_attr("data-aui-name", "workarea");
     const auto floating = bounds_for_attr("data-aui-name", "float-Console");
-    CHECK(floating.w == 320);
-    CHECK(floating.h == 240);
-    CHECK(floating.x >= doc_body_after.x);
-    CHECK(floating.y >= doc_body_after.y);
-    CHECK(floating.x + floating.w <= doc_body_after.x + doc_body_after.w);
-    CHECK(floating.y + floating.h <= doc_body_after.y + doc_body_after.h);
+    CHECK(floating.w == expected_w);
+    CHECK(floating.h == expected_h);
+    CHECK(floating.x >= doc_body_after.x + 8);
+    CHECK(floating.y >= doc_body_after.y + 8);
+    CHECK(floating.x + floating.w <= doc_body_after.x + doc_body_after.w - 8);
+    CHECK(floating.y + floating.h <= doc_body_after.y + doc_body_after.h - 8);
 
+    // Corner-resize the float: width/height grow, the position stays, and
+    // the float never escapes the workspace float host.
     const affineui::Point resize_start{floating.x + floating.w - 2,
                                        floating.y + floating.h - 2};
     ev(affineui::EventType::MouseMove, resize_start);
@@ -8167,24 +8674,24 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
     ev(affineui::EventType::MouseUp,
        {resize_start.x + 70, resize_start.y + 45});
 
-    const auto resized_console = doc.dock_override("Console");
-    CHECK(resized_console.present);
-    CHECK(resized_console.floating);
-    CHECK(resized_console.x == console.x);
-    CHECK(resized_console.y == console.y);
-    CHECK(resized_console.w > console.w);
-    CHECK(resized_console.h > console.h);
     const auto resized_floating =
         bounds_for_attr("data-aui-name", "float-Console");
-    CHECK(resized_floating.w == resized_console.w);
-    CHECK(resized_floating.h == resized_console.h);
-    CHECK(resized_floating.x >= doc_body_after.x);
-    CHECK(resized_floating.y >= doc_body_after.y);
-    CHECK(resized_floating.x + resized_floating.w <=
-          doc_body_after.x + doc_body_after.w);
-    CHECK(resized_floating.y + resized_floating.h <=
-          doc_body_after.y + doc_body_after.h);
+    CHECK(resized_floating.x == floating.x);
+    CHECK(resized_floating.y == floating.y);
+    CHECK(resized_floating.w > floating.w);
+    CHECK(resized_floating.h > floating.h);
+    CHECK(resized_floating.x + resized_floating.w <= workarea.x + workarea.w);
+    CHECK(resized_floating.y + resized_floating.h <= workarea.y + workarea.h);
+    {
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        REQUIRE(layout.floats.size() == 1);
+        CHECK(layout.floats[0].w == resized_floating.w);
+        CHECK(layout.floats[0].h == resized_floating.h);
+    }
 
+    // Dragging the title bar CHROME (not the title tab) moves the panel only —
+    // it never re-docks (decius float-drag).
     const affineui::Point title_empty{
         resized_floating.x + resized_floating.w -
             std::min(24, std::max(8, resized_floating.w / 8)),
@@ -8196,26 +8703,19 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
     ev(affineui::EventType::MouseMove, title_move);
     ev(affineui::EventType::MouseUp, title_move);
 
-    const auto moved_console = doc.dock_override("Console");
-    CHECK(moved_console.present);
-    CHECK(moved_console.floating);
-    CHECK(moved_console.x < resized_console.x);
-    CHECK(moved_console.y < resized_console.y);
-    CHECK(moved_console.w == resized_console.w);
-    CHECK(moved_console.h == resized_console.h);
-
     const auto moved_floating =
         bounds_for_attr("data-aui-name", "float-Console");
     CHECK(moved_floating.x < resized_floating.x);
     CHECK(moved_floating.y < resized_floating.y);
     CHECK(moved_floating.w == resized_floating.w);
     CHECK(moved_floating.h == resized_floating.h);
-    CHECK(moved_floating.x >= doc_body_after.x);
-    CHECK(moved_floating.y >= doc_body_after.y);
-    CHECK(moved_floating.x + moved_floating.w <=
-          doc_body_after.x + doc_body_after.w);
-    CHECK(moved_floating.y + moved_floating.h <=
-          doc_body_after.y + doc_body_after.h);
+    {
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        REQUIRE(layout.floats.size() == 1);  // still floating, not re-docked
+        CHECK(layout.floats[0].pane.tabs ==
+              std::vector<std::string>{"Console"});
+    }
 
     const auto assets = bounds_for_attr("data-aui-name", "pane-Assets");
     const auto status = bounds_for_attr("data-aui-name", "statusbar");
@@ -8223,6 +8723,7 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
     CHECK(assets.y + assets.h <= status.y);
     CHECK(std::abs((assets.y + assets.h) - status.y) <= 1);
 
+    // Dragging the floating panel's TITLE TAB onto a docked pane re-docks it.
     const auto title_tab = find_hovered_attr(doc, "data-dcs-target",
                                              "#Console-body", W, H);
     REQUIRE(title_tab.x >= 0);
@@ -8235,27 +8736,52 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
     ev(affineui::EventType::MouseMove, hierarchy_center);
     ev(affineui::EventType::MouseUp, hierarchy_center);
 
-    const auto redocked_console = doc.dock_override("Console");
-    CHECK(redocked_console.present);
-    CHECK_FALSE(redocked_console.floating);
-    CHECK(redocked_console.parent == "Hierarchy");
-    CHECK(redocked_console.side == 4);
-    CHECK(doc.dock_active_tab("Hierarchy") == "Console");
+    {
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        CHECK(layout.floats.empty());  // the floating wrapper was removed
+        const auto* leaf = find_dock_leaf(layout.root, "Console");
+        REQUIRE(leaf != nullptr);
+        CHECK(leaf->tabs == std::vector<std::string>{"Hierarchy", "Console"});
+        CHECK(leaf->active == "Console");
+    }
 
-    const auto doc_body_redock = bounds_for_id("__document__-body");
+    // Tear Console off a second time, then drop the Assets tab onto the
+    // float's center: the float accepts it as a co-tab. This leg drives the
+    // raw surgery (no rebuild between gestures) and replays once at the end.
+    // NOTE: joining a float that has been round-tripped through the View
+    // replay does not work yet — emit_one_floating_panel's title-only branch
+    // emits no (hidden) tabbar, so ensure_tabbed_dock cannot re-home the
+    // title tab (src bug, reported separately).
+    auto ev_raw = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        return doc.dispatch(e);
+    };
+    const auto doc_body_redock = bounds_for_id("__document__-host");
     const affineui::Point second_tearoff_drop{
         doc_body_redock.x + doc_body_redock.w / 2,
         doc_body_redock.y + doc_body_redock.h / 2};
     const auto redocked_title_tab =
         find_hovered_attr(doc, "data-dcs-target", "#Console-body", W, H);
     REQUIRE(redocked_title_tab.x >= 0);
-    ev(affineui::EventType::MouseDown, redocked_title_tab);
-    ev(affineui::EventType::MouseMove, second_tearoff_drop);
-    ev(affineui::EventType::MouseUp, second_tearoff_drop);
+    ev_raw(affineui::EventType::MouseDown, redocked_title_tab);
+    ev_raw(affineui::EventType::MouseMove, second_tearoff_drop);
+    ev_raw(affineui::EventType::MouseUp, second_tearoff_drop);
+    doc.layout(W, H, &painter);
 
-    const auto refloated_console = doc.dock_override("Console");
-    CHECK(refloated_console.present);
-    CHECK(refloated_console.floating);
+    {
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        REQUIRE(layout.floats.size() == 1);
+        CHECK(layout.floats[0].pane.tabs ==
+              std::vector<std::string>{"Console"});
+        CHECK(layout.floats[0].title_only == true);
+        CHECK(dock_tree_has_tab(layout.root, "Hierarchy"));
+        CHECK_FALSE(dock_tree_has_tab(layout.root, "Console"));
+    }
     const auto refloated_panel =
         bounds_for_attr("data-aui-name", "float-Console");
     const affineui::Point float_center{
@@ -8264,17 +8790,27 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
     const auto assets_tab = find_hovered_attr(doc, "data-dcs-target",
                                               "#Assets-body", W, H);
     REQUIRE(assets_tab.x >= 0);
-    ev(affineui::EventType::MouseDown, assets_tab);
-    ev(affineui::EventType::MouseMove, float_center);
-    ev(affineui::EventType::MouseUp, float_center);
+    ev_raw(affineui::EventType::MouseDown, assets_tab);
+    ev_raw(affineui::EventType::MouseMove, float_center);
+    ev_raw(affineui::EventType::MouseUp, float_center);
+    doc.layout(W, H, &painter);
 
-    const auto tabbed_assets = doc.dock_override("Assets");
-    CHECK(tabbed_assets.present);
-    CHECK_FALSE(tabbed_assets.floating);
-    CHECK(tabbed_assets.parent == "Console");
-    CHECK(tabbed_assets.side == 4);
-    CHECK(doc.dock_override("Console").floating);
-    CHECK(doc.dock_active_tab("Console") == "Assets");
+    auto check_multi_tab_float = [&]() {
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        REQUIRE(layout.floats.size() == 1);
+        CHECK(layout.floats[0].pane.tabs ==
+              std::vector<std::string>{"Console", "Assets"});
+        CHECK(layout.floats[0].pane.active == "Assets");
+        CHECK_FALSE(layout.floats[0].title_only);  // grew a real tab row
+        CHECK_FALSE(dock_tree_has_tab(layout.root, "Assets"));
+        CHECK(dock_tree_has_tab(layout.root, "__document__"));
+    };
+    check_multi_tab_float();
+
+    // The multi-tab float survives the View replay round-trip.
+    rebuild();
+    check_multi_tab_float();
     CHECK(last_html.find("dcs-dockpane--multi-tab") != std::string::npos);
     CHECK(find_hovered_attr(doc, "data-dcs-target", "#Assets-body", W, H).x >= 0);
     CHECK(find_hovered_attr(doc, "data-dcs-target", "#Console-body", W, H).x >= 0);
@@ -8288,24 +8824,31 @@ TEST_CASE("UiControls: a 'panels' tab dropped on the document body does NOT dock
         <style>
         html, body { margin: 0; padding: 0; }
         .dcs-dock--floathost { position: relative; width: 600px; height: 400px; display: flex; }
-        .dcs-dockpane { height: 400px; display: flex; flex-direction: column; }
-        .dcs-dockpane--center { flex: 1; }
-        .side { flex: 0 0 200px; }
+        .dcs-dock { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
-        .dcs-dockpane__body { flex: 1; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
+        [data-dcs-tabpanel][hidden] { display: none; }
         </style>
-        <div class="dcs-dock dcs-dock--floathost">
-          <section class="dcs-dockpane dcs-dockpane--center" data-aui-name="pane-__document__">
-            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-              <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#doc-body">Doc</button>
-            </div></div><div class="dcs-dockpane__body" id="doc-body">doc</div>
-          </section>
-          <section class="dcs-dockpane side" data-aui-name="pane-P">
-            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-              <button id="tabP" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#P-body">P</button>
-            </div></div><div class="dcs-dockpane__body" id="P-body">p</div>
-          </section>
+        <div class="dcs-dock--floathost" data-dcs-float-host>
+          <div class="dcs-dock">
+            <section class="dcs-dockpane dcs-dockpane--center" data-aui-name="pane-__document__" style="flex:1 1 0">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#doc-body">Doc</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="doc-body" data-dcs-tabpanel>doc</div></div>
+            </section>
+            <section class="dcs-dockpane" data-aui-name="pane-P" style="flex:0 0 200px">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button id="tabP" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#P-body">P</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="P-body" data-dcs-tabpanel>p</div></div>
+            </section>
+          </div>
         </div>
     )HTML");
     doc.layout(600, 400, &painter);
@@ -8319,10 +8862,15 @@ TEST_CASE("UiControls: a 'panels' tab dropped on the document body does NOT dock
     ev(affineui::EventType::MouseDown, tabP);
     ev(affineui::EventType::MouseMove, {220, 220});  // over the document BODY
     ev(affineui::EventType::MouseUp, {220, 220});
-    const auto ov = doc.dock_override("P");
-    // No dock into the document (kind mismatch) -> it tore off into a float.
-    CHECK(ov.present == true);
-    CHECK(ov.floating == true);
+    // No dock into the document (kind mismatch) -> it tore off into a float;
+    // the document pane is untouched.
+    const auto layout = doc.dock_layout();
+    REQUIRE(layout.present);
+    REQUIRE(layout.floats.size() == 1);
+    CHECK(layout.floats[0].pane.tabs == std::vector<std::string>{"P"});
+    CHECK(layout.floats[0].title_only == true);
+    CHECK_FALSE(dock_tree_has_tab(layout.root, "P"));
+    CHECK(dock_tree_has_tab(layout.root, "doc"));
 }
 
 TEST_CASE("UiControls: moving floating tearoff chrome does not re-dock the "
@@ -8392,21 +8940,29 @@ TEST_CASE("UiControls: dragging a floating tearoff title tab re-docks it") {
         <style>
         html, body { margin: 0; padding: 0; }
         .dcs-dock--floathost { position: relative; width: 600px; height: 400px; display: flex; }
-        .target { flex: 0 0 280px; height: 400px; display: flex; flex-direction: column; }
+        .dcs-dock { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .doc-host { position: absolute; left: 300px; top: 30px; width: 260px; height: 320px; }
         .dcs-panel--floating { position: absolute; left: 330px; top: 40px; width: 180px; height: 150px; }
-        .dcs-panel--floating > .dcs-dockpane { width: 100%; height: 100%; display: flex; flex-direction: column; }
+        .dcs-panel--floating > .dcs-dockpane { width: 100%; height: 100%; }
         .dcs-panel__header { height: 30px; display: flex; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .move-zone { flex: 1; display: block; }
-        .dcs-dockpane__body { flex: 1; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        [hidden] { display: none; }
+        [data-dcs-tabpanel][hidden] { display: none; }
         </style>
-        <div class="dcs-dock dcs-dock--floathost">
-          <section class="dcs-dockpane target" data-aui-name="pane-A">
-            <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
-              <button id="tabA" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#A-body">A</button>
-            </div></div><div class="dcs-dockpane__body" id="A-body">A</div>
-          </section>
+        <div class="dcs-dock--floathost" data-dcs-float-host>
+          <div class="dcs-dock">
+            <section class="dcs-dockpane" data-aui-name="pane-A" style="flex:0 0 280px">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button id="tabA" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#A-body">A</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="A-body" data-dcs-tabpanel>A</div></div>
+            </section>
+          </div>
           <div class="doc-host" data-dcs-float-host></div>
           <section class="dcs-panel dcs-panel--floating" data-dcs-drag
                    data-dcs-drag-bounds=".dcs-dock--floathost" data-dcs-dock-id="P">
@@ -8416,7 +8972,7 @@ TEST_CASE("UiControls: dragging a floating tearoff title tab re-docks it") {
                         aria-selected="true" data-dcs-title-tab data-dcs-target="#P-body">P</button>
                 <span class="move-zone" data-dcs-drag-handle></span>
               </header>
-              <div class="dcs-dockpane__body" id="P-body">P</div>
+              <div class="dcs-dockpane__body"><div id="P-body" data-dcs-tabpanel>P</div></div>
             </section>
           </section>
         </div>
@@ -8435,13 +8991,17 @@ TEST_CASE("UiControls: dragging a floating tearoff title tab re-docks it") {
     REQUIRE(tab.x >= 0);
     ev(affineui::EventType::MouseDown, tab);
     ev(affineui::EventType::MouseMove, {140, 200});
-    ev(affineui::EventType::MouseUp, {140, 200});
+    ev(affineui::EventType::MouseUp, {140, 200});  // pane A's center: tab join
 
-    const auto ov = doc.dock_override("P");
-    CHECK(ov.present == true);
-    CHECK(ov.floating == false);
-    CHECK(ov.parent == "A");
-    CHECK(ov.side == 4);  // Dock::Tab
+    // The title tab moved into pane A's tab row (and became active); the
+    // emptied floating wrapper was removed.
+    const auto layout = doc.dock_layout();
+    REQUIRE(layout.present);
+    CHECK(layout.floats.empty());
+    const auto* leaf = find_dock_leaf(layout.root, "P");
+    REQUIRE(leaf != nullptr);
+    CHECK(leaf->tabs == std::vector<std::string>{"A", "P"});
+    CHECK(leaf->active == "P");
 }
 
 TEST_CASE("UiControls: document-kind tabs do not enter the panel tearoff path") {

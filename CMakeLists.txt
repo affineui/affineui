@@ -124,6 +124,7 @@ target_sources(affineui PRIVATE
     src/themes.cpp
     src/app/app.cpp
     src/app/event.cpp
+    src/app/automation.cpp
     src/app/view.cpp
     src/dom/document.cpp
     src/dom/dom_view.cpp

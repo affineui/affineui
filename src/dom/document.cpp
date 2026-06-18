@@ -77,7 +77,16 @@ std::string env_value(const char* name) {
 #endif
 }
 
+// Automation capture: UiScript (affineui/automation.h) installs a callback to
+// record dock-trace lines for script assertions. Process-global, like the env
+// switches; guarded by the same mutex as the file sink.
+std::function<void(const std::string&)>& dock_trace_capture_slot() {
+    static std::function<void(const std::string&)> slot;
+    return slot;
+}
+
 bool dock_trace_enabled() {
+    if (dock_trace_capture_slot()) return true;
     const std::string flag = env_value("AFFINEUI_DOCK_TRACE");
     if (!flag.empty() && flag != "0") return true;
     return !env_value("AFFINEUI_DOCK_TRACE_FILE").empty();
@@ -92,6 +101,7 @@ void dock_trace(std::string msg) {
                       "] ");
     static std::mutex mutex;
     std::lock_guard<std::mutex> lock(mutex);
+    if (auto& capture = dock_trace_capture_slot()) capture(msg);
     const std::string path = env_value("AFFINEUI_DOCK_TRACE_FILE");
     if (!path.empty()) {
         std::ofstream out(path, std::ios::app);
@@ -102,6 +112,17 @@ void dock_trace(std::string msg) {
     }
     detail::log_msg(LogLevel::debug, msg.c_str());
 }
+
+}  // namespace
+
+namespace detail {
+// Bridge for the automation layer (src/app/automation.cpp).
+void set_dock_trace_capture(std::function<void(const std::string&)> fn) {
+    dock_trace_capture_slot() = std::move(fn);
+}
+}  // namespace detail
+
+namespace {
 
 // A laid-out, paintable block. Style data lives in the Document's
 // StyleStore (SoA); Block just carries the handle + the cheap, block-
@@ -10922,15 +10943,36 @@ bool switch_dockpane_tab(detail::DocumentImpl& impl, lxb_dom_element_t* tab) {
                                            e == tab ? "true" : "false") ||
                   changed;
     }
-    // Reveal the target body; hide the pane's other bodies (direct children).
-    for (auto* c = lxb_dom_node_first_child(lxb_dom_interface_node(pane)); c;
-         c = lxb_dom_node_next(c)) {
-        if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
-        auto* e = lxb_dom_interface_element(c);
-        if (!class_list_contains(e, "dcs-dockpane__body")) continue;
-        changed = (e == target ? remove_attribute_on_element(impl, e, "hidden")
-                               : set_attribute_on_element(impl, e, "hidden", "")) ||
-                  changed;
+    // Reveal the target tabpanel; hide its sibling tabpanels (decius
+    // activateTabInDock: `:scope > [data-dcs-tabpanel]` of the target's parent
+    // — the pane's single .dcs-dockpane__body).
+    if (auto* body = lxb_dom_node_parent(lxb_dom_interface_node(target))) {
+        for (auto* c = lxb_dom_node_first_child(body); c;
+             c = lxb_dom_node_next(c)) {
+            if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+            auto* e = lxb_dom_interface_element(c);
+            if (!has_attr(e, "data-dcs-tabpanel")) continue;
+            changed = (e == target
+                           ? remove_attribute_on_element(impl, e, "hidden")
+                           : set_attribute_on_element(impl, e, "hidden", "")) ||
+                      changed;
+        }
+    }
+    // Sync tab toolbars: show the toolbar bound to the activated tab, hide the
+    // others (decius syncTabToolbars over [data-dcs-tabtoolbar]).
+    {
+        const std::string sel = attr_string(tab, "data-dcs-target");
+        std::vector<lxb_dom_element_t*> toolbars;
+        auto collect = [&](lxb_dom_element_t* e) {
+            if (has_attr(e, "data-dcs-tabtoolbar")) toolbars.push_back(e);
+        };
+        walk_dom_elements(lxb_dom_interface_node(pane), collect);
+        for (auto* tb : toolbars) {
+            const bool match = attr_string(tb, "data-dcs-tabtoolbar") == sel;
+            changed = (match ? remove_attribute_on_element(impl, tb, "hidden")
+                             : set_attribute_on_element(impl, tb, "hidden", "")) ||
+                      changed;
+        }
     }
     if (!pane_id.empty() && !active_id.empty()) {
         if (active_id == pane_id) impl.dock_active_tabs.erase(pane_id);
@@ -11002,6 +11044,668 @@ lxb_dom_element_t* find_dockpane_tab_for_panel_id(detail::DocumentImpl& impl,
     return nullptr;
 }
 
+// ── decius.js dock-layout surgery ────────────────────────────────────────────
+// Faithful port of the drag-to-dock layout manager in decius-css
+// js/src/decius.js (moveTabTo / splitDock / unsplitFromLayout /
+// cleanupSourceDock / spawnFloatingPanel). Like the JS, these mutate the live
+// DOM — the dock structure IS the DOM — so docking works identically for
+// raw-HTML documents and View-built apps. After a gesture completes,
+// dock_structure_changed() recollects the box tree once and the Document's
+// dock-layout snapshot (read back by the View on re-emit) keeps the result
+// across view reloads.
+
+// The drop zone over a dock target (defined ahead of the geometry section so
+// the surgery ops can take an edge).
+enum class DropZone { None, Left, Right, Top, Bottom, Tab };
+
+// el(tag, classes) — create an element with a class list (raw attrs; the
+// post-gesture recollect restyles everything new).
+lxb_dom_element_t* dock_create_el(detail::DocumentImpl& impl,
+                                  std::string_view tag,
+                                  std::string_view classes) {
+    auto* e = lxb_dom_document_create_element(
+        lxb_dom_interface_document(impl.doc), as_lxb(tag), tag.size(), nullptr);
+    if (e && !classes.empty()) {
+        lxb_dom_element_set_attribute(e, as_lxb("class"), 5, as_lxb(classes),
+                                      classes.size());
+    }
+    return e;
+}
+
+void dock_set_attr(lxb_dom_element_t* e, std::string_view name,
+                   std::string_view value) {
+    if (!e) return;
+    lxb_dom_element_set_attribute(e, as_lxb(name), name.size(), as_lxb(value),
+                                  value.size());
+}
+
+// First direct child carrying a class (JS `:scope > .cls`).
+lxb_dom_element_t* dock_child_with_class(lxb_dom_element_t* parent,
+                                         std::string_view cls) {
+    if (!parent) return nullptr;
+    for (auto* c = lxb_dom_node_first_child(lxb_dom_interface_node(parent)); c;
+         c = lxb_dom_node_next(c)) {
+        if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* e = lxb_dom_interface_element(c);
+        if (class_list_contains(e, cls)) return e;
+    }
+    return nullptr;
+}
+
+// dockTabsEl: `:scope > __tabbar > __tabs` (or a bare `:scope > __tabs`).
+lxb_dom_element_t* dock_tabs_el(lxb_dom_element_t* dock) {
+    if (!dock) return nullptr;
+    if (auto* tabbar = dock_child_with_class(dock, "dcs-dockpane__tabbar")) {
+        if (auto* tabs = dock_child_with_class(tabbar, "dcs-dockpane__tabs"))
+            return tabs;
+    }
+    return dock_child_with_class(dock, "dcs-dockpane__tabs");
+}
+
+lxb_dom_element_t* dock_tabbar_el(lxb_dom_element_t* dock) {
+    return dock_child_with_class(dock, "dcs-dockpane__tabbar");
+}
+
+lxb_dom_element_t* dock_body_el(lxb_dom_element_t* dock) {
+    return dock_child_with_class(dock, "dcs-dockpane__body");
+}
+
+lxb_dom_element_t* dock_toolbar_slot_el(lxb_dom_element_t* dock) {
+    return dock_child_with_class(dock_tabbar_el(dock),
+                                 "dcs-dockpane__toolbars");
+}
+
+lxb_dom_element_t* dock_shelf_el(lxb_dom_element_t* dock) {
+    return dock_child_with_class(dock, "dcs-dockpane__shelf");
+}
+
+lxb_dom_element_t* dock_titlebar_el(lxb_dom_element_t* dock) {
+    return dock_child_with_class(dock, "dcs-dockpane__titlebar");
+}
+
+lxb_dom_element_t* dock_title_tab(lxb_dom_element_t* dock) {
+    auto* titlebar = dock_titlebar_el(dock);
+    if (!titlebar) return nullptr;
+    for (auto* c = lxb_dom_node_first_child(lxb_dom_interface_node(titlebar));
+         c; c = lxb_dom_node_next(c)) {
+        if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* e = lxb_dom_interface_element(c);
+        if (class_list_contains(e, "dcs-dockpane__tab") &&
+            has_attr(e, "data-dcs-title-tab"))
+            return e;
+    }
+    return nullptr;
+}
+
+// dockTabs: title tab (if any) + the tab-row tabs, in order.
+std::vector<lxb_dom_element_t*> dock_tabs(lxb_dom_element_t* dock) {
+    std::vector<lxb_dom_element_t*> out;
+    if (auto* title = dock_title_tab(dock)) out.push_back(title);
+    if (auto* tabs = dock_tabs_el(dock)) {
+        for (auto* c = lxb_dom_node_first_child(lxb_dom_interface_node(tabs));
+             c; c = lxb_dom_node_next(c)) {
+            if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+            auto* e = lxb_dom_interface_element(c);
+            if (class_list_contains(e, "dcs-dockpane__tab")) out.push_back(e);
+        }
+    }
+    return out;
+}
+
+std::string dock_kind_of(lxb_dom_element_t* pane);  // defined with the
+                                                    // drop-zone geometry below
+
+bool is_floating_dock(lxb_dom_element_t* dock) {
+    return dock && dock_kind_of(dock) == "panels" &&
+           ancestor_with_class(dock, "dcs-panel--floating") != nullptr;
+}
+
+// Raw class toggle — surgery runs on possibly-detached nodes mid-gesture; the
+// one finisher recollect restyles everything, so no impl-aware setter here.
+void dock_set_class(lxb_dom_element_t* e, std::string_view cls, bool on) {
+    if (!e) return;
+    dock_set_attr(e, "class", class_list_set(e, cls, on));
+}
+
+// syncDockTabShape: single/multi/title-only modifier classes.
+void sync_dock_tab_shape(detail::DocumentImpl& impl, lxb_dom_element_t* dock) {
+    (void) impl;
+    if (!dock) return;
+    const std::size_t count = dock_tabs(dock).size();
+    dock_set_class(dock, "dcs-dockpane--single-tab", count == 1);
+    dock_set_class(dock, "dcs-dockpane--multi-tab", count > 1);
+    dock_set_class(dock, "dcs-dockpane--title-only",
+                   dock_title_tab(dock) != nullptr);
+}
+
+// Detach a node that is being MOVED (not destroyed): the _wo_events variant
+// keeps lexbor's CSS hooks from tearing down the element's style attachment
+// mid-move (the post-gesture rematch+recollect rebuilds matches) and keeps
+// the element's weak handles alive. True removals use lxb_dom_node_remove.
+void dock_detach_for_move(lxb_dom_element_t* e) {
+    if (e) lxb_dom_node_remove_wo_events(lxb_dom_interface_node(e));
+}
+
+// appendDockTab: insert after the last existing tab (before any non-tab
+// chrome that shares the tabs container).
+void append_dock_tab(lxb_dom_element_t* tabs, lxb_dom_element_t* tab) {
+    if (!tabs || !tab) return;
+    lxb_dom_node_t* before = nullptr;
+    lxb_dom_element_t* last_tab = nullptr;
+    for (auto* c = lxb_dom_node_first_child(lxb_dom_interface_node(tabs)); c;
+         c = lxb_dom_node_next(c)) {
+        if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* e = lxb_dom_interface_element(c);
+        if (class_list_contains(e, "dcs-dockpane__tab")) last_tab = e;
+        else if (!last_tab && !before) before = c;
+    }
+    dock_detach_for_move(tab);
+    if (last_tab) {
+        lxb_dom_node_insert_after(lxb_dom_interface_node(last_tab),
+                                  lxb_dom_interface_node(tab));
+    } else if (before) {
+        lxb_dom_node_insert_before(before, lxb_dom_interface_node(tab));
+    } else {
+        lxb_dom_node_insert_child(lxb_dom_interface_node(tabs),
+                                  lxb_dom_interface_node(tab));
+    }
+}
+
+// activateTabInDock (unconditional flavor of switch_dockpane_tab, used after
+// structural moves; the gesture finisher recollects, so raw attrs are fine).
+void activate_tab_in_dock(lxb_dom_element_t* dock, lxb_dom_element_t* tab) {
+    if (!dock || !tab) return;
+    for (auto* t : dock_tabs(dock)) {
+        dock_set_attr(t, "aria-selected", t == tab ? "true" : "false");
+    }
+    const std::string sel = attr_string(tab, "data-dcs-target");
+    if (sel.empty() || sel.front() != '#') return;
+    const std::string target_id = sel.substr(1);
+    // The tabpanel lives in this dock's body; toggle hidden among siblings.
+    auto* body = dock_body_el(dock);
+    if (!body) return;
+    for (auto* c = lxb_dom_node_first_child(lxb_dom_interface_node(body)); c;
+         c = lxb_dom_node_next(c)) {
+        if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* e = lxb_dom_interface_element(c);
+        if (!has_attr(e, "data-dcs-tabpanel")) continue;
+        if (attr_string(e, "id") == target_id) {
+            lxb_dom_element_remove_attribute(e, as_lxb("hidden"), 6);
+        } else {
+            dock_set_attr(e, "hidden", "");
+        }
+    }
+    // Toolbar visibility follows the active tab.
+    std::vector<lxb_dom_element_t*> toolbars;
+    auto collect = [&](lxb_dom_element_t* e) {
+        if (has_attr(e, "data-dcs-tabtoolbar")) toolbars.push_back(e);
+    };
+    walk_dom_elements(lxb_dom_interface_node(dock), collect);
+    for (auto* tb : toolbars) {
+        if (attr_string(tb, "data-dcs-tabtoolbar") == sel) {
+            lxb_dom_element_remove_attribute(tb, as_lxb("hidden"), 6);
+        } else {
+            dock_set_attr(tb, "hidden", "");
+        }
+    }
+}
+
+// prepareTabForTitlebar / prepareTabForTabbar: a single-tab floating pane's
+// tab doubles as the panel title; these flip it between the two roles.
+void prepare_tab_for_titlebar(detail::DocumentImpl& impl,
+                              lxb_dom_element_t* tab) {
+    (void) impl;
+    dock_set_class(tab, "dcs-panel__title", true);
+    dock_set_class(tab, "dcs-panel__title--dock-tab", true);
+    dock_set_attr(tab, "data-dcs-title-tab", "");
+    dock_set_attr(tab, "aria-selected", "true");
+}
+
+void prepare_tab_for_tabbar(detail::DocumentImpl& impl,
+                            lxb_dom_element_t* tab) {
+    (void) impl;
+    dock_set_class(tab, "dcs-panel__title", false);
+    dock_set_class(tab, "dcs-panel__title--dock-tab", false);
+    lxb_dom_element_remove_attribute(tab, as_lxb("data-dcs-title-tab"), 18);
+}
+
+lxb_dom_element_t* titlebar_for_dock(detail::DocumentImpl& impl,
+                                     lxb_dom_element_t* dock) {
+    if (auto* existing = dock_titlebar_el(dock)) return existing;
+    auto* titlebar = dock_create_el(
+        impl, "header", "dcs-panel__header dcs-dockpane__titlebar");
+    if (!titlebar) return nullptr;
+    dock_set_attr(titlebar, "data-dcs-drag-handle", "");
+    auto* tools = dock_create_el(impl, "div", "dcs-panel__tools");
+    if (tools) {
+        lxb_dom_node_insert_child(lxb_dom_interface_node(titlebar),
+                                  lxb_dom_interface_node(tools));
+    }
+    auto* anchor = dock_tabbar_el(dock);
+    auto* anchor_node = anchor ? lxb_dom_interface_node(anchor)
+                               : lxb_dom_node_first_child(
+                                     lxb_dom_interface_node(dock));
+    if (anchor_node) {
+        lxb_dom_node_insert_before(anchor_node,
+                                   lxb_dom_interface_node(titlebar));
+    } else {
+        lxb_dom_node_insert_child(lxb_dom_interface_node(dock),
+                                  lxb_dom_interface_node(titlebar));
+    }
+    return titlebar;
+}
+
+// convertDockToTitleOnly: a 1-tab floating pane shows its tab as the panel
+// title bar instead of a tab row.
+bool convert_dock_to_title_only(detail::DocumentImpl& impl,
+                                lxb_dom_element_t* dock) {
+    if (!is_floating_dock(dock)) return false;
+    if (dock_title_tab(dock)) {
+        sync_dock_tab_shape(impl, dock);
+        return true;
+    }
+    auto tabs = dock_tabs(dock);
+    if (tabs.size() != 1) return false;
+    auto* tab = tabs.front();
+    auto* titlebar = titlebar_for_dock(impl, dock);
+    if (!titlebar) return false;
+    prepare_tab_for_titlebar(impl, tab);
+    auto* tools = dock_child_with_class(titlebar, "dcs-panel__tools");
+    dock_detach_for_move(tab);
+    if (tools) {
+        lxb_dom_node_insert_before(lxb_dom_interface_node(tools),
+                                   lxb_dom_interface_node(tab));
+    } else {
+        lxb_dom_node_insert_child(lxb_dom_interface_node(titlebar),
+                                  lxb_dom_interface_node(tab));
+    }
+    if (auto* tabbar = dock_tabbar_el(dock)) dock_set_attr(tabbar, "hidden", "");
+    sync_dock_tab_shape(impl, dock);
+    return true;
+}
+
+// ensureTabbedDock: the inverse — a title-only pane regrows its tab row
+// before receiving another tab.
+void ensure_tabbed_dock(detail::DocumentImpl& impl, lxb_dom_element_t* dock) {
+    auto* title_tab = dock_title_tab(dock);
+    auto* tabbar = dock_tabbar_el(dock);
+    if (!title_tab) {
+        if (tabbar) lxb_dom_element_remove_attribute(tabbar, as_lxb("hidden"), 6);
+        sync_dock_tab_shape(impl, dock);
+        return;
+    }
+    // A title-only pane authored without the hidden tab row (or one that lost
+    // it) regrows the chrome rather than destroying the title tab.
+    if (!dock_tabs_el(dock)) {
+        auto* fresh_tabbar = dock_create_el(impl, "div", "dcs-dockpane__tabbar");
+        auto* fresh_tabs = dock_create_el(impl, "div", "dcs-dockpane__tabs");
+        auto* fresh_toolbars =
+            dock_create_el(impl, "div", "dcs-dockpane__toolbars");
+        if (fresh_tabbar && fresh_tabs && fresh_toolbars) {
+            lxb_dom_node_insert_child(lxb_dom_interface_node(fresh_tabbar),
+                                      lxb_dom_interface_node(fresh_tabs));
+            lxb_dom_node_insert_child(lxb_dom_interface_node(fresh_tabbar),
+                                      lxb_dom_interface_node(fresh_toolbars));
+            auto* titlebar = dock_titlebar_el(dock);
+            if (titlebar &&
+                lxb_dom_node_next(lxb_dom_interface_node(titlebar))) {
+                lxb_dom_node_insert_after(lxb_dom_interface_node(titlebar),
+                                          lxb_dom_interface_node(fresh_tabbar));
+            } else {
+                lxb_dom_node_insert_child(lxb_dom_interface_node(dock),
+                                          lxb_dom_interface_node(fresh_tabbar));
+            }
+            tabbar = fresh_tabbar;
+        }
+    }
+    if (auto* tabs = dock_tabs_el(dock)) {
+        prepare_tab_for_tabbar(impl, title_tab);
+        append_dock_tab(tabs, title_tab);
+    } else {
+        return;  // could not regrow chrome — leave the titlebar intact
+    }
+    if (auto* titlebar = dock_titlebar_el(dock)) {
+        lxb_dom_node_remove(lxb_dom_interface_node(titlebar));
+    }
+    if (!tabbar) tabbar = dock_tabbar_el(dock);
+    if (tabbar) lxb_dom_element_remove_attribute(tabbar, as_lxb("hidden"), 6);
+    sync_dock_tab_shape(impl, dock);
+}
+
+// moveTabTo: move a tab + its tabpanel (+ its bound tab toolbar) into a
+// target dock and activate it there.
+bool dock_move_tab_to(detail::DocumentImpl& impl, lxb_dom_element_t* tab,
+                      lxb_dom_element_t* panel, lxb_dom_element_t* target) {
+    if (!tab || !panel || !target) return false;
+    auto* source = ancestor_with_class(tab, "dcs-dockpane");
+    ensure_tabbed_dock(impl, target);
+    auto* tabs = dock_tabs_el(target);
+    auto* body = dock_body_el(target);
+    if (!tabs || !body) return false;
+    // The toolbar bound to this tab rides along, into the target's slot.
+    const std::string sel = attr_string(tab, "data-dcs-target");
+    if (!sel.empty()) {
+        if (auto* slot = dock_toolbar_slot_el(target)) {
+            std::vector<lxb_dom_element_t*> toolbars;
+            auto collect = [&](lxb_dom_element_t* e) {
+                if (attr_string(e, "data-dcs-tabtoolbar") == sel)
+                    toolbars.push_back(e);
+            };
+            if (source) {
+                walk_dom_elements(lxb_dom_interface_node(source), collect);
+            }
+            for (auto* tb : toolbars) {
+                dock_detach_for_move(tb);
+                lxb_dom_node_insert_child(lxb_dom_interface_node(slot),
+                                          lxb_dom_interface_node(tb));
+            }
+        }
+    }
+    prepare_tab_for_tabbar(impl, tab);
+    append_dock_tab(tabs, tab);
+    if (source && source != target) sync_dock_tab_shape(impl, source);
+    dock_detach_for_move(panel);
+    lxb_dom_node_insert_child(lxb_dom_interface_node(body),
+                              lxb_dom_interface_node(panel));
+    activate_tab_in_dock(target, tab);
+    sync_dock_tab_shape(impl, target);
+    return true;
+}
+
+// unsplitFromLayout: remove a pane (or emptied inner dock) + its adjacent
+// splitter; collapse empty .dcs-dock wrappers; rebalance survivors to
+// `flex:1 1 0` so the freed slice is reclaimed (not left as dead space).
+void dock_unsplit_from_layout(detail::DocumentImpl& impl,
+                              lxb_dom_element_t* node) {
+    if (!node) return;
+    auto* parent_node = lxb_dom_node_parent(lxb_dom_interface_node(node));
+    auto* prev = previous_element_sibling(lxb_dom_interface_node(node));
+    auto* next = next_element_sibling(lxb_dom_interface_node(node));
+    if (prev && class_list_contains(prev, "dcs-splitter")) {
+        lxb_dom_node_remove(lxb_dom_interface_node(prev));
+    } else if (next && class_list_contains(next, "dcs-splitter")) {
+        lxb_dom_node_remove(lxb_dom_interface_node(next));
+    }
+    lxb_dom_node_remove(lxb_dom_interface_node(node));
+    if (!parent_node || parent_node->type != LXB_DOM_NODE_TYPE_ELEMENT) return;
+    auto* parent = lxb_dom_interface_element(parent_node);
+    if (!class_list_contains(parent, "dcs-dock")) return;
+    std::vector<lxb_dom_element_t*> live;
+    for (auto* c = lxb_dom_node_first_child(parent_node); c;
+         c = lxb_dom_node_next(c)) {
+        if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* e = lxb_dom_interface_element(c);
+        if (!class_list_contains(e, "dcs-splitter")) live.push_back(e);
+    }
+    if (live.empty()) {
+        // Never collapse the workspace root itself.
+        if (!class_list_contains(parent, "dcs-dock--floathost")) {
+            dock_unsplit_from_layout(impl, parent);
+        }
+        return;
+    }
+    for (auto* c : live) {
+        dock_set_attr(c, "style", "flex:1 1 0;min-width:0;min-height:0");
+    }
+}
+
+// cleanupSourceDock: after a tab leaves a pane — drop the pane when empty
+// (whole floater if floating), else keep a tab selected; a single-tab floater
+// collapses to title-only.
+void dock_cleanup_source(detail::DocumentImpl& impl, lxb_dom_element_t* dock) {
+    if (!dock) return;
+    auto remaining = dock_tabs(dock);
+    if (remaining.empty()) {
+        if (auto* floater = ancestor_with_class(dock, "dcs-panel--floating")) {
+            lxb_dom_node_remove(lxb_dom_interface_node(floater));
+            return;
+        }
+        dock_unsplit_from_layout(impl, dock);
+        return;
+    }
+    bool any_selected = false;
+    for (auto* t : remaining) {
+        if (attr_string(t, "aria-selected") == "true") {
+            any_selected = true;
+            break;
+        }
+    }
+    if (!any_selected) activate_tab_in_dock(dock, remaining.front());
+    if (remaining.size() == 1 && is_floating_dock(dock)) {
+        convert_dock_to_title_only(impl, dock);
+        return;
+    }
+    sync_dock_tab_shape(impl, dock);
+}
+
+// splitDock: insert `fresh` on an edge of `target`. Same-direction parent →
+// insert as a sibling (lock other siblings to their px, split the target's
+// slice); otherwise wrap target+fresh in a new .dcs-dock that INHERITS the
+// target's slot flex. Window-edge drops size the new pane as a fixed panel
+// column (~320/220 px capped at 20%), pane-on-pane drops split 50/50.
+constexpr int kDockNewPxH = 320;
+constexpr int kDockNewPxV = 220;
+
+void dock_split(detail::DocumentImpl& impl, lxb_dom_element_t* target,
+                DropZone edge, lxb_dom_element_t* fresh, bool window_edge) {
+    if (!target || !fresh) return;
+    const bool horizontal = edge == DropZone::Left || edge == DropZone::Right;
+    const char* dock_cls = horizontal ? "dcs-dock" : "dcs-dock dcs-dock--v";
+    const char* splitter_cls =
+        horizontal ? "dcs-splitter" : "dcs-splitter dcs-splitter--h";
+    auto* parent_node = lxb_dom_node_parent(lxb_dom_interface_node(target));
+    lxb_dom_element_t* parent =
+        parent_node && parent_node->type == LXB_DOM_NODE_TYPE_ELEMENT
+            ? lxb_dom_interface_element(parent_node)
+            : nullptr;
+    const bool parent_is_dock =
+        parent && class_list_contains(parent, "dcs-dock");
+    const bool parent_vertical =
+        parent_is_dock && class_list_contains(parent, "dcs-dock--v");
+    const bool need_vertical = !horizontal;
+
+    const int target_idx = block_index_for_exact_element(impl, target);
+    const Rect tb = target_idx >= 0
+                        ? impl.blocks[static_cast<std::size_t>(target_idx)].bounds
+                        : Rect{};
+    const int t_size = horizontal ? tb.w : tb.h;
+    const int default_new = horizontal ? kDockNewPxH : kDockNewPxV;
+    const int cap = std::max(96, t_size * 20 / 100);
+    const int new_px =
+        window_edge ? std::min(default_new, cap) : std::max(20, (t_size - 1) / 2);
+    const int target_px =
+        window_edge ? std::max(120, t_size - new_px - 1) : new_px;
+    const std::string flex_min = ";min-width:0;min-height:0";
+    auto flex_basis = [&](int px) {
+        return "flex:1 1 " + std::to_string(px) + "px" + flex_min;
+    };
+
+    auto* splitter = dock_create_el(impl, "div", splitter_cls);
+    dock_set_attr(splitter, "data-dcs-splitter", horizontal ? "" : "h");
+    if (parent_is_dock && parent_vertical == need_vertical) {
+        // Same-direction parent: lock the OTHER siblings to their current px so
+        // the redistribution only carves the target's slice.
+        for (auto* c = lxb_dom_node_first_child(parent_node); c;
+             c = lxb_dom_node_next(c)) {
+            if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+            auto* e = lxb_dom_interface_element(c);
+            if (e == target || class_list_contains(e, "dcs-splitter")) continue;
+            const int bi = block_index_for_exact_element(impl, e);
+            if (bi < 0) continue;
+            const auto& bb = impl.blocks[static_cast<std::size_t>(bi)].bounds;
+            const int sz = horizontal ? bb.w : bb.h;
+            if (sz > 0) dock_set_attr(e, "style", flex_basis(sz));
+        }
+        dock_set_attr(target, "style", flex_basis(target_px));
+        dock_set_attr(fresh, "style", flex_basis(new_px));
+        if (edge == DropZone::Left || edge == DropZone::Top) {
+            lxb_dom_node_insert_before(lxb_dom_interface_node(target),
+                                       lxb_dom_interface_node(fresh));
+            lxb_dom_node_insert_before(lxb_dom_interface_node(target),
+                                       lxb_dom_interface_node(splitter));
+        } else {
+            lxb_dom_node_insert_after(lxb_dom_interface_node(target),
+                                      lxb_dom_interface_node(splitter));
+            lxb_dom_node_insert_after(lxb_dom_interface_node(splitter),
+                                      lxb_dom_interface_node(fresh));
+        }
+    } else {
+        // Different-direction (or no) parent: wrap target+fresh in a new dock
+        // of the matching direction; the wrapper INHERITS the target's slot.
+        auto* wrap = dock_create_el(impl, "div", dock_cls);
+        std::string target_flex = find_decl_value(attr_string(target, "style"),
+                                                  "flex");
+        std::string wrap_style =
+            (target_flex.empty() ? std::string("flex:1")
+                                 : "flex:" + target_flex) +
+            flex_min + ";display:flex" +
+            (need_vertical ? ";flex-direction:column" : "");
+        dock_set_attr(wrap, "style", wrap_style);
+        lxb_dom_node_insert_before(lxb_dom_interface_node(target),
+                                   lxb_dom_interface_node(wrap));
+        dock_detach_for_move(target);  // re-parents into the wrapper below
+        dock_set_attr(target, "style", flex_basis(target_px));
+        dock_set_attr(fresh, "style", flex_basis(new_px));
+        auto append = [&](lxb_dom_element_t* e) {
+            lxb_dom_node_insert_child(lxb_dom_interface_node(wrap),
+                                      lxb_dom_interface_node(e));
+        };
+        if (edge == DropZone::Left || edge == DropZone::Top) {
+            append(fresh);
+            append(splitter);
+            append(target);
+        } else {
+            append(target);
+            append(splitter);
+            append(fresh);
+        }
+    }
+}
+
+// Fresh empty dockpane chrome (tabbar > tabs + toolbars, shelf, body) — the
+// canonical shape both the View emitter and decius.js produce.
+lxb_dom_element_t* dock_create_pane(detail::DocumentImpl& impl,
+                                    std::string_view panel_id,
+                                    std::string_view kind) {
+    auto* pane = dock_create_el(impl, "section", "dcs-dockpane");
+    if (!pane) return nullptr;
+    if (!panel_id.empty()) {
+        dock_set_attr(pane, "data-aui-name", "pane-" + std::string(panel_id));
+    }
+    if (!kind.empty() && kind != "panels") {
+        dock_set_attr(pane, "data-dcs-dock-kind", kind);
+    }
+    auto* tabbar = dock_create_el(impl, "div", "dcs-dockpane__tabbar");
+    dock_set_attr(tabbar, "data-dcs-drag-handle", "");
+    auto* tabs = dock_create_el(impl, "div", "dcs-dockpane__tabs");
+    auto* toolbars = dock_create_el(impl, "div", "dcs-dockpane__toolbars");
+    auto* shelf = dock_create_el(impl, "div", "dcs-dockpane__shelf");
+    dock_set_attr(shelf, "hidden", "");
+    auto* body = dock_create_el(impl, "div", "dcs-dockpane__body");
+    if (!tabbar || !tabs || !toolbars || !shelf || !body) return nullptr;
+    lxb_dom_node_insert_child(lxb_dom_interface_node(tabbar),
+                              lxb_dom_interface_node(tabs));
+    lxb_dom_node_insert_child(lxb_dom_interface_node(tabbar),
+                              lxb_dom_interface_node(toolbars));
+    lxb_dom_node_insert_child(lxb_dom_interface_node(pane),
+                              lxb_dom_interface_node(tabbar));
+    lxb_dom_node_insert_child(lxb_dom_interface_node(pane),
+                              lxb_dom_interface_node(shelf));
+    lxb_dom_node_insert_child(lxb_dom_interface_node(pane),
+                              lxb_dom_interface_node(body));
+    return pane;
+}
+
+// spawnFloatingPanel: tear a tab off into a floating panel hovering over the
+// float host. Spawn position clamps inside the host so a drop at the window
+// edge can't leave the floater off-screen ("the panel disappeared").
+lxb_dom_element_t* dock_spawn_floating_panel(
+    detail::DocumentImpl& impl, lxb_dom_element_t* tab,
+    lxb_dom_element_t* panel, Point drop, int w, int h, std::string_view kind,
+    std::string_view panel_id) {
+    const Rect host = document_float_host_bounds(impl);
+    const Rect root = root_float_host_bounds(impl);
+    // Root-relative coordinates (floats are root overlays); clamped to the
+    // document-body host rect, mirroring the existing tearoff math.
+    const int hx = root.w > 0 ? root.x : host.x;
+    const int hy = root.h > 0 ? root.y : host.y;
+    constexpr int kMargin = 8;
+    int fw = w > 0 ? w : 320;
+    int fh = h > 0 ? h : 220;
+    if (host.w > kMargin * 2) fw = std::max(1, std::min(fw, host.w - kMargin * 2));
+    if (host.h > kMargin * 2) fh = std::max(1, std::min(fh, host.h - kMargin * 2));
+    const int host_x = host.x - hx;
+    const int host_y = host.y - hy;
+    int x = drop.x - hx - 60;
+    int y = drop.y - hy - 12;
+    if (host.w > 0) {
+        const int lo = host_x + kMargin;
+        const int hi = host_x + host.w - fw - kMargin;
+        x = std::clamp(x, lo, std::max(lo, hi));
+    }
+    if (host.h > 0) {
+        const int lo = host_y + kMargin;
+        const int hi = host_y + host.h - fh - kMargin;
+        y = std::clamp(y, lo, std::max(lo, hi));
+    }
+
+    auto* fp = dock_create_el(impl, "section", "dcs-panel dcs-panel--floating");
+    if (!fp) return nullptr;
+    dock_set_attr(fp, "data-aui-name", "float-" + std::string(panel_id));
+    dock_set_attr(fp, "style",
+                  "position:absolute;left:" + std::to_string(x) + "px;top:" +
+                      std::to_string(y) + "px;width:" + std::to_string(fw) +
+                      "px;height:" + std::to_string(fh) +
+                      "px;z-index:60;display:flex;flex-direction:column;"
+                      "pointer-events:auto");
+    dock_set_attr(fp, "data-dcs-drag", "");
+    dock_set_attr(fp, "data-dcs-drag-bounds", ".dcs-dock--floathost");
+    dock_set_attr(fp, "data-dcs-dock-id", panel_id);
+    auto* dock = dock_create_pane(impl, panel_id, kind);
+    if (!dock) return nullptr;
+    dock_set_attr(dock, "style", "flex:1;min-width:0;min-height:0");
+    lxb_dom_node_insert_child(lxb_dom_interface_node(fp),
+                              lxb_dom_interface_node(dock));
+    dock_move_tab_to(impl, tab, panel, dock);
+    // Floats are root overlays (siblings of the split tree).
+    lxb_dom_element_t* parent = nullptr;
+    for (int i = 0; i < static_cast<int>(impl.blocks.size()); ++i) {
+        auto* e = element_for_block(impl, i);
+        if (e && class_list_contains(e, "dcs-dock--floathost")) {
+            parent = e;
+            break;
+        }
+    }
+    if (!parent) {
+        if (auto* body = lxb_html_document_body_element(impl.doc)) {
+            parent = lxb_dom_interface_element(body);
+        }
+    }
+    if (!parent) return nullptr;
+    lxb_dom_node_insert_child(lxb_dom_interface_node(parent),
+                              lxb_dom_interface_node(fp));
+    convert_dock_to_title_only(impl, dock);
+    return fp;
+}
+
+// One finisher per completed gesture: restyle + recollect the box tree, drop
+// stale interaction indices, and request a full relayout + repaint.
+void dock_structure_changed(detail::DocumentImpl& impl) {
+    const Rect old_rect = document_visual_rect(impl);
+    if (impl.resolver) impl.resolver->clear();
+    // Elements created or re-parented by the surgery have no (or stale)
+    // lexbor stylesheet attachments; rebuild the match lists before the
+    // resolver walks them (same contract as set_attribute_on_element).
+    rematch_stylesheet_matches_for_subtree(impl, -1);
+    recollect_blocks_from_current_dom(impl);
+    impl.hovered_idx = -1;
+    impl.active_idx = -1;
+    impl.hovered_chain.clear();
+    impl.active_chain.clear();
+    mark_live_mutation_dirty(impl, -1, old_rect, /*needs_layout=*/true);
+    impl.paint_dirty = true;
+}
+
 // Tear a docked panel off into a floating panel at the drop point: records a
 // floating placement override so the next resolve_dock emits it as a
 // .dcs-panel--floating overlay (then movable via float-drag). The app reloads on
@@ -11063,6 +11767,48 @@ bool tear_off_panel(detail::DocumentImpl& impl, std::string_view panel_id,
     return true;
 }
 
+// ── Dock-layout snapshot (DOM → Document::DockLayout) ───────────────────────
+// A pure read of the live dock DOM. The View replays it on re-emit so surgery
+// survives reloads; apps serialize it for workspace persistence.
+Document::DockLayout::Node dock_layout_node(lxb_dom_element_t* e) {
+    Document::DockLayout::Node n;
+    n.flex = find_decl_value(attr_string(e, "style"), "flex");
+    if (class_list_contains(e, "dcs-dock")) {
+        n.split = true;
+        n.vertical = class_list_contains(e, "dcs-dock--v");
+        for (auto* c = lxb_dom_node_first_child(lxb_dom_interface_node(e)); c;
+             c = lxb_dom_node_next(c)) {
+            if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+            auto* ce = lxb_dom_interface_element(c);
+            if (class_list_contains(ce, "dcs-splitter")) continue;
+            if (class_list_contains(ce, "dcs-dock") ||
+                class_list_contains(ce, "dcs-dockpane")) {
+                n.children.push_back(dock_layout_node(ce));
+            }
+        }
+        return n;
+    }
+    // Leaf: a dockpane.
+    n.kind = dock_kind_of(e);
+    for (auto* tab : dock_tabs(e)) {
+        const std::string id = dockpane_tab_panel_id(tab);
+        if (id.empty()) continue;
+        n.tabs.push_back(id);
+        if (attr_string(tab, "aria-selected") == "true") n.active = id;
+    }
+    return n;
+}
+
+lxb_dom_element_t* find_first_descendant_with_class(lxb_dom_node_t* root,
+                                                    std::string_view cls) {
+    lxb_dom_element_t* found = nullptr;
+    auto collect = [&](lxb_dom_element_t* e) {
+        if (!found && class_list_contains(e, cls)) found = e;
+    };
+    walk_dom_elements(root, collect);
+    return found;
+}
+
 // ── Drop zones (drag-to-dock / re-dock) ─────────────────────────────────────
 // Faithful port of decius.js Je/je/Ke (see [[decius-js-docking-algorithm]]):
 //  • Ke: within 32px of the viewport outer edge -> dock to the WHOLE-AREA edge
@@ -11074,14 +11820,63 @@ bool tear_off_panel(detail::DocumentImpl& impl, std::string_view panel_id,
 //    (--center, kind "documents") is only a target for
 //    documents-kind tabs and only via window-edge / its tabbar — a body drop
 //    there yields no target, so the caller tears off.
-enum class DropZone { None, Left, Right, Top, Bottom, Tab };
-
 struct DropTarget {
     std::string parent;   // "__document__" (window-edge dock) or target pane id
     DropZone    zone{DropZone::None};
     int x{0}, y{0}, w{0}, h{0};   // highlight rect in float-host coords
     bool        valid{false};
+    // The element the surgery acts on: the hovered .dcs-dockpane, or for a
+    // window-edge drop the outermost matching .dcs-dock (decius edgeOwnerDock).
+    lxb_dom_element_t* pane{nullptr};
+    bool               window_edge{false};
 };
+
+// edgeOwnerDock: the OUTERMOST .dcs-dock whose direction matches the edge —
+// window-edge drops always split at the workspace level, not at an inner
+// pane's level.
+lxb_dom_element_t* edge_owner_dock(detail::DocumentImpl& impl, DropZone edge) {
+    const bool horizontal = edge == DropZone::Left || edge == DropZone::Right;
+    const bool want_v = !horizontal;
+    std::vector<lxb_dom_element_t*> docks;
+    auto collect = [&](lxb_dom_element_t* e) {
+        if (class_list_contains(e, "dcs-dock")) docks.push_back(e);
+    };
+    walk_dom_elements(document_dom_root(impl), collect);
+    auto is_match = [&](lxb_dom_element_t* d) {
+        return class_list_contains(d, "dcs-dock") &&
+               class_list_contains(d, "dcs-dock--v") == want_v;
+    };
+    lxb_dom_element_t* first_match = nullptr;
+    for (auto* d : docks) {
+        if (!is_match(d)) continue;
+        if (!first_match) first_match = d;
+        bool has_matching_ancestor = false;
+        for (auto* n = lxb_dom_node_parent(lxb_dom_interface_node(d)); n;
+             n = lxb_dom_node_parent(n)) {
+            if (n->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+            if (is_match(lxb_dom_interface_element(n))) {
+                has_matching_ancestor = true;
+                break;
+            }
+        }
+        if (!has_matching_ancestor) return d;  // outermost matching
+    }
+    if (first_match) return first_match;
+    // No matching-direction dock: any root dock (splitDock wraps it).
+    for (auto* d : docks) {
+        bool inside_dock = false;
+        for (auto* n = lxb_dom_node_parent(lxb_dom_interface_node(d)); n;
+             n = lxb_dom_node_parent(n)) {
+            if (n->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+            if (class_list_contains(lxb_dom_interface_element(n), "dcs-dock")) {
+                inside_dock = true;
+                break;
+            }
+        }
+        if (!inside_dock) return d;
+    }
+    return docks.empty() ? nullptr : docks.front();
+}
 
 const char* drop_zone_name(DropZone zone) {
     switch (zone) {
@@ -11465,7 +12260,8 @@ Rect dockpane_zone_bounds(detail::DocumentImpl& impl,
 }
 
 DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
-                               std::string_view drag_kind) {
+                               std::string_view drag_kind,
+                               lxb_dom_element_t* source_pane = nullptr) {
     DropTarget out;
     int hx = 0, hy = 0, hw = 0, hh = 0;
     for (int i = 0; i < static_cast<int>(impl.blocks.size()); ++i) {
@@ -11494,6 +12290,8 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
     if (window_edge.zone != DropZone::None) {
         window_edge.parent = "__document__";
         window_edge.valid = true;
+        window_edge.window_edge = true;
+        window_edge.pane = edge_owner_dock(impl, window_edge.zone);
         const int sw = hw * 30 / 100, sh = hh * 30 / 100;
         switch (window_edge.zone) {
             case DropZone::Left:   window_edge.x = 0;       window_edge.y = 0;       window_edge.w = sw; window_edge.h = hh; break;
@@ -11519,12 +12317,20 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
               pt.y < b.y + b.h)) {
             return window_edge.valid ? window_edge : out;
         }
-        if (dock_kind_of(e) != drag_kind) {
+        // decius dockDropDecision: kinds must match, and the source pane is
+        // not a CENTER target for its own tab. Extension (upstreamed to
+        // decius.js too): a MULTI-tab pane's edge zones ARE valid for its own
+        // tab — "split Console out of Assets" in one gesture. Single-tab
+        // self-drops stay free-space (tearoff).
+        const bool self_drop = e == source_pane;
+        if (dock_kind_of(e) != drag_kind ||
+            (self_drop && dock_tabs(e).size() <= 1)) {
             return window_edge.valid ? window_edge : out;
         }
         const std::string id = pane_panel_id(e);
         if (id.empty()) return window_edge.valid ? window_edge : out;
         out.parent = id;
+        out.pane = e;
         const int lx = b.x - hx, ly = b.y - hy;
         if (ancestor_with_class(e, "dcs-panel--floating") ||
             point_over_pane_tabbar(impl, e, pt)) {
@@ -11567,6 +12373,12 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
                     out.zone = zones[zi];
                 }
             }
+        }
+        // Self-drop: only EDGE zones are actionable (center on yourself is a
+        // no-target → the caller tears off, per the JS).
+        if (self_drop && out.zone == DropZone::Tab) {
+            out = DropTarget{};
+            return window_edge.valid ? window_edge : out;
         }
         out.valid = true;
         if (out.zone == DropZone::Tab && window_edge.valid) return window_edge;
@@ -12840,6 +13652,91 @@ std::string emitted_text_control_value(const Block&) { return {}; }
 #endif
 }  // namespace
 
+Document::DockLayout Document::dock_layout() const {
+    DockLayout out;
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (!impl_->doc) return out;
+    auto* body = lxb_html_document_body_element(impl_->doc);
+    if (!body) return out;
+    auto* root_node = lxb_dom_interface_node(body);
+    // The workspace host (View emits .dcs-dock--floathost; raw-HTML fixtures
+    // may combine it with .dcs-dock). The split tree is the host itself when
+    // it is a dock, else its first .dcs-dock child.
+    auto* host = find_first_descendant_with_class(root_node,
+                                                  "dcs-dock--floathost");
+    if (!host) return out;
+    lxb_dom_element_t* workdock =
+        class_list_contains(host, "dcs-dock")
+            ? host
+            : dock_child_with_class(host, "dcs-dock");
+    if (!workdock) return out;
+    out.present = true;
+    out.root = dock_layout_node(workdock);
+    // Floats: .dcs-panel--floating descendants of the host.
+    std::vector<lxb_dom_element_t*> floats;
+    auto collect = [&](lxb_dom_element_t* e) {
+        if (class_list_contains(e, "dcs-panel--floating")) floats.push_back(e);
+    };
+    walk_dom_elements(lxb_dom_interface_node(host), collect);
+    for (auto* fp : floats) {
+        auto* pane = first_descendant_with_class(fp, "dcs-dockpane");
+        if (!pane) continue;
+        DockLayout::Float f;
+        const std::string style = attr_string(fp, "style");
+        auto px = [&](std::string_view prop) {
+            const std::string v = find_decl_value(style, prop);
+            return v.empty()
+                       ? 0
+                       : static_cast<int>(std::strtol(v.c_str(), nullptr, 10));
+        };
+        f.x = px("left");
+        f.y = px("top");
+        f.w = px("width");
+        f.h = px("height");
+        f.title_only = class_list_contains(pane, "dcs-dockpane--title-only") ||
+                       dock_title_tab(pane) != nullptr;
+        f.pane = dock_layout_node(pane);
+        out.floats.push_back(std::move(f));
+    }
+#endif
+    return out;
+}
+
+Rect Document::find_element_rect(std::string_view target) const {
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (!impl_->doc || target.empty()) return {};
+    lxb_dom_element_t* found = nullptr;
+    std::string attr_name;
+    std::string attr_value;
+    if (target.front() == '#') {
+        attr_name = "id";
+        attr_value = std::string(target.substr(1));
+    } else if (target.front() == '[' && target.back() == ']') {
+        const auto body = target.substr(1, target.size() - 2);
+        const auto eq = body.find('=');
+        if (eq == std::string_view::npos) return {};
+        attr_name = std::string(body.substr(0, eq));
+        attr_value = std::string(body.substr(eq + 1));
+    } else {
+        attr_name = "data-aui-name";
+        attr_value = std::string(target);
+    }
+    auto* body = lxb_html_document_body_element(impl_->doc);
+    if (!body) return {};
+    auto collect = [&](lxb_dom_element_t* e) {
+        if (!found && attr_string(e, attr_name) == attr_value) found = e;
+    };
+    walk_dom_elements(lxb_dom_interface_node(body), collect);
+    if (!found) return {};
+    const int bi = block_index_for_exact_element(*impl_, found);
+    if (bi < 0) return {};
+    return impl_->blocks[static_cast<std::size_t>(bi)].bounds;
+#else
+    (void) target;
+    return {};
+#endif
+}
+
 DispatchResult Document::dispatch(const Event& ev) {
     DispatchResult result{};
     auto ensure_interaction_layout = [&]() {
@@ -12939,8 +13836,15 @@ DispatchResult Document::dispatch(const Event& ev) {
                 }
                 if (impl_->tab_drag.dragging) {
                     ensure_interaction_layout();
+                    // Re-resolve the source pane each move (a reload during the
+                    // drag invalidates captured element pointers).
+                    auto* drag_src_tab = find_dockpane_tab_for_panel_id(
+                        *impl_, impl_->tab_drag.panel_id);
+                    auto* drag_src_pane =
+                        ancestor_with_class(drag_src_tab, "dcs-dockpane");
                     const auto t = compute_drop_target(
-                        *impl_, ev.pos, impl_->tab_drag.drag_kind);
+                        *impl_, ev.pos, impl_->tab_drag.drag_kind,
+                        drag_src_pane);
                     const bool target_changed =
                         impl_->tab_drag.drop_valid != t.valid ||
                         impl_->tab_drag.drop_parent !=
@@ -13395,8 +14299,10 @@ DispatchResult Document::dispatch(const Event& ev) {
                 break;
             }
             // Dock-pane tab release: the tab was already selected on press; here
-            // we only complete a DRAG — a drag that ends outside the pane tears
-            // the panel off into a floating panel.
+            // we only complete a DRAG. decius.js drop semantics, applied as DOM
+            // surgery: center → join the target's tab row; edge → split the
+            // target; anywhere else (free space, wrong-kind pane, or the source
+            // pane itself) → tear off into a floating panel.
             if (impl_->tab_drag.tab) {
                 const auto td = impl_->tab_drag;
                 impl_->tab_drag = {};
@@ -13408,57 +14314,82 @@ DispatchResult Document::dispatch(const Event& ev) {
                     if (set_drop_indicator(*impl_, nullptr)) {  // hide
                         result.redraw_requested = true;
                     }
+                    ensure_interaction_layout();
+                    // Re-resolve the live elements by panel id (a reload during
+                    // the drag invalidates the captured pointers).
+                    auto* tab = find_dockpane_tab_for_panel_id(*impl_,
+                                                               td.panel_id);
+                    auto* panel = find_dom_element_by_id(
+                        *impl_, td.panel_id + "-body");
+                    auto* source =
+                        tab ? ancestor_with_class(tab, "dcs-dockpane") : nullptr;
                     bool changed_dock = false;
-                    // Dropped on a dock zone of another pane -> dock there.
-                    DropTarget t;
-                    if (td.drop_valid) {
-                        t.valid = true;
-                        t.parent = td.drop_parent;
-                        t.zone = static_cast<DropZone>(td.drop_zone);
-                        t.x = td.drop_x;
-                        t.y = td.drop_y;
-                        t.w = td.drop_w;
-                        t.h = td.drop_h;
-                    } else {
-                        ensure_interaction_layout();
-                        t = compute_drop_target(
-                            *impl_, ev.pos, td.drag_kind);
-                    }
-                    if (t.valid) {
-                        bool source_center_noop = false;
-                        if (t.zone == DropZone::Tab) {
-                            const std::string& source_id = td.source_pane_id;
-                            source_center_noop =
-                                !source_id.empty() && source_id == t.parent;
+                    if (tab && panel && source) {
+                        const auto t = compute_drop_target(
+                            *impl_, ev.pos, td.drag_kind, source);
+                        auto* floater =
+                            ancestor_with_class(source, "dcs-panel--floating");
+                        const bool only_floater_tab =
+                            floater && dock_tabs(source).size() == 1;
+                        if (t.valid && t.pane && t.zone == DropZone::Tab) {
+                            // Center: join the target pane's tab row.
+                            changed_dock =
+                                dock_move_tab_to(*impl_, tab, panel, t.pane);
+                            if (changed_dock) {
+                                dock_cleanup_source(*impl_, source);
+                                dock_trace("dock panel=" + td.panel_id +
+                                           " target=" + t.parent);
+                            }
+                        } else if (t.valid && t.pane) {
+                            // Edge: a fresh pane owns the tab; split the target.
+                            auto* fresh = dock_create_pane(*impl_, td.panel_id,
+                                                           td.drag_kind);
+                            if (fresh &&
+                                dock_move_tab_to(*impl_, tab, panel, fresh)) {
+                                dock_split(*impl_, t.pane, t.zone, fresh,
+                                           t.window_edge);
+                                dock_cleanup_source(*impl_, source);
+                                changed_dock = true;
+                                dock_trace(
+                                    "edge-dock panel=" + td.panel_id +
+                                    " edge=" + drop_zone_name(t.zone) +
+                                    (t.window_edge ? " window-edge" : "") +
+                                    " target=" + t.parent);
+                            }
+                        } else if (only_floater_tab) {
+                            // A single-tab floater repositions via its chrome;
+                            // its title tab dropping in free space is a no-op.
+                            dock_trace("tab-drag-cancel panel=" + td.panel_id);
+                        } else {
+                            // Free space → tear off (JS spawns even over the
+                            // source pane — the Photoshop gesture).
+                            const int si =
+                                block_index_for_exact_element(*impl_, source);
+                            const Rect sb =
+                                si >= 0 ? impl_->blocks[static_cast<std::size_t>(
+                                                            si)]
+                                              .bounds
+                                        : Rect{};
+                            int w = sb.w > 0 ? std::min(420, sb.w) : 320;
+                            int h = sb.h > 0 ? std::min(360, sb.h) : 240;
+                            w = positive_int_attr(tab, "data-dcs-tearout-width",
+                                                  w);
+                            h = positive_int_attr(tab,
+                                                  "data-dcs-tearout-height", h);
+                            auto* fp = dock_spawn_floating_panel(
+                                *impl_, tab, panel, ev.pos, w, h, td.drag_kind,
+                                td.panel_id);
+                            if (fp) {
+                                dock_cleanup_source(*impl_, source);
+                                changed_dock = true;
+                                dock_trace("tearoff panel=" + td.panel_id);
+                            }
                         }
-                        changed_dock = source_center_noop
-                                           ? false
-                                           : apply_dock(*impl_, td.panel_id, t,
-                                                        &td);
-                        if (source_center_noop) {
-                            dock_trace("dock-cancel-source-center panel=" +
-                                       td.panel_id +
-                                       " target=" + drop_target_summary(t));
-                        }
-                    } else {
-                        // Not over a zone: tear off if released outside the pane.
-                        bool outside = true;
-                        if (td.source_pane_bounds_valid) {
-                            const auto& pb = td.source_pane_bounds;
-                            outside =
-                                !(ev.pos.x >= pb.x && ev.pos.x < pb.x + pb.w &&
-                                  ev.pos.y >= pb.y && ev.pos.y < pb.y + pb.h);
-                        }
-                        if (outside)
-                            changed_dock = tear_off_panel(*impl_, td.panel_id,
-                                                          nullptr, ev.pos);
-                        else
-                            dock_trace("tab-drag-cancel panel=" + td.panel_id +
-                                       " at=(" + std::to_string(ev.pos.x) +
-                                       "," + std::to_string(ev.pos.y) + ")");
                     }
                     if (changed_dock) {
-                        result.layout_changed = true;  // app re-seeds + rebuilds
+                        dock_structure_changed(*impl_);
+                        dock_trace_state(*impl_, "after-dock-surgery");
+                        result.layout_changed = true;  // app persists + re-emits
                         result.redraw_requested = true;
                     }
                 }

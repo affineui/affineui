@@ -271,6 +271,9 @@ affineui::View GameEditor::build() {
     // over the size declared in each panel's DockLocation.
     v.set_dock_size_provider(
         [this](std::string_view id) { return ws_.panel_size(id, 0); });
+    // Re-emit the LIVE dock arrangement (drag-to-dock / tearoff surgery) on
+    // every rebuild — the declared layout above is only the first-run seed.
+    v.set_dock_layout_provider([this] { return app_.document().dock_layout(); });
     // Structural overrides (a panel torn off to floating) survive view rebuilds:
     // resolve_dock re-seeds each panel's placement from the Document's overrides.
     v.set_dock_placement_provider([this](std::string_view id) {

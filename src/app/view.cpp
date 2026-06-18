@@ -2591,6 +2591,10 @@ struct View::DockNode {
     bool                  split{false};
     bool                  vertical{false};   // split orientation (column)
     std::vector<DockNode> children;          // split children (splitter between)
+    // Slot flex as a full inline value ("1 1 240px"); when set it wins over
+    // `size` below. Carried by dock-layout REPLAY so a user-arranged split
+    // keeps its exact proportions across rebuilds.
+    std::string           flex;
     // Leaf:
     std::string                       id;
     std::string                       title;
@@ -2766,6 +2770,68 @@ View::DockNode View::resolve_dock(const DockRecorder& rec,
     return base;
 }
 
+// Replay: convert a live Document::DockLayout node into the emit tree.
+// Content/title/icon/toolbar come from the recorder by panel id; layout tabs
+// whose panel is no longer declared are dropped (leaves that end up empty are
+// pruned by the caller via children.empty()/id.empty()).
+View::DockNode View::dock_node_from_layout(
+    const Document::DockLayout::Node& n, const DockRecorder& rec) const {
+    DockNode out;
+    out.flex = n.flex;
+    if (n.split) {
+        out.split = true;
+        out.vertical = n.vertical;
+        static int replay_split_seq = 0;
+        out.id = "replay-" + std::to_string(replay_split_seq++);
+        for (const auto& c : n.children) {
+            DockNode child = dock_node_from_layout(c, rec);
+            const bool empty_leaf = !child.split && child.id.empty();
+            const bool empty_split = child.split && child.children.empty();
+            if (!empty_leaf && !empty_split) {
+                out.children.push_back(std::move(child));
+            }
+        }
+        // A split reduced to one child collapses to that child (keeping the
+        // slot flex), mirroring unsplitFromLayout's wrapper collapse.
+        if (out.children.size() == 1) {
+            DockNode only = std::move(out.children.front());
+            only.flex = out.flex;
+            return only;
+        }
+        return out;
+    }
+    // Leaf: first known tab is the primary; the rest become co-tabs.
+    std::vector<std::string> known;
+    for (const auto& id : n.tabs) {
+        if (id == "__document__" || rec.find(id)) known.push_back(id);
+    }
+    if (known.empty()) return out;  // dropped (id stays empty)
+    const std::string& primary = known.front();
+    out.id = primary;
+    if (primary == "__document__") {
+        out.is_document = true;
+        out.title = rec.document_title;
+        out.icon = rec.document_icon;
+        out.content = rec.document_content;
+        out.toolbar = rec.document_toolbar;
+    } else if (const auto* spec = rec.find(primary)) {
+        out.title = spec->title;
+        out.icon = spec->icon;
+        out.content = spec->content;
+        out.toolbar = spec->toolbar;
+        out.float_size = spec->float_size;
+    }
+    for (std::size_t i = 1; i < known.size(); ++i) {
+        if (const auto* spec = rec.find(known[i])) out.tabs.push_back(spec);
+    }
+    if (!n.active.empty() && n.active != primary) out.active_tab = n.active;
+    return out;
+}
+
+void View::set_dock_layout_provider(std::function<Document::DockLayout()> fn) {
+    dock_layout_provider_ = std::move(fn);
+}
+
 void View::emit_dock_node(const DockNode& node, bool is_root,
                           const DockRecorder* rec,
                           std::source_location here) {
@@ -2780,13 +2846,16 @@ void View::emit_dock_node(const DockNode& node, bool is_root,
         const std::string split_style_prefix =
             std::string("display:flex;") +
             (node.vertical ? "flex-direction:column;" : "");
+        std::string split_flex;
+        if (!node.flex.empty()) {
+            split_flex = "flex:" + node.flex;  // replayed exact slot flex
+        } else if (node.size && *node.size > 0) {
+            split_flex = "flex:0 0 " + std::to_string(*node.size) + "px";
+        } else {
+            split_flex = "flex:1 1 0px";
+        }
         set_attr(dock, "style",
-                 (node.size && *node.size > 0)
-                     ? (split_style_prefix + "flex:0 0 " +
-                        std::to_string(*node.size) +
-                        "px;min-width:0;min-height:0")
-                     : (split_style_prefix +
-                        "flex:1 1 0px;min-width:0;min-height:0"));
+                 split_style_prefix + split_flex + ";min-width:0;min-height:0");
         for (std::size_t i = 0; i < node.children.size(); ++i) {
             if (i > 0) splitter(node.vertical, "split-" + node.id + "-" +
                                                    std::to_string(i));
@@ -2804,7 +2873,11 @@ void View::emit_dock_node(const DockNode& node, bool is_root,
     auto& pane = open_node(WidgetKind::Container, "section", pane_cls,
                            "pane-" + node.id, std::source_location::current(),
                            true);
-    if (node.is_document) {
+    if (!node.flex.empty()) {
+        // Replayed exact slot flex (dock-layout replay).
+        set_attr(pane, "style",
+                 "flex:" + node.flex + ";min-width:0;min-height:0");
+    } else if (node.is_document) {
         set_attr(pane, "style", "flex:1 1 0px;min-width:0;min-height:0");
     } else if (node.size && *node.size > 0) {
         set_attr(pane, "style",
@@ -2891,229 +2964,293 @@ void View::emit_dock_node(const DockNode& node, bool is_root,
         close_node();  // tabbar
     }
 
-    // Body: the primary tabpanel (the leaf's content) plus tab co-panels.
+    // Shelf row (toolbar overflow target — decius.js drops a too-wide tab
+    // toolbar here). Emitted hidden; part of the canonical pane chrome so
+    // moved/split panes always have it.
+    {
+        auto& shelf = open_node(WidgetKind::Container, "div",
+                                "dcs-dockpane__shelf", "__shelf",
+                                std::source_location::current(), true);
+        set_attr(shelf, "hidden", "");
+        close_node();  // shelf
+    }
+
+    // Body: ONE .dcs-dockpane__body holding a [data-dcs-tabpanel] per tab —
+    // the canonical decius shape (what decius.js mutates and index.html uses).
+    // Tab switching toggles `hidden` on the tabpanels, not on sibling bodies.
     {
         auto& body = open_node(WidgetKind::Container, "div",
-                               "dcs-dockpane__body", body_id,
+                               "dcs-dockpane__body", "__body",
                                std::source_location::current(), true);
-        set_attr(body, "id", body_id);
         if (node.is_document) {
             set_attr(body, "data-dcs-float-host", "");
+            // Stable id for the float-host rect (tests, app code) — distinct
+            // from the document TABPANEL, which owns "<id>-body".
+            set_attr(body, "id", node.id + "-host");
             set_attr(body, "style",
                      "position:relative;overflow:hidden;min-width:0;min-height:0");
         }
-        if (!primary_selected) set_attr(body, "hidden", "");
-        else remove_attr(body, "hidden");
-        if (primary_selected && node.content) node.content(*this);
-        close_node();  // body
-        for (const auto* t : node.tabs) {
-            const std::string tab_body_id = t->id + "-body";
-            const bool selected = node.active_tab == t->id;
-            auto& tbody = open_node(WidgetKind::Container, "div",
-                                    "dcs-dockpane__body", tab_body_id,
+        auto emit_tabpanel = [&](std::string_view panel_body_id, bool selected,
+                                 const std::function<void(View&)>& content) {
+            auto& panel = open_node(WidgetKind::Container, "div", "",
+                                    panel_body_id,
                                     std::source_location::current(), true);
-            set_attr(tbody, "id", tab_body_id);
-            if (!selected) set_attr(tbody, "hidden", "");
-            else remove_attr(tbody, "hidden");
-            if (selected && t->content) t->content(*this);
-            close_node();
+            set_attr(panel, "id", panel_body_id);
+            set_attr(panel, "data-dcs-tabpanel", "");
+            if (!selected) set_attr(panel, "hidden", "");
+            else remove_attr(panel, "hidden");
+            if (selected && content) content(*this);
+            close_node();  // tabpanel
+        };
+        emit_tabpanel(body_id, primary_selected, node.content);
+        for (const auto* t : node.tabs) {
+            emit_tabpanel(t->id + "-body", node.active_tab == t->id,
+                          t->content);
         }
+        close_node();  // body
     }
 
     close_node();  // pane
     (void) is_root;
 }
 
+void View::emit_one_floating_panel(const DockRecorder& rec,
+                                   const std::string& primary_id,
+                                   const std::vector<std::string>& co_tab_ids,
+                                   int x, int y, int w, int h,
+                                   const std::string& active_tab,
+                                   std::source_location here) {
+    const auto* s = rec.find(primary_id);
+    if (!s) return;
+    std::vector<const DockRecorder::Spec*> tabs;
+    for (const auto& id : co_tab_ids) {
+        if (const auto* t = rec.find(id)) tabs.push_back(t);
+    }
+    const bool primary_selected =
+        active_tab.empty() || active_tab == primary_id;
+    bool has_any_toolbar = static_cast<bool>(s->toolbar);
+    for (const auto* t : tabs) {
+        if (t && t->toolbar) {
+            has_any_toolbar = true;
+            break;
+        }
+    }
+    if (w <= 0) w = 320;
+    if (h <= 0) h = 240;
+
+    auto& panel = open_node(WidgetKind::Container, "section",
+                            "dcs-panel dcs-panel--floating",
+                            "float-" + s->id, here, true);
+    set_attr(panel, "style",
+             "position:absolute;left:" + std::to_string(x) + "px;top:" +
+                 std::to_string(y) + "px;width:" + std::to_string(w) +
+                 "px;height:" + std::to_string(h) +
+                 "px;z-index:60;display:flex;flex-direction:column;"
+                 "pointer-events:auto");
+    set_attr(panel, "data-dcs-drag", "");
+    set_attr(panel, "data-dcs-drag-bounds", ".dcs-dock--floathost");
+    set_attr(panel, "data-dcs-dock-id", s->id);
+
+    std::string dock_cls = "dcs-dockpane";
+    dock_cls += tabs.empty()
+        ? " dcs-dockpane--single-tab dcs-dockpane--title-only"
+        : " dcs-dockpane--multi-tab";
+    if (has_any_toolbar) dock_cls += " dcs-dockpane--shelved";
+    auto& dock = open_node(WidgetKind::Container, "section", dock_cls,
+                           "pane-" + s->id, here, true);
+    set_attr(dock, "style", "flex:1;min-width:0;min-height:0");
+    set_attr(dock, "data-aui-dock-floating", "true");
+    set_attr(dock, "data-aui-dock-x", std::to_string(x));
+    set_attr(dock, "data-aui-dock-y", std::to_string(y));
+    set_attr(dock, "data-aui-dock-w", std::to_string(w));
+    set_attr(dock, "data-aui-dock-h", std::to_string(h));
+
+    auto emit_tab = [&](const DockRecorder::Spec& spec, bool selected,
+                        std::string_view key, bool title_tab) {
+        std::string cls = "dcs-dockpane__tab";
+        if (title_tab) cls += " dcs-panel__title dcs-panel__title--dock-tab";
+        auto& tab = open_node(WidgetKind::Button, "button", cls, key, here,
+                              true);
+        set_attr(tab, "type", "button");
+        set_attr(tab, "aria-selected", selected ? "true" : "false");
+        set_attr(tab, "data-dcs-target", "#" + spec.id + "-body");
+        if (title_tab) set_attr(tab, "data-dcs-title-tab", "");
+        if (spec.float_size && spec.float_size->first > 0 &&
+            spec.float_size->second > 0) {
+            set_attr(tab, "data-dcs-tearout-width",
+                     std::to_string(spec.float_size->first));
+            set_attr(tab, "data-dcs-tearout-height",
+                     std::to_string(spec.float_size->second));
+        }
+        if (!spec.icon.empty()) {
+            open_node(WidgetKind::Container, "i", "di di-" + spec.icon,
+                      "__tab-icon", here, false);
+        }
+        auto& label = open_node(WidgetKind::Container, "span",
+                                "dcs-dockpane__tab-label", "__tab-label",
+                                here, false);
+        set_text(label, spec.title);
+        close_node();  // tab
+    };
+    auto emit_toolbar = [&](const DockRecorder::Spec& spec,
+                            std::string_view key) {
+        if (!spec.toolbar) return;
+        const bool selected =
+            (&spec == s) ? primary_selected : active_tab == spec.id;
+        auto& toolbar = open_node(WidgetKind::Container, "div",
+                                  "dcs-dockpane__toolbar", key, here, true);
+        set_attr(toolbar, "data-dcs-tabtoolbar", "#" + spec.id + "-body");
+        if (!selected) set_attr(toolbar, "hidden", "");
+        else remove_attr(toolbar, "hidden");
+        spec.toolbar(*this);
+        close_node();
+    };
+
+    if (tabs.empty()) {
+        auto& hd = open_node(WidgetKind::Container, "header",
+                             "dcs-panel__header dcs-dockpane__titlebar",
+                             "__fh-" + s->id, here, true);
+        set_attr(hd, "data-dcs-drag-handle", "");
+        emit_tab(*s, true, "__title-tab-" + s->id, true);
+        open_node(WidgetKind::Container, "div", "dcs-panel__tools",
+                  "__ftools-" + s->id, here, false);
+        close_node();  // titlebar
+        // The hidden tab row stays in the chrome (canonical decius shape) so a
+        // tab dropped onto this title-only float can re-grow the tab row
+        // (ensure_tabbed_dock moves the title tab back into it).
+        auto& tabbar = open_node(WidgetKind::Container, "div",
+                                 "dcs-dockpane__tabbar", "__tabbar-" + s->id,
+                                 here, true);
+        set_attr(tabbar, "hidden", "");
+        open_node(WidgetKind::Container, "div", "dcs-dockpane__tabs",
+                  "__tabs-" + s->id, here, true);
+        close_node();  // tabs
+        open_node(WidgetKind::Container, "div", "dcs-dockpane__toolbars",
+                  "__toolbars-" + s->id, here, true);
+        close_node();  // toolbars
+        close_node();  // tabbar
+    } else {
+        auto& tabbar = open_node(WidgetKind::Container, "div",
+                                 "dcs-dockpane__tabbar", "__tabbar-" + s->id,
+                                 here, true);
+        set_attr(tabbar, "data-dcs-drag-handle", "");
+        open_node(WidgetKind::Container, "div", "dcs-dockpane__tabs",
+                  "__tabs-" + s->id, here, true);
+        emit_tab(*s, primary_selected, "__tab-" + s->id, false);
+        int ti = 0;
+        for (const auto* t : tabs) {
+            emit_tab(*t, active_tab == t->id,
+                     "__tab-" + std::to_string(ti++), false);
+        }
+        close_node();  // tabs
+        open_node(WidgetKind::Container, "div", "dcs-dockpane__toolbars",
+                  "__toolbars-" + s->id, here, true);
+        close_node();  // toolbars
+        close_node();  // tabbar
+    }
+    if (has_any_toolbar) {
+        auto& shelf = open_node(WidgetKind::Container, "div",
+                                "dcs-dockpane__shelf", "__shelf-" + s->id,
+                                here, true);
+        (void) shelf;
+        emit_toolbar(*s, "__toolbar-" + s->id);
+        int tbi = 0;
+        for (const auto* t : tabs) {
+            emit_toolbar(*t, "__toolbar-" + std::to_string(tbi++));
+        }
+        close_node();  // shelf
+    }
+
+    // ONE body holding a [data-dcs-tabpanel] per tab — the canonical decius
+    // shape (same as emit_dock_node); tab switching toggles the tabpanels.
+    auto& body = open_node(WidgetKind::Container, "div", "dcs-dockpane__body",
+                           "__body-" + s->id, here, true);
+    (void) body;
+    auto emit_tabpanel = [&](const DockRecorder::Spec& spec, bool selected) {
+        auto& tp = open_node(WidgetKind::Container, "div", "",
+                             spec.id + "-body", here, true);
+        set_attr(tp, "id", spec.id + "-body");
+        set_attr(tp, "data-dcs-tabpanel", "");
+        if (!selected) set_attr(tp, "hidden", "");
+        else remove_attr(tp, "hidden");
+        if (selected && spec.content) spec.content(*this);
+        close_node();  // tabpanel
+    };
+    emit_tabpanel(*s, primary_selected);
+    for (const auto* t : tabs) emit_tabpanel(*t, active_tab == t->id);
+    close_node();  // body
+    close_node();  // dockpane
+    auto& resize_zones = open_node(WidgetKind::Container, "div",
+                                   "dcs-panel__resize-zones",
+                                   "__resize-zones-" + s->id, here, true);
+    (void) resize_zones;
+    const char* dirs[] = {"n", "s", "w", "e", "nw", "ne", "sw", "se"};
+    for (const char* dir : dirs) {
+        auto& zone = open_node(
+            WidgetKind::Container, "div",
+            std::string("dcs-panel__resize-zone dcs-panel__resize-zone--") +
+                dir,
+            std::string("__resize-zone-") + dir + "-" + s->id, here, false);
+        set_attr(zone, "data-dir", dir);
+    }
+    close_node();  // resize zones
+    open_node(WidgetKind::Container, "div", "dcs-panel__resize",
+              "__resize-" + s->id, here, false);
+    close_node();  // panel
+}
+
 void View::emit_floating_dock_panels(const DockRecorder& rec,
                                      std::source_location here) {
-    // Floating panels overlay the dock root: any panel whose effective
-    // placement is floating (declared DockState::Tearoff, or torn off at
-    // runtime via the placement override). The interaction layer clamps their
-    // coordinates to the active document body, while the embedded dock tab/title
-    // is still a real dock source for re-docking.
+    // Declared-seed path: panels whose effective placement is floating
+    // (declared DockState::Tearoff, or a runtime placement override).
     for (const auto& s : rec.panels) {
         const auto e = effective_placement(s.id, s.parent, s.side, s.state,
                                            s.size, s.offset, s.float_size,
                                            dock_placement_provider_);
         if (!e.floating) continue;
-        std::vector<const DockRecorder::Spec*> tabs;
+        std::vector<std::string> co_tab_ids;
         for (const auto& t : rec.panels) {
             if (&t == &s) continue;
             const auto te = effective_placement(
                 t.id, t.parent, t.side, t.state, t.size, t.offset,
                 t.float_size, dock_placement_provider_);
             if (!te.floating && te.parent == s.id && te.side == Dock::Tab)
-                tabs.push_back(&t);
+                co_tab_ids.push_back(t.id);
         }
         std::string active_tab;
         if (dock_active_tab_provider_) {
             const std::string active = dock_active_tab_provider_(s.id);
-            for (const auto* t : tabs) {
-                if (t && t->id == active) {
+            for (const auto& id : co_tab_ids) {
+                if (id == active) {
                     active_tab = active;
                     break;
                 }
             }
         }
-        const bool primary_selected = active_tab.empty();
-        bool has_any_toolbar = static_cast<bool>(s.toolbar);
-        for (const auto* t : tabs) {
-            if (t && t->toolbar) {
-                has_any_toolbar = true;
-                break;
-            }
-        }
+        emit_one_floating_panel(rec, s.id, co_tab_ids, e.x, e.y,
+                                e.w > 0 ? e.w : 320, e.h > 0 ? e.h : 240,
+                                active_tab, here);
+    }
+}
 
-        const int w = e.w > 0 ? e.w : 320;
-        const int h = e.h > 0 ? e.h : 240;
-        auto& panel = open_node(WidgetKind::Container, "section",
-                                "dcs-panel dcs-panel--floating", "float-" + s.id,
-                                here, true);
-        set_attr(panel, "style",
-                 "position:absolute;left:" + std::to_string(e.x) + "px;top:" +
-                     std::to_string(e.y) + "px;width:" + std::to_string(w) +
-                     "px;height:" + std::to_string(h) +
-                     "px;z-index:60;display:flex;flex-direction:column;"
-                     "pointer-events:auto");
-        set_attr(panel, "data-dcs-drag", "");
-        set_attr(panel, "data-dcs-drag-bounds", ".dcs-dock--floathost");
-        set_attr(panel, "data-dcs-dock-id", s.id);
-
-        std::string dock_cls = "dcs-dockpane";
-        dock_cls += tabs.empty()
-            ? " dcs-dockpane--single-tab dcs-dockpane--title-only"
-            : " dcs-dockpane--multi-tab";
-        if (has_any_toolbar) dock_cls += " dcs-dockpane--shelved";
-        auto& dock = open_node(WidgetKind::Container, "section", dock_cls,
-                               "pane-" + s.id, here, true);
-        set_attr(dock, "style", "flex:1;min-width:0;min-height:0");
-        set_attr(dock, "data-aui-dock-floating", "true");
-        set_attr(dock, "data-aui-dock-x", std::to_string(e.x));
-        set_attr(dock, "data-aui-dock-y", std::to_string(e.y));
-        set_attr(dock, "data-aui-dock-w", std::to_string(w));
-        set_attr(dock, "data-aui-dock-h", std::to_string(h));
-
-        auto emit_tab = [&](const DockRecorder::Spec& spec,
-                            bool selected,
-                            std::string_view key,
-                            bool title_tab) {
-            std::string cls = "dcs-dockpane__tab";
-            if (title_tab) cls += " dcs-panel__title dcs-panel__title--dock-tab";
-            auto& tab = open_node(WidgetKind::Button, "button", cls, key, here,
-                                  true);
-            set_attr(tab, "type", "button");
-            set_attr(tab, "aria-selected", selected ? "true" : "false");
-            set_attr(tab, "data-dcs-target", "#" + spec.id + "-body");
-            if (title_tab) set_attr(tab, "data-dcs-title-tab", "");
-            if (spec.float_size && spec.float_size->first > 0 &&
-                spec.float_size->second > 0) {
-                set_attr(tab, "data-dcs-tearout-width",
-                         std::to_string(spec.float_size->first));
-                set_attr(tab, "data-dcs-tearout-height",
-                         std::to_string(spec.float_size->second));
-            }
-            if (!spec.icon.empty()) {
-                open_node(WidgetKind::Container, "i", "di di-" + spec.icon,
-                          "__tab-icon", here, false);
-            }
-            auto& label = open_node(WidgetKind::Container, "span",
-                                    "dcs-dockpane__tab-label", "__tab-label",
-                                    here, false);
-            set_text(label, spec.title);
-            close_node();  // tab
-        };
-        auto emit_toolbar = [&](const DockRecorder::Spec& spec,
-                                std::string_view key) {
-            if (!spec.toolbar) return;
-            const bool selected =
-                (&spec == &s) ? primary_selected : active_tab == spec.id;
-            auto& toolbar = open_node(WidgetKind::Container, "div",
-                                      "dcs-dockpane__toolbar", key, here,
-                                      true);
-            set_attr(toolbar, "data-dcs-tabtoolbar", "#" + spec.id + "-body");
-            if (!selected) set_attr(toolbar, "hidden", "");
-            else remove_attr(toolbar, "hidden");
-            spec.toolbar(*this);
-            close_node();
-        };
-
-        if (tabs.empty()) {
-            auto& hd = open_node(WidgetKind::Container, "header",
-                                 "dcs-panel__header dcs-dockpane__titlebar",
-                                 "__fh-" + s.id, here, true);
-            set_attr(hd, "data-dcs-drag-handle", "");
-            emit_tab(s, true, "__title-tab-" + s.id, true);
-            open_node(WidgetKind::Container, "div", "dcs-panel__tools",
-                      "__ftools-" + s.id, here, false);
-            close_node();  // titlebar
-        } else {
-            auto& tabbar = open_node(WidgetKind::Container, "div",
-                                     "dcs-dockpane__tabbar",
-                                     "__tabbar-" + s.id, here, true);
-            set_attr(tabbar, "data-dcs-drag-handle", "");
-            open_node(WidgetKind::Container, "div", "dcs-dockpane__tabs",
-                      "__tabs-" + s.id, here, true);
-            emit_tab(s, primary_selected, "__tab-" + s.id, false);
-            int ti = 0;
-            for (const auto* t : tabs) {
-                emit_tab(*t, active_tab == t->id,
-                         "__tab-" + std::to_string(ti++), false);
-            }
-            close_node();  // tabs
-            open_node(WidgetKind::Container, "div", "dcs-dockpane__toolbars",
-                      "__toolbars-" + s.id, here, true);
-            close_node();  // toolbars
-            close_node();  // tabbar
+void View::emit_layout_floats(const Document::DockLayout& layout,
+                              const DockRecorder& rec,
+                              std::source_location here) {
+    // Replay path: floats exactly as the live DOM had them.
+    for (const auto& f : layout.floats) {
+        std::vector<std::string> known;
+        for (const auto& id : f.pane.tabs) {
+            if (rec.find(id)) known.push_back(id);
         }
-        if (has_any_toolbar) {
-            auto& shelf = open_node(WidgetKind::Container, "div",
-                                    "dcs-dockpane__shelf", "__shelf-" + s.id,
-                                    here, true);
-            (void) shelf;
-            emit_toolbar(s, "__toolbar-" + s.id);
-            int tbi = 0;
-            for (const auto* t : tabs) {
-                emit_toolbar(*t, "__toolbar-" + std::to_string(tbi++));
-            }
-            close_node();  // shelf
-        }
-
-        auto& body = open_node(WidgetKind::Container, "div", "dcs-dockpane__body",
-                               s.id + "-body", here, true);
-        set_attr(body, "id", s.id + "-body");
-        if (!primary_selected) set_attr(body, "hidden", "");
-        else remove_attr(body, "hidden");
-        if (primary_selected && s.content) s.content(*this);
-        close_node();
-        for (const auto* t : tabs) {
-            const bool selected = active_tab == t->id;
-            auto& tbody = open_node(WidgetKind::Container, "div",
-                                    "dcs-dockpane__body", t->id + "-body",
-                                    here, true);
-            set_attr(tbody, "id", t->id + "-body");
-            if (!selected) set_attr(tbody, "hidden", "");
-            else remove_attr(tbody, "hidden");
-            if (selected && t->content) t->content(*this);
-            close_node();
-        }
-        close_node();  // dockpane
-        auto& resize_zones = open_node(WidgetKind::Container, "div",
-                                       "dcs-panel__resize-zones",
-                                       "__resize-zones-" + s.id, here, true);
-        (void) resize_zones;
-        const char* dirs[] = {"n", "s", "w", "e", "nw", "ne", "sw", "se"};
-        for (const char* dir : dirs) {
-            auto& zone = open_node(
-                WidgetKind::Container, "div",
-                std::string("dcs-panel__resize-zone dcs-panel__resize-zone--") +
-                    dir,
-                std::string("__resize-zone-") + dir + "-" + s.id, here, false);
-            set_attr(zone, "data-dir", dir);
-        }
-        close_node();  // resize zones
-        open_node(WidgetKind::Container, "div", "dcs-panel__resize",
-                  "__resize-" + s.id, here, false);
-        close_node();  // panel
+        if (known.empty()) continue;
+        const std::string primary = known.front();
+        known.erase(known.begin());
+        const std::string active =
+            (!f.pane.active.empty() && f.pane.active != primary)
+                ? f.pane.active
+                : std::string();
+        emit_one_floating_panel(rec, primary, known, f.x, f.y, f.w, f.h,
+                                active, here);
     }
 }
 
@@ -3127,32 +3264,67 @@ WidgetRef View::document_view(std::string_view key,
     if (build) build(*this);
     dock_recorder_ = prev;
 
-    // Resolve the layout (declared seed). The container IS the root dock, so we
-    // open it with the resolved root's orientation and emit its children
-    // directly (no double dcs-dock wrapper).
-    DockNode tree = resolve_dock(recorder, "__document__", true);
-    // The root dock is the positioned coordinate frame for dock previews and
-    // floating panels. Floats live in an absolute overlay so they cannot affect
-    // the split tree's flex sizing, while drag math clamps them to the document
-    // body marked with data-dcs-float-host.
-    std::string cls = "dcs-dock dcs-dock--floathost";
-    if (tree.split && tree.vertical) cls += " dcs-dock--v";
-    auto& root = open_node(WidgetKind::Container, "div", cls, key, here, true);
-    std::string root_style = "display:flex;";
-    if (tree.split && tree.vertical) root_style += "flex-direction:column;";
-    root_style +=
-        "flex:1 1 0px;height:0;min-width:0;min-height:0;"
-        "position:relative;overflow:hidden";
-    set_attr(root, "style", root_style);
+    // Resolve the layout (declared seed). The container is the WORKSPACE HOST —
+    // the stable, positioned coordinate frame for floats, previews and the drop
+    // indicator. The split tree lives in ONE inner .dcs-dock child, so a
+    // window-edge dock can wrap/replace the workspace dock without ever
+    // touching the host (decius apps structure it the same way: .ps-body /
+    // .dn-vp-canvas host a dock tree, they are not docks themselves).
+    // REPLAY-or-SEED: when the Document's live dock layout covers every
+    // declared panel, re-emit THAT arrangement (drag-to-dock / tearoff surgery
+    // survives the rebuild); otherwise resolve the declared seed.
+    Document::DockLayout saved;
+    if (dock_layout_provider_) saved = dock_layout_provider_();
+    bool replay = saved.present;
+    if (replay) {
+        std::vector<std::string> in_layout;
+        std::function<void(const Document::DockLayout::Node&)> collect_ids =
+            [&](const Document::DockLayout::Node& n) {
+                for (const auto& id : n.tabs) in_layout.push_back(id);
+                for (const auto& c : n.children) collect_ids(c);
+            };
+        collect_ids(saved.root);
+        for (const auto& f : saved.floats) collect_ids(f.pane);
+        auto found = [&](std::string_view id) {
+            return std::find(in_layout.begin(), in_layout.end(), id) !=
+                   in_layout.end();
+        };
+        if (!found("__document__")) replay = false;
+        for (const auto& p : recorder.panels) {
+            if (!found(p.id)) {
+                replay = false;  // panel set changed in code → stale layout
+                break;
+            }
+        }
+    }
+    DockNode tree = replay ? dock_node_from_layout(saved.root, recorder)
+                           : resolve_dock(recorder, "__document__", true);
+    auto& root = open_node(WidgetKind::Container, "div", "dcs-dock--floathost",
+                           key, here, true);
+    set_attr(root, "style",
+             "display:flex;flex:1 1 0px;height:0;min-width:0;min-height:0;"
+             "position:relative;overflow:hidden");
     set_attr(root, "data-dcs-float-host", "");
     auto ref = ref_for_node(root, current_panel_id(stack_));
-    if (tree.split) {
-        for (std::size_t i = 0; i < tree.children.size(); ++i) {
-            if (i > 0) splitter(tree.vertical, "split-root-" + std::to_string(i));
-            emit_dock_node(tree.children[i], false, &recorder, here);
+    {
+        std::string dock_cls = "dcs-dock";
+        if (tree.split && tree.vertical) dock_cls += " dcs-dock--v";
+        auto& workdock = open_node(WidgetKind::Container, "div", dock_cls,
+                                   "dock-__workspace__", here, true);
+        std::string dock_style = "display:flex;";
+        if (tree.split && tree.vertical) dock_style += "flex-direction:column;";
+        dock_style += "flex:1 1 0px;min-width:0;min-height:0";
+        set_attr(workdock, "style", dock_style);
+        if (tree.split) {
+            for (std::size_t i = 0; i < tree.children.size(); ++i) {
+                if (i > 0)
+                    splitter(tree.vertical, "split-root-" + std::to_string(i));
+                emit_dock_node(tree.children[i], false, &recorder, here);
+            }
+        } else {
+            emit_dock_node(tree, false, &recorder, here);
         }
-    } else {
-        emit_dock_node(tree, false, &recorder, here);
+        close_node();  // workspace dock
     }
     {
         auto& float_layer = open_node(WidgetKind::Container, "div",
@@ -3162,7 +3334,8 @@ WidgetRef View::document_view(std::string_view key,
         set_attr(float_layer, "style",
                  "position:absolute;left:0px;top:0px;width:0px;height:0px;"
                  "overflow:visible;z-index:60;pointer-events:none");
-        emit_floating_dock_panels(recorder, here);
+        if (replay) emit_layout_floats(saved, recorder, here);
+        else emit_floating_dock_panels(recorder, here);
         close_node();
     }
 

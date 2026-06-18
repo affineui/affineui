@@ -760,6 +760,14 @@ public:
     void set_dock_placement_provider(
         std::function<Document::DockPlacement(std::string_view panel_id)> fn);
 
+    /// Supply the CURRENT dock arrangement (Document::dock_layout(), read live
+    /// from the DOM). When it covers every declared panel, document_view()
+    /// re-emits THAT arrangement — splits, tab order, active tabs, floats —
+    /// instead of the declared seed, so drag-to-dock / tearoff surgery
+    /// survives view rebuilds. A stale layout (panel set changed in code)
+    /// falls back to the declared seed.
+    void set_dock_layout_provider(std::function<Document::DockLayout()> fn);
+
     /// Supply the active tab for each dock leaf. Empty selects the primary
     /// panel. When provided, inactive tab bodies are emitted as empty hidden
     /// placeholders, and their content is built only when selected.
@@ -963,8 +971,24 @@ private:
     std::function<Document::DockPlacement(std::string_view)>
         dock_placement_provider_;
     std::function<std::string(std::string_view)> dock_active_tab_provider_;
+    std::function<Document::DockLayout()> dock_layout_provider_;
     DockNode resolve_dock(const DockRecorder& rec, std::string_view node_id,
                           bool is_document) const;
+    // Replay: convert a live Document::DockLayout into the emit tree (content
+    // looked up per panel id in the recorder). Returns false into `ok` when
+    // the layout doesn't cover the declared panel set (stale → seed instead).
+    DockNode dock_node_from_layout(const Document::DockLayout::Node& n,
+                                   const DockRecorder& rec) const;
+    void emit_layout_floats(const Document::DockLayout& layout,
+                            const DockRecorder& rec,
+                            std::source_location here);
+    // Shared emission for one floating panel (declared-seed and replay paths).
+    void emit_one_floating_panel(const DockRecorder& rec,
+                                 const std::string& primary_id,
+                                 const std::vector<std::string>& co_tab_ids,
+                                 int x, int y, int w, int h,
+                                 const std::string& active_tab,
+                                 std::source_location here);
     void emit_dock_node(const DockNode& node, bool is_root,
                         const DockRecorder* rec = nullptr,
                         std::source_location here =
