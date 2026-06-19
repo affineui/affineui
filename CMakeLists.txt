@@ -118,8 +118,17 @@ else()
 endif()
 add_library(affineui::affineui ALIAS affineui)
 
+# Allocation tracking (affineui::mem): live-block list, per-block leak report,
+# double-free detection, and alloc/free poison fills. Cheap counters are always
+# on; this option adds the heavier per-block tracking. Default ON for Debug.
+option(AFFINEUI_MEM_DEBUG "Track every allocation for leak/UAF/double-free detection" OFF)
+if(AFFINEUI_MEM_DEBUG OR CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_definitions(affineui PUBLIC AFFINEUI_MEM_DEBUG)
+endif()
+
 target_sources(affineui PRIVATE
     src/affineui.cpp
+    src/memory.cpp
     src/ui.cpp
     src/themes.cpp
     src/app/app.cpp

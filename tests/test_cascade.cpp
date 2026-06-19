@@ -1425,6 +1425,31 @@ TEST_CASE("font shorthand sets font_size_px and line_height_x100") {
     CHECK(rs.computed.line_height_x100 == 150);
 }
 
+TEST_CASE("font:0/0 shorthand (Bootstrap icon-reset) parses safely") {
+    // `font:0/0 a` is Bootstrap 4's icon-font reset hack: size 0, line-height
+    // 0, family "a". The leading 0 must be read as the font-SIZE, not consumed
+    // as a font-weight candidate — doing the latter recycled the token and then
+    // read it again (use-after-free under ASAN) AND dropped the 0 size. A bare
+    // number is a weight only when in 1..1000.
+    CssEnv env("<p>hi</p>");
+    env.attach("p { font: 0/0 a; }");
+    env.build_resolver();
+
+    auto* p = env.find("p");
+    REQUIRE(p != nullptr);
+
+    affineui::detail::ResolvedStyle parent{};
+    parent.computed.font_size_px = 40;  // distinctive inherited size
+    const auto rs = env.resolver->resolve(p, parent);
+    // The real regression teeth: parsing `font:0/0` must not crash (the leading
+    // 0 was read after token recycle — a use-after-free caught under ASAN, also
+    // exercised by test_bootstrap's real Bootstrap CSS). Behaviourally, a 0
+    // font-size is intentionally ignored by the resolver (px > 0 guard), so the
+    // inherited size survives — proving the shorthand parsed cleanly to
+    // completion rather than corrupting the cascade.
+    CHECK(rs.computed.font_size_px == 40);
+}
+
 TEST_CASE("font shorthand without line-height sets font_size_px only") {
     CssEnv env("<p>hi</p>");
     env.attach("p { font: 14px Arial; }");

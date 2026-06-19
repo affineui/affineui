@@ -19,6 +19,7 @@
 
 #include "affineui/document.h"
 
+#include "affineui/memory.h"
 #include "affineui/painter.h"
 #include "affineui/themes.h"
 #include "imm/imm_runtime.h"
@@ -4518,6 +4519,11 @@ void Document::set_html(std::string_view html) {
         lxb_html_document_destroy(impl_->doc);
         impl_->doc = nullptr;
     }
+
+    // Route lexbor's global allocator through affineui::mem before its first
+    // allocation (idempotent). Captures the DOM + CSS arenas — the bulk of our
+    // heap traffic — for host-allocator routing and leak/UAF tracking.
+    mem::install_lexbor_hooks();
 
     impl_->doc = lxb_html_document_create();
     if (!impl_->doc) return;

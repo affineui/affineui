@@ -25,6 +25,7 @@ add_executable(affineui_tests
     test_cascade.cpp
     test_display_list.cpp
     test_layout.cpp
+    test_memory.cpp
 )
 target_link_libraries(affineui_tests PRIVATE
     affineui::affineui
