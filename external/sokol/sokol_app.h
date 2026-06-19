@@ -9559,6 +9559,27 @@ _SOKOL_PRIVATE LRESULT CALLBACK _sapp_win32_wndproc(HWND hWnd, UINT uMsg, WPARAM
                             _sapp_win32_app_event(SAPP_EVENTTYPE_RESTORED);
                         }
                     }
+#if defined(SOKOL_WIN32_LIVE_RESIZE)
+                    /* AffineUI local patch: resize the swapchain AND render
+                       synchronously on every size change. Win32's default is to
+                       stretch the old backbuffer to the new window size until
+                       the next (async) frame — which reads as the viewport
+                       briefly SCALING during a drag. The WM_TIMER path below
+                       keeps the modal resize loop animating; doing the work here
+                       too makes each size step zero-lag, so the render surface is
+                       never presented scaled. Guarded by _sapp.valid so the
+                       initial WM_SIZE (before the swapchain exists) is a no-op. */
+                    if (!iconified && _sapp.valid &&
+                        _sapp_win32_update_dimensions()) {
+                        #if defined(SOKOL_D3D11)
+                        _sapp_d3d11_resize_default_render_target();
+                        #elif defined(SOKOL_WGPU)
+                        _sapp_wgpu_swapchain_size_changed();
+                        #endif
+                        _sapp_win32_app_event(SAPP_EVENTTYPE_RESIZED);
+                        _sapp_win32_frame(true);
+                    }
+#endif
                 }
                 break;
             case WM_SETFOCUS:

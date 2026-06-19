@@ -28,6 +28,19 @@ function(affineui_copy_example_browser_files name)
     endif()
 endfunction()
 
+# Embed a Per-Monitor-V2 DPI-awareness manifest so Windows renders the app at
+# full physical resolution (crisp text) rather than bitmap-upscaling it at
+# display scales > 100%. See examples/affineui_dpi.manifest for the why.
+function(affineui_apply_win_dpi_manifest name)
+    if(WIN32 AND MSVC)
+        # Add as a source: CMake/MSVC feeds .manifest files to its single mt.exe
+        # embed step (merging with the linker-default manifest). Using the linker
+        # /MANIFEST:EMBED directly instead duplicates the MANIFEST resource.
+        target_sources(${name} PRIVATE
+            "${AFFINEUI_EXAMPLES_ROOT}/affineui_dpi.manifest")
+    endif()
+endfunction()
+
 # Example apps. Each subdirectory builds one executable.
 
 function(affineui_add_example name)
@@ -44,6 +57,7 @@ function(affineui_add_example name)
             target_link_options(${name} PRIVATE "/ENTRY:mainCRTStartup")
         endif()
     endif()
+    affineui_apply_win_dpi_manifest(${name})
     affineui_copy_example_browser_files(${name})
 endfunction()
 
@@ -63,6 +77,7 @@ function(affineui_add_sokol_example name)
             target_link_options(${name} PRIVATE "/ENTRY:mainCRTStartup")
         endif()
     endif()
+    affineui_apply_win_dpi_manifest(${name})
     affineui_copy_example_browser_files(${name})
 endfunction()
 
@@ -82,6 +97,7 @@ function(affineui_add_sdl_example name)
             target_link_options(${name} PRIVATE "/ENTRY:mainCRTStartup")
         endif()
     endif()
+    affineui_apply_win_dpi_manifest(${name})
     affineui_copy_example_browser_files(${name})
 endfunction()
 

@@ -25,6 +25,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -222,6 +223,13 @@ App::App() : App(Config{}) {}
 App::App(Config cfg) : impl_{std::make_unique<detail::AppImpl>()} {
     impl_->config = std::move(cfg);
     impl_->perf_overlay_enabled = impl_->config.perf_overlay;
+    // Env override: AFFINEUI_PERF_OVERLAY=1 turns on the perf/DPI HUD without a
+    // code change — it prints "fb WxH css WxH dpi N.NN", handy for confirming
+    // the live DPI scale (should read your display scale, e.g. 1.25, not 1.00).
+    if (const char* e = std::getenv("AFFINEUI_PERF_OVERLAY");
+        e != nullptr && e[0] != '\0' && e[0] != '0') {
+        impl_->perf_overlay_enabled = true;
+    }
     impl_->perf_overlay_corner = impl_->config.perf_overlay_corner;
     impl_->renderer.set_clear_color(impl_->config.clear_color);
     impl_->document.set_resource_loader(

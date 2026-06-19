@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  Per-Monitor-V2 DPI awareness for AffineUI windowed apps on Windows.
+
+  Declared in a manifest (not just sokol_app's runtime SetProcessDpiAwarenessContext
+  call) because the loader applies the manifest BEFORE any code runs: the runtime
+  call can silently fail if DPI awareness was already committed by the default
+  linker manifest or a loaded DLL, leaving the process DPI-UNAWARE. An unaware
+  process is bitmap-upscaled by Windows at display scales > 100% (e.g. 125%) — so
+  the whole window, text especially, renders permanently soft. With this manifest
+  the framebuffer is full physical resolution, sapp_dpi_scale() reports the true
+  scale, and AffineUI's renderer (logical layout -> physical layer -> 1:1
+  composite) draws crisp at any scale.
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/PM</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor</dpiAwareness>
+    </windowsSettings>
+  </application>
+</assembly>
