@@ -148,14 +148,14 @@ std::vector<std::string> UiScript::validate_dock_layout(
         return issues;
     }
     std::vector<std::string> seen;
+    // Single-child docks are VALID: decius's unsplitFromLayout leaves a dock
+    // holding one pane as-is (the normal one-panel state) and only removes
+    // EMPTY docks. So we flag empty splits, never single-child ones.
     std::function<void(const Document::DockLayout::Node&, bool)> walk =
         [&](const Document::DockLayout::Node& n, bool in_float) {
             if (n.split) {
                 if (n.children.empty()) {
                     issues.push_back("empty split in the dock tree");
-                }
-                if (!in_float && n.children.size() == 1) {
-                    issues.push_back("single-child split (uncollapsed wrapper)");
                 }
                 for (const auto& c : n.children) walk(c, in_float);
                 return;

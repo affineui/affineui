@@ -2791,13 +2791,10 @@ View::DockNode View::dock_node_from_layout(
                 out.children.push_back(std::move(child));
             }
         }
-        // A split reduced to one child collapses to that child (keeping the
-        // slot flex), mirroring unsplitFromLayout's wrapper collapse.
-        if (out.children.size() == 1) {
-            DockNode only = std::move(out.children.front());
-            only.flex = out.flex;
-            return only;
-        }
+        // decius leaves single-child docks AS-IS (a one-pane dock is the normal
+        // one-panel state, not a wrapper to unwrap). We reproduce the live tree
+        // faithfully and never collapse a nesting level — only empty children
+        // are dropped above.
         return out;
     }
     // Leaf: first known tab is the primary; the rest become co-tabs.

@@ -5765,15 +5765,24 @@ lxb_css_property_state_font(lxb_css_parser_t *parser,
                 break;
         }
     }
-    else if (token->type == LXB_CSS_SYNTAX_TOKEN_NUMBER) {
-        /* Numeric weight like "700" before font-size. */
+    else if (token->type == LXB_CSS_SYNTAX_TOKEN_NUMBER
+             && lxb_css_syntax_token_number(token)->num >= 1
+             && lxb_css_syntax_token_number(token)->num <= 1000)
+    {
+        /* A leading number is a font-weight only when it is a valid weight
+           (1-1000). state_number() consumes the token on success, so re-fetch
+           the current token before it is read again below.
+
+           Crucially, a number OUTSIDE that range is the font-size itself, not a
+           weight (e.g. the "font:0/0 a" icon-reset hack, where 0 is the size).
+           We must NOT consume it here, or the size parse below would read a
+           recycled token (use-after-free) and the size would be lost. Leaving
+           it untouched lets length_percentage() pick it up (it accepts 0). */
         res = lxb_css_property_state_number(parser, token, &font->weight.number);
         if (res) {
-            if (font->weight.number.num >= 1 && font->weight.number.num <= 1000) {
-                font->weight.type = LXB_CSS_FONT_WEIGHT__NUMBER;
-                token = lxb_css_syntax_parser_token_wo_ws(parser);
-                lxb_css_property_state_check_token(parser, token);
-            }
+            font->weight.type = LXB_CSS_FONT_WEIGHT__NUMBER;
+            token = lxb_css_syntax_parser_token_wo_ws(parser);
+            lxb_css_property_state_check_token(parser, token);
         }
     }
 

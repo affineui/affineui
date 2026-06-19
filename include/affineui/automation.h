@@ -98,7 +98,8 @@ public:
     /// Structural invariants every dock arrangement must satisfy. Returns
     /// human-readable violations (empty = valid):
     ///   • every expected panel appears exactly once (tree or floats)
-    ///   • no empty panes or single-child/empty splits in the tree
+    ///   • no empty panes or empty splits in the tree (single-child docks are
+    ///     valid — decius keeps a one-pane dock as the normal one-panel state)
     ///   • every leaf's active tab is one of its tabs
     ///   • floats have positive sizes
     [[nodiscard]] static std::vector<std::string> validate_dock_layout(

@@ -69,11 +69,6 @@ lxb_html_document_style_remove_avl_cb(lexbor_avl_t *avl,
                                       lexbor_avl_node_t *node, void *ctx);
 
 static lxb_status_t
-lxb_html_document_style_detach_avl_cb(lexbor_avl_t *avl,
-                                      lexbor_avl_node_t **root,
-                                      lexbor_avl_node_t *node, void *ctx);
-
-static lxb_status_t
 lxb_html_document_style_cb(lxb_dom_node_t *node,
                            lxb_css_selector_specificity_t spec, void *ctx);
 
@@ -576,12 +571,51 @@ lxb_html_document_element_styles_attach(lxb_html_element_t *element)
     return LXB_STATUS_OK;
 }
 
+/*
+ * Free an element's ENTIRE style AVL with a post-order walk: children first,
+ * then the node, so we never follow a freed link and never rebalance. Used when
+ * an element is removed from the tree — it keeps no styles, so a full release is
+ * correct. The memory-safe counterpart to driving lexbor_avl_remove_by_node
+ * from lexbor_avl_foreach (see lxb_html_document_event_remove).
+ */
+static void
+lxb_html_element_style_avl_destroy(lxb_html_document_t *document,
+                                   lxb_html_style_node_t *style)
+{
+    lxb_html_style_weak_t *weak, *next;
+
+    if (style == NULL) {
+        return;
+    }
+
+    lxb_html_element_style_avl_destroy(document,
+                            (lxb_html_style_node_t *) style->entry.left);
+    lxb_html_element_style_avl_destroy(document,
+                            (lxb_html_style_node_t *) style->entry.right);
+
+    weak = style->weak;
+
+    while (weak != NULL) {
+        next = weak->next;
+
+        /* ref_dec, NOT ref_dec_destroy: detaching an element releases a
+           non-owning cross-link to a stylesheet-owned rule; the rule is freed
+           once, with its stylesheet's arena, never by a detach. */
+        lxb_css_rule_ref_dec(weak->value);
+        lexbor_dobject_free(document->css.weak, weak);
+
+        weak = next;
+    }
+
+    lxb_css_rule_ref_dec(style->entry.value);
+    lexbor_dobject_free(document->css.styles->nodes, style);
+}
+
 lxb_status_t
 lxb_html_document_element_styles_rematch(lxb_html_element_t *element)
 {
     lxb_status_t status;
     lxb_html_document_t *document;
-    lxb_html_document_event_ctx_t context;
 
     if (element == NULL) {
         return LXB_STATUS_ERROR_WRONG_ARGS;
@@ -589,19 +623,49 @@ lxb_html_document_element_styles_rematch(lxb_html_element_t *element)
 
     document = lxb_html_element_document(element);
 
+    /*
+     * Re-match the element's styles by BUILDING UP from scratch, never removing
+     * in place.
+     *
+     * A rematch must re-run selector matching while preserving the element's
+     * inline "style=" attachment (it carries sp_s != 0, the highest specificity;
+     * drop it and inline "style=flex:..." sizing is lost, collapsing laid-out
+     * boxes). The old path pruned selector entries in place by driving
+     * detach_all_not() from lexbor_avl_foreach(), but that read freed nodes when
+     * a removal rebalanced the AVL mid-iteration (ASAN use-after-poison, hit by
+     * docking re-parents that change which descendant selectors match), and
+     * lexbor's rotate_for_delete cannot be driven safely across a batch of
+     * removals. So instead:
+     *
+     *   1. release every current attachment with a safe post-order walk (no
+     *      rebalancing, no iterate-while-removing);
+     *   2. re-attach every stylesheet selector match;
+     *   3. re-attach the element's cached inline declaration list. element->list
+     *      is kept current by the style-attribute set_value event
+     *      (lxb_html_element_style_parse) and is NOT touched by the teardown, so
+     *      no re-parse is needed; sp_up_s(0) matches the inline specificity used
+     *      at parse time.
+     *
+     * Every step only inserts (avl_insert) or frees the whole tree — never the
+     * single-node removal that was unsafe.
+     */
     if (element->style != NULL) {
-        context.doc = document;
-        context.all = false;
-
-        status = lexbor_avl_foreach(document->css.styles, &element->style,
-                                    lxb_html_document_style_detach_avl_cb,
-                                    &context);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
+        lxb_html_element_style_avl_destroy(document,
+                                (lxb_html_style_node_t *) element->style);
+        element->style = NULL;
     }
 
-    return lxb_html_document_element_styles_attach(element);
+    status = lxb_html_document_element_styles_attach(element);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    if (element->list != NULL) {
+        status = lxb_html_element_style_list_append(element, element->list,
+                                                lxb_css_selector_sp_up_s(0));
+    }
+
+    return status;
 }
 
 void
@@ -687,19 +751,6 @@ lxb_html_document_style_remove_avl_cb(lexbor_avl_t *avl,
 
     lxb_html_element_style_remove_by_list(context->doc, root,
                                           style, context->list);
-    return LXB_STATUS_OK;
-}
-
-static lxb_status_t
-lxb_html_document_style_detach_avl_cb(lexbor_avl_t *avl,
-                                      lexbor_avl_node_t **root,
-                                      lexbor_avl_node_t *node, void *ctx)
-{
-    lxb_html_document_event_ctx_t *context = ctx;
-    lxb_html_style_node_t *style = (lxb_html_style_node_t *) node;
-
-    lxb_html_element_style_detach_all_not(context->doc, root, style, false);
-
     return LXB_STATUS_OK;
 }
 
@@ -1108,7 +1159,6 @@ lxb_html_document_event_remove(lxb_dom_node_t *node)
     lxb_status_t status;
     lxb_html_element_t *el;
     lxb_html_document_t *doc;
-    lxb_html_document_event_ctx_t context;
 
     if (node->type == LXB_DOM_NODE_TYPE_ATTRIBUTE) {
         return lxb_html_document_event_remove_attribute(node);
@@ -1138,11 +1188,16 @@ lxb_html_document_event_remove(lxb_dom_node_t *node)
 
     doc = lxb_html_interface_document(node->owner_document);
 
-    context.doc = doc;
-    context.all = false;
+    /* Removing an element releases its (non-owning) style cross-links. Tear the
+       element's style tree down with a post-order ref_dec walk: never destroy
+       the rules — they are owned by the stylesheet's arena and freed once at
+       stylesheet teardown — and never iterate the AVL while removing nodes from
+       it (the old foreach + avl_remove_by_node path is a use-after-poison, the
+       same class as lxb_html_document_element_styles_rematch). */
+    lxb_html_element_style_avl_destroy(doc, (lxb_html_style_node_t *) el->style);
+    el->style = NULL;
 
-    return lexbor_avl_foreach(doc->css.styles, &el->style,
-                              lxb_html_document_style_remove_cb, &context);
+    return LXB_STATUS_OK;
 }
 
 static lxb_status_t

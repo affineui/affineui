@@ -11058,6 +11058,32 @@ lxb_dom_element_t* find_dockpane_tab_for_panel_id(detail::DocumentImpl& impl,
 // the surgery ops can take an edge).
 enum class DropZone { None, Left, Right, Top, Bottom, Tab };
 
+// While a dock gesture restructures the tree, lexbor's EVENT-FUL inserts
+// (insert_before/after/child) fire lxb_html_document_event_insert, which
+// eagerly re-runs selector matching + style attach over a half-mutated tree —
+// walking an element's style weak-list while another element's is mid-teardown
+// → use-after-poison (found by the ASAN gesture fuzzer). We do our own restyle
+// in dock_structure_changed(), so suppress lexbor's eager attach for the whole
+// gesture and let the finisher rebuild it once, consistently. RAII so it always
+// restores, even on an early return. (Moves still use *_wo_events to keep weak
+// handles alive; this additionally neutralizes the event-ful inserts.)
+struct SuppressDomStyleAttach {
+    lxb_dom_document_t*    dom{nullptr};
+    lxb_dom_event_insert_f saved_insert{nullptr};
+    explicit SuppressDomStyleAttach(detail::DocumentImpl& impl) {
+        if (impl.doc) {
+            dom = &impl.doc->dom_document;
+            saved_insert = dom->ev_insert;
+            dom->ev_insert = nullptr;
+        }
+    }
+    ~SuppressDomStyleAttach() {
+        if (dom) dom->ev_insert = saved_insert;
+    }
+    SuppressDomStyleAttach(const SuppressDomStyleAttach&) = delete;
+    SuppressDomStyleAttach& operator=(const SuppressDomStyleAttach&) = delete;
+};
+
 // el(tag, classes) — create an element with a class list (raw attrs; the
 // post-gesture recollect restyles everything new).
 lxb_dom_element_t* dock_create_el(detail::DocumentImpl& impl,
@@ -11444,6 +11470,17 @@ void dock_unsplit_from_layout(detail::DocumentImpl& impl,
         }
         return;
     }
+    // decius.js leaves single-child docks AS-IS: a dock holding one pane is the
+    // normal one-panel state, not a degenerate wrapper to unwrap. We only
+    // reclaim the freed slice by rebalancing the survivors to `flex:1 1 0`
+    // (verbatim unsplitFromLayout), never by removing a nesting level.
+    //
+    // (An earlier build collapsed single-child wrappers to satisfy a "no
+    // single-child split" invariant that decius does NOT have — and that
+    // collapse ate the workspace-root dock after a tearoff-to-one-pane, leaving
+    // floathost > pane, read back as "no dock present". The invariant, the
+    // collapse, and the replay/validator special-cases it forced are all gone;
+    // single-child docks are valid here exactly as in the JS.)
     for (auto* c : live) {
         dock_set_attr(c, "style", "flex:1 1 0;min-width:0;min-height:0");
     }
@@ -11829,6 +11866,9 @@ struct DropTarget {
     // window-edge drop the outermost matching .dcs-dock (decius edgeOwnerDock).
     lxb_dom_element_t* pane{nullptr};
     bool               window_edge{false};
+    // Center-on-your-own multi-tab pane: a VALID target (the preview shows) but
+    // a NO-OP on release — the tab is already there.
+    bool               self_noop{false};
 };
 
 // edgeOwnerDock: the OUTERMOST .dcs-dock whose direction matches the edge —
@@ -12374,12 +12414,11 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
                 }
             }
         }
-        // Self-drop: only EDGE zones are actionable (center on yourself is a
-        // no-target → the caller tears off, per the JS).
-        if (self_drop && out.zone == DropZone::Tab) {
-            out = DropTarget{};
-            return window_edge.valid ? window_edge : out;
-        }
+        // Center on your OWN multi-tab pane is a valid CENTER target (the
+        // preview shows so the gesture reads as "drop back where it was"), but
+        // releasing is a no-op — the tab is already a member here. (Edge zones
+        // on the source pane DO split it out; see the kind/size guard above.)
+        if (self_drop && out.zone == DropZone::Tab) out.self_noop = true;
         out.valid = true;
         if (out.zone == DropZone::Tab && window_edge.valid) return window_edge;
         switch (out.zone) {
@@ -14323,6 +14362,12 @@ DispatchResult Document::dispatch(const Event& ev) {
                         *impl_, td.panel_id + "-body");
                     auto* source =
                         tab ? ancestor_with_class(tab, "dcs-dockpane") : nullptr;
+                    // Suppress lexbor's eager insert-time style attach for the
+                    // whole gesture (incl. the finisher) — moves leave the tree
+                    // transiently inconsistent and the eager attach reads a
+                    // half-torn-down style weak-list (ASAN use-after-poison).
+                    // dock_structure_changed() rebuilds all styles once.
+                    SuppressDomStyleAttach no_eager_attach(*impl_);
                     bool changed_dock = false;
                     if (tab && panel && source) {
                         const auto t = compute_drop_target(
@@ -14331,7 +14376,12 @@ DispatchResult Document::dispatch(const Event& ev) {
                             ancestor_with_class(source, "dcs-panel--floating");
                         const bool only_floater_tab =
                             floater && dock_tabs(source).size() == 1;
-                        if (t.valid && t.pane && t.zone == DropZone::Tab) {
+                        if (t.self_noop) {
+                            // Released back on the center of its own multi-tab
+                            // pane: the tab is already here — do nothing.
+                            dock_trace("dock-noop-self panel=" + td.panel_id);
+                        } else if (t.valid && t.pane &&
+                                   t.zone == DropZone::Tab) {
                             // Center: join the target pane's tab row.
                             changed_dock =
                                 dock_move_tab_to(*impl_, tab, panel, t.pane);

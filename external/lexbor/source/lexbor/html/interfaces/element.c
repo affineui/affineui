@@ -449,7 +449,10 @@ lxb_html_element_style_remove_all_not(lxb_html_document_t *doc,
         next = weak->next;
 
         if (lxb_css_selector_sp_s(weak->sp) == bs) {
-            lxb_css_rule_ref_dec_destroy(weak->value);
+            /* ref_dec, NOT ref_dec_destroy: detaching an element releases a
+               non-owning cross-link to a stylesheet-owned rule; the rule is
+               freed once, with its stylesheet's arena, never by a detach. */
+            lxb_css_rule_ref_dec(weak->value);
             lexbor_dobject_free(doc->css.weak, weak);
 
             if (prev != NULL) {
@@ -470,7 +473,7 @@ lxb_html_element_style_remove_all_not(lxb_html_document_t *doc,
         return style;
     }
 
-    lxb_css_rule_ref_dec_destroy(style->entry.value);
+    lxb_css_rule_ref_dec(style->entry.value);
 
     if (style->weak == NULL) {
         lexbor_avl_remove_by_node(doc->css.styles, root,
@@ -555,13 +558,15 @@ lxb_html_element_style_remove_all(lxb_html_document_t *doc,
     while (weak != NULL) {
         next = weak->next;
 
-        lxb_css_rule_ref_dec_destroy(weak->value);
+        /* ref_dec, NOT ref_dec_destroy: see remove_all_not — element detach is
+           a non-owning cross-link release, never a rule destruction. */
+        lxb_css_rule_ref_dec(weak->value);
         lexbor_dobject_free(doc->css.weak, weak);
 
         weak = next;
     }
 
-    lxb_css_rule_ref_dec_destroy(style->entry.value);
+    lxb_css_rule_ref_dec(style->entry.value);
     lexbor_avl_remove_by_node(doc->css.styles, root,
                               (lexbor_avl_node_t *) style);
     return NULL;

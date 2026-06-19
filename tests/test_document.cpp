@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <random>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -7434,11 +7435,11 @@ TEST_CASE("UiControls: dock preview target clears after leaving a valid pane") {
     CHECK(assets_leaf->tabs == std::vector<std::string>{"Assets"});
 }
 
-TEST_CASE("UiControls: a co-tab dropped on its own source pane tears off "
-          "(the source pane is never a target)") {
-    // Strict decius.js semantics: releasing a drag back inside the source pane
-    // is the Photoshop tearoff gesture. The old "cancel inside the source
-    // bounds" and "edge-dock against your own pane" behaviors are gone.
+TEST_CASE("UiControls: self-pane docking — center is a no-op preview, edge "
+          "splits the tab out of its own group") {
+    // A multi-tab pane is a valid target for its OWN tab: dropping on its
+    // CENTER shows the preview but is a NO-OP on release (the tab is already
+    // there); dropping on an EDGE splits the tab out into a new pane.
     affineui::Document doc;
     RecordingPainter painter;
     const char* html = R"HTML(
@@ -7489,21 +7490,6 @@ TEST_CASE("UiControls: a co-tab dropped on its own source pane tears off "
         e.pos = p;
         return doc.dispatch(e);
     };
-    auto check_tearoff = [&]() {
-        const auto layout = doc.dock_layout();
-        REQUIRE(layout.present);
-        REQUIRE(layout.floats.size() == 1);
-        CHECK(layout.floats[0].pane.tabs ==
-              std::vector<std::string>{"Console"});
-        CHECK(layout.floats[0].title_only == true);
-        CHECK_FALSE(dock_tree_has_tab(layout.root, "Console"));
-        // The sibling tab stays docked in the source pane.
-        const auto* assets_leaf = find_dock_leaf(layout.root, "Assets");
-        REQUIRE(assets_leaf != nullptr);
-        CHECK(assets_leaf->tabs == std::vector<std::string>{"Assets"});
-        CHECK(dock_tree_has_tab(layout.root, "Other"));
-    };
-
     auto console_tab = find_hovered_id(doc, "tabConsole", 600, 260);
     REQUIRE(console_tab.x >= 0);
     auto assets_p = find_hovered_attr(doc, "data-aui-name", "pane-Assets", 600, 260);
@@ -7522,8 +7508,8 @@ TEST_CASE("UiControls: a co-tab dropped on its own source pane tears off "
         pane_bounds.x + pane_bounds.w / 2,
         pane_bounds.y + pane_bounds.h / 2};
 
-    // Drop on the source pane's CENTER: no preview (the source pane is not a
-    // target), and the release tears Console off into a float.
+    // Drop on the source pane's CENTER: the preview DOES show (a valid target),
+    // but the release is a NO-OP — Console stays a tab of Assets, no float.
     ev(affineui::EventType::MouseDown, console_tab);
     const auto center_move_result =
         ev(affineui::EventType::MouseMove, source_center);
@@ -7532,11 +7518,19 @@ TEST_CASE("UiControls: a co-tab dropped on its own source pane tears off "
     painter.fill_colors.clear();
     painter.fill_draws.clear();
     doc.draw(painter);
-    CHECK_FALSE(saw_fill(painter, affineui::Color::rgba(0, 184, 212, 46)));
+    CHECK(saw_fill(painter, affineui::Color::rgba(0, 184, 212, 46)));  // preview shown
     const auto center_up_result =
         ev(affineui::EventType::MouseUp, source_center);
-    CHECK(center_up_result.layout_changed);
-    check_tearoff();
+    CHECK_FALSE(center_up_result.layout_changed);  // no-op
+    {
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.floats.empty());
+        const auto* assets_leaf = find_dock_leaf(layout.root, "Assets");
+        REQUIRE(assets_leaf != nullptr);
+        CHECK(assets_leaf->tabs ==
+              std::vector<std::string>{"Assets", "Console"});
+        CHECK(dock_tree_has_tab(layout.root, "Other"));
+    }
 
     // The source pane's own RIGHT edge band: a MULTI-tab pane's edge zones ARE
     // valid for its own tab (the "split Console out of Assets" gesture —
@@ -7671,6 +7665,123 @@ TEST_CASE("UiControls: View dock tab switches from Assets to Console") {
     up.pos = tab;
     const auto up_result = doc.dispatch(up);
     CHECK_FALSE(up_result.layout_changed);
+}
+
+TEST_CASE("UiScript: deterministic docking gesture FUZZER (seeded; invariants "
+          "after every move) — UAF net when run under ASAN") {
+    // The lesson of the docking work: single gestures pass, SEQUENCES crash.
+    // This replays a long, seeded-random stream of dock / tearoff / re-dock
+    // gestures with the editor's reload-after-every-change loop, and asserts
+    // the structural invariants after each step. Deterministic (fixed seed) so
+    // a failure reproduces; under ASAN it nets use-after-free in the surgery.
+    constexpr int W = 720;
+    constexpr int H = 480;
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_user_stylesheet(R"CSS(
+        html, body { width: 720px; height: 480px; margin: 0; padding: 0; }
+        #aui-root { width: 720px; height: 480px; min-height: 0; padding: 0; }
+        .shell { width: 720px; height: 480px; display: flex; flex-direction: column; }
+        .dcs-dock { display: flex; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dock--floathost { position: relative; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+        .dcs-dockpane--center { flex: 1; }
+        .dcs-dockpane__tabbar { flex: 0 0 24px; display: flex; min-width: 0; }
+        .dcs-dockpane__tabs { display: flex; min-width: 0; }
+        .dcs-dockpane__tab { display: inline-flex; padding: 0 10px; white-space: nowrap; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-panel--floating { position: absolute; }
+        .dcs-splitter { flex: 0 0 6px; }
+        [hidden] { display: none; }
+        [data-dcs-tabpanel][hidden] { display: none; }
+    )CSS");
+
+    const std::vector<std::string> panels = {"Hierarchy", "Inspector", "Assets",
+                                             "Console", "Log"};
+    auto rebuild = [&]() {
+        affineui::View v{affineui::ViewTheme::Decius};
+        v.set_dock_layout_provider([&] { return doc.dock_layout(); });
+        v.begin();
+        {
+            auto shell = v.container("shell", "shell");
+            (void) shell;
+            v.document_view("workarea", [&](affineui::View& dv) {
+                dv.document(
+                    [](affineui::View& p) { p.text("VP", "vp-text"); }, "View",
+                    "cube");
+                dv.dockpanel("Hierarchy",
+                             affineui::DockLocation::docked(affineui::Dock::Left,
+                                                            150),
+                             [](affineui::View& p) { p.text("H", "h-text"); },
+                             "layers", "Hierarchy");
+                auto insp = dv.dockpanel(
+                    "Inspector",
+                    affineui::DockLocation::docked(affineui::Dock::Right, 150),
+                    [](affineui::View& p) { p.text("I", "i-text"); }, "cog",
+                    "Inspector");
+                (void) insp;
+                auto assets = dv.dockpanel(
+                    "Assets",
+                    affineui::DockLocation::docked(affineui::Dock::Bottom, 100),
+                    [](affineui::View& p) { p.text("A", "a-text"); }, "image",
+                    "Assets");
+                dv.dockpanel("Console",
+                             affineui::DockLocation::tab().in(assets),
+                             [](affineui::View& p) { p.text("C", "c-text"); },
+                             "file", "Console");
+                dv.dockpanel("Log", affineui::DockLocation::tab().in(assets),
+                             [](affineui::View& p) { p.text("L", "l-text"); },
+                             "terminal", "Log");
+            });
+        }
+        v.end();
+        doc.set_html(v.to_html_document());
+        doc.attach_script(affineui::DocumentScript::UiControls);
+        doc.layout(W, H, &painter);
+    };
+    rebuild();
+
+    affineui::UiScript ui(doc, W, H, &painter);
+    ui.set_step_hook([&](const affineui::DispatchResult& r) {
+        if (r.layout_changed) rebuild();
+    });
+
+    const std::vector<std::string> all = {"__document__", "Hierarchy",
+                                          "Inspector", "Assets", "Console",
+                                          "Log"};
+    const affineui::UiScript::Anchor anchors[] = {
+        affineui::UiScript::Anchor::Center, affineui::UiScript::Anchor::Left,
+        affineui::UiScript::Anchor::Right,  affineui::UiScript::Anchor::Top,
+        affineui::UiScript::Anchor::Bottom};
+
+    for (unsigned seed = 1; seed <= 6; ++seed) {
+        rebuild();  // fresh declared layout per seed
+        std::mt19937 rng(0xD0C00000u + seed);
+        for (int step = 0; step < 200; ++step) {
+            const std::string& grab = panels[rng() % panels.size()];
+            const std::string& dest_id = all[rng() % all.size()];
+            const std::string dest = dest_id == "__document__"
+                                         ? "pane-__document__"
+                                         : ("pane-" + dest_id);
+            const auto anchor = anchors[rng() % 5];
+            // The tab might currently live in a float or a pane; target it by
+            // its tabpanel id either way.
+            const std::string from = "[data-dcs-target=#" + grab + "-body]";
+            ui.drag(from, dest, anchor);
+
+            const auto issues = affineui::UiScript::validate_dock_layout(
+                doc.dock_layout(), all);
+            if (!issues.empty()) {
+                std::string msg = "seed " + std::to_string(seed) + " step " +
+                                  std::to_string(step) + " grab=" + grab +
+                                  " dest=" + dest_id + ":";
+                for (const auto& i : issues) msg += " [" + i + "]";
+                FAIL(msg);
+            }
+        }
+    }
+    CHECK(doc.dock_layout().present);  // survived 6 seeds x 200 gestures
 }
 
 TEST_CASE("UiScript: bottom pane docks to the bottom of Hierarchy and back "
@@ -8029,7 +8140,7 @@ TEST_CASE("UiControls: dragging the primary dock tab leaves sibling tabs behind"
         CHECK(std::abs(console_bounds.h - source.h) <= 1);
     }
 
-    SUBCASE("dropped back on its own source pane: tears off, siblings stay") {
+    SUBCASE("dropped on its own center: no-op, every tab stays put") {
         rebuild();
         const auto tab = find_hovered_attr(doc, "data-dcs-target",
                                            "#Assets-body", W, H);
@@ -8040,25 +8151,18 @@ TEST_CASE("UiControls: dragging the primary dock tab leaves sibling tabs behind"
 
         ev(affineui::EventType::MouseDown, tab);
         ev(affineui::EventType::MouseMove, source_center);
-        ev(affineui::EventType::MouseUp, source_center);
+        const auto up = ev(affineui::EventType::MouseUp, source_center);
 
-        // Strict decius.js: the source pane is never a target — releasing the
-        // primary tab over its own pane is a tearoff. The co-tabs stay docked.
+        // Center on your own multi-tab pane is a no-op: nothing moves, no float.
+        CHECK_FALSE(up.layout_changed);
         const auto layout = doc.dock_layout();
         REQUIRE(layout.present);
-        REQUIRE(layout.floats.size() == 1);
-        CHECK(layout.floats[0].pane.tabs == std::vector<std::string>{"Assets"});
-        CHECK(layout.floats[0].title_only == true);
-        CHECK_FALSE(dock_tree_has_tab(layout.root, "Assets"));
-        const auto* source_leaf = find_dock_leaf(layout.root, "Console");
+        CHECK(layout.floats.empty());
+        const auto* source_leaf = find_dock_leaf(layout.root, "Assets");
         REQUIRE(source_leaf != nullptr);
         CHECK(source_leaf->tabs ==
-              std::vector<std::string>{"Console", "Log"});
+              std::vector<std::string>{"Assets", "Console", "Log"});
         CHECK(dock_tree_has_tab(layout.root, "Hierarchy"));
-
-        CHECK(find_hovered_attr(doc, "data-aui-name", "pane-Console", W, H).x >= 0);
-        CHECK(find_hovered_attr(doc, "data-dcs-target", "#Log-body", W, H).x >= 0);
-        CHECK(find_hovered_attr(doc, "data-aui-name", "float-Assets", W, H).x >= 0);
     }
 }
 
