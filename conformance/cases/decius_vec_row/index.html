@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../_decius/css/decius.bundle.min.css">
+<style>
+body{margin:0;background:#14161c;padding:18px;display:flex;gap:24px;align-items:flex-start}
+.fixture{width:420px}
+.fixture--narrow{width:170px}
+</style>
+</head>
+<body class="dcs" data-dcs-density="compact" data-dcs-accent="cyan">
+  <!-- Horizontal: wide control column fits X/Y/Z at the 72px floor. DOM is
+       exactly what View::vec + View::combo emit. -->
+  <section class="fixture dcs-panel dcs-panel--bordered">
+    <div class="dcs-panel__body">
+      <div class="dcs-props">
+        <div class="dcs-field dcs-field--vec">
+          <span class="dcs-field__label">Location</span>
+          <div class="dcs-vec">
+            <div class="dcs-combo" role="spinbutton" data-dcs-combo data-value="12" data-step="0.01" data-label="X" style="--fill:50%">
+              <div class="dcs-combo__fill"></div>
+              <div class="dcs-combo__label">X</div>
+              <input class="dcs-combo__value" type="number" value="12">
+            </div>
+            <div class="dcs-combo" role="spinbutton" data-dcs-combo data-value="4.2" data-step="0.01" data-label="Y" style="--fill:50%">
+              <div class="dcs-combo__fill"></div>
+              <div class="dcs-combo__label">Y</div>
+              <input class="dcs-combo__value" type="number" value="4.2">
+            </div>
+            <div class="dcs-combo" role="spinbutton" data-dcs-combo data-value="-8.5" data-step="0.01" data-label="Z" style="--fill:50%">
+              <div class="dcs-combo__fill"></div>
+              <div class="dcs-combo__label">Z</div>
+              <input class="dcs-combo__value" type="number" value="-8.5">
+            </div>
+          </div>
+        </div>
+        <div class="dcs-field">
+          <span class="dcs-field__label">Below</span>
+          <input class="dcs-input" value="must not be overlapped">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Stacked: narrow column; the engine (like decius.js initVecLayout)
+       toggles the stacked classes — authored here so Chrome's :has() rules
+       fire the same way. The field must GROW and push "Below" down. -->
+  <section class="fixture fixture--narrow dcs-panel dcs-panel--bordered">
+    <div class="dcs-panel__body">
+      <div class="dcs-props">
+        <div class="dcs-field dcs-field--vec">
+          <span class="dcs-field__label">Loc</span>
+          <div class="dcs-vec dcs-vec--stacked">
+            <div class="dcs-combo" role="spinbutton" data-dcs-combo data-value="12" data-step="0.01" data-label="X" style="--fill:50%">
+              <div class="dcs-combo__fill"></div>
+              <div class="dcs-combo__label">X</div>
+              <input class="dcs-combo__value" type="number" value="12">
+            </div>
+            <div class="dcs-combo" role="spinbutton" data-dcs-combo data-value="4.2" data-step="0.01" data-label="Y" style="--fill:50%">
+              <div class="dcs-combo__fill"></div>
+              <div class="dcs-combo__label">Y</div>
+              <input class="dcs-combo__value" type="number" value="4.2">
+            </div>
+            <div class="dcs-combo" role="spinbutton" data-dcs-combo data-value="-8.5" data-step="0.01" data-label="Z" style="--fill:50%">
+              <div class="dcs-combo__fill"></div>
+              <div class="dcs-combo__label">Z</div>
+              <input class="dcs-combo__value" type="number" value="-8.5">
+            </div>
+          </div>
+        </div>
+        <div class="dcs-field">
+          <span class="dcs-field__label">Below</span>
+          <input class="dcs-input" value="ok">
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

@@ -94,16 +94,24 @@ static void computeFlexBasisForChild(
   const bool isColumnStyleDimDefined =
       child->hasDefiniteLength(Dimension::Height, ownerHeight);
 
-  if (resolvedFlexBasis.isDefined() && yoga::isDefined(mainAxisSize)) {
-    if (child->getLayout().computedFlexBasis.isUndefined() ||
-        (child->getConfig()->isExperimentalFeatureEnabled(
-             ExperimentalFeature::WebFlexBasis) &&
-         child->getLayout().computedFlexBasisGeneration != generationCount)) {
-      const FloatOptional paddingAndBorder = FloatOptional(
-          paddingAndBorderForAxis(child, mainAxis, direction, ownerWidth));
-      child->setLayoutComputedFlexBasis(
-          yoga::maxOrDefined(resolvedFlexBasis, paddingAndBorder));
-    }
+  // AffineUI: a definite flex-basis may only pre-empt measurement when the
+  // container's main size is EXACT (StretchFit). When the container is being
+  // MEASURED (MaxContent, or FitContent under a definite ancestor), browsers
+  // size it from the children's content contributions — taking the raw basis
+  // here (e.g. `flex: 1 1 0`) makes the container's intrinsic size collapse
+  // to zero and everything after it mis-stacks. Fall through to the measure
+  // path instead so the basis reflects the child's content for this pass.
+  const SizingMode mainAxisMode = isMainAxisRow ? widthMode : heightMode;
+  if (resolvedFlexBasis.isDefined() && yoga::isDefined(mainAxisSize) &&
+      mainAxisMode == SizingMode::StretchFit) {
+    // Write unconditionally: a preceding measure pass in this generation may
+    // have cached a content-derived basis (see the measure path below); the
+    // exact pass must restore the author's basis or free-space distribution
+    // skews.
+    const FloatOptional paddingAndBorder = FloatOptional(
+        paddingAndBorderForAxis(child, mainAxis, direction, ownerWidth));
+    child->setLayoutComputedFlexBasis(
+        yoga::maxOrDefined(resolvedFlexBasis, paddingAndBorder));
   } else if (isMainAxisRow && isRowStyleDimDefined) {
     // The width is definite, so use that as the flex basis.
     const FloatOptional paddingAndBorder =

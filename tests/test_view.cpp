@@ -872,6 +872,15 @@ TEST_CASE("GE-shaped inspector: command-backed checkbox + colorfield commit "
     REQUIRE(bundle_in.good());
     std::string bundle((std::istreambuf_iterator<char>(bundle_in)),
                        std::istreambuf_iterator<char>());
+    // The real app's shell (game_editor_styles.cpp): a fixed, viewport-filling
+    // flex column. This is load-bearing — the fixed shell is exactly the shape
+    // where Yoga used to drop content contributions of flex-basis children
+    // (the vec overlap bug), so the fixture must keep it to regression-test it.
+    bundle +=
+        "\n.ge-app{position:fixed;inset:0;display:flex;flex-direction:column;"
+        "overflow:hidden}\n"
+        ".ge-vp-canvas{position:relative;flex:1 1 auto;min-width:0;"
+        "min-height:0;overflow:hidden}\n";
 
     affineui::App::Config cfg;
     cfg.asset_folders = test_asset_folders();
@@ -1040,6 +1049,22 @@ TEST_CASE("GE-shaped inspector: command-backed checkbox + colorfield commit "
         app.dispatch(up);
         app.document().layout(W, H, &painter);
     };
+
+    SUBCASE("cursor: slider hover shows the bundle's cursor (pointer), not a "
+            "drag/resize cursor") {
+        boot();
+        const auto row = app.document().find_element_rect("rough");
+        REQUIRE(row.w > 0);
+        const auto track =
+            find_in_rect_with_class(app, row, "dcs-slider__track");
+        REQUIRE(track.x >= 0);
+        affineui::Event hv{};
+        hv.type = affineui::EventType::MouseMove;
+        hv.pos = track;
+        app.dispatch(hv);
+        // .dcs-slider{cursor:pointer} in the bundle — protocol code 1.
+        CHECK(app.document().hovered_cursor() == 1);
+    }
 
     SUBCASE("checkbox: one click on the .dcs-check box flips the model once") {
         boot();
@@ -1268,11 +1293,15 @@ TEST_CASE("GE-shaped inspector: command-backed checkbox + colorfield commit "
         const auto console_tab = app.document().find_element_rect(
             "[data-dcs-target=#console-body]");
         REQUIRE(console_tab.w > 0);
-        const auto canvas = app.document().find_element_rect("vp-canvas");
-        REQUIRE(canvas.w > 0);
+        // Drop in the middle of the DOCUMENT pane — open space away from all
+        // edge dock zones, so a panel drag must produce a floating panel.
+        const auto doc_pane =
+            app.document().find_element_rect("pane-__document__");
+        REQUIRE(doc_pane.w > 0);
+        REQUIRE(doc_pane.h > 200);
         stream_drag({console_tab.x + console_tab.w / 2,
                      console_tab.y + console_tab.h / 2},
-                    {canvas.x + canvas.w / 2, canvas.y + canvas.h / 2});
+                    {doc_pane.x + doc_pane.w / 2, doc_pane.y + doc_pane.h / 2});
 
         const auto layout1 = app.document().dock_layout();
         REQUIRE(layout1.present);
@@ -1622,6 +1651,8 @@ TEST_CASE("GE-shaped inspector: command-backed checkbox + colorfield commit "
         // control; the control is the .dcs-textarea on the right.
         affineui::Rect box = ta.w > 0 ? ta : affineui::Rect{};
         if (box.w == 0) {
+            MESSAGE("notes row=(", row.x, ",", row.y, " ", row.w, "x", row.h,
+                    ") ta.w=", ta.w);
             const auto pt = find_in_rect_with_class(app, row, "dcs-textarea");
             REQUIRE(pt.x >= 0);
             affineui::Event hv{};

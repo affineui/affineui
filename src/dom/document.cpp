@@ -5390,6 +5390,25 @@ void Document::layout(int viewport_width, int viewport_height,
         layout(viewport_width, viewport_height, measurer);
         return;
     }
+    static const bool layout_dump =
+        std::getenv("AFFINEUI_LAYOUT_DUMP") != nullptr;
+    if (layout_dump) {
+        for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
+            const auto& b = impl_->blocks[i];
+            const auto& cs = layout_styles[i];
+            std::string cls;
+            for (const auto& c : b.classes) { cls += c; cls += ' '; }
+            std::fprintf(stderr,
+                         "[blk %2zu p=%2d] <%s> cls='%s' bounds=%d,%d %dx%d "
+                         "h=%d minh=%d disp=%d pos=%d flexdir=%d\n",
+                         i, b.parent_idx, b.tag.c_str(), cls.c_str(),
+                         b.bounds.x, b.bounds.y, b.bounds.w, b.bounds.h,
+                         cs.height, cs.min_height,
+                         static_cast<int>(cs.display),
+                         static_cast<int>(cs.position),
+                         static_cast<int>(cs.flex_direction));
+        }
+    }
 #endif
 
     auto block_is_fixed_position = [&](std::size_t i) {
@@ -9762,7 +9781,21 @@ bool update_dcs_vec_compression(
             available = field_client - used - extras * field_gap;
         }
 
+        static const bool vec_trace =
+            std::getenv("AFFINEUI_VEC_TRACE") != nullptr;
         const bool stacked = available + 1.0 < needed;
+        if (vec_trace) {
+            const int pidx = vec.parent_idx;
+            std::fprintf(stderr,
+                         "[vec %zu] kids=%d min=%.1f gap=%.1f needed=%.1f "
+                         "avail=%.1f vec=%dx%d field=%dx%d y=%d -> %s\n",
+                         i, child_count, min_width, gap, needed, available,
+                         vec.bounds.w, vec.bounds.h,
+                         pidx >= 0 ? impl.blocks[static_cast<std::size_t>(pidx)].bounds.w : -1,
+                         pidx >= 0 ? impl.blocks[static_cast<std::size_t>(pidx)].bounds.h : -1,
+                         vec.bounds.y,
+                         stacked ? "STACKED" : "row");
+        }
         if (field_elem) {
             changed = set_element_class(impl, field_elem,
                                         "dcs-field--vec", true) ||
@@ -9776,6 +9809,15 @@ bool update_dcs_vec_compression(
             changed = set_element_class(impl, elem, "dcs-vec--stacked",
                                         stacked) ||
                       changed;
+        }
+        if (vec_trace && field_elem && vec.parent_idx >= 0) {
+            const auto& fb = impl.blocks[static_cast<std::size_t>(vec.parent_idx)];
+            const auto& fcs = impl.style_store.computed(fb.id);
+            std::fprintf(stderr,
+                         "[vec %zu] post-toggle field style: h=%d minh=%d "
+                         "hpct=%d classes=%s\n",
+                         i, fcs.height, fcs.min_height, fcs.height_pct,
+                         attr_string(field_elem, "class").c_str());
         }
     }
     return changed;
