@@ -16406,6 +16406,19 @@ int Document::hovered_cursor() const {
             if (!resize_x && resize_y) return 7;
             return 4;
         }
+        // A visible scrollbar is browser UI, not content: it always shows
+        // the plain arrow, regardless of the element's (or an ancestor's)
+        // cursor — e.g. a textarea's UA `cursor:text` stops at the gutter.
+        ScrollbarGeometry sb{};
+        if (vertical_scrollbar_geometry(*impl_, idx, sb)) {
+            const Rect box = block_border_visual_rect(*impl_, idx);
+            const Rect gutter{sb.track.x - 2, box.y,
+                              box.x + box.w - (sb.track.x - 2), box.h};
+            if (rect_contains(gutter, impl_->last_mouse_pos.x,
+                              impl_->last_mouse_pos.y)) {
+                return 0;
+            }
+        }
         detail::DocumentImpl::FloatResize fr{};
         if (find_float_resize_at(*impl_, idx, impl_->last_mouse_pos, fr)) {
             return cursor_for_float_resize_dir(fr.dir);

@@ -3282,7 +3282,10 @@ public:
         // UA-origin defaults that differ from the CSS initial value, applied
         // BEFORE author declarations so the cascade can override them (same
         // ordering as a browser's UA stylesheet). A textarea is a scroll
-        // container for its value: browsers give it `overflow: auto`.
+        // container for its value: browsers give it `overflow: auto` — and
+        // the I-beam `cursor: text` over its editable region (the scrollbar
+        // gutter stays the plain arrow; hovered_cursor() carves that out,
+        // scrollbars being browser UI rather than content).
         {
             std::size_t tag_len = 0;
             const auto* tag_name =
@@ -3290,6 +3293,7 @@ public:
             if (tag_name && tag_len == 8 &&
                 std::memcmp(tag_name, "textarea", 8) == 0) {
                 s.computed.overflow_y = ComputedStyle::Overflow::Auto;
+                s.computed.cursor = ComputedStyle::Cursor::Text;
             }
         }
 

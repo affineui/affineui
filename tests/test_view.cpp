@@ -1064,6 +1064,34 @@ TEST_CASE("GE-shaped inspector: command-backed checkbox + colorfield commit "
         app.dispatch(hv);
         // .dcs-slider{cursor:pointer} in the bundle — protocol code 1.
         CHECK(app.document().hovered_cursor() == 1);
+
+        // Textarea: UA cursor is the I-beam over the editable region, but
+        // the scrollbar gutter is browser UI — plain arrow, always.
+        const auto notes_row = app.document().find_element_rect("notes");
+        REQUIRE(notes_row.w > 0);
+        const auto ta_pt =
+            find_in_rect_with_class(app, notes_row, "dcs-textarea");
+        REQUIRE(ta_pt.x >= 0);
+        affineui::Rect ta_box{};
+        for (const auto& info : app.document().hovered_info_chain()) {
+            if (std::find(info.classes.begin(), info.classes.end(),
+                          "dcs-textarea") != info.classes.end()) {
+                ta_box = info.bounds;
+            }
+        }
+        REQUIRE(ta_box.w > 0);
+        affineui::Event hv_text{};
+        hv_text.type = affineui::EventType::MouseMove;
+        hv_text.pos = {ta_box.x + 12, ta_box.y + ta_box.h / 2};
+        app.dispatch(hv_text);
+        CHECK(app.document().hovered_cursor() == 2);  // I-beam over the value
+        affineui::Event hv_gutter{};
+        hv_gutter.type = affineui::EventType::MouseMove;
+        hv_gutter.pos = {ta_box.x + ta_box.w - 4, ta_box.y + ta_box.h / 2};
+        app.dispatch(hv_gutter);
+        // The notes value overflows (the wheel-scroll subcase relies on it),
+        // so the scrollbar is up — its gutter shows the default arrow.
+        CHECK(app.document().hovered_cursor() == 0);
     }
 
     SUBCASE("checkbox: one click on the .dcs-check box flips the model once") {
