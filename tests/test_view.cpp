@@ -2781,6 +2781,14 @@ TEST_CASE("menu submenu cascades open on hover and its items activate") {
                 }
             }, {}, "mi-density");
         }, "mb-view");
+        // Content occupying the area the cascade opens over — LATER in the
+        // DOM than the menubar, so without the menu's z-order it would win
+        // every hit test (the in-window bug: cascade items not selectable
+        // over the document tab bar).
+        for (int i = 0; i < 8; ++i) {
+            v.button("Underneath " + std::to_string(i), false,
+                     "under-" + std::to_string(i));
+        }
         v.end();
         return v;
     };
@@ -2833,9 +2841,26 @@ TEST_CASE("menu submenu cascades open on hover and its items activate") {
     CHECK(comfy.x >= density_row.x + density_row.w - 4);
 
     // Move onto the submenu item (the opener stays in the hover ancestor
-    // chain, so the cascade must stay open) and click it.
+    // chain, so the cascade must stay open) and click it. The hit must land
+    // INSIDE the cascade panel (`.dcs-menu.dcs-menu__sub`, z-index above the
+    // page), not fall through to the buttons underneath.
     hover({comfy.x + comfy.w / 2, comfy.y + comfy.h / 2});
     REQUIRE(app.document().find_element_rect("mi-dens-comfortable").w > 0);
+    bool hit_in_cascade_panel = false;
+    bool hit_under_content = false;
+    for (const auto& info : app.document().hovered_info_chain()) {
+        const bool is_sub =
+            std::find(info.classes.begin(), info.classes.end(),
+                      "dcs-menu__sub") != info.classes.end();
+        if (is_sub &&
+            std::find(info.classes.begin(), info.classes.end(), "dcs-menu") !=
+                info.classes.end()) {
+            hit_in_cascade_panel = true;
+        }
+        if (info.elem_id.rfind("under-", 0) == 0) hit_under_content = true;
+    }
+    CHECK(hit_in_cascade_panel);
+    CHECK_FALSE(hit_under_content);
     click({comfy.x + comfy.w / 2, comfy.y + comfy.h / 2});
     CHECK(picked == "comfortable");
 

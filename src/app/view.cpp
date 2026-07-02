@@ -2445,9 +2445,12 @@ WidgetRef View::submenu(std::string_view label,
         close_node();  // caret
     }
     // Nested submenu — revealed on hover (pure-CSS via --has-sub > __sub).
+    // Reference markup (decius site docs) is `class="dcs-menu dcs-menu__sub"`:
+    // dcs-menu supplies the panel chrome (background/border/shadow/min-width),
+    // dcs-menu__sub the cascade positioning.
     {
-        auto& sub = open_node(WidgetKind::Container, "div", "dcs-menu__sub",
-                              "__sub", here, true);
+        auto& sub = open_node(WidgetKind::Container, "div",
+                              "dcs-menu dcs-menu__sub", "__sub", here, true);
         (void) sub;
         if (build) build(*this);
         close_node();  // sub
