@@ -5965,6 +5965,20 @@ void Document::draw(Painter& painter) {
             painter.push_clip(active_clip_rect);
         }
 
+        static const bool paint_trace =
+            std::getenv("AFFINEUI_PAINT_TRACE") != nullptr;
+        if (paint_trace && block_has_class(b, "dcs-menu__sub")) {
+            std::fprintf(stderr,
+                         "[paint %zu] sub eff=%d,%d %dx%d clipped=%d "
+                         "clip=%d,%d %dx%d bg=%08x border=%08x opacity=%.2f "
+                         "anim=%d\n",
+                         i, eff.x, eff.y, eff.w, eff.h, clipped ? 1 : 0,
+                         active_clip_rect.x, active_clip_rect.y,
+                         active_clip_rect.w, active_clip_rect.h,
+                         an.background_rgba, an.border_rgba, an.opacity,
+                         b.animation.active ? 1 : 0);
+        }
+
         // CSS `opacity` â€” composite this element's entire subtree at a
         // group alpha. NanoVG's nvgGlobalAlpha multiplies onto whatever
         // alpha is currently set, so save/restore gives clean isolation.
@@ -11342,7 +11356,13 @@ bool close_all_dcs_menus(detail::DocumentImpl& impl,
                          lxb_dom_element_t* except = nullptr) {
     std::vector<lxb_dom_element_t*> menus;
     auto collect = [&](lxb_dom_element_t* elem) {
+        // A submenu cascade (`.dcs-menu.dcs-menu__sub`) is NOT a top-level
+        // menu layer: it lives inside its parent menu and opens/closes purely
+        // via CSS (`--has-sub:hover > __sub`). Stamping `hidden` on it here
+        // (decius.js never does) leaves a half-dead panel the :hover rule can
+        // no longer reveal properly. It disappears with its parent menu.
         if (elem != except && class_list_contains(elem, "dcs-menu") &&
+            !class_list_contains(elem, "dcs-menu__sub") &&
             !has_attr(elem, "hidden")) {
             menus.push_back(elem);
         }
@@ -11371,14 +11391,21 @@ std::string dcs_menu_open_style(const detail::DocumentImpl& impl,
             overlay_width = std::max(1, anchor_rect.w);
         }
     }
+    const int natural_h = overlay_declared_outer_height(impl, menu, 160);
     const auto placed = place_anchored_overlay(
-        impl, anchor_rect, overlay_width,
-        overlay_declared_outer_height(impl, menu, 160), "bottom", 0);
+        impl, anchor_rect, overlay_width, natural_h, "bottom", 0);
     std::string style = "display:flex;position:fixed;left:" +
         std::to_string(placed.left) + "px;top:" +
         std::to_string(placed.top) +
-        "px;max-height:" + std::to_string(placed.max_height) +
-        "px;overflow:auto;flex-direction:column;align-items:stretch;z-index:400";
+        "px;flex-direction:column;align-items:stretch;z-index:400";
+    // Mirror decius.js place(): the menu becomes a scroll container ONLY
+    // when it is genuinely taller than the available space. Unconditional
+    // overflow clipping beheads submenu cascades, which live outside the
+    // panel box (`.dcs-menu__sub` at left:100%) by design.
+    if (natural_h > placed.max_height) {
+        style += ";max-height:" + std::to_string(placed.max_height) +
+                 "px;overflow:auto";
+    }
     if (stretch_to_anchor) {
         style += ";width:" + std::to_string(overlay_width) +
                  "px;min-width:" + std::to_string(overlay_width) +
@@ -14218,7 +14245,10 @@ Document::TransientState Document::capture_transient_state() const {
     auto collect = [&](lxb_dom_element_t* elem) {
         if (!elem || has_attr(elem, "hidden")) return;
         const bool popover = class_list_contains(elem, "dcs-popover");
-        const bool menu = class_list_contains(elem, "dcs-menu") ||
+        // Submenu cascades are hover-CSS state, not open layers — capturing
+        // one would pin it "open" across a reload.
+        const bool menu = (class_list_contains(elem, "dcs-menu") &&
+                           !class_list_contains(elem, "dcs-menu__sub")) ||
                           class_list_contains(elem, "aui-select__menu");
         if (!popover && !menu) return;
         const std::string id = attr_string(elem, "id");

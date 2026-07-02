@@ -1,0 +1,52 @@
+{
+ "width": 1280,
+ "height": 800,
+ "dpi": 1.0,
+ "tolerance": 2,
+ "threshold": 6.0,
+ "browser_scripts": [
+  "../_decius/js/decius.min.js"
+ ],
+ "steps": [
+  {
+   "mouse_recording": [
+    {
+     "type": "move",
+     "x": 185,
+     "y": 13
+    },
+    {
+     "type": "down",
+     "x": 185,
+     "y": 13
+    },
+    {
+     "type": "up",
+     "x": 185,
+     "y": 13
+    },
+    {
+     "type": "move",
+     "x": 188,
+     "y": 30
+    },
+    {
+     "type": "move",
+     "x": 195,
+     "y": 38
+    },
+    {
+     "type": "move",
+     "x": 205,
+     "y": 40
+    }
+   ]
+  },
+  {
+   "wait_ms": 250
+  },
+  {
+   "snapshot": "cascade"
+  }
+ ]
+}

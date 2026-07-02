@@ -250,6 +250,11 @@ int main(int argc, char** argv) {
     // ── AffineUI on our headless device ──────────────────────────────
     affineui::Ui ui;
     if (!ui.load(args.html)) { std::fprintf(stderr, "failed to load %s\n", args.html.c_str()); return 1; }
+    // The browser side runs the framework's real JS (decius.js) during step
+    // replay; parity requires OUR side to run the engine's built-in
+    // interaction layer (menus, popovers, live controls) too — the same
+    // script App attaches for windowed apps.
+    ui.document().attach_script(affineui::DocumentScript::UiControls);
 
     affineui::GpuContext gpu{};
     gpu.backend = affineui::Backend::d3d11;
