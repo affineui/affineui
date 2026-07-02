@@ -2840,6 +2840,14 @@ TEST_CASE("menu submenu cascades open on hover and its items activate") {
     // The cascade opens to the RIGHT of the opener row (left:100%).
     CHECK(comfy.x >= density_row.x + density_row.w - 4);
 
+    // Crossing the visual gap between the opener row and the cascade must
+    // NOT dismiss it: decius.css bridges the gap with an invisible
+    // `.dcs-menu__sub::before` strip (absolutely positioned generated
+    // content), so the hover chain stays on the cascade → opener the whole
+    // way across. Hover a point INSIDE the gap, then continue into the sub.
+    hover({comfy.x - 2, density_row.y + density_row.h / 2});
+    REQUIRE(app.document().find_element_rect("mi-dens-comfortable").w > 0);
+
     // Move onto the submenu item (the opener stays in the hover ancestor
     // chain, so the cascade must stay open) and click it. The hit must land
     // INSIDE the cascade panel (`.dcs-menu.dcs-menu__sub`, z-index above the
