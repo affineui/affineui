@@ -108,11 +108,16 @@ struct BlockLayoutInput {
 /// fills the viewport rather than collapsing. In-flow content may still exceed
 /// it (the document's scrollable content height is computed separately). Pass 0
 /// to leave the available height undefined (legacy "grow to content").
+/// `body_style` (optional): the BODY element's computed style. The adapter's
+/// synthetic root IS the body box (its padding is baked in by the caller);
+/// when the body is a flex container, the root takes its flex-direction /
+/// justify / align / wrap / gaps instead of the default block-flow column.
 void layout_blocks_with_yoga(int viewport_width_px,
                              int viewport_height_px,
                              std::span<const BlockLayoutInput> inputs,
                              std::span<Rect> out_bounds,
                              Painter* measurer = nullptr,
-                             std::span<RectF> out_float_bounds = {});
+                             std::span<RectF> out_float_bounds = {},
+                             const ComputedStyle* body_style = nullptr);
 
 }  // namespace affineui::detail

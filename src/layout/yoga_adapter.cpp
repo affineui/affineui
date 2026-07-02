@@ -667,18 +667,36 @@ void layout_blocks_with_yoga(int viewport_width_px,
                              std::span<const BlockLayoutInput> inputs,
                              std::span<Rect> out_bounds,
                              Painter* measurer,
-                             std::span<RectF> out_float_bounds) {
+                             std::span<RectF> out_float_bounds,
+                             const ComputedStyle* body_style) {
     assert(inputs.size() == out_bounds.size());
     assert(out_float_bounds.empty() || out_float_bounds.size() == inputs.size());
 
     YGConfigRef config = YGConfigNew();
     YGConfigSetPointScaleFactor(config, 0.0f);
 
-    // Synthetic root. Stack children vertically (CSS block flow shape).
+    // Synthetic root. This IS the body box: block flow by default, but a
+    // `body { display:flex }` document lays its top-level children out with
+    // the body's own flex properties, exactly like any other container.
     YGNodeRef root = YGNodeNewWithConfig(config);
     YGNodeStyleSetBoxSizing(root, YGBoxSizingContentBox);
-    YGNodeStyleSetFlexDirection(root, YGFlexDirectionColumn);
-    YGNodeStyleSetAlignItems(root, YGAlignStretch);
+    if (body_style && is_flex_container(body_style->display)) {
+        YGNodeStyleSetFlexDirection (root, to_yg(body_style->flex_direction));
+        YGNodeStyleSetJustifyContent(root, to_yg(body_style->justify_content));
+        YGNodeStyleSetAlignItems    (root, to_yg(body_style->align_items));
+        YGNodeStyleSetFlexWrap      (root, to_yg(body_style->flex_wrap));
+        if (body_style->row_gap > 0) {
+            YGNodeStyleSetGap(root, YGGutterRow,
+                              static_cast<float>(body_style->row_gap));
+        }
+        if (body_style->column_gap > 0) {
+            YGNodeStyleSetGap(root, YGGutterColumn,
+                              static_cast<float>(body_style->column_gap));
+        }
+    } else {
+        YGNodeStyleSetFlexDirection(root, YGFlexDirectionColumn);
+        YGNodeStyleSetAlignItems(root, YGAlignStretch);
+    }
     YGNodeStyleSetWidth(root, static_cast<float>(viewport_width_px));
     // Height: undefined → Yoga grows the root to its content.
 
@@ -697,12 +715,13 @@ void layout_blocks_with_yoga(int viewport_width_px,
     nodes.reserve(inputs.size());
     for (std::size_t i = 0; i < inputs.size(); ++i) {
         YGNodeRef n = YGNodeNewWithConfig(config);
+        // Top-level blocks (parent_idx < 0) are children of the synthetic
+        // root, i.e. of the BODY — a flex body makes them flex items.
         const auto* parent_style_for_flex =
             (inputs[i].parent_idx >= 0)
                 ? inputs[static_cast<std::size_t>(inputs[i].parent_idx)].style
-                : nullptr;
+                : body_style;
         const bool flex_parent =
-            inputs[i].parent_idx >= 0 &&
             !inputs[i].inline_parent &&
             parent_style_for_flex &&
             is_flex_container(parent_style_for_flex->display);

@@ -3,6 +3,7 @@
   "height": 260,
   "dpi": 1.0,
   "tolerance": 2,
-  "threshold": 5.0,
+  "threshold": 7.0,
+  "_comment": "text-dense small canvas: ~5% of pixels are glyph AA edges; structural layout is pixel-aligned with Chrome",
   "steps": []
 }

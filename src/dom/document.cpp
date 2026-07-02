@@ -5324,7 +5324,8 @@ void Document::layout(int viewport_width, int viewport_height,
     // tree where body is its own Yoga node.
     const int inner_w = viewport_width - pad_l - pad_r;
     detail::layout_blocks_with_yoga(
-        inner_w, viewport_height, inputs, out, measurer, out_f);
+        inner_w, viewport_height, inputs, out, measurer, out_f,
+        &impl_->root_style.computed);
 
     // Table column alignment. Yoga lays each row out independently, so
     // cells in column N of different rows wouldn't line up. Using the
@@ -5334,7 +5335,8 @@ void Document::layout(int viewport_width, int viewport_height,
     // align. No-op (returns false) when the document has no tables.
     if (assign_table_column_widths(inputs, out)) {
         detail::layout_blocks_with_yoga(
-            inner_w, viewport_height, inputs, out, measurer, out_f);
+            inner_w, viewport_height, inputs, out, measurer, out_f,
+            &impl_->root_style.computed);
     }
 
     for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
