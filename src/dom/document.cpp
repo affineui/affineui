@@ -6721,11 +6721,11 @@ void Document::draw(Painter& painter) {
                 paint_align = g.align;
                 if (b.tag == "textarea") {
                     // A textarea is a scroll container for its VALUE (UA
-                    // overflow:auto): scroll the text by the element's own
-                    // offset and clip everything (selection, text, caret,
-                    // decorations) to the padding box so overflowing lines
-                    // never paint over content below.
-                    text_y -= b.scroll_y;
+                    // overflow:auto). text_control_geometry already shifted
+                    // the origin by the element's own scroll offset; clip
+                    // everything (selection, text, caret, decorations) to the
+                    // padding box so overflowing lines never paint over
+                    // content below.
                     const Rect text_clip{
                         eff.x + used_border_left,
                         eff.y + used_border_top,
@@ -14124,6 +14124,21 @@ void Document::restore_transient_state(const TransientState& state) {
                                                "aria-expanded", "true") ||
                       changed;
         }
+        if (layer.popover) {
+            if (auto* field =
+                    nearest_ancestor_with_class(elem, "dcs-colorfield")) {
+                // A re-opened colorfield picker must show the field's CURRENT
+                // value, exactly like a fresh caret-open does. The rebuild
+                // re-emits the picker's SV/hue cursors at their defaults, so
+                // without this sync a picker kept open across a reload (e.g.
+                // right after a pick commits) snaps to a zeroed color even
+                // though the committed value is safely in the model.
+                changed = sync_dcs_colorfield(
+                              *impl_, field, current_dcs_colorfield_hsv(field),
+                              /*emit=*/false) ||
+                          changed;
+            }
+        }
         if (changed) {
             impl_->content_size = Size{0, 0};
         }
@@ -14375,6 +14390,14 @@ TextControlGeometry text_control_geometry(const detail::DocumentImpl& impl,
                                   cs.font_style != 0);
     g.text_x = eff.x + used_border_left + cs.padding_left;
     g.text_y = eff.y + used_border_top + cs.padding_top;
+    if (block.tag == "textarea") {
+        // A textarea scrolls its own value (UA overflow:auto): the text
+        // origin shifts by the element's own scroll offset. This is THE
+        // geometry both paint and caret/selection hit-mapping consume, so the
+        // shift lives here — a caret click on a scrolled textarea must map
+        // against exactly what is on screen.
+        g.text_y -= block.scroll_y;
+    }
     g.content_w = static_cast<float>(
         eff.w - used_border_left - used_border_right -
         cs.padding_left - cs.padding_right);
@@ -14445,6 +14468,12 @@ std::uint64_t text_layout_signature(const detail::DocumentImpl& impl,
     hash_mix_string(h, block.text_value);
     const auto& cs = impl.style_store.computed(block.id);
     hash_mix(h, g.font);
+    // Positions are part of the identity: consumers read entry.text_x/text_y
+    // (the caret hit-mapping maps p.y against entry.text_y). Leaving them out
+    // let an entry cached at one position be reused after the element moved
+    // or its textarea scrolled — clicks then mapped against stale geometry.
+    hash_mix(h, g.text_x);
+    hash_mix(h, g.text_y);
     hash_mix(h, g.content_w);
     hash_mix(h, g.letter_spacing_px);
     hash_mix(h, g.line_height_mult);

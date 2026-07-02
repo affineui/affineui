@@ -70,8 +70,12 @@ public:
         bool has_clip{false};
         affineui::Rect clip;
     };
+    struct StrokeLine {
+        float x0, y0, x1, y1;
+    };
     std::vector<FillDraw> fill_draws;
     std::vector<TextDraw> text_draws;
+    std::vector<StrokeLine> stroke_lines;
     std::vector<affineui::Rect> clip_stack;
 
     void begin_frame(int, int, float) override {}
@@ -80,8 +84,10 @@ public:
         fill_draws.push_back({r, c});
     }
     void stroke_rect(const affineui::Rect&, affineui::Color, float) override {}
-    void stroke_line(float, float, float, float, affineui::Color,
-                     float) override {}
+    void stroke_line(float x0, float y0, float x1, float y1, affineui::Color,
+                     float) override {
+        stroke_lines.push_back({x0, y0, x1, y1});
+    }
     void fill_circle(float, float, float, affineui::Color) override {}
     void stroke_arc(float, float, float, float, float, affineui::Color,
                     float) override {}
@@ -1503,6 +1509,40 @@ TEST_CASE("GE-shaped inspector: command-backed checkbox + colorfield commit "
         MESSAGE("after post-pick mouse moves tint='", tint_prop(), "'");
         CHECK(tint_prop() == committed);
 
+        // The pick's reload keeps the picker OPEN (transient state), and the
+        // re-opened picker must be SYNCED to the committed color — the
+        // reported bug: on release the picker's preview/cursors snapped to a
+        // zeroed color even though the model kept the pick.
+        {
+            const auto pop = app.document().find_element_rect(
+                "#aui-cf-tint-picker");
+            REQUIRE(pop.w > 0);  // still open across the reload
+            // The preview chip sits in the picker's BOTTOM row (below the SV
+            // square + hue bar).
+            const auto chip_pt = find_in_rect_with_class(
+                app,
+                affineui::Rect{pop.x, pop.y + pop.h - 28, pop.w, 26},
+                "dcs-colorfield__picker-chip");
+            REQUIRE(chip_pt.x >= 0);
+            affineui::Event hv{};
+            hv.type = affineui::EventType::MouseMove;
+            hv.pos = chip_pt;
+            app.dispatch(hv);
+            std::string preview_style;
+            for (const auto& info : app.document().hovered_info_chain()) {
+                if (std::find(info.classes.begin(), info.classes.end(),
+                              "dcs-colorfield__picker-chip") ==
+                    info.classes.end()) {
+                    continue;
+                }
+                for (const auto& a : info.attrs) {
+                    if (a.first == "style") preview_style = a.second;
+                }
+            }
+            MESSAGE("picker preview style='", preview_style, "'");
+            CHECK(preview_style.find(committed) != std::string::npos);
+        }
+
         // The user judges by the CHIP — the visible swatch must show the
         // committed color too (a stale transient-state reapply could revert
         // the DOM while the model stays right).
@@ -1639,6 +1679,29 @@ TEST_CASE("GE-shaped inspector: command-backed checkbox + colorfield commit "
         REQUIRE(td1 != nullptr);
         MESSAGE("notes draw y before=", y_before, " after wheel=", td1->pos.y);
         CHECK(td1->pos.y < y_before);
+
+        // Caret placement in a SCROLLED textarea: clicking a visible line
+        // must put the caret where the click landed (the reported bug: after
+        // scrolling, clicks mapped against stale unscrolled geometry). The
+        // caret paints as a short vertical stroke — it must sit inside the
+        // box, at the clicked line.
+        click({box.x + box.w / 2, box.y + box.h / 2});
+        painter.stroke_lines.clear();
+        painter.text_draws.clear();
+        app.document().draw(painter);
+        bool caret_in_box = false;
+        for (const auto& sl : painter.stroke_lines) {
+            const bool vertical = std::abs(sl.x0 - sl.x1) < 0.5f;
+            const float h = std::abs(sl.y1 - sl.y0);
+            if (!vertical || h < 8.0f || h > 24.0f) continue;
+            if (sl.x0 >= box.x && sl.x0 <= box.x + box.w &&
+                sl.y0 >= box.y - 1 && sl.y1 <= box.y + box.h + 1) {
+                caret_in_box = true;
+                MESSAGE("caret stroke at x=", sl.x0, " y=", sl.y0, "..",
+                        sl.y1);
+            }
+        }
+        CHECK(caret_in_box);
     }
 
     SUBCASE("colorfield: overshooting the drag OUT of the popover before "
