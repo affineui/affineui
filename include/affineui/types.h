@@ -105,6 +105,10 @@ struct Event {
 struct DispatchResult {
     bool redraw_requested{false};
     bool invalidate_view{false};
+    // Set while a native behavior script is still in the middle of a live
+    // gesture. App should keep DOM-local changes live but defer calling
+    // declarative view callbacks until the gesture reaches its finisher.
+    bool defer_widget_changes{false};
     // Set when an interaction changed the dock layout (e.g. a splitter drag
     // finished) so the app can persist the new arrangement.
     bool layout_changed{false};

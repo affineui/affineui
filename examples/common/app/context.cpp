@@ -5,7 +5,9 @@ namespace app {
 bool Context::run(CommandPtr command) {
     if (!command) return false;
     const bool recorded = stack_.push(std::move(command));
-    document_.touch();
+    if (recorded) {
+        document_.mark_dirty();
+    }
     return recorded;
 }
 

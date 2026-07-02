@@ -822,12 +822,28 @@ body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
 .aui-root .aui-knob[data-aui-widget=knob]{display:flex;margin-top:16px;margin-bottom:18px}
 .aui-root .dcs-card-list{gap:var(--dcs-s-2)}
 .aui-root .dcs-card-list>.dcs-card{padding:var(--dcs-s-4);text-align:left}
-.aui-root .dcs-field>.aui-select,.aui-root .dcs-field>.dcs-colorfield,.aui-root .dcs-field>.dcs-combo{flex:1 1 auto;min-width:0}
+.aui-root .dcs-field>.aui-select,.aui-root .dcs-field>.dcs-colorfield,.aui-root .dcs-field>.dcs-combo,.aui-root .dcs-field>.dcs-vec{flex:1 1 auto;min-width:0}
 .aui-root .dcs-field>.dcs-btn-group{display:inline-flex;flex:0 0 auto;width:auto;min-width:0}
 .aui-root .dcs-field>.dcs-btn-group>.dcs-btn{flex:0 0 auto;min-width:64px;white-space:nowrap}
 .aui-root .dcs-combo>input.dcs-combo__value{background:transparent;border:0;outline:0;text-align:right;min-width:0;cursor:ew-resize}
+.aui-root .dcs-vec{--dcs-xform-minwidth:72px;display:flex;gap:var(--dcs-s-1);column-gap:var(--dcs-s-1);row-gap:var(--dcs-s-1);min-width:0}
+.aui-root .dcs-vec>*{flex:1 1 0;min-width:var(--dcs-xform-minwidth);min-height:var(--dcs-h-in)}
+.aui-root .dcs-vec>.dcs-combo{min-width:var(--dcs-xform-minwidth)}
+.aui-root .dcs-vec>.dcs-combo .dcs-combo__fill{display:none}
+.aui-root .dcs-vec--stacked{flex-direction:column}
+.aui-root .dcs-vec--stacked>*{min-width:0;width:100%}
+.aui-root .dcs-field.dcs-field--vec{align-items:flex-start;height:auto;min-height:var(--dcs-h-in)}
+.aui-root .dcs-field.dcs-field--vec>.dcs-field__label{padding-top:3px}
+.aui-root .dcs-props>.dcs-field.dcs-field--vec-stacked{height:auto;min-height:var(--aui-vec-stack-min,var(--dcs-h-in))}
 .aui-root .dcs-colorfield{position:relative}
 .aui-root .dcs-colorfield>.dcs-colorfield__chip{border:0;padding:0;background:var(--c,#3bb7ff);color:transparent;appearance:none}
+.aui-root .dcs-colorfield__picker{width:100%;min-width:188px;box-sizing:border-box;align-self:stretch;display:flex;flex-grow:0;flex-shrink:0;flex-direction:column;gap:8px}
+.aui-root .dcs-colorfield__picker .dcs-color-square{width:100%;box-sizing:border-box;align-self:stretch;height:134px;flex-grow:0;flex-shrink:0}
+.aui-root .dcs-colorfield__picker .dcs-hue-bar{width:100%;box-sizing:border-box;align-self:stretch;height:12px;flex-grow:0;flex-shrink:0}
+.aui-root .dcs-colorfield__picker-row{display:flex;align-items:center;gap:6px;flex-grow:0;flex-shrink:0}
+.aui-root .dcs-colorfield__picker-chip{width:22px;height:22px;flex:0 0 auto;border-radius:var(--dcs-r-1);background:var(--c,#4d9fff);box-shadow:inset 0 0 0 1px rgba(0,0,0,.35)}
+.aui-root .dcs-colorfield__picker-input{flex:1 1 auto;min-width:0;height:var(--dcs-h-in)}
+.aui-root .dcs-colorfield__picker-eyedropper{flex:0 0 auto;width:var(--dcs-h-in);height:var(--dcs-h-in);padding:0}
 .aui-root .aui-color-menu{gap:1px;align-items:stretch}
 .aui-root .aui-color-menu .aui-color-option{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box}
 .aui-root .aui-color-option__swatch{display:inline-block;width:14px;height:14px;border-radius:2px;background:var(--c,#fff);box-shadow:inset 0 0 0 1px rgba(0,0,0,.35)}
@@ -1707,6 +1723,10 @@ WidgetRef View::input(std::string_view label,
                       std::string_view key,
                       std::source_location here) {
     const std::string_view input_type = type.empty() ? "text" : type;
+    if (theme_ == ViewTheme::Decius && input_type == "color") {
+        return colorfield(label, value, key, here);
+    }
+
     const auto group_recipe = default_element(theme_, FrameworkElement::FieldGroup);
     auto& group = open_node(WidgetKind::TextInput, group_recipe.tag,
                             group_recipe.classes, key, here, true);
@@ -1742,82 +1762,6 @@ WidgetRef View::input(std::string_view label,
         set_attr(input_node, "data-fill-min", number(numeric_value - 1.0));
         set_attr(input_node, "data-fill-max", number(numeric_value + 1.0));
         if (!key.empty()) set_attr(input_node, "data-aui-name", key);
-        close_node();
-        close_node();
-        return ref_for_node(group, current_panel_id(stack_));
-    }
-
-    if (theme_ == ViewTheme::Decius && input_type == "color") {
-        auto& color = open_node(WidgetKind::Container, "div", "dcs-colorfield",
-                                "__colorfield", here, true);
-        const std::string field_id =
-            "aui-colorfield-" + dom_id_fragment(key.empty() ? color.remote_id
-                                                            : std::string(key));
-        const std::string menu_id = field_id + "-menu";
-        set_attr(group, "aria-expanded", "false");
-        set_attr(group, "data-dcs-toggle", "menu");
-        set_attr(group, "data-dcs-target", "#" + menu_id);
-        set_attr(color, "id", field_id);
-        if (!key.empty()) set_attr(color, "data-aui-name", key);
-        set_attr(color, "role", "button");
-        set_attr(color, "aria-expanded", "false");
-        set_attr(color, "data-dcs-toggle", "menu");
-        set_attr(color, "data-dcs-target", "#" + menu_id);
-        set_attr(color, "data-value", value);
-
-        auto& chip = open_node(WidgetKind::Container, "div",
-                               "dcs-colorfield__chip", "__chip", here,
-                               false);
-        set_attr(chip, "style", "--c:" + std::string(value) +
-                                ";background:" + std::string(value));
-
-        auto& hex = open_node(WidgetKind::Container, "span",
-                              "dcs-colorfield__hex", "__hex", here, false);
-        set_text(hex, value);
-
-        auto& caret = open_node(WidgetKind::Container, "span",
-                                "dcs-colorfield__caret di di-chevron-down",
-                                "__caret", here, false);
-        (void) caret;
-
-        close_node();
-
-        auto& menu = open_node(WidgetKind::Container, "div",
-                               "dcs-menu aui-color-menu", "__menu", here,
-                               true);
-        set_attr(menu, "id", menu_id);
-        set_attr(menu, "hidden", "");
-        set_attr(menu, "data-aui-colorfield", field_id);
-
-        std::vector<std::string> palette{
-            std::string(value), "#3bb7ff", "#33aaff", "#3dd68a",
-            "#ff8a3a", "#8b6dff", "#cf6b3a", "#3a3d45",
-        };
-        std::sort(palette.begin(), palette.end());
-        palette.erase(std::unique(palette.begin(), palette.end()),
-                      palette.end());
-        for (const auto& swatch : palette) {
-            auto& option = open_node(
-                WidgetKind::Button, "button", "dcs-menu__item aui-color-option",
-                std::string{"__color_"} + dom_id_fragment(swatch), here, true);
-            set_attr(option, "type", "button");
-            set_attr(option, "role", "menuitem");
-            set_attr(option, "value", swatch);
-            set_attr(option, "data-dcs-value", swatch);
-            if (swatch == value) set_attr(option, "aria-selected", "true");
-
-            auto& swatch_node = open_node(
-                WidgetKind::Container, "span", "aui-color-option__swatch",
-                "__swatch", here, false);
-            set_attr(swatch_node, "style", "--c:" + swatch +
-                                      ";background:" + swatch);
-
-            auto& swatch_label = open_node(WidgetKind::Container, "span",
-                                           "dcs-menu__label-text", "__label",
-                                           here, false);
-            set_text(swatch_label, swatch);
-            close_node();
-        }
         close_node();
         close_node();
         return ref_for_node(group, current_panel_id(stack_));
@@ -3065,13 +3009,20 @@ void View::emit_one_floating_panel(const DockRecorder& rec,
     auto emit_tab = [&](const DockRecorder::Spec& spec, bool selected,
                         std::string_view key, bool title_tab) {
         std::string cls = "dcs-dockpane__tab";
-        if (title_tab) cls += " dcs-panel__title dcs-panel__title--dock-tab";
+        if (title_tab) {
+            cls += " dcs-panel__title dcs-panel__title--dock-tab";
+        }
         auto& tab = open_node(WidgetKind::Button, "button", cls, key, here,
                               true);
         set_attr(tab, "type", "button");
         set_attr(tab, "aria-selected", selected ? "true" : "false");
         set_attr(tab, "data-dcs-target", "#" + spec.id + "-body");
-        if (title_tab) set_attr(tab, "data-dcs-title-tab", "");
+        if (title_tab) {
+            // The bundle's `.dcs-panel__title--dock-tab` rules own the look
+            // (appearance reset, grab cursor, tab chrome suppressed) — same as
+            // decius.js prepareTabForTitlebar, which only swaps classes.
+            set_attr(tab, "data-dcs-title-tab", "");
+        }
         if (spec.float_size && spec.float_size->first > 0 &&
             spec.float_size->second > 0) {
             set_attr(tab, "data-dcs-tearout-width",
@@ -3492,9 +3443,18 @@ WidgetRef View::vec(std::string_view label,
             std::to_string(channels.size()));
     }
     const auto group_recipe = default_element(theme_, FrameworkElement::FieldGroup);
+    std::string group_classes{group_recipe.classes};
+    if (theme_ == ViewTheme::Decius) {
+        if (!group_classes.empty()) group_classes.push_back(' ');
+        group_classes += "dcs-field--vec";
+    }
     auto& group = open_node(WidgetKind::Container, group_recipe.tag,
-                            group_recipe.classes, key, here, true);
+                            group_classes, key, here, true);
     set_attr(group, "data-aui-widget", "vec");
+    // No inline styles: the Decius bundle owns .dcs-vec (flex row, s-1 gap,
+    // 72px per-item floor) and the framework-support sheet owns the
+    // .dcs-field--vec companion rules (the engine toggles the companion class
+    // in place of the bundle's :has() selectors).
 
     const auto label_recipe = default_element(theme_, FrameworkElement::FieldLabel);
     auto& label_node = open_node(WidgetKind::Container, label_recipe.tag,
@@ -3734,19 +3694,67 @@ WidgetRef View::colorfield(std::string_view label, std::string_view value,
                                "__pop-body", here, true);
         set_attr(body, "style",
                  "padding:var(--dcs-s-3);display:flex;flex-direction:column;"
-                 "gap:var(--dcs-s-2)");
+                 "gap:var(--dcs-s-2);flex-grow:0;flex-shrink:0;"
+                 "width:100%;box-sizing:border-box;align-items:stretch");
+        auto& picker = open_node(WidgetKind::Container, "div",
+                                 "dcs-colorfield__picker", "__picker-body",
+                                 here, true);
+        set_attr(picker, "style",
+                 "width:100%;min-width:188px;box-sizing:border-box;"
+                 "align-self:stretch;display:flex;"
+                 "flex-direction:column;gap:8px;flex-grow:0;"
+                 "flex-shrink:0");
         auto& sv = open_node(WidgetKind::Container, "div", "dcs-color-square",
                              "__sv", here, true);
-        set_attr(sv, "style", "aspect-ratio:1.4/1");
+        set_attr(sv, "id", picker_id + "-sv");
+        set_attr(sv, "style",
+                 "width:100%;height:134px;aspect-ratio:1.4/1;"
+                 "box-sizing:border-box;align-self:stretch;"
+                 "flex-grow:0;flex-shrink:0");
         open_node(WidgetKind::Container, "div", "dcs-color-square__cursor",
                   "__sv-cursor", here, false);
         close_node();  // sv
         auto& hue = open_node(WidgetKind::Container, "div", "dcs-hue-bar",
                               "__hue", here, true);
-        (void) hue;
+        set_attr(hue, "id", picker_id + "-hue");
+        set_attr(hue, "style",
+                 "width:100%;height:12px;box-sizing:border-box;"
+                 "align-self:stretch;flex-grow:0;flex-shrink:0");
         open_node(WidgetKind::Container, "div", "dcs-hue-bar__cursor",
                   "__hue-cursor", here, false);
         close_node();  // hue
+        auto& preview = open_node(WidgetKind::Container, "div",
+                                  "dcs-colorfield__picker-row", "__preview",
+                                  here, true);
+        set_attr(preview, "style",
+                 "display:flex;align-items:center;gap:6px;"
+                 "flex-grow:0;flex-shrink:0");
+        auto& preview_chip = open_node(
+            WidgetKind::Container, "div", "dcs-colorfield__picker-chip",
+            "__preview-chip", here, false);
+        set_attr(preview_chip,
+                 "style",
+                 "--c:" + std::string(value) + ";background:" +
+                     std::string(value));
+        auto& preview_hex = open_node(
+            WidgetKind::TextInput, "input",
+            "dcs-input dcs-mono dcs-colorfield__picker-input",
+            "__preview-hex", here, false);
+        set_attr(preview_hex, "type", "text");
+        set_attr(preview_hex, "value", value);
+        set_attr(preview_hex, "spellcheck", "false");
+        auto& eyedropper = open_node(
+            WidgetKind::Button, "button",
+            "dcs-btn dcs-btn--icon dcs-btn--sm "
+            "dcs-colorfield__picker-eyedropper",
+            "__eyedropper", here, true);
+        set_attr(eyedropper, "type", "button");
+        set_attr(eyedropper, "title", "Pick colour from screen");
+        open_node(WidgetKind::Container, "i", "di di-eyedropper",
+                  "__eyedropper-icon", here, false);
+        close_node();  // eyedropper
+        close_node();  // preview
+        close_node();  // picker
         close_node();  // body
     }
     close_node();  // popover

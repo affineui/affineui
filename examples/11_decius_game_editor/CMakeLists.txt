@@ -1,6 +1,7 @@
 affineui_add_sokol_example(decius_game_editor
     main.cpp
     game_editor.cpp
+    interactive_tests.cpp
     game_editor_styles.cpp
 )
 # Built on the affineui_app DCC template (commands, selection, document).

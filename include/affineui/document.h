@@ -290,6 +290,21 @@ public:
     int hovered_cursor() const;
 
 private:
+    struct TransientState {
+        struct Layer {
+            std::string id;
+            std::string style;
+            std::string base_style;
+            std::string target_selector;
+            bool        popover{false};
+            bool        menu{false};
+        };
+        std::vector<Layer> open_layers;
+    };
+
+    [[nodiscard]] TransientState capture_transient_state() const;
+    void restore_transient_state(const TransientState& state);
+
     std::unique_ptr<detail::DocumentImpl> impl_;
     friend class App;
 };

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cmath>
 #include <cstdlib>
 #include <vector>
 
@@ -604,19 +605,44 @@ struct NodeCtx {
     float         letter_spacing_px;
     float         text_indent_px;
     bool          nowrap;
+    float         font_px;
 };
 
 YGSize measure_text_cb(YGNodeConstRef node,
                        float width, YGMeasureMode width_mode,
                        float /*height*/, YGMeasureMode /*height_mode*/) {
     auto* ctx = static_cast<const NodeCtx*>(YGNodeGetContext(node));
-    if (!ctx || !ctx->painter || ctx->font == 0) return {0.0f, 0.0f};
+    if (!ctx) return {0.0f, 0.0f};
+    // font==0 only blocks measuring when a painter would need the id; the
+    // painterless estimate below works from the style's font-size alone (font
+    // ids don't exist until a rasterizer registers faces).
+    if (ctx->painter && ctx->font == 0) return {0.0f, 0.0f};
     // If width is unconstrained OR white-space: nowrap, pass a large
     // wrap width so text measures as a single line of its natural width.
     const float positive_indent = std::max(0.0f, ctx->text_indent_px);
     const float wrap_w =
         (ctx->nowrap ||
          width_mode == YGMeasureModeUndefined || width <= 0.0f) ? 1e6f : width;
+    if (!ctx->painter) {
+        // Headless estimate (no rasterizer attached — server-side layout or a
+        // painterless test): text must still OCCUPY space, or every label
+        // collapses to 0 and layouts that rely on content sizing (a title
+        // tab's flex-basis:auto, min-content floors, …) silently break. A
+        // ~0.52em average advance is a reasonable UI-string approximation.
+        const std::string_view text(ctx->text_data, ctx->text_size);
+        const float fs = ctx->font_px > 0.0f ? ctx->font_px : 13.0f;
+        const float advance = fs * 0.52f + std::max(0.0f, ctx->letter_spacing_px);
+        const float natural = static_cast<float>(text.size()) * advance;
+        const float avail = std::max(1.0f, wrap_w - positive_indent);
+        const float line_h =
+            fs * (ctx->line_height_mult > 0.0f ? ctx->line_height_mult : 1.25f);
+        const float lines =
+            natural <= avail
+                ? 1.0f
+                : std::ceil(natural / avail);
+        return YGSize{std::min(natural, avail) + positive_indent,
+                      lines * line_h};
+    }
     const auto sz = ctx->painter->measure_text_box(
         ctx->font,
         std::string_view(ctx->text_data, ctx->text_size),
@@ -744,9 +770,13 @@ void layout_blocks_with_yoga(int viewport_width_px,
             [i](const BlockLayoutInput& child) {
                 return child.parent_idx == static_cast<int>(i);
             });
+        // Text still measures without a rasterizer (estimated glyph metrics in
+        // measure_text_cb) so headless layout keeps content-sized boxes. Font
+        // ids only exist once a rasterizer registers faces, so painterless
+        // layout must not require one.
         const bool has_text_measure =
-            measurer != nullptr && !inputs[i].text.empty() &&
-            inputs[i].font != 0 && !has_children;
+            !inputs[i].text.empty() && !has_children &&
+            (inputs[i].font != 0 || measurer == nullptr);
         const bool has_baseline = inputs[i].baseline_px > 0.0f;
         if (has_text_measure || has_baseline) {
             node_ctxs[i] = NodeCtx{
@@ -759,6 +789,9 @@ void layout_blocks_with_yoga(int viewport_width_px,
                 inputs[i].letter_spacing_px,
                 inputs[i].text_indent_px,
                 inputs[i].nowrap,
+                inputs[i].style
+                    ? static_cast<float>(inputs[i].style->font_size_px)
+                    : 13.0f,
             };
             YGNodeSetContext(n, &node_ctxs[i]);
         }

@@ -257,6 +257,13 @@ void GameEditor::redo() { ctx_.stack().redo(); }
 void GameEditor::duplicate_selected() { ctx_.run(app::cmd::duplicate); }
 void GameEditor::delete_selected() { ctx_.run(app::cmd::delete_); }
 
+void GameEditor::set_debug_scope(std::string_view scope) {
+    debug_scope_ = std::string(scope);
+    if (debug_scope_ == "full" || debug_scope_ == "none") {
+        debug_scope_.clear();
+    }
+}
+
 // ── View ──────────────────────────────────────────────────────────────────
 
 affineui::View GameEditor::build() {
@@ -283,11 +290,20 @@ affineui::View GameEditor::build() {
         return app_.document().dock_active_tab(id);
     });
 
+    const bool scoped = !debug_scope_.empty();
+    const bool show_tree = !scoped || debug_scope_ == "tree";
+    const bool show_inspector =
+        !scoped || debug_scope_ == "inspector" || debug_scope_ == "color" ||
+        debug_scope_ == "vector" || debug_scope_ == "checkbox";
+    const bool show_tearout = !scoped || debug_scope_ == "tearout";
+
     v.begin();
     {
         // App shell: a fixed inset:0 column (menubar / work area / status bar).
         auto app = v.container("ge-app", "app");
-        build_menubar(v);
+        if (!scoped) {
+            build_menubar(v);
+        }
 
         // The work area is a declarative dock: the viewport is the center
         // document, with Hierarchy / Inspector / Assets docked around it. The
@@ -297,13 +313,18 @@ affineui::View GameEditor::build() {
             dv.document([&](View& doc) { build_viewport(doc); }, "Lit View",
                         "cube")
                 .toolbar([&](View& tb) { build_viewport_toolbar(tb); });
-            dv.dockpanel("Hierarchy",
-                         affineui::DockLocation::docked(affineui::Dock::Left, 260),
-                         [&](View& p) { build_outliner(p); }, "layers");
-            dv.dockpanel("Inspector",
-                         affineui::DockLocation::docked(affineui::Dock::Right, 320),
-                         [&](View& p) { build_inspector(p); }, "cog");
-            auto assets = dv.dockpanel(
+            if (show_tree) {
+                dv.dockpanel("Hierarchy",
+                             affineui::DockLocation::docked(affineui::Dock::Left, 260),
+                             [&](View& p) { build_outliner(p); }, "layers");
+            }
+            if (show_inspector) {
+                dv.dockpanel("Inspector",
+                             affineui::DockLocation::docked(affineui::Dock::Right, 320),
+                             [&](View& p) { build_inspector(p); }, "cog");
+            }
+            if (show_tearout) {
+                auto assets = dv.dockpanel(
                 "Assets",
                 affineui::DockLocation::docked(affineui::Dock::Bottom, 120),
                 [&](View& p) { build_assets(p); }, "image");
@@ -312,9 +333,12 @@ affineui::View GameEditor::build() {
             dv.dockpanel("Console",
                          affineui::DockLocation::tab().in(assets),
                          [&](View& p) { build_console(p); }, "file");
+            }
         });
 
-        build_statusbar(v);
+        if (!scoped) {
+            build_statusbar(v);
+        }
     }
     v.end();
     return v;

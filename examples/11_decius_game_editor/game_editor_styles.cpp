@@ -30,6 +30,11 @@ std::string native_css() {
   line-height:1.5;text-shadow:0 1px 2px rgba(0,0,0,.8);pointer-events:none}
 .ge-toolrail{z-index:5}
 
+.dcs-popover .dcs-popover__body{box-sizing:border-box;width:100%;align-items:stretch}
+.dcs-popover .dcs-colorfield__picker,
+.dcs-popover .dcs-color-square,
+.dcs-popover .dcs-hue-bar{width:100%;align-self:stretch;box-sizing:border-box}
+
 /* Asset strip. */
 .ge-asset-strip{display:flex;gap:8px;padding:10px;overflow:auto}
 .ge-asset{width:88px;height:64px;flex:0 0 auto;background:var(--dcs-well);

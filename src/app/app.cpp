@@ -29,6 +29,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <sstream>
 #include <utility>
@@ -57,6 +58,7 @@ struct AppImpl {
     std::function<void()> view_fn;
     std::vector<WidgetClickBinding> view_click_bindings;
     std::vector<WidgetChangeBinding> view_change_bindings;
+    std::vector<Document::WidgetChange> deferred_widget_changes;
     bool                  quit_requested{false};
     int                   exit_code{0};
     int                   last_cursor{-1};  // last sapp cursor we set
@@ -175,7 +177,42 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
         (void) impl.document.take_activated_widgets();
     }
 
-    const auto changes = impl.document.take_widget_changes();
+    auto changes = impl.document.take_widget_changes();
+    if (result.defer_widget_changes) {
+        if (!changes.empty()) {
+            impl.deferred_widget_changes.insert(
+                impl.deferred_widget_changes.end(),
+                std::make_move_iterator(changes.begin()),
+                std::make_move_iterator(changes.end()));
+            consumed = true;
+            impl.dirty = true;
+        }
+        return consumed;
+    }
+    if (!impl.deferred_widget_changes.empty()) {
+        impl.deferred_widget_changes.insert(
+            impl.deferred_widget_changes.end(),
+            std::make_move_iterator(changes.begin()),
+            std::make_move_iterator(changes.end()));
+        changes = std::move(impl.deferred_widget_changes);
+        impl.deferred_widget_changes.clear();
+
+        std::vector<Document::WidgetChange> coalesced;
+        coalesced.reserve(changes.size());
+        for (auto& change : changes) {
+            auto it = std::find_if(
+                coalesced.begin(), coalesced.end(),
+                [&](const Document::WidgetChange& existing) {
+                    return existing.name == change.name;
+                });
+            if (it == coalesced.end()) {
+                coalesced.push_back(std::move(change));
+            } else {
+                it->value = std::move(change.value);
+            }
+        }
+        changes = std::move(coalesced);
+    }
     if (!changes.empty()) {
         struct PendingChange {
             std::function<void(std::string_view)> handler;
@@ -256,10 +293,12 @@ App::App(App&&) noexcept            = default;
 App& App::operator=(App&&) noexcept = default;
 
 void App::load_html(std::string_view html) {
+    const auto transient = impl_->document.capture_transient_state();
     impl_->view_click_bindings.clear();
     impl_->view_change_bindings.clear();
     impl_->document.clear_scripts();
     impl_->document.set_html(html);
+    impl_->document.restore_transient_state(transient);
     impl_->dirty = true;
     impl_->animations_active = false;
     impl_->settle_frames = detail::kSwapchainSettleFrames;

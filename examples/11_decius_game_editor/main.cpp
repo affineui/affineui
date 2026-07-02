@@ -7,13 +7,57 @@
 
 #include "game_editor.h"
 #include "game_editor_styles.h"
+#include "interactive_tests.h"
 
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <string_view>
 
-int main() {
+namespace {
+
+struct Args {
+    std::string_view lab;
+    std::string_view game_scope;
+    bool help{false};
+};
+
+Args parse_args(int argc, char** argv) {
+    Args args;
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg = argv[i] ? argv[i] : "";
+        if (arg == "--lab-help" || arg == "--help-labs") {
+            args.help = true;
+        } else if (arg == "--lab" && i + 1 < argc) {
+            args.lab = argv[++i];
+        } else if (arg.rfind("--lab=", 0) == 0) {
+            args.lab = arg.substr(6);
+        } else if (arg == "--game-scope" && i + 1 < argc) {
+            args.game_scope = argv[++i];
+        } else if (arg.rfind("--game-scope=", 0) == 0) {
+            args.game_scope = arg.substr(13);
+        }
+    }
+    return args;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    const Args args = parse_args(argc, argv);
+    if (args.help) {
+        ge::print_interactive_test_usage();
+        return 0;
+    }
+    if (!args.lab.empty()) {
+        return ge::run_interactive_test(args.lab);
+    }
+
     ge::GameEditor editor;
+    if (!args.game_scope.empty()) {
+        editor.set_debug_scope(args.game_scope);
+    }
+
     // Headless escape hatch for conformance/CI: dump the generated document
     // EXACTLY as the running app renders it — the framework bundle plus this
     // app's own CSS as the user stylesheet (not the View's default boilerplate),

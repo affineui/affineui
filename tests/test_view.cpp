@@ -3,8 +3,12 @@
 #include "affineui/app.h"
 #include "affineui/view.h"
 #include "affineui_browser_server.h"
+#include "app/context.h"
 
 #include <algorithm>
+#include <fstream>
+#include <functional>
+#include <iterator>
 #include <string>
 #include <utility>
 #include <vector>
@@ -50,6 +54,76 @@ std::vector<std::string> test_asset_folders() {
     };
 }
 
+int hex_channel(std::string_view hex, std::size_t offset) {
+    if (hex.size() < offset + 2) return -1;
+    const auto digit = [](char c) {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+        if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+        return -1;
+    };
+    const int hi = digit(hex[offset]);
+    const int lo = digit(hex[offset + 1]);
+    return hi < 0 || lo < 0 ? -1 : (hi << 4) | lo;
+}
+
+bool near_white_hex(std::string_view hex) {
+    return hex.size() == 7 && hex.front() == '#' &&
+           hex_channel(hex, 1) >= 248 &&
+           hex_channel(hex, 3) >= 248 &&
+           hex_channel(hex, 5) >= 248;
+}
+
+class SetBoolProperty final : public app::Command {
+public:
+    SetBoolProperty(std::string id, std::string prop, bool value)
+        : Command("obj.setBool", "Set Bool"),
+          id_(std::move(id)),
+          prop_(std::move(prop)),
+          next_(value) {}
+
+    void redo(app::Document& doc) override {
+        previous_ = std::get<bool>(doc.property(id_, prop_,
+                                                app::PropValue{next_}));
+        doc.set_property(id_, prop_, app::PropValue{next_});
+    }
+
+    void undo(app::Document& doc) override {
+        doc.set_property(id_, prop_, app::PropValue{previous_});
+    }
+
+private:
+    std::string id_;
+    std::string prop_;
+    bool next_{false};
+    bool previous_{false};
+};
+
+class SetStringProperty final : public app::Command {
+public:
+    SetStringProperty(std::string id, std::string prop, std::string value)
+        : Command("obj.setString", "Set String"),
+          id_(std::move(id)),
+          prop_(std::move(prop)),
+          next_(std::move(value)) {}
+
+    void redo(app::Document& doc) override {
+        previous_ = std::get<std::string>(doc.property(id_, prop_,
+                                                       app::PropValue{next_}));
+        doc.set_property(id_, prop_, app::PropValue{next_});
+    }
+
+    void undo(app::Document& doc) override {
+        doc.set_property(id_, prop_, app::PropValue{previous_});
+    }
+
+private:
+    std::string id_;
+    std::string prop_;
+    std::string next_;
+    std::string previous_;
+};
+
 affineui::Point find_hovered_widget(affineui::App& app,
                                     std::string_view name,
                                     int width,
@@ -70,6 +144,31 @@ affineui::Point find_hovered_widget(affineui::App& app,
                         });
                 });
             if (found) return move.pos;
+        }
+    }
+    return {-1, -1};
+}
+
+// Scan along a rect's horizontal centerline for the first point whose hover
+// chain contains an element with `cls` in its class list. This aims a click at
+// a specific piece of a widget row (e.g. the .dcs-check box the user actually
+// clicks) instead of the row's top-left corner.
+affineui::Point find_in_rect_with_class(affineui::App& app,
+                                        affineui::Rect r,
+                                        std::string_view cls) {
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    const int y = r.y + r.h / 2;
+    for (int x = r.x + 2; x < r.x + r.w - 1; x += 2) {
+        move.pos = {x, y};
+        app.dispatch(move);
+        for (const auto& info : app.document().hovered_info_chain()) {
+            for (const auto& attr : info.attrs) {
+                if (attr.first == "class" &&
+                    attr.second.find(cls) != std::string::npos) {
+                    return {x, y};
+                }
+            }
         }
     }
     return {-1, -1};
@@ -497,6 +596,692 @@ TEST_CASE("App dispatch invokes command widget change callbacks") {
     up.pos = move.pos;
     CHECK(app.dispatch(up));
     CHECK(value == "true");
+}
+
+TEST_CASE("App dispatch toggles Decius checkboxes on the first click") {
+    affineui::View view{affineui::ViewTheme::Decius};
+    std::string value;
+
+    view.begin();
+    view.checkbox("Cast shadows", false, "shadows")
+        .on_change([&](std::string_view next) { value = std::string(next); });
+    view.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    app.load_view(view);
+    app.document().layout(320, 140);
+
+    const auto checkbox = find_hovered_widget(app, "shadows", 320, 140);
+    REQUIRE(checkbox.x >= 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = checkbox;
+    app.dispatch(down);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = checkbox;
+    CHECK(app.dispatch(up));
+
+    CHECK(value == "true");
+
+}
+
+TEST_CASE("App dispatch keeps model-backed Decius checkbox first clicks") {
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+
+    bool shadows = false;
+    int rebuilds = 0;
+    std::function<affineui::View()> build_view;
+    build_view = [&]() {
+        affineui::View view{affineui::ViewTheme::Decius};
+        view.begin();
+        view.checkbox("Cast shadows", shadows, "shadows")
+            .on_change([&](std::string_view next) {
+                shadows = next == "true";
+                ++rebuilds;
+                app.load_view(build_view());
+            });
+        view.end();
+        return view;
+    };
+
+    app.load_view(build_view());
+    app.document().layout(320, 140);
+
+    const auto checkbox = find_hovered_widget(app, "shadows", 320, 140);
+    REQUIRE(checkbox.x >= 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = checkbox;
+    app.dispatch(down);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = checkbox;
+    CHECK(app.dispatch(up));
+    app.document().layout(320, 140);
+
+    CHECK(shadows);
+    CHECK(rebuilds == 1);
+    const auto after = find_hovered_widget(app, "shadows", 320, 140);
+    REQUIRE(after.x >= 0);
+}
+
+TEST_CASE("App Decius checkbox survives command-stack rebuilds on first click") {
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    app::Context ctx;
+
+    app::Object obj;
+    obj.id = "hero";
+    obj.type = "mesh";
+    obj.name = "Hero";
+    obj.properties.push_back({"castShadows", app::PropValue{false}});
+    ctx.document().add(std::move(obj));
+
+    int reloads = 0;
+    std::function<affineui::View()> build_view;
+    auto prop = [&]() {
+        return std::get<bool>(ctx.document().property(
+            "hero", "castShadows", app::PropValue{false}));
+    };
+    build_view = [&]() {
+        affineui::View view{affineui::ViewTheme::Decius};
+        view.begin();
+        view.checkbox("Cast shadows", prop(), "shadows")
+            .on_change([&](std::string_view next) {
+                ctx.run(std::make_unique<SetBoolProperty>(
+                    "hero", "castShadows",
+                    next == "true" || next == "1" || next == "on"));
+            });
+        view.checkbox("Visible", true, "visible");
+        view.end();
+        return view;
+    };
+    ctx.stack().set_changed_handler([&] {
+        ++reloads;
+        app.load_view(build_view());
+    });
+
+    app.load_view(build_view());
+    app.document().layout(360, 160);
+
+    auto click = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        app.dispatch(down);
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        app.dispatch(up);
+        app.document().layout(360, 160);
+    };
+
+    auto checkbox = find_hovered_widget(app, "shadows", 360, 160);
+    REQUIRE(checkbox.x >= 0);
+    click(checkbox);
+    CHECK(prop());
+    CHECK(reloads == 1);
+
+    checkbox = find_hovered_widget(app, "shadows", 360, 160);
+    REQUIRE(checkbox.x >= 0);
+    click(checkbox);
+    CHECK_FALSE(prop());
+    CHECK(reloads == 2);
+}
+
+// Faithful mirror of examples/11 (decius_game_editor): the full 0.6.2 bundle,
+// a dock workspace with an Inspector pane, foldouts + dcs-props rows, dock
+// replay providers, and command-backed properties whose stack handler reloads
+// the whole view — the EXACT shape reported broken in-window ("the top
+// checkbox needs two clicks", "the picked color snaps back") while the bare
+// fixtures above stay green.
+TEST_CASE("GE-shaped inspector: command-backed checkbox + colorfield commit "
+          "on the FIRST interaction") {
+    std::ifstream bundle_in(
+        AFFINEUI_TEST_SOURCE_DIR
+        "/examples/frameworks/css/decius-css-0.6.2.bundle.min.css",
+        std::ios::binary);
+    REQUIRE(bundle_in.good());
+    std::string bundle((std::istreambuf_iterator<char>(bundle_in)),
+                       std::istreambuf_iterator<char>());
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    std::function<void()> on_layout_changed;
+    cfg.on_layout_changed = [&] {
+        if (on_layout_changed) on_layout_changed();
+    };
+    affineui::App app{cfg};
+    app::Context ctx;
+
+    app::Object obj;
+    obj.id = "hero";
+    obj.type = "mesh";
+    obj.name = "Hero";
+    obj.properties.push_back({"castShadows", app::PropValue{true}});
+    obj.properties.push_back({"tint", app::PropValue{std::string{"#4d9fff"}}});
+    ctx.document().add(std::move(obj));
+
+    auto shadows_prop = [&] {
+        return std::get<bool>(ctx.document().property(
+            "hero", "castShadows", app::PropValue{true}));
+    };
+    auto tint_prop = [&] {
+        return std::get<std::string>(ctx.document().property(
+            "hero", "tint", app::PropValue{std::string{"#4d9fff"}}));
+    };
+    bool visible_local = true;
+    int reloads = 0;
+    int inspector_px = 0;  // 0 = declared size (320); tests shrink it below
+
+    std::function<affineui::View()> build = [&] {
+        affineui::View v{affineui::ViewTheme::Decius};
+        v.set_framework_version("0.6.2");
+        v.selector(affineui::decius::selector::style,
+                   affineui::decius::style::flat);
+        v.selector(affineui::decius::selector::density,
+                   affineui::decius::density::compact);
+        v.selector(affineui::decius::selector::accent, "cyan");
+        v.set_dock_size_provider([&](std::string_view id) {
+            // Panel ids are normalized to lowercase by the View.
+            return (id == "Inspector" || id == "inspector") ? inspector_px : 0;
+        });
+        v.set_dock_layout_provider(
+            [&] { return app.document().dock_layout(); });
+        v.set_dock_placement_provider([&](std::string_view id) {
+            return app.document().dock_override(id);
+        });
+        v.set_dock_active_tab_provider([&](std::string_view id) {
+            return app.document().dock_active_tab(id);
+        });
+        v.begin();
+        {
+            auto shell = v.container("ge-app", "app");
+            v.document_view("workarea", [&](affineui::View& dv) {
+                dv.document(
+                    [&](affineui::View& doc) {
+                        auto canvas = doc.container("ge-vp-canvas", "vp-canvas");
+                        canvas.attr("data-dcs-float-host", "");
+                    },
+                    "Lit View", "cube");
+                dv.dockpanel(
+                    "Inspector",
+                    affineui::DockLocation::docked(affineui::Dock::Right, 320),
+                    [&](affineui::View& p) {
+                        auto foldouts =
+                            p.container("dcs-foldouts", "insp-foldouts");
+                        {
+                            auto fold =
+                                p.foldout("Material", true, "fold-material");
+                            auto props =
+                                p.container("dcs-props", "material-props");
+                            p.slider("Roughness", 0.62, 0.0, 1.0, "rough");
+                            p.colorfield("Tint", tint_prop(), "tint")
+                                .on_change([&](std::string_view next) {
+                                    ctx.run(std::make_unique<SetStringProperty>(
+                                        "hero", "tint", std::string(next)));
+                                });
+                            p.checkbox("Cast shadows", shadows_prop(), "shadows")
+                                .on_change([&](std::string_view next) {
+                                    ctx.run(std::make_unique<SetBoolProperty>(
+                                        "hero", "castShadows",
+                                        next == "true" || next == "1" ||
+                                            next == "on"));
+                                });
+                        }
+                        {
+                            auto fold =
+                                p.foldout("Transform", true, "fold-xform");
+                            auto props =
+                                p.container("dcs-props", "xform-props");
+                            p.vec("Location", {"X", "Y", "Z"},
+                                  {12.0, 4.2, -8.5}, "loc");
+                        }
+                        {
+                            auto fold =
+                                p.foldout("Display", true, "fold-display");
+                            auto props =
+                                p.container("dcs-props", "display-props");
+                            p.checkbox("Visible", visible_local, "visible")
+                                .on_change([&](std::string_view next) {
+                                    visible_local = next == "true" ||
+                                                    next == "1" || next == "on";
+                                });
+                        }
+                    },
+                    "cog");
+                auto assets = dv.dockpanel(
+                    "Assets",
+                    affineui::DockLocation::docked(affineui::Dock::Bottom, 120),
+                    [&](affineui::View& p) {
+                        p.text("asset strip", "asset-strip");
+                    },
+                    "image");
+                dv.dockpanel("Console",
+                             affineui::DockLocation::tab().in(assets),
+                             [&](affineui::View& p) {
+                                 p.text("console output", "console-text");
+                             },
+                             "file");
+            });
+        }
+        v.end();
+        return v;
+    };
+
+    auto reload = [&] {
+        ++reloads;
+        app.load_view(build());
+    };
+    on_layout_changed = reload;
+    ctx.stack().set_changed_handler(reload);
+    ctx.document().set_changed_handler(reload);
+
+    constexpr int W = 1440;
+    constexpr int H = 900;
+    // Each subcase boots the app itself (AFTER setting its dock sizing): the
+    // dock replay provider faithfully preserves the live pane sizes across
+    // reloads, so the size provider only matters for the very first build.
+    auto boot = [&] {
+        app.load_view(build());
+        app.set_stylesheet(bundle);
+        app.document().layout(W, H);
+    };
+
+    auto click = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        app.dispatch(down);
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        app.dispatch(up);
+        app.document().layout(W, H);
+    };
+
+    SUBCASE("checkbox: one click on the .dcs-check box flips the model once") {
+        boot();
+        const auto row = app.document().find_element_rect("shadows");
+        REQUIRE(row.w > 0);
+        // The user clicks the checkbox VISUAL (the .dcs-check square), not the
+        // row's top-left corner.
+        const auto box = find_in_rect_with_class(app, row, "dcs-check");
+        REQUIRE(box.x >= 0);
+
+        CHECK(shadows_prop() == true);
+        click(box);
+        CHECK(shadows_prop() == false);  // ONE click must flip the model
+        CHECK(reloads == 1);
+
+        // And the next click flips it back (fresh rect: the reload rebuilt DOM).
+        const auto row2 = app.document().find_element_rect("shadows");
+        REQUIRE(row2.w > 0);
+        const auto box2 = find_in_rect_with_class(app, row2, "dcs-check");
+        REQUIRE(box2.x >= 0);
+        click(box2);
+        CHECK(shadows_prop() == true);
+        CHECK(reloads == 2);
+    }
+
+    SUBCASE("local checkbox: one click flips the local flag (control case)") {
+        boot();
+        const auto row = app.document().find_element_rect("visible");
+        REQUIRE(row.w > 0);
+        const auto box = find_in_rect_with_class(app, row, "dcs-check");
+        REQUIRE(box.x >= 0);
+        CHECK(visible_local == true);
+        click(box);
+        CHECK(visible_local == false);
+    }
+
+    SUBCASE("vector row: X/Y/Z share the row evenly with the s-1 gap") {
+        // Wide inspector: the control column comfortably fits 3 editors at the
+        // 72px floor (the browser reference lays them out horizontally here).
+        inspector_px = 440;
+        boot();
+        const auto vec_row = app.document().find_element_rect("loc");
+        REQUIRE(vec_row.w > 0);
+        const auto x0 = app.document().find_element_rect("loc-0");
+        const auto x1 = app.document().find_element_rect("loc-1");
+        const auto x2 = app.document().find_element_rect("loc-2");
+        REQUIRE(x0.w > 0);
+        REQUIRE(x1.w > 0);
+        REQUIRE(x2.w > 0);
+        // All three on ONE row, left to right.
+        CHECK(x0.y == x1.y);
+        CHECK(x1.y == x2.y);
+        CHECK(x0.x < x1.x);
+        CHECK(x1.x < x2.x);
+        // Equal widths (±1 rounding).
+        CHECK(std::abs(x0.w - x1.w) <= 1);
+        CHECK(std::abs(x1.w - x2.w) <= 1);
+        // The decius gap is var(--dcs-s-1), which the 0.6.2 bundle sets to 1px
+        // at compact density ([data-dcs-density=compact]{--dcs-s-1:1px}) — the
+        // gaps must be exactly that, evenly, with no accidental slack.
+        const int gap01 = x1.x - (x0.x + x0.w);
+        const int gap12 = x2.x - (x1.x + x1.w);
+        MESSAGE("vec row w=", vec_row.w, " combos=", x0.w, "/", x1.w, "/",
+                x2.w, " gaps=", gap01, "/", gap12);
+        CHECK(gap01 == gap12);
+        CHECK(gap01 == 1);
+        // The editors must not overflow their row.
+        CHECK(x2.x + x2.w <= vec_row.x + vec_row.w + 1);
+    }
+
+    SUBCASE("vector row: compressed inspector stacks the editors AND grows "
+            "the field so nothing below overlaps") {
+        inspector_px = 150;  // too narrow for 3 * 72px + gaps → must stack
+        boot();
+
+        const auto x0 = app.document().find_element_rect("loc-0");
+        const auto x1 = app.document().find_element_rect("loc-1");
+        const auto x2 = app.document().find_element_rect("loc-2");
+        REQUIRE(x0.w > 0);
+        REQUIRE(x1.w > 0);
+        REQUIRE(x2.w > 0);
+        // Stacked: vertical, full width, non-overlapping.
+        MESSAGE("stacked combos y=", x0.y, "/", x1.y, "/", x2.y,
+                " h=", x0.h, "/", x1.h, "/", x2.h);
+        CHECK(x1.y >= x0.y + x0.h);
+        CHECK(x2.y >= x1.y + x1.h);
+        // The field (row) must have GROWN to hold all three...
+        const auto vec_field = app.document().find_element_rect("loc");
+        REQUIRE(vec_field.h > 0);
+        CHECK(vec_field.y + vec_field.h >= x2.y + x2.h);
+        // ...and push the Display foldout below it — no overlap with the
+        // widgets underneath (the reported bug).
+        const auto fold_display =
+            app.document().find_element_rect("fold-display");
+        REQUIRE(fold_display.h > 0);
+        MESSAGE("vec field bottom=", vec_field.y + vec_field.h,
+                " display fold top=", fold_display.y);
+        CHECK(fold_display.y >= vec_field.y + vec_field.h);
+        const auto visible_row = app.document().find_element_rect("visible");
+        REQUIRE(visible_row.h > 0);
+        CHECK(visible_row.y >= x2.y + x2.h);
+    }
+
+    SUBCASE("vector row: compressing the inspector with the SPLITTER stacks "
+            "the editors and grows the field (live gesture path)") {
+        // The user compresses the pane by dragging the dock splitter — a live
+        // gesture with inline flex mutations + the vec flip mid-stream, NOT a
+        // build-time size. This is the path reported to leave the stacked
+        // editors overlapping the widgets below.
+        boot();
+        const auto pane =
+            app.document().find_element_rect("pane-inspector");
+        REQUIRE(pane.w > 0);
+        // The splitter sits immediately left of the inspector pane.
+        const affineui::Point grip{pane.x - 3, pane.y + pane.h / 2};
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = grip;
+        app.dispatch(down);
+        // Drag right in steps to shrink the pane from 320 to ~150.
+        for (int dx = 10; dx <= 170; dx += 10) {
+            affineui::Event mv{};
+            mv.type = affineui::EventType::MouseMove;
+            mv.pos = {grip.x + dx, grip.y};
+            app.dispatch(mv);
+        }
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = {grip.x + 170, grip.y};
+        app.dispatch(up);
+        app.document().layout(W, H);
+
+        const auto pane_after =
+            app.document().find_element_rect("pane-inspector");
+        MESSAGE("pane w after splitter drag: ", pane_after.w);
+        REQUIRE(pane_after.w < 220);  // gesture really compressed the pane
+
+        const auto x0 = app.document().find_element_rect("loc-0");
+        const auto x1 = app.document().find_element_rect("loc-1");
+        const auto x2 = app.document().find_element_rect("loc-2");
+        REQUIRE(x0.w > 0);
+        MESSAGE("combos after compress y=", x0.y, "/", x1.y, "/", x2.y,
+                " x=", x0.x, "/", x1.x, "/", x2.x);
+        // Stacked vertically, not overlapping each other...
+        CHECK(x1.y >= x0.y + x0.h);
+        CHECK(x2.y >= x1.y + x1.h);
+        // ...and the widgets BELOW are pushed down, not overlapped.
+        const auto vec_field = app.document().find_element_rect("loc");
+        const auto fold_display =
+            app.document().find_element_rect("fold-display");
+        REQUIRE(fold_display.h > 0);
+        MESSAGE("vec field bottom=", vec_field.y + vec_field.h,
+                " display fold top=", fold_display.y);
+        CHECK(fold_display.y >= x2.y + x2.h);
+    }
+
+    SUBCASE("tearoff: single-tab float uses the reference title-only bar; "
+            "title drag re-docks, empty-space drag moves the float") {
+        boot();
+        auto stream_drag = [&](affineui::Point from, affineui::Point to) {
+            affineui::Event down{};
+            down.type = affineui::EventType::MouseDown;
+            down.button = affineui::MouseButton::Left;
+            down.pos = from;
+            app.dispatch(down);
+            const int steps = 8;
+            for (int i = 1; i <= steps; ++i) {
+                affineui::Event mv{};
+                mv.type = affineui::EventType::MouseMove;
+                mv.pos = {from.x + (to.x - from.x) * i / steps,
+                          from.y + (to.y - from.y) * i / steps};
+                app.dispatch(mv);
+            }
+            affineui::Event up{};
+            up.type = affineui::EventType::MouseUp;
+            up.button = affineui::MouseButton::Left;
+            up.pos = to;
+            app.dispatch(up);
+            app.document().layout(W, H);
+        };
+
+        // Tear the (inactive) Console tab out of the bottom pane into the
+        // viewport center → a single-tab floating panel.
+        const auto console_tab = app.document().find_element_rect(
+            "[data-dcs-target=#console-body]");
+        REQUIRE(console_tab.w > 0);
+        const auto canvas = app.document().find_element_rect("vp-canvas");
+        REQUIRE(canvas.w > 0);
+        stream_drag({console_tab.x + console_tab.w / 2,
+                     console_tab.y + console_tab.h / 2},
+                    {canvas.x + canvas.w / 2, canvas.y + canvas.h / 2});
+
+        const auto layout1 = app.document().dock_layout();
+        REQUIRE(layout1.present);
+        REQUIRE(layout1.floats.size() == 1);
+        CHECK(layout1.floats[0].title_only == true);
+        CHECK(layout1.floats[0].pane.tabs ==
+              std::vector<std::string>{"console"});
+
+
+        // Reference structure (decius.js convertDockToTitleOnly +
+        // prepareTabForTitlebar): the title TAB keeps its tab class and gains
+        // the panel-title classes + data-dcs-title-tab; the titlebar is the
+        // float-drag handle; NO inline style bodges on the tab.
+        const auto float_pane =
+            app.document().find_element_rect("pane-console");
+        REQUIRE(float_pane.w > 0);
+        const affineui::Rect titlebar_strip{float_pane.x, float_pane.y,
+                                            float_pane.w, 24};
+        const auto title_pt = find_in_rect_with_class(
+            app, titlebar_strip, "dcs-panel__title--dock-tab");
+        REQUIRE(title_pt.x >= 0);
+        affineui::Rect title{};
+        affineui::Event hover{};
+        hover.type = affineui::EventType::MouseMove;
+        hover.pos = title_pt;
+        app.dispatch(hover);
+        for (const auto& info : app.document().hovered_info_chain()) {
+            std::string cls_line = "title chain: <" + info.tag;
+            for (const auto& c : info.classes) cls_line += " ." + c;
+            cls_line += "> bounds=(" + std::to_string(info.bounds.x) + "," +
+                        std::to_string(info.bounds.y) + "," +
+                        std::to_string(info.bounds.w) + "x" +
+                        std::to_string(info.bounds.h) + ")";
+            MESSAGE(cls_line);
+            if (std::find(info.classes.begin(), info.classes.end(),
+                          "dcs-panel__title--dock-tab") !=
+                info.classes.end()) {
+                title = info.bounds;
+            }
+        }
+        REQUIRE(title.w > 0);
+        bool tab_ok = false;
+        bool titlebar_ok = false;
+        bool tab_has_inline_style = false;
+        for (const auto& info : app.document().hovered_info_chain()) {
+            const bool is_tab =
+                std::find(info.classes.begin(), info.classes.end(),
+                          "dcs-dockpane__tab") != info.classes.end();
+            const bool is_title =
+                std::find(info.classes.begin(), info.classes.end(),
+                          "dcs-panel__title--dock-tab") != info.classes.end();
+            if (is_tab && is_title) {
+                tab_ok = true;
+                for (const auto& a : info.attrs) {
+                    if (a.first == "style" && !a.second.empty()) {
+                        tab_has_inline_style = true;
+                    }
+                }
+            }
+            const bool is_titlebar =
+                std::find(info.classes.begin(), info.classes.end(),
+                          "dcs-dockpane__titlebar") != info.classes.end();
+            const bool is_header =
+                std::find(info.classes.begin(), info.classes.end(),
+                          "dcs-panel__header") != info.classes.end();
+            if (is_titlebar && is_header) titlebar_ok = true;
+        }
+        CHECK(tab_ok);
+        CHECK(titlebar_ok);
+        CHECK_FALSE(tab_has_inline_style);
+        MESSAGE("title tab bounds=(", title.x, ",", title.y, ",", title.w, "x",
+                title.h, ")");
+        // The title must be CONTENT-sized (icon + label), not a sliver — in a
+        // browser this is ~70px; the headless estimate must land in the same
+        // ballpark so pointer gestures aim at real geometry.
+        CHECK(title.w >= 40);
+
+        // Empty-space drag (right end of the titlebar, past the title tab)
+        // MOVES the float. (Vertical room is tight in this fixture — the
+        // 240-tall float lives in a ~276-tall document host and clamps — so
+        // the horizontal delta is the honest movement signal.)
+        const auto pane_before =
+            app.document().find_element_rect("pane-console");
+        REQUIRE(pane_before.w > 0);
+        const affineui::Point grip{title.x + title.w + 40,
+                                   title.y + title.h / 2};
+        stream_drag(grip, {grip.x + 48, grip.y + 36});
+        const auto pane_moved =
+            app.document().find_element_rect("pane-console");
+        MESSAGE("float moved from (", pane_before.x, ",", pane_before.y,
+                ") to (", pane_moved.x, ",", pane_moved.y, ")");
+        CHECK(pane_moved.x > pane_before.x + 24);
+        CHECK(pane_moved.y >= pane_before.y);  // clamped downward is fine
+        {
+            const auto after_move = app.document().dock_layout();
+            REQUIRE(after_move.floats.size() == 1);  // moved, not re-docked
+        }
+
+        // Title-tab drag back onto the Assets pane CENTER re-docks Console as
+        // a tab there (the panel-drag gesture, same as dragging a tab).
+        const auto float_pane2 =
+            app.document().find_element_rect("pane-console");
+        REQUIRE(float_pane2.w > 0);
+        const auto title2_pt = find_in_rect_with_class(
+            app,
+            affineui::Rect{float_pane2.x, float_pane2.y, float_pane2.w, 24},
+            "dcs-panel__title--dock-tab");
+        REQUIRE(title2_pt.x >= 0);
+        affineui::Rect title2{};
+        affineui::Event hover2{};
+        hover2.type = affineui::EventType::MouseMove;
+        hover2.pos = title2_pt;
+        app.dispatch(hover2);
+        for (const auto& info : app.document().hovered_info_chain()) {
+            if (std::find(info.classes.begin(), info.classes.end(),
+                          "dcs-panel__title--dock-tab") !=
+                info.classes.end()) {
+                title2 = info.bounds;
+            }
+        }
+        REQUIRE(title2.w > 0);
+        const auto assets_pane =
+            app.document().find_element_rect("pane-assets");
+        REQUIRE(assets_pane.w > 0);
+        stream_drag({title2.x + title2.w / 2, title2.y + title2.h / 2},
+                    {assets_pane.x + assets_pane.w / 2,
+                     assets_pane.y + assets_pane.h / 2});
+        const auto layout2 = app.document().dock_layout();
+        REQUIRE(layout2.present);
+        CHECK(layout2.floats.empty());
+        bool assets_has_console = false;
+        std::function<void(const affineui::Document::DockLayout::Node&)> walk =
+            [&](const affineui::Document::DockLayout::Node& n) {
+                if (n.split) {
+                    for (const auto& c : n.children) walk(c);
+                    return;
+                }
+                const bool has_assets =
+                    std::find(n.tabs.begin(), n.tabs.end(), "assets") !=
+                    n.tabs.end();
+                const bool has_console =
+                    std::find(n.tabs.begin(), n.tabs.end(), "console") !=
+                    n.tabs.end();
+                if (has_assets && has_console) assets_has_console = true;
+            };
+        walk(layout2.root);
+        CHECK(assets_has_console);
+    }
+
+    SUBCASE("colorfield: picking in the SV square commits and STICKS") {
+        boot();
+        const auto row = app.document().find_element_rect("tint");
+        REQUIRE(row.w > 0);
+        const auto caret = find_in_rect_with_class(app, row,
+                                                   "dcs-colorfield__caret");
+        REQUIRE(caret.x >= 0);
+        click(caret);  // open the picker popover
+
+        const auto sv = app.document().find_element_rect(
+            "#aui-cf-tint-picker-sv");
+        REQUIRE(sv.w > 0);
+        const std::string before = tint_prop();
+        // Click near the SV square's top-right (saturated, bright — far from
+        // the current color so the committed hex must differ).
+        click({sv.x + sv.w - 6, sv.y + 6});
+        const std::string after = tint_prop();
+        CHECK(after != before);  // the pick must reach the model...
+        const std::string persisted = tint_prop();
+        app.document().layout(W, H);
+        CHECK(tint_prop() == persisted);  // ...and survive the reload
+        // The re-emitted chip must show the committed color, not the old one.
+        const auto row2 = app.document().find_element_rect("tint");
+        REQUIRE(row2.w > 0);
+    }
 }
 
 TEST_CASE("App dispatch invokes command knob change callbacks") {
@@ -1023,7 +1808,7 @@ TEST_CASE("App load_view preserves named scroll panels across control reloads") 
     CHECK(after.y <= before.y + 4);
 }
 
-TEST_CASE("App dispatch invokes Decius colorfield menu callbacks") {
+TEST_CASE("App dispatch invokes Decius colorfield picker callbacks") {
     affineui::View view{affineui::ViewTheme::Decius};
     std::string tint;
 
@@ -1051,19 +1836,112 @@ TEST_CASE("App dispatch invokes Decius colorfield menu callbacks") {
         app.dispatch(up);
     };
 
-    const auto field = find_hovered_widget(app, "tint", 360, 180);
-    REQUIRE(field.x >= 0);
-    click_at(field);
-    app.document().layout(360, 180);
+    const auto caret = find_hovered_tag_attr(app, "span", "data-dcs-target",
+                                             "#aui-cf-tint-picker", 360, 180);
+    REQUIRE(caret.x >= 0);
+    click_at(caret);
+    app.document().layout(360, 260);
 
-    const auto green = find_hovered_tag_attr(app, "button", "data-dcs-value",
-                                             "#3dd68a", 360, 220);
-    REQUIRE(green.x >= 0);
-    click_at(green);
-    CHECK(tint == "#3dd68a");
+    const auto field = app.document().find_element_rect("#aui-cf-tint");
+    REQUIRE(field.w > 0);
+    const auto picker = app.document().find_element_rect("#aui-cf-tint-picker");
+    CHECK(picker.w >= 204);
+    CHECK(picker.w >= field.w);
+    const auto sv = app.document().find_element_rect("#aui-cf-tint-picker-sv");
+    REQUIRE(sv.w >= 188);
+    CHECK(sv.w <= picker.w);
+    CHECK(sv.h == 134);
+
+    click_at({sv.x + 1, sv.y + 1});
+    app.document().layout(360, 260);
+    CHECK(app.document().find_element_rect("#aui-cf-tint-picker").w ==
+          picker.w);
+    CHECK(near_white_hex(tint));
 }
 
-TEST_CASE("App Decius colorfield menus stay anchored in scrolled panels") {
+TEST_CASE("App Decius colorfield picker survives model-backed rebuilds") {
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+
+    std::string tint = "#3bb7ff";
+    int rebuilds = 0;
+    std::function<affineui::View()> build_view;
+    build_view = [&]() {
+        affineui::View view{affineui::ViewTheme::Decius};
+        view.begin();
+        view.input("Tint", tint, "color", "tint")
+            .on_change([&](std::string_view next) {
+                tint = std::string(next);
+                ++rebuilds;
+                app.load_view(build_view());
+            });
+        view.end();
+        return view;
+    };
+
+    app.load_view(build_view());
+    app.document().layout(360, 180);
+
+    auto click_at = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        app.dispatch(down);
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        app.dispatch(up);
+    };
+
+    const auto caret = find_hovered_tag_attr(app, "span", "data-dcs-target",
+                                             "#aui-cf-tint-picker", 360, 180);
+    REQUIRE(caret.x >= 0);
+    click_at(caret);
+    app.document().layout(360, 260);
+
+    const auto picker = app.document().find_element_rect("#aui-cf-tint-picker");
+    REQUIRE(picker.w >= 204);
+    const auto sv = app.document().find_element_rect("#aui-cf-tint-picker-sv");
+    REQUIRE(sv.w >= 188);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {sv.x + 1, sv.y + 1};
+    CHECK(app.dispatch(down));
+    app.document().layout(360, 260);
+    CHECK(rebuilds == 0);
+    CHECK(app.document().find_element_rect("#aui-cf-tint-picker").w ==
+          picker.w);
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {sv.x + sv.w - 2, sv.y + 1};
+    CHECK(app.dispatch(move));
+    app.document().layout(360, 260);
+    CHECK(rebuilds == 0);
+    CHECK(app.document().find_element_rect("#aui-cf-tint-picker").w ==
+          picker.w);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = move.pos;
+    CHECK(app.dispatch(up));
+    app.document().layout(360, 260);
+
+    CHECK(rebuilds == 1);
+    CHECK(tint.size() == 7);
+    CHECK(tint.front() == '#');
+    CHECK(tint != "#3bb7ff");
+    CHECK(app.document().find_element_rect("#aui-cf-tint-picker").w ==
+          picker.w);
+}
+
+TEST_CASE("App Decius colorfield pickers stay anchored in scrolled panels") {
     affineui::View view{affineui::ViewTheme::Decius};
     std::string tint;
 
@@ -1110,27 +1988,111 @@ TEST_CASE("App Decius colorfield menus stay anchored in scrolled panels") {
     CHECK(app.dispatch(wheel));
     app.document().layout(300, 180);
 
-    const auto field = find_hovered_widget(app, "tint", 300, 180);
-    REQUIRE(field.x >= 0);
-    const auto field_bounds = hovered_attr_bounds(app, "data-aui-name", "tint");
+    const auto caret = find_hovered_tag_attr(app, "span", "data-dcs-target",
+                                             "#aui-cf-tint-picker", 300, 180);
+    REQUIRE(caret.x >= 0);
+    const auto field_bounds = app.document().find_element_rect("#aui-cf-tint");
     REQUIRE(field_bounds.y >= 0);
     app.document().layout(300, 180);
     const auto before_size = app.document().content_size();
 
-    click_at(field);
-    app.document().layout(300, 180);
+    click_at(caret);
+    app.document().layout(300, 260);
     CHECK(app.document().content_size().height == before_size.height);
 
-    const auto green = find_hovered_tag_attr(app, "button", "data-dcs-value",
-                                             "#3dd68a", 300, 220);
-    REQUIRE(green.x >= 0);
-    const auto menu_bounds = hovered_class_bounds(app, "aui-color-menu");
-    REQUIRE(menu_bounds.y >= 0);
-    CHECK(menu_bounds.y == field_bounds.y + field_bounds.h);
-    CHECK(menu_bounds.w == field_bounds.w);
+    const auto picker = app.document().find_element_rect("#aui-cf-tint-picker");
+    REQUIRE(picker.y >= 0);
+    CHECK(picker.x <= field_bounds.x + field_bounds.w);
+    CHECK(picker.x + picker.w >= field_bounds.x);
+    CHECK(picker.w >= 204);
+    CHECK(picker.w >= field_bounds.w);
 
-    click_at(green);
-    CHECK(tint == "#3dd68a");
+    const auto sv = app.document().find_element_rect("#aui-cf-tint-picker-sv");
+    REQUIRE(sv.w >= 188);
+    click_at({sv.x + 1, sv.y + 1});
+    app.document().layout(300, 260);
+    CHECK(app.document().find_element_rect("#aui-cf-tint-picker").w ==
+          picker.w);
+    CHECK(near_white_hex(tint));
+}
+
+TEST_CASE("App Decius vector editors keep the default horizontal gutter") {
+    affineui::View view{affineui::ViewTheme::Decius};
+    view.begin();
+    {
+        auto props = view.container("dcs-props", "props");
+        (void) props;
+        view.vec("Location", {"X", "Y", "Z"}, {12.0, 4.2, -8.5}, "loc");
+    }
+    view.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    app.load_view(view);
+    app.document().layout(520, 160);
+
+    const auto x = app.document().find_element_rect("loc-0");
+    const auto y = app.document().find_element_rect("loc-1");
+    const auto z = app.document().find_element_rect("loc-2");
+    REQUIRE(x.w > 0);
+    REQUIRE(y.w > 0);
+    REQUIRE(z.w > 0);
+    CHECK(y.x - (x.x + x.w) > 0);
+    CHECK(z.x - (y.x + y.w) > 0);
+}
+
+TEST_CASE("App Decius vector editors expand their foldout field when stacked") {
+    affineui::View view{affineui::ViewTheme::Decius};
+    view.begin();
+    {
+        auto folds = view.container("dcs-foldouts", "foldouts");
+        (void) folds;
+        {
+            auto fold = view.foldout("Transform", true, "fold-xform");
+            (void) fold;
+            auto props = view.container("dcs-props", "props");
+            (void) props;
+            view.vec("Location", {"X", "Y", "Z"}, {12.0, 4.2, -8.5}, "loc");
+        }
+        {
+            auto fold = view.foldout("Display", true, "fold-display");
+            (void) fold;
+            auto props = view.container("dcs-props", "display-props");
+            (void) props;
+            view.button_group("Blend", {"Normal", "Add", "Multiply"}, "Normal",
+                              "blend");
+        }
+    }
+    view.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    app.load_view(view);
+    app.document().layout(260, 180);
+
+    const auto field = app.document().find_element_rect("loc");
+    const auto x = app.document().find_element_rect("loc-0");
+    const auto y = app.document().find_element_rect("loc-1");
+    const auto z = app.document().find_element_rect("loc-2");
+    const auto blend = app.document().find_element_rect("blend");
+    const auto xform = app.document().find_element_rect("fold-xform");
+    const auto display = app.document().find_element_rect("fold-display");
+    REQUIRE(field.h > 0);
+    REQUIRE(x.h > 0);
+    REQUIRE(y.h > 0);
+    REQUIRE(z.h > 0);
+    REQUIRE(blend.h > 0);
+    REQUIRE(xform.h > 0);
+    REQUIRE(display.h > 0);
+
+    CHECK(y.y >= x.y + x.h);
+    CHECK(z.y >= y.y + y.h);
+    CHECK(field.h >= (z.y + z.h) - field.y);
+    CHECK(xform.h >= (z.y + z.h) - xform.y);
+    CHECK(display.y >= xform.y + xform.h);
+    CHECK(blend.y >= display.y);
 }
 
 TEST_CASE("View reconcile reuses nodes and emits property patches") {

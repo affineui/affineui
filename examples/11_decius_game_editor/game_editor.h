@@ -24,6 +24,10 @@ public:
     /// Build the whole editor view from current state.
     [[nodiscard]] affineui::View build();
 
+    /// Restrict the live game-editor layout to one subsystem for integration
+    /// debugging. Empty/full keeps the normal demo.
+    void set_debug_scope(std::string_view scope);
+
     /// Bind to an App and run. The App calls reload() whenever state changes.
     int run();
 
@@ -78,6 +82,7 @@ private:
     bool          visible_{true};
     bool          wireframe_{false};
     std::string   notes_{"Weathered sandstone — chipped along the lower edge."};
+    std::string   debug_scope_;
 };
 
 }  // namespace ge

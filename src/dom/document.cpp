@@ -42,6 +42,7 @@
 #include <cstdlib>
 #include <exception>
 #include <fstream>
+#include <initializer_list>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -195,6 +196,11 @@ struct TextLayoutEntry {
     float content_w{1.0f};
     Painter::TextAlign align{Painter::TextAlign::Left};
     bool nowrap{false};
+};
+
+struct TextVisualLine {
+    std::size_t begin{0};
+    std::size_t end{0};
 };
 
 struct TextControlGeometry {
@@ -559,14 +565,33 @@ struct DocumentImpl {
     // canonical Decius color-chip contract (decius regression — app-supplied in
     // the web world, first-class here).
     struct ColorfieldDrag {
+        enum class Kind { None, Chip, Square, Hue };
+        Kind               kind{Kind::None};
         lxb_dom_element_t* field{nullptr};  // the dcs-colorfield
-        lxb_dom_element_t* chip{nullptr};
+        lxb_dom_element_t* part{nullptr};
+        Rect               bounds{};
         int                start_x{0};
         int                start_y{0};
         double             h{0.0};  // snapshot HSV
         double             s{0.0};
         double             v{0.0};
     } colorfield_drag;
+
+    struct TreeDrag {
+        enum class Zone { None, Before, After, Into };
+        lxb_dom_element_t* tree{nullptr};
+        lxb_dom_element_t* row{nullptr};
+        lxb_dom_element_t* target{nullptr};
+        lxb_dom_element_t* select_box{nullptr};
+        lxb_dom_element_t* select_row{nullptr};
+        Zone               zone{Zone::None};
+        int                start_x{0};
+        int                start_y{0};
+        bool               press_ctrl{false};
+        bool               press_shift{false};
+        bool               press_super{false};
+        bool               dragging{false};
+    } tree_drag;
 
     struct LiveControlDrag {
         LiveControlKind  kind{LiveControlKind::None};
@@ -1749,6 +1774,42 @@ std::string_view ltrim_ws(std::string_view s) {
     return s;
 }
 std::string_view trim_css_ws(std::string_view s) { return ltrim_ws(rtrim_ws(s)); }
+
+std::string style_with_properties(
+    std::string_view style,
+    std::initializer_list<std::pair<std::string, std::string>> props) {
+    std::vector<std::string_view> names;
+    names.reserve(props.size());
+    for (const auto& p : props) names.push_back(p.first);
+
+    std::string out;
+    std::size_t i = 0;
+    while (i < style.size()) {
+        const std::size_t semi = style.find(';', i);
+        const std::string_view decl = style.substr(
+            i, semi == std::string_view::npos ? semi : semi - i);
+        i = (semi == std::string_view::npos) ? style.size() : semi + 1;
+        const std::size_t colon = decl.find(':');
+        if (colon != std::string_view::npos) {
+            const std::string_view prop = trim_css_ws(decl.substr(0, colon));
+            if (std::find(names.begin(), names.end(), prop) != names.end()) {
+                continue;
+            }
+        }
+        const std::string_view t = trim_css_ws(decl);
+        if (!t.empty()) {
+            if (!out.empty()) out += ';';
+            out += t;
+        }
+    }
+    for (const auto& [name, value] : props) {
+        if (!out.empty()) out += ';';
+        out += name;
+        out += ':';
+        out += value;
+    }
+    return out;
+}
 
 // Chunk raw CSS into (selector, decls) rules. Handles `/* ... */`
 // comments and skips `@`-prefixed at-rules. Doesn't try to validate
@@ -4479,6 +4540,8 @@ void Document::set_html(std::string_view html) {
     impl_->tab_drag = {};
     impl_->tab_drag_ghost = nullptr;
     impl_->live_drag = {};
+    impl_->colorfield_drag = {};
+    impl_->tree_drag = {};
 #else
     impl_->scrollbar_drag = {};
 #endif
@@ -4630,6 +4693,8 @@ void Document::detach_script(DocumentScript script) {
             impl_->ui_control_script_attached = false;
 #if !defined(AFFINEUI_STUB_BUILD)
             impl_->live_drag = {};
+            impl_->colorfield_drag = {};
+            impl_->tree_drag = {};
 #endif
             break;
     }
@@ -4639,6 +4704,8 @@ void Document::clear_scripts() {
     impl_->ui_control_script_attached = false;
 #if !defined(AFFINEUI_STUB_BUILD)
     impl_->live_drag = {};
+    impl_->colorfield_drag = {};
+    impl_->tree_drag = {};
 #endif
 }
 
@@ -4756,6 +4823,10 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
 void dock_trace_state(detail::DocumentImpl& impl, std::string_view reason);
 void dock_trace_state_if_changed(detail::DocumentImpl& impl,
                                  std::string_view reason);
+bool update_dcs_vec_compression(
+    detail::DocumentImpl& impl,
+    const std::vector<std::vector<int>>& child_indices,
+    const std::vector<detail::ComputedStyle>& layout_styles);
 #endif
 }  // namespace
 
@@ -5036,14 +5107,28 @@ void Document::layout(int viewport_width, int viewport_height,
             continue;
         }
 
-        // Text-bearing leaf. Hand it the text + a font handle; the
-        // adapter wires a Yoga measure callback that runs the live
-        // painter's nvgTextBoxBounds per constraint width.
-        if (measurer != nullptr) {
-            in.font = measurer->resolve_font(
-                impl_->style_store.font_family_of(cs.font_id), cs.font_size_px, cs.font_weight, cs.font_style != 0);
+        // Text-bearing leaf. Hand it the text + a font handle; the adapter
+        // wires a Yoga measure callback that runs the live painter's
+        // nvgTextBoxBounds per constraint width — or, painterless (headless /
+        // server-side layout), estimated glyph metrics so text still OCCUPIES
+        // space (content-sized boxes must never collapse to zero).
+        {
+            in.font = measurer != nullptr
+                ? measurer->resolve_font(
+                      impl_->style_store.font_family_of(cs.font_id),
+                      cs.font_size_px, cs.font_weight, cs.font_style != 0)
+                : 0;  // font ids need a rasterizer; the adapter estimates
             in.text = b.text;
             in.letter_spacing_px = static_cast<float>(cs.letter_spacing_x100) / 100.0f;
+            const auto text_width = [&](std::string_view t) {
+                if (measurer != nullptr) {
+                    return std::max(1, measurer->measure_text(in.font, t));
+                }
+                return std::max(
+                    1, static_cast<int>(static_cast<float>(t.size()) *
+                                        static_cast<float>(cs.font_size_px) *
+                                        0.52f));
+            };
             if (cs.min_width < 0 &&
                 b.parent_idx >= 0 &&
                 static_cast<std::size_t>(b.parent_idx) < impl_->blocks.size()) {
@@ -5055,7 +5140,7 @@ void Document::layout(int viewport_width, int viewport_height,
                      parent_style.flex_direction ==
                          detail::ComputedStyle::FlexDirection::RowReverse)) {
                     in.auto_min_w_px =
-                        std::max(1, measurer->measure_text(in.font, b.text))
+                        text_width(b.text)
                         + text_advance_slack(b)
                         + cs.padding_left + cs.padding_right
                         + cs.used_border_left() + cs.used_border_right();
@@ -5076,7 +5161,7 @@ void Document::layout(int viewport_width, int viewport_height,
             }
             if (b.text_control &&
                 b.input_type != "checkbox" && b.input_type != "radio") {
-                const int ch = std::max(1, measurer->measure_text(in.font, "0"));
+                const int ch = text_width("0");
                 in.intrinsic_w_px = ch * 20
                     + cs.padding_left + cs.padding_right
                     + cs.used_border_left() + cs.used_border_right();
@@ -5084,10 +5169,8 @@ void Document::layout(int viewport_width, int viewport_height,
             using WS = detail::ComputedStyle::WhiteSpace;
             in.nowrap = (cs.white_space == WS::Nowrap ||
                          cs.white_space == WS::Pre);
-            // Leave intrinsic_h_px = 0 â€” the measure callback supplies
+            // Leave intrinsic_h_px = 0 — the measure callback supplies
             // the height instead.
-        } else {
-            in.intrinsic_h_px = cs.font_size_px;
         }
         inputs.push_back(in);
     }
@@ -5229,6 +5312,13 @@ void Document::layout(int viewport_width, int viewport_height,
         impl_->blocks[i].bounds = r;
         impl_->blocks[i].bounds_f = to_float(r);
     }
+
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (update_dcs_vec_compression(*impl_, child_indices, layout_styles)) {
+        layout(viewport_width, viewport_height, measurer);
+        return;
+    }
+#endif
 
     auto block_is_fixed_position = [&](std::size_t i) {
         return layout_styles[i].position ==
@@ -5784,7 +5874,12 @@ void Document::draw(Painter& painter) {
         const bool bg_uniform_r =
             (bg_r_tl == bg_r_tr && bg_r_tr == bg_r_br && bg_r_br == bg_r_bl);
         // Background color paints first; background images/gradients layer over it.
+        const bool native_color_square = block_has_class(b, "dcs-color-square");
+        const bool native_hue_bar = block_has_class(b, "dcs-hue-bar");
+        const bool native_color_picker_paint =
+            native_color_square || native_hue_bar;
         const bool has_gradient =
+            !native_color_picker_paint &&
             (an.gradient_kind != detail::AnimatedStyle::GradientKind::None);
         const bool has_grid =
             ((an.background_grid_rgba & 0xFFu) != 0 &&
@@ -5940,6 +6035,47 @@ void Document::draw(Painter& painter) {
                 static_cast<float>(std::max<std::uint8_t>(
                     1, an.background_grid_line_px)),
                 bg_r_tl, bg_r_tr, bg_r_br, bg_r_bl);
+        }
+
+        if (native_color_square && eff.w > 0 && eff.h > 0) {
+            Color hue = Color::rgb(255, 0, 0);
+            if (b.custom_props) {
+                const auto it = b.custom_props->find("--hue");
+                if (it != b.custom_props->end()) {
+                    const std::string value(trim_css_ws(it->second));
+                    std::uint32_t rgba = 0;
+                    if (parse_hex_color(value, rgba)) {
+                        hue = detail::unpack_rgba(rgba);
+                    }
+                }
+            }
+            painter.fill_linear_gradient_rect(
+                eff, 90.0f, Color::rgb(255, 255, 255), hue,
+                bg_r_tl, bg_r_tr, bg_r_br, bg_r_bl);
+            painter.fill_linear_gradient_rect(
+                eff, 0.0f, Color::rgb(0, 0, 0),
+                Color::rgba(0, 0, 0, 0),
+                bg_r_tl, bg_r_tr, bg_r_br, bg_r_bl);
+        } else if (native_hue_bar && eff.w > 0 && eff.h > 0) {
+            const std::array<Color, 7> stops{
+                Color::rgb(255, 0, 0),   Color::rgb(255, 255, 0),
+                Color::rgb(0, 255, 0),   Color::rgb(0, 255, 255),
+                Color::rgb(0, 0, 255),   Color::rgb(255, 0, 255),
+                Color::rgb(255, 0, 0),
+            };
+            for (int segment = 0; segment < 6; ++segment) {
+                const int x0 = eff.x + (eff.w * segment) / 6;
+                const int x1 = eff.x + (eff.w * (segment + 1)) / 6;
+                const Rect seg{x0, eff.y, std::max(0, x1 - x0), eff.h};
+                if (seg.w <= 0) continue;
+                painter.fill_linear_gradient_rect(
+                    seg, 90.0f, stops[static_cast<std::size_t>(segment)],
+                    stops[static_cast<std::size_t>(segment + 1)],
+                    segment == 0 ? bg_r_tl : 0.0f,
+                    segment == 5 ? bg_r_tr : 0.0f,
+                    segment == 5 ? bg_r_br : 0.0f,
+                    segment == 0 ? bg_r_bl : 0.0f);
+            }
         }
 
         // Inset shadow paints ON TOP of the background/gradient but under
@@ -6227,6 +6363,39 @@ void Document::draw(Painter& painter) {
                     draw_edge(mx, y0, mx, y1, wr, bstyle,
                               detail::unpack_rgba(c_right));
                 }
+            }
+        }
+
+        const bool dcs_drop_before =
+            block_has_class(b, "dcs-tree__row--drop-before") ||
+            block_has_class(b, "dcs-list__item--drop-before");
+        const bool dcs_drop_after =
+            block_has_class(b, "dcs-tree__row--drop-after") ||
+            block_has_class(b, "dcs-list__item--drop-after");
+        const bool dcs_drop_into =
+            block_has_class(b, "dcs-tree__row--drop-into") ||
+            block_has_class(b, "dcs-list__item--drop-into");
+        if ((dcs_drop_before || dcs_drop_after || dcs_drop_into) &&
+            eff.w > 0) {
+            Color accent = Color::rgb(77, 159, 255);
+            if (b.custom_props) {
+                const auto it = b.custom_props->find("--dcs-accent");
+                if (it != b.custom_props->end()) {
+                    std::uint32_t rgba = 0;
+                    if (parse_hex_color(std::string(trim_css_ws(it->second)),
+                                        rgba)) {
+                        accent = detail::unpack_rgba(rgba);
+                    }
+                }
+            }
+            if (dcs_drop_into) {
+                painter.fill_rect(Rect{eff.x, eff.y, eff.w, eff.h},
+                                  Color::rgba(accent.r, accent.g, accent.b,
+                                              48));
+                painter.fill_rect(Rect{eff.x, eff.y, 3, eff.h}, accent);
+            } else {
+                const int y = dcs_drop_before ? eff.y - 1 : eff.y + eff.h - 1;
+                painter.fill_rect(Rect{eff.x, y, eff.w, 2}, accent);
             }
         }
 
@@ -9188,6 +9357,20 @@ bool toggle_checkbox_control(detail::DocumentImpl& impl, int idx,
     const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
     lxb_dom_element_t* input =
         block.tag == "input" ? elem : first_descendant_input(elem);
+    lxb_dom_element_t* decius_control = nullptr;
+    if (class_list_contains(elem, "dcs-check") ||
+        class_list_contains(elem, "dcs-radio") ||
+        class_list_contains(elem, "dcs-switch")) {
+        decius_control = elem;
+    } else {
+        decius_control = first_descendant_with_class(elem, "dcs-check");
+        if (!decius_control) {
+            decius_control = first_descendant_with_class(elem, "dcs-radio");
+        }
+        if (!decius_control) {
+            decius_control = first_descendant_with_class(elem, "dcs-switch");
+        }
+    }
     lxb_dom_element_t* visual_check =
         first_descendant_with_class(elem, "dcs-check__box");
     if (!visual_check) {
@@ -9198,10 +9381,14 @@ bool toggle_checkbox_control(detail::DocumentImpl& impl, int idx,
     }
     const bool radio = (input && attr_string(input, "type") == "radio") ||
                        block_has_class(block, "dcs-radio") ||
-                       class_list_contains(elem, "dcs-radio");
+                       class_list_contains(elem, "dcs-radio") ||
+                       (decius_control != nullptr &&
+                        class_list_contains(decius_control, "dcs-radio"));
     const bool old_checked = input
         ? has_attr(input, "checked")
-        : element_attr_true(elem, "aria-checked");
+        : (decius_control
+               ? element_attr_true(decius_control, "aria-checked")
+               : element_attr_true(elem, "aria-checked"));
     const bool checked = radio ? true : !old_checked;
 
     bool changed = false;
@@ -9222,6 +9409,11 @@ bool toggle_checkbox_control(detail::DocumentImpl& impl, int idx,
         changed = set_attribute_on_element(
             impl, elem, "aria-checked", checked ? "true" : "false") ||
             changed;
+    }
+    if (decius_control != nullptr && decius_control != elem) {
+        changed = set_attribute_on_element(
+            impl, decius_control, "aria-checked",
+            checked ? "true" : "false") || changed;
     }
     if (visual_check != nullptr && visual_check != elem) {
         changed = set_attribute_on_element(
@@ -9365,6 +9557,483 @@ bool set_element_class(detail::DocumentImpl& impl,
     if (class_list_contains(elem, cls) == present) return false;
     return set_attribute_on_element(impl, elem, "class",
                                     class_list_set(elem, cls, present));
+}
+
+double parse_css_number_prefix(std::string_view value, double fallback) {
+    const std::string text(trim_css_ws(value));
+    if (text.empty()) return fallback;
+    char* end = nullptr;
+    const double parsed = std::strtod(text.c_str(), &end);
+    if (end == text.c_str() || !std::isfinite(parsed)) return fallback;
+    return parsed;
+}
+
+double block_custom_number(const Block& block,
+                           std::string_view prop,
+                           double fallback) {
+    if (!block.custom_props) return fallback;
+    const auto it = block.custom_props->find(std::string(prop));
+    if (it == block.custom_props->end()) return fallback;
+    return parse_css_number_prefix(it->second, fallback);
+}
+
+bool update_dcs_vec_compression(
+    detail::DocumentImpl& impl,
+    const std::vector<std::vector<int>>& child_indices,
+    const std::vector<detail::ComputedStyle>& layout_styles) {
+    bool changed = false;
+    for (std::size_t i = 0; i < impl.blocks.size(); ++i) {
+        auto& vec = impl.blocks[i];
+        if (!block_has_class(vec, "dcs-vec")) continue;
+        if (i >= child_indices.size()) continue;
+        const auto& kids = child_indices[i];
+        const int child_count = std::max(1, static_cast<int>(kids.size()));
+        const double min_width = block_custom_number(
+            vec, "--dcs-xform-minwidth", 72.0);
+        const double gap =
+            i < layout_styles.size() ? layout_styles[i].column_gap : 0;
+        const double needed =
+            child_count * min_width + (child_count - 1) * gap;
+
+        double available = vec.bounds.w;
+        lxb_dom_element_t* field_elem = nullptr;
+        if (vec.parent_idx >= 0 &&
+            static_cast<std::size_t>(vec.parent_idx) < impl.blocks.size() &&
+            block_has_class(impl.blocks[static_cast<std::size_t>(vec.parent_idx)],
+                            "dcs-field")) {
+            const auto parent_idx = static_cast<std::size_t>(vec.parent_idx);
+            const auto& parent = impl.blocks[parent_idx];
+            field_elem = element_for_block(impl, vec.parent_idx);
+            const auto& parent_style = layout_styles[parent_idx];
+            const double field_gap = parent_style.column_gap > 0
+                ? parent_style.column_gap
+                : parent_style.row_gap;
+            double used = 0.0;
+            int extras = 0;
+            if (parent_idx < child_indices.size()) {
+                for (const int child : child_indices[parent_idx]) {
+                    if (child == static_cast<int>(i)) continue;
+                    if (child < 0 ||
+                        child >= static_cast<int>(impl.blocks.size())) {
+                        continue;
+                    }
+                    used += impl.blocks[static_cast<std::size_t>(child)]
+                                .bounds.w;
+                    ++extras;
+                }
+            }
+            const int field_client =
+                parent.bounds.w - parent_style.used_border_left() -
+                parent_style.used_border_right();
+            available = field_client - used - extras * field_gap;
+        }
+
+        const bool stacked = available + 1.0 < needed;
+        if (field_elem) {
+            changed = set_element_class(impl, field_elem,
+                                        "dcs-field--vec", true) ||
+                      changed;
+            changed = set_element_class(impl, field_elem,
+                                        "dcs-field--vec-stacked", stacked) ||
+                      changed;
+        }
+        auto* elem = element_for_block(impl, static_cast<int>(i));
+        if (elem) {
+            changed = set_element_class(impl, elem, "dcs-vec--stacked",
+                                        stacked) ||
+                      changed;
+        }
+    }
+    return changed;
+}
+
+struct HsvColor {
+    double h{210.0};
+    double s{0.7};
+    double v{0.85};
+};
+
+int color_byte(double value) {
+    return std::clamp(static_cast<int>(std::round(value * 255.0)), 0, 255);
+}
+
+std::string hex_from_color(Color color) {
+    char buf[8]{};
+    std::snprintf(buf, sizeof(buf), "#%02X%02X%02X",
+                  static_cast<unsigned>(color.r),
+                  static_cast<unsigned>(color.g),
+                  static_cast<unsigned>(color.b));
+    return std::string(buf);
+}
+
+std::string normalize_hex_color(std::string_view raw) {
+    std::string value(trim_css_ws(raw));
+    if (value.empty()) return {};
+    if (value.front() != '#' &&
+        (value.size() == 3 || value.size() == 4 ||
+         value.size() == 6 || value.size() == 8)) {
+        value.insert(value.begin(), '#');
+    }
+    std::uint32_t rgba = 0;
+    if (!parse_hex_color(value, rgba)) return {};
+    return hex_from_color(detail::unpack_rgba(rgba));
+}
+
+HsvColor rgb_to_hsv(Color color) {
+    const double r = static_cast<double>(color.r) / 255.0;
+    const double g = static_cast<double>(color.g) / 255.0;
+    const double b = static_cast<double>(color.b) / 255.0;
+    const double max_c = std::max({r, g, b});
+    const double min_c = std::min({r, g, b});
+    const double d = max_c - min_c;
+    double h = 0.0;
+    if (d > 0.0) {
+        if (max_c == r) h = std::fmod((g - b) / d, 6.0);
+        else if (max_c == g) h = (b - r) / d + 2.0;
+        else h = (r - g) / d + 4.0;
+        h *= 60.0;
+        if (h < 0.0) h += 360.0;
+    }
+    const double s = max_c > 0.0 ? d / max_c : 0.0;
+    return {h, s, max_c};
+}
+
+Color hsv_to_rgb(HsvColor hsv) {
+    hsv.h = std::fmod(hsv.h, 360.0);
+    if (hsv.h < 0.0) hsv.h += 360.0;
+    hsv.s = std::clamp(hsv.s, 0.0, 1.0);
+    hsv.v = std::clamp(hsv.v, 0.0, 1.0);
+    const double c = hsv.v * hsv.s;
+    const double hh = std::fmod(hsv.h / 60.0, 6.0);
+    const double x = c * (1.0 - std::abs(std::fmod(hh, 2.0) - 1.0));
+    double r = 0.0;
+    double g = 0.0;
+    double b = 0.0;
+    if (hh < 1.0) {
+        r = c; g = x;
+    } else if (hh < 2.0) {
+        r = x; g = c;
+    } else if (hh < 3.0) {
+        g = c; b = x;
+    } else if (hh < 4.0) {
+        g = x; b = c;
+    } else if (hh < 5.0) {
+        r = x; b = c;
+    } else {
+        r = c; b = x;
+    }
+    const double m = hsv.v - c;
+    return Color::rgb(static_cast<std::uint8_t>(color_byte(r + m)),
+                      static_cast<std::uint8_t>(color_byte(g + m)),
+                      static_cast<std::uint8_t>(color_byte(b + m)));
+}
+
+std::string hex_from_hsv(HsvColor hsv) {
+    return hex_from_color(hsv_to_rgb(hsv));
+}
+
+HsvColor hsv_from_hex(std::string_view raw, HsvColor fallback) {
+    const std::string hex = normalize_hex_color(raw);
+    if (hex.empty()) return fallback;
+    std::uint32_t rgba = 0;
+    if (!parse_hex_color(hex, rgba)) return fallback;
+    return rgb_to_hsv(detail::unpack_rgba(rgba));
+}
+
+lxb_dom_element_t* colorfield_owner(lxb_dom_element_t* field) {
+    lxb_dom_element_t* named = nullptr;
+    for (auto* current = field; current != nullptr;
+         current = parent_element(current)) {
+        if (attr_string(current, "data-aui-widget") == "colorfield") {
+            return current;
+        }
+        if (!named && !attr_string(current, "data-aui-name").empty()) {
+            named = current;
+        }
+    }
+    return named ? named : field;
+}
+
+HsvColor current_dcs_colorfield_hsv(lxb_dom_element_t* field) {
+    HsvColor fallback{};
+    auto try_value = [&](std::string_view value, HsvColor& out) {
+        const std::string hex = normalize_hex_color(value);
+        if (hex.empty()) return false;
+        out = hsv_from_hex(hex, fallback);
+        return true;
+    };
+
+    HsvColor out{};
+    if (auto* owner = colorfield_owner(field)) {
+        if (try_value(attr_string(owner, "data-value"), out)) return out;
+    }
+    if (try_value(attr_string(field, "data-value"), out)) return out;
+    if (auto* chip = first_descendant_with_class(
+            field, "dcs-colorfield__chip")) {
+        if (try_value(attr_string(chip, "data-dcs-color"), out)) return out;
+    }
+    if (auto* input = first_descendant_with_class(
+            field, "dcs-colorfield__hex")) {
+        if (try_value(attr_string(input, "value"), out)) return out;
+    }
+    return fallback;
+}
+
+bool sync_dcs_colorfield(detail::DocumentImpl& impl,
+                         lxb_dom_element_t* field,
+                         HsvColor hsv,
+                         bool emit) {
+    if (!field) return false;
+    hsv.s = std::clamp(hsv.s, 0.0, 1.0);
+    hsv.v = std::clamp(hsv.v, 0.0, 1.0);
+    hsv.h = std::fmod(hsv.h, 360.0);
+    if (hsv.h < 0.0) hsv.h += 360.0;
+
+    auto* owner = colorfield_owner(field);
+    const std::string previous = normalize_hex_color(
+        owner ? attr_string(owner, "data-value")
+              : attr_string(field, "data-value"));
+    const std::string hex = hex_from_hsv(hsv);
+    const std::string hue_hex = hex_from_hsv({hsv.h, 1.0, 1.0});
+
+    bool changed = false;
+    changed = set_attribute_on_element(impl, field, "data-value", hex) ||
+              changed;
+    if (owner && owner != field) {
+        changed = set_attribute_on_element(impl, owner, "data-value", hex) ||
+                  changed;
+    }
+    if (auto* chip = first_descendant_with_class(
+            field, "dcs-colorfield__chip")) {
+        changed = set_attribute_on_element(impl, chip, "data-dcs-color", hex) ||
+                  changed;
+        changed = set_attribute_on_element(
+                      impl, chip, "style",
+                      style_with_properties(
+                          attr_string(chip, "style"),
+                          {{"--c", hex}, {"background", hex}})) ||
+                  changed;
+    }
+    if (auto* input = first_descendant_with_class(
+            field, "dcs-colorfield__hex")) {
+        changed = set_attribute_on_element(impl, input, "value", hex) ||
+                  changed;
+        const int idx = block_index_for_exact_element(impl, input);
+        if (idx >= 0) {
+            auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+            if (block.text_control) {
+                set_live_text_value(impl, idx, block, hex);
+            }
+        }
+    }
+    if (auto* preview_chip = first_descendant_with_class(
+            field, "dcs-colorfield__picker-chip")) {
+        changed = set_attribute_on_element(
+                      impl, preview_chip, "style",
+                      style_with_properties(
+                          attr_string(preview_chip, "style"),
+                          {{"--c", hex}, {"background", hex}})) ||
+                  changed;
+    }
+    if (auto* preview_input = first_descendant_with_class(
+            field, "dcs-colorfield__picker-input")) {
+        changed = set_attribute_on_element(impl, preview_input, "value", hex) ||
+                  changed;
+        const int idx = block_index_for_exact_element(impl, preview_input);
+        if (idx >= 0) {
+            auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+            if (block.text_control) {
+                set_live_text_value(impl, idx, block, hex);
+            }
+        }
+    }
+    if (auto* square = first_descendant_with_class(
+            field, "dcs-color-square")) {
+        changed = set_attribute_on_element(
+                      impl, square, "style",
+                      style_with_properties(
+                          attr_string(square, "style"),
+                          {{"--hue", hue_hex},
+                           {"aspect-ratio", "1.4 / 1"}})) ||
+                  changed;
+        if (auto* cursor = first_descendant_with_class(
+                square, "dcs-color-square__cursor")) {
+            changed = set_attribute_on_element(
+                          impl, cursor, "style",
+                          style_with_properties(
+                              attr_string(cursor, "style"),
+                              {{"left", percent_string(hsv.s)},
+                               {"top", percent_string(1.0 - hsv.v)}})) ||
+                      changed;
+        }
+    }
+    if (auto* hue = first_descendant_with_class(field, "dcs-hue-bar")) {
+        if (auto* cursor = first_descendant_with_class(
+                hue, "dcs-hue-bar__cursor")) {
+            changed = set_attribute_on_element(
+                          impl, cursor, "style",
+                          style_with_properties(
+                              attr_string(cursor, "style"),
+                              {{"left", percent_string(hsv.h / 360.0)}})) ||
+                      changed;
+        }
+    }
+
+    if (emit && hex != previous) {
+        emit_widget_change(impl, owner ? owner : field, hex);
+    }
+    return changed;
+}
+
+bool sync_dcs_colorfield(detail::DocumentImpl& impl,
+                         lxb_dom_element_t* field,
+                         std::string_view raw_hex,
+                         bool emit) {
+    const std::string hex = normalize_hex_color(raw_hex);
+    if (hex.empty()) return false;
+    return sync_dcs_colorfield(impl, field,
+                               hsv_from_hex(hex, HsvColor{}), emit);
+}
+
+bool colorfield_part_kind(lxb_dom_element_t* elem,
+                          detail::DocumentImpl::ColorfieldDrag::Kind& kind) {
+    using Kind = detail::DocumentImpl::ColorfieldDrag::Kind;
+    if (class_list_contains(elem, "dcs-colorfield__chip")) {
+        kind = Kind::Chip;
+        return true;
+    }
+    if (class_list_contains(elem, "dcs-color-square")) {
+        kind = Kind::Square;
+        return true;
+    }
+    if (class_list_contains(elem, "dcs-hue-bar")) {
+        kind = Kind::Hue;
+        return true;
+    }
+    return false;
+}
+
+bool find_dcs_colorfield_part_at(
+    detail::DocumentImpl& impl,
+    int from_idx,
+    lxb_dom_element_t*& out_field,
+    lxb_dom_element_t*& out_part,
+    detail::DocumentImpl::ColorfieldDrag::Kind& out_kind) {
+    using Kind = detail::DocumentImpl::ColorfieldDrag::Kind;
+    out_field = nullptr;
+    out_part = nullptr;
+    out_kind = Kind::None;
+    for (int idx = from_idx;
+         idx >= 0 && idx < static_cast<int>(impl.blocks.size());
+         idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        auto* elem = element_for_block(impl, idx);
+        if (!elem) continue;
+        Kind kind = Kind::None;
+        if (!out_part && colorfield_part_kind(elem, kind)) {
+            out_part = elem;
+            out_kind = kind;
+        }
+        if (out_part && class_list_contains(elem, "dcs-colorfield")) {
+            out_field = elem;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool find_dcs_colorfield_part_at_point(
+    detail::DocumentImpl& impl,
+    Point point,
+    lxb_dom_element_t*& out_field,
+    lxb_dom_element_t*& out_part,
+    detail::DocumentImpl::ColorfieldDrag::Kind& out_kind) {
+    using Kind = detail::DocumentImpl::ColorfieldDrag::Kind;
+    out_field = nullptr;
+    out_part = nullptr;
+    out_kind = Kind::None;
+    for (std::size_t i = impl.blocks.size(); i-- > 0; ) {
+        auto* elem = element_for_block(impl, static_cast<int>(i));
+        if (!elem) continue;
+        Kind kind = Kind::None;
+        if (!colorfield_part_kind(elem, kind)) continue;
+        const Rect bounds = block_border_visual_rect(impl, static_cast<int>(i));
+        if (bounds.w <= 0 || bounds.h <= 0 ||
+            !rect_contains(bounds, point.x, point.y)) {
+            continue;
+        }
+        auto* field = nearest_ancestor_with_class(elem, "dcs-colorfield");
+        if (!field) continue;
+        out_field = field;
+        out_part = elem;
+        out_kind = kind;
+        return true;
+    }
+    return false;
+}
+
+bool begin_dcs_colorfield_drag(detail::DocumentImpl& impl,
+                               int from_idx,
+                               const Event& ev) {
+    using Kind = detail::DocumentImpl::ColorfieldDrag::Kind;
+    lxb_dom_element_t* field = nullptr;
+    lxb_dom_element_t* part = nullptr;
+    Kind kind = Kind::None;
+    if (!find_dcs_colorfield_part_at(impl, from_idx, field, part, kind) &&
+        !find_dcs_colorfield_part_at_point(impl, ev.pos, field, part, kind)) {
+        return false;
+    }
+    const int part_idx = block_index_for_exact_element(impl, part);
+    if (part_idx < 0) return false;
+    const HsvColor hsv = current_dcs_colorfield_hsv(field);
+    impl.colorfield_drag.kind = kind;
+    impl.colorfield_drag.field = field;
+    impl.colorfield_drag.part = part;
+    impl.colorfield_drag.bounds = block_border_visual_rect(impl, part_idx);
+    impl.colorfield_drag.start_x = ev.pos.x;
+    impl.colorfield_drag.start_y = ev.pos.y;
+    impl.colorfield_drag.h = hsv.h;
+    impl.colorfield_drag.s = hsv.s;
+    impl.colorfield_drag.v = hsv.v;
+    return true;
+}
+
+bool update_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev) {
+    using Kind = detail::DocumentImpl::ColorfieldDrag::Kind;
+    auto& drag = impl.colorfield_drag;
+    if (drag.kind == Kind::None || !drag.field) return false;
+
+    HsvColor next{drag.h, drag.s, drag.v};
+    if (drag.kind == Kind::Chip) {
+        const double dx = static_cast<double>(ev.pos.x - drag.start_x);
+        const double dy = static_cast<double>(drag.start_y - ev.pos.y);
+        next.v = std::clamp(drag.v + dy / 200.0, 0.0, 1.0);
+        if (ev.ctrl || ev.super) {
+            next.s = std::clamp(drag.s + dx / 200.0, 0.0, 1.0);
+        } else {
+            next.h = std::fmod(drag.h + dx, 360.0);
+            if (next.h < 0.0) next.h += 360.0;
+        }
+    } else if (drag.kind == Kind::Square) {
+        next.s = drag.bounds.w > 0
+            ? std::clamp((static_cast<double>(ev.pos.x) - drag.bounds.x) /
+                             drag.bounds.w,
+                         0.0, 1.0)
+            : 0.0;
+        next.v = drag.bounds.h > 0
+            ? 1.0 - std::clamp(
+                        (static_cast<double>(ev.pos.y) - drag.bounds.y) /
+                            drag.bounds.h,
+                        0.0, 1.0)
+            : 1.0;
+    } else if (drag.kind == Kind::Hue) {
+        next.h = drag.bounds.w > 0
+            ? std::clamp((static_cast<double>(ev.pos.x) - drag.bounds.x) /
+                             drag.bounds.w,
+                         0.0, 1.0) *
+                  360.0
+            : 0.0;
+    }
+    return sync_dcs_colorfield(impl, drag.field, next, /*emit=*/true);
 }
 
 std::string button_group_option_value(lxb_dom_element_t* elem) {
@@ -9544,6 +10213,20 @@ int computed_border_padding_height(const detail::ComputedStyle& cs) {
            cs.used_border_top() + cs.used_border_bottom();
 }
 
+int computed_border_padding_width(const detail::ComputedStyle& cs) {
+    return cs.padding_left + cs.padding_right +
+           cs.used_border_left() + cs.used_border_right();
+}
+
+int computed_outer_declared_width(const detail::ComputedStyle& cs) {
+    if (cs.width <= 0) return 0;
+    int w = cs.width;
+    if (cs.box_sizing == detail::ComputedStyle::BoxSizing::ContentBox) {
+        w += computed_border_padding_width(cs);
+    }
+    return std::max(1, w);
+}
+
 int computed_outer_declared_height(const detail::ComputedStyle& cs) {
     if (cs.height <= 0) return 0;
     int h = cs.height;
@@ -9627,6 +10310,23 @@ int overlay_declared_outer_height(const detail::DocumentImpl& impl,
         return declared;
     }
     return overlay_estimated_height(impl, elem, fallback);
+}
+
+int overlay_declared_outer_width(const detail::DocumentImpl& impl,
+                                 lxb_dom_element_t* elem,
+                                 int fallback) {
+    if (!elem || !impl.resolver) return std::max(1, fallback);
+    auto rs = impl.resolver->resolve(elem, impl.root_style);
+    if (const int declared = computed_outer_declared_width(rs.computed);
+        declared > 0) {
+        return declared;
+    }
+    const int idx = block_index_for_exact_element(impl, elem);
+    if (idx >= 0) {
+        const Rect rect = block_border_visual_rect(impl, idx);
+        if (rect.w > 0) return rect.w;
+    }
+    return std::max(1, fallback);
 }
 
 struct OverlayPlacement {
@@ -10069,6 +10769,13 @@ bool find_float_resize_at(detail::DocumentImpl& impl, int from_idx, Point point,
         out.cb_x = blk.bounds.x - cur_left;
         out.cb_y = blk.bounds.y - cur_top;
         out.panel_id = attr_string(elem, "data-dcs-dock-id");
+        dock_trace("float-resize-arm panel=" + out.panel_id +
+                   " dir=" + std::to_string(dir) + " at=(" +
+                   std::to_string(point.x) + "," + std::to_string(point.y) +
+                   ") bounds=(" + std::to_string(blk.bounds.x) + "," +
+                   std::to_string(blk.bounds.y) + "," +
+                   std::to_string(blk.bounds.w) + "x" +
+                   std::to_string(blk.bounds.h) + ")");
         if (auto* be = resolve_drag_bounds_elem(
                 impl, elem, attr_string(elem, "data-dcs-drag-bounds"))) {
             const int beidx = block_index_for_exact_element(impl, be);
@@ -10330,6 +11037,15 @@ bool set_all_dcs_menu_triggers_expanded(detail::DocumentImpl& impl,
 
     bool changed = false;
     for (auto* trigger : triggers) {
+        // Only rewrite triggers whose state actually differs. In particular,
+        // collapsing must NOT add aria-expanded="false" to a trigger that never
+        // had the attribute: the outside-click "close everything" sweep runs on
+        // a fresh view too, and a spurious attribute add restyles + dirties
+        // layout — which used to swallow the very first click on any control
+        // (found via the game-editor inspector "checkbox needs two clicks").
+        const std::string current = attr_string(trigger, "aria-expanded");
+        if (current == value) continue;
+        if (value == "false" && current.empty()) continue;
         changed =
             set_attribute_on_element(impl, trigger, "aria-expanded", value) ||
             changed;
@@ -10432,6 +11148,13 @@ bool set_all_dcs_popover_triggers_expanded(detail::DocumentImpl& impl,
 
     bool changed = false;
     for (auto* trigger : triggers) {
+        // Same no-spurious-write rule as the menu sweep: never ADD
+        // aria-expanded="false" to a virgin trigger (e.g. every colorfield
+        // caret on a freshly built view) — the mutation dirties layout and
+        // used to swallow the first click on unrelated controls.
+        const std::string current = attr_string(trigger, "aria-expanded");
+        if (current == value) continue;
+        if (value == "false" && current.empty()) continue;
         changed =
             set_attribute_on_element(impl, trigger, "aria-expanded", value) ||
             changed;
@@ -10442,7 +11165,19 @@ bool set_all_dcs_popover_triggers_expanded(detail::DocumentImpl& impl,
 bool close_dcs_popover(detail::DocumentImpl& impl, lxb_dom_element_t* popover) {
     if (!popover) return false;
     bool changed = set_attribute_on_element(impl, popover, "hidden", "");
-    changed = remove_attribute_on_element(impl, popover, "style") || changed;
+    if (has_attr(popover, "data-dcs-base-style")) {
+        const std::string base = attr_string(popover, "data-dcs-base-style");
+        changed = base.empty()
+            ? (remove_attribute_on_element(impl, popover, "style") || changed)
+            : (set_attribute_on_element(impl, popover, "style", base) ||
+               changed);
+        changed =
+            remove_attribute_on_element(impl, popover, "data-dcs-base-style") ||
+            changed;
+    } else {
+        changed = remove_attribute_on_element(impl, popover, "style") ||
+                  changed;
+    }
     return changed;
 }
 
@@ -10467,20 +11202,18 @@ bool close_all_dcs_popovers(detail::DocumentImpl& impl,
 
 bool close_transient_layers(detail::DocumentImpl& impl,
                             lxb_dom_element_t* except) {
-    bool changed = false;
-    changed = close_all_dropdown_menus(impl, except) || changed;
-    changed = close_all_dcs_menus(impl, except) || changed;
-    changed = close_all_dcs_popovers(impl, except) || changed;
-    return changed;
+    const bool dropdowns = close_all_dropdown_menus(impl, except);
+    const bool menus = close_all_dcs_menus(impl, except);
+    const bool popovers = close_all_dcs_popovers(impl, except);
+    return dropdowns || menus || popovers;
 }
 
 std::string dcs_popover_open_style(const detail::DocumentImpl& impl,
                                    lxb_dom_element_t* trigger,
                                    lxb_dom_element_t* popover) {
-    int pop_w = 220;
+    int pop_w = overlay_declared_outer_width(impl, popover, 220);
     int pop_h = 64;
-    const int popover_idx =
-        block_index_for_element_or_ancestor(impl, popover);
+    const int popover_idx = block_index_for_exact_element(impl, popover);
     if (popover_idx >= 0) {
         const Rect pop_rect = block_border_visual_rect(impl, popover_idx);
         if (pop_rect.w > 0) pop_w = pop_rect.w;
@@ -10488,10 +11221,18 @@ std::string dcs_popover_open_style(const detail::DocumentImpl& impl,
     }
 
     Rect anchor_rect{0, 0, 1, 1};
+    lxb_dom_element_t* anchor_elem = trigger;
+    if (auto* field = nearest_ancestor_with_class(trigger, "dcs-colorfield")) {
+        anchor_elem = field;
+    }
     const int trigger_idx =
-        block_index_for_element_or_ancestor(impl, trigger);
+        block_index_for_element_or_ancestor(impl, anchor_elem);
     if (trigger_idx >= 0) {
         anchor_rect = block_border_visual_rect(impl, trigger_idx);
+        if (class_list_contains(anchor_elem, "dcs-colorfield") &&
+            anchor_rect.w > pop_w) {
+            pop_w = anchor_rect.w;
+        }
     }
 
     std::string placement = attr_string(trigger, "data-dcs-placement");
@@ -10499,11 +11240,17 @@ std::string dcs_popover_open_style(const detail::DocumentImpl& impl,
     const auto placed = place_anchored_overlay(
         impl, anchor_rect, pop_w,
         overlay_declared_outer_height(impl, popover, pop_h), placement, 6);
-    return "display:flex;position:fixed;left:" +
-           std::to_string(placed.left) +
-           "px;top:" + std::to_string(placed.top) +
-           "px;max-height:" + std::to_string(placed.max_height) +
-           "px;overflow:auto;z-index:400";
+    const std::string width = std::to_string(pop_w) + "px";
+    return style_with_properties(
+        attr_string(popover, "style"),
+        {{"display", "flex"},
+         {"position", "fixed"},
+         {"left", std::to_string(placed.left) + "px"},
+         {"top", std::to_string(placed.top) + "px"},
+         {"width", width},
+         {"max-height", std::to_string(placed.max_height) + "px"},
+         {"overflow", "auto"},
+         {"z-index", "400"}});
 }
 
 bool toggle_dcs_popover(detail::DocumentImpl& impl,
@@ -10518,9 +11265,17 @@ bool toggle_dcs_popover(detail::DocumentImpl& impl,
         return changed;
     }
 
+    if (auto* field = nearest_ancestor_with_class(trigger, "dcs-colorfield")) {
+        sync_dcs_colorfield(impl, field, current_dcs_colorfield_hsv(field),
+                            /*emit=*/false);
+    }
+    const std::string base_style = attr_string(popover, "style");
     const std::string open_style =
         dcs_popover_open_style(impl, trigger, popover);
     bool changed = close_transient_layers(impl, popover);
+    changed = set_attribute_on_element(impl, popover, "data-dcs-base-style",
+                                       base_style) ||
+              changed;
     changed = remove_attribute_on_element(impl, popover, "hidden") || changed;
     changed =
         set_attribute_on_element(impl, popover, "style", open_style) ||
@@ -11283,7 +12038,10 @@ void activate_tab_in_dock(lxb_dom_element_t* dock, lxb_dom_element_t* tab) {
 }
 
 // prepareTabForTitlebar / prepareTabForTabbar: a single-tab floating pane's
-// tab doubles as the panel title; these flip it between the two roles.
+// tab doubles as the panel title; these flip it between the two roles. The
+// LOOK comes from the bundle's own `.dcs-panel__title--dock-tab` rules
+// (appearance reset, grab cursor, tab chrome suppressed) — no inline styles,
+// exactly like decius.js prepareTabForTitlebar.
 void prepare_tab_for_titlebar(detail::DocumentImpl& impl,
                               lxb_dom_element_t* tab) {
     (void) impl;
@@ -11303,7 +12061,9 @@ void prepare_tab_for_tabbar(detail::DocumentImpl& impl,
 
 lxb_dom_element_t* titlebar_for_dock(detail::DocumentImpl& impl,
                                      lxb_dom_element_t* dock) {
-    if (auto* existing = dock_titlebar_el(dock)) return existing;
+    if (auto* existing = dock_titlebar_el(dock)) {
+        return existing;
+    }
     auto* titlebar = dock_create_el(
         impl, "header", "dcs-panel__header dcs-dockpane__titlebar");
     if (!titlebar) return nullptr;
@@ -12355,6 +13115,11 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
     const int hit = hit_test_blocks_for_dock_target(impl, pt.x, pt.y);
     auto* hit_elem = element_for_block_or_ancestor(impl, hit);
     auto* e = ancestor_with_class(hit_elem, "dcs-dockpane");
+    dock_trace("drop-probe at=(" + std::to_string(pt.x) + "," +
+               std::to_string(pt.y) + ") hit=" + std::to_string(hit) +
+               " pane=" + (e ? pane_panel_id(e) : std::string("<none>")) +
+               " kind=" + (e ? dock_kind_of(e) : std::string()) +
+               " drag_kind=" + std::string(drag_kind));
     if (e) {
         const int bi = block_index_for_exact_element(impl, e);
         if (bi < 0) return window_edge.valid ? window_edge : out;
@@ -12787,6 +13552,314 @@ bool toggle_dcs_tree_chevron_control(detail::DocumentImpl& impl, int from_idx) {
     return changed;
 }
 
+using TreeDropZone = detail::DocumentImpl::TreeDrag::Zone;
+
+std::string_view dcs_tree_drop_class(TreeDropZone zone) {
+    switch (zone) {
+        case TreeDropZone::Before:
+            return "dcs-tree__row--drop-before";
+        case TreeDropZone::After:
+            return "dcs-tree__row--drop-after";
+        case TreeDropZone::Into:
+            return "dcs-tree__row--drop-into";
+        case TreeDropZone::None:
+            break;
+    }
+    return {};
+}
+
+bool clear_dcs_tree_drop_classes(detail::DocumentImpl& impl,
+                                 lxb_dom_element_t* row) {
+    if (!row) return false;
+    bool changed = false;
+    for (std::string_view cls :
+         {"dcs-tree__row--drop-before", "dcs-tree__row--drop-after",
+          "dcs-tree__row--drop-into"}) {
+        changed = set_element_class(impl, row, cls, false) || changed;
+    }
+    return changed;
+}
+
+void clear_dcs_tree_drop_classes_raw(lxb_dom_element_t* row) {
+    if (!row) return;
+    for (std::string_view cls :
+         {"dcs-tree__row--drop-before", "dcs-tree__row--drop-after",
+          "dcs-tree__row--drop-into"}) {
+        dock_set_class(row, cls, false);
+    }
+}
+
+bool clear_dcs_tree_drop_highlight(detail::DocumentImpl& impl) {
+    bool changed = clear_dcs_tree_drop_classes(impl, impl.tree_drag.target);
+    impl.tree_drag.target = nullptr;
+    impl.tree_drag.zone = TreeDropZone::None;
+    return changed;
+}
+
+bool find_dcs_tree_row_at(detail::DocumentImpl& impl,
+                          int from_idx,
+                          lxb_dom_element_t*& out_tree,
+                          lxb_dom_element_t*& out_row) {
+    out_tree = nullptr;
+    out_row = nullptr;
+    for (int idx = from_idx;
+         idx >= 0 && idx < static_cast<int>(impl.blocks.size());
+         idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        auto* elem = element_for_block(impl, idx);
+        if (!elem) continue;
+        if (!out_row && class_list_contains(elem, "dcs-tree__row")) {
+            out_row = elem;
+        }
+        if (out_row && class_list_contains(elem, "dcs-tree")) {
+            out_tree = elem;
+            return true;
+        }
+    }
+    return false;
+}
+
+lxb_dom_element_t* find_dcs_tree_row_at_point(detail::DocumentImpl& impl,
+                                              lxb_dom_element_t* tree,
+                                              Point point) {
+    if (!tree) return nullptr;
+    const int tree_idx = block_index_for_exact_element(impl, tree);
+    if (tree_idx < 0) return nullptr;
+    const Rect tree_rect = block_border_visual_rect(impl, tree_idx);
+
+    std::vector<lxb_dom_element_t*> rows;
+    collect_dcs_tree_rows(tree, rows);
+    for (auto* row : rows) {
+        if (!row || has_attr(row, "hidden")) continue;
+        const int row_idx = block_index_for_exact_element(impl, row);
+        if (row_idx < 0) continue;
+        const Rect row_rect = block_border_visual_rect(impl, row_idx);
+        if (row_rect.h <= 0) continue;
+        const int left =
+            tree_rect.w > 0 ? std::min(tree_rect.x, row_rect.x) : row_rect.x;
+        const int right = tree_rect.w > 0
+            ? std::max(tree_rect.x + tree_rect.w, row_rect.x + row_rect.w)
+            : row_rect.x + row_rect.w;
+        if (point.y >= row_rect.y && point.y < row_rect.y + row_rect.h &&
+            point.x >= left && point.x < right) {
+            return row;
+        }
+    }
+    return nullptr;
+}
+
+bool dcs_tree_row_draggable(lxb_dom_element_t* row) {
+    if (!row) return false;
+    if (attr_string(row, "draggable") == "false") return false;
+    if (attr_string(row, "aria-disabled") == "true") return false;
+    return true;
+}
+
+std::vector<lxb_dom_element_t*> dcs_tree_row_subtree(
+    lxb_dom_element_t* row) {
+    std::vector<lxb_dom_element_t*> out;
+    if (!row || !class_list_contains(row, "dcs-tree__row")) return out;
+    const int root_depth = dcs_tree_row_depth(row);
+    for (auto* cur = row; cur != nullptr;
+         cur = next_element_sibling(lxb_dom_interface_node(cur))) {
+        if (!class_list_contains(cur, "dcs-tree__row")) break;
+        if (cur != row && dcs_tree_row_depth(cur) <= root_depth) break;
+        out.push_back(cur);
+    }
+    return out;
+}
+
+bool dcs_tree_subtree_contains(
+    const std::vector<lxb_dom_element_t*>& subtree,
+    lxb_dom_element_t* row) {
+    return std::find(subtree.begin(), subtree.end(), row) != subtree.end();
+}
+
+TreeDropZone dcs_tree_drop_zone_for_point(
+    detail::DocumentImpl& impl,
+    lxb_dom_element_t* row,
+    Point point) {
+    const int idx = block_index_for_exact_element(impl, row);
+    if (idx < 0) return TreeDropZone::Into;
+    const Rect bounds = block_border_visual_rect(impl, idx);
+    if (bounds.h <= 0) return TreeDropZone::Into;
+    const double y = static_cast<double>(point.y - bounds.y);
+    if (y < bounds.h * 0.3) return TreeDropZone::Before;
+    if (y > bounds.h * 0.7) return TreeDropZone::After;
+    return TreeDropZone::Into;
+}
+
+bool set_dcs_tree_drop_highlight(detail::DocumentImpl& impl,
+                                 lxb_dom_element_t* target,
+                                 TreeDropZone zone) {
+    if (!target || zone == TreeDropZone::None) {
+        return clear_dcs_tree_drop_highlight(impl);
+    }
+    if (impl.tree_drag.target == target && impl.tree_drag.zone == zone) {
+        return false;
+    }
+    bool changed = clear_dcs_tree_drop_highlight(impl);
+    impl.tree_drag.target = target;
+    impl.tree_drag.zone = zone;
+    changed = set_element_class(impl, target, dcs_tree_drop_class(zone),
+                                true) ||
+              changed;
+    return changed;
+}
+
+void shift_dcs_tree_subtree_depth_raw(
+    const std::vector<lxb_dom_element_t*>& subtree,
+    int delta) {
+    if (delta == 0) return;
+    for (auto* row : subtree) {
+        const int next_depth = std::max(0, dcs_tree_row_depth(row) + delta);
+        dock_set_attr(row, "style",
+                      style_with_properties(
+                          attr_string(row, "style"),
+                          {{"--depth", std::to_string(next_depth)}}));
+    }
+}
+
+void refresh_dcs_tree_visibility_raw(lxb_dom_element_t* tree) {
+    std::vector<lxb_dom_element_t*> rows;
+    collect_dcs_tree_rows(tree, rows);
+    if (rows.empty()) return;
+
+    std::vector<bool> open_by_depth(129, true);
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+        auto* row = rows[i];
+        const int depth = dcs_tree_row_depth(row);
+        bool visible = true;
+        for (int d = 0; d < depth && d < static_cast<int>(open_by_depth.size());
+             ++d) {
+            if (!open_by_depth[static_cast<std::size_t>(d)]) {
+                visible = false;
+                break;
+            }
+        }
+        if (visible) {
+            lxb_dom_element_remove_attribute(row, as_lxb("hidden"), 6);
+        } else {
+            dock_set_attr(row, "hidden", "");
+        }
+
+        if (auto* chevron =
+                first_descendant_with_class(row, "dcs-tree__chevron")) {
+            const bool has_child =
+                dcs_tree_row_has_direct_child(rows, i, depth);
+            dock_set_class(chevron, "dcs-tree__chevron--leaf", !has_child);
+            open_by_depth[static_cast<std::size_t>(depth)] =
+                has_child &&
+                class_list_contains(chevron, "dcs-tree__chevron--open");
+        } else {
+            open_by_depth[static_cast<std::size_t>(depth)] = true;
+        }
+        for (std::size_t d = static_cast<std::size_t>(depth + 1);
+             d < open_by_depth.size(); ++d) {
+            open_by_depth[d] = true;
+        }
+    }
+}
+
+bool update_dcs_tree_drag(detail::DocumentImpl& impl, const Event& ev) {
+    auto& drag = impl.tree_drag;
+    if (!drag.row || !drag.tree) return false;
+    bool changed = false;
+    if (!drag.dragging) {
+        const int dx = ev.pos.x - drag.start_x;
+        const int dy = ev.pos.y - drag.start_y;
+        if (dx * dx + dy * dy <= 36) return false;
+        drag.dragging = true;
+        changed = set_element_class(impl, drag.row,
+                                    "dcs-tree__row--draggable", true) ||
+                  changed;
+    }
+
+    lxb_dom_element_t* target =
+        find_dcs_tree_row_at_point(impl, drag.tree, ev.pos);
+    if (!target || target == drag.row) {
+        return clear_dcs_tree_drop_highlight(impl) || changed;
+    }
+    const auto source_subtree = dcs_tree_row_subtree(drag.row);
+    if (dcs_tree_subtree_contains(source_subtree, target)) {
+        return clear_dcs_tree_drop_highlight(impl) || changed;
+    }
+    changed = set_dcs_tree_drop_highlight(
+                  impl, target,
+                  dcs_tree_drop_zone_for_point(impl, target, ev.pos)) ||
+              changed;
+    return changed;
+}
+
+bool finish_dcs_tree_drag(detail::DocumentImpl& impl, const Event& ev) {
+    auto& drag = impl.tree_drag;
+    if (!drag.dragging || !drag.row || !drag.tree) return false;
+
+    lxb_dom_element_t* target = drag.target;
+    TreeDropZone zone = drag.zone;
+    if (auto* point_row = find_dcs_tree_row_at_point(impl, drag.tree, ev.pos);
+        point_row && point_row != drag.row) {
+        target = point_row;
+        zone = dcs_tree_drop_zone_for_point(impl, target, ev.pos);
+    }
+    if (!target || zone == TreeDropZone::None) return false;
+
+    auto source_subtree = dcs_tree_row_subtree(drag.row);
+    if (source_subtree.empty() ||
+        dcs_tree_subtree_contains(source_subtree, target)) {
+        return false;
+    }
+
+    const int target_depth = dcs_tree_row_depth(target);
+    const int new_root_depth =
+        zone == TreeDropZone::Into ? target_depth + 1 : target_depth;
+    const int delta_depth = new_root_depth - dcs_tree_row_depth(drag.row);
+    auto target_subtree = dcs_tree_row_subtree(target);
+    lxb_dom_node_t* anchor =
+        zone == TreeDropZone::Before
+            ? lxb_dom_interface_node(target)
+            : zone == TreeDropZone::After
+                  ? (target_subtree.empty()
+                         ? lxb_dom_node_next(lxb_dom_interface_node(target))
+                         : lxb_dom_node_next(lxb_dom_interface_node(
+                               target_subtree.back())))
+                  : lxb_dom_node_next(lxb_dom_interface_node(target));
+    auto* parent_node = lxb_dom_node_parent(lxb_dom_interface_node(target));
+    if (!parent_node) return false;
+
+    SuppressDomStyleAttach no_eager_attach(impl);
+    clear_dcs_tree_drop_classes_raw(drag.target);
+    dock_set_class(drag.row, "dcs-tree__row--draggable", false);
+    shift_dcs_tree_subtree_depth_raw(source_subtree, delta_depth);
+    const bool anchor_in_source =
+        anchor && anchor->type == LXB_DOM_NODE_TYPE_ELEMENT &&
+        dcs_tree_subtree_contains(source_subtree,
+                                  lxb_dom_interface_element(anchor));
+    if (!anchor_in_source) {
+        for (auto* row : source_subtree) {
+            dock_detach_for_move(row);
+            if (anchor) {
+                lxb_dom_node_insert_before(anchor, lxb_dom_interface_node(row));
+            } else {
+                lxb_dom_node_insert_child(parent_node,
+                                          lxb_dom_interface_node(row));
+            }
+        }
+    }
+    refresh_dcs_tree_visibility_raw(drag.tree);
+    dock_structure_changed(impl);
+    emit_widget_change(impl, drag.tree, "reorder");
+    return true;
+}
+
+bool cancel_dcs_tree_drag(detail::DocumentImpl& impl) {
+    bool changed = clear_dcs_tree_drop_highlight(impl);
+    changed = set_element_class(impl, impl.tree_drag.row,
+                                "dcs-tree__row--draggable", false) ||
+              changed;
+    impl.tree_drag = {};
+    return changed;
+}
+
 bool is_open_transient_layer(lxb_dom_element_t* elem) {
     return elem && !has_attr(elem, "hidden") &&
            (class_list_contains(elem, "aui-select__menu") ||
@@ -12794,13 +13867,46 @@ bool is_open_transient_layer(lxb_dom_element_t* elem) {
             class_list_contains(elem, "dcs-popover"));
 }
 
+bool point_preserves_transient_layers(detail::DocumentImpl& impl,
+                                      Point point) {
+    for (std::size_t i = impl.blocks.size(); i-- > 0; ) {
+        auto* elem = element_for_block(impl, static_cast<int>(i));
+        if (!elem) continue;
+        const Rect bounds = block_border_visual_rect(impl, static_cast<int>(i));
+        if (bounds.w <= 0 || bounds.h <= 0 ||
+            !rect_contains(bounds, point.x, point.y)) {
+            continue;
+        }
+        if (is_open_transient_layer(elem)) return true;
+        if (auto* popover = nearest_ancestor_with_class(elem, "dcs-popover");
+            popover && !has_attr(popover, "hidden")) {
+            return true;
+        }
+        if (auto* menu = nearest_ancestor_with_class(elem, "dcs-menu");
+            menu && !has_attr(menu, "hidden")) {
+            return true;
+        }
+        if (auto* menu =
+                nearest_ancestor_with_class(elem, "aui-select__menu");
+            menu && !has_attr(menu, "hidden")) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool click_preserves_transient_layers(detail::DocumentImpl& impl,
-                                      int from_idx) {
+                                      int from_idx,
+                                      Point point) {
     for (int idx = from_idx;
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
         auto* elem = element_for_block(impl, idx);
         if (!elem) continue;
+        if (auto* popover = nearest_ancestor_with_class(elem, "dcs-popover");
+            popover && !has_attr(popover, "hidden")) {
+            return true;
+        }
         if (is_open_transient_layer(elem)) return true;
         if (is_dcs_menu_trigger(elem) || is_dcs_popover_trigger(elem)) {
             return true;
@@ -12810,8 +13916,90 @@ bool click_preserves_transient_layers(detail::DocumentImpl& impl,
             return true;
         }
     }
-    return false;
+    return point_preserves_transient_layers(impl, point);
 }
+
+lxb_dom_element_t* find_trigger_for_target(detail::DocumentImpl& impl,
+                                           std::string_view target_selector) {
+    if (target_selector.empty()) return nullptr;
+    lxb_dom_element_t* out = nullptr;
+    auto collect = [&](lxb_dom_element_t* elem) {
+        if (!out && attr_string(elem, "data-dcs-target") == target_selector) {
+            out = elem;
+        }
+    };
+    walk_dom_elements(document_dom_root(impl), collect);
+    return out;
+}
+
+}  // namespace
+
+Document::TransientState Document::capture_transient_state() const {
+    TransientState state;
+#if !defined(AFFINEUI_STUB_BUILD)
+    auto collect = [&](lxb_dom_element_t* elem) {
+        if (!elem || has_attr(elem, "hidden")) return;
+        const bool popover = class_list_contains(elem, "dcs-popover");
+        const bool menu = class_list_contains(elem, "dcs-menu") ||
+                          class_list_contains(elem, "aui-select__menu");
+        if (!popover && !menu) return;
+        const std::string id = attr_string(elem, "id");
+        if (id.empty()) return;
+        TransientState::Layer layer;
+        layer.id = id;
+        layer.style = attr_string(elem, "style");
+        layer.base_style = attr_string(elem, "data-dcs-base-style");
+        layer.target_selector = "#" + id;
+        layer.popover = popover;
+        layer.menu = menu;
+        state.open_layers.push_back(std::move(layer));
+    };
+    walk_dom_elements(document_dom_root(*impl_), collect);
+#endif
+    return state;
+}
+
+void Document::restore_transient_state(const TransientState& state) {
+#if !defined(AFFINEUI_STUB_BUILD)
+    for (const auto& layer : state.open_layers) {
+        auto* elem = find_dom_element_by_id(*impl_, layer.id);
+        if (!elem) continue;
+        if (layer.popover && !class_list_contains(elem, "dcs-popover")) {
+            continue;
+        }
+        if (layer.menu && !(class_list_contains(elem, "dcs-menu") ||
+                            class_list_contains(elem, "aui-select__menu"))) {
+            continue;
+        }
+        bool changed = false;
+        changed = remove_attribute_on_element(*impl_, elem, "hidden") || changed;
+        if (!layer.style.empty()) {
+            changed = set_attribute_on_element(*impl_, elem, "style",
+                                               layer.style) ||
+                      changed;
+        }
+        if (!layer.base_style.empty()) {
+            changed = set_attribute_on_element(*impl_, elem,
+                                               "data-dcs-base-style",
+                                               layer.base_style) ||
+                      changed;
+        }
+        if (auto* trigger =
+                find_trigger_for_target(*impl_, layer.target_selector)) {
+            changed = set_attribute_on_element(*impl_, trigger,
+                                               "aria-expanded", "true") ||
+                      changed;
+        }
+        if (changed) {
+            impl_->content_size = Size{0, 0};
+        }
+    }
+#else
+    (void) state;
+#endif
+}
+
+namespace {
 
 // Generic chain-refresh helper used by both :hover (chain follows the
 // pointer) and :active (chain follows the pressed element). `bit`
@@ -13065,14 +14253,10 @@ TextControlGeometry text_control_geometry(const detail::DocumentImpl& impl,
 
     const int textarea_idx =
         nearest_block_with_tag(impl.blocks, idx, "textarea");
-    if (textarea_idx >= 0) {
-        const auto& textarea_cs = impl.style_store.computed(
-            impl.blocks[static_cast<std::size_t>(textarea_idx)].id);
-        g.text_y += std::max(
-            0, textarea_cs.padding_top - textarea_cs.used_border_top());
-    } else if (block.tag == "input" &&
-               block.input_type != "checkbox" &&
-               block.input_type != "radio") {
+    if (textarea_idx < 0 &&
+        block.tag == "input" &&
+        block.input_type != "checkbox" &&
+        block.input_type != "radio") {
         g.text_y += std::min<int>(1, used_border_top);
     }
 
@@ -13215,61 +14399,96 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
         entry.caret_lines.push_back(caret_line);
     };
 
-    push_caret(0, 0.0f, 0);
-    entry.line_widths.push_back(0.0f);
+    const auto is_soft_break_space = [&](std::size_t pos) {
+        if (pos >= block.text_value.size()) return false;
+        const unsigned char ch =
+            static_cast<unsigned char>(block.text_value[pos]);
+        return ch == ' ' || ch == '\t';
+    };
+
+    std::vector<TextVisualLine> visual_lines;
+    const auto push_line = [&](std::size_t begin, std::size_t end) {
+        begin = std::min(begin, block.text_value.size());
+        end = std::min(end, block.text_value.size());
+        if (begin > end) std::swap(begin, end);
+        visual_lines.push_back({begin, end});
+    };
 
     std::size_t line_start = 0;
-    std::uint16_t line = 0;
-    for (std::size_t pos = 0; pos < block.text_value.size();) {
-        const std::size_t next = next_utf8_boundary(block.text_value, pos);
-        if (block.text_value[pos] == '\n') {
-            entry.line_widths[static_cast<std::size_t>(line)] =
-                measure_text_advance(
-                    painter, g.font,
-                    display_segment(line_start, pos),
-                    g.line_height_mult, g.letter_spacing_px);
-            ++line;
-            line_start = next;
-            entry.line_widths.push_back(0.0f);
-            push_caret(next, 0.0f, line);
-            pos = next;
-            continue;
-        }
+    while (line_start <= block.text_value.size()) {
+        std::size_t pos = line_start;
+        std::size_t last_break_begin = std::numeric_limits<std::size_t>::max();
+        std::size_t last_break_end = std::numeric_limits<std::size_t>::max();
+        bool consumed_line = false;
 
-        if (!g.nowrap && line_start < pos) {
-            const float next_width =
-                measure_text_advance(
+        while (pos < block.text_value.size()) {
+            const std::size_t next = next_utf8_boundary(block.text_value, pos);
+            if (block.text_value[pos] == '\n') {
+                push_line(line_start, pos);
+                line_start = next;
+                consumed_line = true;
+                break;
+            }
+
+            if (!g.nowrap && line_start < pos) {
+                const float next_width = measure_text_advance(
                     painter, g.font, display_segment(line_start, next),
                     g.line_height_mult, g.letter_spacing_px);
-            if (next_width > g.content_w) {
-                entry.line_widths[static_cast<std::size_t>(line)] =
-                    measure_text_advance(
-                        painter, g.font, display_segment(line_start, pos),
-                        g.line_height_mult, g.letter_spacing_px);
-                if (line < std::numeric_limits<std::uint16_t>::max()) {
-                    ++line;
+                if (next_width > g.content_w) {
+                    if (last_break_begin !=
+                            std::numeric_limits<std::size_t>::max() &&
+                        last_break_begin > line_start) {
+                        push_line(line_start, last_break_begin);
+                        line_start = last_break_end;
+                        while (is_soft_break_space(line_start)) {
+                            line_start =
+                                next_utf8_boundary(block.text_value,
+                                                   line_start);
+                        }
+                    } else {
+                        push_line(line_start, pos);
+                        line_start = pos;
+                    }
+                    consumed_line = true;
+                    break;
                 }
-                line_start = pos;
-                entry.line_widths.push_back(0.0f);
-                push_caret(pos, 0.0f, line);
             }
+
+            if (is_soft_break_space(pos)) {
+                last_break_begin = pos;
+                last_break_end = next;
+            }
+            pos = next;
         }
 
-        push_caret(
-            next,
-            measure_text_advance(
-                painter, g.font,
-                display_segment(line_start, next),
-                g.line_height_mult, g.letter_spacing_px),
-            line);
-        pos = next;
+        if (consumed_line) continue;
+        push_line(line_start, block.text_value.size());
+        break;
     }
-    if (line_start <= block.text_value.size()) {
-        entry.line_widths[static_cast<std::size_t>(line)] =
-            measure_text_advance(
-                painter, g.font,
-                display_segment(line_start, block.text_value.size()),
-                g.line_height_mult, g.letter_spacing_px);
+    if (visual_lines.empty()) {
+        visual_lines.push_back({0, 0});
+    }
+
+    for (std::size_t line_i = 0; line_i < visual_lines.size(); ++line_i) {
+        const auto& visual = visual_lines[line_i];
+        const auto caret_line = static_cast<std::uint16_t>(
+            std::min<std::size_t>(line_i,
+                                  std::numeric_limits<std::uint16_t>::max()));
+        const float line_width = measure_text_advance(
+            painter, g.font, display_segment(visual.begin, visual.end),
+            g.line_height_mult, g.letter_spacing_px);
+        entry.line_widths.push_back(line_width);
+        push_caret(visual.begin, 0.0f, caret_line);
+        for (std::size_t pos = visual.begin; pos < visual.end;) {
+            const std::size_t next = next_utf8_boundary(block.text_value, pos);
+            push_caret(next,
+                       measure_text_advance(
+                           painter, g.font,
+                           display_segment(visual.begin, next),
+                           g.line_height_mult, g.letter_spacing_px),
+                       caret_line);
+            pos = next;
+        }
     }
     return entry;
 }
@@ -13326,7 +14545,12 @@ std::size_t text_caret_offset_from_point(detail::DocumentImpl& impl,
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return 0;
     auto& block = impl.blocks[static_cast<std::size_t>(idx)];
     if (!block.text_control || block.text_value.empty()) return 0;
-    const auto* entry = cached_text_layout_entry(impl, idx);
+    const TextLayoutEntry* entry = cached_text_layout_entry(impl, idx);
+    if (entry == nullptr && impl.last_measurer != nullptr) {
+        const auto g = text_control_geometry(impl, idx, *impl.last_measurer);
+        entry = &ensure_text_layout_entry(
+            impl, idx, g, block, *impl.last_measurer);
+    }
     if (entry == nullptr) {
         const auto& cs = impl.style_store.computed(block.id);
         const int content_x = block.bounds.x + cs.used_border_left() +
@@ -13608,6 +14832,16 @@ void clipboard_set_text(detail::DocumentImpl& impl, std::string_view text) {
 
 void emit_text_control_change(detail::DocumentImpl& impl, int idx, Block& block) {
     if (auto* elem = element_for_block(impl, idx)) {
+        if (class_list_contains(elem, "dcs-colorfield__hex") ||
+            class_list_contains(elem, "dcs-colorfield__picker-input")) {
+            if (auto* field = nearest_ancestor_with_class(elem,
+                                                          "dcs-colorfield")) {
+                sync_dcs_colorfield(impl, field,
+                                    emitted_text_control_value(block),
+                                    /*emit=*/true);
+            }
+            return;
+        }
         emit_widget_change(impl, elem, emitted_text_control_value(block));
     }
 }
@@ -13786,9 +15020,13 @@ DispatchResult Document::dispatch(const Event& ev) {
     DispatchResult result{};
     auto ensure_interaction_layout = [&]() {
 #if !defined(AFFINEUI_STUB_BUILD)
+        // Relayout with the last-known metrics whenever a mutation dirtied the
+        // block tree. A null measurer is fine — painterless layout estimates
+        // glyph metrics — so interaction code always sees current geometry
+        // (headless apps included; stale blocks read as swallowed clicks,
+        // flickering drop cursors, and drops that land nowhere).
         if (impl_->content_size.width == 0 &&
-            impl_->media_viewport_width_px > 0 &&
-            impl_->last_measurer != nullptr) {
+            impl_->media_viewport_width_px > 0) {
             layout(impl_->media_viewport_width_px,
                    impl_->media_viewport_height_px, impl_->last_measurer);
         }
@@ -13797,6 +15035,13 @@ DispatchResult Document::dispatch(const Event& ev) {
     switch (ev.type) {
         case EventType::MouseMove: {
             impl_->last_mouse_pos = ev.pos;
+            // A prior dispatch may have mutated the DOM (drop-highlight class,
+            // transient-layer close, ...) and dirtied layout without a frame
+            // running since. Every pointer event starts by ensuring the block
+            // tree is current — hit tests and geometric row/target lookups on a
+            // stale tree miss, which reads as flickering drop cursors and
+            // swallowed clicks. No-op when the tree is clean.
+            ensure_interaction_layout();
             if (impl_->scrollbar_drag.block_idx >= 0) {
                 if (scrollbar_scroll_from_thumb_y(
                         *impl_,
@@ -13881,6 +15126,8 @@ DispatchResult Document::dispatch(const Event& ev) {
                 }
                 if (impl_->tab_drag.dragging) {
                     ensure_interaction_layout();
+                    dock_trace("drag-move at=(" + std::to_string(ev.pos.x) +
+                               "," + std::to_string(ev.pos.y) + ")");
                     // Re-resolve the source pane each move (a reload during the
                     // drag invalidates captured element pointers).
                     auto* drag_src_tab = find_dockpane_tab_for_panel_id(
@@ -13935,6 +15182,21 @@ DispatchResult Document::dispatch(const Event& ev) {
                 }
             }
             if (impl_->ui_control_script_attached &&
+                impl_->colorfield_drag.kind !=
+                    detail::DocumentImpl::ColorfieldDrag::Kind::None) {
+                result.defer_widget_changes = true;
+                if (update_dcs_colorfield_drag(*impl_, ev)) {
+                    result.redraw_requested = true;
+                }
+                break;
+            }
+            if (impl_->ui_control_script_attached && impl_->tree_drag.row) {
+                if (update_dcs_tree_drag(*impl_, ev)) {
+                    result.redraw_requested = true;
+                }
+                if (impl_->tree_drag.dragging) break;
+            }
+            if (impl_->ui_control_script_attached &&
                 impl_->live_drag.kind != LiveControlKind::None) {
                 if (update_active_live_control(*impl_, ev)) {
                     result.redraw_requested = true;
@@ -13966,6 +15228,8 @@ DispatchResult Document::dispatch(const Event& ev) {
         }
         case EventType::MouseDown: {
             impl_->last_mouse_pos = ev.pos;
+            ensure_interaction_layout();  // see MouseMove — never press on a
+                                          // stale block tree
             impl_->hovered_idx    = hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
             impl_->mouse_down_consumed_release = false;
             impl_->text_selection_drag_idx = -1;
@@ -14038,6 +15302,21 @@ DispatchResult Document::dispatch(const Event& ev) {
                 detail::DocumentImpl::FloatDrag fd{};
                 if (find_float_drag_at(*impl_, impl_->hovered_idx, ev.pos, fd)) {
                     impl_->float_drag = fd;
+                    result.redraw_requested = true;
+                    break;
+                }
+            }
+            if (impl_->ui_control_script_attached &&
+                ev.button == MouseButton::Left) {
+                if (begin_dcs_colorfield_drag(*impl_, impl_->hovered_idx, ev)) {
+                    const auto kind = impl_->colorfield_drag.kind;
+                    result.defer_widget_changes = true;
+                    if (kind ==
+                            detail::DocumentImpl::ColorfieldDrag::Kind::Square ||
+                        kind ==
+                            detail::DocumentImpl::ColorfieldDrag::Kind::Hue) {
+                        update_dcs_colorfield_drag(*impl_, ev);
+                    }
                     result.redraw_requested = true;
                     break;
                 }
@@ -14125,12 +15404,32 @@ DispatchResult Document::dispatch(const Event& ev) {
                     press_consumed_by_collapse = true;
                 }
                 if (!press_consumed_by_collapse) {
+                    lxb_dom_element_t* tree = nullptr;
+                    lxb_dom_element_t* row = nullptr;
+                    const bool draggable_tree_row =
+                        find_dcs_tree_row_at(*impl_, impl_->hovered_idx,
+                                             tree, row) &&
+                        dcs_tree_row_draggable(row);
                     lxb_dom_element_t* select_box = nullptr;
                     lxb_dom_element_t* select_row = nullptr;
-                    if (find_dcs_select_row_at(*impl_, impl_->hovered_idx,
-                                               select_box, select_row) &&
-                        update_dcs_select_control(*impl_, select_box,
-                                                  select_row, ev)) {
+                    const bool selectable_row =
+                        find_dcs_select_row_at(*impl_, impl_->hovered_idx,
+                                               select_box, select_row);
+                    if (draggable_tree_row) {
+                        impl_->tree_drag = {};
+                        impl_->tree_drag.tree = tree;
+                        impl_->tree_drag.row = row;
+                        impl_->tree_drag.select_box = select_box;
+                        impl_->tree_drag.select_row =
+                            selectable_row ? select_row : nullptr;
+                        impl_->tree_drag.start_x = ev.pos.x;
+                        impl_->tree_drag.start_y = ev.pos.y;
+                        impl_->tree_drag.press_ctrl = ev.ctrl;
+                        impl_->tree_drag.press_shift = ev.shift;
+                        impl_->tree_drag.press_super = ev.super;
+                    } else if (selectable_row &&
+                               update_dcs_select_control(*impl_, select_box,
+                                                         select_row, ev)) {
                         result.redraw_requested = true;
                     }
                 }
@@ -14238,6 +15537,8 @@ DispatchResult Document::dispatch(const Event& ev) {
         }
         case EventType::MouseUp: {
             impl_->last_mouse_pos = ev.pos;
+            ensure_interaction_layout();  // see MouseMove — never release on a
+                                          // stale block tree
             if (impl_->scrollbar_drag.block_idx >= 0) {
                 if (scrollbar_scroll_from_thumb_y(
                         *impl_,
@@ -14455,6 +15756,47 @@ DispatchResult Document::dispatch(const Event& ev) {
                 impl_->pending_tab_press = {};
                 break;  // tab press survived a rebuild; release is consumed
             }
+            if (impl_->ui_control_script_attached &&
+                impl_->colorfield_drag.kind !=
+                    detail::DocumentImpl::ColorfieldDrag::Kind::None) {
+                if (update_dcs_colorfield_drag(*impl_, ev)) {
+                    result.redraw_requested = true;
+                }
+                impl_->colorfield_drag = {};
+                result.redraw_requested = true;
+                break;
+            }
+            if (impl_->ui_control_script_attached && impl_->tree_drag.row) {
+                const bool was_dragging = impl_->tree_drag.dragging;
+                bool changed = false;
+                if (was_dragging) {
+                    changed = finish_dcs_tree_drag(*impl_, ev);
+                    if (!changed) {
+                        changed = cancel_dcs_tree_drag(*impl_) || changed;
+                    } else {
+                        impl_->tree_drag = {};
+                    }
+                } else {
+                    auto* select_box = impl_->tree_drag.select_box;
+                    auto* select_row = impl_->tree_drag.select_row;
+                    const bool press_ctrl = impl_->tree_drag.press_ctrl;
+                    const bool press_shift = impl_->tree_drag.press_shift;
+                    const bool press_super = impl_->tree_drag.press_super;
+                    impl_->tree_drag = {};
+                    if (select_box && select_row) {
+                        Event select_event = ev;
+                        select_event.ctrl = press_ctrl;
+                        select_event.shift = press_shift;
+                        select_event.super = press_super;
+                        changed = update_dcs_select_control(
+                                      *impl_, select_box, select_row,
+                                      select_event) ||
+                                  changed;
+                    }
+                }
+                if (changed) result.redraw_requested = true;
+                break;
+            }
 #endif
             bool released_live_control = false;
 #if !defined(AFFINEUI_STUB_BUILD)
@@ -14514,9 +15856,16 @@ DispatchResult Document::dispatch(const Event& ev) {
             }
             if (impl_->ui_control_script_attached &&
                 ev.button == MouseButton::Left && !released_live_control) {
-                if (!click_preserves_transient_layers(*impl_, impl_->hovered_idx) &&
+                if (!click_preserves_transient_layers(*impl_, impl_->hovered_idx,
+                                                      ev.pos) &&
                     close_transient_layers(*impl_)) {
                     result.redraw_requested = true;
+                    // The close mutated the DOM (hidden/style/aria attrs) and
+                    // dirtied layout; re-hit-testing the stale tree returns -1
+                    // and the release would be swallowed — the click must BOTH
+                    // dismiss the layer and reach the control under the cursor
+                    // (browser behavior). Relayout before resolving the target.
+                    ensure_interaction_layout();
                     impl_->hovered_idx =
                         hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
                     if (refresh_hover_chain(*impl_)) {

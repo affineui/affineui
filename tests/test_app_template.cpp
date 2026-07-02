@@ -81,6 +81,21 @@ TEST_CASE("command runs and undo/redo round-trips through the stack") {
     CHECK(roughness(ctx.document(), "cube") == doctest::Approx(0.8));
 }
 
+TEST_CASE("recorded context commands notify once and mark dirty quietly") {
+    Context ctx;
+    ctx.document().add(make_obj("cube", "Cube"));
+    int document_changes = 0;
+    int stack_changes = 0;
+    ctx.document().set_changed_handler([&] { ++document_changes; });
+    ctx.stack().set_changed_handler([&] { ++stack_changes; });
+
+    CHECK(ctx.run(std::make_unique<SetRoughness>("cube", 0.8)));
+    CHECK(roughness(ctx.document(), "cube") == doctest::Approx(0.8));
+    CHECK(ctx.document().dirty());
+    CHECK(stack_changes == 1);
+    CHECK(document_changes == 0);
+}
+
 TEST_CASE("coalescing collapses a drag into a single undo entry") {
     Context ctx;
     ctx.document().add(make_obj("cube", "Cube"));

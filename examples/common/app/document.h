@@ -78,6 +78,7 @@ public:
     void set_title(std::string title) { title_ = std::move(title); }
     [[nodiscard]] bool dirty() const noexcept { return dirty_; }
     void set_dirty(bool dirty) { dirty_ = dirty; }
+    void mark_dirty() noexcept { dirty_ = true; }
 
     /// Mark the document changed and fire the signal (called by commands).
     void touch();

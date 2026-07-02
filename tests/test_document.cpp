@@ -273,6 +273,26 @@ const RecordingPainter::FillDraw* find_fill_draw(
     return nullptr;
 }
 
+int hex_channel(std::string_view hex, std::size_t offset) {
+    if (hex.size() < offset + 2) return -1;
+    const auto digit = [](char c) {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+        if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+        return -1;
+    };
+    const int hi = digit(hex[offset]);
+    const int lo = digit(hex[offset + 1]);
+    return hi < 0 || lo < 0 ? -1 : (hi << 4) | lo;
+}
+
+bool near_white_hex(std::string_view hex) {
+    return hex.size() == 7 && hex.front() == '#' &&
+           hex_channel(hex, 1) >= 248 &&
+           hex_channel(hex, 3) >= 248 &&
+           hex_channel(hex, 5) >= 248;
+}
+
 const RecordingPainter::RoundedFillDraw* find_rounded_fill_draw(
     const RecordingPainter& painter,
     affineui::Color color,
@@ -1156,6 +1176,529 @@ TEST_CASE("UiControls script toggles Decius popovers") {
     CHECK(find_hovered_chain_id(doc, "pop-body", 260, 140).x < 0);
 }
 
+TEST_CASE("UiControls script opens Decius colorfield picker at declared width") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        #field { display: flex; align-items: center; gap: 4px;
+                 width: 240px; height: 24px; }
+        #chip { display: block; width: 20px; height: 20px; }
+        #hex { display: block; width: 184px; height: 20px; }
+        #caret { display: block; width: 24px; height: 24px; }
+        .dcs-popover[hidden] { display: none; }
+        .dcs-popover { display: flex; flex-direction: column; }
+        .dcs-popover__body { display: flex; flex-direction: column;
+                             box-sizing: border-box; width: 100%;
+                             gap: 8px; padding: 8px; }
+        #sv { display: block; width: 100%; height: 120px; flex-shrink: 0; }
+        #hue { display: block; width: 100%; height: 12px; flex-shrink: 0; }
+        </style>
+        <div id="field" class="dcs-colorfield" data-aui-name="tint"
+             data-value="#4d9fff">
+            <span id="chip" class="dcs-colorfield__chip"
+                  data-dcs-color="#4d9fff"></span>
+            <input id="hex" class="dcs-colorfield__hex" value="#4d9fff">
+            <span id="caret" class="dcs-colorfield__caret"
+                  data-dcs-toggle="popover"
+                  data-dcs-target="#picker"></span>
+            <div id="picker" class="dcs-popover" style="width:204px" hidden>
+                <div class="dcs-popover__body">
+                    <div id="sv" class="dcs-color-square">
+                        <div class="dcs-color-square__cursor"></div>
+                    </div>
+                    <div id="hue" class="dcs-hue-bar">
+                        <div class="dcs-hue-bar__cursor"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )HTML");
+    doc.layout(360, 220, &painter);
+
+    auto caret = find_hovered_chain_id(doc, "caret", 360, 220);
+    REQUIRE(caret.x >= 0);
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = caret;
+    doc.dispatch(down);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = caret;
+    doc.dispatch(up);
+    doc.layout(360, 220, &painter);
+
+    const auto picker_rect = doc.find_element_rect("#picker");
+    const auto field_rect = doc.find_element_rect("#field");
+    REQUIRE(field_rect.w == 240);
+    CHECK(picker_rect.w == field_rect.w);
+    const auto sv_rect = doc.find_element_rect("#sv");
+    REQUIRE(sv_rect.w >= 188);
+    REQUIRE(sv_rect.h == 120);
+    CHECK(sv_rect.w >= picker_rect.w - 20);
+    const auto hue_rect = doc.find_element_rect("#hue");
+    REQUIRE(hue_rect.w == sv_rect.w);
+    REQUIRE(hue_rect.h == 12);
+
+    painter.linear_gradient_draws.clear();
+    doc.draw(painter);
+
+    int sv_layers = 0;
+    int hue_segments = 0;
+    bool saw_sv_hue = false;
+    bool saw_sv_value = false;
+    for (const auto& draw : painter.linear_gradient_draws) {
+        if (draw.rect.x == sv_rect.x && draw.rect.y == sv_rect.y &&
+            draw.rect.w == sv_rect.w && draw.rect.h == sv_rect.h) {
+            ++sv_layers;
+            saw_sv_hue = saw_sv_hue ||
+                         (same_color(draw.stop0, affineui::Color::rgb(255, 255, 255)) &&
+                          draw.stop1.a == 255 &&
+                          !same_color(draw.stop1,
+                                      affineui::Color::rgb(255, 255, 255)));
+            saw_sv_value = saw_sv_value ||
+                           (same_color(draw.stop0, affineui::Color::rgb(0, 0, 0)) &&
+                            same_color(draw.stop1, affineui::Color::rgba(0, 0, 0, 0)));
+        }
+        if (draw.rect.y == hue_rect.y && draw.rect.h == hue_rect.h &&
+            draw.rect.x >= hue_rect.x &&
+            draw.rect.x + draw.rect.w <= hue_rect.x + hue_rect.w) {
+            ++hue_segments;
+        }
+    }
+    CHECK(sv_layers == 2);
+    CHECK(saw_sv_hue);
+    CHECK(saw_sv_value);
+    CHECK(hue_segments == 6);
+
+    const auto picker = find_hovered_chain_id(doc, "picker", 360, 220);
+    REQUIRE(picker.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "picker", "data-dcs-base-style") ==
+          "width:204px");
+
+    down.pos = {picker_rect.x + picker_rect.w - 3, sv_rect.y - 4};
+    up.pos = down.pos;
+    doc.dispatch(down);
+    doc.dispatch(up);
+    doc.layout(360, 220, &painter);
+    CHECK(doc.find_element_rect("#picker").w == picker_rect.w);
+
+    down.pos = {sv_rect.x + sv_rect.w / 2, sv_rect.y + sv_rect.h / 2};
+    up.pos = down.pos;
+    doc.dispatch(down);
+    doc.dispatch(up);
+    doc.layout(360, 220, &painter);
+    CHECK(doc.find_element_rect("#picker").w == picker_rect.w);
+}
+
+TEST_CASE("UiControls script drags Decius colorfield SV square") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        #field { display: flex; align-items: center; gap: 4px;
+                 width: 156px; height: 24px; }
+        #chip { display: block; width: 20px; height: 20px; }
+        #hex { display: block; width: 92px; height: 20px; }
+        #caret { display: block; width: 24px; height: 24px; }
+        .dcs-popover[hidden] { display: none; }
+        .dcs-popover { display: flex; flex-direction: column; }
+        .dcs-popover__body { display: flex; flex-direction: column;
+                             gap: 8px; padding: 8px; }
+        #sv { display: block; width: 188px; height: 120px; flex-shrink: 0; }
+        #hue { display: block; width: 188px; height: 12px; flex-shrink: 0; }
+        </style>
+        <div id="field" class="dcs-colorfield" data-aui-name="tint"
+             data-value="#4d9fff">
+            <span id="chip" class="dcs-colorfield__chip"
+                  data-dcs-color="#4d9fff"></span>
+            <input id="hex" class="dcs-colorfield__hex" value="#4d9fff">
+            <span id="caret" class="dcs-colorfield__caret"
+                  data-dcs-toggle="popover"
+                  data-dcs-target="#picker"></span>
+            <div id="picker" class="dcs-popover" style="width:204px" hidden>
+                <div class="dcs-popover__body">
+                    <div id="sv" class="dcs-color-square">
+                        <div class="dcs-color-square__cursor"></div>
+                    </div>
+                    <div id="hue" class="dcs-hue-bar">
+                        <div class="dcs-hue-bar__cursor"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )HTML");
+    doc.layout(360, 220, &painter);
+
+    auto click = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        doc.dispatch(down);
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        doc.dispatch(up);
+    };
+
+    auto caret = find_hovered_chain_id(doc, "caret", 360, 220);
+    REQUIRE(caret.x >= 0);
+    click(caret);
+    doc.layout(360, 220, &painter);
+
+    const auto sv = doc.find_element_rect("#sv");
+    REQUIRE(sv.w > 0);
+    const affineui::Point white{sv.x + 1, sv.y + 1};
+    click(white);
+    doc.layout(360, 220, &painter);
+
+    auto field = find_hovered_chain_id(doc, "field", 360, 220);
+    REQUIRE(field.x >= 0);
+    const auto field_value = hovered_attr_for_id(doc, "field", "data-value");
+    CHECK(near_white_hex(field_value));
+    auto hex_input = find_hovered_chain_id(doc, "hex", 360, 220);
+    REQUIRE(hex_input.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "hex", "value") == field_value);
+
+    const auto changes = doc.take_widget_changes();
+    CHECK(std::any_of(changes.begin(), changes.end(),
+                      [&](const affineui::Document::WidgetChange& change) {
+                          return change.name == "tint" &&
+                                 change.value == field_value;
+                      }));
+}
+
+TEST_CASE("Decius vector editor stacks at the web threshold and restores row gap") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        #props { display: block; width: 100%; }
+        #field { display: flex; gap: 8px; width: 100%; height: 20px; }
+        #props > #field.dcs-field--vec-stacked { height: auto; }
+        #label { display: block; flex: 0 0 80px; height: 20px; }
+        #vec { --dcs-xform-minwidth: 72px; display: flex; gap: 4px;
+               min-width: 0; flex: 1 1 auto; }
+        #vec > div { flex: 1 1 0; min-width: var(--dcs-xform-minwidth);
+                     height: 20px; }
+        #vec.dcs-vec--stacked { flex-direction: column; }
+        #vec.dcs-vec--stacked > div { min-width: 0; width: 100%; }
+        </style>
+        <div id="props" class="dcs-props">
+            <div id="field" class="dcs-field">
+                <div id="label">Location</div>
+                <div id="vec" class="dcs-vec">
+                    <div id="x">X</div><div id="y">Y</div><div id="z">Z</div>
+                </div>
+            </div>
+        </div>
+    )HTML");
+
+    doc.layout(300, 120, &painter);
+    auto vec_hit = find_hovered_chain_id(doc, "vec", 300, 120);
+    REQUIRE(vec_hit.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "vec", "class").find(
+              "dcs-vec--stacked") != std::string::npos);
+    CHECK(hovered_attr_for_id(doc, "field", "class").find(
+              "dcs-field--vec") != std::string::npos);
+    CHECK(hovered_attr_for_id(doc, "field", "class").find(
+              "dcs-field--vec-stacked") != std::string::npos);
+    const auto stacked_field = doc.find_element_rect("#field");
+    const auto stacked_vec = doc.find_element_rect("#vec");
+    CHECK(stacked_field.h >= stacked_vec.h);
+    CHECK(stacked_field.h > 20);
+
+    doc.layout(360, 120, &painter);
+    vec_hit = find_hovered_chain_id(doc, "vec", 360, 120);
+    REQUIRE(vec_hit.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "vec", "class").find(
+              "dcs-vec--stacked") == std::string::npos);
+    CHECK(hovered_attr_for_id(doc, "field", "class").find(
+              "dcs-field--vec-stacked") == std::string::npos);
+    const auto x = doc.find_element_rect("#x");
+    const auto y = doc.find_element_rect("#y");
+    CHECK(y.x - (x.x + x.w) == 4);
+}
+
+TEST_CASE("Decius tree drop target classes paint native insertion rules") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-tree { display: flex; flex-direction: column; width: 220px; }
+        .dcs-tree__row { display: flex; height: 24px; }
+        </style>
+        <div class="dcs-tree">
+            <div id="before" class="dcs-tree__row dcs-tree__row--drop-before">
+                Before
+            </div>
+            <div id="after" class="dcs-tree__row dcs-tree__row--drop-after">
+                After
+            </div>
+            <div id="into" class="dcs-tree__row dcs-tree__row--drop-into">
+                Into
+            </div>
+        </div>
+    )HTML");
+    doc.layout(260, 100, &painter);
+    doc.draw(painter);
+
+    const auto before = doc.find_element_rect("#before");
+    const auto after = doc.find_element_rect("#after");
+    const auto into = doc.find_element_rect("#into");
+    REQUIRE(before.w > 0);
+    REQUIRE(after.w > 0);
+    REQUIRE(into.w > 0);
+
+    bool saw_before_rule = false;
+    bool saw_after_rule = false;
+    bool saw_into_fill = false;
+    bool saw_into_bar = false;
+    for (const auto& fill : painter.fill_draws) {
+        if (same_color(fill.color, affineui::Color::rgb(0x4d, 0x9f, 0xff))) {
+            saw_before_rule = saw_before_rule ||
+                              (fill.rect.x == before.x &&
+                               fill.rect.y == before.y - 1 &&
+                               fill.rect.w == before.w &&
+                               fill.rect.h == 2);
+            saw_after_rule = saw_after_rule ||
+                             (fill.rect.x == after.x &&
+                              fill.rect.y == after.y + after.h - 1 &&
+                              fill.rect.w == after.w &&
+                              fill.rect.h == 2);
+            saw_into_bar = saw_into_bar ||
+                           (fill.rect.x == into.x &&
+                            fill.rect.y == into.y &&
+                            fill.rect.w == 3 &&
+                            fill.rect.h == into.h);
+        }
+        saw_into_fill = saw_into_fill ||
+                        (same_color(fill.color,
+                                    affineui::Color::rgba(0x4d, 0x9f, 0xff,
+                                                          48)) &&
+                         fill.rect.x == into.x &&
+                         fill.rect.y == into.y &&
+                         fill.rect.w == into.w &&
+                         fill.rect.h == into.h);
+    }
+    CHECK(saw_before_rule);
+    CHECK(saw_after_rule);
+    CHECK(saw_into_fill);
+    CHECK(saw_into_bar);
+}
+
+TEST_CASE("UiControls script reorders Decius tree rows by drag/drop") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-tree { display: flex; flex-direction: column; width: 220px; }
+        .dcs-tree__row { display: flex; align-items: center; height: 24px; }
+        .dcs-tree__row[hidden] { display: none; }
+        .dcs-tree__chevron { display: block; width: 18px; height: 24px; }
+        .dcs-tree__label { display: block; flex: 1 1 auto; }
+        </style>
+        <div id="scene" class="dcs-tree" data-aui-name="scene"
+             data-dcs-select="single">
+            <div id="root" class="dcs-tree__row" draggable="true"
+                 style="--depth:0">
+                <span class="dcs-tree__chevron dcs-tree__chevron--open"></span>
+                <span class="dcs-tree__label">Scene</span>
+            </div>
+            <div id="hero" class="dcs-tree__row" draggable="true"
+                 style="--depth:1">
+                <span class="dcs-tree__chevron dcs-tree__chevron--open"></span>
+                <span class="dcs-tree__label">Hero</span>
+            </div>
+            <div id="sword" class="dcs-tree__row" draggable="true"
+                 style="--depth:2">
+                <span class="dcs-tree__chevron"></span>
+                <span class="dcs-tree__label">Sword</span>
+            </div>
+            <div id="camera" class="dcs-tree__row" draggable="true"
+                 style="--depth:1">
+                <span class="dcs-tree__chevron"></span>
+                <span class="dcs-tree__label">Camera</span>
+            </div>
+        </div>
+    )HTML");
+    doc.layout(260, 140, &painter);
+
+    const auto hero = doc.find_element_rect("#hero");
+    const auto camera = doc.find_element_rect("#camera");
+    REQUIRE(hero.h > 0);
+    REQUIRE(camera.h > 0);
+    auto send = [&](affineui::EventType type, affineui::Point p) {
+        affineui::Event e{};
+        e.type = type;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        doc.dispatch(e);
+    };
+
+    const affineui::Point drop_point{camera.x + camera.w - 4,
+                                     camera.y + camera.h - 2};
+    const affineui::Point into_point{camera.x + camera.w - 4,
+                                     camera.y + camera.h / 2};
+    send(affineui::EventType::MouseDown,
+         {hero.x + 24, hero.y + hero.h / 2});
+    CHECK(doc.take_widget_changes().empty());
+    send(affineui::EventType::MouseMove, into_point);
+    doc.layout(260, 140, &painter);
+    painter.fill_draws.clear();
+    doc.draw(painter);
+    const auto camera_into = doc.find_element_rect("#camera");
+    CHECK(std::any_of(painter.fill_draws.begin(), painter.fill_draws.end(),
+                      [&](const RecordingPainter::FillDraw& fill) {
+                          return same_color(
+                                     fill.color,
+                                     affineui::Color::rgba(0x4d, 0x9f, 0xff,
+                                                           48)) &&
+                                 fill.rect.x == camera_into.x &&
+                                 fill.rect.y == camera_into.y &&
+                                 fill.rect.w == camera_into.w &&
+                                 fill.rect.h == camera_into.h;
+                      }));
+    send(affineui::EventType::MouseMove, drop_point);
+    doc.layout(260, 140, &painter);
+    painter.fill_draws.clear();
+    doc.draw(painter);
+    const auto camera_drop = doc.find_element_rect("#camera");
+    CHECK(std::any_of(painter.fill_draws.begin(), painter.fill_draws.end(),
+                      [&](const RecordingPainter::FillDraw& fill) {
+                          return same_color(
+                                     fill.color,
+                                     affineui::Color::rgb(0x4d, 0x9f, 0xff)) &&
+                                 fill.rect.x == camera_drop.x &&
+                                 fill.rect.y ==
+                                     camera_drop.y + camera_drop.h - 1 &&
+                                 fill.rect.w == camera_drop.w &&
+                                 fill.rect.h == 2;
+                      }));
+    send(affineui::EventType::MouseUp, drop_point);
+    doc.layout(260, 140, &painter);
+
+    const auto camera_after = doc.find_element_rect("#camera");
+    const auto hero_after = doc.find_element_rect("#hero");
+    const auto sword_after = doc.find_element_rect("#sword");
+    CHECK(hero_after.y > camera_after.y);
+    CHECK(sword_after.y > hero_after.y);
+    auto hero_hit = find_hovered_chain_id(doc, "hero", 260, 140);
+    REQUIRE(hero_hit.x >= 0);
+    CHECK(hovered_attr_for_id(doc, "hero", "style").find("--depth:1") !=
+          std::string::npos);
+
+    const auto changes = doc.take_widget_changes();
+    CHECK(std::any_of(changes.begin(), changes.end(),
+                      [](const affineui::Document::WidgetChange& change) {
+                          return change.name == "scene" &&
+                                 change.value == "reorder";
+                      }));
+}
+
+TEST_CASE("UiControls: tree drag/drop lands under FAST mouse moves (no frame "
+          "layout between events)") {
+    // In-window, a quick drag delivers several MouseMoves per rendered frame,
+    // so consecutive dispatches see whatever the previous one left behind. The
+    // drop-highlight class mutation dirtied layout, the next move's geometric
+    // row lookup ran against the stale block tree, found nothing, and cleared
+    // the drop target — flickering drop cursors and drops that landed nowhere
+    // ("drag and drop only works intermittently"). Unlike the test above, this
+    // one never calls layout() between events: every pointer event must make
+    // the block tree current itself.
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-tree { display: flex; flex-direction: column; width: 220px; }
+        .dcs-tree__row { display: flex; align-items: center; height: 24px; }
+        .dcs-tree__row[hidden] { display: none; }
+        .dcs-tree__chevron { display: block; width: 18px; height: 24px; }
+        .dcs-tree__label { display: block; flex: 1 1 auto; }
+        </style>
+        <div id="scene" class="dcs-tree" data-aui-name="scene"
+             data-dcs-select="single">
+            <div id="root" class="dcs-tree__row" draggable="true"
+                 style="--depth:0">
+                <span class="dcs-tree__chevron dcs-tree__chevron--open"></span>
+                <span class="dcs-tree__label">Scene</span>
+            </div>
+            <div id="hero" class="dcs-tree__row" draggable="true"
+                 style="--depth:1">
+                <span class="dcs-tree__chevron dcs-tree__chevron--open"></span>
+                <span class="dcs-tree__label">Hero</span>
+            </div>
+            <div id="sword" class="dcs-tree__row" draggable="true"
+                 style="--depth:2">
+                <span class="dcs-tree__chevron"></span>
+                <span class="dcs-tree__label">Sword</span>
+            </div>
+            <div id="camera" class="dcs-tree__row" draggable="true"
+                 style="--depth:1">
+                <span class="dcs-tree__chevron"></span>
+                <span class="dcs-tree__label">Camera</span>
+            </div>
+        </div>
+    )HTML");
+    doc.layout(260, 140, &painter);
+
+    const auto hero = doc.find_element_rect("#hero");
+    const auto camera = doc.find_element_rect("#camera");
+    REQUIRE(hero.h > 0);
+    REQUIRE(camera.h > 0);
+    auto send = [&](affineui::EventType type, affineui::Point p) {
+        affineui::Event e{};
+        e.type = type;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        doc.dispatch(e);
+    };
+
+    const int x = hero.x + 24;
+    send(affineui::EventType::MouseDown, {x, hero.y + hero.h / 2});
+    // Stream a fast move sequence from the hero row down past the camera
+    // row's bottom band — 2px steps, NO layout() calls in between.
+    const int y_end = camera.y + camera.h - 2;
+    for (int y = hero.y + hero.h / 2; y <= y_end; y += 2) {
+        send(affineui::EventType::MouseMove, {x, y});
+    }
+    send(affineui::EventType::MouseUp, {x, y_end});
+    doc.layout(260, 140, &painter);
+
+    // The drop must have landed: hero (and its child) reordered after camera.
+    const auto camera_after = doc.find_element_rect("#camera");
+    const auto hero_after = doc.find_element_rect("#hero");
+    const auto sword_after = doc.find_element_rect("#sword");
+    CHECK(hero_after.y > camera_after.y);
+    CHECK(sword_after.y > hero_after.y);
+    const auto changes = doc.take_widget_changes();
+    CHECK(std::any_of(changes.begin(), changes.end(),
+                      [](const affineui::Document::WidgetChange& change) {
+                          return change.name == "scene" &&
+                                 change.value == "reorder";
+                      }));
+}
+
 TEST_CASE("UiControls script maps bounded Decius combo value to bar position") {
     affineui::Document doc;
     RecordingPainter painter;
@@ -1332,6 +1875,8 @@ TEST_CASE("UiControls script toggles raw Decius checks radios and button groups"
     doc.set_html(R"HTML(
         <style>
         body { margin: 0; padding: 0; }
+        .dcs-field { display: flex; width: 220px; height: 24px; }
+        .dcs-field__label { display: block; width: 80px; height: 24px; }
         .dcs-check, .dcs-radio { display: flex; width: 180px; height: 24px; }
         .dcs-check__box { display: block; width: 14px; height: 14px; }
         .dcs-btn-group { display: flex; width: 180px; height: 28px; }
@@ -1341,6 +1886,14 @@ TEST_CASE("UiControls script toggles raw Decius checks radios and button groups"
             <span id="cast-box" class="dcs-check__box"></span>
             <span>Cast shadows</span>
         </label>
+        <div id="shadow-field" class="dcs-field" data-aui-widget="checkbox"
+             data-aui-name="shadows">
+            <span id="shadow-label" class="dcs-field__label">Shadows</span>
+            <div id="shadow-check" class="dcs-check" role="checkbox">
+                <span id="shadow-box" class="dcs-check__box"></span>
+                <input id="shadow-input" type="checkbox" style="display:none">
+            </div>
+        </div>
         <label id="solver-a" class="dcs-radio" data-dcs-name="solver"
                aria-checked="true">
             <span class="dcs-check__box"></span><span>BVH</span>
@@ -1356,7 +1909,7 @@ TEST_CASE("UiControls script toggles raw Decius checks radios and button groups"
             <button id="blend-mul" class="dcs-btn">Mul</button>
         </div>
     )HTML");
-    doc.layout(240, 160, &painter);
+    doc.layout(240, 220, &painter);
 
     auto click_at = [&](affineui::Point p) {
         affineui::Event down{};
@@ -1373,23 +1926,30 @@ TEST_CASE("UiControls script toggles raw Decius checks radios and button groups"
     };
 
     auto attr = [&](std::string_view id, std::string_view name) {
-        const auto p = find_hovered_chain_id(doc, id, 240, 160);
+        const auto p = find_hovered_chain_id(doc, id, 240, 220);
         REQUIRE(p.x >= 0);
         return hovered_attr_for_id(doc, id, name);
     };
 
-    auto cast = find_hovered_chain_id(doc, "cast", 240, 160);
+    auto cast = find_hovered_chain_id(doc, "cast", 240, 220);
     REQUIRE(cast.x >= 0);
     click_at(cast);
     CHECK(attr("cast", "aria-checked") == "false");
 
-    auto solver_b = find_hovered_chain_id(doc, "solver-b", 240, 160);
+    auto shadow_label = find_hovered_chain_id(doc, "shadow-label", 240, 220);
+    REQUIRE(shadow_label.x >= 0);
+    click_at(shadow_label);
+    CHECK(attr("shadow-field", "aria-checked") == "true");
+    CHECK(attr("shadow-check", "aria-checked") == "true");
+    CHECK(attr("shadow-box", "aria-checked") == "true");
+
+    auto solver_b = find_hovered_chain_id(doc, "solver-b", 240, 220);
     REQUIRE(solver_b.x >= 0);
     click_at(solver_b);
     CHECK(attr("solver-a", "aria-checked") == "false");
     CHECK(attr("solver-b", "aria-checked") == "true");
 
-    auto add = find_hovered_chain_id(doc, "blend-add", 240, 160);
+    auto add = find_hovered_chain_id(doc, "blend-add", 240, 220);
     REQUIRE(add.x >= 0);
     click_at(add);
     CHECK(attr("blend-norm", "aria-pressed") == "false");
@@ -1399,7 +1959,7 @@ TEST_CASE("UiControls script toggles raw Decius checks radios and button groups"
     CHECK(attr("blend-add", "class").find("dcs-btn--primary") !=
           std::string::npos);
 
-    auto mul = find_hovered_chain_id(doc, "blend-mul", 240, 160);
+    auto mul = find_hovered_chain_id(doc, "blend-mul", 240, 220);
     REQUIRE(mul.x >= 0);
     click_at(mul);
     CHECK(attr("blend-norm", "aria-pressed") == "false");
@@ -1570,6 +2130,67 @@ TEST_CASE("UiControls script toggles Decius tree chevrons without selecting rows
     CHECK(hovered_attr_for_id(doc, "root-chev", "class").find(
               "dcs-tree__chevron--open") != std::string::npos);
     CHECK(find_hovered_chain_id(doc, "camera", 240, 90).x >= 0);
+}
+
+TEST_CASE("Full decius bundle: title-only float title tab is content-sized "
+          "(icon + label), not collapsed") {
+    std::ifstream in(AFFINEUI_TEST_SOURCE_DIR
+        "/examples/frameworks/css/decius-css-0.6.2.bundle.min.css",
+        std::ios::binary);
+    REQUIRE(in.good());
+    std::string bundle((std::istreambuf_iterator<char>(in)),
+                       std::istreambuf_iterator<char>());
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_user_stylesheet(bundle);
+    // The exact structure the float replay emits for a single-tab tearoff.
+    doc.set_html(R"HTML(
+      <div class="dcs" data-dcs-density="compact" data-dcs-accent="cyan"
+           style="width:600px;height:400px;position:relative">
+        <section class="dcs-panel dcs-panel--floating"
+                 style="left:40px;top:40px;width:320px;height:240px">
+          <section class="dcs-dockpane dcs-dockpane--single-tab dcs-dockpane--title-only"
+                   style="flex:1;min-width:0;min-height:0">
+            <header class="dcs-panel__header dcs-dockpane__titlebar"
+                    data-dcs-drag-handle>
+              <button id="title-tab" type="button"
+                      class="dcs-dockpane__tab dcs-panel__title dcs-panel__title--dock-tab"
+                      aria-selected="true" data-dcs-title-tab
+                      data-dcs-target="#console-body">
+                <i class="di di-file"></i>
+                <span class="dcs-dockpane__tab-label">Console</span>
+              </button>
+              <div class="dcs-panel__tools"></div>
+            </header>
+            <div class="dcs-dockpane__tabbar" hidden>
+              <div class="dcs-dockpane__tabs"></div>
+              <div class="dcs-dockpane__toolbars"></div>
+            </div>
+            <div class="dcs-dockpane__shelf" hidden></div>
+            <div class="dcs-dockpane__body">
+              <div id="console-body" data-dcs-tabpanel>console output</div>
+            </div>
+          </section>
+        </section>
+      </div>
+    )HTML");
+    SUBCASE("with a measuring painter") {
+        doc.layout(620, 420, &painter);
+        const auto title = doc.find_element_rect("#title-tab");
+        // The browser sizes this at flex-basis:auto = icon + gap + "Console"
+        // (~70px). It must never collapse to a sliver.
+        CHECK(title.w >= 40);
+        CHECK(title.h >= 14);
+    }
+
+    SUBCASE("painterless (headless estimate)") {
+        // Server-side / painterless layout estimates glyph metrics — text must
+        // still OCCUPY space or content-sized boxes collapse.
+        doc.layout(620, 420, nullptr);
+        const auto title = doc.find_element_rect("#title-tab");
+        CHECK(title.w >= 40);
+        CHECK(title.h >= 12);
+    }
 }
 
 TEST_CASE("Full decius bundle: horizontal dock splitter reports NS cursor") {
@@ -3859,7 +4480,7 @@ TEST_CASE("native select text uses platform inner inset") {
     CHECK(value->max_width == 273.0f);
 }
 
-TEST_CASE("textarea text uses native edit viewport top inset") {
+TEST_CASE("textarea text starts at the CSS edit viewport padding") {
     affineui::Document doc;
     RecordingPainter painter;
 
@@ -3898,7 +4519,7 @@ TEST_CASE("textarea text uses native edit viewport top inset") {
     REQUIRE(value != nullptr);
 
     CHECK(value->pos.x == bounds.x + 7);
-    CHECK(value->pos.y == bounds.y + 12);
+    CHECK(value->pos.y == bounds.y + 7);
 }
 
 TEST_CASE("textarea caret paints on the clicked visual line") {
@@ -3998,6 +4619,106 @@ omega</textarea>
                       }));
 }
 
+TEST_CASE("textarea second-line caret hit testing works before first draw") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        textarea {
+          display: block;
+          box-sizing: border-box;
+          width: 180px;
+          height: 80px;
+          border: 1px solid #000;
+          padding: 6px;
+          font-size: 12px;
+          line-height: 18px;
+          white-space: pre-wrap;
+        }
+        </style>
+        <textarea>alpha
+omega</textarea>
+    )HTML");
+    doc.layout(240, 0, &painter);
+
+    const auto textarea_pos = find_hovered_tag(doc, "textarea");
+    REQUIRE(textarea_pos.x >= 0);
+    const auto bounds = doc.hovered_info().bounds;
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {bounds.x + 52, bounds.y + 32};
+    doc.dispatch(down);
+
+    affineui::Event text{};
+    text.type = affineui::EventType::TextInput;
+    text.text = "!";
+    CHECK(doc.dispatch(text).redraw_requested);
+
+    painter.text_runs.clear();
+    doc.draw(painter);
+    CHECK(std::any_of(painter.text_runs.begin(), painter.text_runs.end(),
+                      [](const std::string& run) {
+                          return run.find("omega!") != std::string::npos;
+                      }));
+}
+
+TEST_CASE("textarea second-line selection highlight stays inside the control") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        textarea {
+          display: block;
+          box-sizing: border-box;
+          width: 220px;
+          height: 96px;
+          border: 1px solid #000;
+          padding: 6px;
+          font-size: 12px;
+          line-height: 18px;
+          white-space: pre-wrap;
+        }
+        </style>
+        <textarea>Weathered sandstone
+along the lower edge.</textarea>
+    )HTML");
+    doc.layout(260, 0, &painter);
+    doc.draw(painter);
+
+    const auto textarea_pos = find_hovered_tag(doc, "textarea");
+    REQUIRE(textarea_pos.x >= 0);
+    const auto bounds = doc.hovered_info().bounds;
+
+    auto send = [&](affineui::EventType type, affineui::Point p) {
+        affineui::Event ev{};
+        ev.type = type;
+        ev.button = affineui::MouseButton::Left;
+        ev.pos = p;
+        doc.dispatch(ev);
+    };
+    send(affineui::EventType::MouseDown, {bounds.x + 8, bounds.y + 32});
+    send(affineui::EventType::MouseMove, {bounds.x + 118, bounds.y + 32});
+    send(affineui::EventType::MouseUp, {bounds.x + 118, bounds.y + 32});
+
+    painter.fill_draws.clear();
+    doc.draw(painter);
+    const affineui::Color selection{0x4D, 0xA3, 0xFF, 0x66};
+    auto selected = std::find_if(
+        painter.fill_draws.begin(), painter.fill_draws.end(),
+        [&](const RecordingPainter::FillDraw& draw) {
+            return same_color(draw.color, selection);
+        });
+    REQUIRE(selected != painter.fill_draws.end());
+    CHECK(selected->rect.x >= bounds.x);
+    CHECK(selected->rect.x + selected->rect.w <= bounds.x + bounds.w);
+}
+
 TEST_CASE("textarea caret hit testing follows soft wrapped text") {
     affineui::Document doc;
     RecordingPainter painter;
@@ -4044,6 +4765,55 @@ TEST_CASE("textarea caret hit testing follows soft wrapped text") {
                           return run.find("abcde!fghi") !=
                                  std::string::npos;
                       }));
+}
+
+TEST_CASE("textarea word-wrapped caret uses the second visual line origin") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        textarea {
+          display: block;
+          box-sizing: border-box;
+          width: 160px;
+          height: 90px;
+          border: 1px solid #000;
+          padding: 6px;
+          font-size: 12px;
+          line-height: 18px;
+          white-space: pre-wrap;
+        }
+        </style>
+        <textarea>Weathered sandstone along lower edge.</textarea>
+    )HTML");
+    doc.layout(220, 0, &painter);
+    doc.draw(painter);
+
+    const auto textarea_pos = find_hovered_tag(doc, "textarea");
+    REQUIRE(textarea_pos.x >= 0);
+    const auto bounds = doc.hovered_info().bounds;
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {bounds.x + 44, bounds.y + 32};
+    doc.dispatch(down);
+
+    painter.stroke_line_draws.clear();
+    doc.draw(painter);
+    auto caret = std::find_if(
+        painter.stroke_line_draws.begin(),
+        painter.stroke_line_draws.end(),
+        [&](const RecordingPainter::StrokeLineDraw& line) {
+            return std::abs(line.x0 - line.x1) < 0.01f &&
+                   line.y0 >= bounds.y + 24 &&
+                   line.y0 <= bounds.y + 46;
+        });
+    REQUIRE(caret != painter.stroke_line_draws.end());
+    CHECK(caret->x0 >= bounds.x + 24);
+    CHECK(caret->x0 <= bounds.x + 70);
 }
 
 TEST_CASE("textarea resize grip updates preferred size within css bounds") {
@@ -7587,7 +8357,21 @@ TEST_CASE("UiControls: View dock tab switches from Assets to Console") {
         .dcs-dockpane--center { flex: 1; }
         .dcs-dockpane__tabbar { flex: 0 0 24px; display: flex; min-width: 0; }
         .dcs-dockpane__tabs { display: flex; min-width: 0; }
-        .dcs-dockpane__tab { display: inline-flex; padding: 0 12px; white-space: nowrap; }
+        .dcs-dockpane__tab {
+            display: inline-flex;
+            position: relative;
+            padding: 0 12px;
+            white-space: nowrap;
+        }
+        .dcs-dockpane__tab[aria-selected=true]::after {
+            content: "";
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            height: 2px;
+            background: #00b8d4;
+        }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
         .dcs-splitter { flex: 0 0 6px; }
         [hidden] { display: none; }
@@ -8755,6 +9539,29 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
         CHECK_FALSE(dock_tree_has_tab(layout.root, "Console"));
     }
     CHECK(last_html.find("dcs-dockpane--title-only") != std::string::npos);
+    CHECK(last_html.find("dcs-dockpane__titlebar") != std::string::npos);
+    CHECK(last_html.find("dcs-panel__title--dock-tab") != std::string::npos);
+    CHECK(last_html.find("data-dcs-title-tab") != std::string::npos);
+    CHECK(last_html.find("dcs-dockpane__titlebar--no-tab") ==
+          std::string::npos);
+    CHECK(last_html.find("dcs-panel__title--no-tab") == std::string::npos);
+    CHECK(last_html.find("background:transparent;border:0") !=
+          std::string::npos);
+    {
+        const auto title = bounds_for_attr("data-dcs-target", "#Console-body");
+        painter.fill_draws.clear();
+        doc.draw(painter);
+        CHECK_FALSE(std::any_of(
+            painter.fill_draws.begin(), painter.fill_draws.end(),
+            [&](const RecordingPainter::FillDraw& fill) {
+                return same_color(fill.color,
+                                  affineui::Color::rgb(0x00, 0xb8, 0xd4)) &&
+                       fill.rect.x >= title.x &&
+                       fill.rect.x + fill.rect.w <= title.x + title.w &&
+                       fill.rect.y >= title.y &&
+                       fill.rect.y < title.y + 4;
+            }));
+    }
 
     const auto doc_body_after = bounds_for_id("__document__-host");
     const auto workarea = bounds_for_attr("data-aui-name", "workarea");
