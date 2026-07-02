@@ -1673,7 +1673,9 @@ void scan_pseudo_rules(lxb_css_stylesheet_t* sst,
         for (auto* sl = style->selector; sl != nullptr; sl = sl->next) {
             // Build the chain of compounds for this group.
             std::vector<CompoundSelector> compounds;
+            std::vector<bool>             preceded_by_child;  // parallel
             CompoundSelector              current;
+            bool                          current_child = false;
             PseudoRule::Pseudo            pseudo{};
             bool                          has_pseudo  = false;
             std::size_t                   pseudo_compound_index = 0;
@@ -1684,11 +1686,17 @@ void scan_pseudo_rules(lxb_css_stylesheet_t* sst,
                     (sel != sl->first) &&
                     (sel->combinator != LXB_CSS_SELECTOR_COMBINATOR_CLOSE);
                 if (starts_new_compound) {
-                    if (sel->combinator != LXB_CSS_SELECTOR_COMBINATOR_DESCENDANT) {
-                        // `>`, `+`, `~` â€” not in MVP grammar.
+                    if (sel->combinator !=
+                            LXB_CSS_SELECTOR_COMBINATOR_DESCENDANT &&
+                        sel->combinator !=
+                            LXB_CSS_SELECTOR_COMBINATOR_CHILD) {
+                        // `+`, `~`, `||` — not in this grammar.
                         ok = false; break;
                     }
                     compounds.push_back(std::move(current));
+                    preceded_by_child.push_back(current_child);
+                    current_child =
+                        sel->combinator == LXB_CSS_SELECTOR_COMBINATOR_CHILD;
                     current = {};
                 }
 
@@ -1756,6 +1764,7 @@ void scan_pseudo_rules(lxb_css_stylesheet_t* sst,
             // alone is not supported in MVP.
             if (current.simples.empty()) continue;
             compounds.push_back(std::move(current));
+            preceded_by_child.push_back(current_child);
             if (pseudo_compound_index >= compounds.size() ||
                 compounds[pseudo_compound_index].simples.empty()) {
                 continue;
@@ -1770,10 +1779,16 @@ void scan_pseudo_rules(lxb_css_stylesheet_t* sst,
             compounds.pop_back();
             // compounds left over are the ancestor constraints, with
             // the OUTERMOST first in CSS source order. We want them
-            // nearest â†’ root (reverse).
-            pr.ancestors.reserve(compounds.size());
-            for (auto it = compounds.rbegin(); it != compounds.rend(); ++it) {
-                pr.ancestors.push_back(std::move(*it));
+            // nearest â†’ root. direct_parent on ancestors[j] = "must be the
+            // DIRECT parent of the compound one step to its right" =
+            // preceded_by_child of that right-hand compound (same convention
+            // as parse_static_selector).
+            const std::size_t n = compounds.size();  // ancestors only now
+            pr.ancestors.reserve(n);
+            for (std::size_t j = n; j-- > 0;) {
+                CompoundSelector a = std::move(compounds[j]);
+                a.direct_parent = preceded_by_child[j + 1];
+                pr.ancestors.push_back(std::move(a));
             }
             pr.decls = style->declarations;
             out.push_back(std::move(pr));
@@ -8076,8 +8091,26 @@ void recollect_blocks_from_current_dom(detail::DocumentImpl& impl) {
 
     const auto previous_scroll =
         snapshot_scroll_state(impl, /*include_elements=*/true);
+    // Pseudo-state (:hover/:active/:focus) must survive the rebuild: the
+    // collect pass consults state bits when applying pseudo overlays, and a
+    // hover-revealed subtree (e.g. a submenu opened by
+    // `.item:hover > .sub{display:block}`) collapses back to display:none if
+    // the bits vanish mid-recollect. Snapshot by element, replay after reset.
+    std::vector<std::pair<lxb_dom_element_t*, std::uint8_t>> live_state;
+    impl.style_store.each([&](detail::ElementId id,
+                              const detail::ComputedStyle&,
+                              const detail::AnimatedStyle&) {
+        const auto bits = impl.style_store.state_bits(id);
+        if (bits == 0) return;
+        if (auto* elem = impl.style_store.element_of(id)) {
+            live_state.emplace_back(elem, bits);
+        }
+    });
     impl.blocks.clear();
     impl.style_store.reset();
+    for (const auto& [elem, bits] : live_state) {
+        impl.style_store.state_bits(impl.style_store.acquire(elem)) = bits;
+    }
     impl.animation_candidate_count = 0;
     if (impl.resolver) impl.resolver->clear();
 
@@ -8117,6 +8150,18 @@ void recollect_blocks_from_current_dom(detail::DocumentImpl& impl) {
     }
 
     reset_dynamic_block_state(impl);
+    // Rebuild the :hover/:active chains from the replayed state bits so the
+    // next refresh_pseudo_chain diff can CLEAR them when the pointer moves —
+    // an empty chain beside live bits would leave hover styling stuck on.
+    for (std::size_t i = 0; i < impl.blocks.size(); ++i) {
+        const auto bits = impl.style_store.state_bits(impl.blocks[i].id);
+        if (bits & kHoverStateBit) {
+            impl.hovered_chain.push_back(static_cast<int>(i));
+        }
+        if (bits & kActiveStateBit) {
+            impl.active_chain.push_back(static_cast<int>(i));
+        }
+    }
     impl.paint_dirty = true;
 #else
     (void)impl;
@@ -8669,6 +8714,61 @@ bool selector_mutation_reveals_hidden_subtree(detail::DocumentImpl& impl,
                     Display::None) {
                 return true;
             }
+        }
+    }
+#else
+    (void) impl;
+    (void) root_idx;
+#endif
+    return false;
+}
+
+// :hover/:active twin of selector_mutation_reveals_hidden_subtree: a pseudo
+// rule like `.dcs-menu__item--has-sub:hover > .dcs-menu__sub{display:block}`
+// can reveal a subtree that has NO boxes (collection skipped it at
+// display:none). Restyling existing blocks can't create the missing boxes —
+// only a recollect can. The hidden child's visibility comes from the pseudo
+// OVERLAY, so unlike the attribute-path detector we must resolve the child
+// AND apply the overlay (with the just-updated state bits) before checking
+// display. Only blockless children are resolved, so the steady-state cost of
+// hover moves is ~zero.
+bool pseudo_state_reveals_hidden_subtree(detail::DocumentImpl& impl,
+                                         int root_idx) {
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (impl.pseudo_rules.empty()) return false;
+    if (root_idx < 0 || root_idx >= static_cast<int>(impl.blocks.size())) {
+        return false;
+    }
+    if (!impl.resolver) return false;
+    using Display = detail::ComputedStyle::Display;
+    for (int idx = root_idx; idx < static_cast<int>(impl.blocks.size());
+         ++idx) {
+        if (!is_descendant_of_or_self(impl.blocks, idx, root_idx)) continue;
+        const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+        auto* elem = impl.style_store.element_of(block.id);
+        if (!elem) continue;
+        detail::ResolvedStyle parent_rs;
+        parent_rs.computed = impl.style_store.computed(block.id);
+        parent_rs.animated = impl.style_store.animated(block.id);
+        parent_rs.custom_props = block.custom_props;
+        for (auto* c = lxb_dom_node_first_child(lxb_dom_interface_node(elem));
+             c != nullptr; c = lxb_dom_node_next(c)) {
+            if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+            if (c->ns != LXB_NS_HTML) continue;
+            auto* child = lxb_dom_interface_element(c);
+            if (block_index_for_exact_element(impl, child) >= 0) continue;
+            auto rs = impl.resolver->resolve(child, parent_rs);
+            Block pseudo_block;
+            // acquire (not lookup): overlay state checks index state_bits by
+            // id, and a never-collected child has no slot yet.
+            pseudo_block.id = impl.style_store.acquire(child);
+            pseudo_block.tag = tag_name(child);
+            pseudo_block.elem_id = attr_string(child, "id");
+            pseudo_block.classes = split_classes(attr_string(child, "class"));
+            pseudo_block.attrs = element_attrs(child);
+            pseudo_block.parent_idx = idx;
+            apply_pseudo_overlay(impl, pseudo_block, rs);
+            if (rs.computed.display != Display::None) return true;
         }
     }
 #else
@@ -14201,7 +14301,8 @@ namespace {
 bool refresh_pseudo_chain(detail::DocumentImpl& impl,
                           std::vector<int>& current_chain,
                           int target_idx,
-                          std::uint8_t bit) {
+                          std::uint8_t bit,
+                          bool* out_needs_recollect = nullptr) {
     auto new_chain = build_hover_chain(impl.blocks, target_idx);
     if (new_chain == current_chain) return false;
 
@@ -14216,12 +14317,18 @@ bool refresh_pseudo_chain(detail::DocumentImpl& impl,
         impl.style_store.state_bits(id) &= static_cast<std::uint8_t>(~bit);
         changed_roots.push_back(old_idx);
     }
-    // Entering blocks: set bit + restyle.
+    // Entering blocks: set bit + restyle. If the new state reveals a
+    // display:none subtree that has no boxes (a `:hover > .sub` submenu),
+    // tell the caller to recollect — restyle alone can't create boxes.
     for (int new_idx : new_chain) {
         if (in(new_idx, current_chain)) continue;
         const auto id = impl.blocks[static_cast<std::size_t>(new_idx)].id;
         impl.style_store.state_bits(id) |= bit;
         changed_roots.push_back(new_idx);
+        if (out_needs_recollect && !*out_needs_recollect &&
+            pseudo_state_reveals_hidden_subtree(impl, new_idx)) {
+            *out_needs_recollect = true;
+        }
     }
     for (int root_idx : changed_roots) {
         bool covered_by_ancestor = false;
@@ -14241,14 +14348,18 @@ bool refresh_pseudo_chain(detail::DocumentImpl& impl,
     return true;
 }
 
-bool refresh_hover_chain(detail::DocumentImpl& impl) {
+bool refresh_hover_chain(detail::DocumentImpl& impl,
+                         bool* out_needs_recollect = nullptr) {
     return refresh_pseudo_chain(impl, impl.hovered_chain,
-                                impl.hovered_idx, kHoverStateBit);
+                                impl.hovered_idx, kHoverStateBit,
+                                out_needs_recollect);
 }
 
-bool refresh_active_chain(detail::DocumentImpl& impl) {
+bool refresh_active_chain(detail::DocumentImpl& impl,
+                          bool* out_needs_recollect = nullptr) {
     return refresh_pseudo_chain(impl, impl.active_chain,
-                                impl.active_idx, kActiveStateBit);
+                                impl.active_idx, kActiveStateBit,
+                                out_needs_recollect);
 }
 
 // Move :focus to `target_idx` (use -1 to clear). Toggles the focus
@@ -15122,8 +15233,12 @@ bool apply_deferred_text_focus(detail::DocumentImpl& impl,
     return changed;
 }
 #else  // stub build â€” no DOM, no pseudo / scroll bookkeeping
-bool refresh_hover_chain(detail::DocumentImpl&)  { return false; }
-bool refresh_active_chain(detail::DocumentImpl&) { return false; }
+bool refresh_hover_chain(detail::DocumentImpl&, bool* = nullptr) {
+    return false;
+}
+bool refresh_active_chain(detail::DocumentImpl&, bool* = nullptr) {
+    return false;
+}
 bool set_focus(detail::DocumentImpl&, int)       { return false; }
 int  focusable_ancestor(const detail::DocumentImpl&, int) { return -1; }
 int  find_scrollable_y_ancestor(const detail::DocumentImpl&, int) { return -1; }
@@ -15237,6 +15352,29 @@ DispatchResult Document::dispatch(const Event& ev) {
             layout(impl_->media_viewport_width_px,
                    impl_->media_viewport_height_px, impl_->last_measurer);
         }
+#endif
+    };
+    // A pseudo-state change (:hover/:active) revealed a display:none subtree
+    // that has no boxes (`.item:hover > .sub{display:block}` submenus).
+    // Recollect (state bits survive it), relayout, and rebuild the chains
+    // against fresh block indices so the revealed subtree is hit-testable in
+    // THIS dispatch, not a frame later.
+    auto handle_pseudo_reveal = [&](bool needs_recollect) {
+#if !defined(AFFINEUI_STUB_BUILD)
+        if (!needs_recollect) return;
+        auto* active_elem = element_for_block(*impl_, impl_->active_idx);
+        recollect_blocks_from_current_dom(*impl_);
+        ensure_interaction_layout();
+        impl_->hovered_idx = hit_test_blocks(*impl_, impl_->last_mouse_pos.x,
+                                             impl_->last_mouse_pos.y);
+        impl_->active_idx = active_elem
+            ? block_index_for_exact_element(*impl_, active_elem)
+            : -1;
+        refresh_hover_chain(*impl_);
+        refresh_active_chain(*impl_);
+        result.redraw_requested = true;
+#else
+        (void) needs_recollect;
 #endif
     };
     switch (ev.type) {
@@ -15428,8 +15566,12 @@ DispatchResult Document::dispatch(const Event& ev) {
             // mouse may have moved within the same leaf block (no-op
             // here) or the tree may have churned underneath us (rare,
             // but cheap to verify).
-            if (refresh_hover_chain(*impl_)) {
-                result.redraw_requested = true;
+            {
+                bool reveal = false;
+                if (refresh_hover_chain(*impl_, &reveal)) {
+                    result.redraw_requested = true;
+                }
+                handle_pseudo_reveal(reveal);
             }
             break;
         }
@@ -15533,8 +15675,10 @@ DispatchResult Document::dispatch(const Event& ev) {
             // pointer right now, refresh the active chain so the bit
             // toggles on and an immediate restyle visualizes the press.
             impl_->active_idx     = impl_->hovered_idx;
-            const bool h = refresh_hover_chain(*impl_);
-            const bool a = refresh_active_chain(*impl_);
+            bool press_reveal = false;
+            const bool h = refresh_hover_chain(*impl_, &press_reveal);
+            const bool a = refresh_active_chain(*impl_, &press_reveal);
+            handle_pseudo_reveal(press_reveal);
 #if !defined(AFFINEUI_STUB_BUILD)
             detail::DocumentImpl::LiveControlDrag pending_live_drag{};
             const bool has_pending_live_drag =
@@ -16029,9 +16173,11 @@ DispatchResult Document::dispatch(const Event& ev) {
             // pressed element" today; that nuance is part of the
             // click-state machinery to layer in later.
             impl_->active_idx     = -1;
-            const bool h = refresh_hover_chain(*impl_);
-            const bool a = refresh_active_chain(*impl_);
+            bool release_reveal = false;
+            const bool h = refresh_hover_chain(*impl_, &release_reveal);
+            const bool a = refresh_active_chain(*impl_, &release_reveal);
             if (h || a) result.redraw_requested = true;
+            handle_pseudo_reveal(release_reveal);
             auto* pressed_menu_item = impl_->pressed_dcs_menu_item;
             const auto pressed_menu_item_bounds =
                 impl_->pressed_dcs_menu_item_bounds;

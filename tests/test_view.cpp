@@ -2746,6 +2746,105 @@ TEST_CASE("View records diagnostics for duplicate explicit widget ids") {
     CHECK(view.find_widget("duplicate").node()->text == "Second");
 }
 
+// Submenu cascade: the bundle reveals `.dcs-menu__sub` purely via
+// `.dcs-menu__item--has-sub:hover > .dcs-menu__sub{display:block}` (decius.js
+// adds no open/close logic — it only refuses to close the menu when a
+// has-sub row is clicked). The engine must (a) capture that pseudo rule
+// (child combinator + :hover on the ancestor compound) and (b) RECOLLECT
+// boxes when hover reveals the display:none subtree — restyling existing
+// blocks can never create the submenu's missing boxes.
+TEST_CASE("menu submenu cascades open on hover and its items activate") {
+    std::ifstream bundle_in(
+        AFFINEUI_TEST_SOURCE_DIR
+        "/examples/frameworks/css/decius-css-0.6.2.bundle.min.css",
+        std::ios::binary);
+    REQUIRE(bundle_in.good());
+    std::string bundle((std::istreambuf_iterator<char>(bundle_in)),
+                       std::istreambuf_iterator<char>());
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+
+    std::string picked;
+    auto build = [&] {
+        affineui::View v{affineui::ViewTheme::Decius};
+        v.set_framework_version("0.6.2");
+        v.begin();
+        v.menu_bar("menubar");
+        v.menu_button("View", [&](affineui::View& m) {
+            m.menu_item("Reset Layout", "grid", {}, "mi-reset");
+            m.submenu("Density", [&](affineui::View& s) {
+                for (const auto d : {"compact", "comfortable", "spacious"}) {
+                    s.menu_item(d, {}, {}, std::string("mi-dens-") + d)
+                        .on_click([&picked, d] { picked = d; });
+                }
+            }, {}, "mi-density");
+        }, "mb-view");
+        v.end();
+        return v;
+    };
+    app.load_view(build());
+    app.set_stylesheet(bundle);
+    TestPainter painter;
+    constexpr int W = 800;
+    constexpr int H = 500;
+    app.document().layout(W, H, &painter);
+
+    auto click = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        app.dispatch(down);
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        app.dispatch(up);
+        app.document().layout(W, H, &painter);
+    };
+    auto hover = [&](affineui::Point p) {
+        affineui::Event mv{};
+        mv.type = affineui::EventType::MouseMove;
+        mv.pos = p;
+        app.dispatch(mv);
+    };
+
+    // Open the View dropdown (attribute path — engine menu machinery).
+    const auto btn = app.document().find_element_rect("mb-view");
+    REQUIRE(btn.w > 0);
+    click({btn.x + btn.w / 2, btn.y + btn.h / 2});
+    const auto density_row = app.document().find_element_rect("mi-density");
+    REQUIRE(density_row.w > 0);
+
+    // The submenu is display:none until its opener row is hovered.
+    CHECK(app.document().find_element_rect("mi-dens-comfortable").w == 0);
+
+    // Hover the opener: the :hover reveal must land in THIS dispatch —
+    // the submenu row becomes findable and hit-testable.
+    hover({density_row.x + density_row.w / 2,
+           density_row.y + density_row.h / 2});
+    const auto comfy = app.document().find_element_rect("mi-dens-comfortable");
+    REQUIRE(comfy.w > 0);
+    MESSAGE("submenu item at (", comfy.x, ",", comfy.y, " ", comfy.w, "x",
+            comfy.h, ")");
+    // The cascade opens to the RIGHT of the opener row (left:100%).
+    CHECK(comfy.x >= density_row.x + density_row.w - 4);
+
+    // Move onto the submenu item (the opener stays in the hover ancestor
+    // chain, so the cascade must stay open) and click it.
+    hover({comfy.x + comfy.w / 2, comfy.y + comfy.h / 2});
+    REQUIRE(app.document().find_element_rect("mi-dens-comfortable").w > 0);
+    click({comfy.x + comfy.w / 2, comfy.y + comfy.h / 2});
+    CHECK(picked == "comfortable");
+
+    // Leaving the menu entirely hides the cascade again.
+    hover({btn.x + btn.w / 2, H - 20});
+    app.document().layout(W, H, &painter);
+    CHECK(app.document().find_element_rect("mi-dens-comfortable").w == 0);
+}
+
 TEST_CASE("WidgetRef can append and replace child declarations") {
     affineui::View view{affineui::ViewTheme::Bootstrap};
     affineui::RemotePatchQueue patches;

@@ -119,14 +119,30 @@ void GameEditor::load_settings() {
     prefs_.load(kPrefsPath);
     ws_.load(kWorkspacePath);
     accent_ = prefs_.get_string("ui.accent", "cyan");
+    density_ = prefs_.get_string("ui.density", "compact");
     tool_ = ws_.get_string("last_tool", "select");
 }
 
 void GameEditor::save_settings() {
     prefs_.set_string("ui.accent", accent_);
+    prefs_.set_string("ui.density", density_);
     prefs_.save(kPrefsPath);
     ws_.set_string("last_tool", tool_);
     ws_.save(kWorkspacePath);
+}
+
+void GameEditor::set_density(std::string_view density) {
+    if (density_ == density) return;
+    density_ = std::string(density);
+    save_settings();
+    reload();
+}
+
+void GameEditor::set_accent(std::string_view accent) {
+    if (accent_ == accent) return;
+    accent_ = std::string(accent);
+    save_settings();
+    reload();
 }
 
 affineui::App::Config GameEditor::config() {
@@ -271,7 +287,11 @@ affineui::View GameEditor::build() {
     v.set_framework_version(kDeciusVersion);  // pin the Decius version we target
     // Flat is the modern default look (3D/skeuomorphic is an opt-in variant).
     v.selector(affineui::decius::selector::style, affineui::decius::style::flat);
-    v.selector(affineui::decius::selector::density, affineui::decius::density::compact);
+    // Density is a live preference (View menu) so every density can be
+    // eyeballed against the decius-css reference samples. Spacing comes
+    // ENTIRELY from the framework bundle's density variables (the vec gap is
+    // var(--dcs-s-1)) — nothing app- or engine-side defines it.
+    v.selector(affineui::decius::selector::density, density_);
     v.selector(affineui::decius::selector::accent, accent_);  // from Preferences
 
     // Restore saved dock-pane sizes from the workspace: a remembered size wins
@@ -373,6 +393,28 @@ void GameEditor::build_menubar(View& v) {
         m.menu_item("Delete", "trash", "Del", "mi-del")
             .on_click(bind(this, &GameEditor::delete_selected));
     }, "mb-edit");
+
+    v.menu_button("View", [&](View& m) {
+        // Appearance selectors — density and key color come straight from the
+        // framework bundle's selector variables; the app only picks which one.
+        m.submenu("Density", [&](View& s) {
+            for (const auto d : {affineui::decius::density::compact,
+                                 affineui::decius::density::comfortable,
+                                 affineui::decius::density::spacious}) {
+                s.menu_item(d, density_ == d ? "check" : "", {},
+                            std::string("mi-dens-") + std::string(d))
+                    .on_click([this, d] { set_density(d); });
+            }
+        }, "layers", "mi-density");
+        m.submenu("Accent", [&](View& s) {
+            for (const auto a : {"cyan", "teal", "green", "orange", "purple",
+                                 "violet"}) {
+                s.menu_item(a, accent_ == a ? "check" : "", {},
+                            std::string("mi-accent-") + a)
+                    .on_click([this, a] { set_accent(a); });
+            }
+        }, "palette", "mi-accent");
+    }, "mb-view");
 
     v.menu_button("Build", [&](View& m) {
         m.menu_item("Build Lighting", "bolt", {}, "mi-light");

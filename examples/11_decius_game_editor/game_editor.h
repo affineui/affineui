@@ -70,13 +70,20 @@ private:
     void save_settings();
     void save_dock_layout();  // persist dock-pane sizes after a splitter drag
 
+    // View-menu appearance preferences: persist + rebuild with the new
+    // framework selector. Spacing/sizing then comes entirely from the
+    // bundle's per-density variables.
+    void set_density(std::string_view density);
+    void set_accent(std::string_view accent);
+
     app::Context    ctx_;
     affineui::App   app_;
-    app::Preferences prefs_;   // durable: accent, etc.
+    app::Preferences prefs_;   // durable: accent + density
     app::Workspace   ws_;      // ephemeral: last tool, panel layout
     bool          playing_{false};
     std::string   tool_{"select"};
     std::string   accent_{"cyan"};
+    std::string   density_{"compact"};
     // Display-panel showcase state.
     std::string   blend_{"Normal"};
     bool          visible_{true};
