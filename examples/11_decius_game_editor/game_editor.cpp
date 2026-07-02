@@ -409,9 +409,31 @@ void GameEditor::build_menubar(View& v) {
         m.submenu("Accent", [&](View& s) {
             for (const auto a : {"cyan", "teal", "green", "orange", "purple",
                                  "violet"}) {
-                s.menu_item(a, accent_ == a ? "check" : "", {},
-                            std::string("mi-accent-") + a)
-                    .on_click([this, a] { set_accent(a); });
+                auto item =
+                    s.menu_item_custom(std::string("mi-accent-") + a);
+                {
+                    // Gutter: a swatch chip painted by the framework's OWN
+                    // accent variable — `data-dcs-accent` on the chip scopes
+                    // the bundle's [data-dcs-accent=...] override to it, so
+                    // the color always tracks decius.css, never the app.
+                    auto gutter =
+                        s.element("span", "dcs-menu__icon", "__icon");
+                    auto chip = s.element("span", "dcs-swatch", "__chip");
+                    chip.attr("data-dcs-accent", a);
+                    chip.attr("style",
+                              "background:var(--dcs-accent);width:12px;"
+                              "height:12px;border-radius:3px;"
+                              "align-self:center");
+                }
+                auto lbl =
+                    s.element("span", "dcs-menu__label-text", "__label");
+                lbl.text(a);
+                if (accent_ == a) {
+                    auto check =
+                        s.element("span", "dcs-menu__shortcut", "__check");
+                    s.element("i", "di di-check", "__check-glyph");
+                }
+                item.ref().on_click([this, a] { set_accent(a); });
             }
         }, "palette", "mi-accent");
     }, "mb-view");

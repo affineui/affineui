@@ -5894,7 +5894,42 @@ void Document::draw(Painter& painter) {
         });
 #endif
 
-    for (int paint_idx : paint_order) {
+    // Two paint passes per z level (CSS 2.1 Appendix E): every block's
+    // background/border at this stacking level paints before ANY of the
+    // level's text. Glyph ink that overhangs its box (descenders in
+    // line-height:1 menu rows) can then never be overpainted by the next
+    // sibling's background — matching browser painting order.
+    enum class BlockPaintPhase : std::uint8_t { Boxes, Text };
+    std::vector<std::pair<int, BlockPaintPhase>> phased_order;
+    phased_order.reserve(paint_order.size() * 2);
+    {
+        std::size_t group_begin = 0;
+        while (group_begin < paint_order.size()) {
+            std::size_t group_end = group_begin;
+#if !defined(AFFINEUI_STUB_BUILD)
+            const int group_z =
+                effective_z_index(*impl_, paint_order[group_begin]);
+            while (group_end < paint_order.size() &&
+                   effective_z_index(*impl_, paint_order[group_end]) ==
+                       group_z) {
+                ++group_end;
+            }
+#else
+            group_end = paint_order.size();
+#endif
+            for (std::size_t k = group_begin; k < group_end; ++k) {
+                phased_order.emplace_back(paint_order[k],
+                                          BlockPaintPhase::Boxes);
+            }
+            for (std::size_t k = group_begin; k < group_end; ++k) {
+                phased_order.emplace_back(paint_order[k],
+                                          BlockPaintPhase::Text);
+            }
+            group_begin = group_end;
+        }
+    }
+
+    for (const auto& [paint_idx, phase] : phased_order) {
         const std::size_t i = static_cast<std::size_t>(paint_idx);
         const auto& b  = impl_->blocks[i];
         // Synthetic line-boxes are layout-only. They don't carry
@@ -6038,6 +6073,22 @@ void Document::draw(Painter& painter) {
             (bg_r_tl > 0 || bg_r_tr > 0 || bg_r_br > 0 || bg_r_bl > 0);
         const bool bg_uniform_r =
             (bg_r_tl == bg_r_tr && bg_r_tr == bg_r_br && bg_r_br == bg_r_bl);
+        // Shared by both phases: text positioning needs the border insets.
+        const int used_border_top    = cs.used_border_top();
+        const int used_border_right  = cs.used_border_right();
+        const int used_border_bottom = cs.used_border_bottom();
+        const int used_border_left   = cs.used_border_left();
+        // ── PHASE: boxes ─────────────────────────────────────────────
+        // CSS painting order (2.1 Appendix E): within one stacking level,
+        // ALL block backgrounds/borders paint before ANY inline content.
+        // Interleaving them per block lets a sibling's background overpaint
+        // a neighbour's glyph overhang — e.g. menu rows at line-height:1,
+        // where the next row's hover highlight beheads descenders. The
+        // guarded region below (backgrounds, shadows, gradients, images,
+        // borders, focus rings) runs in the Boxes pass; text and widget
+        // chrome follow in the Text pass. (Intentionally not re-indented —
+        // the guard is the change, the stanzas are not.)
+        if (phase == BlockPaintPhase::Boxes) {
         // Background color paints first; background images/gradients layer over it.
         const bool native_color_square = block_has_class(b, "dcs-color-square");
         const bool native_hue_bar = block_has_class(b, "dcs-hue-bar");
@@ -6070,10 +6121,6 @@ void Document::draw(Painter& painter) {
             detail::AnimatedStyle::BorderBottomColorSet, an.border_rgba);
         const std::uint32_t c_left   = side_rgba(an.border_left_rgba,
             detail::AnimatedStyle::BorderLeftColorSet, an.border_rgba);
-        const int used_border_top    = cs.used_border_top();
-        const int used_border_right  = cs.used_border_right();
-        const int used_border_bottom = cs.used_border_bottom();
-        const int used_border_left   = cs.used_border_left();
 
         // A side is visible if that side's border-style is non-None, the
         // side has a non-zero used width, and its effective color is opaque.
@@ -6613,7 +6660,10 @@ void Document::draw(Painter& painter) {
                     break;
             }
         }
+        }  // phase == BlockPaintPhase::Boxes
 
+        // ── PHASE: text + widget chrome ──────────────────────────────
+        if (phase == BlockPaintPhase::Text) {
         if (!b.text.empty()) {
             const auto font = painter.resolve_font(
                 impl_->style_store.font_family_of(cs.font_id), cs.font_size_px, cs.font_weight, cs.font_style != 0);
@@ -7258,6 +7308,7 @@ void Document::draw(Painter& painter) {
             painter.fill_rounded_rect(fill, track_h * 0.5f, fill_color);
             painter.fill_circle(thumb_x, cy, thumb_r, thumb_color);
         }
+        }  // phase == BlockPaintPhase::Text
 
         if (has_opacity) painter.pop_alpha();
         if (clipped) painter.pop_clip();

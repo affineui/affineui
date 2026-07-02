@@ -2391,12 +2391,18 @@ WidgetRef View::menu_item(std::string_view label, std::string_view icon,
                           std::source_location here) {
     auto& node = open_node(WidgetKind::Button, "div", "dcs-menu__item", key,
                            here, true);
-    if (!icon.empty()) {
+    // Desktop-menu convention: every row reserves the 16px icon gutter
+    // (`.dcs-menu__icon`), glyph or not, so labels stay column-aligned when
+    // some rows carry icons/check marks and others don't.
+    {
         auto& ic = open_node(WidgetKind::Container, "span", "dcs-menu__icon",
                              "__icon", here, true);
         (void) ic;
-        open_node(WidgetKind::Container, "i", "di di-" + std::string(icon),
-                  "__icon-glyph", here, false);
+        if (!icon.empty()) {
+            open_node(WidgetKind::Container, "i",
+                      "di di-" + std::string(icon), "__icon-glyph", here,
+                      false);
+        }
         close_node();  // icon
     }
     auto& lbl = open_node(WidgetKind::Container, "span", "dcs-menu__label-text",
@@ -2409,6 +2415,17 @@ WidgetRef View::menu_item(std::string_view label, std::string_view icon,
     }
     close_node();  // item
     return ref_for_node(node, current_panel_id(stack_));
+}
+
+View::Scope View::menu_item_custom(std::string_view key,
+                                   std::source_location here) {
+    // A menu row whose CONTENT the caller composes (swatch chips, custom
+    // layouts, ...). Same kind + class as menu_item(), so the engine's menu
+    // activation (hover highlight, click → select → close) and WidgetRef
+    // on_click behave identically.
+    auto& node = open_node(WidgetKind::Button, "div", "dcs-menu__item", key,
+                           here, true);
+    return scope_here(node);
 }
 
 WidgetRef View::menu_separator(std::string_view key, std::source_location here) {

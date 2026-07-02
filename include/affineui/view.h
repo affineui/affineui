@@ -685,6 +685,12 @@ public:
                         std::string_view shortcut = {},
                         std::string_view key = {},
                         std::source_location here = std::source_location::current());
+    /// A menu row whose content the caller composes inside the returned
+    /// scope (color swatches, custom layouts, ...). Activation behaves like
+    /// menu_item(): hover highlight, click selects and closes the menu, and
+    /// `.ref().on_click(...)` fires.
+    Scope menu_item_custom(std::string_view key = {},
+                           std::source_location here = std::source_location::current());
     /// A separator line between menu groups.
     WidgetRef menu_separator(std::string_view key = {},
                              std::source_location here = std::source_location::current());

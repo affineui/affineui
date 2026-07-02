@@ -27,6 +27,7 @@
 #include <windows.h>
 #include <d3d11.h>
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <chrono>
@@ -224,8 +225,14 @@ int main(int argc, char** argv) {
                                nullptr, 0, D3D11_SDK_VERSION, &dev, nullptr, &ctx);
     if (FAILED(hr)) { std::fprintf(stderr, "D3D11CreateDevice failed (0x%08lx)\n", (unsigned long)hr); return 1; }
 
+    // The case's width/height are CSS px. The framebuffer is PHYSICAL px —
+    // css × dpi — exactly like the browser side's deviceScaleFactor. Layout
+    // still runs at css size (the renderer divides fb by dpi_scale).
+    const int FBW = static_cast<int>(std::lround(W * args.dpi));
+    const int FBH = static_cast<int>(std::lround(H * args.dpi));
+
     D3D11_TEXTURE2D_DESC cd{};
-    cd.Width = W; cd.Height = H; cd.MipLevels = 1; cd.ArraySize = 1;
+    cd.Width = FBW; cd.Height = FBH; cd.MipLevels = 1; cd.ArraySize = 1;
     cd.Format = DXGI_FORMAT_B8G8R8A8_UNORM; cd.SampleDesc.Count = 1;
     cd.Usage = D3D11_USAGE_DEFAULT;
     cd.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
@@ -265,7 +272,8 @@ int main(int argc, char** argv) {
     ui.init(init);
 
     affineui::FrameTarget target{};
-    target.width = W; target.height = H; target.dpi_scale = args.dpi; target.clear = true;
+    target.width = FBW; target.height = FBH;
+    target.dpi_scale = args.dpi; target.clear = true;
     target.d3d11.render_view = rtv; target.d3d11.depth_stencil_view = dsv;
 
     ui.render(target);  // warm-up (layout + font atlas upload)
@@ -278,19 +286,25 @@ int main(int argc, char** argv) {
         D3D11_MAPPED_SUBRESOURCE map{};
         if (FAILED(ctx->Map(staging, 0, D3D11_MAP_READ, 0, &map))) {
             std::fprintf(stderr, "map staging failed\n"); return false; }
-        std::vector<uint8_t> rgb((size_t)W * H * 3);
-        for (int y = 0; y < H; ++y) {
+        std::vector<uint8_t> rgb((size_t)FBW * FBH * 3);
+        for (int y = 0; y < FBH; ++y) {
             const uint8_t* row = (const uint8_t*)map.pData + (size_t)y * map.RowPitch;
-            uint8_t* dst = rgb.data() + (size_t)y * W * 3;
-            for (int x = 0; x < W; ++x) { const uint8_t* px = row + x * 4;
+            uint8_t* dst = rgb.data() + (size_t)y * FBW * 3;
+            for (int x = 0; x < FBW; ++x) { const uint8_t* px = row + x * 4;
                 dst[x*3+0] = px[2]; dst[x*3+1] = px[1]; dst[x*3+2] = px[0]; }
         }
         ctx->Unmap(staging, 0);
         if (click_pulse) {
-            draw_click_crosshair(rgb, W, H, pulse_pos);
+            // Pulse coordinates arrive in CSS px; the crosshair draws into
+            // the physical framebuffer.
+            draw_click_crosshair(rgb, FBW, FBH,
+                                 {static_cast<int>(std::lround(
+                                      pulse_pos.x * args.dpi)),
+                                  static_cast<int>(std::lround(
+                                      pulse_pos.y * args.dpi))});
         }
         const std::string path = args.out_dir + "/" + args.test + ".affineui." + snap + ".ppm";
-        const bool ok = write_ppm(path, rgb.data(), W, H);
+        const bool ok = write_ppm(path, rgb.data(), FBW, FBH);
         if (ok) std::fprintf(stderr, "wrote %s\n", path.c_str());
         return ok;
     };
