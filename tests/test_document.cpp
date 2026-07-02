@@ -2181,6 +2181,30 @@ TEST_CASE("Full decius bundle: title-only float title tab is content-sized "
         // (~70px). It must never collapse to a sliver.
         CHECK(title.w >= 40);
         CHECK(title.h >= 14);
+
+        // And it must NOT paint the active-TAB chrome: the bundle suppresses
+        // the [aria-selected=true]:before/:after accent bars for
+        // .dcs-panel__title--dock-tab (a title, not a tab). The accent for
+        // data-dcs-accent=cyan is #00b8d4 — no fill of that color may appear
+        // anywhere over the tab.
+        painter.fill_draws.clear();
+        doc.draw(painter);
+        const auto accent = affineui::Color::rgb(0x00, 0xb8, 0xd4);
+        bool accent_over_tab = false;
+        for (const auto& fill : painter.fill_draws) {
+            if (!same_color(fill.color, accent)) continue;
+            const bool overlaps =
+                fill.rect.x < title.x + title.w &&
+                fill.rect.x + fill.rect.w > title.x &&
+                fill.rect.y < title.y + title.h + 2 &&
+                fill.rect.y + fill.rect.h + 2 > title.y;
+            if (overlaps) {
+                MESSAGE("accent fill over title tab at (", fill.rect.x, ",",
+                        fill.rect.y, ",", fill.rect.w, "x", fill.rect.h, ")");
+                accent_over_tab = true;
+            }
+        }
+        CHECK_FALSE(accent_over_tab);
     }
 
     SUBCASE("painterless (headless estimate)") {

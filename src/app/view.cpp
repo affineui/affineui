@@ -1810,7 +1810,8 @@ WidgetRef View::textarea(std::string_view label,
     auto& text_node = open_node(WidgetKind::TextArea, text_recipe.tag,
                                 text_recipe.classes, "__input", here, false);
     set_attr(text_node, "rows", std::to_string(std::max(rows, 1)));
-    set_attr(text_node, "style", "resize:both;text-align:left");
+    // No inline styles: the framework owns resize affordance per context
+    // (decius: `resize:both` in forms, `resize:vertical` in props).
     if (!key.empty()) set_attr(text_node, "data-aui-name", key);
     set_text(text_node, value);
     close_node();

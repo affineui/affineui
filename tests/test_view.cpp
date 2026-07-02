@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include "affineui/app.h"
+#include "affineui/painter.h"
 #include "affineui/view.h"
 #include "affineui_browser_server.h"
 #include "app/context.h"
@@ -53,6 +54,113 @@ std::vector<std::string> test_asset_folders() {
         std::string(AFFINEUI_TEST_SOURCE_DIR),
     };
 }
+
+// Minimal measuring painter for App-driven fixtures: real-ish glyph metrics
+// (8px/char, 18px lines — matching the other test painters) so layouts match
+// the in-window geometry, plus fill recording for paint-level assertions.
+class TestPainter final : public affineui::Painter {
+public:
+    struct FillDraw {
+        affineui::Rect rect;
+        affineui::Color color;
+    };
+    struct TextDraw {
+        std::string text;
+        affineui::Point pos;
+        bool has_clip{false};
+        affineui::Rect clip;
+    };
+    std::vector<FillDraw> fill_draws;
+    std::vector<TextDraw> text_draws;
+    std::vector<affineui::Rect> clip_stack;
+
+    void begin_frame(int, int, float) override {}
+    void end_frame() override {}
+    void fill_rect(const affineui::Rect& r, affineui::Color c) override {
+        fill_draws.push_back({r, c});
+    }
+    void stroke_rect(const affineui::Rect&, affineui::Color, float) override {}
+    void stroke_line(float, float, float, float, affineui::Color,
+                     float) override {}
+    void fill_circle(float, float, float, affineui::Color) override {}
+    void stroke_arc(float, float, float, float, float, affineui::Color,
+                    float) override {}
+    void fill_rounded_rect(const affineui::Rect& r, float,
+                           affineui::Color c) override {
+        fill_draws.push_back({r, c});
+    }
+    void stroke_rounded_rect(const affineui::Rect&, float, affineui::Color,
+                             float) override {}
+    void fill_rounded_rect_varying(const affineui::Rect& r, float, float,
+                                   float, float, affineui::Color c) override {
+        fill_draws.push_back({r, c});
+    }
+    void stroke_rounded_rect_varying(const affineui::Rect&, float, float,
+                                     float, float, affineui::Color,
+                                     float) override {}
+    void fill_rounded_rect_ring(const affineui::Rect&, float, float,
+                                affineui::Color) override {}
+    void fill_linear_gradient_rect(const affineui::Rect&, float,
+                                   affineui::Color, affineui::Color, float,
+                                   float, float, float) override {}
+    void fill_radial_gradient_rect(const affineui::Rect&, affineui::Color,
+                                   affineui::Color, float, float, float,
+                                   float, float = 50, float = 50,
+                                   float = 100) override {}
+    void fill_box_shadow(const affineui::Rect&, float, affineui::Color, float,
+                         float, float, float, bool) override {}
+    std::uint32_t resolve_font(std::string_view, int, int, bool) override {
+        return 1;
+    }
+    int measure_text(std::uint32_t, std::string_view text) override {
+        return static_cast<int>(text.size()) * 8;
+    }
+    TextMetrics text_metrics(std::uint32_t) override {
+        return {12.0f, 4.0f, 18.0f};
+    }
+    void draw_text(std::uint32_t, const affineui::Point& pos,
+                   std::string_view text, affineui::Color) override {
+        record_text(text, pos);
+    }
+    affineui::Size measure_text_box(std::uint32_t, std::string_view text,
+                                    float max_width, float, float) override {
+        const int natural = static_cast<int>(text.size()) * 8;
+        if (natural <= static_cast<int>(max_width)) return {natural, 18};
+        const int per_line = std::max(1, static_cast<int>(max_width) / 8);
+        const int lines =
+            (static_cast<int>(text.size()) + per_line - 1) / per_line;
+        return {static_cast<int>(max_width), lines * 18};
+    }
+    void draw_text_box(std::uint32_t, const affineui::Point& pos,
+                       std::string_view text, affineui::Color, float, float,
+                       float, TextAlign) override {
+        record_text(text, pos);
+    }
+    std::uint32_t load_image(std::string_view) override { return 0; }
+    affineui::Size image_size(std::uint32_t) override { return {0, 0}; }
+    void draw_image(std::uint32_t, const affineui::Rect&,
+                    const affineui::Rect&) override {}
+    void push_clip(const affineui::Rect& r) override {
+        clip_stack.push_back(r);
+    }
+    void pop_clip() override {
+        if (!clip_stack.empty()) clip_stack.pop_back();
+    }
+    void push_alpha(float) override {}
+    void pop_alpha() override {}
+
+private:
+    void record_text(std::string_view text, const affineui::Point& pos) {
+        TextDraw td;
+        td.text = std::string(text);
+        td.pos = pos;
+        if (!clip_stack.empty()) {
+            td.has_clip = true;
+            td.clip = clip_stack.back();
+        }
+        text_draws.push_back(std::move(td));
+    }
+};
 
 int hex_channel(std::string_view hex, std::size_t offset) {
     if (hex.size() < offset + 2) return -1;
@@ -785,6 +893,12 @@ TEST_CASE("GE-shaped inspector: command-backed checkbox + colorfield commit "
             "hero", "tint", app::PropValue{std::string{"#4d9fff"}}));
     };
     bool visible_local = true;
+    // Long enough to overflow the fixed 2-row textarea height by far.
+    std::string notes_local =
+        "Line one of the production notes. Line two keeps going with more "
+        "detail about the hero mesh. Line three describes the bake. Line "
+        "four rambles about the spline rig. Line five closes it out with a "
+        "reminder to retopo the collar before the next review.";
     int reloads = 0;
     int inspector_px = 0;  // 0 = declared size (320); tests shrink it below
 
@@ -861,6 +975,7 @@ TEST_CASE("GE-shaped inspector: command-backed checkbox + colorfield commit "
                                     visible_local = next == "true" ||
                                                     next == "1" || next == "on";
                                 });
+                            p.textarea("Notes", notes_local, 3, "notes");
                         }
                     },
                     "cog");
@@ -896,10 +1011,14 @@ TEST_CASE("GE-shaped inspector: command-backed checkbox + colorfield commit "
     // Each subcase boots the app itself (AFTER setting its dock sizing): the
     // dock replay provider faithfully preserves the live pane sizes across
     // reloads, so the size provider only matters for the very first build.
+    // Layout with a MEASURING painter — the in-window app has real glyph
+    // metrics, and the vec/titlebar bugs only reproduce with content-sized
+    // text (the painterless estimate hid them).
+    TestPainter painter;
     auto boot = [&] {
         app.load_view(build());
         app.set_stylesheet(bundle);
-        app.document().layout(W, H);
+        app.document().layout(W, H, &painter);
     };
 
     auto click = [&](affineui::Point p) {
@@ -913,7 +1032,7 @@ TEST_CASE("GE-shaped inspector: command-backed checkbox + colorfield commit "
         up.button = affineui::MouseButton::Left;
         up.pos = p;
         app.dispatch(up);
-        app.document().layout(W, H);
+        app.document().layout(W, H, &painter);
     };
 
     SUBCASE("checkbox: one click on the .dcs-check box flips the model once") {
@@ -985,6 +1104,46 @@ TEST_CASE("GE-shaped inspector: command-backed checkbox + colorfield commit "
         CHECK(x2.x + x2.w <= vec_row.x + vec_row.w + 1);
     }
 
+    SUBCASE("vector row: at the DEFAULT 320px inspector the reference stacks "
+            "X/Y/Z in the CONTROL COLUMN beside the Location label") {
+        // Ground truth: examples/11_decius_game_editor/reference.png — the
+        // 'Location' label sits in the left column and the three editors stack
+        // in the right (control) column, never spanning the full row.
+        boot();
+        const auto pane = app.document().find_element_rect("pane-inspector");
+        REQUIRE(pane.w > 0);
+        const auto vec_field = app.document().find_element_rect("loc");
+        REQUIRE(vec_field.w > 0);
+        const auto x0 = app.document().find_element_rect("loc-0");
+        const auto x1 = app.document().find_element_rect("loc-1");
+        const auto x2 = app.document().find_element_rect("loc-2");
+        REQUIRE(x0.w > 0);
+        MESSAGE("pane=(", pane.x, ",", pane.y, " ", pane.w, "x", pane.h,
+                ") field=(", vec_field.x, ",", vec_field.y, " ", vec_field.w,
+                "x", vec_field.h, ") x0=(", x0.x, ",", x0.y, " ", x0.w, "x",
+                x0.h, ")");
+        // Stacked at this width (3*72 + gaps exceeds the control column).
+        CHECK(x1.y >= x0.y + x0.h);
+        CHECK(x2.y >= x1.y + x1.h);
+        // The label occupies the left column: the editors must start well
+        // inside the field, not at its left edge (reference: label column is
+        // roughly 90-110px of the 294px row).
+        const int label_col = x0.x - vec_field.x;
+        MESSAGE("label column width=", label_col);
+        CHECK(label_col >= 60);
+        // The label itself renders beside the FIRST editor row.
+        const auto label_pt = find_in_rect_with_class(
+            app,
+            affineui::Rect{vec_field.x, x0.y, label_col, x0.h},
+            "dcs-field__label");
+        CHECK(label_pt.x >= 0);
+        // And nothing below overlaps.
+        const auto fold_display =
+            app.document().find_element_rect("fold-display");
+        REQUIRE(fold_display.h > 0);
+        CHECK(fold_display.y >= x2.y + x2.h);
+    }
+
     SUBCASE("vector row: compressed inspector stacks the editors AND grows "
             "the field so nothing below overlaps") {
         inspector_px = 150;  // too narrow for 3 * 72px + gaps → must stack
@@ -1047,7 +1206,7 @@ TEST_CASE("GE-shaped inspector: command-backed checkbox + colorfield commit "
         up.button = affineui::MouseButton::Left;
         up.pos = {grip.x + 170, grip.y};
         app.dispatch(up);
-        app.document().layout(W, H);
+        app.document().layout(W, H, &painter);
 
         const auto pane_after =
             app.document().find_element_rect("pane-inspector");
@@ -1095,7 +1254,7 @@ TEST_CASE("GE-shaped inspector: command-backed checkbox + colorfield commit "
             up.button = affineui::MouseButton::Left;
             up.pos = to;
             app.dispatch(up);
-            app.document().layout(W, H);
+            app.document().layout(W, H, &painter);
         };
 
         // Tear the (inactive) Console tab out of the bottom pane into the
@@ -1276,11 +1435,264 @@ TEST_CASE("GE-shaped inspector: command-backed checkbox + colorfield commit "
         const std::string after = tint_prop();
         CHECK(after != before);  // the pick must reach the model...
         const std::string persisted = tint_prop();
-        app.document().layout(W, H);
+        app.document().layout(W, H, &painter);
         CHECK(tint_prop() == persisted);  // ...and survive the reload
         // The re-emitted chip must show the committed color, not the old one.
         const auto row2 = app.document().find_element_rect("tint");
         REQUIRE(row2.w > 0);
+    }
+
+    SUBCASE("colorfield: DRAGGING in the SV square (the real pick gesture) "
+            "commits the released color and sticks") {
+        boot();
+        const auto row = app.document().find_element_rect("tint");
+        REQUIRE(row.w > 0);
+        const auto caret = find_in_rect_with_class(app, row,
+                                                   "dcs-colorfield__caret");
+        REQUIRE(caret.x >= 0);
+        click(caret);  // open the picker popover
+
+        const auto sv = app.document().find_element_rect(
+            "#aui-cf-tint-picker-sv");
+        REQUIRE(sv.w > 0);
+        const std::string before = tint_prop();
+
+        // Press near the center, drag toward the bright/saturated top-right,
+        // release — the classic scrub. Mid-gesture changes are DEFERRED; the
+        // release must deliver the FINAL color to the model, and the reload it
+        // triggers must re-emit that color (not snap back).
+        const affineui::Point p0{sv.x + sv.w / 2, sv.y + sv.h / 2};
+        const affineui::Point p1{sv.x + sv.w - 6, sv.y + 6};
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p0;
+        app.dispatch(down);
+        for (int i = 1; i <= 6; ++i) {
+            affineui::Event mv{};
+            mv.type = affineui::EventType::MouseMove;
+            mv.pos = {p0.x + (p1.x - p0.x) * i / 6,
+                      p0.y + (p1.y - p0.y) * i / 6};
+            app.dispatch(mv);
+        }
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p1;
+        app.dispatch(up);
+        app.document().layout(W, H, &painter);
+
+        const std::string committed = tint_prop();
+        MESSAGE("tint before='", before, "' committed='", committed, "'");
+        CHECK(committed != before);   // the drag reached the model
+        app.document().layout(W, H, &painter);
+        CHECK(tint_prop() == committed);  // and did not snap back
+
+        // In the WINDOW the app keeps dispatching events after the pick (the
+        // user moves the mouse). If the pick's reload re-synced the colorfield
+        // from stale captured DOM and queued a change, the very next event
+        // delivers it and snaps the color back — the reported bug. Pump moves
+        // and re-assert.
+        for (int i = 0; i < 3; ++i) {
+            affineui::Event mv{};
+            mv.type = affineui::EventType::MouseMove;
+            mv.pos = {p1.x + 40 + i * 10, p1.y + 40};
+            app.dispatch(mv);
+        }
+        app.document().layout(W, H, &painter);
+        MESSAGE("after post-pick mouse moves tint='", tint_prop(), "'");
+        CHECK(tint_prop() == committed);
+
+        // The user judges by the CHIP — the visible swatch must show the
+        // committed color too (a stale transient-state reapply could revert
+        // the DOM while the model stays right).
+        {
+            const auto row_now = app.document().find_element_rect("tint");
+            REQUIRE(row_now.w > 0);
+            const auto chip_pt = find_in_rect_with_class(
+                app, row_now, "dcs-colorfield__chip");
+            REQUIRE(chip_pt.x >= 0);
+            affineui::Event hv{};
+            hv.type = affineui::EventType::MouseMove;
+            hv.pos = chip_pt;
+            app.dispatch(hv);
+            std::string chip_style;
+            std::string chip_color;
+            for (const auto& info : app.document().hovered_info_chain()) {
+                if (std::find(info.classes.begin(), info.classes.end(),
+                              "dcs-colorfield__chip") == info.classes.end()) {
+                    continue;
+                }
+                for (const auto& a : info.attrs) {
+                    if (a.first == "style") chip_style = a.second;
+                    if (a.first == "data-dcs-color") chip_color = a.second;
+                }
+            }
+            MESSAGE("chip style='", chip_style, "' data-dcs-color='",
+                    chip_color, "'");
+            CHECK(chip_style.find(committed) != std::string::npos);
+        }
+
+        // The pick's reload preserves the OPEN picker (transient state), so a
+        // second pick continues directly — and must also commit and stick
+        // ("resetting after each selection").
+        const auto sv2 = app.document().find_element_rect(
+            "#aui-cf-tint-picker-sv");
+        REQUIRE(sv2.w > 0);
+        const affineui::Point q0{sv2.x + sv2.w / 2, sv2.y + sv2.h / 2};
+        const affineui::Point q1{sv2.x + 6, sv2.y + sv2.h - 6};
+        affineui::Event down2{};
+        down2.type = affineui::EventType::MouseDown;
+        down2.button = affineui::MouseButton::Left;
+        down2.pos = q0;
+        app.dispatch(down2);
+        for (int i = 1; i <= 6; ++i) {
+            affineui::Event mv{};
+            mv.type = affineui::EventType::MouseMove;
+            mv.pos = {q0.x + (q1.x - q0.x) * i / 6,
+                      q0.y + (q1.y - q0.y) * i / 6};
+            app.dispatch(mv);
+        }
+        affineui::Event up2{};
+        up2.type = affineui::EventType::MouseUp;
+        up2.button = affineui::MouseButton::Left;
+        up2.pos = q1;
+        app.dispatch(up2);
+        app.document().layout(W, H, &painter);
+        const std::string committed2 = tint_prop();
+        MESSAGE("second pick committed='", committed2, "'");
+        CHECK(committed2 != committed);
+        for (int i = 0; i < 3; ++i) {
+            affineui::Event mv{};
+            mv.type = affineui::EventType::MouseMove;
+            mv.pos = {q1.x + 40 + i * 10, q1.y + 40};
+            app.dispatch(mv);
+        }
+        app.document().layout(W, H, &painter);
+        CHECK(tint_prop() == committed2);
+    }
+
+    SUBCASE("textarea: overflowing value is CLIPPED to the box and the "
+            "element scrolls (UA overflow:auto)") {
+        boot();
+        const auto ta = app.document().find_element_rect("notes-input");
+        const auto row = app.document().find_element_rect("notes");
+        REQUIRE(row.w > 0);
+        // Resolve the textarea element rect: the widget row wraps label +
+        // control; the control is the .dcs-textarea on the right.
+        affineui::Rect box = ta.w > 0 ? ta : affineui::Rect{};
+        if (box.w == 0) {
+            const auto pt = find_in_rect_with_class(app, row, "dcs-textarea");
+            REQUIRE(pt.x >= 0);
+            affineui::Event hv{};
+            hv.type = affineui::EventType::MouseMove;
+            hv.pos = pt;
+            app.dispatch(hv);
+            for (const auto& info : app.document().hovered_info_chain()) {
+                if (std::find(info.classes.begin(), info.classes.end(),
+                              "dcs-textarea") != info.classes.end()) {
+                    box = info.bounds;
+                }
+            }
+        }
+        REQUIRE(box.w > 0);
+        MESSAGE("textarea box=(", box.x, ",", box.y, " ", box.w, "x", box.h,
+                ")");
+
+        auto notes_draw = [&]() -> const TestPainter::TextDraw* {
+            const TestPainter::TextDraw* out = nullptr;
+            for (const auto& td : painter.text_draws) {
+                if (td.text.find("retopo") != std::string::npos) out = &td;
+            }
+            return out;
+        };
+
+        // Paint: the notes value must draw under a clip confined to the
+        // textarea box (the reported bug: overflow lines painted over the
+        // panel below — no clip at all).
+        painter.text_draws.clear();
+        app.document().draw(painter);
+        const auto* td0 = notes_draw();
+        REQUIRE(td0 != nullptr);
+        MESSAGE("notes draw pos=(", td0->pos.x, ",", td0->pos.y,
+                ") has_clip=", td0->has_clip, " clip=(", td0->clip.x, ",",
+                td0->clip.y, " ", td0->clip.w, "x", td0->clip.h, ")");
+        CHECK(td0->has_clip);
+        if (td0->has_clip) {
+            CHECK(td0->clip.y >= box.y);
+            CHECK(td0->clip.y + td0->clip.h <= box.y + box.h + 1);
+        }
+        const int y_before = td0->pos.y;
+
+        // Scroll: wheel over the textarea must scroll ITS value (UA
+        // overflow:auto) — the draw origin shifts up.
+        affineui::Event wheel{};
+        wheel.type = affineui::EventType::MouseWheel;
+        wheel.pos = {box.x + box.w / 2, box.y + box.h / 2};
+        wheel.wheel_dy = -3.0f;
+        const bool wheel_consumed = app.dispatch(wheel);
+        MESSAGE("wheel consumed=", wheel_consumed);
+        app.document().layout(W, H, &painter);
+        painter.text_draws.clear();
+        app.document().draw(painter);
+        const auto* td1 = notes_draw();
+        REQUIRE(td1 != nullptr);
+        MESSAGE("notes draw y before=", y_before, " after wheel=", td1->pos.y);
+        CHECK(td1->pos.y < y_before);
+    }
+
+    SUBCASE("colorfield: overshooting the drag OUT of the popover before "
+            "releasing still commits the last in-square color") {
+        boot();
+        const auto row = app.document().find_element_rect("tint");
+        REQUIRE(row.w > 0);
+        const auto caret = find_in_rect_with_class(app, row,
+                                                   "dcs-colorfield__caret");
+        REQUIRE(caret.x >= 0);
+        click(caret);
+        const auto sv = app.document().find_element_rect(
+            "#aui-cf-tint-picker-sv");
+        REQUIRE(sv.w > 0);
+        const std::string before = tint_prop();
+
+        // Press inside, scrub, overshoot far outside the popover, release
+        // there — the classic fast pick. The release must NOT revert the color
+        // (the outside release also closes the popover; that close must not
+        // resurrect the pre-drag value).
+        const affineui::Point p0{sv.x + sv.w / 2, sv.y + sv.h / 2};
+        const affineui::Point out{sv.x + sv.w + 160, sv.y + sv.h + 120};
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p0;
+        app.dispatch(down);
+        for (int i = 1; i <= 8; ++i) {
+            affineui::Event mv{};
+            mv.type = affineui::EventType::MouseMove;
+            mv.pos = {p0.x + (out.x - p0.x) * i / 8,
+                      p0.y + (out.y - p0.y) * i / 8};
+            app.dispatch(mv);
+        }
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = out;
+        app.dispatch(up);
+        app.document().layout(W, H, &painter);
+
+        const std::string committed = tint_prop();
+        MESSAGE("overshoot: before='", before, "' committed='", committed,
+                "'");
+        CHECK(committed != before);
+        for (int i = 0; i < 3; ++i) {
+            affineui::Event mv{};
+            mv.type = affineui::EventType::MouseMove;
+            mv.pos = {out.x - i * 15, out.y - i * 10};
+            app.dispatch(mv);
+        }
+        app.document().layout(W, H, &painter);
+        MESSAGE("overshoot after pump tint='", tint_prop(), "'");
+        CHECK(tint_prop() == committed);
     }
 }
 

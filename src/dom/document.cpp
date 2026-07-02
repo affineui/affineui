@@ -255,6 +255,10 @@ struct SimpleSelector {
 
 struct CompoundSelector {
     std::vector<SimpleSelector> simples;  // AND'd together
+    /// Combinator BETWEEN this compound and the one it qualifies (the next
+    /// compound toward the target). true = child (`A > B`), false = descendant
+    /// (`A B`). Only meaningful on ancestor entries.
+    bool direct_parent{false};
 };
 
 struct PseudoRule {
@@ -309,6 +313,7 @@ struct GeneratedContentRule {
     lxb_css_selector_specificity_t specificity{0};
     std::uint32_t                  source_order{0};
     std::string                    content_value;
+    std::string                    display_value;
     std::string                    color_value;
     std::string                    background_value;
     std::string                    background_color_value;
@@ -1524,22 +1529,47 @@ void collapse_block_flow_vertical_margins(
 }
 
 // Walk up `parent_idx` through `blocks`, greedy-matching each ancestor
-// compound in order. Returns true when all ancestors have been
-// satisfied (gaps are allowed â€” descendant combinator semantics).
+// compound in order. Descendant combinators allow gaps; a child combinator
+// (`A > B`, CompoundSelector::direct_parent) must match the immediate parent.
+// NB: synthetic blocks (#inline runs) sit between an element and its DOM
+// children in the block tree; skip them so `>` means DOM-parent, not
+// block-parent.
 bool ancestor_chain_matches(const std::vector<CompoundSelector>& ancestors,
                             int parent_idx,
                             const std::vector<Block>& blocks) {
-    std::size_t i = 0;
-    int idx = parent_idx;
-    while (i < ancestors.size() && idx >= 0) {
-        const auto& a = blocks[static_cast<std::size_t>(idx)];
-        if (compound_matches(ancestors[i], a.tag, a.elem_id, a.classes,
-                             &a.attrs)) {
-            ++i;
+    auto next_real_parent = [&](int idx) {
+        while (idx >= 0 &&
+               blocks[static_cast<std::size_t>(idx)].synthetic) {
+            idx = blocks[static_cast<std::size_t>(idx)].parent_idx;
         }
-        idx = a.parent_idx;
+        return idx;
+    };
+    int idx = next_real_parent(parent_idx);
+    for (const auto& compound : ancestors) {
+        if (idx < 0) return false;
+        if (compound.direct_parent) {
+            const auto& a = blocks[static_cast<std::size_t>(idx)];
+            if (!compound_matches(compound, a.tag, a.elem_id, a.classes,
+                                  &a.attrs)) {
+                return false;
+            }
+            idx = next_real_parent(a.parent_idx);
+            continue;
+        }
+        bool matched = false;
+        while (idx >= 0) {
+            const auto& a = blocks[static_cast<std::size_t>(idx)];
+            const bool m = compound_matches(compound, a.tag, a.elem_id,
+                                            a.classes, &a.attrs);
+            idx = next_real_parent(a.parent_idx);
+            if (m) {
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) return false;
     }
-    return i == ancestors.size();
+    return true;
 }
 
 std::uint8_t pseudo_state_bit(PseudoRule::Pseudo pseudo) {
@@ -1927,10 +1957,20 @@ bool parse_static_selector(std::string_view sel,
     out_state_bit = 0;
 
     std::vector<CompoundSelector> compounds;
+    // preceded_by_child[i]: a `>` combinator sits between compounds[i-1] and
+    // compounds[i] — compounds[i-1] must be the DIRECT parent of compounds[i].
+    std::vector<bool> preceded_by_child;
     bool pseudo_seen = false;
+    bool pending_child = false;
     std::size_t i = 0;
     while (i < sel.size()) {
         while (i < sel.size() && is_css_ws(sel[i])) ++i;
+        if (i < sel.size() && sel[i] == '>') {
+            if (compounds.empty() || pending_child) return false;
+            pending_child = true;
+            ++i;
+            while (i < sel.size() && is_css_ws(sel[i])) ++i;
+        }
         if (i >= sel.size()) break;
         if (pseudo_seen) return false;  // pseudo must be on last compound
         CompoundSelector compound;
@@ -1939,7 +1979,7 @@ bool parse_static_selector(std::string_view sel,
             sel[i] != '[') {
             const std::size_t s = i;
             while (i < sel.size() && sel[i] != '.' && sel[i] != '#' &&
-                   sel[i] != ':' && sel[i] != '[' &&
+                   sel[i] != ':' && sel[i] != '[' && sel[i] != '>' &&
                    !is_css_ws(sel[i])) ++i;
             if (s == i) return false;
             compound.simples.push_back(
@@ -1947,7 +1987,7 @@ bool parse_static_selector(std::string_view sel,
         }
         // Then any number of `.name` / `#name` segments, optionally
         // followed by a single `:pseudo` recognized below.
-        while (i < sel.size() && !is_css_ws(sel[i])) {
+        while (i < sel.size() && !is_css_ws(sel[i]) && sel[i] != '>') {
             if (sel[i] == '[') {
                 if (!parse_attribute_simple(sel, i, compound)) return false;
                 continue;
@@ -1957,7 +1997,7 @@ bool parse_static_selector(std::string_view sel,
                 ++i;
                 const std::size_t s = i;
                 while (i < sel.size() && sel[i] != '.' && sel[i] != '#' &&
-                       sel[i] != ':' && sel[i] != '[' &&
+                       sel[i] != ':' && sel[i] != '[' && sel[i] != '>' &&
                        !is_css_ws(sel[i])) ++i;
                 const auto name = sel.substr(s, i - s);
                 if      (name == "hover")  out_state_bit = kHoverStateBit;
@@ -1974,7 +2014,7 @@ bool parse_static_selector(std::string_view sel,
             ++i;
             const std::size_t s = i;
             while (i < sel.size() && sel[i] != '.' && sel[i] != '#' &&
-                   sel[i] != ':' && sel[i] != '[' &&
+                   sel[i] != ':' && sel[i] != '[' && sel[i] != '>' &&
                    !is_css_ws(sel[i])) ++i;
             if (s == i) return false;
             compound.simples.push_back(
@@ -1982,13 +2022,22 @@ bool parse_static_selector(std::string_view sel,
         }
         if (compound.simples.empty()) return false;
         compounds.push_back(std::move(compound));
+        preceded_by_child.push_back(pending_child);
+        pending_child = false;
     }
+    if (pending_child) return false;  // dangling `>`
     if (compounds.empty()) return false;
+    // ancestors[j] holds the compound j+1 steps left of the target;
+    // direct_parent on ancestors[j] = "ancestors[j] is the DIRECT parent of
+    // the element matched one step to its right" = preceded_by_child of that
+    // right-hand compound.
+    const std::size_t n = compounds.size();
     target = std::move(compounds.back());
-    compounds.pop_back();
-    ancestors.reserve(compounds.size());
-    for (auto it = compounds.rbegin(); it != compounds.rend(); ++it) {
-        ancestors.push_back(std::move(*it));
+    ancestors.reserve(n - 1);
+    for (std::size_t j = n - 1; j-- > 0;) {
+        CompoundSelector a = std::move(compounds[j]);
+        a.direct_parent = preceded_by_child[j + 1];
+        ancestors.push_back(std::move(a));
     }
     return true;
 }
@@ -3369,6 +3418,7 @@ void scan_generated_content_rules(lxb_css_parser_t* parser,
     const auto raw_rules = split_css_rules(css);
     for (const auto& raw : raw_rules) {
         const auto content_value = find_decl_value(raw.decls, "content");
+        const auto display_value = find_decl_value(raw.decls, "display");
         const auto color_value = find_decl_value(raw.decls, "color");
         const auto background_value =
             find_decl_value(raw.decls, "background");
@@ -3407,6 +3457,7 @@ void scan_generated_content_rules(lxb_css_parser_t* parser,
                     rule.source_order =
                         static_cast<std::uint32_t>(out.size());
                     rule.content_value = content_value;
+                    rule.display_value = display_value;
                     rule.color_value = color_value;
                     rule.background_value = background_value;
                     rule.background_color_value = background_color_value;
@@ -3820,15 +3871,24 @@ bool element_matches_compound(lxb_dom_element_t* elem,
 
 bool dom_ancestor_chain_matches(const std::vector<CompoundSelector>& ancestors,
                                 lxb_dom_element_t* elem) {
-    std::size_t i = 0;
-    auto* ancestor = parent_element(elem);
-    while (i < ancestors.size() && ancestor) {
-        if (element_matches_compound(ancestor, ancestors[i])) {
-            ++i;
+    auto* node = elem;
+    for (const auto& compound : ancestors) {
+        auto* parent = parent_element(node);
+        if (compound.direct_parent) {
+            // Child combinator: the immediate parent must match — no skipping.
+            if (!parent || !element_matches_compound(parent, compound)) {
+                return false;
+            }
+            node = parent;
+            continue;
         }
-        ancestor = parent_element(ancestor);
+        while (parent && !element_matches_compound(parent, compound)) {
+            parent = parent_element(parent);
+        }
+        if (!parent) return false;
+        node = parent;
     }
-    return i == ancestors.size();
+    return true;
 }
 
 bool generated_rule_matches(const detail::DocumentImpl& impl,
@@ -3925,6 +3985,7 @@ void append_generated_content_for_element(
     bool has_padding_left = false;
     bool has_padding_right = false;
     std::string content_value;
+    std::string display_value;
     std::uint32_t color_rgba = elem_style.animated.color_rgba;
     int padding_left = 0;
     int padding_right = 0;
@@ -3942,6 +4003,9 @@ void append_generated_content_for_element(
         if (!rule.content_value.empty()) {
             has_content = true;
             content_value = rule.content_value;
+        }
+        if (!rule.display_value.empty()) {
+            display_value = rule.display_value;
         }
         if (!rule.color_value.empty()) {
             std::uint32_t parsed = color_rgba;
@@ -3978,6 +4042,14 @@ void append_generated_content_for_element(
     }
 
     if (!has_content) return;
+    // CSS: `display:none` on the pseudo-element suppresses its box entirely —
+    // the cascade winner decides (e.g. the bundle's title-only float rules
+    // kill the active-tab accent bars with `--dock-tab:before{display:none}`).
+    if (!display_value.empty() &&
+        trim_css_ws(substitute_style_vars(display_value, elem_style)) ==
+            "none") {
+        return;
+    }
     if (!generated_content_enabled(content_value, elem_style)) return;
     auto text = generated_content_text(std::move(content_value), elem_style);
     if (text.empty()) {
@@ -5366,6 +5438,49 @@ void Document::layout(int viewport_width, int viewport_height,
         if (child_bottom_in_parent > parent.content_h)
             parent.content_h = child_bottom_in_parent;
     }
+    // Textarea leaves scroll their VALUE text (UA overflow:auto), so their
+    // content height is the wrapped text height — they have no child blocks
+    // for the pass above to measure.
+    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
+        auto& block = impl_->blocks[i];
+        if (block.tag != "textarea" || !block.text_control ||
+            block.text.empty()) {
+            continue;
+        }
+        const auto& tcs = layout_styles[i];
+        const int inner_w = std::max(
+            1, block.bounds.w - tcs.used_border_left() -
+                   tcs.used_border_right() - tcs.padding_left -
+                   tcs.padding_right);
+        const float line_mult = detail::effective_line_height_mult(tcs);
+        const float letter_px =
+            static_cast<float>(tcs.letter_spacing_x100) / 100.0f;
+        float text_h = 0.0f;
+        if (measurer != nullptr) {
+            const auto font = measurer->resolve_font(
+                impl_->style_store.font_family_of(tcs.font_id),
+                tcs.font_size_px, tcs.font_weight, tcs.font_style != 0);
+            text_h = static_cast<float>(
+                measurer
+                    ->measure_text_box(font, block.text,
+                                       static_cast<float>(inner_w), line_mult,
+                                       letter_px)
+                    .height);
+        } else {
+            const float fs = static_cast<float>(tcs.font_size_px);
+            const float advance = fs * 0.52f + std::max(0.0f, letter_px);
+            const float natural =
+                static_cast<float>(block.text.size()) * advance;
+            const float lines = std::max(
+                1.0f, std::ceil(natural / static_cast<float>(inner_w)));
+            text_h = lines * fs * (line_mult > 0.0f ? line_mult : 1.25f);
+        }
+        block.content_h = std::max(
+            block.content_h,
+            tcs.used_border_top() + tcs.padding_top +
+                static_cast<int>(std::ceil(text_h)) + tcs.padding_bottom +
+                tcs.used_border_bottom());
+    }
     using Overflow = detail::ComputedStyle::Overflow;
     for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
         auto& block = impl_->blocks[i];
@@ -6596,6 +6711,7 @@ void Document::draw(Painter& painter) {
                 }
             }
 
+            bool pushed_text_control_clip = false;
             if (b.text_control) {
                 const auto g = text_control_geometry(
                     *impl_, static_cast<int>(i), painter);
@@ -6603,6 +6719,23 @@ void Document::draw(Painter& painter) {
                 text_y = g.text_y;
                 content_w = g.content_w;
                 paint_align = g.align;
+                if (b.tag == "textarea") {
+                    // A textarea is a scroll container for its VALUE (UA
+                    // overflow:auto): scroll the text by the element's own
+                    // offset and clip everything (selection, text, caret,
+                    // decorations) to the padding box so overflowing lines
+                    // never paint over content below.
+                    text_y -= b.scroll_y;
+                    const Rect text_clip{
+                        eff.x + used_border_left,
+                        eff.y + used_border_top,
+                        std::max(0, eff.w - used_border_left -
+                                        used_border_right),
+                        std::max(0, eff.h - used_border_top -
+                                        used_border_bottom)};
+                    painter.push_clip(text_clip);
+                    pushed_text_control_clip = true;
+                }
             }
 
             // Add 1px slack to wrap width: measure rounds + draw word-
@@ -6856,6 +6989,7 @@ void Document::draw(Painter& painter) {
                     painter.stroke_line(x0, y, x1, y, deco, thickness);
                 }
             }
+            if (pushed_text_control_clip) painter.pop_clip();
         }
 
         // Closed single-row <select> controls expose an indicator supplied by

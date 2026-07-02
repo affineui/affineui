@@ -27,6 +27,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <string>
@@ -3277,6 +3278,20 @@ public:
         // parent's (cheap shared_ptr copy via `s = parent`). The walk
         // below layers on any `--x` this element declares.
         if (!element) return s;
+
+        // UA-origin defaults that differ from the CSS initial value, applied
+        // BEFORE author declarations so the cascade can override them (same
+        // ordering as a browser's UA stylesheet). A textarea is a scroll
+        // container for its value: browsers give it `overflow: auto`.
+        {
+            std::size_t tag_len = 0;
+            const auto* tag_name =
+                lxb_dom_element_qualified_name(element, &tag_len);
+            if (tag_name && tag_len == 8 &&
+                std::memcmp(tag_name, "textarea", 8) == 0) {
+                s.computed.overflow_y = ComputedStyle::Overflow::Auto;
+            }
+        }
 
         CustomPropMap own_customs;
         std::vector<DeferredVar> deferred;
