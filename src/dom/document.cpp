@@ -5160,8 +5160,9 @@ void Document::layout(int viewport_width, int viewport_height,
                     cs.used_border_left() + cs.used_border_right();
                 const int line_h = std::max(
                     1, static_cast<int>(std::ceil(
-                           static_cast<float>(cs.font_size_px) *
-                           detail::effective_line_height_mult(cs))));
+                           detail::resolved_line_height_px(
+                               cs, measurer->text_metrics(in.font)
+                                       .line_height))));
                 const int control_h =
                     line_h * rows + cs.padding_top + cs.padding_bottom +
                     cs.used_border_top() + cs.used_border_bottom();
@@ -5509,7 +5510,8 @@ void Document::layout(int viewport_width, int viewport_height,
                 static_cast<float>(block.text.size()) * advance;
             const float lines = std::max(
                 1.0f, std::ceil(natural / static_cast<float>(inner_w)));
-            text_h = lines * fs * (line_mult > 0.0f ? line_mult : 1.25f);
+            text_h = lines * fs *
+                     (line_mult > 0.0f ? line_mult : detail::kNormalLineHeight);
         }
         block.content_h = std::max(
             block.content_h,
@@ -6623,8 +6625,7 @@ void Document::draw(Painter& painter) {
                 ? metrics.line_height
                 : static_cast<float>(cs.font_size_px);
             const float css_line_h =
-                static_cast<float>(cs.font_size_px) *
-                detail::effective_line_height_mult(cs);
+                detail::resolved_line_height_px(cs, natural_line_h);
             const float line_top =
                 static_cast<float>(text_y) + (css_line_h - natural_line_h) * 0.5f;
             const float marker_cy = line_top + natural_line_h * 0.5f;
@@ -6679,9 +6680,8 @@ void Document::draw(Painter& painter) {
                 const float content_h = static_cast<float>(
                     eff.h - used_border_top - used_border_bottom
                           - cs.padding_top - cs.padding_bottom);
-                const float css_line_h =
-                    static_cast<float>(cs.font_size_px) *
-                    detail::effective_line_height_mult(cs);
+                const float css_line_h = detail::resolved_line_height_px(
+                    cs, painter.text_metrics(font).line_height);
                 const float free_h = content_h - css_line_h;
                 if (free_h > 0.0f) {
                     using AI = detail::ComputedStyle::AlignItems;
@@ -7056,8 +7056,7 @@ void Document::draw(Painter& painter) {
                         ? metrics.line_height
                         : static_cast<float>(cs.font_size_px);
                 const float css_line_h =
-                    static_cast<float>(cs.font_size_px) *
-                    detail::effective_line_height_mult(cs);
+                    detail::resolved_line_height_px(cs, natural_line_h);
                 const float line_top =
                     static_cast<float>(text_y) +
                     (css_line_h - natural_line_h) * 0.5f;
@@ -10612,11 +10611,12 @@ int estimate_hidden_overlay_height_from_css(const detail::DocumentImpl& impl,
 
     int content_h = children_h;
     if (content_h <= 0 && element_has_direct_text(elem)) {
+        // Overlay estimation runs pre-layout without a rasterizer at hand;
+        // the kNormalLineHeight substitute is fine here (the value only
+        // seeds an anchored-overlay placement budget).
         content_h = std::max(
-            1,
-            static_cast<int>(std::ceil(
-                static_cast<float>(cs.font_size_px) *
-                detail::effective_line_height_mult(cs))));
+            1, static_cast<int>(std::ceil(
+                   detail::resolved_line_height_px(cs, 0.0f))));
     }
 
     if (content_h <= 0) return 0;
@@ -14772,9 +14772,9 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
             : static_cast<float>(
                   impl.style_store.computed(block.id).font_size_px);
     entry.css_line_height = std::max(
-        1.0f,
-        static_cast<float>(impl.style_store.computed(block.id).font_size_px) *
-            g.line_height_mult);
+        1.0f, detail::resolved_line_height_px(
+                  impl.style_store.computed(block.id),
+                  entry.natural_line_height));
 
     const auto display_segment = [&](std::size_t begin, std::size_t end) {
         begin = std::min(begin, block.text_value.size());

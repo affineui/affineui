@@ -1331,15 +1331,14 @@ public:
     TextMetrics text_metrics(std::uint32_t handle) override {
         TextMetrics m{};
         if (handle == 0) return m;
+        // Browser-model (Skia-rounded) metrics — the same numbers layout,
+        // measurement, and draw all use, so a CSS `normal` line box computed
+        // here matches the box the glyphs are drawn into.
         apply_handle(handle);
-        // NanoVG returns descender as a *negative* value (pixels below
-        // baseline). We expose it as positive — the spec contract for
-        // TextMetrics is "magnitude in pixels."
-        float asc = 0, desc = 0, lh = 0;
-        nvgTextMetrics(vg_, &asc, &desc, &lh);
-        m.ascender    = asc;
-        m.descender   = desc < 0 ? -desc : desc;
-        m.line_height = lh;
+        const FontVMetrics vm = font_vmetrics(handle);
+        m.ascender    = vm.ascent;
+        m.descender   = vm.descent;
+        m.line_height = vm.line_height;
         return m;
     }
 
@@ -1493,11 +1492,37 @@ public:
             default:                 nvg_halign = NVG_ALIGN_LEFT;   break;
         }
         // Set align BEFORE nvgTextBox — it reads state->textAlign at
-        // entry (line 2548 in nanovg.c). TOP stays fixed.
-        nvgTextAlign(vg_, nvg_halign | NVG_ALIGN_TOP);
+        // entry (line 2548 in nanovg.c). BASELINE, placed explicitly with
+        // the browser formula: the first baseline sits at
+        //   box_top + (line_box − (ascent + descent)) / 2 + ascent
+        // i.e. half-leading centers the font's ink box inside the CSS line
+        // box, then the baseline is one ascent below the ink top. Going
+        // through NanoVG's TOP alignment instead double-interprets the
+        // ascent and drifts by a pixel against browsers.
+        nvgTextAlign(vg_, nvg_halign | NVG_ALIGN_BASELINE);
 
-        const float fy = static_cast<float>(pos.y)
-                       + line_box_leading(css_line_h, natural_line_h) * 0.5f;
+        const FontVMetrics vm = font_vmetrics(handle);
+        // Browser formula with browser rounding: half-leading centers the
+        // rounded ink box (ascent+descent) in the CSS line box, the first
+        // baseline sits one (rounded) ascent below the ink top, and the
+        // baseline itself snaps to whole pixels — Skia does exactly this,
+        // so identical fonts land on identical rows of pixels.
+        const float ink_h = vm.ascent + vm.descent;
+        const float fy = std::floor(static_cast<float>(pos.y)
+                                    + (css_line_h - ink_h) * 0.5f
+                                    + vm.ascent + 0.5f);
+        static const bool text_trace =
+            std::getenv("AFFINEUI_TEXT_TRACE") != nullptr;
+        if (text_trace) {
+            std::fprintf(stderr,
+                         "[text] fs=%d asc=%.1f desc=%.1f gap=%.1f "
+                         "css_lh=%.2f pos.y=%d baseline=%.1f '%.*s'\n",
+                         handle_size_px(handle), vm.ascent, vm.descent,
+                         vm.line_gap, css_line_h, pos.y, fy,
+                         static_cast<int>(std::min<std::size_t>(12,
+                                                                text.size())),
+                         text.data());
+        }
 
         // CSS white-space: pre text arrives with a huge max_width AND may
         // contain explicit '\n' newlines. NanoVG's nvgTextBox intentionally
@@ -1700,15 +1725,46 @@ private:
         }
         return true;
     }
+    // Font vertical metrics in the BROWSER model: Skia rounds ascent and
+    // descent OUTWARD to whole pixels before struts/line boxes are built, so
+    // every browser line box and baseline lands on integer-friendly spots.
+    // Matching that rounding is what makes our text land on the same pixels
+    // as Chrome for the same font file.
+    struct FontVMetrics {
+        float ascent{0.0f};    // rounded up, px above baseline
+        float descent{0.0f};   // rounded up, px below baseline (positive)
+        float line_gap{0.0f};
+        float line_height{0.0f};  // ascent + descent + line_gap
+    };
+    // PRECONDITION: apply_handle(handle) already ran (this reads the current
+    // NanoVG font state and must not disturb alignment set by the caller).
+    FontVMetrics font_vmetrics(std::uint32_t handle) {
+        float asc = 0.0f;
+        float desc = 0.0f;  // NanoVG reports ≤ 0
+        float lineh = 0.0f;
+        nvgTextMetrics(vg_, &asc, &desc, &lineh);
+        FontVMetrics m;
+        m.ascent = std::ceil(asc);
+        m.descent = std::ceil(-desc);
+        const float gap = lineh - (asc - desc);
+        m.line_gap = gap > 0.0f ? std::ceil(gap) : 0.0f;
+        m.line_height = m.ascent + m.descent + m.line_gap;
+        if (m.line_height <= 0.0f) {
+            m.line_height = static_cast<float>(
+                std::max(handle_size_px(handle), 1));
+        }
+        return m;
+    }
     float natural_line_height_px(std::uint32_t handle) {
-        float line_h = 0.0f;
-        nvgTextMetrics(vg_, nullptr, nullptr, &line_h);
-        if (line_h > 0.0f) return line_h;
-        return static_cast<float>(std::max(handle_size_px(handle), 1));
+        return font_vmetrics(handle).line_height;
     }
     static float css_line_height_px(std::uint32_t handle,
                                     float line_height_mult,
                                     float natural_line_h) {
+        // mult 0 = CSS `normal`: the font's own line height, exactly what
+        // browsers use. A positive mult is relative to FONT SIZE (CSS
+        // unitless line-height semantics).
+        if (line_height_mult <= 0.0f) return std::max(natural_line_h, 1.0f);
         const float requested =
             static_cast<float>(handle_size_px(handle)) * line_height_mult;
         return std::max(requested, 1.0f);

@@ -375,6 +375,9 @@ static_assert(std::is_trivially_copyable_v<ComputedStyle>,
 /// from nvgTextMetrics; we encode the UA default here. TODO: when the
 /// font registry exposes real per-font v-metrics, derive this per font
 /// instead of assuming the default face.
+/// Painterless estimate for CSS `line-height: normal` (no rasterizer to ask
+/// for real font metrics). Headless layout only — a live painter resolves
+/// `normal` from the font's actual ascender/descender/line-height.
 inline constexpr float kNormalLineHeight = 1.32f;
 
 /// Translate `ComputedStyle.line_height_x100` into a multiplier
@@ -382,13 +385,33 @@ inline constexpr float kNormalLineHeight = 1.32f;
 /// stored value is signed: positive = multiplier × 100, negative =
 /// absolute pixels (negated). Layout + paint both call this so the
 /// wrap pass and the actual draw agree on inter-line spacing.
+///
+/// Returns 0 for CSS `normal`: the painter must use the FONT's natural
+/// line height (browsers derive `normal` from font metrics — a fixed
+/// multiplier is wrong by a different amount for every face, which reads
+/// as broken vertical centering). Painterless callers substitute
+/// kNormalLineHeight.
 inline float effective_line_height_mult(const ComputedStyle& cs) {
     if (cs.line_height_x100 > 0)
         return static_cast<float>(cs.line_height_x100) / 100.0f;
     if (cs.line_height_x100 < 0 && cs.font_size_px > 0)
         return static_cast<float>(-cs.line_height_x100)
              / static_cast<float>(cs.font_size_px);
-    return kNormalLineHeight;  // unset → CSS `normal` (font-derived)
+    return 0.0f;  // CSS `normal` → font-derived (painter resolves)
+}
+
+/// Resolve the CSS line height to PIXELS. `natural_px` is the font's own
+/// line height (Painter::text_metrics().line_height) and is what CSS
+/// `normal` means; pass 0 when no rasterizer is attached and the
+/// kNormalLineHeight estimate substitutes.
+inline float resolved_line_height_px(const ComputedStyle& cs,
+                                     float natural_px) {
+    const float fs =
+        static_cast<float>(cs.font_size_px > 0 ? cs.font_size_px : 16);
+    const float mult = effective_line_height_mult(cs);
+    if (mult > 0.0f) return mult * fs;
+    if (natural_px > 0.0f) return natural_px;
+    return kNormalLineHeight * fs;
 }
 
 inline constexpr std::int16_t encode_border_radius_pct_x100(int pct_x100) {

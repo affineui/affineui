@@ -635,7 +635,8 @@ YGSize measure_text_cb(YGNodeConstRef node,
         const float natural = static_cast<float>(text.size()) * advance;
         const float avail = std::max(1.0f, wrap_w - positive_indent);
         const float line_h =
-            fs * (ctx->line_height_mult > 0.0f ? ctx->line_height_mult : 1.25f);
+            fs * (ctx->line_height_mult > 0.0f ? ctx->line_height_mult
+                                               : kNormalLineHeight);
         const float lines =
             natural <= avail
                 ? 1.0f
