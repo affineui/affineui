@@ -1429,7 +1429,8 @@ public:
         NVGtextRow rows[8];
         while (cursor < text_end) {
             const int n = nvgTextBreakLines(vg_, cursor, text_end,
-                                            max_width, rows, 8);
+                                            max_width + kWrapEpsilonPx,
+                                            rows, 8);
             if (n == 0) break;
             for (int i = 0; i < n; ++i) {
                 if (rows[i].width > max_row_w) max_row_w = rows[i].width;
@@ -1565,7 +1566,8 @@ public:
             const char* const text_end = text.data() + text.size();
             NVGtextRow buf[8];
             while (cursor < text_end) {
-                int n = nvgTextBreakLines(vg_, cursor, text_end, max_width, buf, 8);
+                int n = nvgTextBreakLines(vg_, cursor, text_end,
+                                           max_width + kWrapEpsilonPx, buf, 8);
                 if (n == 0) break;
                 for (int i = 0; i < n; ++i)
                     rows.push_back({buf[i].start, buf[i].end, buf[i].next});
@@ -1611,7 +1613,7 @@ public:
             }
         } else {
             nvgTextLineHeight(vg_, nvg_line_height_mult(css_line_h, natural_line_h));
-            nvgTextBox(vg_, fx, fy, max_width,
+            nvgTextBox(vg_, fx, fy, max_width + kWrapEpsilonPx,
                        text.data(), text.data() + text.size());
         }
         // Reset letter spacing to default so subsequent draws are unaffected.
@@ -1785,6 +1787,14 @@ private:
         // meaning.
         nvgTextAlign(vg_, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
     }
+
+    // A content box sized to EXACTLY its text advance must not wrap its
+    // final glyph because NanoVG's float advance sums land an epsilon over
+    // the integer box width. Layout sizes boxes to the exact advance
+    // (browser behavior — no slack), so every break decision gets this
+    // shared epsilon; measure and draw use it identically and stay in
+    // agreement about row counts.
+    static constexpr float kWrapEpsilonPx = 0.75f;
 
     NVGcontext*                                  vg_{nullptr};
     int                                          width_{0};

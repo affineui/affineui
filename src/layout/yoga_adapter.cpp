@@ -469,7 +469,19 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
                           cs.used_border_left() + cs.used_border_right();
             used_auto_min_w = std::min(used_auto_min_w, definite_w);
         }
-        YGNodeStyleSetMinWidth(node, static_cast<float>(used_auto_min_w));
+        // auto_min_w is a BORDER-BOX quantity (CSS automatic minimum =
+        // min-content size of the box, padding and border included). Yoga
+        // interprets minWidth per the node's box-sizing, so a content-box
+        // node needs the edges taken back out — otherwise padding counts
+        // twice and content-sized flex items (menubar buttons) run wide.
+        if (cs.box_sizing != ComputedStyle::BoxSizing::BorderBox) {
+            used_auto_min_w = std::max(
+                0, used_auto_min_w - cs.padding_left - cs.padding_right -
+                       cs.used_border_left() - cs.used_border_right());
+        }
+        if (used_auto_min_w > 0) {
+            YGNodeStyleSetMinWidth(node, static_cast<float>(used_auto_min_w));
+        }
     }
     if (cs.max_width  > 0)  YGNodeStyleSetMaxWidth (node, static_cast<float>(cs.max_width));
     if (cs.min_height > 0)  YGNodeStyleSetMinHeight(node, static_cast<float>(cs.min_height));

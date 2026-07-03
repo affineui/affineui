@@ -5104,20 +5104,15 @@ void Document::layout(int viewport_width, int viewport_height,
         layout_styles.push_back(impl_->style_store.computed(b.id));
     }
 
-    // NanoVG's bounds measurement reports ink extents, while its text-box
-    // wrapping decisions use glyph advances. Paint gets the same slack before
-    // draw_text_box; min-content sizing needs it too or tight controls can
-    // wrap their final glyph even though measurement said the label fit.
-    //
-    // Generated pseudo-content is commonly used for icons. Its inline-block
-    // box should size to the glyph advance itself; adding label slack there
-    // makes centered icon controls look left-biased.
-    constexpr int kTextAdvanceSlackPx = 4;
-    auto text_advance_slack = [](const Block& b) {
-        return (b.tag == "#before" || b.tag == "#after")
-            ? 0
-            : kTextAdvanceSlackPx;
-    };
+    // Browsers size content boxes to the EXACT glyph advance — no slack.
+    // We used to add 4px here so NanoVG's wrap pass (float advance sums)
+    // couldn't wrap the final glyph of a tightly-sized label, but that
+    // inflated every content-sized control and pushed its ink ~2px left of
+    // center (menubar buttons measured 34px where Chrome says 30). The
+    // wrap robustness now lives where the problem is: draw_text_box and
+    // measure_text_box give nvgTextBreakLines a half-pixel epsilon, so a
+    // label measured to fit still lays out on one line.
+    auto text_advance_slack = [](const Block&) { return 0; };
 
     collapse_block_flow_vertical_margins(child_indices, impl_->blocks,
                                          layout_styles);
