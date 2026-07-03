@@ -50,6 +50,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -161,6 +162,10 @@ struct Block {
     // transparent above its children). Click routing + hit-test
     // treat it normally â€” children sit on top anyway.
     bool              synthetic{false};
+    // Generated ::before/::after text whose color came from the generated
+    // rule itself (not inheritance). Restyles must keep the rule color;
+    // without the flag they can't tell it apart from an inherited one.
+    bool              generated_color_locked{false};
     bool              text_control{false};
     bool              placeholder_visible{false};
     std::string       text_value;       // unmasked live value for editable controls
@@ -649,6 +654,16 @@ struct DocumentImpl {
     lxb_dom_event_remove_f             lexbor_ev_remove{nullptr};
     lxb_dom_event_destroy_f            lexbor_ev_destroy{nullptr};
     std::vector<lxb_css_stylesheet_t*> sheets;
+    // Per-attribute-name result cache for
+    // stylesheet_dependencies_stay_in_mutated_subtree() — the scan walks
+    // every rule of every sheet, which is far too slow to repeat on each
+    // live attribute mutation. Invalidated whenever `sheets` changes.
+    // (mutable: the scan runs behind const DocumentImpl&.)
+    mutable std::unordered_map<std::string, bool> attr_subtree_local_cache;
+    // Same shape for attribute_matches_confined_to_subject(): whether every
+    // stylesheet mention of the attribute sits in a subject compound, so a
+    // write can only re-match the mutated element itself.
+    mutable std::unordered_map<std::string, bool> attr_subject_confined_cache;
     // :hover / :active overlay rules â€” populated by scan_pseudo_rules()
     // during attach. Pointers in `decls` reference rule data owned by
     // the document's CSS memory pool; valid for the document's lifetime.
@@ -1018,6 +1033,14 @@ int ensure_inline_run(detail::DocumentImpl& impl,
     synth.id         = sid;
     synth.parent_idx = parent_idx;
     synth.synthetic  = true;
+    // A line box is transparent to inheritance: children of the run resolve
+    // through it via parent_resolved() on the restyle path, so it must carry
+    // the parent's custom-property scope. Without this, any element wrapped
+    // in an anonymous inline run lost every var() (all --dcs-* colors) on
+    // its first attribute-driven restyle — masked for years because those
+    // restyles used to be full box rebuilds, which re-resolve through the
+    // real ancestor chain instead.
+    synth.custom_props = parent_style.custom_props;
     impl.blocks.push_back(std::move(synth));
     open_synth_idx = static_cast<int>(impl.blocks.size()) - 1;
     return open_synth_idx;
@@ -3778,6 +3801,8 @@ void attach_media_block(detail::DocumentImpl& impl, const MediaBlock& mb) {
     if (lxb_html_document_stylesheet_attach(impl.doc, sst_media)
             == LXB_STATUS_OK) {
         impl.sheets.push_back(sst_media);
+        impl.attr_subtree_local_cache.clear();
+        impl.attr_subject_confined_cache.clear();
         scan_pseudo_rules(sst_media, impl.pseudo_rules);
         scan_rule_fills(sst_media, mb.block_css, impl.rule_fills);
         scan_font_face_rules(mb.block_css, {}, impl.font_faces);
@@ -3810,6 +3835,8 @@ void attach_stylesheet(detail::DocumentImpl& impl, std::string_view css,
     if (!sst) return;
     if (lxb_html_document_stylesheet_attach(impl.doc, sst) == LXB_STATUS_OK) {
         impl.sheets.push_back(sst);
+        impl.attr_subtree_local_cache.clear();
+        impl.attr_subject_confined_cache.clear();
         scan_pseudo_rules(sst, impl.pseudo_rules);
         // Recover font-family names into AffineUI's font registry side
         // table. attach_stylesheet's `css` argument outlives this call
@@ -4003,6 +4030,7 @@ void append_generated_inline_text(detail::DocumentImpl& impl,
                      : "#after";
     b.text       = std::move(text);
     b.parent_idx = parent_idx;
+    b.generated_color_locked = has_color;
     b.box_shadows = rs.box_shadows;
     b.base_animated = rs.animated;
     b.animation = rs.animation;
@@ -4330,14 +4358,20 @@ void collect_blocks(detail::DocumentImpl& impl,
             apply_user_textarea_size(impl, elem, rs);
         }
 
-        // CSS display:none removes the element and its entire subtree from
-        // layout/paint. Do this before appending a Block so descendants cannot
-        // leak out at (0,0) when a framework hides a parent such as Bootstrap's
-        // `.collapse:not(.show)`.
+        // CSS display:none removes the element and its subtree from layout
+        // and paint — but NOT from collection. Hidden subtrees keep their
+        // Blocks (Yoga gets YGDisplayNone so they contribute no geometry;
+        // paint suppresses the whole subtree) so that toggling `hidden` /
+        // display is a pure restyle of retained boxes in BOTH directions.
+        // When collection skipped hidden subtrees, every menu/popover reveal
+        // was a full-document box rebuild — and that rebuild dropped every
+        // OTHER hidden subtree's boxes, so the next reveal rebuilt again:
+        // menubar hover-switches cost 3 rebuilds (~50ms) per hop, which
+        // dropped fast mouse sweeps. A hidden block-level subtree still
+        // breaks any open inline run, same as before.
         if (rs.computed.display == detail::ComputedStyle::Display::None) {
             open_synth_idx = -1;
             pending_inline_space = false;
-            continue;
         }
 
         impl.style_store.computed(id) = rs.computed;
@@ -4694,6 +4728,8 @@ void Document::set_html(std::string_view html) {
     // attached stylesheets, so destroying doc tears them down too.
     impl_->resolver.reset();
     impl_->sheets.clear();
+    impl_->attr_subtree_local_cache.clear();
+    impl_->attr_subject_confined_cache.clear();
     impl_->pseudo_rules.clear();
     impl_->rule_fills.clear();
     impl_->generated_content_rules.clear();
@@ -5975,9 +6011,30 @@ void Document::draw(Painter& painter) {
         }
     }
 
+    // display:none subtree suppression. Hidden subtrees keep their Blocks
+    // (collection retains them so reveals are pure restyles), and unlike
+    // `visibility`, display is NOT inherited — a hidden menu's rows still
+    // compute display:flex. Propagate none-ness down the tree so no
+    // descendant box or glyph of a hidden subtree ever paints (Yoga zeroes
+    // their bounds, but text ink is drawn from the baseline and would
+    // otherwise smear at the origin). Blocks are appended in DFS order, so
+    // parent_idx < i and one forward pass settles the whole vector.
+    std::vector<char> in_none_subtree(impl_->blocks.size(), 0);
+    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
+        const auto& blk = impl_->blocks[i];
+        const bool parent_none =
+            blk.parent_idx >= 0 &&
+            in_none_subtree[static_cast<std::size_t>(blk.parent_idx)] != 0;
+        in_none_subtree[i] =
+            parent_none ||
+            impl_->style_store.computed(blk.id).display ==
+                detail::ComputedStyle::Display::None;
+    }
+
     for (const auto& [paint_idx, phase] : phased_order) {
         const std::size_t i = static_cast<std::size_t>(paint_idx);
         const auto& b  = impl_->blocks[i];
+        if (in_none_subtree[i]) continue;
         // Synthetic line-boxes are layout-only. They don't carry
         // any visual style â€” skip the whole draw stanza.
         if (b.synthetic) continue;
@@ -7637,9 +7694,20 @@ std::vector<int> build_hover_chain(const std::vector<Block>& blocks, int idx) {
 
 // Look up the resolved style of `block_idx`'s parent. Returns the
 // document's root style when there is no parent (top-level body).
+// Anonymous/synthetic boxes are transparent to inheritance: they are not
+// elements, never carry custom properties, and the collect pass resolves
+// children against the DOM parent chain that skips them — so a restyle
+// must hop past them too, or every var() under an anonymous run resolves
+// against an empty custom-prop set (checked boxes losing their accent
+// fill after a live aria flip was exactly this).
 detail::ResolvedStyle parent_resolved(const detail::DocumentImpl& impl,
                                       int block_idx) {
-    const int p = impl.blocks[static_cast<std::size_t>(block_idx)].parent_idx;
+    int p = impl.blocks[static_cast<std::size_t>(block_idx)].parent_idx;
+    while (p >= 0 &&
+           impl.style_store.element_of(
+               impl.blocks[static_cast<std::size_t>(p)].id) == nullptr) {
+        p = impl.blocks[static_cast<std::size_t>(p)].parent_idx;
+    }
     if (p < 0) return impl.root_style;
     const auto pid = impl.blocks[static_cast<std::size_t>(p)].id;
     detail::ResolvedStyle rs;
@@ -7830,6 +7898,29 @@ bool restyle_synthetic_block(detail::DocumentImpl& impl, int idx) {
         block.box_shadows = rs.box_shadows;
         block.base_animated = rs.animated;
         block.animation = rs.animation;
+        return computed_change_needs_layout(old_computed, rs.computed);
+    }
+
+    // Generated ::before/::after TEXT inherits like anonymous text — a
+    // checked box turning its `color` over must recolor its icon glyph —
+    // but two properties were baked in from the generated rule itself at
+    // collect time and must survive the refresh: the rule's padding, and
+    // the rule's own color when it specified one (generated_color_locked).
+    // Contentless generated BOXES (append_generated_box) stay untouched:
+    // their whole computed style is rule declarations, nothing inherited.
+    if ((block.tag == "#before" || block.tag == "#after") &&
+        !block.text.empty()) {
+        auto rs = anonymous_text_style(parent);
+        rs.computed.padding_left  = old_computed.padding_left;
+        rs.computed.padding_right = old_computed.padding_right;
+        if (block.generated_color_locked) {
+            rs.animated.color_rgba =
+                impl.style_store.animated(block.id).color_rgba;
+        }
+        impl.style_store.computed(block.id) = rs.computed;
+        impl.style_store.animated(block.id) = rs.animated;
+        block.custom_props = rs.custom_props;
+        block.base_animated = rs.animated;
         return computed_change_needs_layout(old_computed, rs.computed);
     }
 
@@ -8109,10 +8200,11 @@ bool restyle_subtree(detail::DocumentImpl& impl, int root_idx) {
     if (root_idx < 0 || root_idx >= static_cast<int>(impl.blocks.size()))
         return false;
     bool needs_layout = false;
+    // DFS append order makes the subtree contiguous — stop at its end
+    // rather than testing ancestry against every later block.
     for (int idx = root_idx; idx < static_cast<int>(impl.blocks.size()); ++idx) {
-        if (is_descendant_of_or_self(impl.blocks, idx, root_idx)) {
-            needs_layout = restyle_block(impl, idx) || needs_layout;
-        }
+        if (!is_descendant_of_or_self(impl.blocks, idx, root_idx)) break;
+        needs_layout = restyle_block(impl, idx) || needs_layout;
     }
     return needs_layout;
 }
@@ -8163,6 +8255,11 @@ bool selector_simple_depends_on_attribute(const lxb_css_selector_t* sel,
 bool stylesheet_dependencies_stay_in_mutated_subtree(
     const detail::DocumentImpl& impl,
     std::string_view name) {
+    if (auto it = impl.attr_subtree_local_cache.find(std::string(name));
+        it != impl.attr_subtree_local_cache.end()) {
+        return it->second;
+    }
+    const bool local = [&] {
     for (auto* sst : impl.sheets) {
         if (!sst || !sst->root) continue;
         auto* rule_list = lxb_css_rule_list(sst->root);
@@ -8194,6 +8291,63 @@ bool stylesheet_dependencies_stay_in_mutated_subtree(
         }
     }
     return true;
+    }();
+    impl.attr_subtree_local_cache.emplace(std::string(name), local);
+    return local;
+}
+
+// True when every stylesheet mention of `name` sits in the SUBJECT compound
+// of its selector — the rightmost compound, the one that receives the
+// declarations. A write to such an attribute can only change which rules
+// match THE MUTATED ELEMENT itself: no rule keys a descendant's or
+// sibling's styling on it. The expensive lexbor rematch can then be scoped
+// to that single element instead of re-running selector matching over the
+// whole dirty subtree. All decius `[hidden]`/`[aria-expanded]` rules are
+// subject-position, which turns a menu toggle's rematch from
+// O(menu subtree × rules) into O(rules). Cached per attribute name;
+// invalidated with the locality cache whenever sheets change.
+bool attribute_matches_confined_to_subject(const detail::DocumentImpl& impl,
+                                           std::string_view name) {
+    if (auto it = impl.attr_subject_confined_cache.find(std::string(name));
+        it != impl.attr_subject_confined_cache.end()) {
+        return it->second;
+    }
+    const bool confined = [&] {
+        for (auto* sst : impl.sheets) {
+            if (!sst || !sst->root) continue;
+            auto* rule_list = lxb_css_rule_list(sst->root);
+            if (!rule_list) continue;
+            for (auto* r = rule_list->first; r != nullptr; r = r->next) {
+                if (r->type != LXB_CSS_RULE_STYLE) continue;
+                auto* style = lxb_css_rule_style(r);
+                if (!style) continue;
+                for (auto* sl = style->selector; sl != nullptr; sl = sl->next) {
+                    // The subject compound starts at the last simple whose
+                    // combinator relates it to a PRECEDING compound (anything
+                    // but CLOSE, which chains simples within one compound).
+                    const lxb_css_selector_t* subject_start = sl->first;
+                    for (auto* sel = sl->first; sel != nullptr;
+                         sel = sel->next) {
+                        if (sel != sl->first &&
+                            sel->combinator !=
+                                LXB_CSS_SELECTOR_COMBINATOR_CLOSE) {
+                            subject_start = sel;
+                        }
+                    }
+                    for (auto* sel = sl->first;
+                         sel != nullptr && sel != subject_start;
+                         sel = sel->next) {
+                        if (selector_simple_depends_on_attribute(sel, name)) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }();
+    impl.attr_subject_confined_cache.emplace(std::string(name), confined);
+    return confined;
 }
 
 bool simple_selector_depends_on_attribute(const SimpleSelector& simple,
@@ -8216,15 +8370,125 @@ bool compound_depends_on_attribute(const CompoundSelector& compound,
                        });
 }
 
+// Could `elem` match `compound` if we ignore the simples that key off the
+// attribute being mutated? The mutated attribute's own simples can flip
+// either way, so they are excluded; the compound's OTHER static parts
+// (tag/class/id/other attrs) must already match for the mutation to be able
+// to change this compound's verdict on this element.
+bool element_could_match_compound_modulo_attribute(
+    lxb_dom_element_t* elem,
+    const CompoundSelector& compound,
+    std::string_view name) {
+    if (!elem) return false;
+    const auto tag = tag_name(elem);
+    const auto elem_id = attr_string(elem, "id");
+    const auto classes = split_classes(attr_string(elem, "class"));
+    for (const auto& s : compound.simples) {
+        if (simple_selector_depends_on_attribute(s, name)) continue;
+        switch (s.kind) {
+            case SimpleSelector::Kind::Tag:
+                if (s.name != tag) return false;
+                break;
+            case SimpleSelector::Kind::Id:
+                if (s.name != elem_id) return false;
+                break;
+            case SimpleSelector::Kind::Class:
+                if (std::find(classes.begin(), classes.end(), s.name) ==
+                    classes.end()) return false;
+                break;
+            case SimpleSelector::Kind::Attr:
+                if (!has_attr(elem, s.name)) return false;
+                if (s.attr_value_set && attr_string(elem, s.name) != s.value)
+                    return false;
+                break;
+        }
+    }
+    return true;
+}
+
+// For a class mutation we know exactly which tokens changed; a compound's
+// match can only TOGGLE when one of its class simples is among them. A
+// compound depending on `class` through some *unchanged* token matches (or
+// fails) identically before and after the write. Non-class dependencies
+// (id / attr selectors) stay conservative: any dependent simple counts.
+bool compound_generated_dependency_toggled(
+    const CompoundSelector& compound,
+    std::string_view name,
+    const std::vector<std::string>& changed_classes) {
+    for (const auto& s : compound.simples) {
+        if (!simple_selector_depends_on_attribute(s, name)) continue;
+        if (s.kind == SimpleSelector::Kind::Class && name == "class") {
+            if (std::find(changed_classes.begin(), changed_classes.end(),
+                          s.name) != changed_classes.end()) {
+                return true;
+            }
+            continue;  // dependent, but this token didn't change
+        }
+        return true;
+    }
+    return false;
+}
+
+// Does mutating `name` ON THIS ELEMENT possibly change which ::before/::after
+// rules match somewhere? A rule is only affected when a compound that mentions
+// the attribute could match this element with the attribute factored out —
+// the subject compound (elem is the pseudo's owner), an ancestor compound
+// (elem gates a descendant's pseudo), or the previous-adjacent compound (elem
+// gates its next sibling's pseudo). Without the element test, every
+// aria-expanded write recollected the whole document because tree rows have
+// `[aria-expanded]::before` chevrons — even when the mutated element was a
+// menubar trigger those rules can never match, which turned every menu
+// hover-switch into two full box rebuilds (and, by dropping the still-hidden
+// menus' retained boxes, forced a third rebuild on the next reveal).
+// `old_value`/`new_value` are the attribute values around the write: for
+// class they narrow "depends on class" to "one of the toggled tokens appears
+// in the rule" — without that, any class write on any element whose tag/
+// classes fit a chevroned rule recollected the whole document, which made
+// per-frame widget class toggles (VU meters, step buttons) cost a full box
+// rebuild each.
 bool generated_content_depends_on_attribute(
     const detail::DocumentImpl& impl,
-    std::string_view name) {
+    std::string_view name,
+    lxb_dom_element_t* elem,
+    std::string_view old_value,
+    std::string_view new_value) {
+    std::vector<std::string> changed_classes;
+    if (name == "class") {
+        const auto oldc = split_classes(old_value);
+        const auto newc = split_classes(new_value);
+        for (const auto& c : oldc) {
+            if (std::find(newc.begin(), newc.end(), c) == newc.end()) {
+                changed_classes.push_back(c);
+            }
+        }
+        for (const auto& c : newc) {
+            if (std::find(oldc.begin(), oldc.end(), c) == oldc.end()) {
+                changed_classes.push_back(c);
+            }
+        }
+        if (changed_classes.empty()) return false;
+    }
     for (const auto& rule : impl.generated_content_rules) {
-        if (compound_depends_on_attribute(rule.target, name)) return true;
-        if (compound_depends_on_attribute(rule.previous_adjacent, name))
+        if (compound_generated_dependency_toggled(rule.target, name,
+                                                  changed_classes) &&
+            element_could_match_compound_modulo_attribute(elem, rule.target,
+                                                          name)) {
             return true;
+        }
+        if (rule.has_previous_adjacent &&
+            compound_generated_dependency_toggled(rule.previous_adjacent,
+                                                  name, changed_classes) &&
+            element_could_match_compound_modulo_attribute(
+                elem, rule.previous_adjacent, name)) {
+            return true;
+        }
         for (const auto& ancestor : rule.ancestors) {
-            if (compound_depends_on_attribute(ancestor, name)) return true;
+            if (compound_generated_dependency_toggled(ancestor, name,
+                                                      changed_classes) &&
+                element_could_match_compound_modulo_attribute(elem, ancestor,
+                                                              name)) {
+                return true;
+            }
         }
     }
     return false;
@@ -8583,8 +8847,13 @@ Rect subtree_visual_rect(const detail::DocumentImpl& impl, int root_idx) {
     Rect out{};
     if (root_idx < 0 || root_idx >= static_cast<int>(impl.blocks.size()))
         return out;
+    // Blocks are appended in DFS order (collect recurses a whole child
+    // subtree before the next sibling), so a subtree is a CONTIGUOUS range:
+    // the first non-descendant after the root ends it. Scanning on to the
+    // end of the vector made every subtree walk O(document), which is what
+    // priced attribute writes on large documents (menu toggles most of all).
     for (int idx = root_idx; idx < static_cast<int>(impl.blocks.size()); ++idx) {
-        if (!is_descendant_of_or_self(impl.blocks, idx, root_idx)) continue;
+        if (!is_descendant_of_or_self(impl.blocks, idx, root_idx)) break;
         out = union_rect(out, block_visual_rect(impl, idx));
     }
     return out;
@@ -8867,8 +9136,24 @@ bool selector_mutation_reveals_hidden_subtree(detail::DocumentImpl& impl,
     if (root_idx >= static_cast<int>(impl.blocks.size())) {
         return false;
     }
-    for (int idx = root_idx; idx < static_cast<int>(impl.blocks.size()); ++idx) {
-        if (!is_descendant_of_or_self(impl.blocks, idx, root_idx)) continue;
+    // DFS append order makes the subtree a contiguous block range, and a
+    // child element's block (when it has one) always lives inside its
+    // parent's range — so one pass over the range yields the complete
+    // "has a block" set for every child we'll probe. The per-child
+    // block_index_for_exact_element() this replaces scanned the WHOLE
+    // document per child, which dominated hidden-toggle dispatch.
+    int subtree_end = root_idx;
+    std::unordered_set<const lxb_dom_element_t*> blocked_elems;
+    for (int idx = root_idx; idx < static_cast<int>(impl.blocks.size());
+         ++idx) {
+        if (!is_descendant_of_or_self(impl.blocks, idx, root_idx)) break;
+        subtree_end = idx + 1;
+        if (auto* e = impl.style_store.element_of(
+                impl.blocks[static_cast<std::size_t>(idx)].id)) {
+            blocked_elems.insert(e);
+        }
+    }
+    for (int idx = root_idx; idx < subtree_end; ++idx) {
         const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
         auto* elem = impl.style_store.element_of(block.id);
         if (!elem) continue;
@@ -8884,7 +9169,7 @@ bool selector_mutation_reveals_hidden_subtree(detail::DocumentImpl& impl,
             // their box participation is handled by their own subtree pass.
             if (c->ns != LXB_NS_HTML) continue;
             auto* child = lxb_dom_interface_element(c);
-            if (block_index_for_exact_element(impl, child) >= 0) continue;
+            if (blocked_elems.count(child) != 0) continue;
             // No Block for this child — it resolved to display:none when boxes
             // were last collected. If it now resolves visible, a hidden subtree
             // needs its boxes (re)created.
@@ -8920,9 +9205,10 @@ bool pseudo_state_reveals_hidden_subtree(detail::DocumentImpl& impl,
     }
     if (!impl.resolver) return false;
     using Display = detail::ComputedStyle::Display;
+    // DFS append order: the subtree is contiguous, break at its end.
     for (int idx = root_idx; idx < static_cast<int>(impl.blocks.size());
          ++idx) {
-        if (!is_descendant_of_or_self(impl.blocks, idx, root_idx)) continue;
+        if (!is_descendant_of_or_self(impl.blocks, idx, root_idx)) break;
         const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
         auto* elem = impl.style_store.element_of(block.id);
         if (!elem) continue;
@@ -8957,13 +9243,43 @@ bool pseudo_state_reveals_hidden_subtree(detail::DocumentImpl& impl,
     return false;
 }
 
+struct MutationTraceTimer {
+    // AFFINEUI_MENU_TRACE=1: report any attribute mutation that costs
+    // real time — the menu-lag class of bug is whole-document work
+    // hiding inside these helpers.
+    const char* op;
+    std::string_view name;
+    std::chrono::steady_clock::time_point t0;
+    static bool enabled() {
+        static const bool on = std::getenv("AFFINEUI_MENU_TRACE") != nullptr;
+        return on;
+    }
+    MutationTraceTimer(const char* op_, std::string_view name_)
+        : op(op_), name(name_) {
+        if (enabled()) t0 = std::chrono::steady_clock::now();
+    }
+    ~MutationTraceTimer() {
+        if (!enabled()) return;
+        const double ms = std::chrono::duration<double, std::milli>(
+                              std::chrono::steady_clock::now() - t0)
+                              .count();
+        if (ms >= 0.5) {
+            std::fprintf(stderr, "[attr] %s '%s' took %.2f ms\n", op,
+                         std::string(name).c_str(), ms);
+        }
+    }
+};
+
 bool set_attribute_on_element(detail::DocumentImpl& impl,
                               lxb_dom_element_t* elem,
                               std::string_view name,
                               std::string_view value) {
     if (!elem || name.empty()) return false;
     const bool already_present = has_attr(elem, name);
-    if (already_present && attr_string(elem, name) == value) return false;
+    const std::string old_value =
+        already_present ? attr_string(elem, name) : std::string();
+    if (already_present && old_value == value) return false;
+    MutationTraceTimer trace_timer{"set", name};
 
     const int target_idx = block_index_for_exact_element(impl, elem);
     const int dirty_root_idx =
@@ -8984,7 +9300,8 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
                               : document_visual_rect(impl);
     const bool recollect_generated_subtree =
         selector_affecting &&
-        generated_content_depends_on_attribute(impl, name);
+        generated_content_depends_on_attribute(impl, name, elem, old_value,
+                                               value);
 
     if (!lxb_dom_element_set_attribute(elem, as_lxb(name), name.size(),
                                        as_lxb(value), value.size())) {
@@ -8993,100 +9310,28 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
 
     bool needs_layout = false;
     if (selector_affecting) {
-        if (!rematch_stylesheet_matches_for_subtree(
-                impl, mutation_dirty_root_idx)) {
+        auto tp = std::chrono::steady_clock::now();
+        const auto phase = [&tp] {
+            const auto now = std::chrono::steady_clock::now();
+            const double ms =
+                std::chrono::duration<double, std::milli>(now - tp).count();
+            tp = now;
+            return ms;
+        };
+        // Subject-confined attribute: rematch only the mutated element
+        // (see set_attribute_on_element).
+        if (lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
+            attribute_matches_confined_to_subject(impl, name)) {
+            if (lxb_html_document_element_styles_rematch(
+                    lxb_html_interface_element(lxb_dom_interface_node(elem)))
+                != LXB_STATUS_OK) {
+                return false;
+            }
+        } else if (!rematch_stylesheet_matches_for_subtree(
+                       impl, mutation_dirty_root_idx)) {
             return false;
         }
-        if (impl.resolver) impl.resolver->clear();
-
-        if (target_idx >= 0) {
-            auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
-            refresh_block_metadata_from_element(block, elem);
-        }
-
-        // Same policy as set_attribute_on_element: no unconditional box
-        // rebuild for `hidden` — restyle the retained boxes, and let the
-        // reveal check below recollect only when this removal exposes a
-        // subtree whose boxes were never created (a menu's first open).
-        if (recollect_generated_subtree) {
-            recollect_blocks_from_current_dom(impl);
-            mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
-                                     /*needs_layout=*/true);
-            return true;
-        }
-
-        needs_layout = mutation_dirty_root_idx >= 0
-                           ? restyle_subtree(impl, mutation_dirty_root_idx)
-                           : restyle_all_blocks(impl);
-        if (target_idx >= 0) {
-            auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
-            if (block.tag == "img" && name == "src") needs_layout = true;
-        }
-        // If this mutation revealed a previously display:none subtree, the box
-        // tree is missing those boxes (collection skips hidden subtrees) and
-        // restyle alone can't recreate them — recollect so they reappear.
-        // (A negative root means the element has no blocked ancestor — the
-        // detector then checks body-level children, where top-level
-        // menus/popovers live.)
-        if (selector_mutation_reveals_hidden_subtree(impl,
-                                                     mutation_dirty_root_idx)) {
-            recollect_blocks_from_current_dom(impl);
-            needs_layout = true;
-        }
-        mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
-                                 needs_layout);
-        return true;
-    }
-
-    if (target_idx >= 0) {
-        if (impl.resolver) impl.resolver->invalidate(elem);
-        auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
-        refresh_block_metadata_from_element(block, elem);
-        needs_layout = restyle_subtree(impl, target_idx);
-        if (block.tag == "img" && name == "src") needs_layout = true;
-    }
-    mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
-                             needs_layout);
-    return true;
-}
-
-bool remove_attribute_on_element(detail::DocumentImpl& impl,
-                                 lxb_dom_element_t* elem,
-                                 std::string_view name) {
-    if (!elem || name.empty() || !has_attr(elem, name)) return false;
-
-    const int target_idx = block_index_for_exact_element(impl, elem);
-    const int dirty_root_idx =
-        target_idx >= 0 ? target_idx
-                        : block_index_for_element_or_ancestor(impl, elem);
-    const bool selector_affecting =
-        attribute_can_affect_selector_matching(name);
-    const bool subtree_local_selectors =
-        !selector_affecting ||
-        stylesheet_dependencies_stay_in_mutated_subtree(impl, name);
-    const int mutation_dirty_root_idx =
-        selector_affecting && !subtree_local_selectors && target_idx >= 0 &&
-                impl.blocks[static_cast<std::size_t>(target_idx)].parent_idx >= 0
-            ? impl.blocks[static_cast<std::size_t>(target_idx)].parent_idx
-            : dirty_root_idx;
-    const Rect old_rect = mutation_dirty_root_idx >= 0
-                              ? subtree_visual_rect(impl, mutation_dirty_root_idx)
-                              : document_visual_rect(impl);
-    const bool recollect_generated_subtree =
-        selector_affecting &&
-        generated_content_depends_on_attribute(impl, name);
-
-    if (lxb_dom_element_remove_attribute(elem, as_lxb(name), name.size())
-            != LXB_STATUS_OK) {
-        return false;
-    }
-
-    bool needs_layout = false;
-    if (selector_affecting) {
-        if (!rematch_stylesheet_matches_for_subtree(
-                impl, mutation_dirty_root_idx)) {
-            return false;
-        }
+        const double rematch_ms = phase();
         if (impl.resolver) impl.resolver->clear();
 
         if (target_idx >= 0) {
@@ -9109,17 +9354,154 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
             return true;
         }
 
+        phase();
         needs_layout = mutation_dirty_root_idx >= 0
                            ? restyle_subtree(impl, mutation_dirty_root_idx)
                            : restyle_all_blocks(impl);
-        // Removing an attribute can reveal a previously display:none
-        // subtree ([hidden] most of all) whose boxes were never collected;
-        // restyle can't create boxes, only a recollect can. This mirrors
-        // the reveal check on the set_attribute path.
+        const double restyle_ms = phase();
+        if (target_idx >= 0) {
+            auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
+            if (block.tag == "img" && name == "src") needs_layout = true;
+        }
+        // If this mutation revealed a previously display:none subtree, the box
+        // tree is missing those boxes (collection skips hidden subtrees) and
+        // restyle alone can't recreate them — recollect so they reappear.
+        // (A negative root means the element has no blocked ancestor — the
+        // detector then checks body-level children, where top-level
+        // menus/popovers live.)
+        phase();
         if (selector_mutation_reveals_hidden_subtree(impl,
                                                      mutation_dirty_root_idx)) {
             recollect_blocks_from_current_dom(impl);
             needs_layout = true;
+        }
+        const double reveal_ms = phase();
+        if (MutationTraceTimer::enabled() &&
+            rematch_ms + restyle_ms + reveal_ms >= 1.0) {
+            std::fprintf(stderr,
+                         "[attr]   set '%s' root=%d rematch=%.2f "
+                         "restyle=%.2f reveal=%.2f\n",
+                         std::string(name).c_str(), mutation_dirty_root_idx,
+                         rematch_ms, restyle_ms, reveal_ms);
+        }
+        mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
+                                 needs_layout);
+        return true;
+    }
+
+    if (target_idx >= 0) {
+        if (impl.resolver) impl.resolver->invalidate(elem);
+        auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
+        refresh_block_metadata_from_element(block, elem);
+        needs_layout = restyle_subtree(impl, target_idx);
+        if (block.tag == "img" && name == "src") needs_layout = true;
+    }
+    mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
+                             needs_layout);
+    return true;
+}
+
+bool remove_attribute_on_element(detail::DocumentImpl& impl,
+                                 lxb_dom_element_t* elem,
+                                 std::string_view name) {
+    if (!elem || name.empty() || !has_attr(elem, name)) return false;
+    const std::string old_value = attr_string(elem, name);
+    MutationTraceTimer trace_timer{"remove", name};
+
+    const int target_idx = block_index_for_exact_element(impl, elem);
+    const int dirty_root_idx =
+        target_idx >= 0 ? target_idx
+                        : block_index_for_element_or_ancestor(impl, elem);
+    const bool selector_affecting =
+        attribute_can_affect_selector_matching(name);
+    const bool subtree_local_selectors =
+        !selector_affecting ||
+        stylesheet_dependencies_stay_in_mutated_subtree(impl, name);
+    const int mutation_dirty_root_idx =
+        selector_affecting && !subtree_local_selectors && target_idx >= 0 &&
+                impl.blocks[static_cast<std::size_t>(target_idx)].parent_idx >= 0
+            ? impl.blocks[static_cast<std::size_t>(target_idx)].parent_idx
+            : dirty_root_idx;
+    const Rect old_rect = mutation_dirty_root_idx >= 0
+                              ? subtree_visual_rect(impl, mutation_dirty_root_idx)
+                              : document_visual_rect(impl);
+    const bool recollect_generated_subtree =
+        selector_affecting &&
+        generated_content_depends_on_attribute(impl, name, elem, old_value,
+                                               {});
+
+    if (lxb_dom_element_remove_attribute(elem, as_lxb(name), name.size())
+            != LXB_STATUS_OK) {
+        return false;
+    }
+
+    bool needs_layout = false;
+    if (selector_affecting) {
+        auto tp = std::chrono::steady_clock::now();
+        const auto phase = [&tp] {
+            const auto now = std::chrono::steady_clock::now();
+            const double ms =
+                std::chrono::duration<double, std::milli>(now - tp).count();
+            tp = now;
+            return ms;
+        };
+        // When the attribute only ever appears in subject compounds, no
+        // other element's match set can change — rematch just this element
+        // instead of the whole dirty subtree (the dominant cost of menu
+        // hidden-toggles on large documents).
+        if (lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
+            attribute_matches_confined_to_subject(impl, name)) {
+            if (lxb_html_document_element_styles_rematch(
+                    lxb_html_interface_element(lxb_dom_interface_node(elem)))
+                != LXB_STATUS_OK) {
+                return false;
+            }
+        } else if (!rematch_stylesheet_matches_for_subtree(
+                       impl, mutation_dirty_root_idx)) {
+            return false;
+        }
+        const double rematch_ms = phase();
+        if (impl.resolver) impl.resolver->clear();
+
+        if (target_idx >= 0) {
+            auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
+            refresh_block_metadata_from_element(block, elem);
+        }
+
+        // Same policy as set_attribute_on_element: no unconditional box
+        // rebuild for `hidden` — restyle the retained boxes, and let the
+        // reveal check below recollect only when this removal exposes a
+        // subtree whose boxes were never created (a menu's first open).
+        if (recollect_generated_subtree) {
+            recollect_blocks_from_current_dom(impl);
+            mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
+                                     /*needs_layout=*/true);
+            return true;
+        }
+
+        phase();
+        needs_layout = mutation_dirty_root_idx >= 0
+                           ? restyle_subtree(impl, mutation_dirty_root_idx)
+                           : restyle_all_blocks(impl);
+        const double restyle_ms = phase();
+        // Removing an attribute can reveal a previously display:none
+        // subtree ([hidden] most of all) whose boxes were never collected;
+        // restyle can't create boxes, only a recollect can. This mirrors
+        // the reveal check on the set_attribute path.
+        phase();
+        if (selector_mutation_reveals_hidden_subtree(impl,
+                                                     mutation_dirty_root_idx)) {
+            recollect_blocks_from_current_dom(impl);
+            needs_layout = true;
+        }
+        const double reveal_ms = phase();
+        if (MutationTraceTimer::enabled() &&
+            rematch_ms + restyle_ms + reveal_ms >= 1.0) {
+            std::fprintf(stderr,
+                         "[attr]   remove '%s' root=%d rematch=%.2f "
+                         "restyle=%.2f reveal=%.2f\n",
+                         std::string(name).c_str(), mutation_dirty_root_idx,
+                         rematch_ms, restyle_ms, reveal_ms);
         }
         mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
                                  needs_layout);

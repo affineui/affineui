@@ -8,6 +8,7 @@
 #include "decius_interactions.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <random>
 #include <cstdint>
@@ -503,6 +504,142 @@ TEST_CASE("set_html accepts a string without crashing") {
     affineui::Document doc;
     doc.set_html("<h1>Hi</h1>");
     CHECK(true);
+}
+
+// Simulates the user's gesture that exposed the menu lag: open a menubar
+// menu in the REAL game-editor document, then sweep the pointer along the
+// bar. Every MouseMove dispatch must stay well under a frame — the bug
+// history here is whole-document work (recollects, full restyles) hiding
+// inside attribute mutations on the open/close path.
+TEST_CASE("menubar hover-switch dispatch stays under a frame budget (GE app)") {
+    std::ifstream in(AFFINEUI_TEST_SOURCE_DIR
+                     "/conformance/cases/decius_ge_app/index.html",
+                     std::ios::binary);
+    REQUIRE(in.good());
+    std::string html((std::istreambuf_iterator<char>(in)),
+                     std::istreambuf_iterator<char>());
+
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(html);
+    doc.layout(1280, 800, &painter);
+
+    auto dispatch_at = [&](affineui::EventType type, int x, int y) {
+        affineui::Event e{};
+        e.type = type;
+        e.button = affineui::MouseButton::Left;
+        e.pos = {x, y};
+        doc.dispatch(e);
+    };
+
+    // The sweep only measures the real path if menus genuinely open and
+    // switch — track the expanded trigger's rect as it moves.
+    auto menu_open_somewhere = [&] {
+        // An open dcs-menu is a visible element with the class; probe a
+        // known row: any menu shows items 20+px tall below the bar.
+        return doc.find_element_rect("[aria-expanded=true]").w > 0;
+    };
+
+    // Locate the first menubar trigger by probing along the bar — the
+    // harness painter's fake text metrics shift x positions, so nothing
+    // is hardcoded.
+    auto trigger_at = [&](int x) -> affineui::Rect {
+        dispatch_at(affineui::EventType::MouseMove, x, 13);
+        for (const auto& info : doc.hovered_info_chain()) {
+            for (const auto& c : info.classes) {
+                if (c == "dcs-menubar__item") return info.bounds;
+            }
+        }
+        return {};
+    };
+    affineui::Rect first{};
+    for (int x = 4; x <= 900 && first.w == 0; x += 6) first = trigger_at(x);
+    REQUIRE(first.w > 0);
+    const int bar_y = first.y + first.h / 2;
+
+    // Open the first menu with a click.
+    dispatch_at(affineui::EventType::MouseMove, first.x + first.w / 2, bar_y);
+    dispatch_at(affineui::EventType::MouseDown, first.x + first.w / 2, bar_y);
+    dispatch_at(affineui::EventType::MouseUp, first.x + first.w / 2, bar_y);
+    doc.layout(1280, 800, &painter);
+    REQUIRE(menu_open_somewhere());
+
+    // Sweep along the bar over the other triggers, timing each move
+    // (layout pumped per move like the app's frame loop would).
+    double total_ms = 0.0;
+    double worst_ms = 0.0;
+    int moves = 0;
+    int switches = 0;
+    std::string last_expanded;
+    for (int x = first.x; x <= first.x + 400; x += 4) {
+        const auto t0 = std::chrono::steady_clock::now();
+        dispatch_at(affineui::EventType::MouseMove, x, bar_y);
+        doc.layout(1280, 800, &painter);
+        const auto t1 = std::chrono::steady_clock::now();
+        const double ms =
+            std::chrono::duration<double, std::milli>(t1 - t0).count();
+        total_ms += ms;
+        worst_ms = std::max(worst_ms, ms);
+        ++moves;
+        const auto open = doc.find_element_rect("[aria-expanded=true]");
+        const std::string key =
+            std::to_string(open.x) + "," + std::to_string(open.w);
+        if (open.w > 0 && key != last_expanded) {
+            if (!last_expanded.empty()) ++switches;
+            last_expanded = key;
+        }
+    }
+    MESSAGE("first sweep (cold, first reveals): ", moves, " moves, ",
+            switches, " switches, total ", total_ms, " ms, worst ",
+            worst_ms, " ms");
+    // The gesture is only exercised if the open menu actually FOLLOWED
+    // the pointer across several triggers.
+    CHECK(switches >= 2);
+
+    // Return sweep: every menu now has retained boxes — this is the
+    // steady state a user feels when sliding back and forth.
+    double warm_total = 0.0;
+    double warm_worst = 0.0;
+    double worst_dispatch = 0.0;
+    double worst_layout = 0.0;
+    int warm_switches = 0;
+    last_expanded.clear();
+    for (int x = first.x + 400; x >= first.x; x -= 4) {
+        const auto t0 = std::chrono::steady_clock::now();
+        dispatch_at(affineui::EventType::MouseMove, x, bar_y);
+        const auto tm = std::chrono::steady_clock::now();
+        doc.layout(1280, 800, &painter);
+        const auto t1 = std::chrono::steady_clock::now();
+        const double ms =
+            std::chrono::duration<double, std::milli>(t1 - t0).count();
+        worst_dispatch = std::max(
+            worst_dispatch,
+            std::chrono::duration<double, std::milli>(tm - t0).count());
+        worst_layout = std::max(
+            worst_layout,
+            std::chrono::duration<double, std::milli>(t1 - tm).count());
+        warm_total += ms;
+        warm_worst = std::max(warm_worst, ms);
+        const auto open = doc.find_element_rect("[aria-expanded=true]");
+        const std::string key =
+            std::to_string(open.x) + "," + std::to_string(open.w);
+        if (open.w > 0 && key != last_expanded) {
+            if (!last_expanded.empty()) ++warm_switches;
+            last_expanded = key;
+        }
+    }
+    MESSAGE("return sweep (warm, retained boxes): ", warm_switches,
+            " switches, total ", warm_total, " ms, worst ", warm_worst,
+            " ms (worst dispatch ", worst_dispatch, " ms, worst layout ",
+            worst_layout, " ms)");
+    CHECK(warm_switches >= 2);
+    // A casual sweep delivers a move every ~4-8 ms; anything slower than
+    // a 60 Hz frame per DISPATCH visibly skips menus. The steady-state
+    // (warm) pass must stay under a frame; generous so slow CI doesn't
+    // flake, but whole-document-work regressions (tens of ms per switch)
+    // fail loudly.
+    CHECK(warm_worst < 16.0);
 }
 
 TEST_CASE("align-self overrides the container's align-items per item") {
