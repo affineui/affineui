@@ -8840,10 +8840,32 @@ lxb_dom_element_t* nearest_checkbox_wrapper(lxb_dom_element_t* elem) {
 bool selector_mutation_reveals_hidden_subtree(detail::DocumentImpl& impl,
                                               int root_idx) {
 #if !defined(AFFINEUI_STUB_BUILD)
-    if (root_idx < 0 || root_idx >= static_cast<int>(impl.blocks.size())) {
+    using Display = detail::ComputedStyle::Display;
+    // root_idx < 0: the mutated element has no blocked ancestor — a
+    // BODY-LEVEL subtree (top-level menus/popovers live directly under
+    // body and collect no boxes while [hidden]). Body's element children
+    // map to the top-level blocks, so a blockless child that now
+    // resolves visible is exactly a reveal.
+    if (root_idx < 0) {
+        if (!impl.resolver || !impl.doc) return false;
+        auto* body = lxb_html_document_body_element(impl.doc);
+        if (!body) return false;
+        for (auto* c = lxb_dom_node_first_child(lxb_dom_interface_node(body));
+             c != nullptr; c = lxb_dom_node_next(c)) {
+            if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+            if (c->ns != LXB_NS_HTML) continue;
+            auto* child = lxb_dom_interface_element(c);
+            if (block_index_for_exact_element(impl, child) >= 0) continue;
+            if (impl.resolver->resolve(child, impl.root_style)
+                    .computed.display != Display::None) {
+                return true;
+            }
+        }
         return false;
     }
-    using Display = detail::ComputedStyle::Display;
+    if (root_idx >= static_cast<int>(impl.blocks.size())) {
+        return false;
+    }
     for (int idx = root_idx; idx < static_cast<int>(impl.blocks.size()); ++idx) {
         if (!is_descendant_of_or_self(impl.blocks, idx, root_idx)) continue;
         const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
@@ -8962,8 +8984,6 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
     const bool recollect_generated_subtree =
         selector_affecting &&
         generated_content_depends_on_attribute(impl, name);
-    const bool recollect_box_tree =
-        name == "hidden" || name == "style";
 
     if (!lxb_dom_element_set_attribute(elem, as_lxb(name), name.size(),
                                        as_lxb(value), value.size())) {
@@ -8983,7 +9003,11 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
             refresh_block_metadata_from_element(block, elem);
         }
 
-        if (recollect_generated_subtree || recollect_box_tree) {
+        // Same policy as set_attribute_on_element: no unconditional box
+        // rebuild for `hidden` — restyle the retained boxes, and let the
+        // reveal check below recollect only when this removal exposes a
+        // subtree whose boxes were never created (a menu's first open).
+        if (recollect_generated_subtree) {
             recollect_blocks_from_current_dom(impl);
             mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
                                      /*needs_layout=*/true);
@@ -9000,8 +9024,10 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
         // If this mutation revealed a previously display:none subtree, the box
         // tree is missing those boxes (collection skips hidden subtrees) and
         // restyle alone can't recreate them — recollect so they reappear.
-        if (mutation_dirty_root_idx >= 0 &&
-            selector_mutation_reveals_hidden_subtree(impl,
+        // (A negative root means the element has no blocked ancestor — the
+        // detector then checks body-level children, where top-level
+        // menus/popovers live.)
+        if (selector_mutation_reveals_hidden_subtree(impl,
                                                      mutation_dirty_root_idx)) {
             recollect_blocks_from_current_dom(impl);
             needs_layout = true;
@@ -9048,8 +9074,6 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
     const bool recollect_generated_subtree =
         selector_affecting &&
         generated_content_depends_on_attribute(impl, name);
-    const bool recollect_box_tree =
-        name == "hidden" || name == "style";
 
     if (lxb_dom_element_remove_attribute(elem, as_lxb(name), name.size())
             != LXB_STATUS_OK) {
@@ -9069,7 +9093,15 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
             refresh_block_metadata_from_element(block, elem);
         }
 
-        if (recollect_generated_subtree || recollect_box_tree) {
+        // NOTE: `hidden` used to force the whole-document recollect here.
+        // HIDING needs no box rebuild — the retained boxes restyle to
+        // display:none, exactly like a hover-CSS cascade closing — and
+        // UN-hiding is caught by the reveal check below, which recollects
+        // only when the subtree's boxes were never created. The
+        // unconditional rebuild (blocks + style store + resolver cache,
+        // whole document) made every menu open/close a multi-frame stall,
+        // so menubar hover-follow skipped triggers under fast sweeps.
+        if (recollect_generated_subtree) {
             recollect_blocks_from_current_dom(impl);
             mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
                                      /*needs_layout=*/true);
@@ -9079,6 +9111,15 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
         needs_layout = mutation_dirty_root_idx >= 0
                            ? restyle_subtree(impl, mutation_dirty_root_idx)
                            : restyle_all_blocks(impl);
+        // Removing an attribute can reveal a previously display:none
+        // subtree ([hidden] most of all) whose boxes were never collected;
+        // restyle can't create boxes, only a recollect can. This mirrors
+        // the reveal check on the set_attribute path.
+        if (selector_mutation_reveals_hidden_subtree(impl,
+                                                     mutation_dirty_root_idx)) {
+            recollect_blocks_from_current_dom(impl);
+            needs_layout = true;
+        }
         mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
                                  needs_layout);
         return true;
