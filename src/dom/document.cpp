@@ -2614,7 +2614,17 @@ std::string ttf_companion_url(std::string_view url) {
 
 void ensure_font_faces_registered(detail::DocumentImpl& impl,
                                   Painter& painter) {
-    if (!impl.resource_loader) return;
+    static const bool font_trace =
+        std::getenv("AFFINEUI_FONT_TRACE") != nullptr;
+    if (!impl.resource_loader) {
+        if (font_trace && !impl.font_faces.empty()) {
+            std::fprintf(stderr,
+                         "[font] %zu @font-face rules but NO resource loader "
+                         "— none can load\n",
+                         impl.font_faces.size());
+        }
+        return;
+    }
 
     for (auto& face : impl.font_faces) {
         if (face.loaded || face.attempted) continue;
@@ -2642,14 +2652,33 @@ void ensure_font_faces_registered(detail::DocumentImpl& impl,
         for (const auto& source : sources) {
             if (source.url.empty()) continue;
             auto bytes = impl.resource_loader(source.url);
+            if (font_trace) {
+                std::fprintf(stderr,
+                             "[font] '%s' w%d src '%s' (%s): %zu bytes\n",
+                             face.family.c_str(), face.weight,
+                             source.url.c_str(), source.format.c_str(),
+                             bytes.size());
+            }
             if (bytes.empty()) continue;
             if (painter.register_font_face(face.family, face.weight,
                                            face.italic, bytes)) {
                 face.loaded = true;
+                if (font_trace) {
+                    std::fprintf(stderr, "[font] '%s' w%d REGISTERED\n",
+                                 face.family.c_str(), face.weight);
+                }
                 break;
+            } else if (font_trace) {
+                std::fprintf(stderr, "[font] '%s' w%d register FAILED\n",
+                             face.family.c_str(), face.weight);
             }
         }
         face.attempted = !face.loaded;
+        if (font_trace && !face.loaded) {
+            std::fprintf(stderr, "[font] '%s' w%d NOT LOADED (%zu sources)\n",
+                         face.family.c_str(), face.weight,
+                         face.sources.size());
+        }
     }
 }
 
@@ -6721,6 +6750,13 @@ void Document::draw(Painter& painter) {
             const int textarea_idx_for_text = nearest_block_with_tag(
                 impl_->blocks, static_cast<int>(i), "textarea");
             int text_y = eff.y + used_border_top  + cs.padding_top;
+            // Sub-pixel remainders the int math drops. Browsers keep text
+            // positions fractional (yoga's float layout, half of an odd
+            // free space) and rasterize from the fractional baseline; the
+            // painter consumes the exact value, so the fractions ride along
+            // and only the rasterizer rounds.
+            float text_y_frac = b.bounds_f.y - static_cast<float>(b.bounds.y);
+            float text_x_frac = b.bounds_f.x - static_cast<float>(b.bounds.x);
             const bool single_line_text =
                 b.text.find('\n') == std::string::npos &&
                 b.text.find('\r') == std::string::npos;
@@ -6736,9 +6772,12 @@ void Document::draw(Painter& painter) {
                 if (free_h > 0.0f) {
                     using AI = detail::ComputedStyle::AlignItems;
                     if (cs.align_items == AI::Center) {
-                        text_y += static_cast<int>(free_h * 0.5f);
+                        const float add = free_h * 0.5f;
+                        text_y += static_cast<int>(add);
+                        text_y_frac += add - std::floor(add);
                     } else if (cs.align_items == AI::End) {
-                        text_y += static_cast<int>(std::lround(free_h));
+                        text_y += static_cast<int>(free_h);
+                        text_y_frac += free_h - std::floor(free_h);
                     }
                 }
             }
@@ -7045,7 +7084,10 @@ void Document::draw(Painter& painter) {
                         selection_color);
                 }
             }
-            painter.draw_text_box(font, Point{text_x, text_y}, b.text,
+            painter.draw_text_box(font,
+                                  static_cast<float>(text_x) + text_x_frac,
+                                  static_cast<float>(text_y) + text_y_frac,
+                                  b.text,
                                   detail::unpack_rgba(an.color_rgba),
                                   draw_max_w,
                                   line_height_mult,

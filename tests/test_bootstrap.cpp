@@ -105,10 +105,12 @@ public:
                               : natural;
         return {width, 18};
     }
-    void draw_text_box(std::uint32_t, const affineui::Point& pos,
+    void draw_text_box(std::uint32_t, float x, float y,
                        std::string_view text, affineui::Color,
                        float max_width, float, float,
                        affineui::Painter::TextAlign align) override {
+        const affineui::Point pos{static_cast<int>(std::lround(x)),
+                                  static_cast<int>(std::lround(y))};
         text_runs.push_back({std::string{text}, pos, max_width, align});
     }
     std::uint32_t load_image(std::string_view) override {

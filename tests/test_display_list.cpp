@@ -40,7 +40,7 @@ public:
                    affineui::Color) override {}
     affineui::Size measure_text_box(std::uint32_t, std::string_view, float,
                                     float, float) override { return {}; }
-    void draw_text_box(std::uint32_t, const affineui::Point&, std::string_view,
+    void draw_text_box(std::uint32_t, float, float, std::string_view,
                        affineui::Color, float, float, float, TextAlign) override {}
     std::uint32_t load_image(std::string_view) override { return 0; }
     affineui::Size image_size(std::uint32_t) override { return {}; }

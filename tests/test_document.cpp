@@ -196,10 +196,12 @@ public:
                     : static_cast<int>(max_width),
                 18};
     }
-    void draw_text_box(std::uint32_t, const affineui::Point& pos,
+    void draw_text_box(std::uint32_t, float x, float y,
                        std::string_view text, affineui::Color color,
                        float max_width,
                        float, float, TextAlign align) override {
+        const affineui::Point pos{static_cast<int>(std::lround(x)),
+                                  static_cast<int>(std::lround(y))};
         text_runs.emplace_back(text);
         text_draws.push_back({std::string(text), pos, color, max_width, align,
                               current_alpha});

@@ -9,6 +9,15 @@ catch { browser = await chromium.launch({ channel: 'chrome' }); }
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 await page.goto(pathToFileURL(html).href, { waitUntil: 'load' });
 await page.evaluate(() => document.fonts.ready);
+const fb = await page.evaluate(() => {
+  const c = document.createElement('canvas').getContext('2d');
+  c.font = '11px "IBM Plex Sans"';
+  const m = c.measureText('View');
+  return { asc: m.fontBoundingBoxAscent, desc: m.fontBoundingBoxDescent,
+           actAsc: m.actualBoundingBoxAscent, actDesc: m.actualBoundingBoxDescent,
+           adv: m.width };
+});
+console.error('plex11 metrics', JSON.stringify(fb));
 const data = await page.evaluate(() => {
   const out = [];
   for (const btn of document.querySelectorAll('.dcs-menubar__item')) {

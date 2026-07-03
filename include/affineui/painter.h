@@ -175,22 +175,40 @@ public:
         Left = 0, Center, Right, Justify,
     };
 
-    /// Render `text` wrapped to `max_width`. Position is the top-left
-    /// of the wrapped text block. `line_height_mult` must match the
-    /// value passed to measure_text_box for the layout's height to
-    /// agree with what's actually drawn.
-    /// `letter_spacing_px` adds extra advance between glyphs (CSS
-    /// letter-spacing). Must match the value used in measure_text_box.
-    /// `align` controls horizontal placement of each line within the
-    /// `max_width` column (CSS text-align).
+    /// Render `text` wrapped to `max_width`. (x, y) is the top-left of the
+    /// wrapped text block in FRACTIONAL pixels — browsers position line
+    /// boxes sub-pixel (a flex-centered 16px line in a 23px box sits at
+    /// y+3.5) and rasterize from the fractional baseline; rounding the
+    /// position first lands glyphs a row off Chrome whenever the fraction
+    /// crosses .5. `line_height_mult` must match the value passed to
+    /// measure_text_box for the layout's height to agree with what's
+    /// actually drawn. `letter_spacing_px` adds extra advance between
+    /// glyphs (CSS letter-spacing); must match measure_text_box. `align`
+    /// controls horizontal placement of each line within the `max_width`
+    /// column (CSS text-align).
     virtual void draw_text_box(std::uint32_t   font,
-                               const Point&    pos,
+                               float           x,
+                               float           y,
                                std::string_view text,
                                Color           color,
                                float           max_width,
                                float           line_height_mult = 1.0f,
                                float           letter_spacing_px = 0.0f,
                                TextAlign       align = TextAlign::Left) = 0;
+
+    /// Integer-position convenience; forwards to the fractional overload.
+    void draw_text_box(std::uint32_t font,
+                       const Point&  pos,
+                       std::string_view text,
+                       Color         color,
+                       float         max_width,
+                       float         line_height_mult = 1.0f,
+                       float         letter_spacing_px = 0.0f,
+                       TextAlign     align = TextAlign::Left) {
+        draw_text_box(font, static_cast<float>(pos.x),
+                      static_cast<float>(pos.y), text, color, max_width,
+                      line_height_mult, letter_spacing_px, align);
+    }
 
     // ── Images ──────────────────────────────────────────────────────
     /// Returns an opaque image handle. Zero on miss.

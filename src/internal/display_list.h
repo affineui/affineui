@@ -141,7 +141,7 @@ struct PaintOp {
         // Painter::TextAlign ordinals).
         struct {
             std::uint32_t font_handle;
-            std::int16_t  x, y;
+            std::int16_t  x, y;         // floor(position)
             std::uint32_t rgba;
             std::uint32_t text_offset;
             std::uint16_t text_len;
@@ -149,7 +149,11 @@ struct PaintOp {
             std::uint16_t line_height_x100;
             std::int16_t  letter_spacing_x100;
             std::uint8_t  align;
-            std::uint8_t  pad0_;
+            // Sub-pixel position fractions, 4 bits each (1/16 px), packed
+            // x in the high nibble / y in the low. Browsers place line
+            // boxes fractionally (flex-centered text at y+3.5); replay
+            // reconstructs x + frac/16 so glyphs land on Chrome's rows.
+            std::uint8_t  subpx_frac;
             std::uint16_t measured_h;
         } draw_text_box;
 

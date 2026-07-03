@@ -60,7 +60,7 @@ public:
     TextMetrics   text_metrics(std::uint32_t) override { return {}; }
     void draw_text(std::uint32_t, const Point&, std::string_view, Color) override {}
     Size measure_text_box(std::uint32_t, std::string_view, float, float, float) override { return {}; }
-    void draw_text_box(std::uint32_t, const Point&, std::string_view, Color, float, float, float, TextAlign) override {}
+    void draw_text_box(std::uint32_t, float, float, std::string_view, Color, float, float, float, TextAlign) override {}
     std::uint32_t load_image(std::string_view) override { return 0; }
     Size          image_size(std::uint32_t) override { return {}; }
     void draw_image(std::uint32_t, const Rect&, const Rect&) override {}
@@ -1459,7 +1459,8 @@ public:
     }
 
     void draw_text_box(std::uint32_t handle,
-                       const Point&  pos,
+                       float         pos_x,
+                       float         pos_y,
                        std::string_view text,
                        Color         color,
                        float         max_width,
@@ -1483,7 +1484,7 @@ public:
         // i.e. we pass the unchanged content origin. NanoVG does the
         // per-row offset arithmetic itself. Justify falls back to left
         // (NanoVG has no full justify mode).
-        const float fx = static_cast<float>(pos.x);
+        const float fx = pos_x;
         int nvg_halign = NVG_ALIGN_LEFT;
         switch (align) {
             case TextAlign::Center:  nvg_halign = NVG_ALIGN_CENTER; break;
@@ -1503,15 +1504,15 @@ public:
         nvgTextAlign(vg_, nvg_halign | NVG_ALIGN_BASELINE);
 
         const FontVMetrics vm = font_vmetrics(handle);
-        // Browser formula with browser rounding: half-leading centers the
-        // rounded ink box (ascent+descent) in the CSS line box, the first
-        // baseline sits one (rounded) ascent below the ink top, and the
-        // baseline itself snaps to whole pixels — Skia does exactly this,
-        // so identical fonts land on identical rows of pixels.
+        // Browser formula: half-leading centers the (nearest-rounded) ink
+        // box in the CSS line box; the first baseline sits one rounded
+        // ascent below the ink top. The baseline stays FRACTIONAL — Chrome
+        // rasterizes from the fractional baseline with AA, and snapping it
+        // here landed our glyphs one row below Chrome's whenever the
+        // fraction crossed .5.
         const float ink_h = vm.ascent + vm.descent;
-        const float fy = std::floor(static_cast<float>(pos.y)
-                                    + (css_line_h - ink_h) * 0.5f
-                                    + vm.ascent + 0.5f);
+        const float fy = pos_y
+                       + (css_line_h - ink_h) * 0.5f + vm.ascent;
         static const bool text_trace =
             std::getenv("AFFINEUI_TEXT_TRACE") != nullptr;
         if (text_trace) {
@@ -1519,7 +1520,7 @@ public:
                          "[text] fs=%d asc=%.1f desc=%.1f gap=%.1f "
                          "css_lh=%.2f pos.y=%d baseline=%.1f '%.*s'\n",
                          handle_size_px(handle), vm.ascent, vm.descent,
-                         vm.line_gap, css_line_h, pos.y, fy,
+                         vm.line_gap, css_line_h, pos_y, fy,
                          static_cast<int>(std::min<std::size_t>(12,
                                                                 text.size())),
                          text.data());
@@ -1746,11 +1747,19 @@ private:
         float lineh = 0.0f;
         nvgTextMetrics(vg_, &asc, &desc, &lineh);
         FontVMetrics m;
-        m.ascent = std::ceil(asc);
-        m.descent = std::ceil(-desc);
+        // Chrome/Skia rounds ascent and descent to the NEAREST pixel
+        // (canvas fontBoundingBox for Plex@11 reports 11/3 from raw
+        // 11.275/3.025 — not ceil). The ink box built from these places
+        // the baseline; the LINE height stays the raw font value (Chrome
+        // computes `line-height: normal` as the unrounded metric, e.g.
+        // 15.95px for Plex@11).
+        m.ascent = std::floor(asc + 0.5f);
+        m.descent = std::floor(-desc + 0.5f);
         const float gap = lineh - (asc - desc);
-        m.line_gap = gap > 0.0f ? std::ceil(gap) : 0.0f;
-        m.line_height = m.ascent + m.descent + m.line_gap;
+        m.line_gap = gap > 0.0f ? gap : 0.0f;
+        m.line_height = lineh > 0.0f
+            ? lineh
+            : m.ascent + m.descent + m.line_gap;
         if (m.line_height <= 0.0f) {
             m.line_height = static_cast<float>(
                 std::max(handle_size_px(handle), 1));

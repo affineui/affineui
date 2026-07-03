@@ -365,7 +365,7 @@ public:
                  : Size{};
     }
 
-    void draw_text_box(std::uint32_t font, const Point& pos,
+    void draw_text_box(std::uint32_t font, float pos_x, float pos_y,
                        std::string_view text, Color c, float max_w,
                        float line_height_mult = 1.0f,
                        float letter_spacing_px = 0.0f,
@@ -374,11 +374,19 @@ public:
         const Size measured =
             measure_text_box(font, text, max_w, line_height_mult,
                              letter_spacing_px);
+        const float fx = std::floor(pos_x);
+        const float fy = std::floor(pos_y);
         PaintOp op{};
         op.kind = PaintOpKind::DrawTextBox;
         op.p.draw_text_box.font_handle = font;
-        op.p.draw_text_box.x = static_cast<std::int16_t>(pos.x);
-        op.p.draw_text_box.y = static_cast<std::int16_t>(pos.y);
+        op.p.draw_text_box.x = static_cast<std::int16_t>(fx);
+        op.p.draw_text_box.y = static_cast<std::int16_t>(fy);
+        const auto frac4 = [](float v) {
+            return static_cast<std::uint8_t>(
+                std::clamp(v * 16.0f + 0.5f, 0.0f, 15.0f));
+        };
+        op.p.draw_text_box.subpx_frac = static_cast<std::uint8_t>(
+            (frac4(pos_x - fx) << 4) | frac4(pos_y - fy));
         op.p.draw_text_box.rgba = pack(c);
         op.p.draw_text_box.text_offset = off;
         op.p.draw_text_box.text_len    = len;
@@ -393,13 +401,12 @@ public:
             static_cast<std::int16_t>(std::clamp(letter_spacing_px * 100.0f,
                                                   -32768.0f, 32767.0f));
         op.p.draw_text_box.align = static_cast<std::uint8_t>(align);
-        op.p.draw_text_box.pad0_ = 0;
         op.p.draw_text_box.measured_h =
             static_cast<std::uint16_t>(
                 std::clamp(std::ceil(static_cast<double>(measured.height)),
                            0.0, 65535.0));
         list_.ops.push_back(op);
-        int visual_x = pos.x;
+        int visual_x = static_cast<int>(fx);
         const int measured_w = std::max(0, measured.width);
         const int measured_h = std::max(0, measured.height);
         if (align == TextAlign::Center) {
@@ -409,8 +416,10 @@ public:
             visual_x += static_cast<int>(
                 std::floor(max_w - static_cast<float>(measured_w)));
         }
+        // +1 covers the sub-pixel fraction spilling into the next row/col.
         list_.set_last_op_bounds_override(
-            Rect{visual_x, pos.y, measured_w, measured_h});
+            Rect{visual_x, static_cast<int>(fy),
+                 measured_w + 1, measured_h + 1});
     }
 
     std::uint32_t load_image(std::string_view url) override {
@@ -628,7 +637,13 @@ inline void replay_op(const DisplayList& list, const PaintOp& op,
             }
             case PaintOpKind::DrawTextBox: {
                 const auto& t = op.p.draw_text_box;
-                target.draw_text_box(t.font_handle, Point{t.x, t.y},
+                target.draw_text_box(t.font_handle,
+                                     static_cast<float>(t.x) +
+                                         static_cast<float>(t.subpx_frac >> 4) /
+                                             16.0f,
+                                     static_cast<float>(t.y) +
+                                         static_cast<float>(t.subpx_frac & 0xF) /
+                                             16.0f,
                                      list.text_at(t.text_offset, t.text_len),
                                      unpack(t.rgba),
                                      static_cast<float>(t.max_width),

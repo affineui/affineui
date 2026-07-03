@@ -137,10 +137,11 @@ public:
             (static_cast<int>(text.size()) + per_line - 1) / per_line;
         return {static_cast<int>(max_width), lines * 18};
     }
-    void draw_text_box(std::uint32_t, const affineui::Point& pos,
+    void draw_text_box(std::uint32_t, float x, float y,
                        std::string_view text, affineui::Color, float, float,
                        float, TextAlign) override {
-        record_text(text, pos);
+        record_text(text, affineui::Point{static_cast<int>(std::lround(x)),
+                                          static_cast<int>(std::lround(y))});
     }
     std::uint32_t load_image(std::string_view) override { return 0; }
     affineui::Size image_size(std::uint32_t) override { return {0, 0}; }
