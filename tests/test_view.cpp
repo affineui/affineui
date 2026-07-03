@@ -2831,13 +2831,28 @@ TEST_CASE("menubar hover-follow switches the open menu without a click") {
     // menu opens and File's closes, with no second click (decius.js wires
     // this on trigger mouseenter; broken in both engines before).
     hover({edit_btn.x + edit_btn.w / 2, edit_btn.y + edit_btn.h / 2});
-    CHECK(app.document().find_element_rect("mi-undo").w > 0);
-    CHECK(app.document().find_element_rect("mi-new").w == 0);
+    {
+        const auto undo = app.document().find_element_rect("mi-undo");
+        CHECK(undo.w > 0);
+        CHECK(app.document().find_element_rect("mi-new").w == 0);
+        // Placement: the switched menu must be ANCHORED to its trigger —
+        // dropped below the Edit button, not at the window's top-left
+        // (the in-window bug: closing the old menu before computing the
+        // new placement recollected boxes and anchored against zeros).
+        CHECK(undo.x >= edit_btn.x - 4);
+        CHECK(undo.y >= edit_btn.y + edit_btn.h - 2);
+    }
 
     // And back to File.
     hover({file_btn.x + file_btn.w / 2, file_btn.y + file_btn.h / 2});
-    CHECK(app.document().find_element_rect("mi-new").w > 0);
-    CHECK(app.document().find_element_rect("mi-undo").w == 0);
+    {
+        const auto file_menu = app.document().find_element_rect("mi-new");
+        CHECK(file_menu.w > 0);
+        CHECK(app.document().find_element_rect("mi-undo").w == 0);
+        CHECK(file_menu.x >= file_btn.x - 4);
+        CHECK(file_menu.x < edit_btn.x + edit_btn.w);
+        CHECK(file_menu.y >= file_btn.y + file_btn.h - 2);
+    }
 }
 
 TEST_CASE("menu submenu cascades open on hover and its items activate") {

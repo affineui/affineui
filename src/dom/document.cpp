@@ -12263,12 +12263,14 @@ bool hover_switch_dcs_menubar_menu(detail::DocumentImpl& impl,
     walk_dom_elements(lxb_dom_interface_node(bar), collect);
     if (!open_trigger) return false;
 
-    bool changed = close_dcs_menu(impl, open_menu);
-    changed = set_attribute_on_element(impl, open_trigger, "aria-expanded",
-                                       "false") ||
-              changed;
-    changed = toggle_dcs_menu(impl, trigger, menu) || changed;
-    return changed;
+    // Let toggle_dcs_menu do the whole switch: it computes the new menu's
+    // anchored placement from the CURRENT layout first, then its
+    // close_transient_layers sweep retires the old menu (and resets every
+    // trigger's aria-expanded) before opening ours. Closing the old menu
+    // ourselves first would set `hidden` — a box-tree recollect — and the
+    // placement math would then read zeroed trigger bounds, dropping the
+    // switched menu at the window's top-left.
+    return toggle_dcs_menu(impl, trigger, menu);
 }
 
 // The dockpanel id behind a tab (its data-dcs-target is "#<id>-body").
