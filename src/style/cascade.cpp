@@ -3295,6 +3295,15 @@ public:
                 s.computed.overflow_y = ComputedStyle::Overflow::Auto;
                 s.computed.cursor = ComputedStyle::Cursor::Text;
             }
+            // A single-line <input>'s value never wraps and preserves its
+            // spaces (Chrome's UA inner editor is `white-space: pre`).
+            // Without this, text-align:center/right on an input skips the
+            // nowrap pre-shift in text_control_geometry and the value
+            // paints left-anchored.
+            if (tag_name && tag_len == 5 &&
+                std::memcmp(tag_name, "input", 5) == 0) {
+                s.computed.white_space = ComputedStyle::WhiteSpace::Pre;
+            }
         }
 
         CustomPropMap own_customs;

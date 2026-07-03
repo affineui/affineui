@@ -11836,6 +11836,17 @@ bool activate_dcs_menu_item(detail::DocumentImpl& impl,
                             lxb_dom_element_t* menu,
                             lxb_dom_element_t* item) {
     if (!menu || !item) return false;
+    // decius.js wires its click listener on every .dcs-menu, so a click on a
+    // cascade leaf bubbles up and the ROOT menu's listener runs closeMenu(m):
+    // the whole tree dismisses, not just the sub panel (cascades are
+    // hover-CSS inside the now-hidden subtree). Resolve to the outermost
+    // menu so select/close target the root exactly like the reference.
+    for (auto* n = lxb_dom_node_parent(lxb_dom_interface_node(menu)); n;
+         n = lxb_dom_node_parent(n)) {
+        if (n->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* el = lxb_dom_interface_element(n);
+        if (class_list_contains(el, "dcs-menu")) menu = el;
+    }
     if (has_attr(menu, "data-aui-colorfield") &&
         has_attr(item, "data-dcs-value")) {
         const auto value = attr_string(item, "data-dcs-value");
@@ -14742,7 +14753,23 @@ TextControlGeometry text_control_geometry(const detail::DocumentImpl& impl,
         block.tag == "input" &&
         block.input_type != "checkbox" &&
         block.input_type != "radio") {
-        g.text_y += std::min<int>(1, used_border_top);
+        // Browsers center a single-line input's line box in the content
+        // area (the value sits mid-field no matter how the box was sized);
+        // top-anchoring reads visibly high whenever the content box is
+        // taller than the line box — e.g. a 15.95px inherited line box in
+        // an 18px .dcs-colorfield__hex. Negative deltas (line box taller
+        // than the field) also match Chrome: the text stays centered and
+        // crops both edges.
+        const int used_border_bottom = cs.used_border_bottom();
+        const float content_h = static_cast<float>(
+            eff.h - used_border_top - used_border_bottom -
+            cs.padding_top - cs.padding_bottom);
+        const float natural_lh =
+            painter.text_metrics(g.font).line_height;
+        const float css_lh =
+            detail::resolved_line_height_px(cs, natural_lh);
+        g.text_y += static_cast<int>(
+            std::lround((content_h - css_lh) * 0.5f));
     }
 
     int indent_px = cs.text_indent_value;
@@ -15915,6 +15942,20 @@ DispatchResult Document::dispatch(const Event& ev) {
             }
             if (h || a || f || caret) result.redraw_requested = true;
 #if !defined(AFFINEUI_STUB_BUILD)
+            // Checks / radios / switches toggle on PRESS (decius.js wires
+            // pointerdown — waiting for the release reads as sluggish). The
+            // release path only claims the click for checkbox-like targets so
+            // the same gesture can't also activate a menu/dropdown beneath.
+            if (impl_->ui_control_script_attached &&
+                ev.button == MouseButton::Left && !has_pending_live_drag) {
+                int check_idx = -1;
+                lxb_dom_element_t* check_elem = nullptr;
+                if (find_checkbox_control_at(*impl_, impl_->hovered_idx,
+                                             check_idx, check_elem) &&
+                    toggle_checkbox_control(*impl_, check_idx, check_elem)) {
+                    result.redraw_requested = true;
+                }
+            }
             // Collapsibles (foldout/subpanel headers), tree chevrons, and
             // selectable rows resolve on PRESS for the same immediate feel as
             // tabs. A chevron press consumes row selection so expand/collapse
@@ -16402,9 +16443,10 @@ DispatchResult Document::dispatch(const Event& ev) {
                 int check_idx = -1;
                 lxb_dom_element_t* check_elem = nullptr;
                 if (find_checkbox_control_at(*impl_, impl_->hovered_idx,
-                                             check_idx, check_elem) &&
-                    toggle_checkbox_control(*impl_, check_idx, check_elem)) {
-                    result.redraw_requested = true;
+                                             check_idx, check_elem)) {
+                    // The toggle itself happened on MouseDown (pointerdown
+                    // model). The release only claims the click so it does
+                    // not fall through to dropdown/menu activation.
                     toggled_checkbox = true;
                 }
                 bool changed_button_group = false;

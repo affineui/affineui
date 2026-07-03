@@ -2889,13 +2889,33 @@ TEST_CASE("menu submenu cascades open on hover and its items activate") {
     }
     CHECK(hit_in_cascade_panel);
     CHECK_FALSE(hit_under_content);
-    click({comfy.x + comfy.w / 2, comfy.y + comfy.h / 2});
-    CHECK(picked == "comfortable");
 
-    // Leaving the menu entirely hides the cascade again.
+    // Leaving the menu entirely hides the cascade again (the ROOT menu stays
+    // open — menus dismiss on click, not on hover-out).
     hover({btn.x + btn.w / 2, H - 20});
     app.document().layout(W, H, &painter);
     CHECK(app.document().find_element_rect("mi-dens-comfortable").w == 0);
+    CHECK(app.document().find_element_rect("mi-reset").w > 0);
+
+    // Re-open the cascade and activate a leaf. The click must dismiss the
+    // WHOLE menu tree: decius.js wires its click listener on every
+    // .dcs-menu, so the click bubbles to the root menu's listener and
+    // closeMenu(root) hides everything — not just the sub panel (the
+    // in-window bug: parent menu stayed on screen after picking a density).
+    // (Unlike the first reveal — which recollects and lays out inside the
+    // dispatch because the subtree had no boxes yet — a RE-reveal restyles
+    // the retained boxes and defers sizing to the next frame, so pump one.)
+    hover({density_row.x + density_row.w / 2,
+           density_row.y + density_row.h / 2});
+    app.document().layout(W, H, &painter);
+    const auto comfy2 =
+        app.document().find_element_rect("mi-dens-comfortable");
+    REQUIRE(comfy2.w > 0);
+    hover({comfy2.x + comfy2.w / 2, comfy2.y + comfy2.h / 2});
+    click({comfy2.x + comfy2.w / 2, comfy2.y + comfy2.h / 2});
+    CHECK(picked == "comfortable");
+    CHECK(app.document().find_element_rect("mi-reset").w == 0);
+    CHECK(app.document().find_element_rect("mi-density").w == 0);
 }
 
 TEST_CASE("WidgetRef can append and replace child declarations") {

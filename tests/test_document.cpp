@@ -505,6 +505,88 @@ TEST_CASE("set_html accepts a string without crashing") {
     CHECK(true);
 }
 
+TEST_CASE("checks toggle on mouse DOWN and are not re-toggled by the release") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-check { display: block; width: 160px; height: 24px; }
+        </style>
+        <div id="check" class="dcs-check" aria-checked="false"></div>
+    )HTML");
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.layout(220, 80, &painter);
+
+    auto checked = [&] {
+        for (const auto& info : doc.hovered_info_chain()) {
+            if (info.elem_id != "check") continue;
+            for (const auto& attr : info.attrs) {
+                if (attr.first == "aria-checked") return attr.second == "true";
+            }
+        }
+        return false;
+    };
+    auto send = [&](affineui::EventType type, affineui::Point pos) {
+        affineui::Event e{};
+        e.type = type;
+        e.button = affineui::MouseButton::Left;
+        e.pos = pos;
+        return doc.dispatch(e);
+    };
+
+    // decius.js wires pointerdown: the state flips the moment the button
+    // goes down (release-time toggles read as sluggish).
+    send(affineui::EventType::MouseMove, {80, 12});
+    REQUIRE_FALSE(checked());
+    send(affineui::EventType::MouseDown, {80, 12});
+    CHECK(checked());
+
+    // The release over the same control must NOT toggle it back.
+    send(affineui::EventType::MouseUp, {80, 12});
+    CHECK(checked());
+
+    // Press again, drag off, release elsewhere: the press already
+    // committed — the state keeps the down-toggled value.
+    send(affineui::EventType::MouseDown, {80, 12});
+    send(affineui::EventType::MouseMove, {80, 60});
+    send(affineui::EventType::MouseUp, {80, 60});
+    send(affineui::EventType::MouseMove, {80, 12});
+    CHECK_FALSE(checked());
+}
+
+TEST_CASE("single-line input centers its line box in the content area") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    // Content box is 40px tall; the harness line box (line-height:1 at
+    // font-size 12) is 12px. Browsers center the line box in the input's
+    // content area, so the draw lands at y = 1 (border) + (40-12)/2 = 15.
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        input {
+          display: block;
+          box-sizing: border-box;
+          width: 200px;
+          height: 42px;
+          border: 1px solid #000;
+          padding: 0;
+          font-size: 12px;
+          line-height: 1;
+        }
+        </style>
+        <input value="mid">
+    )HTML");
+    doc.layout(240, 80, &painter);
+    doc.draw(painter);
+
+    const auto* value = find_text_draw(painter, "mid");
+    REQUIRE(value != nullptr);
+    CHECK(value->pos.y == 15);
+}
+
 TEST_CASE("UiControls script opt-in owns default widget behavior") {
     affineui::Document doc;
     RecordingPainter painter;
@@ -4465,14 +4547,15 @@ TEST_CASE("right-aligned input text uses its own content box") {
     REQUIRE(value != nullptr);
 
     // The input occupies x=96..394. With border-box sizing, 1px border and
-    // 6px left/right padding, its content box starts at x=103 and is 284px
-    // wide. The old fallback aligned against the whole field row, passing
-    // x=0 and a ~394px line box to the painter. A later paint-only wrap
-    // slack bug widened the right-aligned line box by 4px and pushed the
-    // glyphs right, so keep the painted width exact for aligned controls.
-    CHECK(value->pos.x == 103);
-    CHECK(value->max_width == 284.0f);
-    CHECK(value->align == affineui::Painter::TextAlign::Right);
+    // 6px left/right padding, its content box is x=103..387. A right-
+    // aligned single-line input pre-shifts its draw ORIGIN so the glyph
+    // run ends exactly at the content box's right edge — the alignment is
+    // resolved in text_control_geometry (one origin shared by paint and
+    // caret hit-mapping), and the painter receives a left-aligned run
+    // with an unbounded wrap width (inputs never wrap: UA white-space is
+    // pre). "1.000" measures 5 chars x 8px in this harness.
+    CHECK(value->pos.x == 387 - 5 * 8);
+    CHECK(value->align == affineui::Painter::TextAlign::Left);
 }
 
 TEST_CASE("native select text uses platform inner inset") {
