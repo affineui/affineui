@@ -505,6 +505,47 @@ TEST_CASE("set_html accepts a string without crashing") {
     CHECK(true);
 }
 
+TEST_CASE("align-self overrides the container's align-items per item") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        #row { display: flex; flex-direction: row; align-items: flex-start;
+               width: 400px; height: 200px; }
+        .box { width: 40px; height: 20px; }
+        #stretchy { width: 40px; }
+        #a { align-self: auto; }
+        #b { align-self: center; }
+        #c { align-self: flex-end; }
+        #stretchy { align-self: stretch; }
+        </style>
+        <div id="row">
+            <div id="a" class="box"></div>
+            <div id="b" class="box"></div>
+            <div id="c" class="box"></div>
+            <div id="stretchy"></div>
+        </div>
+    )HTML");
+    doc.layout(420, 220, &painter);
+
+    const auto a = doc.find_element_rect("#a");
+    const auto b = doc.find_element_rect("#b");
+    const auto c = doc.find_element_rect("#c");
+    const auto s = doc.find_element_rect("#stretchy");
+    REQUIRE(a.w > 0);
+    // auto → the container's align-items (flex-start).
+    CHECK(a.y == 0);
+    // center → (200 - 20) / 2.
+    CHECK(b.y == 90);
+    // flex-end → 200 - 20.
+    CHECK(c.y == 180);
+    // stretch (heightless item) → full cross size.
+    CHECK(s.y == 0);
+    CHECK(s.h == 200);
+}
+
 TEST_CASE("checks toggle on mouse DOWN and are not re-toggled by the release") {
     affineui::Document doc;
     RecordingPainter painter;

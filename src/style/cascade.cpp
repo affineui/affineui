@@ -2456,6 +2456,23 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s,
         }
 
         // ── Flex item properties ───────────────────────────────────
+        case LXB_CSS_PROPERTY_ALIGN_SELF: {
+            const auto* v =
+                static_cast<const lxb_css_property_align_self_t*>(d->u.user);
+            using AS = ComputedStyle::AlignSelf;
+            switch (v->type) {
+                case LXB_CSS_ALIGN_SELF_AUTO:       s.computed.set_align_self(AS::Auto);     break;
+                case LXB_CSS_ALIGN_SELF_STRETCH:    s.computed.set_align_self(AS::Stretch);  break;
+                case LXB_CSS_VALUE_START:
+                case LXB_CSS_ALIGN_SELF_FLEX_START: s.computed.set_align_self(AS::Start);    break;
+                case LXB_CSS_VALUE_END:
+                case LXB_CSS_ALIGN_SELF_FLEX_END:   s.computed.set_align_self(AS::End);      break;
+                case LXB_CSS_ALIGN_SELF_CENTER:     s.computed.set_align_self(AS::Center);   break;
+                case LXB_CSS_ALIGN_SELF_BASELINE:   s.computed.set_align_self(AS::Baseline); break;
+                default: break;
+            }
+            break;
+        }
         case LXB_CSS_PROPERTY_FLEX_GROW: {
             const auto* v =
                 static_cast<const lxb_css_value_number_type_t*>(d->u.user);
@@ -3234,6 +3251,7 @@ public:
         s.computed.flex_wrap        = ComputedStyle::FlexWrap::NoWrap;
         s.computed.justify_content  = ComputedStyle::JustifyContent::Start;
         s.computed.align_items      = ComputedStyle::AlignItems::Stretch;
+        s.computed.set_align_self(ComputedStyle::AlignSelf::Auto);
         s.computed.row_gap          = 0;
         s.computed.column_gap       = 0;
         s.computed.flex_grow        = 0;

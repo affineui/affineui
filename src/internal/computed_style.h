@@ -72,6 +72,9 @@ struct ComputedStyle {
     // CSS `background-clip` (see BackgroundClip enum below); packed into
     // border_collapse's unit — a lone bool wasted seven bits here.
     std::uint8_t background_clip_bits : 2  {0};
+    // CSS `align-self` (see AlignSelf enum below); shares the same unit.
+    // Auto (0) = defer to the parent's align-items, the CSS initial value.
+    std::uint8_t align_self_bits : 3       {0};
     // Percentage height: -1 = not a percentage, else 0..100 (integer %).
     std::int8_t  height_pct               {-1};
     // CSS `visibility` (INHERITED). Visible = painted; Hidden = box kept
@@ -303,6 +306,18 @@ struct ComputedStyle {
     enum class AlignItems : std::uint8_t {
         Stretch, Start, End, Center, Baseline,
     };
+    // CSS `align-self` on a flex ITEM: Auto (initial) defers to the
+    // parent's align-items; the rest override it per-item. Stored in
+    // `align_self_bits` (3 bits beside background_clip_bits).
+    enum class AlignSelf : std::uint8_t {
+        Auto = 0, Stretch, Start, End, Center, Baseline,
+    };
+    AlignSelf align_self() const noexcept {
+        return static_cast<AlignSelf>(align_self_bits);
+    }
+    void set_align_self(AlignSelf v) noexcept {
+        align_self_bits = static_cast<std::uint8_t>(v);
+    }
     enum class FlexWrap : std::uint8_t {
         NoWrap, Wrap, WrapReverse,
     };

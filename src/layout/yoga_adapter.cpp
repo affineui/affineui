@@ -360,6 +360,21 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
         if (cs.flex_grow != 0) {
             YGNodeStyleSetFlexGrow(node, static_cast<float>(cs.flex_grow));
         }
+        // CSS `align-self` overrides the parent's align-items for this
+        // item. Auto (the initial value) leaves Yoga's default in place —
+        // including the vertical-align emulation set above, which this
+        // deliberately outranks when the author writes align-self.
+        {
+            using AS = ComputedStyle::AlignSelf;
+            switch (cs.align_self()) {
+                case AS::Stretch:  YGNodeStyleSetAlignSelf(node, YGAlignStretch);   break;
+                case AS::Start:    YGNodeStyleSetAlignSelf(node, YGAlignFlexStart); break;
+                case AS::End:      YGNodeStyleSetAlignSelf(node, YGAlignFlexEnd);   break;
+                case AS::Center:   YGNodeStyleSetAlignSelf(node, YGAlignCenter);    break;
+                case AS::Baseline: YGNodeStyleSetAlignSelf(node, YGAlignBaseline);  break;
+                case AS::Auto:     break;
+            }
+        }
         YGNodeStyleSetFlexShrink(
             node, forced_no_shrink_item ? 0.0f : static_cast<float>(cs.flex_shrink));
         // flex-basis: percentage takes priority over px value.

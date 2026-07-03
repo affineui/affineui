@@ -7762,6 +7762,7 @@ bool computed_change_needs_layout(const detail::ComputedStyle& a,
         a.margin_auto.right != b.margin_auto.right ||
         a.justify_content != b.justify_content ||
         a.align_items != b.align_items ||
+        a.align_self_bits != b.align_self_bits ||
         a.flex_wrap != b.flex_wrap ||
         a.flex_basis_pct != b.flex_basis_pct ||
         a.row_gap != b.row_gap ||
