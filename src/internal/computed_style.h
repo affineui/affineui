@@ -68,7 +68,10 @@ struct ComputedStyle {
     // border model: adjacent cell borders are merged and border widths do NOT
     // add to the cell's box size in layout. The cascade propagates this to all
     // descendant elements (tr, td, th, etc.) via normal CSS inheritance.
-    bool         border_collapse           {false};
+    std::uint8_t border_collapse : 1       {0};
+    // CSS `background-clip` (see BackgroundClip enum below); packed into
+    // border_collapse's unit — a lone bool wasted seven bits here.
+    std::uint8_t background_clip_bits : 2  {0};
     // Percentage height: -1 = not a percentage, else 0..100 (integer %).
     std::int8_t  height_pct               {-1};
     // CSS `visibility` (INHERITED). Visible = painted; Hidden = box kept
@@ -194,6 +197,17 @@ struct ComputedStyle {
     };
     Resize resize : 2 {Resize::None};
 
+    // CSS `background-clip`. Rides the same raw-rule side table as `resize`
+    // (no typed lexbor property). Paint insets the background fill to the
+    // padding/content box; the transparent-border + padding-box pattern is
+    // how frameworks draw an inset highlight inside a full-bleed hit box
+    // (decius menu rows). Non-inherited; initial is border-box. Stored as
+    // 2 bits in the uint8_t bitfield run below (a distinct enum type here
+    // would cost MSVC a whole fresh byte and blow the size budget).
+    enum class BackgroundClip : std::uint8_t {
+        BorderBox = 0, PaddingBox, ContentBox,
+    };
+
     // CSS `text-align`. Controls horizontal alignment of inline content
     // within the block. Inherited (like `color`), so block children
     // inherit the parent's alignment unless explicitly overridden.
@@ -244,6 +258,13 @@ struct ComputedStyle {
     Float         css_float : 2 {Float::None};
     std::uint8_t  text_indent_is_pct : 1 {0};
     std::uint8_t  border_style_sides : 4 {0};
+
+    [[nodiscard]] BackgroundClip background_clip() const noexcept {
+        return static_cast<BackgroundClip>(background_clip_bits);
+    }
+    void set_background_clip(BackgroundClip clip) noexcept {
+        background_clip_bits = static_cast<std::uint8_t>(clip);
+    }
 
     // Presence bits for the positioned-layout insets below. An inset
     // that the author left at its `auto` initial value keeps its bit

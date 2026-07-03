@@ -2826,6 +2826,25 @@ TEST_CASE("menu submenu cascades open on hover and its items activate") {
     const auto density_row = app.document().find_element_rect("mi-density");
     REQUIRE(density_row.w > 0);
 
+    // VS Code hit model: rows span the panel edge-to-edge — a hover in the
+    // old dead ring (1px inside the panel border, formerly the panel's
+    // padding) must land on the menu ITEM, not on panel dead space. Use the
+    // plain Reset row: hovering a --has-sub row here would open its cascade
+    // and invalidate the "cascade starts hidden" pre-condition below.
+    {
+        const auto reset_row = app.document().find_element_rect("mi-reset");
+        REQUIRE(reset_row.w > 0);
+        hover({reset_row.x + 1, reset_row.y + reset_row.h / 2});
+        bool edge_hits_item = false;
+        for (const auto& info : app.document().hovered_info_chain()) {
+            if (std::find(info.classes.begin(), info.classes.end(),
+                          "dcs-menu__item") != info.classes.end()) {
+                edge_hits_item = true;
+            }
+        }
+        CHECK(edge_hits_item);
+    }
+
     // The submenu is display:none until its opener row is hovered.
     CHECK(app.document().find_element_rect("mi-dens-comfortable").w == 0);
 

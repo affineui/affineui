@@ -291,6 +291,10 @@ struct RuleFill {
     // combo/chip ew-resize, … — would never show).
     detail::ComputedStyle::Cursor cursor{detail::ComputedStyle::Cursor::Default};
     bool                          has_cursor{false};
+    // `background-clip` (border-box | padding-box | content-box). Lexbor has
+    // no typed property for it, so it rides this side table like cursor.
+    std::uint8_t                  background_clip{0};
+    bool                          has_background_clip{false};
     // When non-zero, this fill is gated on the named pseudo-class
     // state bit (kHoverStateBit / kActiveStateBit / kFocusStateBit)
     // being set on the matched element.
@@ -1634,6 +1638,11 @@ void apply_font_family_fills(detail::DocumentImpl& impl,
         if (rf.has_cursor) {
             rs.computed.cursor = rf.cursor;
         }
+        if (rf.has_background_clip) {
+            rs.computed.set_background_clip(
+                static_cast<detail::ComputedStyle::BackgroundClip>(
+                    rf.background_clip));
+        }
         if (rf.grid_column_count > 0 && grid_columns && grid_column_count) {
             *grid_column_count = rf.grid_column_count;
             *grid_columns = rf.grid_columns;
@@ -2854,6 +2863,13 @@ void scan_rule_fills(lxb_css_stylesheet_t* sst,
         const bool has_cursor = !cursor_value.empty();
         const auto cursor = has_cursor ? parse_cursor_keyword(cursor_value)
                                        : detail::ComputedStyle::Cursor::Default;
+        const auto bg_clip_value = std::string(trim_css_ws(
+            substitute_root_vars(
+                find_decl_value(raw.decls, "background-clip"), root_vars)));
+        const bool has_background_clip = !bg_clip_value.empty();
+        std::uint8_t background_clip = 0;  // border-box
+        if (bg_clip_value == "padding-box") background_clip = 1;
+        else if (bg_clip_value == "content-box") background_clip = 2;
         std::array<detail::GridTrackHint,
                    detail::kMaxGridTrackHints> grid_columns{};
         const auto grid_columns_value =
@@ -2862,8 +2878,10 @@ void scan_rule_fills(lxb_css_stylesheet_t* sst,
             parse_grid_template_columns(
                 substitute_root_vars(grid_columns_value, root_vars),
                 grid_columns);
-        if (ff.empty() && !has_resize && !has_cursor && grid_column_count == 0)
+        if (ff.empty() && !has_resize && !has_cursor &&
+            !has_background_clip && grid_column_count == 0) {
             continue;
+        }
 
         // Each comma-separated group becomes its own RuleFill.
         std::string_view sel_text = trim_css_ws(raw.selector);
@@ -2892,6 +2910,8 @@ void scan_rule_fills(lxb_css_stylesheet_t* sst,
                     rf.has_resize           = has_resize;
                     rf.cursor               = cursor;
                     rf.has_cursor           = has_cursor;
+                    rf.background_clip      = background_clip;
+                    rf.has_background_clip  = has_background_clip;
                     rf.state_bit            = state_bit;
                     out.push_back(std::move(rf));
                 }
@@ -6212,43 +6232,78 @@ void Document::draw(Painter& painter) {
                 /*inset=*/false);
         }
 
-        if (has_bg) {
+        // CSS `background-clip`: all background layers (color, gradients,
+        // grid) paint into the border box by default, or inset to the
+        // padding/content box. The transparent-border + padding-box pattern
+        // draws an inset highlight inside a full-bleed hit box (menu rows).
+        Rect bg_rect = eff;
+        float clip_r_tl = bg_r_tl;
+        float clip_r_tr = bg_r_tr;
+        float clip_r_br = bg_r_br;
+        float clip_r_bl = bg_r_bl;
+        using BgClip = detail::ComputedStyle::BackgroundClip;
+        if (cs.background_clip() != BgClip::BorderBox) {
+            int inset_l = used_border_left;
+            int inset_t = used_border_top;
+            int inset_r = used_border_right;
+            int inset_b = used_border_bottom;
+            if (cs.background_clip() == BgClip::ContentBox) {
+                inset_l += cs.padding_left;
+                inset_t += cs.padding_top;
+                inset_r += cs.padding_right;
+                inset_b += cs.padding_bottom;
+            }
+            bg_rect = Rect{eff.x + inset_l, eff.y + inset_t,
+                           std::max(0, eff.w - inset_l - inset_r),
+                           std::max(0, eff.h - inset_t - inset_b)};
+            clip_r_tl = std::max(0.0f, clip_r_tl - std::max(inset_l, inset_t));
+            clip_r_tr = std::max(0.0f, clip_r_tr - std::max(inset_r, inset_t));
+            clip_r_br = std::max(0.0f, clip_r_br - std::max(inset_r, inset_b));
+            clip_r_bl = std::max(0.0f, clip_r_bl - std::max(inset_l, inset_b));
+        }
+        const bool clip_any_radius =
+            (clip_r_tl > 0 || clip_r_tr > 0 || clip_r_br > 0 || clip_r_bl > 0);
+        const bool clip_uniform_r =
+            (clip_r_tl == clip_r_tr && clip_r_tr == clip_r_br &&
+             clip_r_br == clip_r_bl);
+
+        if (has_bg && bg_rect.w > 0 && bg_rect.h > 0) {
             const Color bg = detail::unpack_rgba(an.background_rgba);
-            if      (!bg_any_radius)          painter.fill_rect(eff, bg);
-            else if (bg_uniform_r)            painter.fill_rounded_rect(eff, bg_r_tl, bg);
+            if      (!clip_any_radius)        painter.fill_rect(bg_rect, bg);
+            else if (clip_uniform_r)          painter.fill_rounded_rect(bg_rect, clip_r_tl, bg);
             else                              painter.fill_rounded_rect_varying(
-                                                  eff, bg_r_tl, bg_r_tr,
-                                                  bg_r_br, bg_r_bl, bg);
+                                                  bg_rect, clip_r_tl, clip_r_tr,
+                                                  clip_r_br, clip_r_bl, bg);
         }
 
-        if (has_gradient) {
+        if (has_gradient && bg_rect.w > 0 && bg_rect.h > 0) {
             const Color s0 = detail::unpack_rgba(an.gradient_stop0_rgba);
             const Color s1 = detail::unpack_rgba(an.gradient_stop1_rgba);
             if (an.gradient_kind == detail::AnimatedStyle::GradientKind::Linear) {
                 painter.fill_linear_gradient_rect(
-                    eff, static_cast<float>(an.gradient_angle_deg),
-                    s0, s1, bg_r_tl, bg_r_tr, bg_r_br, bg_r_bl);
+                    bg_rect, static_cast<float>(an.gradient_angle_deg),
+                    s0, s1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
             } else if (an.gradient_kind == detail::AnimatedStyle::GradientKind::Radial) {
                 painter.fill_radial_gradient_rect(
-                    eff, s0, s1, bg_r_tl, bg_r_tr, bg_r_br, bg_r_bl,
+                    bg_rect, s0, s1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
                     static_cast<float>(an.gradient_center_x_pct),
                     static_cast<float>(an.gradient_center_y_pct),
                     static_cast<float>(an.gradient_stop1_pos_pct));
             } else if (an.gradient_kind == detail::AnimatedStyle::GradientKind::LinearStripes) {
                 painter.fill_linear_stripes_rect(
-                    eff, static_cast<float>(an.gradient_angle_deg),
-                    s0, static_cast<float>(std::max(1, eff.h)),
-                    bg_r_tl, bg_r_tr, bg_r_br, bg_r_bl);
+                    bg_rect, static_cast<float>(an.gradient_angle_deg),
+                    s0, static_cast<float>(std::max(1, bg_rect.h)),
+                    clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
             }
         }
 
-        if (has_grid) {
+        if (has_grid && bg_rect.w > 0 && bg_rect.h > 0) {
             painter.fill_grid_rect(
-                eff, detail::unpack_rgba(an.background_grid_rgba),
+                bg_rect, detail::unpack_rgba(an.background_grid_rgba),
                 static_cast<float>(an.background_grid_size_px),
                 static_cast<float>(std::max<std::uint8_t>(
                     1, an.background_grid_line_px)),
-                bg_r_tl, bg_r_tr, bg_r_br, bg_r_bl);
+                clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
         }
 
         if (native_color_square && eff.w > 0 && eff.h > 0) {
