@@ -190,6 +190,13 @@ typedef struct SGNVGcontext {
     sg_shader   shader;
     sg_buffer   vertBuf;     // stream vertex buffer (sg_append each flush)
     int         vertBufCap;  // capacity in vertices
+    size_t      vertBufUsed; // bytes appended into vertBuf this frame
+    // Grown-out vertex buffers are retired into a small ring instead of
+    // destroyed immediately, so draws already recorded against them this
+    // frame keep their data alive. Growth doubles, so the ring only ever
+    // holds a handful of buffers over an app's lifetime.
+    sg_buffer   retiredVertBufs[4];
+    int         retiredVertCursor;
     sg_sampler  defSampler;  // default linear/clamp sampler
 
     SGNVGtexture* textures;
@@ -884,6 +891,37 @@ static void sgnvg__renderViewport(void* uptr, float width, float height, float d
     SGNVGcontext* sg = (SGNVGcontext*)uptr;
     sg->view[0] = width;
     sg->view[1] = height;
+    // New nvg frame: the stream buffer's append cursor restarts.
+    sg->vertBufUsed = 0;
+}
+
+// Ensure the stream vertex buffer has room for `bytes` more this frame.
+// sokol's sg_append_buffer silently drops EVERYTHING once a buffer
+// overflows for the frame, so a too-small buffer means a fully blank
+// frame. Grow by doubling; the old buffer is retired (not destroyed)
+// because draws recorded earlier this frame still reference it.
+static void sgnvg__ensureVertBufRoom(SGNVGcontext* sg, size_t bytes) {
+    const size_t cap = (size_t)sg->vertBufCap * sizeof(NVGvertex);
+    if (sg->vertBufUsed + bytes <= cap) return;
+
+    int newCap = sg->vertBufCap;
+    while ((size_t)newCap * sizeof(NVGvertex) < bytes) newCap *= 2;
+    if (newCap == sg->vertBufCap) newCap *= 2;
+
+    // Retire the old buffer into the ring (destroying the oldest entry).
+    sg_buffer* slot = &sg->retiredVertBufs[sg->retiredVertCursor];
+    sg->retiredVertCursor = (sg->retiredVertCursor + 1) %
+        (int)(sizeof(sg->retiredVertBufs) / sizeof(sg->retiredVertBufs[0]));
+    if (slot->id != SG_INVALID_ID) sg_destroy_buffer(*slot);
+    *slot = sg->vertBuf;
+
+    sg_buffer_desc vbd; memset(&vbd, 0, sizeof(vbd));
+    vbd.size = (size_t)newCap * sizeof(NVGvertex);
+    vbd.usage.vertex_buffer = true; vbd.usage.stream_update = true;
+    vbd.label = "nanovg_sokol_verts";
+    sg->vertBuf = sg_make_buffer(&vbd);
+    sg->vertBufCap = newCap;
+    sg->vertBufUsed = 0;
 }
 
 static void sgnvg__renderCancel(void* uptr) {
@@ -914,7 +952,9 @@ static void sgnvg__renderFlush(void* uptr) {
         // Upload this frame's vertices (append → safe across multiple
         // flushes per frame; offset feeds bindings.vertex_buffer_offsets).
         sg_range vr = { sg->verts, (size_t)sg->nverts * sizeof(NVGvertex) };
+        sgnvg__ensureVertBufRoom(sg, vr.size);
         sg->appendByteOffset = sg_append_buffer(sg->vertBuf, &vr);
+        sg->vertBufUsed = (size_t)sg->appendByteOffset + vr.size;
         sg->curPip = -1;
 
         for (int i = 0; i < sg->ncalls; i++) {
@@ -1265,6 +1305,12 @@ static void sgnvg__renderDelete(void* uptr) {
     for (int i = 0; i < sg->npips; i++) sg_destroy_pipeline(sg->pips[i]);
     if (sg->shader.id != SG_INVALID_ID) sg_destroy_shader(sg->shader);
     if (sg->vertBuf.id != SG_INVALID_ID) sg_destroy_buffer(sg->vertBuf);
+    for (size_t i = 0;
+         i < sizeof(sg->retiredVertBufs) / sizeof(sg->retiredVertBufs[0]);
+         i++) {
+        if (sg->retiredVertBufs[i].id != SG_INVALID_ID)
+            sg_destroy_buffer(sg->retiredVertBufs[i]);
+    }
     if (sg->defSampler.id != SG_INVALID_ID) sg_destroy_sampler(sg->defSampler);
     for (int i = 0; i < sg->ntextures; i++)
         if (sg->textures[i].id != 0) sgnvg__freeTextureResources(&sg->textures[i]);
