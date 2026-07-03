@@ -12216,6 +12216,61 @@ lxb_dom_element_t* ancestor_with_class(lxb_dom_element_t* e,
     return nullptr;
 }
 
+// Menubar hover-follow (decius.js wires this on trigger mouseenter): once
+// one menubar menu is open, sliding along the bar switches menus without
+// another click — native menubar / VS Code behavior. Scoped to triggers
+// inside the SAME .dcs-menubar so two unrelated dropdown buttons never
+// hover-steal each other's open menu.
+bool hover_switch_dcs_menubar_menu(detail::DocumentImpl& impl,
+                                   int hovered_idx) {
+    static const bool trace = std::getenv("AFFINEUI_MENU_TRACE") != nullptr;
+    lxb_dom_element_t* trigger = nullptr;
+    lxb_dom_element_t* menu = nullptr;
+    if (!find_dcs_menu_trigger_at(impl, hovered_idx, trigger, menu)) {
+        if (trace) std::fprintf(stderr, "[menu] hover-switch: no trigger at %d\n", hovered_idx);
+        return false;
+    }
+    if (!has_attr(menu, "hidden")) return false;  // ours is already open
+    auto* bar = ancestor_with_class(trigger, "dcs-menubar");
+    if (!bar) {
+        if (trace) std::fprintf(stderr, "[menu] hover-switch: trigger not in menubar\n");
+        return false;
+    }
+
+    lxb_dom_element_t* open_trigger = nullptr;
+    lxb_dom_element_t* open_menu = nullptr;
+    auto collect = [&](lxb_dom_element_t* elem) {
+        if (open_trigger || elem == trigger) return;
+        if (!is_dcs_menu_trigger(elem)) return;
+        const auto expanded = attr_string(elem, "aria-expanded");
+        auto* m = dcs_target_for_trigger(impl, elem);
+        if (trace) {
+            std::fprintf(stderr,
+                         "[menu] hover-switch: sibling trigger id='%s' "
+                         "expanded='%s' menu=%p hidden=%d\n",
+                         attr_string(elem, "id").c_str(), expanded.c_str(),
+                         static_cast<void*>(m),
+                         m ? has_attr(m, "hidden") : -1);
+        }
+        if (expanded != "true") return;
+        if (!m || !class_list_contains(m, "dcs-menu") ||
+            has_attr(m, "hidden")) {
+            return;
+        }
+        open_trigger = elem;
+        open_menu = m;
+    };
+    walk_dom_elements(lxb_dom_interface_node(bar), collect);
+    if (!open_trigger) return false;
+
+    bool changed = close_dcs_menu(impl, open_menu);
+    changed = set_attribute_on_element(impl, open_trigger, "aria-expanded",
+                                       "false") ||
+              changed;
+    changed = toggle_dcs_menu(impl, trigger, menu) || changed;
+    return changed;
+}
+
 // The dockpanel id behind a tab (its data-dcs-target is "#<id>-body").
 std::string dockpane_tab_panel_id(lxb_dom_element_t* tab) {
     std::string sel = attr_string(tab, "data-dcs-target");
@@ -15772,6 +15827,19 @@ DispatchResult Document::dispatch(const Event& ev) {
                     result.redraw_requested = true;
                 }
                 handle_pseudo_reveal(reveal);
+            }
+            if (impl_->ui_control_script_attached &&
+                hover_switch_dcs_menubar_menu(*impl_, impl_->hovered_idx)) {
+                // The switch mutated hidden/style attrs and dirtied
+                // layout; resolve it in-dispatch so the very next hit
+                // test and hover refresh see the newly opened panel.
+                ensure_interaction_layout();
+                impl_->hovered_idx =
+                    hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
+                bool reveal = false;
+                refresh_hover_chain(*impl_, &reveal);
+                handle_pseudo_reveal(reveal);
+                result.redraw_requested = true;
             }
             break;
         }

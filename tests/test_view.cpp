@@ -2754,6 +2754,92 @@ TEST_CASE("View records diagnostics for duplicate explicit widget ids") {
 // (child combinator + :hover on the ancestor compound) and (b) RECOLLECT
 // boxes when hover reveals the display:none subtree — restyling existing
 // blocks can never create the submenu's missing boxes.
+TEST_CASE("menubar hover-follow switches the open menu without a click") {
+    std::ifstream bundle_in(
+        AFFINEUI_TEST_SOURCE_DIR
+        "/examples/frameworks/css/decius-css-0.6.2.bundle.min.css",
+        std::ios::binary);
+    REQUIRE(bundle_in.good());
+    std::string bundle((std::istreambuf_iterator<char>(bundle_in)),
+                       std::istreambuf_iterator<char>());
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+
+    auto build = [&] {
+        affineui::View v{affineui::ViewTheme::Decius};
+        v.set_framework_version("0.6.2");
+        v.begin();
+        {
+            // Hold the scope: the triggers must live INSIDE the
+            // .dcs-menubar — hover-follow is scoped to bar siblings.
+            auto bar = v.menu_bar("menubar");
+            v.menu_button("File", [&](affineui::View& m) {
+                m.menu_item("New Scene", {}, {}, "mi-new");
+            }, "mb-file");
+            v.menu_button("Edit", [&](affineui::View& m) {
+                m.menu_item("Undo", {}, {}, "mi-undo");
+            }, "mb-edit");
+        }
+        v.end();
+        return v;
+    };
+    app.load_view(build());
+    app.set_stylesheet(bundle);
+    TestPainter painter;
+    constexpr int W = 800;
+    constexpr int H = 500;
+    app.document().layout(W, H, &painter);
+
+    auto click = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        app.dispatch(down);
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        app.dispatch(up);
+        app.document().layout(W, H, &painter);
+    };
+    auto hover = [&](affineui::Point p) {
+        affineui::Event mv{};
+        mv.type = affineui::EventType::MouseMove;
+        mv.pos = p;
+        app.dispatch(mv);
+        app.document().layout(W, H, &painter);
+    };
+
+    const auto file_btn = app.document().find_element_rect("mb-file");
+    const auto edit_btn = app.document().find_element_rect("mb-edit");
+    REQUIRE(file_btn.w > 0);
+    REQUIRE(edit_btn.w > 0);
+
+    // Hovering a menubar trigger with NOTHING open must not open a menu
+    // (hover-follow only takes over once a sibling menu is already open).
+    hover({file_btn.x + file_btn.w / 2, file_btn.y + file_btn.h / 2});
+    CHECK(app.document().find_element_rect("mi-new").w == 0);
+
+    // Click File: its menu opens.
+    click({file_btn.x + file_btn.w / 2, file_btn.y + file_btn.h / 2});
+    REQUIRE(app.document().find_element_rect("mi-new").w > 0);
+
+    // Hover Edit: the open menu FOLLOWS the pointer along the bar — Edit's
+    // menu opens and File's closes, with no second click (decius.js wires
+    // this on trigger mouseenter; broken in both engines before).
+    hover({edit_btn.x + edit_btn.w / 2, edit_btn.y + edit_btn.h / 2});
+    CHECK(app.document().find_element_rect("mi-undo").w > 0);
+    CHECK(app.document().find_element_rect("mi-new").w == 0);
+
+    // And back to File.
+    hover({file_btn.x + file_btn.w / 2, file_btn.y + file_btn.h / 2});
+    CHECK(app.document().find_element_rect("mi-new").w > 0);
+    CHECK(app.document().find_element_rect("mi-undo").w == 0);
+}
+
 TEST_CASE("menu submenu cascades open on hover and its items activate") {
     std::ifstream bundle_in(
         AFFINEUI_TEST_SOURCE_DIR
