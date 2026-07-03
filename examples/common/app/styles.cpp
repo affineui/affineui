@@ -1,9 +1,18 @@
 #include "app/styles.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <vector>
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 
 namespace app {
 
@@ -15,6 +24,31 @@ std::string read_file(const std::filesystem::path& path) {
     std::ostringstream ss;
     ss << in.rdbuf();
     return ss.str();
+}
+
+// Directory containing the running executable (empty on failure). Assets
+// shipped beside the app must resolve independently of the CWD — a tool
+// launched from a shortcut, a shell in another directory, or a debugger
+// all see different working directories.
+std::filesystem::path executable_dir() {
+#if defined(_WIN32)
+    wchar_t buf[MAX_PATH]{};
+    const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return {};
+    return std::filesystem::path(buf).parent_path();
+#elif defined(__APPLE__)
+    char buf[4096]{};
+    std::uint32_t size = sizeof(buf);
+    if (_NSGetExecutablePath(buf, &size) != 0) return {};
+    std::error_code ec;
+    auto canon = std::filesystem::weakly_canonical(buf, ec);
+    return ec ? std::filesystem::path(buf).parent_path()
+              : canon.parent_path();
+#else
+    std::error_code ec;
+    auto p = std::filesystem::read_symlink("/proc/self/exe", ec);
+    return ec ? std::filesystem::path{} : p.parent_path();
+#endif
 }
 
 }  // namespace
@@ -32,12 +66,16 @@ std::string read_framework_bundle(affineui::ViewTheme theme,
     const std::string href = affineui::framework_bundle_href(theme, version);
     if (href.empty()) return {};  // Plain theme: no bundle.
 
-    // The build copies frameworks/ next to the exe; the repo keeps it under
-    // examples/. Try both so the app works from either working directory.
-    const std::filesystem::path candidates[] = {
-        std::filesystem::path{href},
-        std::filesystem::path{"examples"} / href,
-    };
+    // Resolution order: the frameworks/ copy shipped BESIDE THE EXE first
+    // (deterministic regardless of CWD, and the build keeps it fresh via a
+    // file-dependency stamp), then CWD-relative for running from a build
+    // or examples directory, then the repo layout for running from the
+    // repo root.
+    const std::filesystem::path exe_dir = executable_dir();
+    std::vector<std::filesystem::path> candidates;
+    if (!exe_dir.empty()) candidates.push_back(exe_dir / href);
+    candidates.emplace_back(href);
+    candidates.emplace_back(std::filesystem::path{"examples"} / href);
     for (const auto& path : candidates) {
         if (std::string css = read_file(path); !css.empty()) {
             // Report the stylesheet's own location so the caller can hand it to

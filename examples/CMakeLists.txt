@@ -1,7 +1,16 @@
 set(AFFINEUI_EXAMPLES_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
 set(AFFINEUI_EXAMPLES_BINARY_ROOT "${CMAKE_BINARY_DIR}/examples")
 
-add_custom_target(affineui_example_browser_assets
+# Framework bundles must track the SOURCE tree, not the last relink: the
+# old POST_BUILD copy only refreshed when a target relinked, so a bundle
+# drop without a code change left the exe-side frameworks/ copy stale —
+# and the loader prefers that copy, which reads as a renderer regression.
+# A stamp with file-level DEPENDS re-copies whenever any bundle changes.
+file(GLOB_RECURSE AFFINEUI_FRAMEWORK_FILES CONFIGURE_DEPENDS
+     "${AFFINEUI_EXAMPLES_ROOT}/frameworks/*")
+
+add_custom_command(
+    OUTPUT "${AFFINEUI_EXAMPLES_BINARY_ROOT}/frameworks.stamp"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${AFFINEUI_EXAMPLES_ROOT}/frameworks"
             "${AFFINEUI_EXAMPLES_BINARY_ROOT}/frameworks"
@@ -10,15 +19,27 @@ add_custom_target(affineui_example_browser_assets
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${AFFINEUI_EXAMPLES_ROOT}/common/decius_demo_interactions.js"
             "${AFFINEUI_EXAMPLES_BINARY_ROOT}/common/decius_demo_interactions.js"
+    COMMAND ${CMAKE_COMMAND} -E touch
+            "${AFFINEUI_EXAMPLES_BINARY_ROOT}/frameworks.stamp"
+    DEPENDS ${AFFINEUI_FRAMEWORK_FILES}
+            "${AFFINEUI_EXAMPLES_ROOT}/common/decius_demo_interactions.js"
     VERBATIM)
+add_custom_target(affineui_example_browser_assets
+    DEPENDS "${AFFINEUI_EXAMPLES_BINARY_ROOT}/frameworks.stamp")
 
 function(affineui_copy_example_browser_files name)
     add_dependencies(${name} affineui_example_browser_assets)
-    add_custom_command(TARGET ${name} POST_BUILD
+    set(stamp "${CMAKE_CURRENT_BINARY_DIR}/${name}_frameworks.stamp")
+    add_custom_command(
+        OUTPUT "${stamp}"
         COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${AFFINEUI_EXAMPLES_ROOT}/frameworks"
                 "$<TARGET_FILE_DIR:${name}>/frameworks"
+        COMMAND ${CMAKE_COMMAND} -E touch "${stamp}"
+        DEPENDS ${AFFINEUI_FRAMEWORK_FILES}
         VERBATIM)
+    add_custom_target(${name}_frameworks DEPENDS "${stamp}")
+    add_dependencies(${name} ${name}_frameworks)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/index.html")
         add_custom_command(TARGET ${name} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
