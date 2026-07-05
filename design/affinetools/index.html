@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>decius.css — The DCC framework for things that aren't websites</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- decius framework (dark, dense) — used inside the embedded panels -->
+  <link rel="stylesheet" href="styles/decius.css">
+  <!-- decius web (light, conventional) — used for the docs site itself -->
+  <link rel="stylesheet" href="styles/decius-web.css">
+
+  <!-- Page-specific styles (palettes, type spec rows, icon catalog, demo containers) -->
+  <style>
+    /* ───────────── Palette grid ───────────── */
+    .palette-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+      margin: 20px 0 12px;
+    }
+    .palette-swatch {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      padding: 10px;
+      border: 1px solid var(--dw-line);
+      border-radius: var(--dw-radius);
+      background: var(--dw-bg);
+      transition: border-color 120ms;
+    }
+    .palette-swatch:hover { border-color: #c8cdd6; }
+    .palette-swatch__chip {
+      width: 44px; height: 44px;
+      border-radius: 6px;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.15);
+      flex: 0 0 auto;
+    }
+    .palette-swatch--light .palette-swatch__chip {
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.2);
+    }
+    .palette-swatch__meta {
+      min-width: 0;
+      display: flex; flex-direction: column;
+    }
+    .palette-swatch__hex {
+      font-family: var(--dw-font-mono);
+      font-size: 13px;
+      color: var(--dw-text);
+      letter-spacing: .02em;
+    }
+    .palette-swatch__name {
+      font-family: var(--dw-font-mono);
+      font-size: 11px;
+      color: var(--dw-accent-lo);
+    }
+    .palette-swatch__note {
+      font-size: 12px;
+      color: var(--dw-text-mute);
+      margin-top: 2px;
+    }
+
+    /* ───────────── Type spec ───────────── */
+    .type-spec { display: flex; flex-direction: column; gap: 14px; }
+    .type-row {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 24px;
+      align-items: baseline;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--dcs-line-soft);
+    }
+    .type-row:last-child { border-bottom: none; }
+    .type-row__label {
+      color: var(--dcs-text-mute);
+      font-size: 11px;
+      letter-spacing: .04em;
+    }
+
+    /* ───────────── Icon catalog ───────────── */
+    .icon-catalog {
+      display: flex; flex-direction: column;
+      gap: 24px;
+      margin-top: 16px;
+    }
+    .icon-catalog__group {
+      background: var(--dw-bg);
+      border: 1px solid var(--dw-line);
+      border-radius: var(--dw-radius);
+      overflow: hidden;
+    }
+    .icon-catalog__group-name {
+      padding: 10px 14px;
+      background: var(--dw-bg-soft);
+      border-bottom: 1px solid var(--dw-line);
+      font-family: var(--dw-font-mono);
+      font-size: 11px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      color: var(--dw-text-mute);
+    }
+    .icon-catalog__grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+      gap: 1px;
+      background: var(--dw-line);
+      border-top: 1px solid var(--dw-line);
+      margin-top: -1px;
+    }
+    .icon-cell {
+      display: flex; flex-direction: column;
+      align-items: center; gap: 4px;
+      padding: 16px 8px 10px;
+      background: var(--dw-bg);
+      cursor: pointer;
+      transition: background 120ms;
+    }
+    .icon-cell:hover { background: var(--dw-accent-dim); }
+    .icon-cell__icon {
+      width: 28px; height: 28px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--dw-text);
+    }
+    .icon-cell__icon svg { stroke-width: 1.25; }
+    .icon-cell__name {
+      font-family: var(--dw-font-mono);
+      font-size: 10px;
+      color: var(--dw-text-mute);
+      text-align: center;
+      letter-spacing: .02em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+    .icon-cell:hover .icon-cell__name { color: var(--dw-accent-lo); }
+
+    /* ───────────── Embedded DCC panels — slight glow so they pop from page ───────────── */
+    .dw-demo .dcs {
+      color-scheme: dark;
+      background: transparent;
+    }
+
+    /* Slight loading state placeholder */
+    #root:empty::before {
+      content: 'decius.css';
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 20px; font-weight: 600;
+      letter-spacing: -.01em;
+      color: var(--dw-text-mute);
+    }
+  </style>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- App scripts, in dependency order -->
+  <script type="text/babel" src="app/icons.jsx"></script>
+  <script type="text/babel" src="app/dcs.jsx"></script>
+  <script type="text/babel" src="app/tweaks-panel.jsx"></script>
+  <script type="text/babel" src="app/sections-foundations.jsx"></script>
+  <script type="text/babel" src="app/sections-components.jsx"></script>
+  <script type="text/babel" src="app/sections-layout.jsx"></script>
+  <script type="text/babel" src="app/sections-data.jsx"></script>
+  <script type="text/babel" src="app/sections-feedback.jsx"></script>
+  <script type="text/babel" src="app/sections-editors.jsx"></script>
+  <script type="text/babel" src="app/sections-apps.jsx"></script>
+  <script type="text/babel" src="app/sections-skeuomorphic.jsx"></script>
+  <script type="text/babel" src="app/sections-intro.jsx"></script>
+  <script type="text/babel" src="app/app.jsx"></script>
+</body>
+</html>
