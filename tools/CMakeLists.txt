@@ -14,6 +14,15 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/conformance/main.cpp")
     add_subdirectory(conformance)
 endif()
 
+if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/symprof/main.cpp")
+    add_subdirectory(symprof)
+endif()
+
+# The devtools viewer (F12 target of affineui::tools_open_devtools).
+if(TARGET affineui::tools AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/affinetools/main.cpp")
+    add_subdirectory(affinetools)
+endif()
+
 # ─── Amalgamation ────────────────────────────────────────────────────────────
 # `tools/amalgamate.py` concatenates the modular sources into a single
 # `affineui.h` + `affineui.cpp` pair under ${CMAKE_BINARY_DIR}/dist/. That

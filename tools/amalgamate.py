@@ -60,6 +60,7 @@ PUBLIC_HEADERS = [
     "include/affineui/callback.h",    # safe callbacks; depends on weak_ref.h
     "include/affineui/keymap.h",      # keybindings; depends on types.h
     "include/affineui/embed.h",       # depends only on types.h; before renderer/ui
+    "include/affineui/memory.h",      # allocator seam + stats; depends on embed.h
     "include/affineui/themes.h",
     "include/affineui/geom.h",
     "include/affineui/style.h",
@@ -73,6 +74,7 @@ PUBLIC_HEADERS = [
     "include/affineui/inspector.h",     # depends on object + view
     "include/affineui/automation.h",   # depends on document + types
     "include/affineui/renderer.h",
+    "include/affineui/telemetry.h",   # FrameTelemetry R0/R1; depends on memory.h
     "include/affineui/ui.h",
     "include/affineui/app.h",           # load_view(const View&)
     "include/affineui/imm.h",
@@ -115,6 +117,9 @@ INTERNAL_HEADERS = [
 ENGINE_SOURCES = [
     "src/themes.cpp",
     "src/affineui.cpp",
+    "src/memory.cpp",
+    "src/diag/sampler.cpp",
+    "src/diag/telemetry.cpp",
     "src/app/app.cpp",
     "src/app/event.cpp",
     "src/app/automation.cpp",
