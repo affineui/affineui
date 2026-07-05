@@ -22,13 +22,20 @@ add_executable(affineui_tests
     test_imm_callsite.cpp
     test_imm_runtime.cpp
     test_view.cpp
+    test_skeuo.cpp
     test_cascade.cpp
     test_display_list.cpp
     test_layout.cpp
     test_memory.cpp
+    test_telemetry.cpp
+    test_tools.cpp
+    test_tools_client.cpp
+    test_reconcile_bench.cpp
 )
 target_link_libraries(affineui_tests PRIVATE
     affineui::affineui
+    affineui::skeuo
+    affineui::tools
     doctest::doctest
 )
 # The app-template tests link the sidecar template library when examples are
