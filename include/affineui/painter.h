@@ -3,9 +3,109 @@
 #include "affineui/geom.h"
 #include "affineui/types.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <string_view>
 
 namespace affineui {
+
+/// Verb tags for the flat vector-path command stream accepted by
+/// Painter::fill_path / Painter::stroke_path. A path is an array of
+/// floats where each segment is a verb tag followed by its coordinates:
+///   kPathMove  x y                    — begin a new subpath
+///   kPathLine  x y
+///   kPathCubic c1x c1y c2x c2y x y
+///   kPathClose                        — close the current subpath
+/// Quadratics, elliptical arcs, and H/V shorthands are lowered to these
+/// four verbs by the producer (see the inline-SVG path parser).
+inline constexpr float kPathMove  = 0.0f;
+inline constexpr float kPathLine  = 1.0f;
+inline constexpr float kPathCubic = 2.0f;
+inline constexpr float kPathClose = 3.0f;
+
+/// Paint source for vector paths: solid colour or a multi-stop
+/// gradient (up to kMaxStops). Two-stop gradients hit the backend's
+/// native gradient paint; more stops are rendered through a cached
+/// gradient-LUT texture, so arbitrary SVG-style ramps stay exact.
+struct PathPaint {
+    enum class Kind : std::uint8_t { Solid, Linear, Radial };
+    static constexpr int kMaxStops = 8;
+
+    Kind         kind{Kind::Solid};
+    std::uint8_t stop_count{1};
+    float        offsets[kMaxStops]{};  // ascending, 0–1
+    Color        colors[kMaxStops]{};
+    // Linear: gradient axis runs (x0,y0) → (x1,y1).
+    // Radial: (x0,y0) is the centre; r0 = inner radius, r1 = outer.
+    float x0{0.0f}, y0{0.0f};
+    float x1{0.0f}, y1{0.0f};
+    float r0{0.0f}, r1{0.0f};
+
+    static PathPaint solid(Color c) {
+        PathPaint p;
+        p.colors[0] = c;
+        return p;
+    }
+    static PathPaint linear(float x0, float y0, float x1, float y1,
+                            Color c0, Color c1) {
+        PathPaint p;
+        p.kind = Kind::Linear;
+        p.stop_count = 2;
+        p.offsets[0] = 0.0f; p.offsets[1] = 1.0f;
+        p.colors[0] = c0;    p.colors[1] = c1;
+        p.x0 = x0; p.y0 = y0;
+        p.x1 = x1; p.y1 = y1;
+        return p;
+    }
+    static PathPaint radial(float cx, float cy, float inner_r, float outer_r,
+                            Color c0, Color c1) {
+        PathPaint p;
+        p.kind = Kind::Radial;
+        p.stop_count = 2;
+        p.offsets[0] = 0.0f; p.offsets[1] = 1.0f;
+        p.colors[0] = c0;    p.colors[1] = c1;
+        p.x0 = cx; p.y0 = cy;
+        p.r0 = inner_r; p.r1 = outer_r;
+        return p;
+    }
+    /// Append a gradient stop (offset 0–1, ascending). The first call
+    /// on a default-constructed paint replaces the implicit solid stop.
+    bool add_stop(float offset, Color c) {
+        if (kind == Kind::Solid) return false;
+        if (stop_count >= kMaxStops) return false;
+        offsets[stop_count] = offset;
+        colors[stop_count]  = c;
+        ++stop_count;
+        return true;
+    }
+    /// Colour at a normalised position along the ramp.
+    Color sample(float t) const {
+        if (stop_count == 0) return Color{};
+        if (stop_count == 1 || t <= offsets[0]) return colors[0];
+        for (int i = 1; i < stop_count; ++i) {
+            if (t <= offsets[i]) {
+                const float span = offsets[i] - offsets[i - 1];
+                const float f = span <= 0.0f
+                                    ? 1.0f
+                                    : (t - offsets[i - 1]) / span;
+                const auto lerp8 = [f](std::uint8_t a, std::uint8_t b) {
+                    return static_cast<std::uint8_t>(
+                        static_cast<float>(a) +
+                        (static_cast<float>(b) - static_cast<float>(a)) * f);
+                };
+                return Color{lerp8(colors[i - 1].r, colors[i].r),
+                             lerp8(colors[i - 1].g, colors[i].g),
+                             lerp8(colors[i - 1].b, colors[i].b),
+                             lerp8(colors[i - 1].a, colors[i].a)};
+            }
+        }
+        return colors[stop_count - 1];
+    }
+};
+
+/// Stroke end-cap / join styles (SVG stroke-linecap / stroke-linejoin).
+enum class LineCap  : std::uint8_t { Butt, Round, Square };
+enum class LineJoin : std::uint8_t { Miter, Round, Bevel };
 
 /// Abstract painter interface. The default implementation wraps
 /// NanoVG-on-sokol_gfx, but the embedder can supply their own (useful
@@ -86,6 +186,25 @@ public:
                                           float br = 0, float bl = 0) {
         (void)r; (void)angle_deg; (void)stripe; (void)tile_size;
         (void)tl; (void)tr; (void)br; (void)bl;
+    }
+
+    // ── Vector paths ────────────────────────────────────────────────
+    /// Fill / stroke an arbitrary path given as a flat float command
+    /// stream (kPathMove / kPathLine / kPathCubic / kPathClose above).
+    /// Fills use the nonzero winding rule; a subpath wound opposite to
+    /// its enclosing subpath cuts a hole. Coordinates are in the
+    /// painter's current (document) space. Backends without vector
+    /// path support may no-op.
+    virtual void fill_path(const float* cmds, std::size_t count,
+                           const PathPaint& paint) {
+        (void)cmds; (void)count; (void)paint;
+    }
+    virtual void stroke_path(const float* cmds, std::size_t count,
+                             const PathPaint& paint, float width,
+                             LineCap cap = LineCap::Butt,
+                             LineJoin join = LineJoin::Miter) {
+        (void)cmds; (void)count; (void)paint;
+        (void)width; (void)cap; (void)join;
     }
 
     // ── Box shadow ──────────────────────────────────────────────────

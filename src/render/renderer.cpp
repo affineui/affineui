@@ -486,7 +486,14 @@ PreparedFrame prepare_frame(detail::RendererImpl& impl,
     frame.viewport_changed =
         impl.first_frame || fb_w != impl.last_w || fb_h != impl.last_h ||
         dpi_scale != impl.last_dpi;
-    frame.layout_dirty = doc.content_size().width != frame.pt_w;
+    // The document's "needs layout" signal is content_size == 0 (set by
+    // every layout-affecting mutation; dispatch's hidden relayout keys
+    // off the same bit). Comparing against the viewport width instead
+    // relayouted EVERY rendered frame whenever content legitimately
+    // overflowed the viewport by a pixel — a permanent 5-10 ms/frame
+    // layout thrash that only showed up under sustained repaints
+    // (cable drags). Viewport/dpi changes are handled above.
+    frame.layout_dirty = doc.content_size().width == 0;
     if (frame.viewport_changed || frame.layout_dirty) {
         const auto layout_start = std::chrono::steady_clock::now();
         doc.layout(frame.pt_w, frame.pt_h, impl.painter.get());
@@ -661,6 +668,16 @@ bool ensure_root_layer(detail::RendererImpl& impl, int w, int h,
             }
             layer.content_w = w;
             layer.content_h = h;
+            // The visible size changed but the texture stayed in place. The
+            // cached raster is for the OLD content size — its glyphs and
+            // boxes no longer line up with the new layout, and the composite
+            // samples a region that was never drawn (the resize-to-blank
+            // bug). Unless the exposed-strip partial path is proven on,
+            // force a full re-raster by invalidating: the render_to branch
+            // then takes the RASTER path this same frame.
+            if (!impl.partial_root_raster_enabled) {
+                layer.valid = false;
+            }
         }
         impl.stats.root_layer_capacity_w = static_cast<std::uint32_t>(layer.w);
         impl.stats.root_layer_capacity_h = static_cast<std::uint32_t>(layer.h);

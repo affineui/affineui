@@ -26,6 +26,7 @@ ElementId StyleStore::acquire(lxb_dom_element_t* element) {
                    | DirtyRasterize | DirtyComposite);
     // Generation starts at 1; 0 means "freed slot."
     generations_.push_back(1);
+    elements_.push_back(element);
     by_element_.emplace(element, index);
     return ElementId{index, generations_.back()};
 }
@@ -38,6 +39,7 @@ ElementId StyleStore::acquire_synthetic() {
     dirty_.push_back(DirtyStyle | DirtyLayout | DirtyPaint
                    | DirtyRasterize | DirtyComposite);
     generations_.push_back(1);
+    elements_.push_back(nullptr);
     // No by_element_ entry — synthetic slots aren't reverse-lookupable.
     return ElementId{index, 1};
 }
@@ -48,6 +50,7 @@ void StyleStore::reset() {
     state_bits_.clear();
     dirty_.clear();
     generations_.clear();
+    elements_.clear();
     by_element_.clear();
     font_families_.clear();
     font_families_.emplace_back("sans");
@@ -62,11 +65,10 @@ ElementId StyleStore::lookup(lxb_dom_element_t* element) const {
 lxb_dom_element_t* StyleStore::element_of(ElementId id) const {
     if (!id.valid() || id.index >= generations_.size()) return nullptr;
     if (generations_[id.index] != id.generation) return nullptr;
-    // Reverse lookup — linear, but only called for diagnostics.
-    for (const auto& [el, idx] : by_element_) {
-        if (idx == id.index) return el;
-    }
-    return nullptr;
+    // O(1) — this sits on the hover/hit-test path (called per block per
+    // pointer event). The old linear reverse scan of by_element_ was 60%
+    // of total CPU in a profiled interactive session.
+    return elements_[id.index];
 }
 
 ComputedStyle&       StyleStore::computed(ElementId id)         { return computed_[id.index]; }

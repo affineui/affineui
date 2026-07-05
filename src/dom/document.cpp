@@ -22,9 +22,11 @@
 #include "affineui/memory.h"
 #include "affineui/painter.h"
 #include "affineui/themes.h"
+#include "affineui/view.h"
 #include "imm/imm_runtime.h"
 #include "internal/animated_style.h"
 #include "internal/computed_style.h"
+#include "internal/diag.h"
 #include "internal/element_id.h"
 #include "internal/embed_log.h"
 #include "internal/style_resolver.h"
@@ -47,6 +49,7 @@
 #include <memory>
 #include <mutex>
 #include <numeric>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -456,6 +459,40 @@ struct DocumentImpl {
     std::unordered_map<std::string, std::string> dock_active_tabs;
     std::string last_dock_trace_signature;
 
+    // View-reconcile sink (App fast path; see begin_view_mutations).
+    // The sink owns the WidgetNode remote_id → DOM node mapping; the
+    // reset hook clears it when the document is replaced wholesale.
+    std::unique_ptr<ViewSink>  view_sink;
+    std::function<void()>      view_sink_reset;
+    bool                       view_batch_active{false};
+    bool                       view_structure_dirty{false};
+    // §8.2 batched attr contract (WIDGET_RECONCILIATION.md): selector-
+    // affecting attr ops inside a view batch record their dirty root here;
+    // end_view_mutations settles all of them with ONE rematch/resolver-
+    // clear/restyle/reveal pass instead of per-op full machinery.
+    struct ViewBatchAttrRoot {
+        int  root_idx;
+        Rect old_rect;
+        bool needs_subtree_rematch;
+        bool force_layout;
+    };
+    std::vector<ViewBatchAttrRoot> view_batch_attr_roots;
+
+    // Structural changes recorded per-op by the view sink: the nearest
+    // block ancestor of each insert/remove/text/raw-html splice. The
+    // settle scopes its selector rematch to these subtrees and keeps the
+    // resolver cache warm ("most changes don't require style
+    // recomputation"); view_structure_dirty remains the global-settle
+    // fallback for changes with no block scope (bootstrap, empty shell).
+    std::vector<int> view_batch_structure_roots;
+
+    // Custom paint (canvas) handlers, keyed by the data-aui-paint
+    // attribute value. Handlers draw immediate-mode into the active
+    // Painter during the block paint pass; they survive document
+    // replacement (registration is app-side state, elements re-bind by
+    // attribute on the next paint).
+    std::unordered_map<std::string, Document::CustomPaintFn> paint_handlers;
+
     struct ScrollbarDrag {
         int block_idx{-1};
         int start_y{0};
@@ -464,6 +501,10 @@ struct DocumentImpl {
     } scrollbar_drag;
 
 #if !defined(AFFINEUI_STUB_BUILD)
+    // Saved lexbor eager-style-attach hook while a view-mutation batch
+    // is active (see begin_view_mutations).
+    lxb_dom_event_insert_f view_saved_ev_insert{nullptr};
+
     // A dock splitter being dragged. The splitter sits between two flex
     // siblings (prev/next pane); dragging shifts the shared size budget
     // between them by setting their inline flex-basis. Mirrors decius.js
@@ -657,6 +698,25 @@ struct DocumentImpl {
     // Per-attribute-name result cache for
     // stylesheet_dependencies_stay_in_mutated_subtree() — the scan walks
     // every rule of every sheet, which is far too slow to repeat on each
+    // Parsed SVG geometry cache: element → local-space path commands +
+    // a hash of the geometry attributes it was parsed from. Static art
+    // (jack sockets, LCD digits, chevrons) parses its `d`/shape strings
+    // ONCE; subsequent paints reuse the local commands and only re-apply
+    // the view transform (transform_local_cmds). A geometry-attr write
+    // busts the entry via the hash mismatch, so it stays correct through
+    // mutation without an explicit invalidation hook. mutable: filled
+    // during const draw(). Keyed on the raw element pointer — entries for
+    // destroyed elements are harmless (never looked up again) and the map
+    // is cleared on document teardown / full recollect.
+    struct SvgPathCacheEntry {
+        std::size_t        attr_hash{0};
+        std::vector<float> local_cmds;
+        double             min_x{0}, min_y{0}, max_x{0}, max_y{0};
+        bool               has_bbox{false};
+    };
+    mutable std::unordered_map<const lxb_dom_element_t*, SvgPathCacheEntry>
+        svg_path_cache;
+
     // live attribute mutation. Invalidated whenever `sheets` changes.
     // (mutable: the scan runs behind const DocumentImpl&.)
     mutable std::unordered_map<std::string, bool> attr_subtree_local_cache;
@@ -1064,6 +1124,26 @@ std::string attr_string(lxb_dom_element_t* elem, std::string_view name) {
     return std::string(reinterpret_cast<const char*>(v), len);
 }
 
+// Attribute value as a view into lexbor's storage — no copy. Only valid
+// until the attribute mutates; for read-and-compare use exclusively.
+std::string_view attr_view(lxb_dom_element_t* elem, std::string_view name) {
+    size_t len = 0;
+    const lxb_char_t* v = lxb_dom_element_get_attribute(
+        elem,
+        reinterpret_cast<const lxb_char_t*>(name.data()), name.size(),
+        &len);
+    if (!v || len == 0) return {};
+    return {reinterpret_cast<const char*>(v), len};
+}
+
+// Element tag as a view into lexbor's qualified-name storage — no copy.
+std::string_view tag_view(lxb_dom_element_t* elem) {
+    size_t len = 0;
+    const lxb_char_t* name = lxb_dom_element_qualified_name(elem, &len);
+    if (!name || len == 0) return {};
+    return {reinterpret_cast<const char*>(name), len};
+}
+
 const lxb_char_t* as_lxb(std::string_view s) {
     return reinterpret_cast<const lxb_char_t*>(s.data());
 }
@@ -1140,6 +1220,25 @@ std::string text_control_display_value(const Block& block,
         return mask_password(value);
     }
     return std::string(value);
+}
+
+// Whitespace-token membership test on a raw class attribute value —
+// the allocation-free form of `split_classes(...) contains token`.
+// Selector matching runs this per rule × element during collect, where
+// materializing token vectors was a measured hot spot (knob-drag
+// recollects: ~15% of all CPU samples were these temporaries).
+bool class_tokens_contain(std::string_view s, std::string_view token) {
+    if (token.empty()) return false;
+    std::size_t i = 0;
+    while (i < s.size()) {
+        while (i < s.size() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n')) ++i;
+        if (i >= s.size()) break;
+        std::size_t j = i;
+        while (j < s.size() && s[j] != ' ' && s[j] != '\t' && s[j] != '\n') ++j;
+        if (s.substr(i, j - i) == token) return true;
+        i = j;
+    }
+    return false;
 }
 
 // Tokenize a class attribute on whitespace runs.
@@ -3298,54 +3397,21 @@ bool parse_generated_color(std::string value,
     return parse_hex_color(value, out) || parse_function_color(value, out);
 }
 
-struct SvgArcPath {
-    double x1{0.0};
-    double y1{0.0};
-    double rx{0.0};
-    double ry{0.0};
-    double x_axis_rotation{0.0};
-    bool   large_arc{false};
-    bool   sweep{false};
-    double x2{0.0};
-    double y2{0.0};
-};
-
-std::string svg_path_number_stream(std::string_view d) {
-    std::string out;
-    out.reserve(d.size());
-    for (char ch : d) {
-        switch (ch) {
-            case 'M': case 'm': case 'A': case 'a': case 'L': case 'l':
-            case 'H': case 'h': case 'V': case 'v': case 'C': case 'c':
-            case 'S': case 's': case 'Q': case 'q': case 'T': case 't':
-            case 'Z': case 'z':
-                out.push_back(' ');
-                break;
-            default:
-                out.push_back(ch);
-                break;
-        }
-    }
-    return out;
-}
-
-bool parse_svg_arc_path(std::string_view d, SvgArcPath& out) {
-    if (d.empty()) return false;
-    std::vector<double> n;
-    if (!parse_number_list(svg_path_number_stream(d), n) || n.size() < 9) {
-        return false;
-    }
-    out.x1 = n[0];
-    out.y1 = n[1];
-    out.rx = std::abs(n[2]);
-    out.ry = std::abs(n[3]);
-    out.x_axis_rotation = n[4];
-    out.large_arc = std::abs(n[5]) > 0.5;
-    out.sweep = std::abs(n[6]) > 0.5;
-    out.x2 = n[7];
-    out.y2 = n[8];
-    return out.rx > 0.0 && out.ry > 0.0;
-}
+// ═══════════════════ Inline SVG (general subset) ═══════════════════
+// Renders inline <svg> children through the Painter's vector-path API.
+// Supported subset (grown as the widget kits need it):
+//   shapes    : path, circle, ellipse, rect, line, polyline, polygon
+//   structure : g (recursive, attribute inheritance), defs
+//   path data : M/m L/l H/h V/v C/c S/s Q/q T/t A/a Z/z
+//   paint     : fill / stroke = none | <color> (var()-aware) |
+//               url(#gradient); fill-opacity / stroke-opacity / opacity
+//   stroke    : stroke-width, stroke-linecap, stroke-linejoin
+//   transform : translate / scale / rotate / matrix
+//   gradients : linearGradient / radialGradient, multi-stop (clamped to
+//               PathPaint::kMaxStops), objectBoundingBox or
+//               userSpaceOnUse units, stop-opacity
+// Not supported: text, clipPath/mask/filter, pattern, use/symbol,
+// stroke dashing, fill-rule:evenodd.
 
 bool parse_svg_viewbox(std::string_view view_box,
                        double& x, double& y, double& w, double& h) {
@@ -3358,58 +3424,946 @@ bool parse_svg_viewbox(std::string_view view_box,
     return w > 0.0 && h > 0.0;
 }
 
-bool parse_svg_stroke_width(std::string_view value, float& out) {
-    if (value.empty()) {
-        out = 1.0f;
+// SVG matrix(a b c d e f): x' = a·x + c·y + e ; y' = b·x + d·y + f.
+struct SvgXf {
+    double a{1.0}, b{0.0}, c{0.0}, d{1.0}, e{0.0}, f{0.0};
+
+    // Compose so `inner` applies first, then this transform.
+    SvgXf then(const SvgXf& inner) const {
+        SvgXf m;
+        m.a = a * inner.a + c * inner.b;
+        m.b = b * inner.a + d * inner.b;
+        m.c = a * inner.c + c * inner.d;
+        m.d = b * inner.c + d * inner.d;
+        m.e = a * inner.e + c * inner.f + e;
+        m.f = b * inner.e + d * inner.f + f;
+        return m;
+    }
+    void apply(double x, double y, float& ox, float& oy) const {
+        ox = static_cast<float>(a * x + c * y + e);
+        oy = static_cast<float>(b * x + d * y + f);
+    }
+    // Average length scale — used for stroke widths and radial radii.
+    double uniform_scale() const {
+        return (std::sqrt(a * a + b * b) + std::sqrt(c * c + d * d)) * 0.5;
+    }
+};
+
+// Parse an SVG `transform` attribute (a whitespace-separated list of
+// translate/scale/rotate/matrix commands, applied left-to-right).
+bool parse_svg_transform(std::string_view s, SvgXf& out) {
+    out = SvgXf{};
+    std::size_t pos = 0;
+    bool any = false;
+    while (pos < s.size()) {
+        while (pos < s.size() &&
+               (is_css_ws(s[pos]) || s[pos] == ',')) {
+            ++pos;
+        }
+        if (pos >= s.size()) break;
+        const auto open = s.find('(', pos);
+        if (open == std::string_view::npos) return any;
+        const auto close = s.find(')', open + 1);
+        if (close == std::string_view::npos) return any;
+        const auto name = ascii_lower(trim_css_ws(s.substr(pos, open - pos)));
+        std::vector<double> n;
+        parse_number_list(s.substr(open + 1, close - open - 1), n);
+        SvgXf m;
+        if (name == "translate" && !n.empty()) {
+            m.e = n[0];
+            m.f = n.size() >= 2 ? n[1] : 0.0;
+        } else if (name == "scale" && !n.empty()) {
+            m.a = n[0];
+            m.d = n.size() >= 2 ? n[1] : n[0];
+        } else if (name == "rotate" && !n.empty()) {
+            const double rad = n[0] * 3.14159265358979323846 / 180.0;
+            const double cs = std::cos(rad);
+            const double sn = std::sin(rad);
+            SvgXf r;
+            r.a = cs; r.b = sn; r.c = -sn; r.d = cs;
+            if (n.size() >= 3) {
+                SvgXf to;   to.e = n[1];  to.f = n[2];
+                SvgXf back; back.e = -n[1]; back.f = -n[2];
+                r = to.then(r).then(back);
+            }
+            m = r;
+        } else if (name == "matrix" && n.size() >= 6) {
+            m.a = n[0]; m.b = n[1]; m.c = n[2];
+            m.d = n[3]; m.e = n[4]; m.f = n[5];
+        } else {
+            pos = close + 1;
+            continue;
+        }
+        out = out.then(m);
+        any = true;
+        pos = close + 1;
+    }
+    return any;
+}
+
+// Accumulates a device-space path command stream while tracking the
+// user-space bounding box (for objectBoundingBox gradient mapping).
+// A parsed path in LOCAL (viewBox / userSpace) coordinates — no view
+// transform baked in. The command stream and bbox depend only on the
+// element's shape attributes (d, cx/cy/r, points, …), so a static SVG
+// (jack socket, LCD digit, chevron) parses ONCE and its result is
+// cached per element; the per-paint work is just re-applying the
+// current transform (transform_local_cmds), which is a matrix multiply
+// per point — no string parsing. Position/scale changes reuse the cache.
+struct SvgLocalPath {
+    std::vector<float> cmds;   // kPath* + raw local coords
+    double min_x{std::numeric_limits<double>::max()};
+    double min_y{std::numeric_limits<double>::max()};
+    double max_x{std::numeric_limits<double>::lowest()};
+    double max_y{std::numeric_limits<double>::lowest()};
+    bool has_bbox() const { return min_x <= max_x && min_y <= max_y; }
+};
+
+struct SvgPathSink {
+    // The sink now records LOCAL coordinates; xf is applied later, in
+    // transform_local_cmds, when emitting to the painter. Kept as a
+    // member so bbox-relative gradient math (objectBoundingBox) can read
+    // the transform via the render context.
+    SvgLocalPath local;
+    SvgXf xf;
+
+    void grow(double x, double y) {
+        local.min_x = std::min(local.min_x, x);
+        local.min_y = std::min(local.min_y, y);
+        local.max_x = std::max(local.max_x, x);
+        local.max_y = std::max(local.max_y, y);
+    }
+    void emit(double x, double y) {
+        local.cmds.push_back(static_cast<float>(x));
+        local.cmds.push_back(static_cast<float>(y));
+    }
+    void move(double x, double y) {
+        grow(x, y);
+        local.cmds.push_back(kPathMove);
+        emit(x, y);
+    }
+    void line(double x, double y) {
+        grow(x, y);
+        local.cmds.push_back(kPathLine);
+        emit(x, y);
+    }
+    void cubic(double c1x, double c1y, double c2x, double c2y,
+               double x, double y) {
+        grow(c1x, c1y);
+        grow(c2x, c2y);
+        grow(x, y);
+        local.cmds.push_back(kPathCubic);
+        emit(c1x, c1y);
+        emit(c2x, c2y);
+        emit(x, y);
+    }
+    void close() { local.cmds.push_back(kPathClose); }
+
+    bool has_bbox() const { return local.has_bbox(); }
+};
+
+// Apply a view transform to a cached local-space command stream,
+// producing the device-space stream the painter consumes. Walks the
+// kPath opcodes; each is followed by 1 (Move/Line), 3 (Cubic), or 0
+// (Close) coordinate pairs.
+void transform_local_cmds(const std::vector<float>& local, const SvgXf& xf,
+                          std::vector<float>& out) {
+    out.clear();
+    out.reserve(local.size());
+    std::size_t i = 0;
+    while (i < local.size()) {
+        const float op = local[i++];
+        out.push_back(op);
+        int pairs = 0;
+        if (op == kPathMove || op == kPathLine) pairs = 1;
+        else if (op == kPathCubic) pairs = 3;
+        else if (op == kPathClose) pairs = 0;
+        for (int p = 0; p < pairs && i + 1 < local.size(); ++p) {
+            float px = 0.0f;
+            float py = 0.0f;
+            xf.apply(local[i], local[i + 1], px, py);
+            out.push_back(px);
+            out.push_back(py);
+            i += 2;
+        }
+    }
+}
+
+// Elliptical arc (SVG A command) → cubic segments. Endpoint
+// parameterisation converted per SVG spec F.6.5, sweep split into
+// ≤ 90° segments each approximated with one cubic.
+void svg_arc_to_cubics(SvgPathSink& sink,
+                       double x1, double y1,
+                       double rx, double ry, double rot_deg,
+                       bool large_arc, bool sweep,
+                       double x2, double y2) {
+    constexpr double kPi = 3.14159265358979323846;
+    rx = std::abs(rx);
+    ry = std::abs(ry);
+    if (rx < 1e-9 || ry < 1e-9 ||
+        (std::abs(x1 - x2) < 1e-12 && std::abs(y1 - y2) < 1e-12)) {
+        sink.line(x2, y2);
+        return;
+    }
+    const double phi = rot_deg * kPi / 180.0;
+    const double cos_phi = std::cos(phi);
+    const double sin_phi = std::sin(phi);
+    const double dx2 = (x1 - x2) * 0.5;
+    const double dy2 = (y1 - y2) * 0.5;
+    const double x1p = cos_phi * dx2 + sin_phi * dy2;
+    const double y1p = -sin_phi * dx2 + cos_phi * dy2;
+
+    // Scale radii up if the endpoints cannot be joined by the ellipse.
+    const double lambda = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry);
+    if (lambda > 1.0) {
+        const double s = std::sqrt(lambda);
+        rx *= s;
+        ry *= s;
+    }
+
+    const double rxry = rx * rx * ry * ry;
+    const double rxy1 = rx * rx * y1p * y1p;
+    const double ryx1 = ry * ry * x1p * x1p;
+    double factor = (rxry - rxy1 - ryx1) / (rxy1 + ryx1);
+    if (factor < 0.0) factor = 0.0;
+    double coef = std::sqrt(factor);
+    if (large_arc == sweep) coef = -coef;
+    const double cxp = coef * (rx * y1p / ry);
+    const double cyp = coef * -(ry * x1p / rx);
+    const double cx = cos_phi * cxp - sin_phi * cyp + (x1 + x2) * 0.5;
+    const double cy = sin_phi * cxp + cos_phi * cyp + (y1 + y2) * 0.5;
+
+    const auto angle_of = [&](double ux, double uy) {
+        return std::atan2(uy, ux);
+    };
+    const double theta1 = angle_of((x1p - cxp) / rx, (y1p - cyp) / ry);
+    const double theta2 = angle_of((-x1p - cxp) / rx, (-y1p - cyp) / ry);
+    double dtheta = theta2 - theta1;
+    if (sweep && dtheta < 0.0) {
+        dtheta += 2.0 * kPi;
+    } else if (!sweep && dtheta > 0.0) {
+        dtheta -= 2.0 * kPi;
+    }
+
+    const int segments = std::max(
+        1, static_cast<int>(std::ceil(std::abs(dtheta) / (kPi * 0.5))));
+    const double delta = dtheta / segments;
+    // Cubic control distance for a `delta` arc span.
+    const double t = 4.0 / 3.0 * std::tan(delta * 0.25);
+
+    double theta = theta1;
+    for (int i = 0; i < segments; ++i) {
+        const double next = theta + delta;
+        const double cos_t = std::cos(theta);
+        const double sin_t = std::sin(theta);
+        const double cos_n = std::cos(next);
+        const double sin_n = std::sin(next);
+
+        const auto point = [&](double ct, double st, double& px, double& py) {
+            const double ex = rx * ct;
+            const double ey = ry * st;
+            px = cos_phi * ex - sin_phi * ey + cx;
+            py = sin_phi * ex + cos_phi * ey + cy;
+        };
+        const auto deriv = [&](double ct, double st, double& dx, double& dy) {
+            const double ex = -rx * st;
+            const double ey = ry * ct;
+            dx = cos_phi * ex - sin_phi * ey;
+            dy = sin_phi * ex + cos_phi * ey;
+        };
+        double p0x = 0.0, p0y = 0.0, p1x = 0.0, p1y = 0.0;
+        double d0x = 0.0, d0y = 0.0, d1x = 0.0, d1y = 0.0;
+        point(cos_t, sin_t, p0x, p0y);
+        point(cos_n, sin_n, p1x, p1y);
+        deriv(cos_t, sin_t, d0x, d0y);
+        deriv(cos_n, sin_n, d1x, d1y);
+        sink.cubic(p0x + t * d0x, p0y + t * d0y,
+                   p1x - t * d1x, p1y - t * d1y,
+                   p1x, p1y);
+        theta = next;
+    }
+}
+
+// Full SVG path-data parser. Returns false only when nothing at all
+// could be consumed; a trailing malformed segment keeps what parsed.
+bool build_svg_path_data(std::string_view d, SvgPathSink& sink) {
+    std::size_t pos = 0;
+    const auto skip_seps = [&] {
+        while (pos < d.size() && (is_css_ws(d[pos]) || d[pos] == ',')) ++pos;
+    };
+    const auto read_number = [&](double& out) {
+        skip_seps();
+        if (pos >= d.size()) return false;
+        std::string tail(d.substr(pos));
+        char* end = nullptr;
+        const double v = std::strtod(tail.c_str(), &end);
+        if (end == tail.c_str()) return false;
+        out = v;
+        pos += static_cast<std::size_t>(end - tail.c_str());
+        return true;
+    };
+    const auto read_flag = [&](bool& out) {
+        skip_seps();
+        if (pos >= d.size()) return false;
+        if (d[pos] == '0') { out = false; ++pos; return true; }
+        if (d[pos] == '1') { out = true;  ++pos; return true; }
+        return false;
+    };
+    const auto next_is_number = [&] {
+        skip_seps();
+        if (pos >= d.size()) return false;
+        const char ch = d[pos];
+        return (ch >= '0' && ch <= '9') || ch == '-' || ch == '+' ||
+               ch == '.';
+    };
+
+    double cx = 0.0, cy = 0.0;   // current point
+    double sx = 0.0, sy = 0.0;   // subpath start
+    double pcx = 0.0, pcy = 0.0; // previous cubic control (S reflection)
+    double pqx = 0.0, pqy = 0.0; // previous quad control (T reflection)
+    char cmd = 0;
+    char prev = 0;
+    bool any = false;
+
+    while (true) {
+        skip_seps();
+        if (pos >= d.size()) break;
+        const char ch = d[pos];
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')) {
+            cmd = ch;
+            ++pos;
+        } else if (cmd != 0) {
+            // Implicit repeat; an implicit M repeat becomes L.
+            if (cmd == 'M') cmd = 'L';
+            else if (cmd == 'm') cmd = 'l';
+        } else {
+            break;
+        }
+
+        const bool rel = (cmd >= 'a' && cmd <= 'z');
+        const char op = rel ? static_cast<char>(cmd - 'a' + 'A') : cmd;
+        double n[7] = {};
+        switch (op) {
+            case 'M': {
+                if (!read_number(n[0]) || !read_number(n[1])) return any;
+                cx = rel ? cx + n[0] : n[0];
+                cy = rel ? cy + n[1] : n[1];
+                sx = cx;
+                sy = cy;
+                sink.move(cx, cy);
+                any = true;
+                break;
+            }
+            case 'L': {
+                if (!read_number(n[0]) || !read_number(n[1])) return any;
+                cx = rel ? cx + n[0] : n[0];
+                cy = rel ? cy + n[1] : n[1];
+                sink.line(cx, cy);
+                any = true;
+                break;
+            }
+            case 'H': {
+                if (!read_number(n[0])) return any;
+                cx = rel ? cx + n[0] : n[0];
+                sink.line(cx, cy);
+                any = true;
+                break;
+            }
+            case 'V': {
+                if (!read_number(n[0])) return any;
+                cy = rel ? cy + n[0] : n[0];
+                sink.line(cx, cy);
+                any = true;
+                break;
+            }
+            case 'C': {
+                for (int i = 0; i < 6; ++i) {
+                    if (!read_number(n[i])) return any;
+                }
+                const double c1x = rel ? cx + n[0] : n[0];
+                const double c1y = rel ? cy + n[1] : n[1];
+                const double c2x = rel ? cx + n[2] : n[2];
+                const double c2y = rel ? cy + n[3] : n[3];
+                cx = rel ? cx + n[4] : n[4];
+                cy = rel ? cy + n[5] : n[5];
+                sink.cubic(c1x, c1y, c2x, c2y, cx, cy);
+                pcx = c2x;
+                pcy = c2y;
+                any = true;
+                break;
+            }
+            case 'S': {
+                for (int i = 0; i < 4; ++i) {
+                    if (!read_number(n[i])) return any;
+                }
+                double c1x = cx;
+                double c1y = cy;
+                if (prev == 'C' || prev == 'c' || prev == 'S' ||
+                    prev == 's') {
+                    c1x = 2.0 * cx - pcx;
+                    c1y = 2.0 * cy - pcy;
+                }
+                const double c2x = rel ? cx + n[0] : n[0];
+                const double c2y = rel ? cy + n[1] : n[1];
+                cx = rel ? cx + n[2] : n[2];
+                cy = rel ? cy + n[3] : n[3];
+                sink.cubic(c1x, c1y, c2x, c2y, cx, cy);
+                pcx = c2x;
+                pcy = c2y;
+                any = true;
+                break;
+            }
+            case 'Q': {
+                for (int i = 0; i < 4; ++i) {
+                    if (!read_number(n[i])) return any;
+                }
+                const double qx = rel ? cx + n[0] : n[0];
+                const double qy = rel ? cy + n[1] : n[1];
+                const double ex = rel ? cx + n[2] : n[2];
+                const double ey = rel ? cy + n[3] : n[3];
+                // Elevate quadratic to cubic.
+                sink.cubic(cx + 2.0 / 3.0 * (qx - cx),
+                           cy + 2.0 / 3.0 * (qy - cy),
+                           ex + 2.0 / 3.0 * (qx - ex),
+                           ey + 2.0 / 3.0 * (qy - ey),
+                           ex, ey);
+                cx = ex;
+                cy = ey;
+                pqx = qx;
+                pqy = qy;
+                any = true;
+                break;
+            }
+            case 'T': {
+                if (!read_number(n[0]) || !read_number(n[1])) return any;
+                double qx = cx;
+                double qy = cy;
+                if (prev == 'Q' || prev == 'q' || prev == 'T' ||
+                    prev == 't') {
+                    qx = 2.0 * cx - pqx;
+                    qy = 2.0 * cy - pqy;
+                }
+                const double ex = rel ? cx + n[0] : n[0];
+                const double ey = rel ? cy + n[1] : n[1];
+                sink.cubic(cx + 2.0 / 3.0 * (qx - cx),
+                           cy + 2.0 / 3.0 * (qy - cy),
+                           ex + 2.0 / 3.0 * (qx - ex),
+                           ey + 2.0 / 3.0 * (qy - ey),
+                           ex, ey);
+                cx = ex;
+                cy = ey;
+                pqx = qx;
+                pqy = qy;
+                any = true;
+                break;
+            }
+            case 'A': {
+                bool large = false;
+                bool sweep_flag = false;
+                if (!read_number(n[0]) || !read_number(n[1]) ||
+                    !read_number(n[2]) || !read_flag(large) ||
+                    !read_flag(sweep_flag) || !read_number(n[5]) ||
+                    !read_number(n[6])) {
+                    return any;
+                }
+                const double ex = rel ? cx + n[5] : n[5];
+                const double ey = rel ? cy + n[6] : n[6];
+                svg_arc_to_cubics(sink, cx, cy, n[0], n[1], n[2],
+                                  large, sweep_flag, ex, ey);
+                cx = ex;
+                cy = ey;
+                any = true;
+                break;
+            }
+            case 'Z': {
+                sink.close();
+                cx = sx;
+                cy = sy;
+                any = true;
+                break;
+            }
+            default:
+                return any;
+        }
+        prev = cmd;
+        if (op != 'Z' && !next_is_number()) {
+            // Next token is a command letter (or end); loop handles it.
+        }
+    }
+    return any;
+}
+
+// ── Gradient definitions ────────────────────────────────────────────
+struct SvgGradientStopDef {
+    double      offset{0.0};
+    std::string color;
+    double      opacity{1.0};
+};
+
+struct SvgGradientDef {
+    bool radial{false};
+    bool user_space{false};                  // gradientUnits="userSpaceOnUse"
+    double x1{0.0}, y1{0.0}, x2{1.0}, y2{0.0};  // linear axis
+    double cx{0.5}, cy{0.5}, r{0.5};            // radial geometry
+    std::vector<SvgGradientStopDef> stops;
+};
+
+double parse_svg_coord(lxb_dom_element_t* elem, std::string_view name,
+                       double fallback) {
+    const std::string v = attr_string(elem, name);
+    if (v.empty()) return fallback;
+    char* end = nullptr;
+    const double n = std::strtod(v.c_str(), &end);
+    if (end == v.c_str()) return fallback;
+    if (end != nullptr && *end == '%') return n / 100.0;
+    return n;
+}
+
+void collect_svg_gradients(
+    lxb_dom_element_t* parent,
+    std::unordered_map<std::string, SvgGradientDef>& out) {
+    for (auto* node = lxb_dom_node_first_child(
+             lxb_dom_interface_node(parent));
+         node != nullptr; node = lxb_dom_node_next(node)) {
+        if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* elem = lxb_dom_interface_element(node);
+        const auto tag = ascii_lower(tag_name(elem));
+        if (tag == "lineargradient" || tag == "radialgradient") {
+            const std::string id = attr_string(elem, "id");
+            if (id.empty()) continue;
+            SvgGradientDef def;
+            def.radial = (tag == "radialgradient");
+            def.user_space =
+                attr_string(elem, "gradientUnits") == "userSpaceOnUse";
+            if (def.radial) {
+                def.cx = parse_svg_coord(elem, "cx", 0.5);
+                def.cy = parse_svg_coord(elem, "cy", 0.5);
+                def.r  = parse_svg_coord(elem, "r", 0.5);
+            } else {
+                def.x1 = parse_svg_coord(elem, "x1", 0.0);
+                def.y1 = parse_svg_coord(elem, "y1", 0.0);
+                def.x2 = parse_svg_coord(elem, "x2", 1.0);
+                def.y2 = parse_svg_coord(elem, "y2", 0.0);
+            }
+            for (auto* stop_node = lxb_dom_node_first_child(node);
+                 stop_node != nullptr;
+                 stop_node = lxb_dom_node_next(stop_node)) {
+                if (stop_node->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+                auto* stop_elem = lxb_dom_interface_element(stop_node);
+                if (ascii_lower(tag_name(stop_elem)) != "stop") continue;
+                SvgGradientStopDef stop;
+                stop.offset =
+                    std::clamp(parse_svg_coord(stop_elem, "offset", 0.0),
+                               0.0, 1.0);
+                stop.color = attr_string(stop_elem, "stop-color");
+                if (stop.color.empty()) stop.color = "black";
+                stop.opacity =
+                    std::clamp(parse_svg_coord(stop_elem, "stop-opacity",
+                                               1.0),
+                               0.0, 1.0);
+                def.stops.push_back(std::move(stop));
+            }
+            if (!def.stops.empty()) {
+                out.emplace(id, std::move(def));
+            }
+            continue;
+        }
+        // Recurse into <defs> and any other container.
+        collect_svg_gradients(elem, out);
+    }
+}
+
+// ── Paint resolution ────────────────────────────────────────────────
+struct SvgRenderCtx {
+    Painter& painter;
+    const detail::ResolvedStyle& style;
+    std::unordered_map<std::string, SvgGradientDef> gradients;
+    // Per-element local-geometry parse cache (nullptr = parse every
+    // paint, e.g. the stub build or tests without a Document). Owned by
+    // DocumentImpl; keyed on element pointer + geometry-attr hash.
+    std::unordered_map<const lxb_dom_element_t*,
+                       detail::DocumentImpl::SvgPathCacheEntry>* path_cache{
+        nullptr};
+    // Reusable scratch for the transformed device-space stream, so the
+    // per-paint transform apply doesn't allocate per shape.
+    std::vector<float> xf_scratch;
+};
+
+// Presentation attributes inherited down the SVG element tree.
+struct SvgInherited {
+    std::string fill{"black"};   // SVG spec default paint
+    std::string stroke{"none"};
+    double opacity{1.0};
+    double fill_opacity{1.0};
+    double stroke_opacity{1.0};
+    double stroke_width{1.0};
+    LineCap  cap{LineCap::Butt};
+    LineJoin join{LineJoin::Miter};
+    SvgXf xf;
+};
+
+Color svg_color_with_alpha(std::uint32_t rgba, double alpha_mult) {
+    Color c = detail::unpack_rgba(rgba);
+    c.a = static_cast<std::uint8_t>(
+        std::clamp(std::lround(static_cast<double>(c.a) * alpha_mult),
+                   0L, 255L));
+    return c;
+}
+
+// Resolve fill/stroke paint value → device-space PathPaint. `bbox_*`
+// is the element's user-space bounding box (for objectBoundingBox
+// gradient mapping); `xf` maps user space to device space.
+bool resolve_svg_paint(const std::string& raw_value,
+                       double alpha_mult,
+                       const SvgPathSink& sink,
+                       const SvgRenderCtx& ctx,
+                       PathPaint& out) {
+    const std::string value(trim_css_ws(raw_value));
+    if (value.empty()) return false;
+    const auto lower = ascii_lower(value);
+    if (lower == "none" || lower == "transparent") return false;
+
+    if (lower.rfind("url(", 0) == 0) {
+        const auto close = value.find(')');
+        if (close == std::string::npos) return false;
+        std::string ref(trim_css_ws(
+            std::string_view(value).substr(4, close - 4)));
+        if (!ref.empty() && (ref.front() == '\'' || ref.front() == '"')) {
+            ref = ref.substr(1, ref.size() >= 2 ? ref.size() - 2 : 0);
+        }
+        if (ref.empty() || ref.front() != '#') return false;
+        const auto it = ctx.gradients.find(ref.substr(1));
+        if (it == ctx.gradients.end() || !sink.has_bbox()) return false;
+        const SvgGradientDef& def = it->second;
+
+        out = PathPaint{};
+        out.kind = def.radial ? PathPaint::Kind::Radial
+                              : PathPaint::Kind::Linear;
+        out.stop_count = 0;
+        for (const auto& stop : def.stops) {
+            if (out.stop_count >= PathPaint::kMaxStops) break;
+            std::uint32_t rgba = 0;
+            if (!parse_generated_color(stop.color, ctx.style, rgba)) {
+                continue;
+            }
+            out.offsets[out.stop_count] = static_cast<float>(stop.offset);
+            out.colors[out.stop_count] =
+                svg_color_with_alpha(rgba, stop.opacity * alpha_mult);
+            ++out.stop_count;
+        }
+        if (out.stop_count == 0) return false;
+        if (out.stop_count == 1) {
+            // Degenerate gradient → solid.
+            const Color only = out.colors[0];
+            out = PathPaint::solid(only);
+            return true;
+        }
+
+        const double bw = sink.local.max_x - sink.local.min_x;
+        const double bh = sink.local.max_y - sink.local.min_y;
+        if (def.radial) {
+            double ucx = def.cx;
+            double ucy = def.cy;
+            double ur = def.r;
+            if (!def.user_space) {
+                ucx = sink.local.min_x + def.cx * bw;
+                ucy = sink.local.min_y + def.cy * bh;
+                // Spec: percentage radius resolves against the
+                // normalised diagonal of the bounding box.
+                ur = def.r * std::sqrt((bw * bw + bh * bh) * 0.5);
+            }
+            float dcx = 0.0f;
+            float dcy = 0.0f;
+            sink.xf.apply(ucx, ucy, dcx, dcy);
+            out.x0 = dcx;
+            out.y0 = dcy;
+            out.r0 = 0.0f;
+            out.r1 = static_cast<float>(
+                std::max(0.1, ur * sink.xf.uniform_scale()));
+        } else {
+            double ux1 = def.x1;
+            double uy1 = def.y1;
+            double ux2 = def.x2;
+            double uy2 = def.y2;
+            if (!def.user_space) {
+                ux1 = sink.local.min_x + def.x1 * bw;
+                uy1 = sink.local.min_y + def.y1 * bh;
+                ux2 = sink.local.min_x + def.x2 * bw;
+                uy2 = sink.local.min_y + def.y2 * bh;
+            }
+            sink.xf.apply(ux1, uy1, out.x0, out.y0);
+            sink.xf.apply(ux2, uy2, out.x1, out.y1);
+        }
         return true;
     }
-    std::string s(trim_css_ws(value));
-    char* end = nullptr;
-    const double n = std::strtod(s.c_str(), &end);
-    if (end == s.c_str() || n <= 0.0) return false;
-    out = static_cast<float>(n);
+
+    std::uint32_t rgba = 0;
+    if (!parse_generated_color(value, ctx.style, rgba)) return false;
+    const Color c = svg_color_with_alpha(rgba, alpha_mult);
+    if (c.a == 0) return false;
+    out = PathPaint::solid(c);
     return true;
 }
 
-double angle_from_top_clockwise(double x, double y, double cx, double cy) {
-    constexpr double kRadToDeg = 180.0 / 3.14159265358979323846;
-    return std::atan2(x - cx, cy - y) * kRadToDeg;
+double parse_svg_number_attr(lxb_dom_element_t* elem, std::string_view name,
+                             double fallback) {
+    return parse_svg_coord(elem, name, fallback);
 }
 
-void normalize_clockwise_arc(double& start_deg, double& end_deg, bool large_arc) {
-    while (end_deg <= start_deg) end_deg += 360.0;
-    const double delta = end_deg - start_deg;
-    if (large_arc && delta < 180.0) {
-        end_deg += 360.0;
-    } else if (!large_arc && delta > 180.0) {
-        end_deg -= 360.0;
-        if (end_deg <= start_deg) end_deg += 360.0;
+// ── Shape geometry emitters ─────────────────────────────────────────
+void emit_svg_ellipse(SvgPathSink& sink, double cx, double cy,
+                      double rx, double ry) {
+    // Cubic circle constant.
+    constexpr double k = 0.5522847498307936;
+    const double ox = rx * k;
+    const double oy = ry * k;
+    sink.move(cx + rx, cy);
+    sink.cubic(cx + rx, cy + oy, cx + ox, cy + ry, cx, cy + ry);
+    sink.cubic(cx - ox, cy + ry, cx - rx, cy + oy, cx - rx, cy);
+    sink.cubic(cx - rx, cy - oy, cx - ox, cy - ry, cx, cy - ry);
+    sink.cubic(cx + ox, cy - ry, cx + rx, cy - oy, cx + rx, cy);
+    sink.close();
+}
+
+void emit_svg_rect(SvgPathSink& sink, double x, double y,
+                   double w, double h, double rx, double ry) {
+    if (w <= 0.0 || h <= 0.0) return;
+    rx = std::clamp(rx, 0.0, w * 0.5);
+    ry = std::clamp(ry, 0.0, h * 0.5);
+    if (rx <= 0.0 || ry <= 0.0) {
+        sink.move(x, y);
+        sink.line(x + w, y);
+        sink.line(x + w, y + h);
+        sink.line(x, y + h);
+        sink.close();
+        return;
     }
+    constexpr double k = 0.5522847498307936;
+    const double ox = rx * (1.0 - k);
+    const double oy = ry * (1.0 - k);
+    sink.move(x + rx, y);
+    sink.line(x + w - rx, y);
+    sink.cubic(x + w - ox, y, x + w, y + oy, x + w, y + ry);
+    sink.line(x + w, y + h - ry);
+    sink.cubic(x + w, y + h - oy, x + w - ox, y + h, x + w - rx, y + h);
+    sink.line(x + rx, y + h);
+    sink.cubic(x + ox, y + h, x, y + h - oy, x, y + h - ry);
+    sink.line(x, y + ry);
+    sink.cubic(x, y + oy, x + ox, y, x + rx, y);
+    sink.close();
 }
 
-bool svg_arc_center(const SvgArcPath& arc, double& cx, double& cy, double& r) {
-    // First slice: circular, unrotated arcs. This covers Decius knob rings
-    // and maps directly onto the Painter stroke_arc primitive.
-    if (std::abs(arc.rx - arc.ry) > 0.01 ||
-        std::abs(arc.x_axis_rotation) > 0.01) {
+bool emit_svg_poly(SvgPathSink& sink, lxb_dom_element_t* elem, bool close) {
+    std::vector<double> pts;
+    if (!parse_number_list(attr_string(elem, "points"), pts) ||
+        pts.size() < 4) {
         return false;
     }
-    r = arc.rx;
-    const double dx = (arc.x1 - arc.x2) * 0.5;
-    const double dy = (arc.y1 - arc.y2) * 0.5;
-    const double d2 = dx * dx + dy * dy;
-    if (d2 <= 1e-9) return false;
-    const double chord_half = std::sqrt(d2);
-    if (r < chord_half) r = chord_half;
-    double factor = std::sqrt(std::max(0.0, (r * r) / d2 - 1.0));
-    if (arc.large_arc == arc.sweep) factor = -factor;
-    cx = (arc.x1 + arc.x2) * 0.5 + factor * dy;
-    cy = (arc.y1 + arc.y2) * 0.5 - factor * dx;
+    sink.move(pts[0], pts[1]);
+    for (std::size_t i = 2; i + 1 < pts.size(); i += 2) {
+        sink.line(pts[i], pts[i + 1]);
+    }
+    if (close) sink.close();
     return true;
+}
+
+// ── Element rendering ───────────────────────────────────────────────
+void render_svg_element_tree(lxb_dom_element_t* parent,
+                             SvgRenderCtx& ctx,
+                             const SvgInherited& inherited) {
+    for (auto* node = lxb_dom_node_first_child(
+             lxb_dom_interface_node(parent));
+         node != nullptr; node = lxb_dom_node_next(node)) {
+        if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+        auto* elem = lxb_dom_interface_element(node);
+        const auto tag = ascii_lower(tag_name(elem));
+        if (tag == "defs" || tag == "lineargradient" ||
+            tag == "radialgradient" || tag == "clippath" ||
+            tag == "mask" || tag == "symbol" || tag == "title" ||
+            tag == "desc") {
+            continue;
+        }
+
+        SvgInherited state = inherited;
+        if (const std::string v = attr_string(elem, "fill"); !v.empty()) {
+            state.fill = v;
+        }
+        if (const std::string v = attr_string(elem, "stroke"); !v.empty()) {
+            state.stroke = v;
+        }
+        state.opacity *= std::clamp(
+            parse_svg_number_attr(elem, "opacity", 1.0), 0.0, 1.0);
+        state.fill_opacity = std::clamp(
+            parse_svg_number_attr(elem, "fill-opacity",
+                                  state.fill_opacity),
+            0.0, 1.0);
+        state.stroke_opacity = std::clamp(
+            parse_svg_number_attr(elem, "stroke-opacity",
+                                  state.stroke_opacity),
+            0.0, 1.0);
+        state.stroke_width = parse_svg_number_attr(elem, "stroke-width",
+                                                   state.stroke_width);
+        if (const std::string v = attr_string(elem, "stroke-linecap");
+            !v.empty()) {
+            const auto lc = ascii_lower(v);
+            state.cap = lc == "round"    ? LineCap::Round
+                        : lc == "square" ? LineCap::Square
+                                         : LineCap::Butt;
+        }
+        if (const std::string v = attr_string(elem, "stroke-linejoin");
+            !v.empty()) {
+            const auto lj = ascii_lower(v);
+            state.join = lj == "round"   ? LineJoin::Round
+                         : lj == "bevel" ? LineJoin::Bevel
+                                         : LineJoin::Miter;
+        }
+        if (const std::string v = attr_string(elem, "transform");
+            !v.empty()) {
+            SvgXf local;
+            if (parse_svg_transform(v, local)) {
+                state.xf = state.xf.then(local);
+            }
+        }
+
+        if (tag == "g" || tag == "a" || tag == "svg") {
+            render_svg_element_tree(elem, ctx, state);
+            continue;
+        }
+
+        SvgPathSink sink;
+        sink.xf = state.xf;
+        bool strokable = true;
+        bool fillable = (tag != "line" && tag != "polyline");
+
+        // ── Parse the LOCAL geometry (cached per element) ──────────────
+        // Hash the shape-defining attributes; a cache hit skips string
+        // parsing entirely and reuses the local command stream. Only the
+        // view transform is re-applied below, so a moved/scaled static
+        // SVG still hits the cache. `line` is cheap (2 attrs) and rarely
+        // repeats, so it's parsed inline without a cache lookup.
+        // Leak backstop: a single long-lived document that churns many
+        // distinct SVG elements would otherwise grow the pointer-keyed
+        // map without bound (removed elements never look up again). A
+        // real face has hundreds of shapes, not tens of thousands — well
+        // past that, drop the whole cache and let it refill. Correctness
+        // is unaffected (the cache is a pure memo).
+        if (ctx.path_cache != nullptr && ctx.path_cache->size() > 20000) {
+            ctx.path_cache->clear();
+        }
+        auto* cache_slot =
+            (ctx.path_cache != nullptr && elem != nullptr && tag != "line")
+                ? &(*ctx.path_cache)[elem]
+                : nullptr;
+        bool have_local = false;
+        if (cache_slot != nullptr) {
+            std::size_t h = std::hash<std::string_view>{}(tag);
+            const auto mix = [&](std::string_view v) {
+                h = h * 1099511628211ULL ^
+                    std::hash<std::string_view>{}(v);
+            };
+            for (const char* a :
+                 {"d", "cx", "cy", "r", "rx", "ry", "x", "y", "width",
+                  "height", "x1", "y1", "x2", "y2", "points"}) {
+                mix(attr_view(elem, a));
+            }
+            if (cache_slot->attr_hash == h &&
+                !cache_slot->local_cmds.empty()) {
+                sink.local.cmds = cache_slot->local_cmds;
+                sink.local.min_x = cache_slot->min_x;
+                sink.local.min_y = cache_slot->min_y;
+                sink.local.max_x = cache_slot->max_x;
+                sink.local.max_y = cache_slot->max_y;
+                have_local = cache_slot->has_bbox || !sink.local.cmds.empty();
+            } else {
+                cache_slot->attr_hash = h;  // (re)fill below
+            }
+        }
+
+        if (!have_local) {
+            if (tag == "path") {
+                if (!build_svg_path_data(attr_string(elem, "d"), sink)) {
+                    if (cache_slot) cache_slot->local_cmds.clear();
+                    continue;
+                }
+            } else if (tag == "circle") {
+                const double r = parse_svg_number_attr(elem, "r", 0.0);
+                if (r <= 0.0) continue;
+                emit_svg_ellipse(sink,
+                                 parse_svg_number_attr(elem, "cx", 0.0),
+                                 parse_svg_number_attr(elem, "cy", 0.0),
+                                 r, r);
+            } else if (tag == "ellipse") {
+                const double rx = parse_svg_number_attr(elem, "rx", 0.0);
+                const double ry = parse_svg_number_attr(elem, "ry", 0.0);
+                if (rx <= 0.0 || ry <= 0.0) continue;
+                emit_svg_ellipse(sink,
+                                 parse_svg_number_attr(elem, "cx", 0.0),
+                                 parse_svg_number_attr(elem, "cy", 0.0),
+                                 rx, ry);
+            } else if (tag == "rect") {
+                double rx = parse_svg_number_attr(elem, "rx", -1.0);
+                double ry = parse_svg_number_attr(elem, "ry", -1.0);
+                if (rx < 0.0 && ry >= 0.0) rx = ry;
+                if (ry < 0.0 && rx >= 0.0) ry = rx;
+                emit_svg_rect(sink,
+                              parse_svg_number_attr(elem, "x", 0.0),
+                              parse_svg_number_attr(elem, "y", 0.0),
+                              parse_svg_number_attr(elem, "width", 0.0),
+                              parse_svg_number_attr(elem, "height", 0.0),
+                              std::max(0.0, rx), std::max(0.0, ry));
+                if (sink.local.cmds.empty()) continue;
+            } else if (tag == "line") {
+                sink.move(parse_svg_number_attr(elem, "x1", 0.0),
+                          parse_svg_number_attr(elem, "y1", 0.0));
+                sink.line(parse_svg_number_attr(elem, "x2", 0.0),
+                          parse_svg_number_attr(elem, "y2", 0.0));
+            } else if (tag == "polyline") {
+                if (!emit_svg_poly(sink, elem, /*close=*/false)) continue;
+            } else if (tag == "polygon") {
+                if (!emit_svg_poly(sink, elem, /*close=*/true)) continue;
+            } else {
+                continue;
+            }
+            if (sink.local.cmds.empty()) continue;
+            if (cache_slot != nullptr) {
+                cache_slot->local_cmds = sink.local.cmds;
+                cache_slot->min_x = sink.local.min_x;
+                cache_slot->min_y = sink.local.min_y;
+                cache_slot->max_x = sink.local.max_x;
+                cache_slot->max_y = sink.local.max_y;
+                cache_slot->has_bbox = sink.local.has_bbox();
+            }
+        }
+        if (sink.local.cmds.empty()) continue;
+
+        // ── Apply the view transform → device-space stream (no parse) ──
+        transform_local_cmds(sink.local.cmds, state.xf, ctx.xf_scratch);
+        const float* dev = ctx.xf_scratch.data();
+        const std::size_t dev_n = ctx.xf_scratch.size();
+
+        PathPaint paint{};
+        if (fillable &&
+            resolve_svg_paint(state.fill,
+                              state.opacity * state.fill_opacity,
+                              sink, ctx, paint)) {
+            ctx.painter.fill_path(dev, dev_n, paint);
+        }
+        if (strokable && state.stroke_width > 0.0 &&
+            resolve_svg_paint(state.stroke,
+                              state.opacity * state.stroke_opacity,
+                              sink, ctx, paint)) {
+            const float device_w = static_cast<float>(
+                state.stroke_width * state.xf.uniform_scale());
+            ctx.painter.stroke_path(dev, dev_n,
+                                    paint, std::max(0.1f, device_w),
+                                    state.cap, state.join);
+        }
+    }
 }
 
 #if !defined(AFFINEUI_STUB_BUILD)
-void paint_inline_svg(const Block& b,
+void paint_inline_svg(detail::DocumentImpl& impl,
+                      const Block& b,
                       const Rect& eff,
                       const detail::ComputedStyle& cs,
                       const detail::AnimatedStyle& an,
@@ -3423,65 +4377,26 @@ void paint_inline_svg(const Block& b,
                              vb_x, vb_y, vb_w, vb_h);
     const double sx = static_cast<double>(eff.w) / vb_w;
     const double sy = static_cast<double>(eff.h) / vb_h;
-    const double sr = (sx + sy) * 0.5;
 
     detail::ResolvedStyle svg_style{};
     svg_style.computed = cs;
     svg_style.animated = an;
     svg_style.custom_props = b.custom_props;
 
-    for (auto* node = lxb_dom_node_first_child(lxb_dom_interface_node(svg_elem));
-         node != nullptr; node = lxb_dom_node_next(node)) {
-        if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
-        auto* path_elem = lxb_dom_interface_element(node);
-        if (tag_name(path_elem) != "path") continue;
+    SvgRenderCtx ctx{painter, svg_style, {}};
+    ctx.path_cache = &impl.svg_path_cache;
+    collect_svg_gradients(svg_elem, ctx.gradients);
 
-        SvgArcPath arc;
-        if (!parse_svg_arc_path(attr_string(path_elem, "d"), arc)) continue;
-
-        std::string stroke_value =
-            std::string(trim_css_ws(attr_string(path_elem, "stroke")));
-        if (stroke_value.empty() || ascii_lower(stroke_value) == "none") {
-            continue;
-        }
-
-        std::uint32_t stroke_rgba = 0;
-        if (!parse_generated_color(stroke_value, svg_style, stroke_rgba) ||
-            (stroke_rgba & 0xFFu) == 0) {
-            continue;
-        }
-
-        float stroke_width = 1.0f;
-        if (!parse_svg_stroke_width(attr_string(path_elem, "stroke-width"),
-                                    stroke_width)) {
-            continue;
-        }
-
-        double cx = 0.0;
-        double cy = 0.0;
-        double r = 0.0;
-        if (!svg_arc_center(arc, cx, cy, r)) continue;
-
-        double start = angle_from_top_clockwise(arc.x1, arc.y1, cx, cy);
-        double end = angle_from_top_clockwise(arc.x2, arc.y2, cx, cy);
-        if (!arc.sweep) std::swap(start, end);
-        normalize_clockwise_arc(start, end, arc.large_arc);
-
-        const float px_cx = static_cast<float>(
-            static_cast<double>(eff.x) + (cx - vb_x) * sx);
-        const float px_cy = static_cast<float>(
-            static_cast<double>(eff.y) + (cy - vb_y) * sy);
-        const float px_r = static_cast<float>(r * sr);
-        const float px_w = std::max(0.5f, stroke_width * static_cast<float>(sr));
-
-        painter.stroke_arc(px_cx, px_cy, px_r,
-                           static_cast<float>(start),
-                           static_cast<float>(end),
-                           detail::unpack_rgba(stroke_rgba), px_w);
-    }
+    SvgInherited base;
+    base.xf.a = sx;
+    base.xf.d = sy;
+    base.xf.e = static_cast<double>(eff.x) - vb_x * sx;
+    base.xf.f = static_cast<double>(eff.y) - vb_y * sy;
+    render_svg_element_tree(svg_elem, ctx, base);
 }
 
-void paint_direct_child_svgs(const Block& b,
+void paint_direct_child_svgs(detail::DocumentImpl& impl,
+                             const Block& b,
                              const Rect& eff,
                              const detail::ComputedStyle& cs,
                              const detail::AnimatedStyle& an,
@@ -3492,7 +4407,7 @@ void paint_direct_child_svgs(const Block& b,
         if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
         auto* elem = lxb_dom_interface_element(node);
         if (tag_name(elem) == "svg") {
-            paint_inline_svg(b, eff, cs, an, painter, elem);
+            paint_inline_svg(impl, b, eff, cs, an, painter, elem);
         }
     }
 }
@@ -3953,11 +4868,35 @@ lxb_dom_element_t* parent_element(lxb_dom_element_t* elem) {
 bool element_matches_compound(lxb_dom_element_t* elem,
                               const CompoundSelector& compound) {
     if (!elem) return false;
-    const auto tag = tag_name(elem);
-    const auto id = attr_string(elem, "id");
-    const auto classes = split_classes(attr_string(elem, "class"));
-    const auto attrs = element_attrs(elem);
-    return compound_matches(compound, tag, id, classes, &attrs);
+    // Match directly against lexbor's storage. This runs per rule ×
+    // element inside collect_blocks (generated-content matching), where
+    // the old materialize-everything form (tag/id strings + class token
+    // vector + a vector of ALL attributes as string pairs) was the
+    // dominant recollect cost in profiles — pure temporary heap churn.
+    for (const auto& s : compound.simples) {
+        switch (s.kind) {
+            case SimpleSelector::Kind::Tag:
+                if (tag_view(elem) != s.name) return false;
+                break;
+            case SimpleSelector::Kind::Id:
+                if (attr_view(elem, "id") != s.name) return false;
+                break;
+            case SimpleSelector::Kind::Class:
+                if (!class_tokens_contain(attr_view(elem, "class"),
+                                          s.name)) {
+                    return false;
+                }
+                break;
+            case SimpleSelector::Kind::Attr:
+                if (!has_attr(elem, s.name)) return false;
+                if (s.attr_value_set &&
+                    attr_view(elem, s.name) != s.value) {
+                    return false;
+                }
+                break;
+        }
+    }
+    return true;
 }
 
 bool dom_ancestor_chain_matches(const std::vector<CompoundSelector>& ancestors,
@@ -4692,6 +5631,9 @@ Document& Document::operator=(Document&&) noexcept = default;
 void Document::set_html(std::string_view html) {
     const auto previous_scroll =
         snapshot_scroll_state(*impl_, /*include_elements=*/false);
+    // The whole DOM is being replaced — any view-reconcile node mapping
+    // is now stale.
+    if (impl_->view_sink_reset) impl_->view_sink_reset();
     impl_->html.assign(html);
     impl_->blocks.clear();
     impl_->style_store.reset();
@@ -4730,6 +5672,9 @@ void Document::set_html(std::string_view html) {
     impl_->sheets.clear();
     impl_->attr_subtree_local_cache.clear();
     impl_->attr_subject_confined_cache.clear();
+    // Every element in the old document is destroyed here, so the
+    // pointer-keyed SVG geometry cache must go with them.
+    impl_->svg_path_cache.clear();
     impl_->pseudo_rules.clear();
     impl_->rule_fills.clear();
     impl_->generated_content_rules.clear();
@@ -4999,11 +5944,23 @@ bool update_dcs_vec_compression(
     detail::DocumentImpl& impl,
     const std::vector<std::vector<int>>& child_indices,
     const std::vector<detail::ComputedStyle>& layout_styles);
+void debug_validate_attr_lists(detail::DocumentImpl& impl, const char* where);
+void settle_view_batch(detail::DocumentImpl& impl);
 #endif
 }  // namespace
 
 void Document::layout(int viewport_width, int viewport_height,
                       Painter* measurer) {
+#if !defined(AFFINEUI_STUB_BUILD)
+    detail::TraceSpan layout_span("layout");
+    // §8.2 ensure-layout gate: a geometry consumer is forcing layout while
+    // a view batch is still open (P4 — e.g. find_element_rect's hidden
+    // relayout reached from a builder measuring mid-build). Settle the
+    // batch's recorded work first: laying out the un-settled block tree
+    // would walk blocks whose elements the batch already destroyed.
+    if (impl_->view_batch_active) settle_view_batch(*impl_);
+    debug_validate_attr_lists(*impl_, "layout-entry");
+#endif
     // Layout delegates to Yoga via src/layout/yoga_adapter. Text
     // leaves get a Yoga measure callback that calls nvgTextBoxBounds
     // â€” Yoga asks "given width W, what height?" and we return the
@@ -5894,6 +6851,63 @@ Mat2x3 effective_transform_for(const detail::DocumentImpl& impl, int idx) {
 }
 #endif
 
+namespace {
+
+// Defined later in this TU (live-control section); the knob chrome
+// painter below shares their geometry conventions.
+double normalized_control_value(double value, double min, double max);
+double decius_knob_angle(double min, double max, double value);
+
+// Append a circular arc as ≤90° cubic segments onto a kPath command
+// stream (caller seeds the leading kPathMove). Y-down coordinates,
+// angles in degrees, increasing = clockwise on screen — the same
+// convention as decius_knob_ring_point. Negative sweeps work (bipolar
+// knobs left of center).
+void append_arc_cubics(std::vector<float>& cmds, float cx, float cy,
+                       float r, double a0_deg, double a1_deg) {
+    constexpr double pi = 3.14159265358979323846;
+    const double total = (a1_deg - a0_deg) * pi / 180.0;
+    if (total == 0.0) return;
+    const int segs = std::max(
+        1, static_cast<int>(std::ceil(std::abs(total) / (pi * 0.5))));
+    double phi = a0_deg * pi / 180.0;
+    const double step = total / segs;
+    for (int s = 0; s < segs; ++s) {
+        const double p0 = phi;
+        const double p1 = phi + step;
+        const double k = 4.0 / 3.0 * std::tan((p1 - p0) * 0.25) *
+                         static_cast<double>(r);
+        const float x0 = cx + r * static_cast<float>(std::cos(p0));
+        const float y0 = cy + r * static_cast<float>(std::sin(p0));
+        const float x3 = cx + r * static_cast<float>(std::cos(p1));
+        const float y3 = cy + r * static_cast<float>(std::sin(p1));
+        const float c1x = x0 - static_cast<float>(std::sin(p0) * k);
+        const float c1y = y0 + static_cast<float>(std::cos(p0) * k);
+        const float c2x = x3 + static_cast<float>(std::sin(p1) * k);
+        const float c2y = y3 - static_cast<float>(std::cos(p1) * k);
+        cmds.insert(cmds.end(),
+                    {kPathCubic, c1x, c1y, c2x, c2y, x3, y3});
+        phi = p1;
+    }
+}
+
+// Numeric data-* attribute straight off the element (paint-time read;
+// block.attrs can lag live-control writes within a frame).
+double elem_attr_num(lxb_dom_element_t* elem, std::string_view name,
+                     double fallback) {
+    const auto v = attr_view(elem, name);
+    if (v.empty()) return fallback;
+    char buf[48];
+    const auto n = std::min(v.size(), sizeof(buf) - 1);
+    std::memcpy(buf, v.data(), n);
+    buf[n] = '\0';
+    char* end = nullptr;
+    const double parsed = std::strtod(buf, &end);
+    return end == buf ? fallback : parsed;
+}
+
+}  // namespace
+
 void Document::draw(Painter& painter) {
     // Document::draw paints through *any* Painter â€” could be the real
     // NanoVGPainter, could be a DisplayListBuilder that records into
@@ -6472,7 +7486,20 @@ void Document::draw(Painter& painter) {
 
 #if !defined(AFFINEUI_STUB_BUILD)
         if (auto* elem = impl_->style_store.element_of(b.id)) {
-            paint_direct_child_svgs(b, eff, cs, an, painter, elem);
+            paint_direct_child_svgs(*impl_, b, eff, cs, an, painter, elem);
+            // Custom paint (canvas): delegate the element's border box to
+            // the app handler named by data-aui-paint. Runs after any
+            // inline-svg children so a handler can overlay static art.
+            if (!impl_->paint_handlers.empty()) {
+                if (const auto handler_name =
+                        attr_string(elem, "data-aui-paint");
+                    !handler_name.empty()) {
+                    if (auto it = impl_->paint_handlers.find(handler_name);
+                        it != impl_->paint_handlers.end() && it->second) {
+                        it->second(painter, eff);
+                    }
+                }
+            }
         }
 #endif
 
@@ -7333,6 +8360,128 @@ void Document::draw(Painter& painter) {
             }
         }
 
+        // ── Knob chrome (UA-drawn, same tier as checkbox/radio/switch) ──
+        // Ring + value arc paint here, UNDER the cap child block; the
+        // indicator paints in the CAP's own chrome below so it lands on
+        // top — matching the framework DOM's stacking (ring < cap <
+        // indicator). All state reads from data-* attrs at paint time:
+        // a knob move is one attribute write — no SVG path strings, no
+        // per-paint reparse ("SVG → static, paint → dynamic").
+        constexpr double kDegRad = 3.14159265358979323846 / 180.0;
+        if (block_has_attr(b, "data-dcs-knob") ||
+            block_has_attr(b, "data-aui-knob")) {
+            auto* kelem = impl_->style_store.element_of(b.id);
+            const float side = std::min(static_cast<float>(eff.w),
+                                        static_cast<float>(eff.h));
+            if (kelem != nullptr && side > 4.0f) {
+                const float scale = side / 24.0f;
+                const float kcx = static_cast<float>(eff.x) +
+                                  static_cast<float>(eff.w) * 0.5f;
+                const float kcy = static_cast<float>(eff.y) +
+                                  static_cast<float>(eff.h) * 0.5f;
+                const float radius = 10.5f * scale;
+                std::vector<float> cmds;
+                cmds.reserve(46);
+                const auto seed = [&](double deg) {
+                    cmds.clear();
+                    cmds.push_back(kPathMove);
+                    cmds.push_back(kcx + radius * static_cast<float>(
+                                             std::cos(deg * kDegRad)));
+                    cmds.push_back(kcy + radius * static_cast<float>(
+                                             std::sin(deg * kDegRad)));
+                };
+                // Ring background: -225° → 45°. Decius rings are white @
+                // 8%; the aui/Bootstrap variant used rgba(108,117,125,.35).
+                const bool aui_variant =
+                    !block_has_attr(b, "data-dcs-knob");
+                seed(-225.0);
+                append_arc_cubics(cmds, kcx, kcy, radius, -225.0, 45.0);
+                painter.stroke_path(cmds.data(), cmds.size(),
+                                    PathPaint::solid(
+                                        aui_variant
+                                            ? Color{108, 117, 125, 89}
+                                            : Color{255, 255, 255, 20}),
+                                    1.5f * scale, LineCap::Round,
+                                    LineJoin::Round);
+                // Value arc in the accent color.
+                const double vmin = elem_attr_num(kelem, "data-min", 0.0);
+                const double vmax = elem_attr_num(kelem, "data-max", 1.0);
+                const double val = elem_attr_num(kelem, "data-value", vmin);
+                const bool bipolar = has_attr(kelem, "data-bipolar");
+                const double p = normalized_control_value(val, vmin, vmax);
+                const double sweep = (bipolar ? p - 0.5 : p) * 270.0;
+                if (std::abs(sweep) > 0.5) {
+                    const double start = bipolar ? -90.0 : -225.0;
+                    detail::ResolvedStyle vrs;
+                    vrs.computed = cs;
+                    vrs.animated = an;
+                    vrs.custom_props = b.custom_props;
+                    // Bootstrap-blue fallback for the aui variant (its
+                    // old arc was a literal #0d6efd); Decius resolves
+                    // its accent custom property.
+                    std::uint32_t accent =
+                        aui_variant ? 0x0D6EFDFFu : 0x4D9FFFFFu;
+                    (void) parse_generated_color("var(--dcs-accent)", vrs,
+                                                 accent);
+                    seed(start);
+                    append_arc_cubics(cmds, kcx, kcy, radius, start,
+                                      start + sweep);
+                    painter.stroke_path(
+                        cmds.data(), cmds.size(),
+                        PathPaint::solid(detail::unpack_rgba(accent)),
+                        1.75f * scale, LineCap::Round, LineJoin::Round);
+                }
+            }
+        }
+        if ((block_has_class(b, "dcs-knob__cap") ||
+             block_has_class(b, "aui-knob__cap")) &&
+            b.parent_idx >= 0 &&
+            static_cast<std::size_t>(b.parent_idx) < impl_->blocks.size()) {
+            const auto& kb =
+                impl_->blocks[static_cast<std::size_t>(b.parent_idx)];
+            auto* kelem = impl_->style_store.element_of(kb.id);
+            if (kelem != nullptr && (has_attr(kelem, "data-dcs-knob") ||
+                                     has_attr(kelem, "data-aui-knob"))) {
+                // The cap is inset 18% per side, so the knob box is
+                // cap/0.64; indicator length is 38% of the knob box
+                // (.dcs-knob__indicator: height 38%, pivot at center,
+                // angle 0 = straight up, clockwise positive).
+                const float cap_side = std::min(static_cast<float>(eff.w),
+                                                static_cast<float>(eff.h));
+                const float kcx = static_cast<float>(eff.x) +
+                                  static_cast<float>(eff.w) * 0.5f;
+                const float kcy = static_cast<float>(eff.y) +
+                                  static_cast<float>(eff.h) * 0.5f;
+                const float len = cap_side * (0.38f / 0.64f);
+                const double vmin = elem_attr_num(kelem, "data-min", 0.0);
+                const double vmax = elem_attr_num(kelem, "data-max", 1.0);
+                const double val = elem_attr_num(kelem, "data-value", vmin);
+                const double angle =
+                    decius_knob_angle(vmin, vmax, val) * kDegRad;
+                const float tx =
+                    kcx + len * static_cast<float>(std::sin(angle));
+                const float ty =
+                    kcy - len * static_cast<float>(std::cos(angle));
+                // Resolve --dcs-accent against the KNOB block's style
+                // (where the custom property cascades to), not the cap's.
+                detail::ResolvedStyle vrs;
+                vrs.computed = impl_->style_store.computed(kb.id);
+                vrs.animated = impl_->style_store.animated(kb.id);
+                vrs.custom_props = kb.custom_props;
+                std::uint32_t accent =
+                    has_attr(kelem, "data-dcs-knob") ? 0x4D9FFFFFu
+                                                     : 0x0D6EFDFFu;
+                (void) parse_generated_color("var(--dcs-accent)", vrs,
+                                             accent);
+                const float icmds[] = {kPathMove, kcx, kcy,
+                                       kPathLine, tx, ty};
+                painter.stroke_path(icmds, 6,
+                                    PathPaint::solid(
+                                        detail::unpack_rgba(accent)),
+                                    2.0f, LineCap::Round, LineJoin::Round);
+            }
+        }
+
         if (block_has_class(b, "dcs-check__box") && b.parent_idx >= 0 &&
             static_cast<std::size_t>(b.parent_idx) < impl_->blocks.size()) {
             const auto& parent =
@@ -7568,8 +8717,19 @@ bool rect_contains_float(const Rect& r, float x, float y) noexcept {
 #endif
 
 bool hit_test_skip_for_pointer(const Block& block) {
-    return block_has_class(block, "dcs-panel__resize-zones") ||
-           block_has_class(block, "dcs-panel__resize");
+    if (block_has_class(block, "dcs-panel__resize-zones") ||
+        block_has_class(block, "dcs-panel__resize")) {
+        return true;
+    }
+    // Honor inline `pointer-events:none` — overlay layers (patch-cable
+    // SVG, ghosts, HUDs) opt out of hit-testing the standard CSS way.
+    if (const auto* style = block_attr_value(block, "style")) {
+        if (style->find("pointer-events:none") != std::string::npos ||
+            style->find("pointer-events: none") != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool hit_test_skip_for_dock_target(const Block& block) {
@@ -9125,6 +10285,7 @@ bool selector_mutation_reveals_hidden_subtree(detail::DocumentImpl& impl,
             if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
             if (c->ns != LXB_NS_HTML) continue;
             auto* child = lxb_dom_interface_element(c);
+            if (tag_view(child) == "svg") continue;  // paints, never boxes
             if (block_index_for_exact_element(impl, child) >= 0) continue;
             if (impl.resolver->resolve(child, impl.root_style)
                     .computed.display != Display::None) {
@@ -9169,6 +10330,13 @@ bool selector_mutation_reveals_hidden_subtree(detail::DocumentImpl& impl,
             // their box participation is handled by their own subtree pass.
             if (c->ns != LXB_NS_HTML) continue;
             auto* child = lxb_dom_interface_element(c);
+            // Inline <svg> never collects boxes — it paints through its
+            // parent's block (paint_direct_child_svgs). View-built svg
+            // (knob rings/arcs, LCD digits) is HTML-namespace, so without
+            // this tag check every such widget reads as a permanently
+            // "revealed" hidden subtree and each attr write on it forces
+            // a full recollect (measured: 42 recollects per knob drag).
+            if (tag_view(child) == "svg") continue;
             if (blocked_elems.count(child) != 0) continue;
             // No Block for this child — it resolved to display:none when boxes
             // were last collected. If it now resolves visible, a hidden subtree
@@ -9176,6 +10344,13 @@ bool selector_mutation_reveals_hidden_subtree(detail::DocumentImpl& impl,
             if (impl.resolver &&
                 impl.resolver->resolve(child, parent_rs).computed.display !=
                     Display::None) {
+                if (std::getenv("AFFINEUI_MENU_TRACE") != nullptr) {
+                    std::fprintf(stderr,
+                                 "[reveal] blockless child <%s> cls='%s' "
+                                 "under blk %d\n",
+                                 tag_name(child).c_str(),
+                                 attr_string(child, "class").c_str(), idx);
+                }
                 return true;
             }
         }
@@ -9221,6 +10396,7 @@ bool pseudo_state_reveals_hidden_subtree(detail::DocumentImpl& impl,
             if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
             if (c->ns != LXB_NS_HTML) continue;
             auto* child = lxb_dom_interface_element(c);
+            if (tag_view(child) == "svg") continue;  // paints, never boxes
             if (block_index_for_exact_element(impl, child) >= 0) continue;
             auto rs = impl.resolver->resolve(child, parent_rs);
             Block pseudo_block;
@@ -9270,6 +10446,78 @@ struct MutationTraceTimer {
     }
 };
 
+// TEMP DEBUG (AFFINEUI_ATTR_CHECK=1): sweep every block's element and
+// verify the lexbor attr-list invariants (first/last nullness agree, the
+// chain's prev/next links are consistent, every attr owns back to the
+// element, and the walk terminates at last_attr). Prints the first
+// corrupt element so the corruption WINDOW can be bracketed by call site.
+void debug_validate_attr_lists(detail::DocumentImpl& impl, const char* where) {
+    static const bool on = std::getenv("AFFINEUI_ATTR_CHECK") != nullptr;
+    if (!on) return;
+    std::size_t corrupt = 0;
+    for (std::size_t i = 0; i < impl.blocks.size(); ++i) {
+        auto* e = impl.style_store.element_of(impl.blocks[i].id);
+        if (!e) continue;
+        const char* what = nullptr;
+        if ((e->first_attr == nullptr) != (e->last_attr == nullptr)) {
+            what = "first/last nullness mismatch";
+        } else {
+            std::size_t n = 0;
+            lxb_dom_attr_t* prev = nullptr;
+            lxb_dom_attr_t* a = e->first_attr;
+            for (; a != nullptr; a = a->next) {
+                if (a->prev != prev) { what = "prev link broken"; break; }
+                if (a->owner != e) { what = "owner mismatch"; break; }
+                prev = a;
+                if (++n > 64) { what = "chain too long/cyclic"; break; }
+            }
+            if (!what && prev != e->last_attr) what = "last_attr mismatch";
+        }
+        if (what) {
+            ++corrupt;
+            if (corrupt > 3) continue;  // summary line reports the total
+            std::string cls;
+            for (const auto& c : impl.blocks[i].classes) {
+                cls += c;
+                cls += ' ';
+            }
+            std::fprintf(stderr,
+                         "[attrcheck:%s] CORRUPT block=%zu tag=%s id=%s "
+                         "cls=%s elem=%p ntype=%d nlocal=%u first=%p "
+                         "last=%p: %s\n",
+                         where, i, impl.blocks[i].tag.c_str(),
+                         impl.blocks[i].elem_id.c_str(), cls.c_str(),
+                         static_cast<void*>(e),
+                         static_cast<int>(lxb_dom_interface_node(e)->type),
+                         static_cast<unsigned>(
+                             lxb_dom_interface_node(e)->local_name),
+                         static_cast<void*>(e->first_attr),
+                         static_cast<void*>(e->last_attr), what);
+            std::size_t k = 0;
+            for (auto* a = e->first_attr; a != nullptr && k < 8;
+                 a = a->next, ++k) {
+                std::fprintf(stderr,
+                             "    attr[%zu]=%p name=%u owner=%p%s prev=%p "
+                             "next=%p value=%.32s\n",
+                             k, static_cast<void*>(a),
+                             static_cast<unsigned>(a->node.local_name),
+                             static_cast<void*>(a->owner),
+                             a->owner == e ? "(self)" : "(OTHER)",
+                             static_cast<void*>(a->prev),
+                             static_cast<void*>(a->next),
+                             a->value && a->value->data
+                                 ? reinterpret_cast<const char*>(
+                                       a->value->data)
+                                 : "<null>");
+            }
+            std::fflush(stderr);
+        }
+    }
+    std::fprintf(stderr, "[attrcheck:%s] swept %zu blocks, %zu corrupt\n",
+                 where, impl.blocks.size(), corrupt);
+    std::fflush(stderr);
+}
+
 bool set_attribute_on_element(detail::DocumentImpl& impl,
                               lxb_dom_element_t* elem,
                               std::string_view name,
@@ -9308,6 +10556,42 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
         return false;
     }
 
+    // Batched contract: inside a view batch EVERY attr write does only the
+    // raw mutation + O(1) bookkeeping; end_view_mutations settles every
+    // recorded root with ONE rematch/resolver-clear/restyle/reveal pass.
+    // This includes non-selector-affecting attrs (style etc.): their old
+    // immediate restyle_subtree walked blocks whose elements THIS batch may
+    // already have destroyed — restyle inside the window is never safe.
+    if (impl.view_batch_active) {
+        if (recollect_generated_subtree) {
+            impl.view_structure_dirty = true;  // structural settle supersedes
+            return true;
+        }
+        bool needs_subtree_rematch = false;
+        if (selector_affecting) {
+            needs_subtree_rematch = true;
+            if (lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
+                attribute_matches_confined_to_subject(impl, name)) {
+                // Element-local rematch is cheap — run it now so batch end
+                // only re-matches subtrees for attrs whose rules escape the
+                // subject.
+                (void) lxb_html_document_element_styles_rematch(
+                    lxb_html_interface_element(lxb_dom_interface_node(elem)));
+                needs_subtree_rematch = false;
+            }
+        }
+        bool force_layout = false;
+        if (target_idx >= 0) {
+            auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
+            refresh_block_metadata_from_element(block, elem);
+            if (block.tag == "img" && name == "src") force_layout = true;
+        }
+        impl.view_batch_attr_roots.push_back(
+            {mutation_dirty_root_idx, old_rect, needs_subtree_rematch,
+             force_layout});
+        return true;
+    }
+
     bool needs_layout = false;
     if (selector_affecting) {
         auto tp = std::chrono::steady_clock::now();
@@ -9318,8 +10602,10 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
             tp = now;
             return ms;
         };
-        // Subject-confined attribute: rematch only the mutated element
-        // (see set_attribute_on_element).
+        // When the attribute only ever appears in subject compounds, no
+        // other element's match set can change — rematch just this element
+        // instead of the whole dirty subtree (the dominant cost of menu
+        // hidden-toggles on large documents).
         if (lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
             attribute_matches_confined_to_subject(impl, name)) {
             if (lxb_html_document_element_styles_rematch(
@@ -9435,6 +10721,33 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
         return false;
     }
 
+    // Batched contract — mirrors set_attribute_on_element above (ALL attrs
+    // defer to the settle; per-op restyle inside the window is never safe).
+    if (impl.view_batch_active) {
+        if (recollect_generated_subtree) {
+            impl.view_structure_dirty = true;  // structural settle supersedes
+            return true;
+        }
+        bool needs_subtree_rematch = false;
+        if (selector_affecting) {
+            needs_subtree_rematch = true;
+            if (lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
+                attribute_matches_confined_to_subject(impl, name)) {
+                (void) lxb_html_document_element_styles_rematch(
+                    lxb_html_interface_element(lxb_dom_interface_node(elem)));
+                needs_subtree_rematch = false;
+            }
+        }
+        if (target_idx >= 0) {
+            auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
+            refresh_block_metadata_from_element(block, elem);
+        }
+        impl.view_batch_attr_roots.push_back(
+            {mutation_dirty_root_idx, old_rect, needs_subtree_rematch,
+             /*force_layout=*/false});
+        return true;
+    }
+
     bool needs_layout = false;
     if (selector_affecting) {
         auto tp = std::chrono::steady_clock::now();
@@ -9445,10 +10758,8 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
             tp = now;
             return ms;
         };
-        // When the attribute only ever appears in subject compounds, no
-        // other element's match set can change — rematch just this element
-        // instead of the whole dirty subtree (the dominant cost of menu
-        // hidden-toggles on large documents).
+        // Subject-confined attribute: rematch only the mutated element
+        // (see set_attribute_on_element).
         if (lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
             attribute_matches_confined_to_subject(impl, name)) {
             if (lxb_html_document_element_styles_rematch(
@@ -9534,9 +10845,61 @@ bool set_text_on_element(detail::DocumentImpl& impl,
         return false;
     }
     auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
-    block.text = std::string(text);
+    // Where does this element's text PAINT? collect_blocks stores element
+    // text in an ANONYMOUS "#text" child block (under a synthetic line-box
+    // run) when the subtree was collected structurally; simple leaves carry
+    // it on the element block itself. Writing the element block while a
+    // "#text" descendant exists leaves that descendant's stale glyphs
+    // painting beneath every later value (T11: affinetools' live counter
+    // drew old+new text stacked) — update the run that actually paints.
+    int lone_text_idx = -1;
+    bool lone_text_shape = true;
+    for (std::size_t i = static_cast<std::size_t>(target_idx) + 1;
+         i < impl.blocks.size(); ++i) {
+        // Preorder: target's subtree is contiguous; stop at the first block
+        // whose ancestry climbs past target_idx without hitting it.
+        int a = impl.blocks[i].parent_idx;
+        while (a > target_idx) {
+            a = impl.blocks[static_cast<std::size_t>(a)].parent_idx;
+        }
+        if (a != target_idx) break;
+        const Block& d = impl.blocks[i];
+        if (d.tag == "#text") {
+            if (lone_text_idx >= 0) {
+                lone_text_shape = false;  // several runs → mixed content
+                break;
+            }
+            lone_text_idx = static_cast<int>(i);
+        } else if (!d.synthetic) {
+            lone_text_shape = false;  // real element children → mixed
+            break;
+        }
+    }
+    if (lone_text_shape && lone_text_idx >= 0) {
+        impl.blocks[static_cast<std::size_t>(lone_text_idx)].text =
+            std::string(text);
+        block.text.clear();  // the parent copy must never double-paint
+    } else {
+        block.text = std::string(text);
+    }
+    // An absolutely-positioned text LEAF is layout-isolated: its box
+    // takes no part in sibling flow, its width comes from insets/props
+    // (not from the text), and text paints straight from block.text +
+    // bounds each frame. Live per-move label updates (knob values) then
+    // cost a repaint, not a document relayout — the relayout was a
+    // measured 5.6 ms on EVERY knob-drag frame of the synth. Any real
+    // size change is trued up by the next genuine layout pass.
+    const auto& cs = impl.style_store.computed(block.id);
+    const bool has_child_block =
+        target_idx + 1 < static_cast<int>(impl.blocks.size()) &&
+        impl.blocks[static_cast<std::size_t>(target_idx) + 1].parent_idx ==
+            target_idx;
+    const bool layout_isolated =
+        !has_child_block &&
+        (cs.position == detail::ComputedStyle::Position::Absolute ||
+         cs.position == detail::ComputedStyle::Position::Fixed);
     mark_live_mutation_dirty(impl, target_idx, old_rect,
-                             /*needs_layout=*/true);
+                             /*needs_layout=*/!layout_isolated);
     return true;
 }
 
@@ -9597,6 +10960,37 @@ std::string decius_slider_fill_style(double min, double max, double value,
 
 std::string decius_slider_thumb_style(double min, double max, double value) {
     return "left:" + percent_string(normalized_control_value(value, min, max));
+}
+
+// Replace/append one declaration in an inline style string, preserving
+// every other declaration (a fader's inline height must survive the
+// drag rewriting --pos).
+std::string style_with_decl(std::string_view existing,
+                            std::string_view prop,
+                            std::string_view value) {
+    std::string out;
+    std::size_t pos = 0;
+    while (pos < existing.size()) {
+        auto end = existing.find(';', pos);
+        if (end == std::string_view::npos) end = existing.size();
+        const auto decl = trim_css_ws(existing.substr(pos, end - pos));
+        if (!decl.empty()) {
+            const auto colon = decl.find(':');
+            const auto name =
+                trim_css_ws(colon == std::string_view::npos
+                                ? decl
+                                : decl.substr(0, colon));
+            if (name != prop) {
+                out.append(decl);
+                out.push_back(';');
+            }
+        }
+        pos = end + 1;
+    }
+    out.append(prop);
+    out.push_back(':');
+    out.append(value);
+    return out;
 }
 
 std::string decius_fader_style(double min, double max, double value) {
@@ -9765,32 +11159,22 @@ bool update_live_control_value(detail::DocumentImpl& impl,
                 decius_slider_thumb_style(min, max, clamped)) || changed;
         }
     } else if (kind == LiveControlKind::DeciusFader) {
+        const double fader_pos =
+            1.0 - normalized_control_value(clamped, min, max);
         changed = set_attribute_on_element(
             impl, elem, "style",
-            decius_fader_style(min, max, clamped)) || changed;
+            style_with_decl(attr_string(elem, "style"), "--pos",
+                            percent_string(fader_pos))) || changed;
     } else if (kind == LiveControlKind::AuiKnob ||
                kind == LiveControlKind::DeciusKnob) {
-        const char* indicator_class = kind == LiveControlKind::AuiKnob
-            ? "aui-knob__indicator"
-            : "dcs-knob__indicator";
-        const char* arc_class = kind == LiveControlKind::AuiKnob
-            ? "aui-knob__arc"
-            : "dcs-knob__arc";
+        // Ring/arc/indicator are UA-painted from data-min/max/value +
+        // data-bipolar (document.cpp knob chrome), which the data-value
+        // write above already updated — a knob move needs NO SVG path
+        // string, no indicator --angle, no per-paint reparse. Only the
+        // numeric value label lives in the DOM.
         const char* value_class = kind == LiveControlKind::AuiKnob
             ? "aui-knob__value"
             : "dcs-knob__value";
-        if (auto* indicator = first_descendant_with_class(elem, indicator_class)) {
-            changed = set_attribute_on_element(
-                impl, indicator, "style",
-                "--angle:" + compact_number(
-                    decius_knob_angle(min, max, clamped)) + "deg") || changed;
-        }
-        if (auto* arc = first_descendant_with_class(elem, arc_class)) {
-            const auto path = decius_knob_arc_path(min, max, clamped, bipolar);
-            changed = path.empty()
-                ? (remove_attribute_on_element(impl, arc, "d") || changed)
-                : (set_attribute_on_element(impl, arc, "d", path) || changed);
-        }
         if (auto* label = first_descendant_with_class(elem, value_class)) {
             changed = set_text_on_element(impl, label, value_text) || changed;
         }
@@ -10361,8 +11745,7 @@ bool find_button_group_option_at(detail::DocumentImpl& impl,
 }
 
 bool class_list_contains(lxb_dom_element_t* elem, std::string_view cls) {
-    const auto classes = split_classes(attr_string(elem, "class"));
-    return std::find(classes.begin(), classes.end(), cls) != classes.end();
+    return class_tokens_contain(attr_view(elem, "class"), cls);
 }
 
 std::string class_list_set(lxb_dom_element_t* elem,
@@ -10392,6 +11775,40 @@ bool set_element_class(detail::DocumentImpl& impl,
     if (class_list_contains(elem, cls) == present) return false;
     return set_attribute_on_element(impl, elem, "class",
                                     class_list_set(elem, cls, present));
+}
+
+// Layout-time responsive class toggle (dcs-vec compression): raw DOM
+// write + element-local rematch + scoped restyle ONLY. The caller runs
+// INSIDE Document::layout and relayouts when any toggle happens, and the
+// initiating mutation already owns paint invalidation — the full attr
+// ceremony (subtree rect capture, reveal probe, per-op dirty marking)
+// made every splitter-drag threshold crossing a multi-toggle stall.
+bool set_layout_class(detail::DocumentImpl& impl,
+                      int block_idx,
+                      lxb_dom_element_t* elem,
+                      std::string_view cls,
+                      bool present) {
+    if (!elem) return false;
+    if (class_list_contains(elem, cls) == present) return false;
+    const std::string next = class_list_set(elem, cls, present);
+    if (!lxb_dom_element_set_attribute(elem, as_lxb("class"), 5,
+                                       as_lxb(next), next.size())) {
+        return false;
+    }
+    if (lxb_dom_interface_node(elem)->ns == LXB_NS_HTML) {
+        (void) lxb_html_document_element_styles_rematch(
+            lxb_html_interface_element(lxb_dom_interface_node(elem)));
+    }
+    if (impl.resolver) impl.resolver->invalidate(elem);
+    if (block_idx >= 0 &&
+        block_idx < static_cast<int>(impl.blocks.size())) {
+        // Keep block metadata (classes/attrs feed hit-testing and hover
+        // chains) in sync with the raw DOM write.
+        refresh_block_metadata_from_element(
+            impl.blocks[static_cast<std::size_t>(block_idx)], elem);
+        (void) restyle_subtree(impl, block_idx);
+    }
+    return true;
 }
 
 double parse_css_number_prefix(std::string_view value, double fallback) {
@@ -10465,7 +11882,17 @@ bool update_dcs_vec_compression(
 
         static const bool vec_trace =
             std::getenv("AFFINEUI_VEC_TRACE") != nullptr;
-        const bool stacked = available + 1.0 < needed;
+        // Hysteresis: stack when too narrow, but only UNSTACK once the
+        // row is clearly wide enough (+8px). Without the band, widths at
+        // the threshold flip-flop between relayout rounds — every
+        // splitter-drag crossing paid multiple toggle+relayout cycles.
+        auto* vec_elem = element_for_block(impl, static_cast<int>(i));
+        const bool was_stacked =
+            vec_elem != nullptr &&
+            class_list_contains(vec_elem, "dcs-vec--stacked");
+        const bool stacked = was_stacked
+                                 ? available + 1.0 < needed + 8.0
+                                 : available + 1.0 < needed;
         if (vec_trace) {
             const int pidx = vec.parent_idx;
             std::fprintf(stderr,
@@ -10479,17 +11906,16 @@ bool update_dcs_vec_compression(
                          stacked ? "STACKED" : "row");
         }
         if (field_elem) {
-            changed = set_element_class(impl, field_elem,
-                                        "dcs-field--vec", true) ||
+            changed = set_layout_class(impl, vec.parent_idx, field_elem,
+                                       "dcs-field--vec", true) ||
                       changed;
-            changed = set_element_class(impl, field_elem,
-                                        "dcs-field--vec-stacked", stacked) ||
+            changed = set_layout_class(impl, vec.parent_idx, field_elem,
+                                       "dcs-field--vec-stacked", stacked) ||
                       changed;
         }
-        auto* elem = element_for_block(impl, static_cast<int>(i));
-        if (elem) {
-            changed = set_element_class(impl, elem, "dcs-vec--stacked",
-                                        stacked) ||
+        if (vec_elem != nullptr) {
+            changed = set_layout_class(impl, static_cast<int>(i), vec_elem,
+                                       "dcs-vec--stacked", stacked) ||
                       changed;
         }
         if (vec_trace && field_elem && vec.parent_idx >= 0) {
@@ -13435,12 +14861,25 @@ lxb_dom_element_t* dock_spawn_floating_panel(
 // stale interaction indices, and request a full relayout + repaint.
 void dock_structure_changed(detail::DocumentImpl& impl) {
     const Rect old_rect = document_visual_rect(impl);
+    const auto st0 = std::chrono::steady_clock::now();
     if (impl.resolver) impl.resolver->clear();
     // Elements created or re-parented by the surgery have no (or stale)
     // lexbor stylesheet attachments; rebuild the match lists before the
     // resolver walks them (same contract as set_attribute_on_element).
     rematch_stylesheet_matches_for_subtree(impl, -1);
+    const auto st1 = std::chrono::steady_clock::now();
     recollect_blocks_from_current_dom(impl);
+    const auto st2 = std::chrono::steady_clock::now();
+    if (MutationTraceTimer::enabled()) {
+        const auto ms = [](auto a, auto b) {
+            return std::chrono::duration<double, std::milli>(b - a).count();
+        };
+        std::fprintf(stderr,
+                     "[settle]   rematch(all)=%.1f ms  recollect=%.1f ms\n",
+                     ms(st0, st1), ms(st1, st2));
+        std::fflush(stderr);
+    }
+    debug_validate_attr_lists(impl, "dock-structure-changed");
     impl.hovered_idx = -1;
     impl.active_idx = -1;
     impl.hovered_chain.clear();
@@ -15987,6 +17426,27 @@ Document::DockLayout Document::dock_layout() const {
 Rect Document::find_element_rect(std::string_view target) const {
 #if !defined(AFFINEUI_STUB_BUILD)
     if (!impl_->doc || target.empty()) return {};
+    // Geometry queries must observe laid-out bounds. A structural
+    // mutation batch (reconcile, dock surgery) recollects blocks and
+    // resets layout state; run the painterless relayout with last-known
+    // metrics — the same hidden-relayout contract dispatch() uses — so
+    // callers never read zero-sized rects between a mutation and the
+    // next frame. Logically const: lazy evaluation of retained state.
+    if (impl_->content_size.width == 0 &&
+        impl_->media_viewport_width_px > 0) {
+        const auto t0 = std::chrono::steady_clock::now();
+        const_cast<Document*>(this)->layout(impl_->media_viewport_width_px,
+                                            impl_->media_viewport_height_px,
+                                            impl_->last_measurer);
+        if (MutationTraceTimer::enabled()) {
+            const double ms = std::chrono::duration<double, std::milli>(
+                                  std::chrono::steady_clock::now() - t0)
+                                  .count();
+            std::fprintf(stderr, "[rect] hidden relayout took %.2f ms\n",
+                         ms);
+            std::fflush(stderr);
+        }
+    }
     lxb_dom_element_t* found = nullptr;
     std::string attr_name;
     std::string attr_value;
@@ -17392,6 +18852,588 @@ bool Document::weak_handle_valid(DomHandle handle) const {
 #if !defined(AFFINEUI_STUB_BUILD)
     return slot.node != nullptr;
 #else
+    return false;
+#endif
+}
+
+// ── View reconciliation sink ────────────────────────────────────────
+// Applies View builder mutations directly to the retained DOM — the
+// App fast path that replaces to_html + reparse per rebuild. Attribute
+// and text writes ride the same live-mutation classification as
+// set_attribute_by_id (svg-child geometry stays paint-only, class /
+// style changes restyle a subtree); structural changes are applied
+// with lexbor's eager style attach suppressed and settled by ONE
+// restyle + box recollect in end_view_mutations().
+//
+// Creations are always appends: the View reconciler truncates the
+// mismatched tail of a child list (emitting removes) before recreating,
+// so by the time create_* fires, the DOM parent's children exactly
+// match the widget indices below `index`.
+#if !defined(AFFINEUI_STUB_BUILD)
+namespace {
+
+// Batched view mutations run with lexbor's ev_insert suppressed, which
+// also silences its inline-style hook: an element that ACQUIRES a
+// `style` attribute inside the batch would never get the declarations
+// parsed into its style list (ev_set_value still covers value changes
+// on an existing attribute). Re-run the parse explicitly — mirrors
+// lxb_html_document_event_insert_attribute for the fresh-attr case.
+void parse_inline_style_attr(lxb_dom_element_t* e) {
+    if (!e) return;
+    auto* node = lxb_dom_interface_node(e);
+    if (node->ns != LXB_NS_HTML) return;
+    lxb_dom_attr_t* attr = lxb_dom_element_attr_by_id(e, LXB_DOM_ATTR_STYLE);
+    if (!attr || !attr->value || !attr->value->data) return;
+    lxb_html_element_style_parse(lxb_html_interface_element(e),
+                                 attr->value->data, attr->value->length);
+}
+
+void parse_inline_styles_deep(lxb_dom_node_t* n) {
+    if (!n) return;
+    if (n->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+        parse_inline_style_attr(lxb_dom_interface_element(n));
+    }
+    for (auto* child = lxb_dom_node_first_child(n); child != nullptr;
+         child = lxb_dom_node_next(child)) {
+        parse_inline_styles_deep(child);
+    }
+}
+
+void invalidate_resolver_deep(detail::DocumentImpl& impl, lxb_dom_node_t* n);
+
+class DocumentViewSink final : public ViewSink {
+public:
+    explicit DocumentViewSink(detail::DocumentImpl& impl) : impl_(impl) {}
+
+    void reset() {
+        elems_.clear();
+        texts_.clear();
+        raw_groups_.clear();
+        raw_parents_.clear();
+    }
+
+    void create_element(const WidgetNode& node, const WidgetNode* parent,
+                        std::size_t /*index*/) override {
+        auto* p = parent_dom(parent);
+        if (!p || !impl_.doc) return;
+        auto* e = lxb_dom_document_create_element(
+            lxb_dom_interface_document(impl_.doc), as_lxb(node.tag),
+            node.tag.size(), nullptr);
+        if (!e) return;
+        // Replay path: a fully-built node arrives with attrs/text in
+        // place. Live-reconcile creates arrive empty and receive them
+        // as set_attribute / set_text events right after.
+        for (const auto& attr : node.attrs) {
+            lxb_dom_element_set_attribute(e, as_lxb(attr.name),
+                                          attr.name.size(),
+                                          as_lxb(attr.value),
+                                          attr.value.size());
+        }
+        if (!node.text.empty()) {
+            lxb_dom_node_text_content_set(
+                lxb_dom_interface_node(e),
+                reinterpret_cast<const lxb_char_t*>(node.text.c_str()),
+                node.text.size());
+        }
+        parse_inline_style_attr(e);
+        lxb_dom_node_insert_child(p, lxb_dom_interface_node(e));
+        elems_[node.remote_id] = e;
+        // Recycled-pointer insurance: a freed element's address can be
+        // reused; make sure no stale resolver entry shadows this one.
+        if (impl_.resolver) impl_.resolver->invalidate(e);
+        note_structure_change(p);
+    }
+
+    void create_text(const WidgetNode& node, const WidgetNode* parent,
+                     std::size_t /*index*/) override {
+        auto* p = parent_dom(parent);
+        if (!p || !impl_.doc) return;
+        auto* t = lxb_dom_document_create_text_node(
+            lxb_dom_interface_document(impl_.doc),
+            reinterpret_cast<const lxb_char_t*>(node.text.c_str()),
+            node.text.size());
+        if (!t) return;
+        lxb_dom_node_insert_child(p, lxb_dom_interface_node(t));
+        texts_[node.remote_id] = lxb_dom_interface_node(t);
+        note_structure_change(p);
+    }
+
+    void create_raw_html(const WidgetNode& node, const WidgetNode* parent,
+                         std::size_t /*index*/) override {
+        // Markup arrives in the set_raw_html that follows; remember the
+        // parent so it can parse the fragment into the right place.
+        raw_parents_[node.remote_id] =
+            parent ? parent->remote_id : std::string{};
+        raw_groups_[node.remote_id];  // ensure (empty) group exists
+    }
+
+    void set_raw_html(const WidgetNode& node,
+                      std::string_view markup) override {
+        if (!impl_.doc) return;
+        const auto parent_it = raw_parents_.find(node.remote_id);
+        if (parent_it == raw_parents_.end()) return;
+        lxb_dom_node_t* parent =
+            parent_it->second.empty()
+                ? root_dom()
+                : elem_node(parent_it->second);
+        if (!parent) return;
+
+        auto& group = raw_groups_[node.remote_id];
+        lxb_dom_node_t* anchor = nullptr;  // insert new nodes before this
+        if (!group.empty()) {
+            anchor = lxb_dom_node_next(group.back());
+            for (auto* old : group) {
+                invalidate_resolver_deep(impl_, old);  // pre-destroy
+                lxb_dom_node_remove(old);
+                lxb_dom_node_destroy_deep(old);
+            }
+            group.clear();
+        }
+
+        auto* frag = lxb_html_document_parse_fragment(
+            impl_.doc, lxb_dom_interface_element(parent),
+            as_lxb(markup), markup.size());
+        if (frag) {
+            while (auto* child = lxb_dom_node_first_child(frag)) {
+                lxb_dom_node_remove(child);
+                if (anchor) {
+                    lxb_dom_node_insert_before(anchor, child);
+                } else {
+                    lxb_dom_node_insert_child(parent, child);
+                }
+                parse_inline_styles_deep(child);
+                group.push_back(child);
+            }
+        }
+        // Paint-only lane: raw html swapped INSIDE an <svg> subtree changes
+        // vector content only — svg children carry no blocks, so restyle/
+        // recollect/layout cannot be affected. Repaint the host block
+        // instead of declaring structural dirt (the structural settle made
+        // every viewport camera move a full-document event).
+        bool svg_lane = false;
+        for (auto* a = parent; a != nullptr; a = a->parent) {
+            if (a->type != LXB_DOM_NODE_TYPE_ELEMENT) break;
+            if (tag_name(lxb_dom_interface_element(a)) == "svg") {
+                svg_lane = true;
+                break;
+            }
+        }
+        if (svg_lane) {
+            const int idx = block_index_for_element_or_ancestor(
+                impl_, lxb_dom_interface_element(parent));
+            if (idx >= 0) {
+                mark_live_mutation_dirty(impl_, idx,
+                                         subtree_visual_rect(impl_, idx),
+                                         /*needs_layout=*/false);
+            } else {
+                impl_.view_structure_dirty = true;  // no host block yet
+            }
+        } else {
+            note_structure_change(parent);
+        }
+    }
+
+    void remove(const WidgetNode& node) override {
+        lxb_dom_node_t* scope = nullptr;  // parent captured pre-removal
+        if (node.kind == WidgetKind::RawHtml) {
+            if (auto it = raw_groups_.find(node.remote_id);
+                it != raw_groups_.end()) {
+                for (auto* n : it->second) {
+                    if (scope == nullptr) scope = n->parent;
+                    invalidate_resolver_deep(impl_, n);
+                    lxb_dom_node_remove(n);
+                    lxb_dom_node_destroy_deep(n);
+                }
+            }
+        } else if (node.kind == WidgetKind::Text) {
+            if (auto it = texts_.find(node.remote_id); it != texts_.end()) {
+                scope = it->second->parent;
+                lxb_dom_node_remove(it->second);
+                lxb_dom_node_destroy_deep(it->second);
+            }
+        } else if (auto it = elems_.find(node.remote_id);
+                   it != elems_.end()) {
+            auto* dom_node = lxb_dom_interface_node(it->second);
+            scope = dom_node->parent;
+            invalidate_resolver_deep(impl_, dom_node);
+            lxb_dom_node_remove(dom_node);
+            lxb_dom_node_destroy_deep(dom_node);
+        }
+        evict(node);
+        note_structure_change(scope);
+    }
+
+    void set_text(const WidgetNode& node, std::string_view value) override {
+        if (node.kind == WidgetKind::Text) {
+            if (auto it = texts_.find(node.remote_id); it != texts_.end()) {
+                lxb_dom_node_t* text_node = it->second;
+                lxb_dom_node_t* parent = text_node->parent;
+                // The common shape — a lone text child under a live
+                // element block (labels, inspector values) — is a LOCAL
+                // change: set_text_on_element refreshes that block's text
+                // and marks a scoped remeasure. Only mixed-content parents
+                // fall back to the structural settle. NOTE: the element
+                // text-set replaces its children, so re-point the map at
+                // the freshly created text node.
+                const bool lone_text =
+                    parent != nullptr &&
+                    parent->type == LXB_DOM_NODE_TYPE_ELEMENT &&
+                    parent->first_child == text_node &&
+                    text_node->next == nullptr;
+                if (lone_text && node_text(parent) == value) return;
+                if (lone_text &&
+                    set_text_on_element(
+                        impl_, lxb_dom_interface_element(parent), value)) {
+                    it->second = parent->first_child != nullptr
+                                     ? parent->first_child
+                                     : nullptr;
+                    if (it->second == nullptr) texts_.erase(it);
+                    return;
+                }
+                lxb_dom_node_text_content_set(
+                    text_node,
+                    reinterpret_cast<const lxb_char_t*>(value.data()),
+                    value.size());
+                note_structure_change(parent);
+            }
+            return;
+        }
+        auto* e = elem(node.remote_id);
+        if (!e) return;
+        if (!set_text_on_element(impl_, e, value)) {
+            // No live block yet (element created this batch, or an svg
+            // child): write the DOM directly; the batch-end recollect
+            // (or the svg paint walk) picks it up.
+            lxb_dom_node_text_content_set(
+                lxb_dom_interface_node(e),
+                reinterpret_cast<const lxb_char_t*>(value.data()),
+                value.size());
+            note_structure_change(lxb_dom_interface_node(e));
+        }
+    }
+
+    void set_attribute(const WidgetNode& node, std::string_view name,
+                       std::string_view value) override {
+        if (auto* e = elem(node.remote_id)) {
+            const bool fresh_style =
+                name == "style" && !has_attr(e, name);
+            set_attribute_on_element(impl_, e, name, value);
+            // ev_set_value keeps an EXISTING style attribute parsed; a
+            // fresh one arrives through the suppressed ev_insert hook.
+            if (fresh_style) parse_inline_style_attr(e);
+        }
+    }
+
+    void remove_attribute(const WidgetNode& node,
+                          std::string_view name) override {
+        if (auto* e = elem(node.remote_id)) {
+            remove_attribute_on_element(impl_, e, name);
+        }
+    }
+
+private:
+    lxb_dom_element_t* elem(const std::string& rid) {
+        auto it = elems_.find(rid);
+        return it == elems_.end() ? nullptr : it->second;
+    }
+    lxb_dom_node_t* elem_node(const std::string& rid) {
+        auto* e = elem(rid);
+        return e ? lxb_dom_interface_node(e) : nullptr;
+    }
+    lxb_dom_node_t* root_dom() {
+        auto* root = find_dom_element_by_id(impl_, "aui-root");
+        return root ? lxb_dom_interface_node(root) : nullptr;
+    }
+    lxb_dom_node_t* parent_dom(const WidgetNode* parent) {
+        return parent ? elem_node(parent->remote_id) : root_dom();
+    }
+    // Record a structural change scoped to the nearest BLOCK ancestor of
+    // `scope` (the mutation's parent). No block scope → global settle
+    // fallback (bootstrap into the empty shell, orphan splices).
+    // AFFINEUI_SETTLE_GLOBAL=1 forces the global path — the bisect lever
+    // for "is a missing scoped rematch causing this style bug?".
+    void note_structure_change(lxb_dom_node_t* scope) {
+        static const bool force_global =
+            std::getenv("AFFINEUI_SETTLE_GLOBAL") != nullptr;
+        if (force_global) {
+            impl_.view_structure_dirty = true;
+            return;
+        }
+        for (auto* n = scope; n != nullptr; n = n->parent) {
+            if (n->type != LXB_DOM_NODE_TYPE_ELEMENT) break;
+            const int idx = block_index_for_exact_element(
+                impl_, lxb_dom_interface_element(n));
+            if (idx >= 0) {
+                impl_.view_batch_structure_roots.push_back(idx);
+                return;
+            }
+        }
+        impl_.view_structure_dirty = true;
+    }
+
+    // Map-entry eviction only — DOM destruction of descendants is
+    // implicit in the ancestor's destroy_deep.
+    void evict(const WidgetNode& n) {
+        elems_.erase(n.remote_id);
+        texts_.erase(n.remote_id);
+        raw_groups_.erase(n.remote_id);
+        raw_parents_.erase(n.remote_id);
+        for (const auto& child : n.children) evict(child);
+    }
+
+    detail::DocumentImpl& impl_;
+    std::unordered_map<std::string, lxb_dom_element_t*> elems_;
+    std::unordered_map<std::string, lxb_dom_node_t*>    texts_;
+    std::unordered_map<std::string, std::vector<lxb_dom_node_t*>>
+        raw_groups_;
+    std::unordered_map<std::string, std::string> raw_parents_;
+};
+
+// Invalidate the resolver's cached computed styles for every element in
+// a DOM subtree. Used by the scoped structural settle: removed subtrees
+// must leave no cache entries behind (their pointers can be recycled by
+// later allocations), and a changed root's existing descendants may have
+// different match sets after the rematch.
+void invalidate_resolver_deep(detail::DocumentImpl& impl, lxb_dom_node_t* n) {
+    if (impl.resolver == nullptr || n == nullptr) return;
+    if (n->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+        impl.resolver->invalidate(lxb_dom_interface_element(n));
+    }
+    for (auto* c = lxb_dom_node_first_child(n); c != nullptr;
+         c = lxb_dom_node_next(c)) {
+        invalidate_resolver_deep(impl, c);
+    }
+}
+
+// Apply everything the current view batch has recorded — the structural
+// settle (global fallback, or SCOPED to the recorded roots), or the §8.2
+// scoped attr settle (dedupe root cover → one rematch pass → one resolver
+// clear → restyle + reveal per root). Called from end_view_mutations, and
+// EARLY from Document::layout when a geometry consumer (the P4
+// find_element_rect hidden relayout, a builder measuring mid-build) needs
+// fresh boxes while the batch is still open: layout over the un-settled
+// block tree would walk blocks whose elements the batch already destroyed.
+// Safe to run repeatedly; with nothing recorded it is a no-op.
+void settle_view_batch(detail::DocumentImpl& impl) {
+    if (impl.view_structure_dirty) {
+        detail::TraceSpan span("settle.global");
+        impl.view_structure_dirty = false;
+        // The full structural settle re-matches/restyles/recollects the
+        // whole document — recorded roots are superseded by it.
+        impl.view_batch_attr_roots.clear();
+        impl.view_batch_structure_roots.clear();
+        const auto t0 = std::chrono::steady_clock::now();
+        dock_structure_changed(impl);
+        if (MutationTraceTimer::enabled()) {
+            const double ms = std::chrono::duration<double, std::milli>(
+                                  std::chrono::steady_clock::now() - t0)
+                                  .count();
+            std::fprintf(stderr, "[batch] structure-changed took %.2f ms\n",
+                         ms);
+            std::fflush(stderr);
+        }
+    } else if (!impl.view_batch_structure_roots.empty()) {
+        detail::TraceSpan span("settle.scoped");
+        // Scoped structural settle: selector rematch ONLY over the changed
+        // subtrees (the resolver cache stays warm — removed/inserted
+        // elements were invalidated at op time, and each root's live
+        // subtree is invalidated here because its match sets may have
+        // changed). The recollect still rebuilds the flat block tree, but
+        // against a warm cache the resolve per element is a lookup.
+        const auto t0 = std::chrono::steady_clock::now();
+        auto roots = std::move(impl.view_batch_structure_roots);
+        impl.view_batch_structure_roots.clear();
+        impl.view_batch_attr_roots.clear();  // recollect re-resolves all
+        std::sort(roots.begin(), roots.end());
+        std::vector<int> kept;
+        for (const int r : roots) {
+            bool covered = false;
+            for (const int k : kept) {
+                if (k == r || is_descendant_of_or_self(impl.blocks, r, k)) {
+                    covered = true;
+                    break;
+                }
+            }
+            if (!covered) kept.push_back(r);
+        }
+        const Rect old_rect = document_visual_rect(impl);
+        const auto t1 = std::chrono::steady_clock::now();
+        for (const int r : kept) {
+            if (auto* e = element_for_block(impl, r)) {
+                invalidate_resolver_deep(impl, lxb_dom_interface_node(e));
+            }
+            (void) rematch_stylesheet_matches_for_subtree(impl, r);
+        }
+        const auto t2 = std::chrono::steady_clock::now();
+        recollect_blocks_from_current_dom(impl);
+        const auto t3 = std::chrono::steady_clock::now();
+        // Block indices shifted — stale interaction indices are the
+        // dangling-pointer class of bug (same contract as
+        // dock_structure_changed).
+        impl.hovered_idx = -1;
+        impl.active_idx = -1;
+        impl.hovered_chain.clear();
+        impl.active_chain.clear();
+        mark_live_mutation_dirty(impl, -1, old_rect, /*needs_layout=*/true);
+        impl.paint_dirty = true;
+        if (MutationTraceTimer::enabled()) {
+            const auto ms = [](auto a, auto b) {
+                return std::chrono::duration<double, std::milli>(b - a)
+                    .count();
+            };
+            std::fprintf(stderr,
+                         "[batch] SCOPED structure roots=%zu rematch=%.1f "
+                         "recollect=%.1f total=%.1f ms\n",
+                         kept.size(), ms(t1, t2), ms(t2, t3), ms(t0, t3));
+            std::fflush(stderr);
+        }
+    } else if (!impl.view_batch_attr_roots.empty()) {
+        detail::TraceSpan span("settle.attr");
+        // §8.2 batch settle: at most one of each — subtree rematch over the
+        // deduped root cover, resolver clear, restyle per root, reveal check
+        // per root (against the now-warm resolver cache), dirty rects.
+        const auto t0 = std::chrono::steady_clock::now();
+        auto roots = std::move(impl.view_batch_attr_roots);
+        impl.view_batch_attr_roots.clear();
+        std::sort(roots.begin(), roots.end(),
+                  [](const auto& a, const auto& b) {
+                      return a.root_idx < b.root_idx;
+                  });
+        std::vector<detail::DocumentImpl::ViewBatchAttrRoot> kept;
+        for (const auto& r : roots) {
+            bool covered = false;
+            for (auto& k : kept) {
+                if (k.root_idx == r.root_idx ||
+                    (k.root_idx >= 0 && r.root_idx >= 0 &&
+                     is_descendant_of_or_self(impl.blocks, r.root_idx,
+                                              k.root_idx))) {
+                    k.needs_subtree_rematch |= r.needs_subtree_rematch;
+                    k.force_layout |= r.force_layout;
+                    covered = true;
+                    break;
+                }
+            }
+            if (!covered) kept.push_back(r);
+        }
+        for (const auto& k : kept) {
+            if (k.needs_subtree_rematch) {
+                (void) rematch_stylesheet_matches_for_subtree(impl,
+                                                              k.root_idx);
+            }
+        }
+        if (impl.resolver) impl.resolver->clear();
+        for (auto& k : kept) {
+            const bool restyle_layout =
+                k.root_idx >= 0 ? restyle_subtree(impl, k.root_idx)
+                                : restyle_all_blocks(impl);
+            k.force_layout = k.force_layout || restyle_layout;
+        }
+        bool recollected = false;
+        for (const auto& k : kept) {
+            if (selector_mutation_reveals_hidden_subtree(impl,
+                                                         k.root_idx)) {
+                recollect_blocks_from_current_dom(impl);
+                recollected = true;
+                break;
+            }
+        }
+        for (const auto& k : kept) {
+            mark_live_mutation_dirty(impl, k.root_idx, k.old_rect,
+                                     k.force_layout || recollected);
+        }
+        if (MutationTraceTimer::enabled()) {
+            const double ms = std::chrono::duration<double, std::milli>(
+                                  std::chrono::steady_clock::now() - t0)
+                                  .count();
+            std::fprintf(stderr,
+                         "[batch] attr settle ops=%zu roots=%zu took %.2f ms\n",
+                         roots.size(), kept.size(), ms);
+            std::fflush(stderr);
+        }
+    }
+}
+
+}  // namespace
+#endif  // !AFFINEUI_STUB_BUILD
+
+ViewSink* Document::begin_view_mutations() {
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (!impl_->doc) return nullptr;
+    debug_validate_attr_lists(*impl_, "begin-view-mutations");
+    if (!impl_->view_sink) {
+        auto sink = std::make_unique<DocumentViewSink>(*impl_);
+        impl_->view_sink_reset = [raw = sink.get()] { raw->reset(); };
+        impl_->view_sink = std::move(sink);
+    }
+    if (!impl_->view_batch_active) {
+        impl_->view_batch_active = true;
+        impl_->view_structure_dirty = false;
+        impl_->view_batch_attr_roots.clear();
+        impl_->view_batch_structure_roots.clear();
+        // Suppress lexbor's eager per-insert selector matching for the
+        // batch — end_view_mutations rebuilds style state once (same
+        // contract as the dock-gesture surgery).
+        impl_->view_saved_ev_insert = impl_->doc->dom_document.ev_insert;
+        impl_->doc->dom_document.ev_insert = nullptr;
+    }
+    return impl_->view_sink.get();
+#else
+    return nullptr;
+#endif
+}
+
+void Document::end_view_mutations() {
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (!impl_->view_batch_active) {
+        if (std::getenv("AFFINEUI_ATTR_CHECK")) {
+            std::fprintf(stderr, "[attrcheck] end_view_mutations: batch "
+                                 "NOT active (early return)\n");
+            std::fflush(stderr);
+        }
+        return;
+    }
+    impl_->view_batch_active = false;
+    if (impl_->doc) {
+        impl_->doc->dom_document.ev_insert = impl_->view_saved_ev_insert;
+    }
+    impl_->view_saved_ev_insert = nullptr;
+    settle_view_batch(*impl_);
+    debug_validate_attr_lists(*impl_, "end-view-mutations");
+#endif
+}
+
+void Document::set_custom_paint(std::string_view name, CustomPaintFn fn) {
+    if (name.empty()) return;
+    if (fn) {
+        impl_->paint_handlers[std::string(name)] = std::move(fn);
+    } else {
+        impl_->paint_handlers.erase(std::string(name));
+    }
+}
+
+bool Document::request_custom_repaint(std::string_view name) {
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (name.empty()) return false;
+    bool any = false;
+    // Match against the block's CACHED attrs — element_of() is a linear
+    // reverse lookup, so touching the element here made this scan
+    // quadratic in document size (12 ms per camera move on DENDER).
+    for (const auto& block : impl_->blocks) {
+        for (const auto& [attr_name, attr_value] : block.attrs) {
+            if (attr_name != "data-aui-paint") continue;
+            if (attr_value == name) {
+                add_dirty_rect(*impl_, block.bounds);
+                any = true;
+            }
+            break;
+        }
+    }
+    // Geometry-only invalidation: the display list re-records (the
+    // handler's ops changed) but no restyle/layout/reconcile runs.
+    if (any) impl_->paint_dirty = true;
+    return any;
+#else
+    (void)name;
     return false;
 #endif
 }

@@ -20,9 +20,12 @@
 #include "affineui/document.h"
 #include "affineui/renderer.h"
 #include "affineui/themes.h"
+#include "affineui/tools.h"
+#include "internal/diag.h"
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -59,6 +62,15 @@ struct AppImpl {
     std::vector<WidgetClickBinding> view_click_bindings;
     std::vector<WidgetChangeBinding> view_change_bindings;
     std::vector<Document::WidgetChange> deferred_widget_changes;
+    std::vector<App::EventHandler> event_handlers;
+    std::vector<std::function<void(double)>> frame_callbacks;
+    std::vector<Document::HoverInfo> hover_chain_scratch;
+    // Reconcile fast path (App::set_view / rebuild_view): the app-owned
+    // persistent View that rebuilds diff against.
+    std::function<void(View&)> view_builder;
+    std::unique_ptr<View>      retained_view;
+    bool                       view_bootstrapped{false};
+    bool                  pointer_captured{false};
     bool                  quit_requested{false};
     int                   exit_code{0};
     int                   last_cursor{-1};  // last sapp cursor we set
@@ -68,6 +80,17 @@ struct AppImpl {
     int                   last_h{-1};
     float                 last_dpi{1.0f};   // updated each frame for event→pt conversion
     int                   settle_frames{0};
+    // Mouse-move coalescing: motion collapses to at most ONE dispatch per
+    // frame. Without this, one expensive frame snowballs — every queued
+    // move pays its own synchronous hover update (+ relayout when the
+    // block tree was dirtied), which pushes the next frame even later
+    // (measured: 868 relayouts / 5.5 s of layout in one short session).
+    Event                 pending_mouse_move{};
+    bool                  has_pending_mouse_move{false};
+    // Resize coalescing: the win32 sizing modal loop delivers WM_SIZE per
+    // mouse move; each Resize dispatch pays a full relayout + text
+    // re-measure, so uncoalesced resizes are seconds-slow. One per frame.
+    bool                  has_pending_resize{false};
     bool                  perf_overlay_enabled{false};
     DebugOverlayCorner    perf_overlay_corner{DebugOverlayCorner::top_right};
     double                perf_accum_s{0.0};
@@ -77,7 +100,20 @@ struct AppImpl {
     std::array<float, 64> perf_ms_history{};
     int                   perf_history_head{0};
     int                   perf_history_count{0};
-    char                  perf_text[384]{};
+    char                  perf_text[512]{};
+    // R0/R1 telemetry (docs/TRACING_AND_PERFORMANCE_LOGGING.md; schema in
+    // docs/AFFINETOOLS_PROTOCOL.md). Wall clock is measured at cb_frame
+    // ENTRY so stalls anywhere in the pipeline surface as frame gaps.
+    FrameTelemetry        telemetry{};
+    std::chrono::steady_clock::time_point session_start{};
+    std::chrono::steady_clock::time_point last_frame_time{};
+    bool                  frame_clock_started{false};
+    std::uint64_t         presented_frames{0};
+    std::uint64_t         skipped_since_present{0};
+    std::uint64_t         skipped_presents_total{0};
+    double                last_idle_emit_ms{-1.0e12};
+    float                 gap_max_ms_window{0.0f};
+    mem::Stats            mem_prev{};
 };
 
 bool local_asset_url(std::string_view url) {
@@ -128,11 +164,32 @@ ResourceLoader make_asset_resource_loader(std::vector<std::string> folders) {
 }
 
 bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
+    // While a native handler holds pointer capture, MouseMove routes to
+    // it before DOM hover hit-testing (same contract as Ui::dispatch) so
+    // drags don't thrash unrelated :hover state.
+    if (impl.pointer_captured && ev.type == EventType::MouseMove &&
+        !impl.event_handlers.empty()) {
+        impl.document.hovered_info_chain(impl.hover_chain_scratch);
+        bool captured_consumed = false;
+        for (const auto& cb : impl.event_handlers) {
+            captured_consumed =
+                cb(ev, impl.hover_chain_scratch) || captured_consumed;
+        }
+        if (captured_consumed) {
+            impl.dirty = true;
+            return true;
+        }
+    }
+
     if (ev.type == EventType::Resize) {
         impl.dirty = true;
     }
 
-    const auto result = impl.document.dispatch(ev);
+    DispatchResult result;
+    {
+        detail::TraceSpan dispatch_span("dispatch");
+        result = impl.document.dispatch(ev);
+    }
     if (result.redraw_requested || result.invalidate_view) {
         impl.dirty = true;
     }
@@ -144,6 +201,25 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
                          e.what());
         } catch (...) {
             std::fprintf(stderr, "AffineUI on_layout_changed failed\n");
+        }
+    }
+
+    // Native event handlers (widget kits) see the event with the fresh
+    // hover chain before view click/change bindings. A consuming handler
+    // owns the event outright.
+    if (!impl.event_handlers.empty()) {
+        impl.document.hovered_info_chain(impl.hover_chain_scratch);
+        bool native_consumed = false;
+        for (const auto& cb : impl.event_handlers) {
+            native_consumed =
+                cb(ev, impl.hover_chain_scratch) || native_consumed;
+        }
+        if (native_consumed) {
+            impl.dirty = true;
+            if (ev.type == EventType::MouseUp) {
+                (void) impl.document.take_activated_widgets();
+            }
+            return true;
         }
     }
 
@@ -268,6 +344,12 @@ App::App(Config cfg) : impl_{std::make_unique<detail::AppImpl>()} {
         impl_->perf_overlay_enabled = true;
     }
     impl_->perf_overlay_corner = impl_->config.perf_overlay_corner;
+    // R1 JSONL sink: AFFINEUI_TELEMETRY=<path> streams per-frame records
+    // (idempotent; no-op stub when compiled with AFFINEUI_PERF=0).
+    telemetry::sink_open_from_env();
+    // affinetools attach: AFFINEUI_TOOLS_LISTEN=1|<port> starts the
+    // protocol server (docs/AFFINETOOLS_DESIGN.md §3.1; off by default).
+    tools_listen_from_env();
     impl_->renderer.set_clear_color(impl_->config.clear_color);
     impl_->document.set_resource_loader(
         impl_->config.resource_loader
@@ -311,11 +393,128 @@ void App::load_view(const View& view) {
     impl_->view_click_bindings = view.click_bindings();
     impl_->view_change_bindings = view.change_bindings();
 }
+
+namespace detail {
+// Replay an already-built widget subtree through a ViewSink — used by
+// the reconcile bootstrap so the document sink learns every node the
+// shell load didn't contain. Creates carry attrs/text from the node.
+void replay_view_node(ViewSink& sink, const WidgetNode& node,
+                      const WidgetNode* parent, std::size_t index) {
+    switch (node.kind) {
+        case WidgetKind::Text:
+            sink.create_text(node, parent, index);
+            return;
+        case WidgetKind::RawHtml:
+            sink.create_raw_html(node, parent, index);
+            if (!node.text.empty()) sink.set_raw_html(node, node.text);
+            return;
+        default:
+            break;
+    }
+    sink.create_element(node, parent, index);
+    for (std::size_t i = 0; i < node.children.size(); ++i) {
+        replay_view_node(sink, node.children[i], &node, i);
+    }
+}
+}  // namespace detail
+
+void App::set_view(std::function<void(View&)> builder) {
+    impl_->view_builder = std::move(builder);
+    impl_->view_bootstrapped = false;
+    rebuild_view();
+}
+
+void App::rebuild_view() {
+    if (!impl_->view_builder) return;
+    if (!impl_->retained_view) {
+        impl_->retained_view = std::make_unique<View>();
+    }
+    View& view = *impl_->retained_view;
+
+    if (!impl_->view_bootstrapped) {
+        // Bootstrap: build without a sink, load only the document SHELL
+        // (head/styles/body attrs, empty <main>), then replay the built
+        // tree through the document sink so it owns every node mapping.
+        view.begin(static_cast<ViewSink*>(nullptr));
+        impl_->view_builder(view);
+        view.end();
+        impl_->config.clear_color = view.background_color();
+        impl_->renderer.set_clear_color(impl_->config.clear_color);
+        load_html(view.to_html_shell());
+        impl_->document.attach_script(DocumentScript::UiControls);
+        if (auto* sink = impl_->document.begin_view_mutations()) {
+            const auto& root = view.root();
+            for (std::size_t i = 0; i < root.children.size(); ++i) {
+                detail::replay_view_node(*sink, root.children[i], nullptr,
+                                         i);
+            }
+        }
+        impl_->document.end_view_mutations();
+        impl_->view_bootstrapped = true;
+    } else {
+        // Steady state: rebuild into the persistent view; only actual
+        // differences reach the document (attribute/text mutations on
+        // the cheap path; structural edits settle in one restyle).
+        auto* sink = impl_->document.begin_view_mutations();
+        view.begin(sink);
+        try {
+            impl_->view_builder(view);
+            view.end();
+        } catch (const std::exception& e) {
+            // A builder exception mid-batch must not leave the mutation
+            // window open: ev_insert stays suppressed, recorded work never
+            // settles, and blocks keep pointing at elements the batch
+            // already destroyed — every later layout then walks freed
+            // memory (and on win32 the WndProc kernel-callback filter
+            // swallows the resulting faults, so the app limps on corrupt).
+            // Close the window so the document settles what was applied,
+            // then propagate.
+            std::fprintf(stderr, "AffineUI view builder failed: %s\n",
+                         e.what());
+            impl_->document.end_view_mutations();
+            throw;
+        } catch (...) {
+            std::fprintf(stderr, "AffineUI view builder failed\n");
+            impl_->document.end_view_mutations();
+            throw;
+        }
+        impl_->document.end_view_mutations();
+    }
+
+    impl_->view_click_bindings = view.click_bindings();
+    impl_->view_change_bindings = view.change_bindings();
+    impl_->dirty = true;
+    impl_->animations_active = false;
+}
 bool App::load_html_file(std::string_view)     { return false; }
-void App::set_stylesheet(std::string_view css) { impl_->document.set_user_stylesheet(css); impl_->dirty = true; impl_->animations_active = false; }
-void App::set_stylesheet(std::string_view css, std::string_view base_url) { impl_->document.set_user_stylesheet(css, base_url); impl_->dirty = true; impl_->animations_active = false; }
+void App::set_stylesheet(std::string_view css) {
+    set_stylesheet(css, {});
+}
+void App::set_stylesheet(std::string_view css, std::string_view base_url) {
+    impl_->document.set_user_stylesheet(css, base_url);
+    impl_->dirty = true;
+    impl_->animations_active = false;
+    // Replacing the stylesheet re-parses the retained document from its
+    // stored HTML — for a reconciled view that is the empty bootstrap
+    // shell, so rebuild the view world from scratch.
+    if (impl_->view_bootstrapped) {
+        impl_->view_bootstrapped = false;
+        rebuild_view();
+    }
+}
 void App::mount(std::function<void()> view_fn) { impl_->view_fn = std::move(view_fn); impl_->dirty = true; impl_->animations_active = false; }
 void App::invalidate() { impl_->dirty = true; impl_->animations_active = false; }
+
+void App::set_custom_paint(std::string_view name,
+                           Document::CustomPaintFn fn) {
+    impl_->document.set_custom_paint(name, std::move(fn));
+}
+
+void App::request_custom_repaint(std::string_view name) {
+    if (impl_->document.request_custom_repaint(name)) {
+        impl_->dirty = true;
+    }
+}
 
 void App::set_perf_overlay_enabled(bool enabled) {
     impl_->perf_overlay_enabled = enabled;
@@ -331,9 +530,25 @@ void App::set_perf_overlay_corner(DebugOverlayCorner corner) {
     impl_->settle_frames = detail::kSwapchainSettleFrames;
 }
 
+const FrameTelemetry& App::frame_telemetry() const noexcept {
+    return impl_->telemetry;
+}
+
 bool App::dispatch(const Event& ev) {
     return detail::dispatch_loaded_view_event(*impl_, ev);
 }
+
+void App::on_event(EventHandler cb) {
+    impl_->event_handlers.emplace_back(std::move(cb));
+}
+
+void App::on_frame(std::function<void(double)> cb) {
+    impl_->frame_callbacks.emplace_back(std::move(cb));
+}
+
+void App::capture_pointer() { impl_->pointer_captured = true; }
+void App::release_pointer() { impl_->pointer_captured = false; }
+bool App::pointer_captured() const { return impl_->pointer_captured; }
 
 #if defined(AFFINEUI_STUB_BUILD)
 
@@ -443,18 +658,21 @@ float current_dpi_scale(const detail::AppImpl& impl) {
     return impl.last_dpi > 0.0f ? impl.last_dpi : 1.0f;
 }
 
-void update_perf_overlay_text(detail::AppImpl& impl) {
-    const double dt = sapp_frame_duration_unfiltered();
-    if (dt > 0.0) {
+void update_perf_overlay_text(detail::AppImpl& impl, double gap_ms) {
+    // R0: history, fps, and the sparkline derive from wall-clock frame GAPS
+    // measured at cb_frame entry — not from frame durations. A pipeline that
+    // stalls between callbacks reads healthy durations but its gaps blow up
+    // (the "60 fps while one frame every 3 s" blind spot, TRACING §1.3).
+    if (gap_ms > 0.0) {
         impl.perf_ms_history[static_cast<std::size_t>(impl.perf_history_head)] =
-            static_cast<float>(dt * 1000.0);
+            static_cast<float>(gap_ms);
         impl.perf_history_head =
             (impl.perf_history_head + 1) %
             static_cast<int>(impl.perf_ms_history.size());
         impl.perf_history_count = std::min(
             impl.perf_history_count + 1,
             static_cast<int>(impl.perf_ms_history.size()));
-        impl.perf_accum_s += dt;
+        impl.perf_accum_s += gap_ms / 1000.0;
         impl.perf_frames += 1;
     }
     if (impl.perf_accum_s < 0.5 && impl.perf_text[0] != '\0') return;
@@ -472,6 +690,7 @@ void update_perf_overlay_text(detail::AppImpl& impl) {
     const auto& stats = impl.renderer.stats();
     std::snprintf(impl.perf_text, sizeof(impl.perf_text),
                   "%.1f ms/frame  %.1f fps\n"
+                  "gap^ %.1f ms  skip %llu\n"
                   "fb %dx%d css %dx%d dpi %.2f\n"
                   "work prep %.2f layout %.2f dl %.2f\n"
                   "rast %.2f comp %.2f ms layer %ux%u%s\n"
@@ -479,6 +698,8 @@ void update_perf_overlay_text(detail::AppImpl& impl) {
                   "flags %c%c%c%c%c%c%c",
                   impl.perf_ms,
                   impl.perf_fps,
+                  static_cast<double>(impl.gap_max_ms_window),
+                  static_cast<unsigned long long>(impl.skipped_presents_total),
                   fb_w,
                   fb_h,
                   css_w,
@@ -507,6 +728,7 @@ void update_perf_overlay_text(detail::AppImpl& impl) {
                   stats.animations_active ? 'A' : '-');
     impl.perf_accum_s = 0.0;
     impl.perf_frames = 0;
+    impl.gap_max_ms_window = 0.0f;  // gap^ is max-over-refresh-window
 }
 
 // sokol_app's *_userdata_cb hooks each receive the void* we set on
@@ -534,12 +756,70 @@ void cb_init(void* user) {
     }
 }
 
+// Dispatch the coalesced mouse move (if any) and apply the hover cursor.
+// Called at frame start and before any button/wheel event so ordering is
+// preserved. (Cursor application from the frame callback is fine on
+// win32/D3D11; macOS's synchronous-cursor caveat applies to the direct
+// event path, which still handles non-move events inline.)
+void flush_pending_mouse_move(detail::AppImpl& impl) {
+    if (!impl.has_pending_mouse_move) return;
+    impl.has_pending_mouse_move = false;
+    const Event ev = impl.pending_mouse_move;
+    (void) detail::dispatch_loaded_view_event(impl, ev);
+    const int cur = impl.document.hovered_cursor();
+    sapp_set_mouse_cursor(map_cursor(cur));
+    impl.last_cursor = cur;
+}
+
 void cb_frame(void* user) {
     auto* impl = static_cast<detail::AppImpl*>(user);
     try {
+        // R0 wall clock: the gap since the previous callback ENTRY is the
+        // truth metric — measured before any frame work so a stall anywhere
+        // in the pipeline shows up in it (TRACING §1.3).
+        const auto frame_now = std::chrono::steady_clock::now();
+        if (!impl->frame_clock_started) {
+            impl->frame_clock_started = true;
+            impl->session_start = frame_now;
+            impl->last_frame_time = frame_now;
+        }
+        const double gap_ms =
+            std::chrono::duration<double, std::milli>(
+                frame_now - impl->last_frame_time).count();
+        impl->last_frame_time = frame_now;
+        const double t_ms =
+            std::chrono::duration<double, std::milli>(
+                frame_now - impl->session_start).count();
+        if (gap_ms > impl->gap_max_ms_window) {
+            impl->gap_max_ms_window = static_cast<float>(gap_ms);
+        }
+
+        // Coalesced resize + pointer motion: at most one of each per frame.
+        if (impl->has_pending_resize) {
+            impl->has_pending_resize = false;
+            Event resize_ev{};
+            resize_ev.type = EventType::Resize;
+            (void) detail::dispatch_loaded_view_event(*impl, resize_ev);
+        }
+        flush_pending_mouse_move(*impl);
+        // Native frame ticks run before the idle short-circuit so
+        // physics/animation callbacks can invalidate() to keep drawing;
+        // an idle callback that touches nothing costs almost nothing.
+        if (!impl->frame_callbacks.empty()) {
+            const double dt = sapp_frame_duration_unfiltered();
+            for (const auto& cb : impl->frame_callbacks) {
+                cb(dt);
+            }
+        }
         impl->last_dpi = sapp_dpi_scale();
-        const int w = sapp_width();
-        const int h = sapp_height();
+        // Size the frame from the REAL swapchain, not sapp_width():
+        // sokol_app's win32 high-dpi path can report a framebuffer size
+        // scaled by dpi even though the D3D11 swapchain is client-pixel
+        // sized, which would lay out (and crop) the document ~dpi× too
+        // large. The swapchain is ground truth.
+        const sg_swapchain sc_probe = sglue_swapchain();
+        const int w = sc_probe.width > 0 ? sc_probe.width : sapp_width();
+        const int h = sc_probe.height > 0 ? sc_probe.height : sapp_height();
         const bool viewport_changed =
             w != impl->last_w || h != impl->last_h;
         if (impl->dirty || impl->animations_active || viewport_changed) {
@@ -554,6 +834,22 @@ void cb_frame(void* user) {
         if (!impl->perf_overlay_enabled && !impl->dirty &&
             !impl->animations_active && !viewport_changed &&
             impl->settle_frames <= 0) {
+            // R0: count skipped presents so "quiet" and "stalled" are
+            // distinguishable; heartbeat at most once a second while any
+            // telemetry consumer is on (docs/AFFINETOOLS_PROTOCOL.md `idle`).
+            impl->skipped_since_present += 1;
+            impl->skipped_presents_total += 1;
+            if ((telemetry::sink_active() || tools::wants_telemetry()) &&
+                t_ms - impl->last_idle_emit_ms >= 1000.0) {
+                impl->last_idle_emit_ms = t_ms;
+                if (telemetry::sink_active()) {
+                    telemetry::sink_write_idle(t_ms,
+                                               impl->skipped_since_present);
+                }
+                if (tools::wants_telemetry()) {
+                    tools::push_idle(t_ms, impl->skipped_since_present);
+                }
+            }
             if (impl->quit_requested) sapp_request_quit();
             return;
         }
@@ -562,7 +858,7 @@ void cb_frame(void* user) {
         std::array<float, 64> ordered_perf_ms{};
         int ordered_perf_count = 0;
         if (impl->perf_overlay_enabled) {
-            update_perf_overlay_text(*impl);
+            update_perf_overlay_text(*impl, gap_ms);
             ordered_perf_count = impl->perf_history_count;
             for (int i = 0; i < ordered_perf_count; ++i) {
                 const int src =
@@ -599,11 +895,70 @@ void cb_frame(void* user) {
                 static_cast<std::size_t>(ordered_perf_count);
             target.debug_overlay_corner = impl->perf_overlay_corner;
         }
-        impl->renderer.render_to(impl->document, target);
+        static const bool frame_trace =
+            std::getenv("AFFINEUI_FRAME_TRACE") != nullptr;
+        const auto ft0 = std::chrono::steady_clock::now();
+        {
+            detail::TraceSpan frame_span("frame");
+            impl->renderer.render_to(impl->document, target);
+        }
+        if (frame_trace) {
+            const double total_ms =
+                std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - ft0)
+                    .count();
+            const auto& st = impl->renderer.stats();
+            std::fprintf(
+                stderr,
+                "[frame] %7.2f ms  prep=%.1f layout=%.1f record=%.1f "
+                "raster=%.1f composite=%.1f  dl_changed=%u culled=%u "
+                "dirty_rects=%u area=%u%%  %s%s%s%s%s\n",
+                total_ms, st.prepare_us_this_frame / 1000.0,
+                st.layout_us_this_frame / 1000.0,
+                st.display_list_record_us_this_frame / 1000.0,
+                st.raster_us_this_frame / 1000.0,
+                st.composite_us_this_frame / 1000.0,
+                st.display_list_diff_changed_ops,
+                st.display_list_ops_culled_this_frame, st.dirty_rects,
+                st.dirty_area_pct_x100 / 100,
+                st.layout_dirty ? "L" : "-", st.paint_dirty ? "P" : "-",
+                st.recorded_this_frame ? "R" : "-",
+                st.root_layer_rasterized_this_frame ? "Z" : "-",
+                st.animations_active ? "A" : "-");
+            std::fflush(stderr);
+        }
         impl->animations_active = impl->renderer.stats().animations_active;
         impl->dirty = impl->animations_active;
         if (impl->settle_frames > 0 && !impl->dirty) {
             --impl->settle_frames;
+        }
+
+        // R1: assemble the presented frame's telemetry record — readable via
+        // App::frame_telemetry(), streamed by the AFFINEUI_TELEMETRY sink
+        // (schema: docs/AFFINETOOLS_PROTOCOL.md). Struct writes are trivial
+        // and unconditional; formatting/IO happen only behind sink_active().
+        auto& tl = impl->telemetry;
+        tl.v = kTelemetrySchemaVersion;
+        tl.frame = ++impl->presented_frames;
+        tl.t_ms = t_ms;
+        tl.gap_ms = gap_ms;
+        tl.cb_ms = std::chrono::duration<double, std::milli>(
+                       std::chrono::steady_clock::now() - frame_now)
+                       .count();
+        tl.skipped = impl->skipped_since_present;
+        impl->skipped_since_present = 0;
+        tl.fb_w = w;
+        tl.fb_h = h;
+        tl.dpi = impl->last_dpi;
+        fill_from_render_stats(tl, impl->renderer.stats());
+        const mem::Stats mem_now = mem::stats();
+        fill_mem_delta(tl, impl->mem_prev, mem_now);
+        impl->mem_prev = mem_now;
+        if (telemetry::sink_active()) {
+            telemetry::sink_write_frame(tl);
+        }
+        if (tools::wants_telemetry()) {
+            tools::push_frame(tl);
         }
 
         if (impl->quit_requested) sapp_request_quit();
@@ -642,6 +997,18 @@ void cb_event(const sapp_event* ev, void* user) {
             aui_ev.type = EventType::MouseWheel;
             break;
         case SAPP_EVENTTYPE_KEY_DOWN:
+#if AFFINEUI_PERF
+            // DevTools hotkey (zero config, on by default): F12 or
+            // Ctrl+Shift+I opens affinetools attached to this process.
+            if (impl->config.devtools_hotkey &&
+                (ev->key_code == SAPP_KEYCODE_F12 ||
+                 (ev->key_code == SAPP_KEYCODE_I &&
+                  (ev->modifiers & SAPP_MODIFIER_CTRL) != 0 &&
+                  (ev->modifiers & SAPP_MODIFIER_SHIFT) != 0))) {
+                (void) tools_open_devtools();
+                return;
+            }
+#endif
             aui_ev.type     = EventType::KeyDown;
             aui_ev.key_code = static_cast<int>(ev->key_code);
             aui_ev.key      = key_to_affine(ev->key_code);
@@ -661,12 +1028,12 @@ void cb_event(const sapp_event* ev, void* user) {
             }
             return;
         case SAPP_EVENTTYPE_RESIZED:
-            aui_ev.type = EventType::Resize;
-            detail::dispatch_loaded_view_event(*impl, aui_ev);
+            impl->has_pending_resize = true;  // coalesced: ≤1 per frame
             return;
         case SAPP_EVENTTYPE_MOUSE_LEAVE:
             aui_ev.type = EventType::MouseMove;
             aui_ev.pos  = Point{-1, -1};
+            impl->has_pending_mouse_move = false;  // superseded by leave
             (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
             return;
         default:
@@ -708,19 +1075,18 @@ void cb_event(const sapp_event* ev, void* user) {
         }
     }
 
+    if (aui_ev.type == EventType::MouseMove) {
+        // Coalesce: keep only the newest motion. It dispatches at the
+        // next frame start (or just below, when a press/wheel follows),
+        // so one expensive frame can't multiply into per-move relayouts.
+        impl->pending_mouse_move = aui_ev;
+        impl->has_pending_mouse_move = true;
+        return;
+    }
+    // Presses/wheel must observe any motion that preceded them.
+    flush_pending_mouse_move(*impl);
     const bool consumed = detail::dispatch_loaded_view_event(*impl, aui_ev);
     (void) consumed;
-
-    // Cursor must be applied synchronously inside the macOS mouse-
-    // event handler — calling sapp_set_mouse_cursor later from the
-    // frame callback misses Cocoa's cursor refresh window for this
-    // event. sokol's own current_cursor cache makes repeated calls a
-    // no-op so this is cheap.
-    if (aui_ev.type == EventType::MouseMove) {
-        const int cur = impl->document.hovered_cursor();
-        sapp_set_mouse_cursor(map_cursor(cur));
-        impl->last_cursor = cur;
-    }
     } catch (const std::exception& e) {
         detail::log_event_loop_exception("event callback", e);
         impl->exit_code = 1;
@@ -735,12 +1101,15 @@ void cb_event(const sapp_event* ev, void* user) {
 }  // namespace
 
 int App::run() {
+    detail::maybe_start_stack_sampler();  // AFFINEUI_SAMPLER=1
     sapp_desc desc{};
     desc.user_data            = impl_.get();
     desc.init_userdata_cb     = cb_init;
     desc.frame_userdata_cb    = cb_frame;
     desc.cleanup_userdata_cb  = cb_cleanup;
     desc.event_userdata_cb    = cb_event;
+    // Config::width/height are logical points; sokol_app's win32
+    // backend scales the created window by the monitor DPI itself.
     desc.width                = impl_->config.width;
     desc.height               = impl_->config.height;
     desc.window_title         = impl_->config.title.c_str();

@@ -7,9 +7,13 @@
 #include "affineui/affineui.h"
 #include "affineui/c_api.h"
 #include "affineui/embed.h"
+#include "affineui/tools.h"
 #include "affineui/ui.h"
 
+#include "internal/c_api_util.h"
+
 #include <string_view>
+#include <utility>
 
 namespace {
 
@@ -48,6 +52,26 @@ void cpp_log_thunk(affineui::LogLevel level, const char* msg, void* /*user*/) {
 }  // namespace
 
 extern "C" {
+
+int affineui_tools_listen(int port) {
+    return affineui::tools_listen(port) ? 1 : 0;
+}
+
+int affineui_tools_active() {
+    return affineui::tools_active() ? 1 : 0;
+}
+
+int affineui_tools_port() {
+    return affineui::tools_port();
+}
+
+void affineui_tools_shutdown() {
+    affineui::tools_shutdown();
+}
+
+int affineui_c_abi_version() {
+    return AFFINEUI_C_ABI_VERSION;
+}
 
 const char* affineui_version() {
     return AFFINEUI_VERSION_STRING;
@@ -154,6 +178,77 @@ void affineui_ui_reset(affineui_ui* ui) {
 int affineui_run_html(const char* html) {
     if (!html) return 1;
     return ::affineui::run(std::string_view{html});
+}
+
+// ── Input / live mutation (embedded) ─────────────────────────────────
+
+int affineui_ui_load_file(affineui_ui* ui, const char* path) {
+    if (!ui || !path) return 0;
+    return reinterpret_cast<affineui::Ui*>(ui)->load(std::string_view{path}) ? 1 : 0;
+}
+
+int affineui_ui_dispatch(affineui_ui* ui, const affineui_event* ev) {
+    if (!ui || !ev) return 0;
+    return reinterpret_cast<affineui::Ui*>(ui)->dispatch(affineui_c::to_event(*ev)) ? 1 : 0;
+}
+
+void affineui_ui_on_click(affineui_ui* ui,
+                          const char* selector,
+                          affineui_ui_click_fn fn,
+                          void* user,
+                          affineui_user_free_fn user_free) {
+    if (!ui || !selector || !fn) {
+        // Honor the exactly-once user_free contract even on a rejected
+        // registration, so bindings never leak their closure state.
+        if (user_free) user_free(user);
+        return;
+    }
+    auto data = affineui_c::hold_user(user, user_free);
+    reinterpret_cast<affineui::Ui*>(ui)->on_click(
+        std::string_view{selector},
+        [fn, data = std::move(data)] { fn(data->user); });
+}
+
+int affineui_ui_hovered_cursor(const affineui_ui* ui) {
+    if (!ui) return 0;
+    return reinterpret_cast<const affineui::Ui*>(ui)->hovered_cursor();
+}
+
+int affineui_ui_set_attr(affineui_ui* ui, const char* elem_id,
+                         const char* name, const char* value) {
+    if (!ui || !elem_id || !name) return 0;
+    return reinterpret_cast<affineui::Ui*>(ui)->set_attr(
+               std::string_view{elem_id}, std::string_view{name},
+               affineui_c::sv(value))
+               ? 1
+               : 0;
+}
+
+int affineui_ui_remove_attr(affineui_ui* ui, const char* elem_id, const char* name) {
+    if (!ui || !elem_id || !name) return 0;
+    return reinterpret_cast<affineui::Ui*>(ui)->remove_attr(
+               std::string_view{elem_id}, std::string_view{name})
+               ? 1
+               : 0;
+}
+
+int affineui_ui_set_text(affineui_ui* ui, const char* elem_id, const char* text) {
+    if (!ui || !elem_id) return 0;
+    return reinterpret_cast<affineui::Ui*>(ui)->set_text(std::string_view{elem_id},
+                                                         affineui_c::sv(text))
+               ? 1
+               : 0;
+}
+
+void affineui_ui_content_size(const affineui_ui* ui, int* out_w, int* out_h) {
+    affineui::Size size{};
+    if (ui) size = reinterpret_cast<const affineui::Ui*>(ui)->content_size();
+    if (out_w) *out_w = size.width;
+    if (out_h) *out_h = size.height;
+}
+
+void affineui_string_free(char* s) {
+    std::free(s);
 }
 
 }  // extern "C"

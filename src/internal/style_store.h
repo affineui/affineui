@@ -101,6 +101,9 @@ private:
     std::vector<std::uint8_t>     state_bits_;   // :hover/:active/:focus
     std::vector<std::uint8_t>     dirty_;        // Dirty mask
     std::vector<std::uint16_t>    generations_;  // 0 = freed slot
+    std::vector<lxb_dom_element_t*> elements_;   // slot → element (O(1)
+                                                 // element_of; null for
+                                                 // synthetic slots)
 
     // Reverse map for lookup() — lexbor element → ElementId.
     std::unordered_map<lxb_dom_element_t*, std::uint32_t> by_element_;

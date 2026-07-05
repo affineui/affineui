@@ -44,6 +44,8 @@ enum class PaintOpKind : std::uint8_t {
     PopAlpha,
     PushTransform,
     PopTransform,
+    FillPath,
+    StrokePath,
 };
 
 struct PaintOp {
@@ -238,6 +240,21 @@ struct PaintOp {
             float a, b, c, d, tx, ty;
         } push_transform;
 
+        // Vector path (FillPath / StrokePath). The command stream and
+        // paint parameters live in text_pool as a blob (see
+        // path_blob_* helpers in display_list_painter.h); the op
+        // carries the pool ref, precomputed stroke-inflated visual
+        // bounds, and the stroke parameters.
+        struct {
+            std::uint32_t data_offset;    // 4 — blob offset in text_pool
+            std::uint32_t data_len;       // 4 — blob length in bytes
+            std::int16_t  bx, by, bw, bh; // 8 — visual bounds
+            float         thickness;      // 4 — stroke width (0 for fill)
+            std::uint8_t  cap;            // 1 — LineCap ordinal
+            std::uint8_t  join;           // 1 — LineJoin ordinal
+            std::uint16_t pad_;           // 2
+        } path;                           // = 24 bytes
+
         std::uint8_t raw[28];
     } p{};
 };
@@ -299,6 +316,22 @@ struct DisplayList {
     }
 
     std::string_view text_at(std::uint32_t offset, std::uint16_t len) const {
+        if (offset + len > text_pool.size()) return {};
+        return std::string_view(text_pool.data() + offset, len);
+    }
+
+    // Push an arbitrary byte blob into the pool (vector path data);
+    // returns (offset, length). Same storage as text so the content
+    // hash covers it for free.
+    std::pair<std::uint32_t, std::uint32_t> intern_bytes(const void* data,
+                                                         std::size_t n) {
+        const auto off = static_cast<std::uint32_t>(text_pool.size());
+        const auto* p = static_cast<const char*>(data);
+        text_pool.insert(text_pool.end(), p, p + n);
+        return {off, static_cast<std::uint32_t>(n)};
+    }
+
+    std::string_view bytes_at(std::uint32_t offset, std::uint32_t len) const {
         if (offset + len > text_pool.size()) return {};
         return std::string_view(text_pool.data() + offset, len);
     }

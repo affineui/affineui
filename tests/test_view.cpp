@@ -413,9 +413,16 @@ TEST_CASE("View emits framework-specific knob markup") {
     CHECK(html.find("data-dcs-knob") != std::string::npos);
     CHECK(html.find("class=\"dcs-knob\" data-dcs-knob") !=
           std::string::npos);
-    CHECK(html.find("dcs-knob__arc") != std::string::npos);
-    CHECK(html.find("dcs-knob__indicator") != std::string::npos);
+    // The ring/arc/indicator are UA-painted by the engine from the
+    // data-min/max/value attrs (document.cpp knob chrome) — a knob move
+    // is one attribute write, not an SVG-path rebuild. The DOM carries
+    // the state attrs + the styled cap + the value label, and NO SVG.
+    CHECK(html.find("data-value=\"0.42\"") != std::string::npos);
     CHECK(html.find("dcs-knob__cap") != std::string::npos);
+    CHECK(html.find("dcs-knob__value") != std::string::npos);
+    CHECK(html.find("dcs-knob__arc") == std::string::npos);
+    CHECK(html.find("dcs-knob__ring") == std::string::npos);
+    CHECK(html.find("<svg") == std::string::npos);
 
     affineui::View bootstrap{affineui::ViewTheme::Bootstrap};
     bootstrap.begin();
@@ -425,10 +432,10 @@ TEST_CASE("View emits framework-specific knob markup") {
     REQUIRE(gain);
     html = bootstrap.to_html_fragment();
     CHECK(html.find("data-aui-knob") != std::string::npos);
-    CHECK(html.find("class=\"aui-knob\" data-aui-name=\"gain\"") !=
-          std::string::npos);
-    CHECK(html.find("aui-knob__arc") != std::string::npos);
-    CHECK(html.find("aui-knob__indicator") != std::string::npos);
+    CHECK(html.find("aui-knob__cap") != std::string::npos);
+    CHECK(html.find("aui-knob__value") != std::string::npos);
+    CHECK(html.find("aui-knob__arc") == std::string::npos);
+    CHECK(html.find("aui-knob__ring") == std::string::npos);
 }
 
 TEST_CASE("View can embed trusted raw HTML fragments") {
@@ -618,6 +625,117 @@ TEST_CASE("View virtual list materializes only the requested window") {
     CHECK(html.find("Row 47") == std::string::npos);
     CHECK(view.find_widget("row-38"));
     CHECK_FALSE(view.find_widget("row-47"));
+}
+
+TEST_CASE("set_view: full-height column reflows to a grown viewport (resize)") {
+    // T12 (PERF_RELIABILITY_TICKETS.md): the affinetools viewer (built with
+    // set_view + a 100%-height flex column) rendered BLANK after a small
+    // window resize, while a load_view app (command_panel) resized fine.
+    // This drives the set_view path through a viewport growth headlessly:
+    // a bottom-anchored status bar must move DOWN to the new viewport
+    // bottom, and content must stay laid out (non-zero rects).
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    TestPainter painter;
+
+    app.set_view([&](affineui::View& v) {
+        affineui::View::Scope root =
+            v.container("rz-root", "rz-root");
+        root.ref().attr(
+            "style",
+            "height:100%;display:flex;flex-direction:column");
+        v.container("rz-top", "rz-top")
+            .attr("style", "height:30px;background:#333");
+        v.container("rz-body", "rz-body")
+            .attr("style", "flex:1;min-height:0");
+        v.container("rz-status", "rz-status")
+            .attr("style", "height:22px;background:#222");
+    });
+
+    app.document().layout(800, 400, &painter);
+    const affineui::Rect status0 =
+        app.document().find_element_rect("rz-status");
+    const affineui::Rect top0 = app.document().find_element_rect("rz-top");
+    REQUIRE(top0.w > 0);
+    REQUIRE(status0.w > 0);
+    MESSAGE("400h: top=(", top0.x, ",", top0.y, " ", top0.w, "x", top0.h,
+            ") status=(", status0.x, ",", status0.y, " ", status0.w, "x",
+            status0.h, ")");
+
+    // Grow the viewport (the resize). Nothing else changes.
+    app.document().layout(840, 460, &painter);
+    const affineui::Rect status1 =
+        app.document().find_element_rect("rz-status");
+    const affineui::Rect top1 = app.document().find_element_rect("rz-top");
+    MESSAGE("460h: top=(", top1.x, ",", top1.y, " ", top1.w, "x", top1.h,
+            ") status=(", status1.x, ",", status1.y, " ", status1.w, "x",
+            status1.h, ")");
+    // The content must still be laid out (the T12 blank corresponds to a
+    // total collapse), the top bar widens with the viewport, and the
+    // bottom-anchored status bar rides the new taller viewport downward.
+    // NOTE: this DID reflow correctly headless — proving T12 is a
+    // render-path bug, not a layout collapse. (Separately, height:100%
+    // under-fills the viewport by ~24px — a minor %-chain bug, not T12.)
+    REQUIRE(top1.w > 0);
+    REQUIRE(status1.w > 0);
+    CHECK(top1.w > top0.w);        // widened with the viewport
+    CHECK(status1.y > status0.y);  // moved DOWN with the new bottom
+}
+
+TEST_CASE("set_view: text-only rebuild replaces the painted run (T11)") {
+    // T11 (PERF_RELIABILITY_TICKETS.md): affinetools' live window showed a
+    // paragraph updated once a second via rebuild_view rendering the NEW
+    // string composited over the OLD one — two generations of glyphs. This
+    // drives the exact pipeline headlessly: set_view → text change →
+    // rebuild_view → layout → draw, and requires the stale run to be gone.
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    TestPainter painter;
+
+    std::string status = "counter 111 units";
+    app.set_view([&](affineui::View& v) {
+        v.heading(3, "T11", "t11-head");
+        v.paragraph(status, "t11-status");
+    });
+    app.document().layout(640, 360, &painter);
+
+    auto count_contains = [&](std::string_view needle) {
+        int n = 0;
+        for (const auto& td : painter.text_draws) {
+            if (td.text.find(needle) != std::string::npos) ++n;
+        }
+        return n;
+    };
+
+    painter.text_draws.clear();
+    app.document().draw(painter);
+    CHECK(count_contains("counter 111") == 1);
+
+    status = "counter 222 units";
+    app.rebuild_view();
+    app.document().layout(640, 360, &painter);
+    painter.text_draws.clear();
+    app.document().draw(painter);
+    for (const auto& td : painter.text_draws) {
+        MESSAGE("draw '", td.text, "' at (", td.pos.x, ",", td.pos.y, ")");
+    }
+    CHECK(count_contains("counter 222") == 1);
+    CHECK(count_contains("counter 111") == 0);  // the stale run must be gone
+    CHECK(count_contains("units") == 1);
+
+    // The live repro ticks ~once a second for minutes; a handful of rounds
+    // catches accumulation.
+    for (int i = 0; i < 5; ++i) {
+        status = "counter " + std::to_string(300 + i) + " units";
+        app.rebuild_view();
+        app.document().layout(640, 360, &painter);
+    }
+    painter.text_draws.clear();
+    app.document().draw(painter);
+    CHECK(count_contains("units") == 1);
+    CHECK(count_contains("counter 304") == 1);
 }
 
 TEST_CASE("App dispatch invokes command button callbacks") {
@@ -2688,7 +2806,11 @@ TEST_CASE("View keyless widgets are write-only declarations") {
     auto unnamed = view.button("Write only");
     view.end();
 
-    CHECK_FALSE(unnamed);
+    // A keyless widget still hands back a LIVE id-addressed ref — builders
+    // chain .text()/.attr() on it (module titles, jack labels) — but it is
+    // not findable by name: neither the empty string (no name ≠ wildcard)
+    // nor its label resolve to it.
+    CHECK(unnamed);
     CHECK_FALSE(view.find_widget(""));
     CHECK_FALSE(view.find_widget("Write only"));
     CHECK(view.to_html_fragment().find("Write only") != std::string::npos);

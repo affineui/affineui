@@ -89,6 +89,7 @@ struct UiImpl {
     // event bubbling intuitively at the registration site).
     std::vector<std::pair<std::string, std::function<void()>>> click_handlers;
     std::vector<Ui::EventHandler> event_handlers;
+    std::vector<std::function<void(double)>> frame_callbacks;
     std::vector<Document::HoverInfo> hover_chain_scratch;
     bool pointer_captured{false};
 };
@@ -282,6 +283,7 @@ void Ui::reset() {
     impl_->document.set_html("");             // clear DOM
     impl_->click_handlers.clear();
     impl_->event_handlers.clear();
+    impl_->frame_callbacks.clear();
     impl_->hover_chain_scratch.clear();
     impl_->pointer_captured = false;
     impl_->dirty = true;
@@ -386,6 +388,16 @@ void Ui::on_click(std::string_view selector, std::function<void()> cb) {
 
 void Ui::on_event(EventHandler cb) {
     impl_->event_handlers.emplace_back(std::move(cb));
+}
+
+void Ui::on_frame(std::function<void(double)> cb) {
+    impl_->frame_callbacks.emplace_back(std::move(cb));
+}
+
+void Ui::run_frame_callbacks(double dt_seconds) {
+    for (const auto& cb : impl_->frame_callbacks) {
+        cb(dt_seconds);
+    }
 }
 
 // ── Config ──────────────────────────────────────────────────────────

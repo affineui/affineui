@@ -54,6 +54,18 @@ public:
         affineui::Color color;
         float thickness{0.0f};
     };
+    struct PathDraw {
+        std::vector<float> cmds;
+        affineui::PathPaint paint;
+        bool stroked{false};
+        float width{0.0f};
+        // First kPathMove point and final on-path point — enough to
+        // assert endpoint geometry without decoding the whole stream.
+        float x0{0.0f};
+        float y0{0.0f};
+        float x1{0.0f};
+        float y1{0.0f};
+    };
     struct LinearGradientDraw {
         affineui::Rect rect;
         affineui::Color stop0;
@@ -92,6 +104,7 @@ public:
     std::vector<FillDraw> fill_draws;
     std::vector<RoundedFillDraw> rounded_fill_draws;
     std::vector<ArcDraw> arc_draws;
+    std::vector<PathDraw> path_draws;
     std::vector<LinearGradientDraw> linear_gradient_draws;
     std::vector<StrokeLineDraw> stroke_line_draws;
     std::vector<BorderRingDraw> border_ring_draws;
@@ -131,6 +144,49 @@ public:
         stroke_colors.push_back(color);
         arc_draws.push_back({cx, cy, radius, start_deg, end_deg, color,
                              thickness});
+    }
+    PathDraw make_path_draw(const float* cmds, std::size_t count,
+                            const affineui::PathPaint& paint) {
+        PathDraw d;
+        d.cmds.assign(cmds, cmds + count);
+        d.paint = paint;
+        std::size_t i = 0;
+        bool first = true;
+        while (i < count) {
+            const float verb = cmds[i];
+            std::size_t coords = 0;
+            if (verb == affineui::kPathMove || verb == affineui::kPathLine) {
+                coords = 2;
+            } else if (verb == affineui::kPathCubic) {
+                coords = 6;
+            } else {  // kPathClose
+                ++i;
+                continue;
+            }
+            const float px = cmds[i + coords - 1];  // last x
+            const float py = cmds[i + coords];      // last y
+            if (first) {
+                d.x0 = cmds[i + 1];
+                d.y0 = cmds[i + 2];
+                first = false;
+            }
+            d.x1 = px;
+            d.y1 = py;
+            i += 1 + coords;
+        }
+        return d;
+    }
+    void fill_path(const float* cmds, std::size_t count,
+                   const affineui::PathPaint& paint) override {
+        path_draws.push_back(make_path_draw(cmds, count, paint));
+    }
+    void stroke_path(const float* cmds, std::size_t count,
+                     const affineui::PathPaint& paint, float width,
+                     affineui::LineCap, affineui::LineJoin) override {
+        auto d = make_path_draw(cmds, count, paint);
+        d.stroked = true;
+        d.width = width;
+        path_draws.push_back(d);
     }
     void fill_rounded_rect(const affineui::Rect& rect, float radius,
                            affineui::Color color) override {
@@ -4609,16 +4665,27 @@ TEST_CASE("inline svg circular arc path paints with viewBox scaling and vars") {
     doc.layout(80, 0, &painter);
     doc.draw(painter);
 
+    // The general SVG renderer strokes path data through the Painter's
+    // vector-path API (arcs are lowered to cubics), so assert on the
+    // stroked path: accent colour resolved through var(), and endpoints
+    // at the viewBox-scaled arc extremes (24 viewBox units → 56px box,
+    // scale 56/24).
+    const float sc = 56.0f / 24.0f;
     bool saw_accent_arc = false;
-    for (const auto& arc : painter.arc_draws) {
-        if (same_color(arc.color, affineui::Color::rgb(0x4d, 0x9f, 0xff))) {
-            saw_accent_arc = true;
-            CHECK(arc.cx == doctest::Approx(28.0f));
-            CHECK(arc.cy == doctest::Approx(28.0f));
-            CHECK(arc.radius == doctest::Approx(24.5f));
-            CHECK(arc.start_deg == doctest::Approx(-135.0f));
-            CHECK(arc.end_deg == doctest::Approx(-48.6f).epsilon(0.01));
+    for (const auto& pd : painter.path_draws) {
+        if (!pd.stroked) continue;
+        if (!same_color(pd.paint.colors[0],
+                        affineui::Color::rgb(0x4d, 0x9f, 0xff))) {
+            continue;
         }
+        saw_accent_arc = true;
+        CHECK(pd.x0 == doctest::Approx(4.57537879754125f * sc).epsilon(0.01));
+        CHECK(pd.y0 == doctest::Approx(19.42462120245875f * sc).epsilon(0.01));
+        CHECK(pd.x1 ==
+              doctest::Approx(4.123833768880174f * sc).epsilon(0.01));
+        CHECK(pd.y1 ==
+              doctest::Approx(5.056225414101656f * sc).epsilon(0.01));
+        CHECK(pd.width == doctest::Approx(1.75f * sc).epsilon(0.05));
     }
     CHECK(saw_accent_arc);
 }

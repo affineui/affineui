@@ -443,6 +443,9 @@ inline void cb_init_(void* user) {
 inline void cb_frame_(void* user) {
     auto& state = *static_cast<PerfHudState*>(user);
     auto& ui = *state.ui;
+    // Native frame ticks run before the idle short-circuit so
+    // physics/animation callbacks can mark_dirty() to keep drawing.
+    ui.run_frame_callbacks(sapp_frame_duration_unfiltered());
     const int   w   = sapp_width();
     const int   h   = sapp_height();
     const float dpi = sapp_dpi_scale();

@@ -528,7 +528,12 @@ lxb_html_tree_append_attributes_from_element(lxb_html_tree_t *tree,
             }
         }
 
-        lxb_dom_element_attr_append(element, attr);
+        /* AffineUI fork fix: append the CLONE, not the source element's
+         * attr. Appending `attr` stole it from `from` (owner flipped, the
+         * two elements shared one chain, `new_attr` leaked) — any later
+         * remove/destroy through either element then corrupted the other's
+         * first_attr/last_attr list. */
+        lxb_dom_element_attr_append(element, new_attr);
 
         attr = attr->next;
     }

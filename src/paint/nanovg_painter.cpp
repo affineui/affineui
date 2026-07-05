@@ -484,6 +484,181 @@ public:
         nvgStroke(vg_);
     }
 
+    // Walk a flat path command stream (kPathMove/kPathLine/kPathCubic/
+    // kPathClose) into the current NanoVG path. Malformed streams stop
+    // at the first short segment rather than reading out of bounds.
+    void build_path(const float* c, std::size_t n) {
+        nvgBeginPath(vg_);
+        std::size_t i = 0;
+        while (i < n) {
+            const float verb = c[i];
+            if (verb == kPathMove) {
+                if (i + 3 > n) break;
+                nvgMoveTo(vg_, c[i + 1], c[i + 2]);
+                i += 3;
+            } else if (verb == kPathLine) {
+                if (i + 3 > n) break;
+                nvgLineTo(vg_, c[i + 1], c[i + 2]);
+                i += 3;
+            } else if (verb == kPathCubic) {
+                if (i + 7 > n) break;
+                nvgBezierTo(vg_, c[i + 1], c[i + 2], c[i + 3], c[i + 4],
+                            c[i + 5], c[i + 6]);
+                i += 7;
+            } else if (verb == kPathClose) {
+                nvgClosePath(vg_);
+                i += 1;
+            } else {
+                break;
+            }
+        }
+    }
+
+    // Multi-stop gradients render through a cached LUT texture wrapped
+    // in an image pattern (the default sampler is clamp-to-edge, which
+    // gives the CSS/SVG "pad" spread for free). Two-stop gradients use
+    // NanoVG's native analytic paints.
+    std::uint64_t gradient_lut_key(const PathPaint& p) const {
+        std::uint64_t h = 0xcbf29ce484222325ull;
+        const auto mix = [&h](const void* data, std::size_t n) {
+            const auto* b = static_cast<const std::uint8_t*>(data);
+            for (std::size_t i = 0; i < n; ++i) {
+                h ^= b[i];
+                h *= 0x100000001b3ull;
+            }
+        };
+        const std::uint8_t kind = static_cast<std::uint8_t>(p.kind);
+        mix(&kind, 1);
+        mix(&p.stop_count, 1);
+        mix(p.offsets, sizeof(float) * p.stop_count);
+        mix(p.colors, sizeof(Color) * p.stop_count);
+        if (p.kind == PathPaint::Kind::Radial) {
+            // The 2D LUT bakes the inner/outer radius ratio.
+            const float ratio = p.r1 > 0.0f ? p.r0 / p.r1 : 0.0f;
+            mix(&ratio, sizeof(ratio));
+        }
+        return h;
+    }
+
+    int gradient_lut_image(const PathPaint& p) {
+        const std::uint64_t key = gradient_lut_key(p);
+        if (const auto it = gradient_luts_.find(key);
+            it != gradient_luts_.end()) {
+            return it->second;
+        }
+        int image = 0;
+        if (p.kind == PathPaint::Kind::Linear) {
+            constexpr int kW = 256;
+            std::vector<std::uint8_t> px(kW * 4);
+            for (int x = 0; x < kW; ++x) {
+                const Color c =
+                    p.sample(static_cast<float>(x) /
+                             static_cast<float>(kW - 1));
+                px[x * 4 + 0] = c.r;
+                px[x * 4 + 1] = c.g;
+                px[x * 4 + 2] = c.b;
+                px[x * 4 + 3] = c.a;
+            }
+            image = nvgCreateImageRGBA(vg_, kW, 1, 0, px.data());
+        } else {
+            // Radial: bake a 2D disc. Texture spans the outer circle's
+            // bounding square; t maps texel distance through [r0, r1].
+            constexpr int kW = 256;
+            const float ratio = p.r1 > 0.0f
+                                    ? std::clamp(p.r0 / p.r1, 0.0f, 1.0f)
+                                    : 0.0f;
+            std::vector<std::uint8_t> px(kW * kW * 4);
+            const float half = static_cast<float>(kW - 1) * 0.5f;
+            for (int y = 0; y < kW; ++y) {
+                for (int x = 0; x < kW; ++x) {
+                    const float dx = (static_cast<float>(x) - half) / half;
+                    const float dy = (static_cast<float>(y) - half) / half;
+                    const float d = std::sqrt(dx * dx + dy * dy);
+                    const float span = 1.0f - ratio;
+                    const float t = span <= 0.0f
+                                        ? 1.0f
+                                        : (d - ratio) / span;
+                    const Color c = p.sample(std::clamp(t, 0.0f, 1.0f));
+                    const std::size_t o =
+                        (static_cast<std::size_t>(y) * kW + x) * 4;
+                    px[o + 0] = c.r;
+                    px[o + 1] = c.g;
+                    px[o + 2] = c.b;
+                    px[o + 3] = c.a;
+                }
+            }
+            image = nvgCreateImageRGBA(vg_, kW, kW, 0, px.data());
+        }
+        gradient_luts_.emplace(key, image);
+        return image;
+    }
+
+    NVGpaint gradient_paint(const PathPaint& p) {
+        const Color c0 = p.colors[0];
+        const Color c1 = p.colors[p.stop_count > 0 ? p.stop_count - 1 : 0];
+        if (p.stop_count > 2) {
+            const int image = gradient_lut_image(p);
+            if (image != 0) {
+                if (p.kind == PathPaint::Kind::Linear) {
+                    const float dx = p.x1 - p.x0;
+                    const float dy = p.y1 - p.y0;
+                    const float len = std::sqrt(dx * dx + dy * dy);
+                    if (len > 1e-6f) {
+                        const float angle = std::atan2(dy, dx);
+                        // Pattern rect: gradient axis along local +x,
+                        // one texel row stretched across a large
+                        // perpendicular extent (clamped anyway).
+                        return nvgImagePattern(vg_, p.x0, p.y0 - 5000.0f,
+                                               len, 10000.0f, angle, image,
+                                               1.0f);
+                    }
+                } else if (p.r1 > 0.0f) {
+                    return nvgImagePattern(vg_, p.x0 - p.r1, p.y0 - p.r1,
+                                           p.r1 * 2.0f, p.r1 * 2.0f, 0.0f,
+                                           image, 1.0f);
+                }
+            }
+        }
+        if (p.kind == PathPaint::Kind::Radial) {
+            return nvgRadialGradient(vg_, p.x0, p.y0, p.r0, p.r1,
+                                     to_nvg(c0), to_nvg(c1));
+        }
+        return nvgLinearGradient(vg_, p.x0, p.y0, p.x1, p.y1,
+                                 to_nvg(c0), to_nvg(c1));
+    }
+
+    void fill_path(const float* cmds, std::size_t count,
+                   const PathPaint& paint) override {
+        if (cmds == nullptr || count == 0) return;
+        build_path(cmds, count);
+        if (paint.kind == PathPaint::Kind::Solid) {
+            nvgFillColor(vg_, to_nvg(paint.colors[0]));
+        } else {
+            nvgFillPaint(vg_, gradient_paint(paint));
+        }
+        nvgFill(vg_);
+    }
+
+    void stroke_path(const float* cmds, std::size_t count,
+                     const PathPaint& paint, float width,
+                     LineCap cap, LineJoin join) override {
+        if (cmds == nullptr || count == 0 || width <= 0.0f) return;
+        build_path(cmds, count);
+        if (paint.kind == PathPaint::Kind::Solid) {
+            nvgStrokeColor(vg_, to_nvg(paint.colors[0]));
+        } else {
+            nvgStrokePaint(vg_, gradient_paint(paint));
+        }
+        nvgStrokeWidth(vg_, width);
+        nvgLineCap(vg_, cap == LineCap::Round    ? NVG_ROUND
+                        : cap == LineCap::Square ? NVG_SQUARE
+                                                 : NVG_BUTT);
+        nvgLineJoin(vg_, join == LineJoin::Round   ? NVG_ROUND
+                         : join == LineJoin::Bevel ? NVG_BEVEL
+                                                   : NVG_MITER);
+        nvgStroke(vg_);
+    }
+
     // CSS clamps border-radius UNIFORMLY to min(w,h)/2, keeping corners
     // circular — a huge radius (e.g. `border-radius:50rem` for a pill)
     // becomes a pill (semicircular ends), not an ellipse. NanoVG instead
@@ -1814,6 +1989,7 @@ private:
     int                                          bold_italic_face_{-1};
     std::unordered_map<std::string, int>         image_cache_;
     std::unordered_map<std::uint64_t, int>       stripe_cache_;
+    std::unordered_map<std::uint64_t, int>       gradient_luts_;
     std::unordered_map<std::uint64_t, int>       grid_cache_;
     std::unordered_map<std::uint64_t, int>       shadow_cache_;
     std::vector<RegisteredFontFace>              registered_faces_;

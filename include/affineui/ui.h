@@ -194,6 +194,17 @@ public:
     /// drags and mutate native state without reparsing event targets.
     void on_event(EventHandler cb);
 
+    /// Register a per-frame tick callback — the requestAnimationFrame
+    /// analog for native animations/physics. The host wiring invokes
+    /// run_frame_callbacks() once per display frame with the elapsed
+    /// seconds; a callback that wants a repaint calls mark_dirty(),
+    /// one that touches nothing keeps the idle path free.
+    void on_frame(std::function<void(double dt_seconds)> cb);
+
+    /// Invoke registered frame callbacks (host integration; the sokol
+    /// wiring calls this at the top of every display frame).
+    void run_frame_callbacks(double dt_seconds);
+
     // ── Configuration ──────────────────────────────────────────────
 
     /// Background color drawn behind the document. Default catppuccin

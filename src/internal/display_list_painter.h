@@ -7,11 +7,53 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 
 namespace affineui::detail {
 
 inline void prepare_replay_metadata(DisplayList& list);
+
+// ── Vector path blob ────────────────────────────────────────────────
+// FillPath / StrokePath store their command stream + paint in the
+// text_pool as a blob:
+//   u32 paint kind, f32 x0 y0 x1 y1 r0 r1, u32 stop_count,
+//   f32 offset × n, u32 rgba × n, then the raw float command stream.
+// Blobs are 4-byte aligned in the pool so the float stream can be
+// read in place.
+inline bool path_blob_decode(std::string_view blob, PathPaint& paint,
+                             const float*& cmds, std::size_t& count) {
+    constexpr std::size_t kFixedWords = 8;  // kind + 6 geo floats + count
+    if (blob.size() < kFixedWords * 4) return false;
+    std::uint32_t fixed[kFixedWords];
+    std::memcpy(fixed, blob.data(), sizeof(fixed));
+    paint = PathPaint{};
+    paint.kind = static_cast<PathPaint::Kind>(fixed[0]);
+    std::memcpy(&paint.x0, &fixed[1], 6 * sizeof(float));
+    const std::uint32_t n =
+        std::min<std::uint32_t>(fixed[7], PathPaint::kMaxStops);
+    paint.stop_count = static_cast<std::uint8_t>(n);
+    const std::size_t header_bytes = (kFixedWords + 2u * n) * 4;
+    if (blob.size() < header_bytes) return false;
+    const auto unpack = [](std::uint32_t v) {
+        return Color{
+            static_cast<std::uint8_t>((v >> 24) & 0xFF),
+            static_cast<std::uint8_t>((v >> 16) & 0xFF),
+            static_cast<std::uint8_t>((v >>  8) & 0xFF),
+            static_cast<std::uint8_t>( v        & 0xFF),
+        };
+    };
+    std::memcpy(paint.offsets, blob.data() + kFixedWords * 4,
+                n * sizeof(float));
+    for (std::uint32_t i = 0; i < n; ++i) {
+        std::uint32_t rgba = 0;
+        std::memcpy(&rgba, blob.data() + (kFixedWords + n + i) * 4, 4);
+        paint.colors[i] = unpack(rgba);
+    }
+    cmds  = reinterpret_cast<const float*>(blob.data() + header_bytes);
+    count = (blob.size() - header_bytes) / sizeof(float);
+    return true;
+}
 
 /// A Painter that records all calls into a DisplayList instead of
 /// emitting GL draw commands. The Document calls this just like any
@@ -306,6 +348,20 @@ public:
         list_.ops.push_back(op);
     }
 
+    void fill_path(const float* cmds, std::size_t count,
+                   const PathPaint& paint) override {
+        record_path(PaintOpKind::FillPath, cmds, count, paint, 0.0f,
+                    LineCap::Butt, LineJoin::Miter);
+    }
+
+    void stroke_path(const float* cmds, std::size_t count,
+                     const PathPaint& paint, float width,
+                     LineCap cap, LineJoin join) override {
+        if (width <= 0.0f) return;
+        record_path(PaintOpKind::StrokePath, cmds, count, paint, width,
+                    cap, join);
+    }
+
     std::uint32_t resolve_font(std::string_view family, int size_px,
                                int weight, bool italic) override {
         return font_resolver_
@@ -495,6 +551,84 @@ private:
              |  std::uint32_t(c.a);
     }
 
+    void record_path(PaintOpKind kind, const float* cmds, std::size_t count,
+                     const PathPaint& paint, float thickness,
+                     LineCap cap, LineJoin join) {
+        if (cmds == nullptr || count == 0) return;
+
+        // Bounds over every coordinate in the stream (control points
+        // included — a safe over-approximation), inflated by the stroke.
+        float min_x = std::numeric_limits<float>::max();
+        float min_y = std::numeric_limits<float>::max();
+        float max_x = std::numeric_limits<float>::lowest();
+        float max_y = std::numeric_limits<float>::lowest();
+        bool any = false;
+        std::size_t i = 0;
+        while (i < count) {
+            const float verb = cmds[i];
+            std::size_t coords = 0;
+            if (verb == kPathMove || verb == kPathLine)  coords = 2;
+            else if (verb == kPathCubic)                 coords = 6;
+            else if (verb == kPathClose)                 coords = 0;
+            else break;
+            if (i + 1 + coords > count) break;
+            for (std::size_t k = 0; k < coords; k += 2) {
+                min_x = std::min(min_x, cmds[i + 1 + k]);
+                max_x = std::max(max_x, cmds[i + 1 + k]);
+                min_y = std::min(min_y, cmds[i + 2 + k]);
+                max_y = std::max(max_y, cmds[i + 2 + k]);
+                any = true;
+            }
+            i += 1 + coords;
+        }
+        if (!any) return;
+        const float pad = thickness * 0.5f + 1.0f;
+        const auto clamp_i16 = [](float v) {
+            return static_cast<std::int16_t>(
+                std::clamp(v, -32768.0f, 32767.0f));
+        };
+        const std::int16_t bx = clamp_i16(std::floor(min_x - pad));
+        const std::int16_t by = clamp_i16(std::floor(min_y - pad));
+        const std::int16_t bw = clamp_i16(std::ceil(max_x + pad) - bx);
+        const std::int16_t bh = clamp_i16(std::ceil(max_y + pad) - by);
+
+        // 4-align the pool so the float command stream is readable in
+        // place at replay time. Padding is deterministic (zero bytes),
+        // so content hashing stays stable.
+        while (list_.text_pool.size() % 4 != 0) {
+            list_.text_pool.push_back('\0');
+        }
+        const std::uint32_t n = std::min<std::uint32_t>(
+            paint.stop_count, PathPaint::kMaxStops);
+        std::uint32_t header[8 + 2 * PathPaint::kMaxStops] = {};
+        header[0] = static_cast<std::uint32_t>(paint.kind);
+        std::memcpy(&header[1], &paint.x0, 6 * sizeof(float));
+        header[7] = n;
+        std::memcpy(&header[8], paint.offsets, n * sizeof(float));
+        for (std::uint32_t s = 0; s < n; ++s) {
+            header[8 + n + s] = pack(paint.colors[s]);
+        }
+        const std::size_t header_bytes = (8 + 2u * n) * 4;
+        const auto [off, hlen] = list_.intern_bytes(header, header_bytes);
+        (void)hlen;
+        list_.intern_bytes(cmds, count * sizeof(float));
+
+        PaintOp op{};
+        op.kind = kind;
+        op.p.path.data_offset = off;
+        op.p.path.data_len =
+            static_cast<std::uint32_t>(header_bytes + count * sizeof(float));
+        op.p.path.bx = bx;
+        op.p.path.by = by;
+        op.p.path.bw = bw;
+        op.p.path.bh = bh;
+        op.p.path.thickness = thickness;
+        op.p.path.cap  = static_cast<std::uint8_t>(cap);
+        op.p.path.join = static_cast<std::uint8_t>(join);
+        op.p.path.pad_ = 0;
+        list_.ops.push_back(op);
+    }
+
     Painter*    font_resolver_;
     DisplayList list_;
 };
@@ -681,6 +815,26 @@ inline void replay_op(const DisplayList& list, const PaintOp& op,
             case PaintOpKind::PopTransform:
                 target.pop_transform();
                 break;
+            case PaintOpKind::FillPath:
+            case PaintOpKind::StrokePath: {
+                const auto& pp = op.p.path;
+                PathPaint paint{};
+                const float* cmds = nullptr;
+                std::size_t count = 0;
+                if (!path_blob_decode(
+                        list.bytes_at(pp.data_offset, pp.data_len),
+                        paint, cmds, count)) {
+                    break;
+                }
+                if (op.kind == PaintOpKind::FillPath) {
+                    target.fill_path(cmds, count, paint);
+                } else {
+                    target.stroke_path(cmds, count, paint, pp.thickness,
+                                       static_cast<LineCap>(pp.cap),
+                                       static_cast<LineJoin>(pp.join));
+                }
+                break;
+            }
         }
 }
 
@@ -835,6 +989,12 @@ inline bool replay_op_bounds(const PaintOp& op, Rect& out) {
             out = Rect{c.x, c.y, c.w, c.h};
             return true;
         }
+        case PaintOpKind::FillPath:
+        case PaintOpKind::StrokePath: {
+            const auto& pp = op.p.path;
+            out = Rect{pp.bx, pp.by, pp.bw, pp.bh};
+            return true;
+        }
         case PaintOpKind::PopClip:
         case PaintOpKind::PushAlpha:
         case PaintOpKind::PopAlpha:
@@ -910,6 +1070,11 @@ inline bool replay_paint_ops_equal(const DisplayList& a,
                          a_op.p.draw_text_box.text_len)
             == b.text_at(b_op.p.draw_text_box.text_offset,
                          b_op.p.draw_text_box.text_len);
+    }
+    if (a_op.kind == PaintOpKind::FillPath ||
+        a_op.kind == PaintOpKind::StrokePath) {
+        return a.bytes_at(a_op.p.path.data_offset, a_op.p.path.data_len)
+            == b.bytes_at(b_op.p.path.data_offset, b_op.p.path.data_len);
     }
     return true;
 }

@@ -12,6 +12,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// Export decoration. Defined to dllexport while building the affineui_c
+// shared library on Windows; empty for static linking (the default) and on
+// every other platform (the shared library exports by default there).
+#ifndef AFFINEUI_C_API
+#  if defined(_WIN32) && defined(AFFINEUI_C_BUILD_DLL)
+#    define AFFINEUI_C_API __declspec(dllexport)
+#  else
+#    define AFFINEUI_C_API
+#  endif
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -102,29 +113,170 @@ typedef struct affineui_frame_target {
     uint32_t    gl_framebuffer;             // GL FBO (0 = default)
 } affineui_frame_target;
 
+// ── Shared value types (used by both the embedded and app surfaces) ──
+
+// Mirrors affineui::EventType (values must match).
+typedef enum affineui_event_type {
+    AFFINEUI_EVENT_NONE         = 0,
+    AFFINEUI_EVENT_MOUSE_MOVE   = 1,
+    AFFINEUI_EVENT_MOUSE_DOWN   = 2,
+    AFFINEUI_EVENT_MOUSE_UP     = 3,
+    AFFINEUI_EVENT_MOUSE_WHEEL  = 4,
+    AFFINEUI_EVENT_KEY_DOWN     = 5,
+    AFFINEUI_EVENT_KEY_UP       = 6,
+    AFFINEUI_EVENT_TEXT_INPUT   = 7,
+    AFFINEUI_EVENT_RESIZE       = 8,
+    AFFINEUI_EVENT_FOCUS_LOST   = 9,
+    AFFINEUI_EVENT_FOCUS_GAINED = 10
+} affineui_event_type;
+
+// Mirrors affineui::MouseButton (values must match).
+typedef enum affineui_mouse_button {
+    AFFINEUI_MOUSE_LEFT   = 0,
+    AFFINEUI_MOUSE_RIGHT  = 1,
+    AFFINEUI_MOUSE_MIDDLE = 2
+} affineui_mouse_button;
+
+// Mirrors affineui::Key (values must match; printable text arrives as
+// AFFINEUI_EVENT_TEXT_INPUT, not as key codes).
+typedef enum affineui_key {
+    AFFINEUI_KEY_UNKNOWN     = 0,
+    AFFINEUI_KEY_ESCAPE      = 1,
+    AFFINEUI_KEY_TAB         = 2,
+    AFFINEUI_KEY_ENTER       = 3,
+    AFFINEUI_KEY_BACKSPACE   = 4,
+    AFFINEUI_KEY_DELETE      = 5,
+    AFFINEUI_KEY_ARROW_LEFT  = 6,
+    AFFINEUI_KEY_ARROW_RIGHT = 7,
+    AFFINEUI_KEY_ARROW_UP    = 8,
+    AFFINEUI_KEY_ARROW_DOWN  = 9,
+    AFFINEUI_KEY_HOME        = 10,
+    AFFINEUI_KEY_END         = 11,
+    AFFINEUI_KEY_A = 12, AFFINEUI_KEY_B = 13, AFFINEUI_KEY_C = 14,
+    AFFINEUI_KEY_D = 15, AFFINEUI_KEY_E = 16, AFFINEUI_KEY_F = 17,
+    AFFINEUI_KEY_G = 18, AFFINEUI_KEY_H = 19, AFFINEUI_KEY_I = 20,
+    AFFINEUI_KEY_J = 21, AFFINEUI_KEY_K = 22, AFFINEUI_KEY_L = 23,
+    AFFINEUI_KEY_M = 24, AFFINEUI_KEY_N = 25, AFFINEUI_KEY_O = 26,
+    AFFINEUI_KEY_P = 27, AFFINEUI_KEY_Q = 28, AFFINEUI_KEY_R = 29,
+    AFFINEUI_KEY_S = 30, AFFINEUI_KEY_T = 31, AFFINEUI_KEY_U = 32,
+    AFFINEUI_KEY_V = 33, AFFINEUI_KEY_W = 34, AFFINEUI_KEY_X = 35,
+    AFFINEUI_KEY_Y = 36, AFFINEUI_KEY_Z = 37,
+    AFFINEUI_KEY_DIGIT0 = 38, AFFINEUI_KEY_DIGIT1 = 39,
+    AFFINEUI_KEY_DIGIT2 = 40, AFFINEUI_KEY_DIGIT3 = 41,
+    AFFINEUI_KEY_DIGIT4 = 42, AFFINEUI_KEY_DIGIT5 = 43,
+    AFFINEUI_KEY_DIGIT6 = 44, AFFINEUI_KEY_DIGIT7 = 45,
+    AFFINEUI_KEY_DIGIT8 = 46, AFFINEUI_KEY_DIGIT9 = 47
+} affineui_key;
+
+// Value object mirroring affineui::Event. `text` is UTF-8, may be null,
+// and is only read for AFFINEUI_EVENT_TEXT_INPUT.
+typedef struct affineui_event {
+    int         type;      // affineui_event_type
+    int         x, y;      // pointer position (CSS/layout points)
+    int         button;    // affineui_mouse_button
+    float       wheel_dx;
+    float       wheel_dy;
+    int         key;       // affineui_key
+    int         key_code;  // platform-native scancode (debug / passthrough)
+    const char* text;      // UTF-8 text for TEXT_INPUT (may be null)
+    int         shift, ctrl, alt, super_key;  // modifier flags (0/1)
+} affineui_event;
+
+// Frees a string returned by any affineui_* function documented as
+// "caller frees". Null is a safe no-op.
+typedef void (*affineui_user_free_fn)(void* user);
+
 // ── Lifecycle ────────────────────────────────────────────────────────
-affineui_ui* affineui_ui_create(void);
-void         affineui_ui_destroy(affineui_ui* ui);
+AFFINEUI_C_API affineui_ui* affineui_ui_create(void);
+AFFINEUI_C_API void         affineui_ui_destroy(affineui_ui* ui);
 
 // Initialize for embedded mode against host graphics objects.
-void affineui_ui_init(affineui_ui* ui, const affineui_init_desc* desc);
+AFFINEUI_C_API void affineui_ui_init(affineui_ui* ui, const affineui_init_desc* desc);
 
 // ── Content ──────────────────────────────────────────────────────────
-void affineui_ui_set_html(affineui_ui* ui, const char* html);
-void affineui_ui_set_css(affineui_ui* ui, const char* css);
-void affineui_ui_set_clear_color(affineui_ui* ui,
+AFFINEUI_C_API void affineui_ui_set_html(affineui_ui* ui, const char* html);
+AFFINEUI_C_API void affineui_ui_set_css(affineui_ui* ui, const char* css);
+AFFINEUI_C_API int  affineui_ui_load_file(affineui_ui* ui, const char* path);
+AFFINEUI_C_API void affineui_ui_set_clear_color(affineui_ui* ui,
                                  uint8_t r, uint8_t g, uint8_t b, uint8_t a);
 
 // ── Render (embedded) ────────────────────────────────────────────────
-void affineui_ui_render(affineui_ui* ui, const affineui_frame_target* target);
+AFFINEUI_C_API void affineui_ui_render(affineui_ui* ui, const affineui_frame_target* target);
+
+// ── Input (embedded — the host forwards translated events) ──────────
+// Returns 1 when the UI consumed the event (the host should suppress its
+// own handling of it).
+AFFINEUI_C_API int  affineui_ui_dispatch(affineui_ui* ui, const affineui_event* ev);
+
+// Click callback for elements matching a minimal CSS selector ("#id",
+// ".cls", "tag", "a,b"). `user_free` (optional) is called when the handler
+// is released so bindings can drop their closure state.
+typedef void (*affineui_ui_click_fn)(void* user);
+AFFINEUI_C_API void affineui_ui_on_click(affineui_ui* ui,
+                                         const char* selector,
+                                         affineui_ui_click_fn fn,
+                                         void* user,
+                                         affineui_user_free_fn user_free);
+
+// Cursor the OS should display under the last hovered position
+// (0=default 1=pointer 2=text 3=crosshair 4=move 5=not-allowed
+//  6=ew-resize 7=ns-resize 8=nwse-resize).
+AFFINEUI_C_API int  affineui_ui_hovered_cursor(const affineui_ui* ui);
+
+// ── Live DOM mutation (embedded) ─────────────────────────────────────
+// Return 1 only when the document actually changed.
+AFFINEUI_C_API int affineui_ui_set_attr(affineui_ui* ui, const char* elem_id,
+                                        const char* name, const char* value);
+AFFINEUI_C_API int affineui_ui_remove_attr(affineui_ui* ui, const char* elem_id,
+                                           const char* name);
+AFFINEUI_C_API int affineui_ui_set_text(affineui_ui* ui, const char* elem_id,
+                                        const char* text);
+
+// Document content size after the last layout pass.
+AFFINEUI_C_API void affineui_ui_content_size(const affineui_ui* ui,
+                                             int* out_w, int* out_h);
 
 // ── Update scheduling / lifecycle ────────────────────────────────────
-int  affineui_ui_needs_update(const affineui_ui* ui);  // 1 = repaint needed
-void affineui_ui_mark_dirty(affineui_ui* ui);
-void affineui_ui_reset(affineui_ui* ui);
+AFFINEUI_C_API int  affineui_ui_needs_update(const affineui_ui* ui);  // 1 = repaint needed
+AFFINEUI_C_API void affineui_ui_mark_dirty(affineui_ui* ui);
+AFFINEUI_C_API void affineui_ui_reset(affineui_ui* ui);
+
+// ── affinetools attach (perf/devtools protocol server) ───────────────
+// Loopback-only devtools server (docs/AFFINETOOLS_DESIGN.md §3;
+// discovery + token auth via <tempdir>/affineui-tools/<pid>.json). Lets
+// a host built against a prebuilt binary enable attach without a
+// rebuild. All return 0 / no-op when the library was compiled with
+// AFFINEUI_PERF=0.
+
+// Start the server (idempotent). port 0 = ephemeral. 1 = running.
+AFFINEUI_C_API int  affineui_tools_listen(int port);
+// 1 while the server is running (listening or serving a client).
+AFFINEUI_C_API int  affineui_tools_active(void);
+// Bound port, 0 when not listening.
+AFFINEUI_C_API int  affineui_tools_port(void);
+// Stop the server: close sockets, join the thread, remove discovery file.
+AFFINEUI_C_API void affineui_tools_shutdown(void);
 
 // ── Misc ─────────────────────────────────────────────────────────────
-const char* affineui_version(void);
+
+// C ABI version. Bumped on ANY breaking change to this header or
+// c_api_app.h (enum meaning, struct layout, function semantics).
+// Additive changes (new functions, appended enum values) do not bump it.
+// Language wrappers check it at load and fail fast on mismatch.
+#define AFFINEUI_C_ABI_VERSION 1
+
+AFFINEUI_C_API int         affineui_c_abi_version(void);
+
+// Borrowed static string — do NOT free (the one exception to the
+// "out-strings are heap copies" rule; affineui_string_free would crash).
+AFFINEUI_C_API const char* affineui_version(void);
+
+// Convenience: open a native window, show `html`, run to completion.
+AFFINEUI_C_API int affineui_run_html(const char* html);
+
+// Free a heap string returned by an affineui_* function documented as
+// "caller frees with affineui_string_free". Null is a safe no-op.
+AFFINEUI_C_API void affineui_string_free(char* s);
 
 #ifdef __cplusplus
 }  // extern "C"

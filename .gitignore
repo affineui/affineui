@@ -92,3 +92,13 @@ build-linux/
 
 .cibw-venv/
 wheelhouse/
+
+# Language bindings build outputs
+bindings/rust/target/
+bindings/csharp/**/bin/
+bindings/csharp/**/obj/
+
+# Runtime output (profiler dumps, app-written layout state)
+affineui_profile.txt
+affineui_trace.json
+dender.workspace.toml

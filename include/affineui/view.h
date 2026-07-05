@@ -311,6 +311,13 @@ struct WidgetNode {
     std::string remote_id;
     DomHandle local_dom{};
 
+    // Component provenance: the builder call site that created this node
+    // (affinetools `view` domain — "which C++ call made this DOM node").
+    // file_name() points at a static string literal, so retaining the
+    // pointer is safe and costs no allocation.
+    const char*   src_file{nullptr};
+    std::uint32_t src_line{0};
+
     std::string text;
     std::vector<WidgetAttribute> attrs;
     std::vector<WidgetNode> children;
@@ -319,6 +326,18 @@ struct WidgetNode {
     // inspectors can show the machinery plainly; user code should treat it as
     // internal state.
     std::size_t cursor{0};
+
+    // End-of-build attribute coalescing (WIDGET_RECONCILIATION.md §5.2):
+    // attribute writes inside a build pass mutate `attrs` without emitting;
+    // View::end() diffs against `attrs_before` (snapshot at first mutation
+    // this pass) and emits only the net change, so declare-then-modify
+    // patterns (base classes, then a `.cls()` modifier) reconcile to zero
+    // ops when the end-of-build value is unchanged. Multiple `style` writes
+    // within one pass compose by declaration merge instead of replacing.
+    // Internal state; empty/false outside a pass.
+    std::vector<WidgetAttribute> attrs_before;
+    bool attrs_touched{false};
+    bool style_written{false};
 };
 
 struct WidgetClickBinding {
@@ -384,6 +403,22 @@ public:
                                std::string_view value) = 0;
     virtual void remove_attribute(const WidgetNode& node,
                                   std::string_view name) = 0;
+
+    /// Raw-HTML nodes (View::html). `create_raw_html` fires when the
+    /// node enters the tree (its markup arrives in the set_raw_html
+    /// that immediately follows); `set_raw_html` fires whenever the
+    /// markup string changes. Default no-ops so sinks that cannot
+    /// represent raw HTML (remote patch streams) simply skip them —
+    /// the local document sink parses the fragment in place.
+    virtual void create_raw_html(const WidgetNode& node,
+                                 const WidgetNode* parent,
+                                 std::size_t index) {
+        (void)node; (void)parent; (void)index;
+    }
+    virtual void set_raw_html(const WidgetNode& node,
+                              std::string_view markup) {
+        (void)node; (void)markup;
+    }
 };
 
 class RemotePatchSink final : public ViewSink {
@@ -629,6 +664,16 @@ public:
                           std::string_view classes = {},
                           std::string_view key = {},
                           std::source_location here = std::source_location::current());
+    /// Custom paint (canvas) surface: a leaf block whose content is
+    /// drawn by the app handler registered under `paint_name`
+    /// (App::set_custom_paint / Document::set_custom_paint). Size and
+    /// place it with classes/inline style like any element; per-frame
+    /// geometry then flows through App::request_custom_repaint without
+    /// touching the DOM. Emits `<div data-aui-paint="paint_name">`.
+    WidgetRef canvas(std::string_view paint_name,
+                     std::string_view classes = {},
+                     std::string_view key = {},
+                     std::source_location here = std::source_location::current());
     WidgetRef panel_ref(std::string_view key = {},
                         std::source_location here = std::source_location::current());
 
@@ -904,6 +949,11 @@ public:
     [[nodiscard]] const WidgetNode* find_remote(std::string_view remote_id) const;
     [[nodiscard]] std::string to_html_fragment() const;
     [[nodiscard]] std::string to_html_document() const;
+    /// to_html_document with an EMPTY <main> — the reconcile bootstrap
+    /// loads this shell (head/styles/body attrs) and then replays the
+    /// built tree through the document sink, so every element is known
+    /// to the sink from birth and no HTML reparse ever happens again.
+    [[nodiscard]] std::string to_html_shell() const;
 
 private:
     friend class WidgetRef;
@@ -954,6 +1004,15 @@ private:
 
     ViewTheme theme_{ViewTheme::Bootstrap};
     std::string framework_version_;  // empty = personality default
+    // True when an app-shell widget (menubar / toolbar / statusbar /
+    // document_view) was declared at ROOT level this build. Drives the
+    // aui-root--shell document class: shells render edge-to-edge (no demo
+    // padding, flush rows); content pages keep the padded, gapped stack.
+    bool root_app_shell_{false};
+    // True when any node's attrs were mutated this pass — end() then runs
+    // one flush walk emitting the coalesced per-node attribute diffs.
+    bool attr_coalesce_dirty_{false};
+    void flush_attr_diffs(WidgetNode& node);
     std::vector<WidgetAttribute> document_attrs_;
     WidgetNode root_{};
     std::vector<WidgetNode*> stack_;

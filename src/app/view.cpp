@@ -279,33 +279,9 @@ double virtual_item_offset(const VirtualListOptions& options,
     return out;
 }
 
-double knob_angle(double value, double min, double max) {
-    return -135.0 + normalized_value(value, min, max) * 270.0;
-}
-
-std::pair<double, double> knob_ring_point(double deg) {
-    constexpr double r = 10.5;
-    constexpr double pi = 3.14159265358979323846;
-    const double rad = deg * pi / 180.0;
-    return {12.0 + r * std::cos(rad), 12.0 + r * std::sin(rad)};
-}
-
-std::string knob_arc_path(double min, double max, double value, bool bipolar) {
-    const double p = normalized_value(value, min, max);
-    const double sweep_degrees = bipolar ? (p - 0.5) * 270.0 : p * 270.0;
-    if (std::abs(sweep_degrees) <= 0.5) return {};
-
-    const double start_degrees = bipolar ? -90.0 : -225.0;
-    const double end_degrees = start_degrees + sweep_degrees;
-    const auto [x0, y0] = knob_ring_point(start_degrees);
-    const auto [x1, y1] = knob_ring_point(end_degrees);
-    const int large = std::abs(sweep_degrees) > 180.0 ? 1 : 0;
-    const int sweep = end_degrees >= start_degrees ? 1 : 0;
-
-    return "M " + number(x0) + " " + number(y0) +
-           " A 10.5 10.5 0 " + std::to_string(large) + " " +
-           std::to_string(sweep) + " " + number(x1) + " " + number(y1);
-}
+// (Knob ring/arc/indicator geometry moved to the engine's UA knob
+// chrome painter in document.cpp — the DOM no longer carries the SVG,
+// so the builder-side path helpers that produced it are gone.)
 
 void emit_remove_tree(ViewSink* sink, const WidgetNode& node) {
     if (!sink) return;
@@ -781,7 +757,10 @@ std::string command_widget_style() {
     std::string css;
     css.reserve(32768);
     css += R"CSS(
-body{margin:0}.aui-root{min-height:100vh;padding:24px;box-sizing:border-box}
+body{margin:0}
+.aui-root{min-height:100vh;padding:24px;box-sizing:border-box;display:flex;flex-direction:column;align-items:stretch;gap:var(--dcs-s-3,16px)}
+.aui-root.aui-root--shell{padding:0;gap:0}
+.aui-root>.dcs-btn,.aui-root>.btn,.aui-root>.dcs-btn-group,.aui-root>.btn-group{align-self:flex-start}
 [data-aui-size=sm]{--aui-panel-pad:var(--dcs-s-3);--aui-panel-gap:var(--dcs-s-2)}
 [data-aui-size=md]{--aui-panel-pad:var(--dcs-s-5);--aui-panel-gap:var(--dcs-s-3)}
 [data-aui-size=lg]{--aui-panel-pad:var(--dcs-s-7);--aui-panel-gap:var(--dcs-s-5)}
@@ -1449,6 +1428,7 @@ View::View(ViewTheme theme) : theme_(theme) {
 void View::clear() {
     root_.children.clear();
     root_.cursor = 0;
+    root_app_shell_ = false;
     stack_.clear();
     widget_names_.clear();
     click_handlers_.clear();
@@ -1469,6 +1449,7 @@ void View::begin(ViewSink* sink) {
     sink_ = sink;
     reconciling_ = true;
     root_.cursor = 0;
+    root_app_shell_ = false;  // re-detected by this build's root declarations
     stack_.clear();
     stack_.push_back(&root_);
 }
@@ -1489,6 +1470,13 @@ void View::end() {
         root->children.erase(root->children.begin() +
                              static_cast<std::ptrdiff_t>(root->cursor),
                              root->children.end());
+    }
+    // Emit the coalesced attribute diffs: removed subtrees are already gone,
+    // so only surviving nodes flush, and only their NET change vs the start
+    // of this pass reaches the sink (WIDGET_RECONCILIATION.md §5.2).
+    if (attr_coalesce_dirty_) {
+        flush_attr_diffs(root_);
+        attr_coalesce_dirty_ = false;
     }
     stack_.clear();
     sink_ = nullptr;
@@ -2101,42 +2089,12 @@ WidgetRef View::knob(std::string_view label,
         if (bipolar) set_attr(*control, "data-bipolar", "");
         else remove_attr(*control, "data-bipolar");
 
-        const auto [bg_x0, bg_y0] = knob_ring_point(-225.0);
-        const auto [bg_x1, bg_y1] = knob_ring_point(45.0);
-
-        auto& svg = open_node(WidgetKind::Container, "svg", "aui-knob__ring",
-                              "__ring", here, true);
-        set_attr(svg, "viewBox", "0 0 24 24");
-
-        auto& bg = open_node(WidgetKind::Container, "path", {}, "__ring-bg",
-                             here, false);
-        set_attr(bg, "d", "M " + number(bg_x0) + " " + number(bg_y0) +
-                         " A 10.5 10.5 0 1 1 " + number(bg_x1) + " " +
-                         number(bg_y1));
-        set_attr(bg, "fill", "none");
-        set_attr(bg, "stroke", "rgba(108,117,125,.35)");
-        set_attr(bg, "stroke-width", "1.5");
-        set_attr(bg, "stroke-linecap", "round");
-
-        auto& arc = open_node(WidgetKind::Container, "path", "aui-knob__arc",
-                              "__arc", here, false);
-        const auto path = knob_arc_path(min, max, clamped, bipolar);
-        if (!path.empty()) set_attr(arc, "d", path);
-        else remove_attr(arc, "d");
-        set_attr(arc, "fill", "none");
-        set_attr(arc, "stroke", "#0d6efd");
-        set_attr(arc, "stroke-width", "1.75");
-        set_attr(arc, "stroke-linecap", "round");
-        close_node();
-
+        // Ring/arc/indicator are UA-painted from the data-* attrs above
+        // (document.cpp knob chrome); only the styled cap and labels
+        // live in the DOM.
         auto& cap = open_node(WidgetKind::Container, "div",
                               "aui-knob__cap", "__cap", here, false);
         (void) cap;
-        auto& indicator = open_node(WidgetKind::Container, "div",
-                                    "aui-knob__indicator", "__indicator",
-                                    here, false);
-        set_attr(indicator, "style",
-                 "--angle:" + number(knob_angle(clamped, min, max)) + "deg");
         auto& value_node = open_node(WidgetKind::Container, "div",
                                      "aui-knob__value", "__value", here, false);
         set_text(value_node, number(clamped));
@@ -2171,43 +2129,14 @@ WidgetRef View::knob(std::string_view label,
     if (bipolar) set_attr(knob, "data-bipolar", "");
     else remove_attr(knob, "data-bipolar");
 
-    const auto [bg_x0, bg_y0] = knob_ring_point(-225.0);
-    const auto [bg_x1, bg_y1] = knob_ring_point(45.0);
-
-    auto& svg = open_node(WidgetKind::Container, "svg", "dcs-knob__ring",
-                          "__ring", here, true);
-    set_attr(svg, "viewBox", "0 0 24 24");
-
-    auto& bg = open_node(WidgetKind::Container, "path", {}, "__ring-bg",
-                         here, false);
-    set_attr(bg, "d", "M " + number(bg_x0) + " " + number(bg_y0) +
-                     " A 10.5 10.5 0 1 1 " + number(bg_x1) + " " +
-                     number(bg_y1));
-    set_attr(bg, "fill", "none");
-    set_attr(bg, "stroke", "rgba(255,255,255,.08)");
-    set_attr(bg, "stroke-width", "1.5");
-    set_attr(bg, "stroke-linecap", "round");
-
-    auto& arc = open_node(WidgetKind::Container, "path", "dcs-knob__arc",
-                          "__arc", here, false);
-    const auto path = knob_arc_path(min, max, clamped, bipolar);
-    if (!path.empty()) set_attr(arc, "d", path);
-    else remove_attr(arc, "d");
-    set_attr(arc, "fill", "none");
-    set_attr(arc, "stroke", "var(--dcs-accent)");
-    set_attr(arc, "stroke-width", "1.75");
-    set_attr(arc, "stroke-linecap", "round");
-    close_node();
-
+    // Ring, value arc, and indicator are UA-painted by the engine from
+    // the data-* attrs above (document.cpp knob chrome — same tier as
+    // checkbox/radio/switch). The DOM carries only the styled cap and
+    // the value label: a knob move is ONE attribute write, with no SVG
+    // path strings to build, diff, or reparse.
     auto& cap = open_node(WidgetKind::Container, "div",
                           "dcs-knob__cap", "__cap", here, false);
     (void) cap;
-
-    auto& indicator = open_node(WidgetKind::Container, "div",
-                                "dcs-knob__indicator", "__indicator",
-                                here, false);
-    set_attr(indicator, "style",
-             "--angle:" + number(knob_angle(clamped, min, max)) + "deg");
 
     auto& value_node = open_node(WidgetKind::Container, "div",
                                  "dcs-knob__value", "__value", here, false);
@@ -2238,6 +2167,17 @@ WidgetRef View::element_ref(std::string_view tag,
     return ref_for_node(node, current_panel_id(stack_));
 }
 
+WidgetRef View::canvas(std::string_view paint_name,
+                       std::string_view classes,
+                       std::string_view key,
+                       std::source_location here) {
+    auto& node = open_node(WidgetKind::Container, "div", classes,
+                           key.empty() ? paint_name : key, here, false);
+    auto ref = ref_for_node(node, current_panel_id(stack_));
+    if (!paint_name.empty()) ref.attr("data-aui-paint", paint_name);
+    return ref;
+}
+
 WidgetRef View::panel_ref(std::string_view key, std::source_location here) {
     const auto recipe = default_element(theme_, FrameworkElement::Panel);
     auto& node = open_node(WidgetKind::Panel, recipe.tag, recipe.classes,
@@ -2250,6 +2190,7 @@ WidgetRef View::panel_ref(std::string_view key, std::source_location here) {
 View::Scope View::toolbar(std::string_view key, std::source_location here) {
     const auto r = default_element(theme_, FrameworkElement::Toolbar);
     auto& node = open_node(WidgetKind::Container, r.tag, r.classes, key, here, true);
+    if (stack_.size() == 2) root_app_shell_ = true;  // root-level toolbar = app shell
     return scope_here(node);
 }
 
@@ -2301,6 +2242,7 @@ WidgetRef View::icon_button(std::string_view icon,
 View::Scope View::menu_bar(std::string_view key, std::source_location here) {
     const auto r = default_element(theme_, FrameworkElement::Menubar);
     auto& node = open_node(WidgetKind::Container, r.tag, r.classes, key, here, true);
+    if (stack_.size() == 2) root_app_shell_ = true;
     return scope_here(node);
 }
 
@@ -2746,8 +2688,6 @@ View::DockNode View::dock_node_from_layout(
     if (n.split) {
         out.split = true;
         out.vertical = n.vertical;
-        static int replay_split_seq = 0;
-        out.id = "replay-" + std::to_string(replay_split_seq++);
         for (const auto& c : n.children) {
             DockNode child = dock_node_from_layout(c, rec);
             const bool empty_leaf = !child.split && child.id.empty();
@@ -2755,6 +2695,17 @@ View::DockNode View::dock_node_from_layout(
             if (!empty_leaf && !empty_split) {
                 out.children.push_back(std::move(child));
             }
+        }
+        // Identity is CONTENT-DERIVED, never a synthesis counter: a split
+        // group is named by its axis + its children's ids, so an unchanged
+        // arrangement resolves to the SAME StableId on every pass (zero
+        // reconcile ops), and a genuinely rearranged one re-splices
+        // wholesale — which is cheap by design. (A counter here re-created
+        // the entire dock region on every rebuild.)
+        out.id = n.vertical ? "v" : "h";
+        for (const auto& child : out.children) {
+            out.id += '+';
+            out.id += child.id;
         }
         // decius leaves single-child docks AS-IS (a one-pane dock is the normal
         // one-panel state, not a wrapper to unwrap). We reproduce the live tree
@@ -3270,6 +3221,7 @@ WidgetRef View::document_view(std::string_view key,
                            : resolve_dock(recorder, "__document__", true);
     auto& root = open_node(WidgetKind::Container, "div", "dcs-dock--floathost",
                            key, here, true);
+    if (stack_.size() == 2) root_app_shell_ = true;  // root-level dock = app shell
     set_attr(root, "style",
              "display:flex;flex:1 1 0px;height:0;min-width:0;min-height:0;"
              "position:relative;overflow:hidden");
@@ -3596,6 +3548,7 @@ WidgetRef View::tree_row(std::string_view label, const TreeRowOptions& opts,
 View::Scope View::status_bar(std::string_view key, std::source_location here) {
     const auto r = default_element(theme_, FrameworkElement::Statusbar);
     auto& node = open_node(WidgetKind::Container, r.tag, r.classes, key, here, true);
+    if (stack_.size() == 2) root_app_shell_ = true;
     return scope_here(node);
 }
 
@@ -3833,6 +3786,9 @@ WidgetRef View::combo(std::string_view label, double value, double step,
 }
 
 WidgetRef View::find_widget(std::string_view name) {
+    // An empty name is "no name", not a wildcard — it must not resolve to
+    // the first keyless widget in tree order.
+    if (name.empty()) return WidgetRef{this, root_.id, {}, name};
     for (auto it = widget_names_.rbegin(); it != widget_names_.rend(); ++it) {
         if (it->first != name) continue;
         if (auto* node = find_id(it->second)) {
@@ -3890,9 +3846,26 @@ std::string View::to_html_document() const {
     out += "</style>";
     out += "</head><body";
     out += body_attrs(theme_, framework_version_, document_attrs_);
-    out += "><main id=\"aui-root\" class=\"aui-root\">";
+    out += "><main id=\"aui-root\" class=\"aui-root";
+    if (root_app_shell_) out += " aui-root--shell";
+    out += "\">";
     out += to_html_fragment();
     out += "</main></body></html>";
+    return out;
+}
+
+std::string View::to_html_shell() const {
+    std::string out;
+    out += "<!doctype html><html><head><meta charset=\"utf-8\">";
+    out += theme_link(theme_, framework_version_);
+    out += "<style>";
+    out += command_widget_style();
+    out += "</style>";
+    out += "</head><body";
+    out += body_attrs(theme_, framework_version_, document_attrs_);
+    out += "><main id=\"aui-root\" class=\"aui-root";
+    if (root_app_shell_) out += " aui-root--shell";
+    out += "\"></main></body></html>";
     return out;
 }
 
@@ -3940,19 +3913,22 @@ WidgetNode& View::open_node(WidgetKind kind,
     }
 
     node->tag = std::string(tag);
+    node->src_file = here.file_name();
+    node->src_line = here.line();
     if (public_widget_key(key) && (created || node->widget_name.empty())) {
         set_widget_name(*node, key);
     } else if (!public_widget_key(key) && !node->widget_name.empty()) {
         set_widget_name(*node, {});
     }
     node->cursor = 0;
+    node->style_written = false;  // style writes compose per pass (§5.2)
 
     if (created && sink_) {
         if (kind == WidgetKind::Text) {
             sink_->create_text(*node, parent == &root_ ? nullptr : parent, index);
         } else if (kind == WidgetKind::RawHtml) {
-            diagnostics_.push_back(
-                "Raw HTML nodes are not represented in remote patch streams");
+            sink_->create_raw_html(*node, parent == &root_ ? nullptr : parent,
+                                   index);
         } else {
             sink_->create_element(*node, parent == &root_ ? nullptr : parent, index);
         }
@@ -3977,6 +3953,27 @@ WidgetNode& View::open_node(WidgetKind kind,
     return *node;
 }
 
+void View::flush_attr_diffs(WidgetNode& node) {
+    if (node.attrs_touched) {
+        if (sink_ != nullptr) {
+            for (const auto& attr : node.attrs) {
+                const auto* old = find_attr(node.attrs_before, attr.name);
+                if (old == nullptr || old->value != attr.value) {
+                    sink_->set_attribute(node, attr.name, attr.value);
+                }
+            }
+            for (const auto& old : node.attrs_before) {
+                if (find_attr(node.attrs, old.name) == nullptr) {
+                    sink_->remove_attribute(node, old.name);
+                }
+            }
+        }
+        node.attrs_touched = false;
+        node.attrs_before = std::vector<WidgetAttribute>{};  // release capacity
+    }
+    for (auto& child : node.children) flush_attr_diffs(child);
+}
+
 void View::close_node() {
     if (stack_.size() <= 1) return;
     auto* node = stack_.back();
@@ -3997,11 +3994,98 @@ void View::close_to(std::size_t target) {
     while (stack_.size() > target) close_node();
 }
 
+namespace {
+
+// Within one build pass, repeated `style` writes on a node COMPOSE
+// (declaration merge, later same-property wins) instead of replacing —
+// two builders styling one node must not lose each other's properties
+// (WIDGET_RECONCILIATION.md §5.2). Simple ';'-split parse; style values
+// emitted by builders are plain declarations (no urls/strings with ';').
+std::string merge_style_declarations(std::string_view base,
+                                     std::string_view add) {
+    struct Decl {
+        std::string prop;
+        std::string text;
+    };
+    std::vector<Decl> decls;
+    const auto append = [&decls](std::string_view css) {
+        std::size_t start = 0;
+        while (start <= css.size()) {
+            std::size_t end = css.find(';', start);
+            if (end == std::string_view::npos) end = css.size();
+            std::string_view piece = css.substr(start, end - start);
+            while (!piece.empty() &&
+                   (piece.front() == ' ' || piece.front() == '\t')) {
+                piece.remove_prefix(1);
+            }
+            while (!piece.empty() &&
+                   (piece.back() == ' ' || piece.back() == '\t')) {
+                piece.remove_suffix(1);
+            }
+            if (!piece.empty()) {
+                const std::size_t colon = piece.find(':');
+                std::string prop{colon == std::string_view::npos
+                                     ? piece
+                                     : piece.substr(0, colon)};
+                while (!prop.empty() && prop.back() == ' ') prop.pop_back();
+                bool replaced = false;
+                for (auto& d : decls) {
+                    if (d.prop == prop) {
+                        d.text = std::string(piece);
+                        replaced = true;
+                        break;
+                    }
+                }
+                if (!replaced) decls.push_back({std::move(prop),
+                                                std::string(piece)});
+            }
+            if (end == css.size()) break;
+            start = end + 1;
+        }
+    };
+    append(base);
+    append(add);
+    std::string out;
+    for (const auto& d : decls) {
+        if (!out.empty()) out += ';';
+        out += d.text;
+    }
+    return out;
+}
+
+}  // namespace
+
 void View::set_attr(WidgetNode& node,
                     std::string_view name,
                     std::string_view value) {
     auto it = std::find_if(node.attrs.begin(), node.attrs.end(),
         [&](const WidgetAttribute& attr) { return attr.name == name; });
+
+    if (reconciling_) {
+        // Coalescing path: mutate the node silently; end() emits the net
+        // per-node diff vs the snapshot taken at first mutation this pass.
+        std::string merged;
+        if (name == "style") {
+            if (node.style_written && it != node.attrs.end()) {
+                merged = merge_style_declarations(it->value, value);
+                value = merged;
+            }
+            node.style_written = true;
+        }
+        if (it != node.attrs.end() && it->value == value) return;
+        if (!node.attrs_touched) {
+            node.attrs_touched = true;
+            node.attrs_before = node.attrs;  // final state of the last pass
+            attr_coalesce_dirty_ = true;
+        }
+        if (it != node.attrs.end()) {
+            it->value = std::string(value);
+        } else {
+            node.attrs.push_back({std::string(name), std::string(value)});
+        }
+        return;
+    }
+
     if (it != node.attrs.end()) {
         if (it->value == value) return;
         it->value = std::string(value);
@@ -4034,6 +4118,15 @@ void View::remove_attr(WidgetNode& node, std::string_view name) {
     auto it = std::find_if(node.attrs.begin(), node.attrs.end(),
         [&](const WidgetAttribute& attr) { return attr.name == name; });
     if (it == node.attrs.end()) return;
+    if (reconciling_) {
+        if (!node.attrs_touched) {
+            node.attrs_touched = true;
+            node.attrs_before = node.attrs;
+            attr_coalesce_dirty_ = true;
+        }
+        node.attrs.erase(it);
+        return;
+    }
     node.attrs.erase(it);
     if (auto* sink = current_sink()) sink->remove_attribute(node, name);
 }
@@ -4041,7 +4134,10 @@ void View::remove_attr(WidgetNode& node, std::string_view name) {
 void View::set_text(WidgetNode& node, std::string_view value) {
     if (node.text == value) return;
     node.text = std::string(value);
-    if (node.kind == WidgetKind::RawHtml) return;
+    if (node.kind == WidgetKind::RawHtml) {
+        if (auto* sink = current_sink()) sink->set_raw_html(node, value);
+        return;
+    }
     if (auto* sink = current_sink()) sink->set_text(node, value);
 }
 
@@ -4179,7 +4275,10 @@ WidgetRef View::ref_for_node(const WidgetNode& node,
                              StableId panel_id,
                              std::string_view name) {
     const std::string_view ref_name = !name.empty() ? name : node.widget_name;
-    if (ref_name.empty()) return {};
+    // Unnamed nodes still get a valid id-addressed ref — the widget name
+    // is only the re-find-after-reconciliation fallback, not a validity
+    // gate. Builder helpers routinely set text/attrs through the ref of
+    // a freshly opened (private-keyed) node.
     return WidgetRef{this, panel_id, node.id, ref_name};
 }
 

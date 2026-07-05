@@ -41,6 +41,7 @@ option(AFFINEUI_BUILD_SHARED    "Build as shared library"      OFF)
 option(AFFINEUI_INSTALL         "Install AffineUI library and CMake package config" ON)
 option(AFFINEUI_ENABLE_IMM      "Enable immediate-mode layer"  ON)
 option(AFFINEUI_ENABLE_C_API    "Build the extern \"C\" surface" ON)
+option(AFFINEUI_BUILD_C_SHARED  "Build the affineui_c shared library for language bindings" OFF)
 option(AFFINEUI_WARNINGS_AS_ERRORS "Treat warnings as errors"  OFF)
 option(AFFINEUI_HTML_ENTITIES_FULL "Use Lexbor's full HTML5 named entity table" OFF)
 option(AFFINEUI_NO_EMBEDDED_FONTS  "Don't embed the default Roboto font (use host/system fonts)" OFF)
@@ -129,6 +130,9 @@ endif()
 target_sources(affineui PRIVATE
     src/affineui.cpp
     src/memory.cpp
+    src/diag/sampler.cpp
+    src/diag/telemetry.cpp
+    src/tools/tools_server.cpp
     src/ui.cpp
     src/themes.cpp
     src/app/app.cpp
@@ -197,7 +201,7 @@ if(AFFINEUI_ENABLE_IMM)
 endif()
 
 if(AFFINEUI_ENABLE_C_API)
-    target_sources(affineui PRIVATE src/c_api.cpp)
+    target_sources(affineui PRIVATE src/c_api.cpp src/c_api_app.cpp)
 endif()
 
 target_include_directories(affineui
@@ -281,7 +285,8 @@ elseif(UNIX)
         GL dl m pthread
     )
 elseif(WIN32)
-    target_link_libraries(affineui PUBLIC user32 gdi32 ole32 shell32)
+    # ws2_32: affinetools protocol server (src/tools/tools_server.cpp)
+    target_link_libraries(affineui PUBLIC user32 gdi32 ole32 shell32 ws2_32)
     if(AFFINEUI_BACKEND_RESOLVED STREQUAL "gl")
         target_link_libraries(affineui PUBLIC opengl32)
     elseif(AFFINEUI_BACKEND_RESOLVED STREQUAL "d3d11")
@@ -334,7 +339,27 @@ else()
     message(STATUS "AffineUI: SDL2 not found, affineui::sdl target unavailable")
 endif()
 
+# ─── affineui_c: shared C-ABI library for language bindings ──────────────────
+# One artifact (affineui_c.dll / libaffineui_c.{so,dylib}) consumed by the
+# Rust / C# / future wrappers (see docs/LANGUAGE_BINDINGS.md). Recompiles the
+# extern "C" TUs with the dllexport decoration and links the static core.
+if(AFFINEUI_BUILD_C_SHARED)
+    add_library(affineui_c SHARED src/c_api.cpp src/c_api_app.cpp)
+    add_library(affineui::c ALIAS affineui_c)
+    target_link_libraries(affineui_c PRIVATE affineui::affineui)
+    target_include_directories(affineui_c PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_definitions(affineui_c PRIVATE AFFINEUI_C_BUILD_DLL)
+    affineui_set_warnings(affineui_c ${AFFINEUI_WARNINGS_AS_ERRORS})
+endif()
+
 # ─── Subdirectories ──────────────────────────────────────────────────────────
+# Optional extras: the skeuomorphic hardware widget kit (jacks, patch
+# cables, 7-seg LCDs, LED meters). Separate from the core widgets;
+# examples link it explicitly.
+add_subdirectory(extras/skeuo)
+# The affinetools devtools client library (extras/tools) + viewer app
+# (tools/affinetools) — see docs/AFFINETOOLS_DESIGN.md.
+add_subdirectory(extras/tools)
 if(AFFINEUI_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
@@ -361,6 +386,13 @@ if(AFFINEUI_INSTALL)
         RUNTIME  DESTINATION ${CMAKE_INSTALL_BINDIR}
         INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     )
+    if(AFFINEUI_BUILD_C_SHARED)
+        install(TARGETS affineui_c
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        )
+    endif()
     install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
     install(EXPORT affineuiTargets
         FILE affineuiTargets.cmake
@@ -391,6 +423,7 @@ message(STATUS "  Backend:        ${AFFINEUI_BACKEND_RESOLVED}")
 message(STATUS "  Deps available: ${AFFINEUI_DEPS_AVAILABLE}")
 message(STATUS "  Imm mode:       ${AFFINEUI_ENABLE_IMM}")
 message(STATUS "  C ABI:          ${AFFINEUI_ENABLE_C_API}")
+message(STATUS "  C shared lib:   ${AFFINEUI_BUILD_C_SHARED}")
 message(STATUS "  Examples:       ${AFFINEUI_BUILD_EXAMPLES}")
 message(STATUS "  Tests:          ${AFFINEUI_BUILD_TESTS}")
 message(STATUS "  Tools:          ${AFFINEUI_BUILD_TOOLS}")

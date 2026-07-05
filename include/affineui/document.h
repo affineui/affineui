@@ -13,6 +13,7 @@ namespace affineui {
 
 class App;
 class Painter;
+class ViewSink;  // view.h (View reconciliation sink; view.h includes us)
 
 /// Optional C++ behavior scripts that can be attached to a Document.
 /// These are intentionally separate from the renderer: raw HTML/CSS
@@ -207,6 +208,40 @@ public:
 
     /// Replace textContent for a leaf element with `id`.
     bool set_text_by_id(std::string_view elem_id, std::string_view text);
+
+    // ── View reconciliation (App fast path) ─────────────────────────
+    /// Begin a batched View-reconcile mutation pass and return the
+    /// document-backed ViewSink. Attribute/text mutations flow through
+    /// the same live-mutation classification as set_attribute_by_id
+    /// (paint-only where possible); structural mutations are applied
+    /// with lexbor's eager style attach suppressed and settled by ONE
+    /// restyle + box recollect in end_view_mutations(). Pair every
+    /// begin with an end. Returns null when no document is loaded.
+    ViewSink* begin_view_mutations();
+    void end_view_mutations();
+
+    // ── Custom paint (canvas) ────────────────────────────────────────
+    /// App-drawn regions inside the retained document — the HTML
+    /// <canvas> idea. An element opts in with `data-aui-paint="name"`;
+    /// after its background/borders (and any inline-svg children) paint,
+    /// the handler registered under `name` is invoked with the active
+    /// Painter and the element's border-box rect in document space. The
+    /// handler draws immediate-mode vector content (fill_path /
+    /// stroke_path / text / …) — floats end to end, no DOM, no strings —
+    /// which the retained renderer records, hashes, and composites like
+    /// any other paint. Per-frame animated geometry (patch cables,
+    /// meters, scopes) belongs here; retained SVG stays for static
+    /// declarative art.
+    ///
+    /// The handler must not mutate the Document. An empty fn removes the
+    /// registration.
+    using CustomPaintFn = std::function<void(Painter&, const Rect&)>;
+    void set_custom_paint(std::string_view name, CustomPaintFn fn);
+
+    /// Mark every `data-aui-paint="name"` element's rect dirty so the
+    /// next frame repaints it (geometry-only change: no restyle, no
+    /// layout, no reconcile). Returns true if any element matched.
+    bool request_custom_repaint(std::string_view name);
 
     /// Drain dirty document rectangles accumulated by live mutations.
     std::vector<Rect> take_dirty_rects();

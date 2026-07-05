@@ -516,7 +516,16 @@ void apply_style(YGNodeRef node, const ComputedStyle& cs,
         cs.height_pct >= 0 && !percent_height_indefinite) {
         YGNodeStyleSetHeightPercent(
             node, static_cast<float>(cs.height_pct));
-    } else if (!height_from_flex_basis && cs.height > 0) {
+    } else if (cs.height > 0) {
+        // Push the definite height even when a flex-basis governs the
+        // main axis. The two never fight: on the exact (StretchFit) pass
+        // the fork's basis arbitration restores the author's basis and
+        // grow/shrink distribute as usual. But on a MEASURE pass — an
+        // auto-height column container sizing itself — the item's
+        // max-content contribution is its definite outer height
+        // (css-flexbox §9.9.1), and the fork reads it from this style
+        // height. Skipping it collapsed `flex:1; height:H` stacks
+        // (.dcs-step steppers) to their borders.
         YGNodeStyleSetHeight(node, static_cast<float>(cs.height));
     }
 }
@@ -848,7 +857,6 @@ void layout_blocks_with_yoga(int viewport_width_px,
         if (has_baseline) {
             YGNodeSetBaselineFunc(n, baseline_cb);
         }
-
         YGNodeRef parent = (inputs[i].parent_idx < 0)
                                ? root
                                : nodes[static_cast<std::size_t>(inputs[i].parent_idx)];
