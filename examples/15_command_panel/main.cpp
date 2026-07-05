@@ -170,10 +170,8 @@ void build_list(affineui::View& view, affineui::ViewTheme style) {
     }
 }
 
-affineui::View build_view(affineui::ViewTheme style) {
-    affineui::View view{style};
-
-    view.begin();
+void build_view_into(affineui::View& view, affineui::ViewTheme style) {
+    view.set_theme(style);
     {
         auto panel = view.panel("hello-panel");
         (void) panel;
@@ -218,8 +216,13 @@ affineui::View build_view(affineui::ViewTheme style) {
             build_list(view, style);
         }
     }
-    view.end();
+}
 
+affineui::View build_view(affineui::ViewTheme style) {
+    affineui::View view{style};
+    view.begin();
+    build_view_into(view, style);
+    view.end();
     return view;
 }
 

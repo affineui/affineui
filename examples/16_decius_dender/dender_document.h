@@ -1,24 +1,18 @@
 #pragma once
 
-#include <functional>
+// DENDER scene document — the app-side model behind the Blender-style
+// showcase. An object registry (id / unique name / type / parent / TRS),
+// selection, the primitive catalog with the web sample's spawn positions,
+// plus the viewport / timeline / theme state the chrome reflects. Mirrors
+// the web reference's viewport.js registry semantics (obj_N ids, .001 name
+// suffixes, re-homing children on delete, cycle-safe reparent).
+
 #include <cstddef>
 #include <string>
 #include <string_view>
-#include <variant>
 #include <vector>
 
 namespace dender {
-
-struct SceneNode {
-    std::string id;
-    std::string label;
-    int depth{0};
-    bool branch{false};
-};
-
-struct TimelineKey {
-    double position_percent{0.0};
-};
 
 struct Vec3 {
     double x{0.0};
@@ -26,113 +20,158 @@ struct Vec3 {
     double z{0.0};
 };
 
-using PropertyValue = std::variant<bool, double, std::string, Vec3>;
-
-struct GraphProperty {
-    std::string id;
-    std::string label;
-    std::string category;
-    std::string unit;
-    mutable PropertyValue value;
-    std::function<PropertyValue(const class PropertyGraph&)> evaluator;
-    bool input{true};
-    mutable bool dirty{false};
-    mutable bool evaluating{false};
+struct SceneObject {
+    std::string id;      // "obj_N" (monotonic)
+    std::string name;    // unique within the scene ("Cube", "Cube.001", …)
+    std::string type;    // primitive catalog key ("Cube", "Point Light", …)
+    std::string parent;  // parent object id; empty = scene-collection root
+    Vec3 position{};
+    Vec3 rotation{};     // radians (the inspector displays degrees)
+    Vec3 scale{1.0, 1.0, 1.0};
 };
 
-class PropertyGraph {
-public:
-    void add_input(std::string id,
-                   std::string label,
-                   std::string category,
-                   PropertyValue value,
-                   std::string unit = {});
-    void add_computed(
-        std::string id,
-        std::string label,
-        std::string category,
-        std::function<PropertyValue(const PropertyGraph&)> evaluator,
-        std::string unit = {});
-
-    void set(std::string_view id, PropertyValue value);
-    [[nodiscard]] const PropertyValue* value(std::string_view id) const;
-
-    template <typename T>
-    [[nodiscard]] T get_or(std::string_view id, T fallback) const {
-        const auto* v = value(id);
-        if (!v) return fallback;
-        if (const auto* typed = std::get_if<T>(v)) return *typed;
-        return fallback;
-    }
-
-    [[nodiscard]] const std::vector<GraphProperty>& properties() const noexcept {
-        return properties_;
-    }
-
-private:
-    [[nodiscard]] GraphProperty* find(std::string_view id) noexcept;
-    [[nodiscard]] const GraphProperty* find(std::string_view id) const noexcept;
-    void mark_computed_dirty() noexcept;
-
-    std::vector<GraphProperty> properties_;
+/// One entry of the Add-menu catalog (the web app.js runtime menu).
+struct Primitive {
+    std::string_view type;
+    std::string_view section;  // "Mesh" / "Light" / "" (top level)
+    Vec3 spawn;
 };
 
-struct EvaluatedScene {
-    Vec3 location{};
-    std::string tint;
-    double roughness{0.0};
-    bool show_wireframe{false};
-    double cube_left_percent{44.0};
-    double cube_top_percent{36.0};
-    std::string cube_style;
+enum class TransformMode { Translate, Rotate, Scale };
+enum class Shading { Wireframe, Solid, Texture, Rendered };
+
+struct Timeline {
+    int start{1};
+    int end{250};
+    int frame{24};
+    std::vector<int> keys{1, 24, 48, 72, 96, 130, 175, 220};
+};
+
+struct ThemeState {
+    std::string accent{"orange"};
+    std::string density{"comfortable"};
+    std::string style{"flat"};  // "flat" or "3d"
 };
 
 class DenderDocument {
 public:
     DenderDocument();
 
-    [[nodiscard]] const std::vector<SceneNode>& scene_nodes() const noexcept {
-        return scene_nodes_;
+    // ── Registry ─────────────────────────────────────────────────────────
+    [[nodiscard]] const std::vector<SceneObject>& objects() const noexcept {
+        return objects_;
     }
-    [[nodiscard]] const std::vector<TimelineKey>& timeline_keys() const noexcept {
-        return timeline_keys_;
+    [[nodiscard]] const SceneObject* find(std::string_view id) const noexcept;
+    [[nodiscard]] std::size_t object_count() const noexcept {
+        return objects_.size();
+    }
+    /// Outliner order: depth-first from the collection roots, registry order
+    /// within a level. `depth` is 0 for roots (the outliner adds its own base
+    /// indent for Scene > Collection).
+    struct OrderedObject {
+        const SceneObject* object{nullptr};
+        int depth{0};
+    };
+    [[nodiscard]] std::vector<OrderedObject> ordered_objects() const;
+
+    /// Add a primitive from the catalog (web default spawn position). Returns
+    /// the new object's id, or empty for an unknown type. `name` empty = the
+    /// type name (uniquified).
+    std::string add(std::string_view type, std::string_view name = {});
+
+    /// Everything remove() undid, so a command can restore it exactly.
+    struct RemovedObject {
+        SceneObject object;
+        std::size_t index{0};
+        std::vector<std::string> rehomed_children;  // re-homed to obj's parent
+        std::string was_active;
+        bool valid{false};
+    };
+    RemovedObject remove(std::string_view id);
+    void restore(const RemovedObject& removed);
+
+    /// Duplicate: copy at x+0.5 with a uniquified name (web Shift+D). Returns
+    /// the new id (empty if the source is unknown).
+    std::string duplicate(std::string_view id);
+
+    /// Rename (uniquified against the other objects). Returns the applied name.
+    std::string rename(std::string_view id, std::string_view name);
+
+    /// Cycle-safe reparent (`new_parent` empty = collection root). Returns
+    /// false when it would create a cycle or ids are unknown.
+    bool reparent(std::string_view id, std::string_view new_parent);
+
+    bool set_position(std::string_view id, int axis, double value);
+    bool set_rotation(std::string_view id, int axis, double radians);
+    bool set_scale(std::string_view id, int axis, double value);
+    [[nodiscard]] static double axis(const Vec3& v, int axis) noexcept;
+
+    // ── Selection ────────────────────────────────────────────────────────
+    [[nodiscard]] std::string_view active_id() const noexcept { return active_; }
+    [[nodiscard]] const SceneObject* active() const noexcept {
+        return find(active_);
+    }
+    [[nodiscard]] bool is_selected(std::string_view id) const noexcept;
+    void select(std::string_view id);        // active + clears the multi set
+    void toggle_multi(std::string_view id);  // shift-select membership
+    void deselect();
+
+    // ── Viewport state ───────────────────────────────────────────────────
+    [[nodiscard]] TransformMode transform_mode() const noexcept { return mode_; }
+    void set_transform_mode(TransformMode mode) noexcept { mode_ = mode; }
+    [[nodiscard]] Shading shading() const noexcept { return shading_; }
+    void set_shading(Shading shading) noexcept { shading_ = shading; }
+    [[nodiscard]] bool wireframe() const noexcept {
+        return shading_ == Shading::Wireframe;
     }
 
-    [[nodiscard]] std::string_view selected_node_id() const noexcept {
-        return selected_node_id_;
-    }
-    [[nodiscard]] std::string_view selected_object() const noexcept;
-    [[nodiscard]] std::string_view title() const noexcept { return title_; }
-    [[nodiscard]] bool dirty() const noexcept { return dirty_; }
-    [[nodiscard]] std::string tint() const;
-    [[nodiscard]] double roughness() const;
-    [[nodiscard]] Vec3 location() const;
-    [[nodiscard]] bool show_wireframe() const;
-    [[nodiscard]] EvaluatedScene evaluate_scene() const;
-    [[nodiscard]] const PropertyGraph& graph() const noexcept { return graph_; }
+    // ── Timeline ─────────────────────────────────────────────────────────
+    [[nodiscard]] const Timeline& timeline() const noexcept { return timeline_; }
+    /// Scrub: clamp to [start, end] (the web ruler drag).
+    void scrub_frame(int frame) noexcept;
+    /// Combo edits cross-validate so start <= frame <= end always holds —
+    /// nudging one past a sibling pushes the sibling (web wireFrameValidation).
+    void set_frame(int frame) noexcept;
+    void set_start(int start) noexcept;
+    void set_end(int end) noexcept;
+    [[nodiscard]] bool playing() const noexcept { return playing_; }
+    void set_playing(bool playing) noexcept { playing_ = playing; }
 
-    void select_node(std::string_view id);
-    void rename_selected(std::string_view name);
-    void reset_selection();
-    void set_tint(std::string_view value);
-    void set_roughness(double value) noexcept;
-    void set_location_x(double value) noexcept;
-    void set_location_y(double value) noexcept;
-    void set_location_z(double value) noexcept;
-    void set_show_wireframe(bool value) noexcept;
+    // ── Theme ────────────────────────────────────────────────────────────
+    [[nodiscard]] const ThemeState& theme() const noexcept { return theme_; }
+    void set_accent(std::string_view accent) { theme_.accent = accent; }
+    void set_density(std::string_view density) { theme_.density = density; }
+    void set_style(std::string_view style) { theme_.style = style; }
+
+    // ── Catalog / presentation helpers ───────────────────────────────────
+    [[nodiscard]] static const std::vector<Primitive>& catalog();
+    [[nodiscard]] static const Primitive* find_primitive(std::string_view type);
+    /// Decius icon glyph for an object type (web ICON_FOR).
+    [[nodiscard]] static std::string_view icon_for(std::string_view type);
+    [[nodiscard]] static bool is_mesh(std::string_view type);
 
 private:
-    [[nodiscard]] SceneNode* find_node(std::string_view id) noexcept;
-    [[nodiscard]] const SceneNode* find_node(std::string_view id) const noexcept;
+    [[nodiscard]] SceneObject* find_mutable(std::string_view id) noexcept;
+    [[nodiscard]] std::string unique_name(std::string_view base,
+                                          std::string_view ignore_id) const;
+    [[nodiscard]] std::string next_id();
+    [[nodiscard]] bool is_ancestor(std::string_view maybe_ancestor,
+                                   std::string_view id) const;
 
-    std::vector<SceneNode> scene_nodes_;
-    std::vector<TimelineKey> timeline_keys_;
-    std::string selected_node_id_{"cube"};
-    std::string title_{"Blockout Scene.dndr"};
-    bool dirty_{false};
-    PropertyGraph graph_;
+    std::vector<SceneObject> objects_;
+    std::vector<std::string> multi_;  // shift-selected in addition to active_
+    std::string active_;
+    int counter_{0};
+
+    TransformMode mode_{TransformMode::Translate};
+    Shading shading_{Shading::Solid};
+    Timeline timeline_{};
+    bool playing_{false};
+    ThemeState theme_{};
 };
 
 [[nodiscard]] bool parse_bool(std::string_view value) noexcept;
+[[nodiscard]] double parse_double_or(std::string_view value,
+                                     double fallback) noexcept;
 
 }  // namespace dender

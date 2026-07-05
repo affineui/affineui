@@ -5,4 +5,7 @@ affineui_add_example(decius_dender
     dender_document.cpp
     dender_styles.cpp
     dender_view.cpp
+    dender_viewport.cpp
 )
+# Built on the affineui_app DCC template (commands, undo stack, settings).
+target_link_libraries(decius_dender PRIVATE affineui::app)

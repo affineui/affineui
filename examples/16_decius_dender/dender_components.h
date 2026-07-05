@@ -1,111 +1,110 @@
 #pragma once
 
+// DENDER-specific markup emitters: the viewport overlay stack (stats, tool
+// rail, nav cluster, N-panel), the timeline dopesheet body
+// (ruler / tracks / keys / playhead), and the small Decius chrome helpers the
+// chrome sections share (select buttons, pressed icon toggles, menu rows with
+// trailing check marks). Purely presentational — interactive pieces emit
+// stable widget keys and the view attaches the handlers.
+
 #include "dender_document.h"
 
 #include <affineui/affineui.h>
 
-#include <functional>
+#include <algorithm>
+#include <cmath>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace dender::ui {
 
-using BuildFn = std::function<void(affineui::View&)>;
+/// The web sample's frame<->pixel mapping for the timeline (buildTimeline):
+/// 60px label gutter, then max(3.4, width/140) px per frame.
+struct TimelineScale {
+    double pad{60.0};
+    double ppf{3.4};
 
-struct MenuItem {
-    std::string label;
-    std::string icon;
-    std::string shortcut;
-    std::string value;
-    bool separator_before{false};
-    bool checked{false};
+    [[nodiscard]] static TimelineScale for_width(double width) noexcept {
+        TimelineScale s;
+        s.ppf = std::max(3.4, width / 140.0);
+        return s;
+    }
+    [[nodiscard]] double x(int frame) const noexcept { return pad + frame * ppf; }
+    [[nodiscard]] int frame_at(double x) const noexcept {
+        return static_cast<int>(std::lround((x - pad) / ppf));
+    }
 };
 
-struct Menu {
-    std::string id;
-    std::string label;
-    std::vector<MenuItem> items;
-};
+// ── Shared chrome helpers ────────────────────────────────────────────────────
 
-struct DockingPanel {
-    std::string key;
-    std::string classes;
-    std::string title;
-    std::string icon;
-    std::string tabpanel_id;
-};
+void icon(affineui::View& view, std::string_view name,
+          std::string_view classes = {}, std::string_view key = {});
+void text_span(affineui::View& view, std::string_view text,
+               std::string_view classes = {}, std::string_view key = {});
 
-struct Notification {
-    std::string key;
-    std::string tone;
-    std::string title;
-    std::string body;
-};
+/// A boxed select-button (`dcs-select--btn`) that opens `menu_id`: optional
+/// leading icon, label, caret. `tip` is the hover tooltip.
+void select_button(affineui::View& view, std::string_view label,
+                   std::string_view icon_name, std::string_view menu_id,
+                   std::string_view key, std::string_view tip = {});
 
-void icon(affineui::View& view,
-          std::string_view name,
-          std::string_view classes = {},
-          std::string_view key = {});
-void text_span(affineui::View& view,
-               std::string_view text,
-               std::string_view classes = {},
-               std::string_view key = {});
+/// An icon-only ghost button with an aria-pressed state and a tooltip.
+/// Returns the button ref so the caller can wire on_click.
+affineui::WidgetRef icon_toggle(affineui::View& view, std::string_view icon_name,
+                                bool pressed, std::string_view tip,
+                                std::string_view key,
+                                std::string_view extra_classes = {});
 
-void app_title(affineui::View& view,
-               std::string_view app_name,
-               const DenderDocument& document);
-void main_menu(affineui::View& view, const std::vector<Menu>& menus);
-void menu_popup(affineui::View& view, const Menu& menu);
-void toolbar(affineui::View& view,
-             std::string_view classes,
-             std::string_view key,
-             const BuildFn& build);
-void toolbar_separator(affineui::View& view, std::string_view key);
-void toolbar_spacer(affineui::View& view, std::string_view key);
-void icon_button(affineui::View& view,
-                 std::string_view icon_name,
-                 std::string_view key,
-                 bool pressed = false,
-                 std::string_view extra_classes = {});
-void menu_button(affineui::View& view,
-                 std::string_view label,
-                 std::string_view menu_id,
-                 std::string_view key);
-void select_button(affineui::View& view,
-                   std::string_view label,
-                   std::string_view menu_id,
-                   std::string_view key);
+/// A menu section header (`dcs-menu__label`).
+void menu_label(affineui::View& view, std::string_view text,
+                std::string_view key);
 
-void docking_container(affineui::View& view,
-                       std::string_view key,
-                       const BuildFn& build);
-void docking_row(affineui::View& view,
-                 std::string_view key,
-                 const BuildFn& build);
-void docking_panel(affineui::View& view,
-                   const DockingPanel& panel,
-                   const BuildFn& toolbar_build,
-                   const BuildFn& body_build);
-void docking_panel_toolbar(affineui::View& view, const BuildFn& build);
-void docking_splitter(affineui::View& view,
-                      std::string_view key,
-                      bool horizontal = false);
+/// A menu row with an optional TRAILING check mark (the web's checked-item
+/// shape). Composes menu_item_custom so activation matches menu_item.
+affineui::WidgetRef check_menu_item(affineui::View& view, std::string_view label,
+                                    std::string_view icon_name,
+                                    std::string_view shortcut, bool checked,
+                                    std::string_view key);
 
-void tree_panel(affineui::View& view,
-                const DenderDocument& document,
-                const std::function<void(std::string_view)>& on_select);
-void list_panel(affineui::View& view,
-                std::string_view key,
-                std::string_view title,
-                const std::vector<std::string>& rows);
-void document_panel(affineui::View& view,
-                    const DenderDocument& document);
-void modal_panel(affineui::View& view,
-                 std::string_view key,
-                 std::string_view title,
-                 const BuildFn& body_build,
-                 bool open = false);
-void notification(affineui::View& view, const Notification& note);
+/// A cosmetic "has submenu" row (label + caret, no nested panel) — the web's
+/// dead `dcs-menu__item--has-sub` markers (Open Recent, Import, Viewpoint, …).
+void submenu_stub(affineui::View& view, std::string_view label,
+                  std::string_view icon_name, std::string_view key);
+
+// ── Viewport body (the canvas host's overlay stack) ─────────────────────────
+// (The scene itself is DenderViewport::scene_layer — a custom-paint canvas
+// drawn by the viewport in dender_viewport.h; these are the DOM overlays
+// stacked above it.)
+
+/// Top-left stats overlay ("User Perspective" / collection | active name).
+void viewport_stats(affineui::View& view, const DenderDocument& doc);
+
+/// Bottom-left corner overlay (verts/faces/tris/objects readout, computed
+/// live from the mesh tables).
+void viewport_corner(affineui::View& view, const DenderDocument& doc);
+
+/// The floating tool rail. Buttons are keyed "rail-<tool>" (tweak, cursor,
+/// move, rotate, scale, transform, annotate, measure, add-cube) so the view
+/// can attach handlers; `active_tool` drives the pressed state.
+void tool_rail(affineui::View& view, std::string_view active_tool);
+
+/// Top-right nav cluster: the live 72x72 axis-ball canvas (painted by
+/// DenderViewport, repainted with the camera) + the 4 nav buttons, keyed
+/// "nav-zoom" / "nav-move" / "nav-camera" / "nav-ortho" for wiring.
+/// `move_view_pressed` reflects the Move View orbit/pan toggle.
+void nav_cluster(affineui::View& view, bool move_view_pressed);
+
+/// The floating N-panel with Item / Tool / View tabs (tab buttons keyed
+/// "npanel-tab-<id>"); content per the web reference (cosmetic fields).
+void npanel(affineui::View& view, const DenderDocument& doc,
+            std::string_view active_tab);
+
+// ── Timeline dopesheet body ──────────────────────────────────────────────────
+
+/// Ruler ticks + playback-range tint + Summary/active tracks with diamond
+/// keys + the playhead. `width_px` is the pane's available width (the ruler
+/// scale is resolution-dependent, like the web's clientWidth rebuild).
+void timeline_body(affineui::View& view, const DenderDocument& doc,
+                   int width_px);
 
 }  // namespace dender::ui
