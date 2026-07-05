@@ -76,6 +76,10 @@ from ._affineui import (
     WidgetRef,
     __version__,
     native_backend,
+    tools_active,
+    tools_listen,
+    tools_port,
+    tools_shutdown,
     version,
 )
 
@@ -277,5 +281,9 @@ __all__ = [
     "document",
     "element",
     "native_backend",
+    "tools_active",
+    "tools_listen",
+    "tools_port",
+    "tools_shutdown",
     "version",
 ]

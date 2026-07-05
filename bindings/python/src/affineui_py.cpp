@@ -1,6 +1,7 @@
 #include <affineui/app.h>
 #include <affineui/components.h>
 #include <affineui/document.h>
+#include <affineui/tools.h>
 #include <affineui/types.h>
 #include <affineui/view.h>
 #include <affineui/version.h>
@@ -85,6 +86,19 @@ PYBIND11_MODULE(_affineui, m) {
     m.attr("__version__") = AFFINEUI_PY_VERSION;
     m.def("version", [] { return std::string{affineui::version_string()}; });
     m.def("native_backend", [] { return std::string{"sokol"}; });
+
+    // affinetools attach (docs/AFFINETOOLS_DESIGN.md §3): loopback-only
+    // devtools server with token auth via <tempdir>/affineui-tools/. Lets
+    // a Python host enable attach without a rebuild; no-ops when the
+    // native library was compiled with AFFINEUI_PERF=0.
+    m.def("tools_listen",
+          [](int port) { return affineui::tools_listen(port); },
+          py::arg("port") = 0,
+          "Start the affinetools protocol server (idempotent). port=0 binds "
+          "an ephemeral port; discovery/auth via the temp-dir session file.");
+    m.def("tools_active", [] { return affineui::tools_active(); });
+    m.def("tools_port", [] { return affineui::tools_port(); });
+    m.def("tools_shutdown", [] { affineui::tools_shutdown(); });
     bind_photo_core(m);
 
     py::class_<affineui::Color>(m, "Color")
@@ -271,9 +285,18 @@ PYBIND11_MODULE(_affineui, m) {
             doc.set_html(html);
         })
         .def("set_user_stylesheet",
-             [](affineui::Document& doc, const std::string& css) {
-                 doc.set_user_stylesheet(css);
-             })
+             [](affineui::Document& doc, const std::string& css,
+                py::object base_url) {
+                 if (base_url.is_none()) {
+                     doc.set_user_stylesheet(css);
+                 } else {
+                     doc.set_user_stylesheet(css, base_url.cast<std::string>());
+                 }
+             },
+             py::arg("css"), py::arg("base_url") = py::none(),
+             "Install the user stylesheet. base_url (optional) is the "
+             "sheet's own location so its relative url()s resolve like a "
+             "<link>ed sheet's.")
         .def("reload_stylesheets", &affineui::Document::reload_stylesheets)
         .def("layout",
              [](affineui::Document& doc, int width, int height) {
@@ -338,7 +361,12 @@ PYBIND11_MODULE(_affineui, m) {
                  return doc.weak_handle_valid(handle);
              },
              py::arg("handle"),
-             "Return whether a DomHandle still resolves inside this document.");
+             "Return whether a DomHandle still resolves inside this document.")
+        .def("hovered_cursor",
+             &affineui::Document::hovered_cursor,
+             "Cursor the OS should display under the hovered element "
+             "(0=default 1=pointer 2=text 3=crosshair 4=move 5=not-allowed "
+             "6=ew-resize 7=ns-resize 8=nwse-resize).");
 
     py::enum_<affineui::ViewTheme>(m, "ViewTheme")
         .value("Plain", affineui::ViewTheme::Plain)
@@ -549,6 +577,27 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("key") = "",
              py::keep_alive<0, 1>(),
              "Add a paragraph and return a stable WidgetRef tied to this View.")
+        .def("text",
+             [](affineui::View& view,
+                const std::string& text,
+                const std::string& key) {
+                 return view.text(text, key);
+             },
+             py::arg("text"),
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a bare text node and return a WidgetRef tied to this View.")
+        .def("set_framework_version",
+             [](affineui::View& view, const std::string& version) {
+                 view.set_framework_version(version);
+             },
+             py::arg("version"),
+             "Pin the CSS framework version this view targets (e.g. \"0.6.2\" "
+             "for Decius). Empty = personality default.")
+        .def("framework_version",
+             [](const affineui::View& view) {
+                 return std::string{view.framework_version()};
+             })
         .def("html",
              [](affineui::View& view,
                 const std::string& markup,
@@ -584,6 +633,45 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("key") = "",
              py::keep_alive<0, 1>(),
              "Add a checkbox and return a WidgetRef tied to this View.")
+        .def("toggle",
+             [](affineui::View& view,
+                const std::string& label,
+                bool on,
+                const std::string& key) {
+                 return view.toggle(label, on, key);
+             },
+             py::arg("label"),
+             py::arg("on"),
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add an on/off switch (checkbox semantics, slide presentation).")
+        .def("combo",
+             [](affineui::View& view,
+                const std::string& label,
+                double value,
+                double step,
+                const std::string& key) {
+                 return view.combo(label, value, step, key);
+             },
+             py::arg("label"),
+             py::arg("value"),
+             py::arg("step") = 0.01,
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a bare drag-scrub numeric combo (no field/label wrapper).")
+        .def("colorfield",
+             [](affineui::View& view,
+                const std::string& label,
+                const std::string& value,
+                const std::string& key) {
+                 return view.colorfield(label, value, key);
+             },
+             py::arg("label"),
+             py::arg("value") = "",
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add the Decius color field (chip + editable hex + picker "
+             "popover). Degrades to a native color input off-Decius.")
         .def("input",
              [](affineui::View& view,
                 const std::string& label,
@@ -761,6 +849,62 @@ PYBIND11_MODULE(_affineui, m) {
              py::keep_alive<0, 1>(),
              "Add a framework-default panel. If build is supplied it is "
              "called immediately with the same View.")
+        .def("element",
+             [](affineui::View& view,
+                const std::string& tag,
+                const std::string& classes,
+                const std::string& key,
+                py::object build) {
+                 if (build.is_none()) {
+                     return view.element_ref(tag, classes, key);
+                 }
+                 auto scope = view.element(tag, classes, key);
+                 auto ref = scope.ref();
+                 build(&view);
+                 return ref;
+             },
+             py::arg("tag"),
+             py::arg("classes") = "",
+             py::arg("key") = "",
+             py::arg("build") = py::none(),
+             py::keep_alive<0, 1>(),
+             "Add an arbitrary element. If build is supplied it is called "
+             "immediately with the same View.")
+        .def("card",
+             [](affineui::View& view,
+                const std::string& title,
+                const std::string& classes,
+                const std::string& key,
+                py::object build) {
+                 auto scope = view.card(title, classes, key);
+                 auto ref = scope.ref();
+                 if (!build.is_none()) build(&view);
+                 return ref;
+             },
+             py::arg("title"),
+             py::arg("classes") = "",
+             py::arg("key") = "",
+             py::arg("build") = py::none(),
+             py::keep_alive<0, 1>(),
+             "Add a titled card; fill it via the build callback.")
+        .def("foldout",
+             [](affineui::View& view,
+                const std::string& title,
+                bool expanded,
+                const std::string& key,
+                py::object build) {
+                 auto scope = view.foldout(title, expanded, key);
+                 auto ref = scope.ref();
+                 if (!build.is_none()) build(&view);
+                 return ref;
+             },
+             py::arg("title"),
+             py::arg("expanded") = true,
+             py::arg("key") = "",
+             py::arg("build") = py::none(),
+             py::keep_alive<0, 1>(),
+             "Add a collapsible section (header + body); fill the body via "
+             "build. Clicking the header toggles collapse.")
         .def("find_widget",
              [](affineui::View& view, const std::string& name) {
                  return view.find_widget(name);
@@ -813,6 +957,89 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("label"), py::arg("menu_id"), py::arg("key") = "",
              py::keep_alive<0, 1>(),
              "Add a menubar button that opens the menu with id menu_id.")
+        .def("menu_button",
+             [](affineui::View& view, const std::string& label,
+                py::function build, const std::string& key) {
+                 return view.menu_button(
+                     label,
+                     [&build](affineui::View& v) { build(&v); },
+                     key);
+             },
+             py::arg("label"), py::arg("build"), py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a menubar button that OWNS its dropdown: build(view) "
+             "populates the menu inline (menu_item/menu_separator/submenu).")
+        .def("menu",
+             [](affineui::View& view, const std::string& menu_id,
+                py::function build) {
+                 return view.menu(
+                     menu_id,
+                     [&build](affineui::View& v) { build(&v); });
+             },
+             py::arg("menu_id"), py::arg("build"),
+             py::keep_alive<0, 1>(),
+             "Add a popup menu (hidden until a menu_button targets its id); "
+             "build(view) populates it.")
+        .def("menu_item",
+             [](affineui::View& view, const std::string& label,
+                const std::string& icon, const std::string& shortcut,
+                const std::string& key) {
+                 return view.menu_item(label, icon, shortcut, key);
+             },
+             py::arg("label"), py::arg("icon") = "", py::arg("shortcut") = "",
+             py::arg("key") = "", py::keep_alive<0, 1>(),
+             "Add a menu row (optional icon glyph + label + shortcut). Wire "
+             "on_click for the action.")
+        .def("menu_item_custom",
+             [](affineui::View& view, const std::string& key, py::object build) {
+                 auto scope = view.menu_item_custom(key);
+                 auto ref = scope.ref();
+                 if (!build.is_none()) build(&view);
+                 return ref;
+             },
+             py::arg("key") = "", py::arg("build") = py::none(),
+             py::keep_alive<0, 1>(),
+             "Add a menu row whose content the caller composes via build; "
+             "activation behaves like menu_item.")
+        .def("menu_separator",
+             [](affineui::View& view, const std::string& key) {
+                 return view.menu_separator(key);
+             },
+             py::arg("key") = "", py::keep_alive<0, 1>(),
+             "Add a separator line between menu groups.")
+        .def("submenu",
+             [](affineui::View& view, const std::string& label,
+                py::function build, const std::string& icon,
+                const std::string& key) {
+                 return view.submenu(
+                     label,
+                     [&build](affineui::View& v) { build(&v); },
+                     icon, key);
+             },
+             py::arg("label"), py::arg("build"), py::arg("icon") = "",
+             py::arg("key") = "", py::keep_alive<0, 1>(),
+             "Add a submenu row revealing nested items (build) on hover.")
+        .def("menu_brand",
+             [](affineui::View& view, const std::string& title,
+                const std::string& icon, const std::string& key) {
+                 return view.menu_brand(title, icon, key);
+             },
+             py::arg("title"), py::arg("icon") = "", py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add the app brand (icon + title) at the start of a menubar.")
+        .def("menu_spacer",
+             [](affineui::View& view, const std::string& key) {
+                 return view.menu_spacer(key);
+             },
+             py::arg("key") = "", py::keep_alive<0, 1>(),
+             "Add a flexible spacer pushing following menubar items right.")
+        .def("menu_meta",
+             [](affineui::View& view, const std::string& text,
+                const std::string& key) {
+                 return view.menu_meta(text, key);
+             },
+             py::arg("text"), py::arg("key") = "", py::keep_alive<0, 1>(),
+             "Add right-aligned status/meta text in a menubar.")
         .def("dock_panel",
              [](affineui::View& view, const std::string& title,
                 const std::string& tabpanel_id, const std::string& classes,
@@ -1092,9 +1319,18 @@ PYBIND11_MODULE(_affineui, m) {
                  return app.load_html_file(path);
              })
         .def("set_stylesheet",
-             [](affineui::App& app, const std::string& css) {
-                 app.set_stylesheet(css);
-             })
+             [](affineui::App& app, const std::string& css,
+                py::object base_url) {
+                 if (base_url.is_none()) {
+                     app.set_stylesheet(css);
+                 } else {
+                     app.set_stylesheet(css, base_url.cast<std::string>());
+                 }
+             },
+             py::arg("css"), py::arg("base_url") = py::none(),
+             "Install the user stylesheet. base_url (optional) is the "
+             "sheet's own location so its relative url()s resolve like a "
+             "<link>ed sheet's.")
         .def("invalidate", &affineui::App::invalidate)
         .def("set_perf_overlay_enabled",
              &affineui::App::set_perf_overlay_enabled,
@@ -1121,6 +1357,56 @@ PYBIND11_MODULE(_affineui, m) {
         .def("dpi_scale",
              &affineui::App::dpi_scale,
              "Return the render DPI scale: framebuffer pixels per CSS point.")
+        .def("frame_telemetry",
+             [](const affineui::App& app) {
+                 // Keys mirror the telemetry.frame schema
+                 // (docs/AFFINETOOLS_PROTOCOL.md) so dumps and this dict
+                 // are the same shape.
+                 const affineui::FrameTelemetry& t = app.frame_telemetry();
+                 py::dict d;
+                 d["v"] = t.v;
+                 d["frame"] = t.frame;
+                 d["t_ms"] = t.t_ms;
+                 d["gap_ms"] = t.gap_ms;
+                 d["cb_ms"] = t.cb_ms;
+                 d["skipped"] = t.skipped;
+                 d["fb"] = py::make_tuple(t.fb_w, t.fb_h);
+                 d["dpi"] = t.dpi;
+                 py::dict stage;
+                 stage["prep"] = t.prep_us;
+                 stage["layout"] = t.layout_us;
+                 stage["dl"] = t.record_us;
+                 stage["rast"] = t.raster_us;
+                 stage["comp"] = t.composite_us;
+                 d["stage_us"] = stage;
+                 py::dict ops;
+                 ops["cached"] = t.cached_ops;
+                 ops["culled"] = t.culled_ops;
+                 ops["changed"] = t.changed_ops;
+                 ops["rects"] = t.dirty_rects;
+                 ops["dirty_pct"] = t.dirty_pct_x100 / 100.0;
+                 d["ops"] = ops;
+                 py::dict flags;
+                 flags["rec"] = t.recorded;
+                 flags["dl"] = t.dl_changed;
+                 flags["rast"] = t.rasterized;
+                 flags["partial"] = t.partial;
+                 flags["direct"] = t.direct;
+                 flags["reused"] = t.layer_reused;
+                 flags["anim"] = t.animations;
+                 d["flags"] = flags;
+                 py::dict mem;
+                 mem["live"] = t.mem_live_bytes;
+                 mem["blocks"] = t.mem_live_blocks;
+                 mem["allocs"] = t.allocs;
+                 mem["frees"] = t.frees;
+                 d["mem"] = mem;
+                 return d;
+             },
+             "The most recent presented frame's telemetry record as a dict "
+             "(same shape as a telemetry.frame JSONL record). Zeroed until "
+             "the first frame presents, or when compiled with "
+             "AFFINEUI_PERF=0.")
         .def("document",
              static_cast<affineui::Document& (affineui::App::*)()>(
                  &affineui::App::document),

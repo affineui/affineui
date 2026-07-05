@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>AffineUI.Examples.Hello</RootNamespace>
+    <AssemblyName>Hello</AssemblyName>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Where to find the native affineui_c library for the dev loop.
+         Defaults to the CMake build directory of this checkout; override with
+         -p:AffineUINativeDir=... or the AFFINEUI_NATIVE_DIR env var at run
+         time. -->
+    <AffineUINativeDir Condition="'$(AffineUINativeDir)' == ''">$(MSBuildThisFileDirectory)..\..\..\..\build\ninja</AffineUINativeDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\AffineUI\AffineUI.csproj" />
+  </ItemGroup>
+
+  <!-- Copy the native library next to the exe when it exists. -->
+  <ItemGroup Condition="Exists('$(AffineUINativeDir)\affineui_c.dll')">
+    <None Include="$(AffineUINativeDir)\affineui_c.dll" Link="affineui_c.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(AffineUINativeDir)\libaffineui_c.so')">
+    <None Include="$(AffineUINativeDir)\libaffineui_c.so" Link="libaffineui_c.so" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(AffineUINativeDir)\libaffineui_c.dylib')">
+    <None Include="$(AffineUINativeDir)\libaffineui_c.dylib" Link="libaffineui_c.dylib" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

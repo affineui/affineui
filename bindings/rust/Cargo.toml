@@ -1,0 +1,9 @@
+[workspace]
+members = ["affineui-sys", "affineui"]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.3"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/benjcooley/affineui"

@@ -7,8 +7,8 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "affineui"
-version = "0.0.1"
-description = "Python bindings for AffineUI"
+version = "0.0.3"
+description = "Python bindings for AffineUI — GPU-accelerated HTML/CSS UI for tools and game engines. EXPERIMENTAL preview; APIs will change."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
@@ -22,10 +22,20 @@ classifiers = [
     "Topic :: Software Development :: User Interfaces",
 ]
 
+[project.urls]
+Repository = "https://github.com/benjcooley/affineui"
+
 [tool.scikit-build]
 cmake.source-dir = "."
 wheel.packages = ["python/affineui"]
 build-dir = "build/{wheel_tag}"
+# Dev builds copy the compiled module into python/affineui/ for in-repo use.
+# The built module is always ABI-tagged (e.g. _affineui.cp311-win_amd64.pyd)
+# and CMake's install overwrites a same-named dev copy, but an UNTAGGED dev
+# artifact would ride along and shadow the real module — keep those out.
+# (exclude matches final wheel paths, so a *.pyd glob would strip the real
+# module too.)
+wheel.exclude = ["affineui/_affineui.pyd", "affineui/_affineui.so"]
 
 [tool.scikit-build.cmake.define]
 AFFINEUI_BUILD_EXAMPLES = "OFF"

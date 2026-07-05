@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>AffineUI</RootNamespace>
+    <AssemblyName>AffineUI</AssemblyName>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Description>Idiomatic .NET wrapper over the AffineUI C ABI (affineui_c) — GPU-accelerated HTML/CSS UI for tools and game engines. EXPERIMENTAL preview; APIs will change.</Description>
+  </PropertyGroup>
+
+  <!-- NuGet packaging (dotnet pack). Experimental preview package. -->
+  <PropertyGroup>
+    <PackageId>AffineUI</PackageId>
+    <Version>0.0.3-alpha</Version>
+    <Authors>Benjamin Cooley</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/benjcooley/affineui</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/benjcooley/affineui</PackageProjectUrl>
+    <PackageTags>gui;ui;html;css;native;gamedev;imgui</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- Where the native affineui_c.dll comes from (repo dev build by
+         default; CI overrides with per-RID artifacts). -->
+    <AffineUINativeDir Condition="'$(AffineUINativeDir)' == ''">$(MSBuildThisFileDirectory)..\..\..\build\ninja</AffineUINativeDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" Visible="false" />
+    <!-- Native payload: win-x64 only for the preview; other RIDs come
+         from CI builds later. NativeLibrary default probing finds it at
+         runtimes/<rid>/native when installed from NuGet. -->
+    <None Include="$(AffineUINativeDir)\affineui_c.dll"
+          Condition="Exists('$(AffineUINativeDir)\affineui_c.dll')"
+          Pack="true" PackagePath="runtimes\win-x64\native" Visible="false" />
+  </ItemGroup>
+
+  <!-- Packing without the native library would produce a package that
+       cannot load anywhere; fail fast instead. -->
+  <Target Name="AffineUIRequireNativeForPack" BeforeTargets="GenerateNuspec">
+    <Error Condition="!Exists('$(AffineUINativeDir)\affineui_c.dll')"
+           Text="affineui_c.dll not found under '$(AffineUINativeDir)'. Build it first (cmake -DAFFINEUI_BUILD_C_SHARED=ON, target affineui_c) or set AffineUINativeDir." />
+  </Target>
+
+</Project>

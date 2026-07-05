@@ -1,0 +1,16 @@
+[package]
+name = "affineui"
+description = "Safe, idiomatic Rust bindings for AffineUI — GPU-accelerated HTML/CSS UI for tools and engines. EXPERIMENTAL preview; APIs will change."
+readme = "README.md"
+keywords = ["gui", "ui", "html", "css", "imgui"]
+categories = ["gui", "api-bindings"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+affineui-sys = { path = "../affineui-sys", version = "0.0.3" }
+
+[lib]
+doctest = false
