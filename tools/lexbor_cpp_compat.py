@@ -448,6 +448,20 @@ def transform(staged_source: Path, symbol_prefix: str) -> None:
     prefix_file_static_symbols(staged_source)
 
 
+# Lexbor modules irrelevant to our HTML/CSS-string parsing pipeline. None of
+# them are referenced from core / html / css / dom / selectors / tag / ns
+# (verified with a cross-module `#include lexbor/<mod>/` grep), so cutting
+# them from the amalgamation drops ~9 MB of encoding tables + ~12 MB of
+# transitively-pulled IDNA / Unicode header data with no link fallout.
+#   encoding — legacy multi-byte HTML charsets (EUC-KR, GB18030, Big5, JIS,
+#              ISO-8859-N). We only ever feed UTF-8 into set_html.
+#   unicode  — Unicode 12 normalization + IDNA tables. Not used by the
+#              tokenizer or CSS parser.
+#   punycode — Internationalized Domain Names. We don't parse URLs.
+#   url      — URL parser. Ditto.
+_LEXBOR_SKIP_MODULES = {"encoding", "unicode", "punycode", "url"}
+
+
 def lexbor_c_sources(staged_source: Path, platform: str) -> list[Path]:
     paths = sorted((staged_source / "lexbor").rglob("*.c"))
     selected: list[Path] = []
@@ -457,6 +471,13 @@ def lexbor_c_sources(staged_source: Path, platform: str) -> list[Path]:
         if platform == "posix" and "/ports/windows_nt/" in s:
             continue
         if platform == "windows" and "/ports/posix/" in s:
+            continue
+        try:
+            rel = path.relative_to(staged_source / "lexbor").as_posix()
+        except ValueError:
+            rel = s
+        module = rel.split("/", 1)[0]
+        if module in _LEXBOR_SKIP_MODULES:
             continue
         selected.append(path)
 
