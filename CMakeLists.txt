@@ -143,6 +143,7 @@ target_sources(affineui PRIVATE
     src/dom/document.cpp
     src/dom/document_dispatch.cpp
     src/dom/document_draw.cpp
+    src/dom/document_style.cpp
     src/dom/dom_view.cpp
     src/style/cascade.cpp
     src/style/computed.cpp

@@ -304,6 +304,16 @@ enum class LiveControlKind : std::uint8_t {
     DeciusKnob,
 };
 
+struct ScrollStateEntry {
+#if !defined(AFFINEUI_STUB_BUILD)
+    lxb_dom_element_t* element{nullptr};
+#endif
+    std::string elem_id;
+    std::string aui_name;
+    std::string tag;
+    int scroll_y{0};
+};
+
 // Geometry of a block's painted vertical scrollbar (track/thumb in doc
 // space); filled by detail::vertical_scrollbar_geometry.
 struct ScrollbarGeometry {
@@ -1059,6 +1069,122 @@ bool update_button_group_control(detail::DocumentImpl& impl,
 bool update_dropdown_control(detail::DocumentImpl& impl,
                              lxb_dom_element_t* group,
                              lxb_dom_element_t* option);
+
+// CSS / stylesheet / text-content machinery (owned by document_style.cpp)
+bool ancestor_chain_matches(const std::vector<CompoundSelector>& ancestors,
+                            int parent_idx,
+                            const std::vector<Block>& blocks);
+bool ancestor_has_state(const detail::DocumentImpl& impl, int parent_idx,
+                        const CompoundSelector& state_target,
+                        std::uint8_t bit);
+detail::ResolvedStyle anonymous_text_style(const detail::ResolvedStyle& parent);
+void append_anonymous_inline_text(detail::DocumentImpl& impl,
+                                  const detail::ResolvedStyle& parent_style,
+                                  int parent_idx,
+                                  std::string text);
+void apply_font_family_fills(detail::DocumentImpl& impl,
+                             std::string_view tag,
+                             std::string_view elem_id,
+                             const std::vector<std::string>& classes,
+                             int parent_idx,
+                             std::uint8_t state_bits,
+                             detail::ResolvedStyle& rs,
+                             std::array<detail::GridTrackHint,
+                                        detail::kMaxGridTrackHints>* grid_columns = nullptr,
+                             std::uint8_t* grid_column_count = nullptr);
+std::string apply_text_transform(std::string s,
+                                 detail::ComputedStyle::TextTransform tt);
+void apply_user_textarea_size(detail::DocumentImpl& impl,
+                              lxb_dom_element_t* elem,
+                              detail::ResolvedStyle& rs);
+const lxb_char_t* as_lxb(std::string_view s);
+void attach_media_block(detail::DocumentImpl& impl, const MediaBlock& mb);
+void attach_stylesheet(detail::DocumentImpl& impl, std::string_view css,
+                       std::string_view base_url = {});
+std::string_view attr_view(lxb_dom_element_t* elem, std::string_view name);
+int block_attr_int(const Block& block,
+                   std::string_view name,
+                   int fallback,
+                   int min_value,
+                   int max_value);
+bool block_has_state(const detail::DocumentImpl& impl, const Block& block,
+                     const CompoundSelector& state_target, std::uint8_t bit);
+std::int16_t clamp_css_px(int value);
+bool class_tokens_contain(std::string_view s, std::string_view token);
+void collapse_block_flow_vertical_margins(
+    const std::vector<std::vector<int>>& child_indices,
+    const std::vector<Block>& blocks,
+    std::vector<detail::ComputedStyle>& styles);
+void collect_author_stylesheets(lxb_dom_node_t* node,
+                                detail::DocumentImpl& impl,
+                                std::string& out);
+std::string compact_number(double value, int places = 2);
+bool compound_matches(const CompoundSelector& compound,
+                      std::string_view tag,
+                      std::string_view elem_id,
+                      const std::vector<std::string>& classes,
+                      const std::vector<std::pair<std::string, std::string>>*
+                          attrs = nullptr);
+std::vector<std::pair<std::string, std::string>>
+element_attrs(lxb_dom_element_t* elem);
+int ensure_inline_run(detail::DocumentImpl& impl,
+                      const detail::ResolvedStyle& parent_style,
+                      int parent_idx,
+                      int& open_synth_idx);
+std::string find_decl_value(std::string_view decls,
+                            std::string_view key);
+bool generated_content_enabled(std::string value,
+                               const detail::ResolvedStyle& style);
+std::string generated_content_text(std::string value,
+                                   const detail::ResolvedStyle& style);
+bool input_type_accepts_text(std::string_view type);
+bool is_block_tag(const std::string& tag);
+bool is_flex_container_display(detail::ComputedStyle::Display display);
+bool is_html_ws(unsigned char c);
+std::uint64_t media_match_signature(const detail::DocumentImpl& impl,
+                                    int viewport_width);
+bool node_is_collapsible_whitespace(lxb_dom_node_t* node);
+std::string node_text(lxb_dom_node_t* node,
+                      detail::ComputedStyle::WhiteSpace ws
+                          = detail::ComputedStyle::WhiteSpace::Normal);
+detail::ComputedStyle::Cursor parse_cursor_keyword(std::string_view kw);
+int parse_generated_length_px(std::string value,
+                              const detail::ResolvedStyle& style);
+std::uint8_t parse_grid_template_columns(
+        std::string value,
+        std::array<detail::GridTrackHint,
+                   detail::kMaxGridTrackHints>& out);
+std::pair<detail::ComputedStyle::Resize, bool>
+parse_resize_keyword(std::string value);
+std::string percent_string(double fraction);
+std::uint8_t pseudo_state_bit(PseudoRule::Pseudo pseudo);
+void restore_scroll_state(detail::DocumentImpl& impl,
+                          const std::vector<ScrollStateEntry>& state);
+bool same_grid_track_hints(
+        const std::array<detail::GridTrackHint,
+                         detail::kMaxGridTrackHints>& a,
+        std::uint8_t a_count,
+        const std::array<detail::GridTrackHint,
+                         detail::kMaxGridTrackHints>& b,
+        std::uint8_t b_count);
+std::string scan_inline_decl_value(lxb_dom_element_t* elem,
+                                   std::string_view key);
+std::string scan_inline_keyword(lxb_dom_element_t* elem, std::string_view key);
+std::string select_display_text(lxb_dom_element_t* select);
+std::vector<ScrollStateEntry> snapshot_scroll_state(
+        const detail::DocumentImpl& impl,
+        bool include_elements);
+std::vector<std::string> split_classes(std::string_view s);
+std::string style_with_properties(
+    std::string_view style,
+    std::initializer_list<std::pair<std::string, std::string>> props);
+std::string substitute_style_vars(
+    std::string_view value,
+    const detail::ResolvedStyle& style);
+std::string tag_name(lxb_dom_element_t* elem);
+std::string_view tag_view(lxb_dom_element_t* elem);
+std::string text_control_display_value(const Block& block,
+                                       std::string_view value);
 #endif  // !AFFINEUI_STUB_BUILD
 
 }  // namespace detail
