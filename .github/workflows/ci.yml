@@ -14,7 +14,11 @@ concurrency:
 jobs:
   windows:
     name: Windows (D3D11)
-    runs-on: windows-latest
+    # Pinned to windows-2022 because windows-latest is being redirected to
+    # windows-2025-vs2026 (June 2026 migration), which drops the VS 17 2022
+    # generator the msvc preset asks for. Move to windows-latest once the
+    # preset updates to VS 18 2026 (or switches to Ninja + vcvarsall).
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
       # Visual Studio generator => self-contained, no vcvars/Ninja setup needed.
