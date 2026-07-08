@@ -1277,6 +1277,86 @@ bool sync_dcs_colorfield(detail::DocumentImpl& impl,
                          lxb_dom_element_t* field,
                          std::string_view raw_hex,
                          bool emit);
+
+// restyle / mutation / interaction boundary helpers
+struct MutationTraceTimer {
+    // AFFINEUI_MENU_TRACE=1: report any attribute mutation that costs
+    // real time — the menu-lag class of bug is whole-document work
+    // hiding inside these helpers.
+    const char* op;
+    std::string_view name;
+    std::chrono::steady_clock::time_point t0;
+    static bool enabled() {
+        static const bool on = std::getenv("AFFINEUI_MENU_TRACE") != nullptr;
+        return on;
+    }
+    MutationTraceTimer(const char* op_, std::string_view name_)
+        : op(op_), name(name_) {
+        if (enabled()) t0 = std::chrono::steady_clock::now();
+    }
+    ~MutationTraceTimer() {
+        if (!enabled()) return;
+        const double ms = std::chrono::duration<double, std::milli>(
+                              std::chrono::steady_clock::now() - t0)
+                              .count();
+        if (ms >= 0.5) {
+            std::fprintf(stderr, "[attr] %s '%s' took %.2f ms\n", op,
+                         std::string(name).c_str(), ms);
+        }
+    }
+};
+
+int block_index_for_element_or_ancestor(const detail::DocumentImpl& impl,
+                                        lxb_dom_element_t* elem);
+std::string class_list_set(lxb_dom_element_t* elem,
+                           std::string_view cls,
+                           bool present);
+bool dock_trace_enabled();
+Rect document_float_host_bounds(detail::DocumentImpl& impl);
+Rect document_visual_rect(const detail::DocumentImpl& impl);
+double element_attr_double(lxb_dom_element_t* elem,
+                           std::string_view name,
+                           double fallback);
+bool element_attr_true(lxb_dom_element_t* elem, std::string_view name);
+lxb_dom_element_t* element_for_block_or_ancestor(detail::DocumentImpl& impl,
+                                                 int idx);
+bool element_has_element_child(lxb_dom_element_t* elem);
+lxb_dom_element_t* first_descendant_input(lxb_dom_element_t* elem);
+lxb_dom_element_t* first_descendant_tag(lxb_dom_element_t* elem,
+                                        std::string_view tag);
+lxb_dom_element_t* first_descendant_with_class(lxb_dom_element_t* elem,
+                                               std::string_view cls);
+int hit_test_blocks_for_dock_target(const detail::DocumentImpl& impl,
+                                    int x,
+                                    int y);
+int int_attr(lxb_dom_element_t* elem, std::string_view name, int fallback);
+bool is_dcs_menu_trigger(lxb_dom_element_t* elem);
+bool is_dcs_popover_trigger(lxb_dom_element_t* elem);
+lxb_dom_element_t* nearest_checkbox_wrapper(lxb_dom_element_t* elem);
+bool pointer_moved_past_threshold(const Event& ev,
+                                  const detail::DocumentImpl::LiveControlDrag& drag);
+void refresh_block_metadata_from_element(Block& block,
+                                         lxb_dom_element_t* elem);
+bool rematch_stylesheet_matches_for_subtree(detail::DocumentImpl& impl,
+                                            int root_idx);
+bool restyle_all_blocks(detail::DocumentImpl& impl);
+Rect root_float_host_bounds(detail::DocumentImpl& impl);
+bool selector_mutation_reveals_hidden_subtree(detail::DocumentImpl& impl,
+                                              int root_idx);
+bool set_text_on_element(detail::DocumentImpl& impl,
+                         lxb_dom_element_t* elem,
+                         std::string_view text);
+bool update_live_control_value(detail::DocumentImpl& impl,
+                               lxb_dom_element_t* elem,
+                               LiveControlKind kind,
+                               double min,
+                               double max,
+                               double value,
+                               bool bipolar);
+double value_from_x(const Rect& bounds, int x, double min, double max);
+double value_from_y(const Rect& bounds, int y, double min, double max);
+int viewport_height_for_overlay(const detail::DocumentImpl& impl);
+int viewport_width_for_overlay(const detail::DocumentImpl& impl);
 #endif  // !AFFINEUI_STUB_BUILD
 
 }  // namespace detail

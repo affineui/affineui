@@ -141,9 +141,12 @@ target_sources(affineui PRIVATE
     src/app/automation.cpp
     src/app/view.cpp
     src/dom/document.cpp
+    src/dom/document_controls.cpp
     src/dom/document_dispatch.cpp
     src/dom/document_draw.cpp
+    src/dom/document_dock.cpp
     src/dom/document_layout.cpp
+    src/dom/document_restyle.cpp
     src/dom/document_style.cpp
     src/dom/document_text.cpp
     src/dom/dom_view.cpp
