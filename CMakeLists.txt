@@ -140,7 +140,7 @@ target_sources(affineui PRIVATE
     src/app/event.cpp
     src/app/automation.cpp
     src/app/view.cpp
-    src/dom/document.cpp
+    src/dom/document_core.cpp
     src/dom/document_controls.cpp
     src/dom/document_dispatch.cpp
     src/dom/document_draw.cpp

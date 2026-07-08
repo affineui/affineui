@@ -131,7 +131,7 @@ ENGINE_SOURCES = [
     "src/app/event.cpp",
     "src/app/automation.cpp",
     "src/app/view.cpp",
-    "src/dom/document.cpp",
+    "src/dom/document_core.cpp",
     "src/dom/document_controls.cpp",
     "src/dom/document_dock.cpp",
     "src/dom/document_dispatch.cpp",

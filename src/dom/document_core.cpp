@@ -1,21 +1,17 @@
-// affineui::Document â€” Phase 2A.
+// document_core.cpp — affineui::Document lifecycle + public surface.
 //
-// Parses HTML with lexbor, attaches stylesheets (user-agent + user +
-// any embedded `<style>` blocks) through lexbor's cascade, then for
-// each block-level element collects a `ResolvedStyle` (ComputedStyle
-// + AnimatedStyle) via the StyleResolver. The Phase 1 `style_for(tag)`
-// fallback is gone â€” real CSS now drives every visible attribute we
-// expose this phase.
-//
-// Lifetime: the lxb_html_document_t and the resolver live for the
-// lifetime of DocumentImpl. Element pointers in our Block list remain
-// valid until the next set_html() (which replaces the document).
-//
-// What's intentionally still simple (Phase 2B-2E plan):
-//   - One flat list of block-level elements; no nested boxes.
-//   - Painter is invoked directly each frame (no DisplayList yet).
-//   - Resolver is uncached. We pay the walk on every set_html, never
-//     per frame.
+// The document implementation is split across focused TUs (see
+// dom/document_impl.h for the shared types and cross-file helpers):
+//   document_core.cpp      lifecycle, set_html, stylesheets, weak handles,
+//                          scripts/widgets plumbing, view-sink batching (this file)
+//   document_style.cpp     CSS/stylesheet machinery + attr/text primitives
+//   document_layout.cpp    block collection + layout + CSS animation sampling
+//   document_draw.cpp      the paint pass
+//   document_restyle.cpp   incremental restyle + DOM mutation engine
+//   document_controls.cpp  live-control gestures (sliders, menus, colorfields)
+//   document_dock.cpp      dock-layout surgery + dcs-tree drag
+//   document_text.cpp      text controls: focus, caret, selection, clipboard
+//   document_dispatch.cpp  event dispatch + hover/cursor queries
 
 #include "affineui/document.h"
 
