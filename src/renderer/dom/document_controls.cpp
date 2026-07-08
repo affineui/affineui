@@ -377,9 +377,15 @@ bool find_checkbox_control_at(detail::DocumentImpl& impl,
     return false;
 }
 }  // namespace detail
-namespace {
 
-bool detail::class_list_contains(lxb_dom_element_t* elem, std::string_view cls);
+// Forward declaration of a detail:: helper defined later in this TU.
+// Placed at namespace scope: `bool detail::foo(...)` inside an anonymous
+// namespace is ill-formed (Clang / GCC reject; MSVC accepts silently).
+namespace detail {
+bool class_list_contains(lxb_dom_element_t* elem, std::string_view cls);
+}  // namespace detail
+
+namespace {
 
 std::string radio_group_name(lxb_dom_element_t* elem,
                              lxb_dom_element_t* input) {
@@ -3029,10 +3035,16 @@ bool find_dockpane_tab_at(detail::DocumentImpl& impl, int from_idx,
     return false;
 }
 }  // namespace detail
-namespace {
 
-std::string detail::pane_panel_id(lxb_dom_element_t* pane);
-std::string detail::dockpane_tab_panel_id(lxb_dom_element_t* tab);
+// Forward declarations of detail:: helpers defined later in this TU.
+// Must sit at namespace scope, not inside the anonymous namespace
+// below (Clang / GCC reject; MSVC accepts silently).
+namespace detail {
+std::string pane_panel_id(lxb_dom_element_t* pane);
+std::string dockpane_tab_panel_id(lxb_dom_element_t* tab);
+}  // namespace detail
+
+namespace {
 
 }  // namespace
 

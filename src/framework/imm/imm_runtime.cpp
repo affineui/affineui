@@ -71,10 +71,10 @@ void ImmRuntime::append_text_to_current(std::string_view) {}
 
 namespace {
 
-inline const lxb_char_t* as_lxb(const char* p) {
+inline const lxb_char_t* imm_as_lxb(const char* p) {
     return reinterpret_cast<const lxb_char_t*>(p);
 }
-inline const lxb_char_t* as_lxb(std::string_view s) {
+inline const lxb_char_t* imm_as_lxb(std::string_view s) {
     return reinterpret_cast<const lxb_char_t*>(s.data());
 }
 
@@ -251,7 +251,7 @@ lxb_dom_element_t* ImmRuntime::open_element(std::string_view tag,
                 lxb_dom_element_set_attribute(
                     reused,
                     reinterpret_cast<const lxb_char_t*>("class"), 5,
-                    as_lxb(classes), classes.size());
+                    imm_as_lxb(classes), classes.size());
             }
         } else {
             // View fn passed no class this round; strip any old one.
@@ -279,7 +279,7 @@ lxb_dom_element_t* ImmRuntime::open_element(std::string_view tag,
 
     auto* elem = lxb_dom_document_create_element(
         lxb_dom_interface_document(doc_),
-        as_lxb(tag), tag.size(),
+        imm_as_lxb(tag), tag.size(),
         nullptr);
     if (!elem) {
         parent_stack_.push_back(parent);  // keep stacks balanced
@@ -293,12 +293,12 @@ lxb_dom_element_t* ImmRuntime::open_element(std::string_view tag,
     lxb_dom_element_set_attribute(
         elem,
         reinterpret_cast<const lxb_char_t*>("id"), 2,
-        as_lxb(id_str.c_str()), id_str.size());
+        imm_as_lxb(id_str.c_str()), id_str.size());
     if (!classes.empty()) {
         lxb_dom_element_set_attribute(
             elem,
             reinterpret_cast<const lxb_char_t*>("class"), 5,
-            as_lxb(classes), classes.size());
+            imm_as_lxb(classes), classes.size());
     }
 
     auto* elem_node = lxb_dom_interface_node(elem);
@@ -321,8 +321,8 @@ void ImmRuntime::set_class(lxb_dom_element_t* el, std::string_view cls) {
     if (!el || cls.empty()) return;
     lxb_dom_element_set_attribute(
         el,
-        as_lxb("class"), 5,
-        as_lxb(cls), cls.size());
+        imm_as_lxb("class"), 5,
+        imm_as_lxb(cls), cls.size());
 }
 
 void ImmRuntime::set_attr(lxb_dom_element_t* el,
@@ -331,8 +331,8 @@ void ImmRuntime::set_attr(lxb_dom_element_t* el,
     if (!el || name.empty()) return;
     lxb_dom_element_set_attribute(
         el,
-        as_lxb(name), name.size(),
-        as_lxb(value), value.size());
+        imm_as_lxb(name), name.size(),
+        imm_as_lxb(value), value.size());
 }
 
 void ImmRuntime::append_text_to_current(std::string_view text) {
@@ -350,7 +350,7 @@ void ImmRuntime::append_text_to_current(std::string_view text) {
             std::memcmp(old_data, text.data(), text.size()) == 0;
         if (!same) {
             lxb_dom_node_text_content_set(
-                cursor, as_lxb(text), text.size());
+                cursor, imm_as_lxb(text), text.size());
         }
         cursor = cursor->next;
         return;
@@ -362,7 +362,7 @@ void ImmRuntime::append_text_to_current(std::string_view text) {
     cursor = nullptr;
     auto* tn = lxb_dom_document_create_text_node(
         lxb_dom_interface_document(doc_),
-        as_lxb(text), text.size());
+        imm_as_lxb(text), text.size());
     if (!tn) return;
     lxb_dom_node_insert_child(parent, lxb_dom_interface_node(tn));
 }

@@ -21,7 +21,19 @@
 #include "affineui/log.h"
 #include "affineui/version.h"
 #include "core/log_internal.h"
-#include "core/tools/json_reader.h"
+// AFFINEUI_TOOLS_JSON: modular build parses inbound wire messages via the
+// in-tree JSON reader. The amalgamated two-file SDK pins this to 0 so the
+// json_reader header (and any external dep it might grow) stays out of
+// the core lib; handle_message() then rejects every inbound frame until
+// the wire protocol is migrated to binary framing. All the rest of the
+// server (socket, discovery file, viewer launch, outbound event
+// broadcast) still works.
+#ifndef AFFINEUI_TOOLS_JSON
+#  define AFFINEUI_TOOLS_JSON 1
+#endif
+#if AFFINEUI_TOOLS_JSON
+#  include "core/tools/json_reader.h"
+#endif
 
 #include <array>
 #include <atomic>
@@ -44,10 +56,10 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#include <windows.h>
-#include <process.h>
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+    #include <windows.h>
+    #include <process.h>
 using socket_t = SOCKET;
 static constexpr socket_t kInvalidSocket = INVALID_SOCKET;
 #else
@@ -89,7 +101,7 @@ bool sockets_init() noexcept {
 #endif
 }
 
-int current_pid() noexcept {
+int tools_pid() noexcept {
 #if defined(_WIN32)
     return _getpid();
 #else
@@ -285,8 +297,13 @@ void send_result(Connection& c, long long id, std::string_view result_json) {
     (void) send_framed(c.sock, msg);
 }
 
-/// Returns false when the connection must be dropped.
+/// Returns false when the connection must be dropped. Without JSON
+/// (AFFINEUI_TOOLS_JSON=0, used by the amalgamated build), every inbound
+/// frame is treated as malformed — the viewer can still connect to the
+/// socket but its `hello` is refused. The binary-framing rework the tool
+/// agent lands next lifts this restriction.
 bool handle_message(ServerState& st, Connection& c, std::string_view text) {
+#if AFFINEUI_TOOLS_JSON
     detail::json::Value msg;
     if (!detail::json::parse(text, msg) || !msg.is_object()) {
         return false;  // malformed → disconnect (hard-to-crash rule)
@@ -345,6 +362,10 @@ bool handle_message(ServerState& st, Connection& c, std::string_view text) {
     }
     send_error(c, id, -32601, "unknown method");
     return true;
+#else   // AFFINEUI_TOOLS_JSON == 0: no inbound parser wired up
+    (void)st; (void)c; (void)text;
+    return false;
+#endif
 }
 
 /// Consume complete frames from the connection buffer. Returns false when
@@ -568,7 +589,7 @@ void write_discovery_file(ServerState& st) {
     const std::string dir = discovery_dir();
     make_dir(dir);
     char name[64];
-    std::snprintf(name, sizeof(name), "%d.json", current_pid());
+    std::snprintf(name, sizeof(name), "%d.json", tools_pid());
 #if defined(_WIN32)
     st.discovery_file = dir + '\\' + name;
 #else
@@ -592,7 +613,7 @@ void write_discovery_file(ServerState& st) {
     std::fprintf(f,
                  "{\"pid\":%d,\"port\":%d,\"token\":\"%s\","
                  "\"exe\":\"%s\",\"affineui\":\"%s\"}\n",
-                 current_pid(), st.port, st.token.c_str(), exe.c_str(),
+                 tools_pid(), st.port, st.token.c_str(), exe.c_str(),
                  AFFINEUI_VERSION_STRING);
     std::fclose(f);
 }
@@ -646,7 +667,7 @@ bool tools_listen(int port) {
     std::call_once(exit_hook, [] { std::atexit([] { tools_shutdown(); }); });
 
     std::fprintf(stderr, "[tools] listening on 127.0.0.1:%d (pid %d)\n",
-                 st.port, current_pid());
+                 st.port, tools_pid());
     std::fflush(stderr);
     return true;
 }
@@ -763,7 +784,7 @@ bool tools_open_devtools() {
         exe = "affinetools";
 #endif
     }
-    if (!spawn_detached(exe, current_pid())) {
+    if (!spawn_detached(exe, tools_pid())) {
         std::fprintf(stderr,
                      "[tools] devtools viewer not found (looked beside the "
                      "exe, in the build tree, and on PATH; set "
@@ -772,7 +793,7 @@ bool tools_open_devtools() {
         return false;
     }
     std::fprintf(stderr, "[tools] devtools opening: %s --pid %d\n",
-                 exe.c_str(), current_pid());
+                 exe.c_str(), tools_pid());
     std::fflush(stderr);
     return true;
 }

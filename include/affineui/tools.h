@@ -25,9 +25,20 @@
 
 #include "affineui/telemetry.h"
 
+// AFFINEUI_TOOLS gates the wire-protocol devtools server (bind socket,
+// serve JSON, discovery file) — separately from AFFINEUI_PERF which
+// gates telemetry itself. The modular build compiles both in; the
+// amalgamated two-file SDK keeps telemetry (real code) but stubs out
+// tools (no socket surface) by pinning AFFINEUI_TOOLS=0. Default is
+// "follow AFFINEUI_PERF" so hosts that don't know about the new gate
+// behave exactly as before.
+#ifndef AFFINEUI_TOOLS
+#define AFFINEUI_TOOLS AFFINEUI_PERF
+#endif
+
 namespace affineui {
 
-#if AFFINEUI_PERF
+#if AFFINEUI_TOOLS
 
 /// Start the protocol server (idempotent). `port` 0 binds an ephemeral
 /// port. Returns false when the socket/bind/thread setup fails — the app

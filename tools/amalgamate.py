@@ -76,10 +76,12 @@ PUBLIC_HEADERS = [
     "include/affineui/automation.h",   # depends on document + types
     "include/affineui/renderer.h",
     "include/affineui/telemetry.h",   # FrameTelemetry R0/R1; depends on memory.h
+    "include/affineui/tools.h",       # devtools hook surface (AFFINEUI_TOOLS=0 → stubs)
     "include/affineui/ui.h",
     "include/affineui/app.h",           # load_view(const View&)
     "include/affineui/imm.h",
     "include/affineui/c_api.h",       # extern "C" surface; self-contained
+    "include/affineui/c_api_app.h",   # extern "C" App / Document / View surface
     "include/affineui/affineui.h",    # umbrella last
 ]
 
@@ -89,6 +91,13 @@ PUBLIC_HEADERS = [
 INTERNAL_HEADERS = [
     "src/core/embed_log.h",
     "src/core/log_internal.h",
+    "src/core/diag.h",              # TraceSpan + sampler; used by every renderer TU
+    "src/c_api_util.h",             # shared by c_api.cpp / c_api_app.cpp
+    # NOTE: src/core/tools/json_reader.h intentionally omitted — the
+    # amalgamation pins AFFINEUI_TOOLS_JSON=0, which drops the include
+    # in tools_server.cpp and short-circuits handle_message(). The
+    # socket + viewer launch still work; only the inbound wire parser
+    # is off until the binary-framing rework lands.
     "src/renderer/style/element_id.h",
     "src/renderer/style/animated_style.h",
     "src/renderer/style/computed_style.h",
@@ -127,6 +136,7 @@ ENGINE_SOURCES = [
     "src/core/log.cpp",
     "src/core/diag/sampler.cpp",
     "src/core/diag/telemetry.cpp",
+    "src/core/tools/tools_server.cpp",  # Ctrl+Shift+I opens the affinetools viewer in every build
     "src/framework/app/app.cpp",
     "src/framework/app/event.cpp",
     "src/framework/app/automation.cpp",
@@ -176,6 +186,7 @@ ENGINE_SOURCES = [
     "src/framework/imm/reconciler.cpp",
     "src/framework/imm/state_store.cpp",
     "src/c_api.cpp",
+    "src/c_api_app.cpp",
 ]
 
 # Vendored-C wrapper TUs (one file each, ~50 LOC, mostly preprocessor
@@ -869,6 +880,17 @@ def emit_impl(root: Path, out_path: Path, version: str, cxx: str) -> int:
     # externally linked. Set AFFINEUI_HOST_PROVIDES_NANOVG to disable our
     # copy if the host also links NanoVG.
     parts.append(
+        "// ─── AFFINEUI_TOOLS_JSON gate (inbound wire parser off in the SDK) ─────\n"
+        "// The devtools socket, discovery file, and viewer launcher stay compiled\n"
+        "// in — Ctrl+Shift+I still opens affinetools in every build. But the\n"
+        "// inbound JSON wire parser (core/tools/json_reader.h) is dropped from\n"
+        "// the two-file SDK: pinning AFFINEUI_TOOLS_JSON=0 short-circuits\n"
+        "// handle_message() so the viewer can't push commands until the binary-\n"
+        "// framing rework lands. Modular builds get the real parser back.\n"
+        "#ifndef AFFINEUI_TOOLS_JSON\n"
+        "#  define AFFINEUI_TOOLS_JSON 0\n"
+        "#endif\n"
+        "\n"
         "// ─── vendored-symbol shielding (TU-local linkage) ───────────────────────\n"
         "// Each define is honored by the matching upstream header; the\n"
         "// AFFINEUI_HOST_PROVIDES_* guard lets a host swap in its own copy.\n"
