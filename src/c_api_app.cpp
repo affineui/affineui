@@ -11,7 +11,7 @@
 #include "affineui/types.h"
 #include "affineui/view.h"
 
-#include "internal/c_api_util.h"
+#include "c_api_util.h"
 
 #include <cstddef>
 #include <string>

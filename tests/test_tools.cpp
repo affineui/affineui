@@ -7,7 +7,7 @@
 #include "affineui/renderer.h"
 #include "affineui/telemetry.h"
 #include "affineui/tools.h"
-#include "tools/json_reader.h"
+#include "core/tools/json_reader.h"
 
 #include <doctest/doctest.h>
 

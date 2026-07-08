@@ -128,36 +128,44 @@ if(AFFINEUI_MEM_DEBUG OR CMAKE_BUILD_TYPE STREQUAL "Debug")
 endif()
 
 target_sources(affineui PRIVATE
-    src/affineui.cpp
-    src/memory.cpp
-    src/log.cpp
-    src/diag/sampler.cpp
-    src/diag/telemetry.cpp
-    src/tools/tools_server.cpp
-    src/ui.cpp
-    src/themes.cpp
-    src/app/app.cpp
-    src/app/event.cpp
-    src/app/automation.cpp
-    src/app/view.cpp
-    src/dom/document.cpp
-    src/dom/dom_view.cpp
-    src/style/cascade.cpp
-    src/style/computed.cpp
-    src/style/selector_bridge.cpp
-    src/style/style_store.cpp
-    src/style/units.cpp
-    src/layout/box.cpp
-    src/layout/block.cpp
-    src/layout/inline.cpp
-    src/layout/flex.cpp
-    src/layout/yoga_adapter.cpp
-    src/text/shaper.cpp
-    src/text/line_breaker.cpp
-    src/text/font_manager.cpp
-    src/paint/paint_driver.cpp
-    src/paint/image_loader.cpp
-    # NOTE: src/paint/layer.cpp and src/paint/composite.cpp were the raw-GL
+    src/core/affineui.cpp
+    src/core/memory.cpp
+    src/core/log.cpp
+    src/core/diag/sampler.cpp
+    src/core/diag/telemetry.cpp
+    src/core/tools/tools_server.cpp
+    src/framework/ui.cpp
+    src/framework/themes.cpp
+    src/framework/app/app.cpp
+    src/framework/app/event.cpp
+    src/framework/app/automation.cpp
+    src/framework/app/view.cpp
+    src/renderer/dom/document_core.cpp
+    src/renderer/dom/document_controls.cpp
+    src/renderer/dom/document_dispatch.cpp
+    src/renderer/dom/document_draw.cpp
+    src/renderer/dom/document_dock.cpp
+    src/renderer/dom/document_layout.cpp
+    src/renderer/dom/document_restyle.cpp
+    src/renderer/dom/document_style.cpp
+    src/renderer/dom/document_text.cpp
+    src/renderer/dom/dom_view.cpp
+    src/renderer/style/cascade.cpp
+    src/renderer/style/computed.cpp
+    src/renderer/style/selector_bridge.cpp
+    src/renderer/style/style_store.cpp
+    src/renderer/style/units.cpp
+    src/renderer/layout/box.cpp
+    src/renderer/layout/block.cpp
+    src/renderer/layout/inline.cpp
+    src/renderer/layout/flex.cpp
+    src/renderer/layout/yoga_adapter.cpp
+    src/renderer/text/shaper.cpp
+    src/renderer/text/line_breaker.cpp
+    src/renderer/text/font_manager.cpp
+    src/renderer/paint/paint_driver.cpp
+    src/renderer/paint/image_loader.cpp
+    # NOTE: src/renderer/paint/layer.cpp and src/renderer/paint/composite.cpp were the raw-GL
     # FBO/compositor path. They're temporarily out of the build while the
     # renderer paints NanoVG (via sokol_gfx) straight to the swapchain;
     # they'll be reintroduced on top of sokol_gfx render targets (M2).
@@ -165,39 +173,39 @@ target_sources(affineui PRIVATE
     # Renderer — graphics-only, windowing-toolkit-independent. App
     # delegates frame rendering to this; future SDL/glfw adapters use
     # the same Renderer through the same public interface.
-    src/render/renderer.cpp
+    src/renderer/render/renderer.cpp
 
     # Engine facade + foundational data structures (5-stage pipeline)
-    src/engine/box.cpp
-    src/engine/layer.cpp
-    src/engine/display_list.cpp
-    src/engine/restyle_queue.cpp
-    src/engine/animation.cpp
-    src/engine/style_engine.cpp
-    src/engine/layout_engine.cpp
-    src/engine/paint_engine.cpp
-    src/engine/rasterizer.cpp
-    src/engine/compositor.cpp
-    src/engine/engine.cpp
+    src/renderer/engine/box.cpp
+    src/renderer/engine/layer.cpp
+    src/renderer/engine/display_list.cpp
+    src/renderer/engine/restyle_queue.cpp
+    src/renderer/engine/animation.cpp
+    src/renderer/engine/style_engine.cpp
+    src/renderer/engine/layout_engine.cpp
+    src/renderer/engine/paint_engine.cpp
+    src/renderer/engine/rasterizer.cpp
+    src/renderer/engine/compositor.cpp
+    src/renderer/engine/engine.cpp
 )
 
 if(AFFINEUI_DEPS_AVAILABLE)
     target_sources(affineui PRIVATE
-        src/dom/lexbor_bridge.cpp
-        src/paint/nanovg_painter.cpp
-        src/paint/nanovg_sokol.c   # NanoVG-on-sokol_gfx backend (replaces nanovg_impl.c)
-        src/paint/sokol_impl.c
-        src/text/fontstash_impl.c
-        src/text/stb_impl.c
+        src/renderer/dom/lexbor_bridge.cpp
+        src/renderer/paint/nanovg_painter.cpp
+        src/renderer/paint/nanovg_sokol.c   # NanoVG-on-sokol_gfx backend (replaces nanovg_impl.c)
+        src/renderer/paint/sokol_impl.c
+        src/renderer/text/fontstash_impl.c
+        src/renderer/text/stb_impl.c
     )
 endif()
 
 if(AFFINEUI_ENABLE_IMM)
     target_sources(affineui PRIVATE
-        src/imm/imm.cpp
-        src/imm/imm_runtime.cpp
-        src/imm/reconciler.cpp
-        src/imm/state_store.cpp
+        src/framework/imm/imm.cpp
+        src/framework/imm/imm_runtime.cpp
+        src/framework/imm/reconciler.cpp
+        src/framework/imm/state_store.cpp
     )
 endif()
 
@@ -286,7 +294,7 @@ elseif(UNIX)
         GL dl m pthread
     )
 elseif(WIN32)
-    # ws2_32: affinetools protocol server (src/tools/tools_server.cpp)
+    # ws2_32: affinetools protocol server (src/core/tools/tools_server.cpp)
     target_link_libraries(affineui PUBLIC user32 gdi32 ole32 shell32 ws2_32)
     if(AFFINEUI_BACKEND_RESOLVED STREQUAL "gl")
         target_link_libraries(affineui PUBLIC opengl32)

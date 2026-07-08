@@ -1,0 +1,1203 @@
+// affineui::App — convenience wrapper that drives sokol_app's frame
+// loop and hands off frame rendering to affineui::Renderer.
+//
+// What lives here:
+//   • sokol_app sapp_desc construction
+//   • sokol_app callback wiring (init/frame/event/cleanup)
+//   • cursor-keyword mapping + sapp_set_mouse_cursor calls
+//   • event translation from sapp_event → affineui::Event
+//
+// What used to live here but moved to Renderer:
+//   • NanoVG context lifecycle
+//   • FBO / compositor / display-list paint pipeline
+//   • All raw GL state
+//
+// In stub mode (no deps fetched), App::run is a no-op so tests still
+// pass without a windowing system.
+
+#include "affineui/app.h"
+
+#include "affineui/document.h"
+#include "affineui/log.h"
+#include "affineui/renderer.h"
+#include "affineui/themes.h"
+#include "affineui/tools.h"
+#include "core/diag.h"
+#include "core/log_internal.h"
+
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <iterator>
+#include <memory>
+#include <sstream>
+#include <utility>
+#include <vector>
+
+#if !defined(AFFINEUI_STUB_BUILD)
+#    include "sokol_gfx.h"
+#    include "sokol_app.h"
+#    include "sokol_glue.h"
+#    include "sokol_log.h"
+#endif
+
+namespace affineui {
+
+namespace detail {
+
+// Log frame-stamping source (log.cpp installs this via a fn-ptr, which
+// can't capture — so cb_frame publishes the current frame + t_ms here).
+std::atomic<std::uint64_t> g_log_frame{0};
+std::atomic<double>        g_log_t_ms{0.0};
+std::pair<std::uint64_t, double> app_log_frame_source() {
+    return {g_log_frame.load(std::memory_order_relaxed),
+            g_log_t_ms.load(std::memory_order_relaxed)};
+}
+
+// Sokol does not expose exact swap-image age to App today. Use the common
+// triple-buffered desktop budget so a newly composited retained layer reaches
+// every backbuffer before the app goes back to zero-idle work.
+constexpr int kSwapchainSettleFrames = 3;
+
+struct AppImpl {
+    App::Config           config;
+    Document              document;
+    Renderer              renderer;
+    std::function<void()> view_fn;
+    std::vector<WidgetClickBinding> view_click_bindings;
+    std::vector<WidgetChangeBinding> view_change_bindings;
+    std::vector<Document::WidgetChange> deferred_widget_changes;
+    std::vector<App::EventHandler> event_handlers;
+    std::vector<std::function<void(double)>> frame_callbacks;
+    std::vector<Document::HoverInfo> hover_chain_scratch;
+    // Reconcile fast path (App::set_view / rebuild_view): the app-owned
+    // persistent View that rebuilds diff against.
+    std::function<void(View&)> view_builder;
+    std::unique_ptr<View>      retained_view;
+    bool                       view_bootstrapped{false};
+    bool                  pointer_captured{false};
+    bool                  quit_requested{false};
+    int                   exit_code{0};
+    int                   last_cursor{-1};  // last sapp cursor we set
+    bool                  dirty{true};
+    bool                  animations_active{false};
+    int                   last_w{-1};
+    int                   last_h{-1};
+    float                 last_dpi{1.0f};   // updated each frame for event→pt conversion
+    int                   settle_frames{0};
+    // Mouse-move coalescing: motion collapses to at most ONE dispatch per
+    // frame. Without this, one expensive frame snowballs — every queued
+    // move pays its own synchronous hover update (+ relayout when the
+    // block tree was dirtied), which pushes the next frame even later
+    // (measured: 868 relayouts / 5.5 s of layout in one short session).
+    Event                 pending_mouse_move{};
+    bool                  has_pending_mouse_move{false};
+    // Resize coalescing: the win32 sizing modal loop delivers WM_SIZE per
+    // mouse move; each Resize dispatch pays a full relayout + text
+    // re-measure, so uncoalesced resizes are seconds-slow. One per frame.
+    bool                  has_pending_resize{false};
+    bool                  perf_overlay_enabled{false};
+    DebugOverlayCorner    perf_overlay_corner{DebugOverlayCorner::top_right};
+    double                perf_accum_s{0.0};
+    int                   perf_frames{0};
+    double                perf_ms{0.0};
+    double                perf_fps{0.0};
+    std::array<float, 64> perf_ms_history{};
+    int                   perf_history_head{0};
+    int                   perf_history_count{0};
+    char                  perf_text[512]{};
+    // R0/R1 telemetry (docs/TRACING_AND_PERFORMANCE_LOGGING.md; schema in
+    // docs/AFFINETOOLS_PROTOCOL.md). Wall clock is measured at cb_frame
+    // ENTRY so stalls anywhere in the pipeline surface as frame gaps.
+    FrameTelemetry        telemetry{};
+    std::chrono::steady_clock::time_point session_start{};
+    std::chrono::steady_clock::time_point last_frame_time{};
+    bool                  frame_clock_started{false};
+    std::uint64_t         presented_frames{0};
+    std::uint64_t         skipped_since_present{0};
+    std::uint64_t         skipped_presents_total{0};
+    double                last_idle_emit_ms{-1.0e12};
+    float                 gap_max_ms_window{0.0f};
+    mem::Stats            mem_prev{};
+};
+
+bool local_asset_url(std::string_view url) {
+    return !url.empty() &&
+           url.find("://") == std::string_view::npos &&
+           url.rfind("data:", 0) != 0;
+}
+
+std::string read_file(const std::filesystem::path& path) {
+    std::ifstream file{path, std::ios::binary};
+    if (!file.good()) return {};
+
+    std::stringstream bytes;
+    bytes << file.rdbuf();
+    return bytes.str();
+}
+
+ResourceLoader make_asset_resource_loader(std::vector<std::string> folders) {
+    if (folders.empty()) folders.push_back(".");
+    std::vector<std::filesystem::path> roots;
+    roots.reserve(folders.size());
+    for (const auto& folder : folders) {
+        roots.emplace_back(folder);
+    }
+
+    return [roots](std::string_view url) -> std::string {
+        if (!local_asset_url(url)) return {};
+
+        // Resolve the url against each asset root and read it. `../` is
+        // allowed and NORMAL here — a framework stylesheet in css/ points
+        // at ../fonts/ for its icon font, exactly as a browser resolves it
+        // relative to the sheet's own location. An absolute url() (from an
+        // absolute stylesheet base_url) is read directly. No traversal
+        // sandbox: this is a local desktop binary loading its own shipped
+        // assets, not a served document. (An earlier blanket "reject any
+        // path containing ..'" refused the framework's own font urls and
+        // left every icon blank.)
+        const std::filesystem::path url_path{std::string(url)};
+        if (url_path.is_absolute()) {
+            return read_file(url_path.lexically_normal());
+        }
+        for (const auto& root : roots) {
+            const auto resolved = (root / url_path).lexically_normal();
+            if (auto bytes = read_file(resolved); !bytes.empty()) {
+                return bytes;
+            }
+        }
+        return {};
+    };
+}
+
+bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
+    // While a native handler holds pointer capture, MouseMove routes to
+    // it before DOM hover hit-testing (same contract as Ui::dispatch) so
+    // drags don't thrash unrelated :hover state.
+    if (impl.pointer_captured && ev.type == EventType::MouseMove &&
+        !impl.event_handlers.empty()) {
+        impl.document.hovered_info_chain(impl.hover_chain_scratch);
+        bool captured_consumed = false;
+        for (const auto& cb : impl.event_handlers) {
+            captured_consumed =
+                cb(ev, impl.hover_chain_scratch) || captured_consumed;
+        }
+        if (captured_consumed) {
+            impl.dirty = true;
+            return true;
+        }
+    }
+
+    if (ev.type == EventType::Resize) {
+        impl.dirty = true;
+    }
+
+    DispatchResult result;
+    {
+        detail::TraceSpan dispatch_span("dispatch");
+        result = impl.document.dispatch(ev);
+    }
+    if (result.redraw_requested || result.invalidate_view) {
+        impl.dirty = true;
+    }
+    if (result.layout_changed && impl.config.on_layout_changed) {
+        try {
+            impl.config.on_layout_changed();
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "AffineUI on_layout_changed failed: %s\n",
+                         e.what());
+        } catch (...) {
+            std::fprintf(stderr, "AffineUI on_layout_changed failed\n");
+        }
+    }
+
+    // Native event handlers (widget kits) see the event with the fresh
+    // hover chain before view click/change bindings. A consuming handler
+    // owns the event outright.
+    if (!impl.event_handlers.empty()) {
+        impl.document.hovered_info_chain(impl.hover_chain_scratch);
+        bool native_consumed = false;
+        for (const auto& cb : impl.event_handlers) {
+            native_consumed =
+                cb(ev, impl.hover_chain_scratch) || native_consumed;
+        }
+        if (native_consumed) {
+            impl.dirty = true;
+            if (ev.type == EventType::MouseUp) {
+                (void) impl.document.take_activated_widgets();
+            }
+            return true;
+        }
+    }
+
+    bool consumed = result.redraw_requested || result.invalidate_view;
+    if (ev.type == EventType::MouseUp && ev.button == MouseButton::Left &&
+        !impl.view_click_bindings.empty()) {
+        const auto activations = impl.document.take_activated_widgets();
+        std::vector<std::function<void()>> callbacks;
+        for (const auto& name : activations) {
+            for (const auto& binding : impl.view_click_bindings) {
+                if (binding.name == name && binding.handler) {
+                    callbacks.push_back(binding.handler);
+                }
+            }
+        }
+        for (const auto& cb : callbacks) {
+            try {
+                cb();
+                consumed = true;
+                impl.dirty = true;
+            } catch (const std::exception& e) {
+                std::fprintf(stderr,
+                             "AffineUI click callback failed: %s\n",
+                             e.what());
+            } catch (...) {
+                std::fprintf(stderr,
+                             "AffineUI click callback failed\n");
+            }
+        }
+    } else if (ev.type == EventType::MouseUp) {
+        (void) impl.document.take_activated_widgets();
+    }
+
+    auto changes = impl.document.take_widget_changes();
+    if (result.defer_widget_changes) {
+        if (!changes.empty()) {
+            impl.deferred_widget_changes.insert(
+                impl.deferred_widget_changes.end(),
+                std::make_move_iterator(changes.begin()),
+                std::make_move_iterator(changes.end()));
+            consumed = true;
+            impl.dirty = true;
+        }
+        return consumed;
+    }
+    if (!impl.deferred_widget_changes.empty()) {
+        impl.deferred_widget_changes.insert(
+            impl.deferred_widget_changes.end(),
+            std::make_move_iterator(changes.begin()),
+            std::make_move_iterator(changes.end()));
+        changes = std::move(impl.deferred_widget_changes);
+        impl.deferred_widget_changes.clear();
+
+        std::vector<Document::WidgetChange> coalesced;
+        coalesced.reserve(changes.size());
+        for (auto& change : changes) {
+            auto it = std::find_if(
+                coalesced.begin(), coalesced.end(),
+                [&](const Document::WidgetChange& existing) {
+                    return existing.name == change.name;
+                });
+            if (it == coalesced.end()) {
+                coalesced.push_back(std::move(change));
+            } else {
+                it->value = std::move(change.value);
+            }
+        }
+        changes = std::move(coalesced);
+    }
+    if (!changes.empty()) {
+        struct PendingChange {
+            std::function<void(std::string_view)> handler;
+            std::string value;
+        };
+        std::vector<PendingChange> callbacks;
+        for (const auto& change : changes) {
+            for (const auto& binding : impl.view_change_bindings) {
+                if (binding.name == change.name && binding.handler) {
+                    callbacks.push_back({binding.handler, change.value});
+                }
+            }
+        }
+        for (const auto& cb : callbacks) {
+            try {
+                cb.handler(cb.value);
+                consumed = true;
+                impl.dirty = true;
+            } catch (const std::exception& e) {
+                std::fprintf(stderr,
+                             "AffineUI change callback failed: %s\n",
+                             e.what());
+            } catch (...) {
+                std::fprintf(stderr,
+                             "AffineUI change callback failed\n");
+            }
+        }
+    }
+
+    return consumed;
+}
+
+void log_event_loop_exception(const char* where, const std::exception& e) {
+    std::fprintf(stderr, "AffineUI %s failed: %s\n", where, e.what());
+}
+
+void log_event_loop_exception(const char* where) {
+    std::fprintf(stderr, "AffineUI %s failed\n", where);
+}
+
+}  // namespace detail
+
+App::App() : App(Config{}) {}
+
+App::App(Config cfg) : impl_{std::make_unique<detail::AppImpl>()} {
+    impl_->config = std::move(cfg);
+    impl_->perf_overlay_enabled = impl_->config.perf_overlay;
+    // Env override: AFFINEUI_PERF_OVERLAY=1 turns on the perf/DPI HUD without a
+    // code change — it prints "fb WxH css WxH dpi N.NN", handy for confirming
+    // the live DPI scale (should read your display scale, e.g. 1.25, not 1.00).
+    if (const char* e = std::getenv("AFFINEUI_PERF_OVERLAY");
+        e != nullptr && e[0] != '\0' && e[0] != '0') {
+        impl_->perf_overlay_enabled = true;
+    }
+    impl_->perf_overlay_corner = impl_->config.perf_overlay_corner;
+    // R1 JSONL sink: AFFINEUI_TELEMETRY=<path> streams per-frame records
+    // (idempotent; no-op stub when compiled with AFFINEUI_PERF=0).
+    telemetry::sink_open_from_env();
+    // affinetools attach: AFFINEUI_TOOLS_LISTEN=1|<port> starts the
+    // protocol server (docs/AFFINETOOLS_DESIGN.md §3.1; off by default).
+    tools_listen_from_env();
+    // Frame-stamp diagnostics: every affineui::log line records the
+    // presented-frame index current when it was emitted, so the devtools
+    // log panel can align a line with the performance graph.
+    detail::set_log_frame_source(&detail::app_log_frame_source);
+    impl_->renderer.set_clear_color(impl_->config.clear_color);
+    impl_->document.set_resource_loader(
+        impl_->config.resource_loader
+            ? impl_->config.resource_loader
+            : detail::make_asset_resource_loader(impl_->config.asset_folders));
+#if !defined(AFFINEUI_STUB_BUILD)
+    impl_->document.set_clipboard(
+        []() -> std::string {
+            const char* text = sapp_get_clipboard_string();
+            return text ? std::string(text) : std::string{};
+        },
+        [](std::string_view text) {
+            const std::string owned{text};
+            sapp_set_clipboard_string(owned.c_str());
+        });
+#endif
+    // User-agent baseline so unstyled docs pick up sensible defaults.
+    impl_->document.set_user_stylesheet(theme::ua_default());
+}
+
+App::~App() = default;
+App::App(App&&) noexcept            = default;
+App& App::operator=(App&&) noexcept = default;
+
+void App::load_html(std::string_view html) {
+    const auto transient = impl_->document.capture_transient_state();
+    impl_->view_click_bindings.clear();
+    impl_->view_change_bindings.clear();
+    impl_->document.clear_scripts();
+    impl_->document.set_html(html);
+    impl_->document.restore_transient_state(transient);
+    impl_->dirty = true;
+    impl_->animations_active = false;
+    impl_->settle_frames = detail::kSwapchainSettleFrames;
+}
+void App::load_view(const View& view) {
+    impl_->config.clear_color = view.background_color();
+    impl_->renderer.set_clear_color(impl_->config.clear_color);
+    load_html(view.to_html_document());
+    impl_->document.attach_script(DocumentScript::UiControls);
+    impl_->view_click_bindings = view.click_bindings();
+    impl_->view_change_bindings = view.change_bindings();
+}
+
+namespace detail {
+// Replay an already-built widget subtree through a ViewSink — used by
+// the reconcile bootstrap so the document sink learns every node the
+// shell load didn't contain. Creates carry attrs/text from the node.
+void replay_view_node(ViewSink& sink, const WidgetNode& node,
+                      const WidgetNode* parent, std::size_t index) {
+    switch (node.kind) {
+        case WidgetKind::Text:
+            sink.create_text(node, parent, index);
+            return;
+        case WidgetKind::RawHtml:
+            sink.create_raw_html(node, parent, index);
+            if (!node.text.empty()) sink.set_raw_html(node, node.text);
+            return;
+        default:
+            break;
+    }
+    sink.create_element(node, parent, index);
+    for (std::size_t i = 0; i < node.children.size(); ++i) {
+        replay_view_node(sink, node.children[i], &node, i);
+    }
+}
+}  // namespace detail
+
+void App::set_view(std::function<void(View&)> builder) {
+    impl_->view_builder = std::move(builder);
+    impl_->view_bootstrapped = false;
+    rebuild_view();
+}
+
+void App::rebuild_view() {
+    if (!impl_->view_builder) return;
+    if (!impl_->retained_view) {
+        impl_->retained_view = std::make_unique<View>();
+    }
+    View& view = *impl_->retained_view;
+
+    if (!impl_->view_bootstrapped) {
+        // Bootstrap: build without a sink, load only the document SHELL
+        // (head/styles/body attrs, empty <main>), then replay the built
+        // tree through the document sink so it owns every node mapping.
+        view.begin(static_cast<ViewSink*>(nullptr));
+        impl_->view_builder(view);
+        view.end();
+        impl_->config.clear_color = view.background_color();
+        impl_->renderer.set_clear_color(impl_->config.clear_color);
+        load_html(view.to_html_shell());
+        impl_->document.attach_script(DocumentScript::UiControls);
+        if (auto* sink = impl_->document.begin_view_mutations()) {
+            const auto& root = view.root();
+            for (std::size_t i = 0; i < root.children.size(); ++i) {
+                detail::replay_view_node(*sink, root.children[i], nullptr,
+                                         i);
+            }
+        }
+        impl_->document.end_view_mutations();
+        impl_->view_bootstrapped = true;
+    } else {
+        // Steady state: rebuild into the persistent view; only actual
+        // differences reach the document (attribute/text mutations on
+        // the cheap path; structural edits settle in one restyle).
+        auto* sink = impl_->document.begin_view_mutations();
+        view.begin(sink);
+        try {
+            impl_->view_builder(view);
+            view.end();
+        } catch (const std::exception& e) {
+            // A builder exception mid-batch must not leave the mutation
+            // window open: ev_insert stays suppressed, recorded work never
+            // settles, and blocks keep pointing at elements the batch
+            // already destroyed — every later layout then walks freed
+            // memory (and on win32 the WndProc kernel-callback filter
+            // swallows the resulting faults, so the app limps on corrupt).
+            // Close the window so the document settles what was applied,
+            // then propagate.
+            std::fprintf(stderr, "AffineUI view builder failed: %s\n",
+                         e.what());
+            impl_->document.end_view_mutations();
+            throw;
+        } catch (...) {
+            std::fprintf(stderr, "AffineUI view builder failed\n");
+            impl_->document.end_view_mutations();
+            throw;
+        }
+        impl_->document.end_view_mutations();
+    }
+
+    impl_->view_click_bindings = view.click_bindings();
+    impl_->view_change_bindings = view.change_bindings();
+    impl_->dirty = true;
+    impl_->animations_active = false;
+}
+bool App::load_html_file(std::string_view)     { return false; }
+void App::set_stylesheet(std::string_view css) {
+    set_stylesheet(css, {});
+}
+void App::set_stylesheet(std::string_view css, std::string_view base_url) {
+    impl_->document.set_user_stylesheet(css, base_url);
+    impl_->dirty = true;
+    impl_->animations_active = false;
+    // Replacing the stylesheet re-parses the retained document from its
+    // stored HTML — for a reconciled view that is the empty bootstrap
+    // shell, so rebuild the view world from scratch.
+    if (impl_->view_bootstrapped) {
+        impl_->view_bootstrapped = false;
+        rebuild_view();
+    }
+}
+void App::mount(std::function<void()> view_fn) { impl_->view_fn = std::move(view_fn); impl_->dirty = true; impl_->animations_active = false; }
+void App::invalidate() { impl_->dirty = true; impl_->animations_active = false; }
+
+void App::set_custom_paint(std::string_view name,
+                           Document::CustomPaintFn fn) {
+    impl_->document.set_custom_paint(name, std::move(fn));
+}
+
+void App::request_custom_repaint(std::string_view name) {
+    if (impl_->document.request_custom_repaint(name)) {
+        impl_->dirty = true;
+    }
+}
+
+void App::set_perf_overlay_enabled(bool enabled) {
+    impl_->perf_overlay_enabled = enabled;
+    impl_->settle_frames = detail::kSwapchainSettleFrames;
+}
+
+bool App::perf_overlay_enabled() const noexcept {
+    return impl_->perf_overlay_enabled;
+}
+
+void App::set_perf_overlay_corner(DebugOverlayCorner corner) {
+    impl_->perf_overlay_corner = corner;
+    impl_->settle_frames = detail::kSwapchainSettleFrames;
+}
+
+const FrameTelemetry& App::frame_telemetry() const noexcept {
+    return impl_->telemetry;
+}
+
+bool App::dispatch(const Event& ev) {
+    return detail::dispatch_loaded_view_event(*impl_, ev);
+}
+
+void App::on_event(EventHandler cb) {
+    impl_->event_handlers.emplace_back(std::move(cb));
+}
+
+void App::on_frame(std::function<void(double)> cb) {
+    impl_->frame_callbacks.emplace_back(std::move(cb));
+}
+
+void App::capture_pointer() { impl_->pointer_captured = true; }
+void App::release_pointer() { impl_->pointer_captured = false; }
+bool App::pointer_captured() const { return impl_->pointer_captured; }
+
+#if defined(AFFINEUI_STUB_BUILD)
+
+int App::run() { return impl_->exit_code; }
+
+#else  // Real sokol_app loop.
+
+namespace {
+
+// Map our Document::hovered_cursor() int onto a sokol cursor enum.
+// Keep the mapping in one place so the order in document.h stays
+// load-bearing.
+sapp_mouse_cursor map_cursor(int c) {
+    switch (c) {
+        case 1: return SAPP_MOUSECURSOR_POINTING_HAND;
+        case 2: return SAPP_MOUSECURSOR_IBEAM;
+        case 3: return SAPP_MOUSECURSOR_CROSSHAIR;
+        case 4: return SAPP_MOUSECURSOR_RESIZE_ALL;
+        case 5: return SAPP_MOUSECURSOR_NOT_ALLOWED;
+        case 6: return SAPP_MOUSECURSOR_RESIZE_EW;
+        case 7: return SAPP_MOUSECURSOR_RESIZE_NS;
+        case 8: return SAPP_MOUSECURSOR_RESIZE_NWSE;
+        case 9: return SAPP_MOUSECURSOR_RESIZE_NESW;
+        default: return SAPP_MOUSECURSOR_DEFAULT;
+    }
+}
+
+Key key_to_affine(int sapp_keycode) {
+    switch (sapp_keycode) {
+        case SAPP_KEYCODE_ESCAPE:    return Key::Escape;
+        case SAPP_KEYCODE_TAB:       return Key::Tab;
+        case SAPP_KEYCODE_ENTER:     return Key::Enter;
+        case SAPP_KEYCODE_BACKSPACE: return Key::Backspace;
+        case SAPP_KEYCODE_DELETE:    return Key::Delete;
+        case SAPP_KEYCODE_LEFT:      return Key::ArrowLeft;
+        case SAPP_KEYCODE_RIGHT:     return Key::ArrowRight;
+        case SAPP_KEYCODE_UP:        return Key::ArrowUp;
+        case SAPP_KEYCODE_DOWN:      return Key::ArrowDown;
+        case SAPP_KEYCODE_HOME:      return Key::Home;
+        case SAPP_KEYCODE_END:       return Key::End;
+        default: break;
+    }
+    // Letters A–Z and digits 0–9 are contiguous in both enums; map by offset.
+    if (sapp_keycode >= SAPP_KEYCODE_A && sapp_keycode <= SAPP_KEYCODE_Z) {
+        return static_cast<Key>(
+            static_cast<int>(Key::A) + (sapp_keycode - SAPP_KEYCODE_A));
+    }
+    if (sapp_keycode >= SAPP_KEYCODE_0 && sapp_keycode <= SAPP_KEYCODE_9) {
+        return static_cast<Key>(
+            static_cast<int>(Key::Digit0) + (sapp_keycode - SAPP_KEYCODE_0));
+    }
+    return Key::Unknown;
+}
+
+void apply_modifiers(Event& out, std::uint32_t modifiers) {
+    out.shift = (modifiers & SAPP_MODIFIER_SHIFT) != 0;
+    out.ctrl  = (modifiers & SAPP_MODIFIER_CTRL) != 0;
+    out.alt   = (modifiers & SAPP_MODIFIER_ALT) != 0;
+    out.super = (modifiers & SAPP_MODIFIER_SUPER) != 0;
+}
+
+std::string utf8_from_codepoint(std::uint32_t cp) {
+    std::string out;
+    if (cp <= 0x7Fu) {
+        out.push_back(static_cast<char>(cp));
+    } else if (cp <= 0x7FFu) {
+        out.push_back(static_cast<char>(0xC0u | (cp >> 6)));
+        out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+    } else if (cp <= 0xFFFFu) {
+        out.push_back(static_cast<char>(0xE0u | (cp >> 12)));
+        out.push_back(static_cast<char>(0x80u | ((cp >> 6) & 0x3Fu)));
+        out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+    } else if (cp <= 0x10FFFFu) {
+        out.push_back(static_cast<char>(0xF0u | (cp >> 18)));
+        out.push_back(static_cast<char>(0x80u | ((cp >> 12) & 0x3Fu)));
+        out.push_back(static_cast<char>(0x80u | ((cp >> 6) & 0x3Fu)));
+        out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+    }
+    return out;
+}
+
+DebugOverlayBounds perf_overlay_bounds(int fb_w,
+                                       int fb_h,
+                                       float dpi_scale,
+                                       DebugOverlayCorner corner) {
+    const float d = dpi_scale > 0.0f ? dpi_scale : 1.0f;
+    const int pt_w = static_cast<int>(static_cast<float>(fb_w) / d + 0.5f);
+    const int pt_h = static_cast<int>(static_cast<float>(fb_h) / d + 0.5f);
+    return debug_overlay_bounds(pt_w, pt_h, corner);
+}
+
+bool point_in_perf_overlay(const detail::AppImpl& impl,
+                           int x,
+                           int y,
+                           int fb_w,
+                           int fb_h,
+                           float dpi_scale) {
+    if (!impl.perf_overlay_enabled) return false;
+    const auto b =
+        perf_overlay_bounds(fb_w, fb_h, dpi_scale, impl.perf_overlay_corner);
+    return debug_overlay_contains(b, x, y);
+}
+
+float current_dpi_scale(const detail::AppImpl& impl) {
+    const float live_dpi = sapp_dpi_scale();
+    if (live_dpi > 0.0f) return live_dpi;
+    return impl.last_dpi > 0.0f ? impl.last_dpi : 1.0f;
+}
+
+void update_perf_overlay_text(detail::AppImpl& impl, double gap_ms) {
+    // R0: history, fps, and the sparkline derive from wall-clock frame GAPS
+    // measured at cb_frame entry — not from frame durations. A pipeline that
+    // stalls between callbacks reads healthy durations but its gaps blow up
+    // (the "60 fps while one frame every 3 s" blind spot, TRACING §1.3).
+    if (gap_ms > 0.0) {
+        impl.perf_ms_history[static_cast<std::size_t>(impl.perf_history_head)] =
+            static_cast<float>(gap_ms);
+        impl.perf_history_head =
+            (impl.perf_history_head + 1) %
+            static_cast<int>(impl.perf_ms_history.size());
+        impl.perf_history_count = std::min(
+            impl.perf_history_count + 1,
+            static_cast<int>(impl.perf_ms_history.size()));
+        impl.perf_accum_s += gap_ms / 1000.0;
+        impl.perf_frames += 1;
+    }
+    if (impl.perf_accum_s < 0.5 && impl.perf_text[0] != '\0') return;
+
+    impl.perf_fps = impl.perf_accum_s > 0.0
+        ? static_cast<double>(impl.perf_frames) / impl.perf_accum_s
+        : 0.0;
+    impl.perf_ms = impl.perf_fps > 0.0 ? 1000.0 / impl.perf_fps : 0.0;
+    const float dpi = current_dpi_scale(impl);
+    const float d = dpi > 0.0f ? dpi : 1.0f;
+    const int fb_w = sapp_width();
+    const int fb_h = sapp_height();
+    const int css_w = static_cast<int>(static_cast<float>(fb_w) / d + 0.5f);
+    const int css_h = static_cast<int>(static_cast<float>(fb_h) / d + 0.5f);
+    const auto& stats = impl.renderer.stats();
+    std::snprintf(impl.perf_text, sizeof(impl.perf_text),
+                  "%.1f ms/frame  %.1f fps\n"
+                  "gap^ %.1f ms  skip %llu\n"
+                  "fb %dx%d css %dx%d dpi %.2f\n"
+                  "work prep %.2f layout %.2f dl %.2f\n"
+                  "rast %.2f comp %.2f ms layer %ux%u%s\n"
+                  "ops %u culled %u rects %u dirty %u.%02u%%\n"
+                  "flags %c%c%c%c%c%c%c",
+                  impl.perf_ms,
+                  impl.perf_fps,
+                  static_cast<double>(impl.gap_max_ms_window),
+                  static_cast<unsigned long long>(impl.skipped_presents_total),
+                  fb_w,
+                  fb_h,
+                  css_w,
+                  css_h,
+                  static_cast<double>(dpi),
+                  static_cast<double>(stats.prepare_us_this_frame) / 1000.0,
+                  static_cast<double>(stats.layout_us_this_frame) / 1000.0,
+                  static_cast<double>(
+                      stats.display_list_record_us_this_frame) / 1000.0,
+                  static_cast<double>(stats.raster_us_this_frame) / 1000.0,
+                  static_cast<double>(stats.composite_us_this_frame) / 1000.0,
+                  stats.root_layer_capacity_w,
+                  stats.root_layer_capacity_h,
+                  stats.root_layer_allocated_this_frame ? " alloc" : "",
+                  stats.cached_ops,
+                  stats.display_list_ops_culled_this_frame,
+                  stats.dirty_rects,
+                  stats.dirty_area_pct_x100 / 100,
+                  stats.dirty_area_pct_x100 % 100,
+                  stats.recorded_this_frame ? 'R' : '-',
+                  stats.display_list_changed_this_frame ? 'D' : '-',
+                  stats.root_layer_partial_this_frame ? 'p' : '-',
+                  stats.root_layer_direct_this_frame ? 'q' : '-',
+                  stats.layout_dirty ? 'L' : '-',
+                  stats.paint_dirty ? 'P' : '-',
+                  stats.animations_active ? 'A' : '-');
+    impl.perf_accum_s = 0.0;
+    impl.perf_frames = 0;
+    impl.gap_max_ms_window = 0.0f;  // gap^ is max-over-refresh-window
+}
+
+// sokol_app's *_userdata_cb hooks each receive the void* we set on
+// sapp_desc.user_data. We stash the AppImpl pointer there so each
+// callback recovers state with one cast.
+
+void cb_init(void* user) {
+    auto* impl = static_cast<detail::AppImpl*>(user);
+    // Bring up sokol_gfx against the swapchain sokol_app just created.
+    sg_desc sgd{};
+    sgd.environment = sglue_environment();
+    sgd.logger.func = slog_func;
+    sg_setup(&sgd);
+    if (!sg_isvalid()) {
+        impl->exit_code = 1;
+        sapp_request_quit();
+        return;
+    }
+    // NanoVG-on-sokol_gfx resources. (The renderer also inits lazily on
+    // the first render(), but doing it here surfaces failures early.)
+    impl->renderer.init_gl();
+    if (!impl->renderer.ready()) {
+        impl->exit_code = 1;
+        sapp_request_quit();
+    }
+}
+
+// Dispatch the coalesced mouse move (if any) and apply the hover cursor.
+// Called at frame start and before any button/wheel event so ordering is
+// preserved. (Cursor application from the frame callback is fine on
+// win32/D3D11; macOS's synchronous-cursor caveat applies to the direct
+// event path, which still handles non-move events inline.)
+void flush_pending_mouse_move(detail::AppImpl& impl) {
+    if (!impl.has_pending_mouse_move) return;
+    impl.has_pending_mouse_move = false;
+    const Event ev = impl.pending_mouse_move;
+    (void) detail::dispatch_loaded_view_event(impl, ev);
+    const int cur = impl.document.hovered_cursor();
+    sapp_set_mouse_cursor(map_cursor(cur));
+    impl.last_cursor = cur;
+}
+
+void cb_frame(void* user) {
+    auto* impl = static_cast<detail::AppImpl*>(user);
+    try {
+        // R0 wall clock: the gap since the previous callback ENTRY is the
+        // truth metric — measured before any frame work so a stall anywhere
+        // in the pipeline shows up in it (TRACING §1.3).
+        const auto frame_now = std::chrono::steady_clock::now();
+        if (!impl->frame_clock_started) {
+            impl->frame_clock_started = true;
+            impl->session_start = frame_now;
+            impl->last_frame_time = frame_now;
+        }
+        const double gap_ms =
+            std::chrono::duration<double, std::milli>(
+                frame_now - impl->last_frame_time).count();
+        impl->last_frame_time = frame_now;
+        const double t_ms =
+            std::chrono::duration<double, std::milli>(
+                frame_now - impl->session_start).count();
+        if (gap_ms > impl->gap_max_ms_window) {
+            impl->gap_max_ms_window = static_cast<float>(gap_ms);
+        }
+        // Publish the current frame + wall-clock time for log stamping. The
+        // frame about to be assembled is presented_frames+1 (the graph's
+        // newest bar), so logs during this callback align with it.
+        detail::g_log_frame.store(impl->presented_frames + 1,
+                                  std::memory_order_relaxed);
+        detail::g_log_t_ms.store(t_ms, std::memory_order_relaxed);
+
+        // Coalesced resize + pointer motion: at most one of each per frame.
+        if (impl->has_pending_resize) {
+            impl->has_pending_resize = false;
+            Event resize_ev{};
+            resize_ev.type = EventType::Resize;
+            (void) detail::dispatch_loaded_view_event(*impl, resize_ev);
+        }
+        flush_pending_mouse_move(*impl);
+        // Native frame ticks run before the idle short-circuit so
+        // physics/animation callbacks can invalidate() to keep drawing;
+        // an idle callback that touches nothing costs almost nothing.
+        if (!impl->frame_callbacks.empty()) {
+            const double dt = sapp_frame_duration_unfiltered();
+            for (const auto& cb : impl->frame_callbacks) {
+                cb(dt);
+            }
+        }
+        impl->last_dpi = sapp_dpi_scale();
+        // Size the frame from the REAL swapchain, not sapp_width():
+        // sokol_app's win32 high-dpi path can report a framebuffer size
+        // scaled by dpi even though the D3D11 swapchain is client-pixel
+        // sized, which would lay out (and crop) the document ~dpi× too
+        // large. The swapchain is ground truth.
+        const sg_swapchain sc_probe = sglue_swapchain();
+        const int w = sc_probe.width > 0 ? sc_probe.width : sapp_width();
+        const int h = sc_probe.height > 0 ? sc_probe.height : sapp_height();
+        const bool viewport_changed =
+            w != impl->last_w || h != impl->last_h;
+        if (impl->dirty || impl->animations_active || viewport_changed) {
+            // Sokol apps normally present through a two or three image swapchain.
+            // After one UI change, drawing only the current backbuffer can leave
+            // stale pixels in older swap images; those images can flash when the
+            // app goes quiet. Keep compositing until the whole swapchain has seen
+            // the latest retained root layer, then return to zero-idle work.
+            impl->settle_frames =
+                std::max(impl->settle_frames, detail::kSwapchainSettleFrames);
+        }
+        if (!impl->perf_overlay_enabled && !impl->dirty &&
+            !impl->animations_active && !viewport_changed &&
+            impl->settle_frames <= 0) {
+            // R0: count skipped presents so "quiet" and "stalled" are
+            // distinguishable; heartbeat at most once a second while any
+            // telemetry consumer is on (docs/AFFINETOOLS_PROTOCOL.md `idle`).
+            impl->skipped_since_present += 1;
+            impl->skipped_presents_total += 1;
+            if ((telemetry::sink_active() || tools::wants_telemetry()) &&
+                t_ms - impl->last_idle_emit_ms >= 1000.0) {
+                impl->last_idle_emit_ms = t_ms;
+                if (telemetry::sink_active()) {
+                    telemetry::sink_write_idle(t_ms,
+                                               impl->skipped_since_present);
+                }
+                if (tools::wants_telemetry()) {
+                    tools::push_idle(t_ms, impl->skipped_since_present);
+                }
+            }
+            if (impl->quit_requested) sapp_request_quit();
+            return;
+        }
+        impl->last_w = w;
+        impl->last_h = h;
+        std::array<float, 64> ordered_perf_ms{};
+        int ordered_perf_count = 0;
+        if (impl->perf_overlay_enabled) {
+            update_perf_overlay_text(*impl, gap_ms);
+            ordered_perf_count = impl->perf_history_count;
+            for (int i = 0; i < ordered_perf_count; ++i) {
+                const int src =
+                    (impl->perf_history_head - ordered_perf_count + i +
+                     static_cast<int>(impl->perf_ms_history.size())) %
+                    static_cast<int>(impl->perf_ms_history.size());
+                ordered_perf_ms[static_cast<std::size_t>(i)] =
+                    impl->perf_ms_history[static_cast<std::size_t>(src)];
+            }
+        }
+
+        const sg_swapchain sc = sglue_swapchain();
+        FrameTarget target{};
+        target.width = w;
+        target.height = h;
+        target.dpi_scale = impl->last_dpi;
+        target.sample_count = sc.sample_count > 0 ? sc.sample_count : 1;
+        target.clear = true;
+        target.commit = true;
+        target.metal.current_drawable = sc.metal.current_drawable;
+        target.metal.depth_stencil_texture = sc.metal.depth_stencil_texture;
+        target.metal.msaa_color_texture = sc.metal.msaa_color_texture;
+        target.d3d11.render_view = sc.d3d11.render_view;
+        target.d3d11.resolve_view = sc.d3d11.resolve_view;
+        target.d3d11.depth_stencil_view = sc.d3d11.depth_stencil_view;
+        target.wgpu.render_view = sc.wgpu.render_view;
+        target.wgpu.resolve_view = sc.wgpu.resolve_view;
+        target.wgpu.depth_stencil_view = sc.wgpu.depth_stencil_view;
+        target.gl.framebuffer = sc.gl.framebuffer;
+        if (impl->perf_overlay_enabled) {
+            target.debug_overlay_text = impl->perf_text;
+            target.debug_overlay_frame_ms = ordered_perf_ms.data();
+            target.debug_overlay_frame_ms_count =
+                static_cast<std::size_t>(ordered_perf_count);
+            target.debug_overlay_corner = impl->perf_overlay_corner;
+        }
+        static const bool frame_trace =
+            std::getenv("AFFINEUI_FRAME_TRACE") != nullptr;
+        const auto ft0 = std::chrono::steady_clock::now();
+        {
+            detail::TraceSpan frame_span("frame");
+            impl->renderer.render_to(impl->document, target);
+        }
+        if (frame_trace) {
+            const double total_ms =
+                std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - ft0)
+                    .count();
+            const auto& st = impl->renderer.stats();
+            std::fprintf(
+                stderr,
+                "[frame] %7.2f ms  prep=%.1f layout=%.1f record=%.1f "
+                "raster=%.1f composite=%.1f  dl_changed=%u culled=%u "
+                "dirty_rects=%u area=%u%%  %s%s%s%s%s\n",
+                total_ms, st.prepare_us_this_frame / 1000.0,
+                st.layout_us_this_frame / 1000.0,
+                st.display_list_record_us_this_frame / 1000.0,
+                st.raster_us_this_frame / 1000.0,
+                st.composite_us_this_frame / 1000.0,
+                st.display_list_diff_changed_ops,
+                st.display_list_ops_culled_this_frame, st.dirty_rects,
+                st.dirty_area_pct_x100 / 100,
+                st.layout_dirty ? "L" : "-", st.paint_dirty ? "P" : "-",
+                st.recorded_this_frame ? "R" : "-",
+                st.root_layer_rasterized_this_frame ? "Z" : "-",
+                st.animations_active ? "A" : "-");
+            std::fflush(stderr);
+        }
+        impl->animations_active = impl->renderer.stats().animations_active;
+        impl->dirty = impl->animations_active;
+        if (impl->settle_frames > 0 && !impl->dirty) {
+            --impl->settle_frames;
+        }
+
+        // R1: assemble the presented frame's telemetry record — readable via
+        // App::frame_telemetry(), streamed by the AFFINEUI_TELEMETRY sink
+        // (schema: docs/AFFINETOOLS_PROTOCOL.md). Struct writes are trivial
+        // and unconditional; formatting/IO happen only behind sink_active().
+        auto& tl = impl->telemetry;
+        tl.v = kTelemetrySchemaVersion;
+        tl.frame = ++impl->presented_frames;
+        tl.t_ms = t_ms;
+        tl.gap_ms = gap_ms;
+        tl.cb_ms = std::chrono::duration<double, std::milli>(
+                       std::chrono::steady_clock::now() - frame_now)
+                       .count();
+        tl.skipped = impl->skipped_since_present;
+        impl->skipped_since_present = 0;
+        tl.fb_w = w;
+        tl.fb_h = h;
+        tl.dpi = impl->last_dpi;
+        fill_from_render_stats(tl, impl->renderer.stats());
+        const mem::Stats mem_now = mem::stats();
+        fill_mem_delta(tl, impl->mem_prev, mem_now);
+        impl->mem_prev = mem_now;
+        if (telemetry::sink_active()) {
+            telemetry::sink_write_frame(tl);
+        }
+        if (tools::wants_telemetry()) {
+            tools::push_frame(tl);
+        }
+
+        if (impl->quit_requested) sapp_request_quit();
+    } catch (const std::exception& e) {
+        detail::log_event_loop_exception("frame callback", e);
+        impl->exit_code = 1;
+        sapp_request_quit();
+    } catch (...) {
+        detail::log_event_loop_exception("frame callback");
+        impl->exit_code = 1;
+        sapp_request_quit();
+    }
+}
+
+void cb_cleanup(void* user) {
+    auto* impl = static_cast<detail::AppImpl*>(user);
+    impl->renderer.shutdown();
+    sg_shutdown();
+}
+
+// Translate a sokol_app event to our `affineui::Event` and forward to
+// Document::dispatch. Coordinate conversion: sokol_app gives mouse
+// coords in framebuffer pixels; layout works in CSS points.
+void cb_event(const sapp_event* ev, void* user) {
+    auto* impl = static_cast<detail::AppImpl*>(user);
+    if (!ev) return;
+    try {
+
+    Event aui_ev{};
+    apply_modifiers(aui_ev, ev->modifiers);
+    switch (ev->type) {
+        case SAPP_EVENTTYPE_MOUSE_MOVE:  aui_ev.type = EventType::MouseMove; break;
+        case SAPP_EVENTTYPE_MOUSE_DOWN:  aui_ev.type = EventType::MouseDown; break;
+        case SAPP_EVENTTYPE_MOUSE_UP:    aui_ev.type = EventType::MouseUp;   break;
+        case SAPP_EVENTTYPE_MOUSE_SCROLL:
+            aui_ev.type = EventType::MouseWheel;
+            break;
+        case SAPP_EVENTTYPE_KEY_DOWN:
+#if AFFINEUI_PERF
+            // DevTools hotkey (zero config, on by default): F12 or
+            // Ctrl+Shift+I opens affinetools attached to this process.
+            if (impl->config.devtools_hotkey &&
+                (ev->key_code == SAPP_KEYCODE_F12 ||
+                 (ev->key_code == SAPP_KEYCODE_I &&
+                  (ev->modifiers & SAPP_MODIFIER_CTRL) != 0 &&
+                  (ev->modifiers & SAPP_MODIFIER_SHIFT) != 0))) {
+                (void) tools_open_devtools();
+                return;
+            }
+#endif
+            aui_ev.type     = EventType::KeyDown;
+            aui_ev.key_code = static_cast<int>(ev->key_code);
+            aui_ev.key      = key_to_affine(ev->key_code);
+            (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
+            return;
+        case SAPP_EVENTTYPE_KEY_UP:
+            aui_ev.type     = EventType::KeyUp;
+            aui_ev.key_code = static_cast<int>(ev->key_code);
+            aui_ev.key      = key_to_affine(ev->key_code);
+            (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
+            return;
+        case SAPP_EVENTTYPE_CHAR:
+            aui_ev.type = EventType::TextInput;
+            aui_ev.text = utf8_from_codepoint(ev->char_code);
+            if (!aui_ev.text.empty()) {
+                (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
+            }
+            return;
+        case SAPP_EVENTTYPE_RESIZED:
+            impl->has_pending_resize = true;  // coalesced: ≤1 per frame
+            return;
+        case SAPP_EVENTTYPE_MOUSE_LEAVE:
+            aui_ev.type = EventType::MouseMove;
+            aui_ev.pos  = Point{-1, -1};
+            impl->has_pending_mouse_move = false;  // superseded by leave
+            (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
+            return;
+        default:
+            return;
+    }
+
+    const float dpi = current_dpi_scale(*impl);
+    impl->last_dpi = dpi;
+    aui_ev.pos.x = static_cast<int>(ev->mouse_x / dpi);
+    aui_ev.pos.y = static_cast<int>(ev->mouse_y / dpi);
+    if (ev->type == SAPP_EVENTTYPE_MOUSE_DOWN ||
+        ev->type == SAPP_EVENTTYPE_MOUSE_UP) {
+        switch (ev->mouse_button) {
+            case SAPP_MOUSEBUTTON_LEFT:   aui_ev.button = MouseButton::Left;   break;
+            case SAPP_MOUSEBUTTON_RIGHT:  aui_ev.button = MouseButton::Right;  break;
+            case SAPP_MOUSEBUTTON_MIDDLE: aui_ev.button = MouseButton::Middle; break;
+            default: break;
+        }
+    }
+    if (ev->type == SAPP_EVENTTYPE_MOUSE_SCROLL) {
+        aui_ev.wheel_dx = ev->scroll_x;
+        aui_ev.wheel_dy = ev->scroll_y;
+    }
+    const bool over_perf_overlay =
+        point_in_perf_overlay(*impl, aui_ev.pos.x, aui_ev.pos.y,
+                              sapp_width(), sapp_height(), dpi);
+    if (over_perf_overlay) {
+        if (aui_ev.type == EventType::MouseMove) {
+            sapp_set_mouse_cursor(SAPP_MOUSECURSOR_POINTING_HAND);
+            impl->last_cursor = 1;
+            return;
+        }
+        if (aui_ev.type == EventType::MouseDown &&
+            aui_ev.button == MouseButton::Left) {
+            impl->perf_overlay_corner =
+                next_debug_overlay_corner(impl->perf_overlay_corner);
+            impl->settle_frames = detail::kSwapchainSettleFrames;
+            return;
+        }
+    }
+
+    if (aui_ev.type == EventType::MouseMove) {
+        // Coalesce: keep only the newest motion. It dispatches at the
+        // next frame start (or just below, when a press/wheel follows),
+        // so one expensive frame can't multiply into per-move relayouts.
+        impl->pending_mouse_move = aui_ev;
+        impl->has_pending_mouse_move = true;
+        return;
+    }
+    // Presses/wheel must observe any motion that preceded them.
+    flush_pending_mouse_move(*impl);
+    const bool consumed = detail::dispatch_loaded_view_event(*impl, aui_ev);
+    (void) consumed;
+    } catch (const std::exception& e) {
+        detail::log_event_loop_exception("event callback", e);
+        impl->exit_code = 1;
+        sapp_request_quit();
+    } catch (...) {
+        detail::log_event_loop_exception("event callback");
+        impl->exit_code = 1;
+        sapp_request_quit();
+    }
+}
+
+}  // namespace
+
+int App::run() {
+    detail::maybe_start_stack_sampler();  // AFFINEUI_SAMPLER=1
+    sapp_desc desc{};
+    desc.user_data            = impl_.get();
+    desc.init_userdata_cb     = cb_init;
+    desc.frame_userdata_cb    = cb_frame;
+    desc.cleanup_userdata_cb  = cb_cleanup;
+    desc.event_userdata_cb    = cb_event;
+    // Config::width/height are logical points; sokol_app's win32
+    // backend scales the created window by the monitor DPI itself.
+    desc.width                = impl_->config.width;
+    desc.height               = impl_->config.height;
+    desc.window_title         = impl_->config.title.c_str();
+    desc.high_dpi             = impl_->config.high_dpi;
+    desc.swap_interval        = impl_->config.vsync ? 1 : 0;
+    desc.sample_count         = 1;
+    desc.enable_clipboard     = true;
+    desc.clipboard_size       = 1024 * 1024;
+    // GL 4.1 core on the GL backend (ignored by D3D11/Metal). sokol's Linux
+    // default of GL 4.3 fails to create a context on drivers that cap lower
+    // (e.g. WSLg's Mesa/D3D12 at GL 4.2); 4.1 is enough for sokol_gfx + our
+    // shaders. See affineui::sokol::wire() for the examples' path.
+    desc.gl.major_version     = 4;
+    desc.gl.minor_version     = 1;
+    desc.logger.func          = slog_func;
+    sapp_run(&desc);
+    return impl_->exit_code;
+}
+
+#endif  // AFFINEUI_STUB_BUILD
+
+int App::run(std::function<void()> view_fn) {
+    mount(std::move(view_fn));
+    return run();
+}
+
+void App::quit(int code) {
+    impl_->quit_requested = true;
+    impl_->exit_code      = code;
+#if !defined(AFFINEUI_STUB_BUILD)
+    sapp_request_quit();
+#endif
+}
+
+Document&       App::document()       { return impl_->document; }
+const Document& App::document() const { return impl_->document; }
+
+Size App::window_size() const {
+#if defined(AFFINEUI_STUB_BUILD)
+    return {impl_->config.width, impl_->config.height};
+#else
+    const float dpi = dpi_scale();
+    const float d = dpi > 0.0f ? dpi : 1.0f;
+    return {
+        static_cast<int>(static_cast<float>(sapp_width()) / d + 0.5f),
+        static_cast<int>(static_cast<float>(sapp_height()) / d + 0.5f),
+    };
+#endif
+}
+
+Size App::framebuffer_size() const {
+#if defined(AFFINEUI_STUB_BUILD)
+    return {impl_->config.width, impl_->config.height};
+#else
+    return {sapp_width(), sapp_height()};
+#endif
+}
+
+float App::dpi_scale() const {
+#if defined(AFFINEUI_STUB_BUILD)
+    return 1.0f;
+#else
+    return sapp_dpi_scale();
+#endif
+}
+
+}  // namespace affineui
