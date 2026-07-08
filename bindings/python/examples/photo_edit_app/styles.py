@@ -1,8 +1,59 @@
 """App stylesheet for the Decius Photo Edit sample.
 
 Ported from the web reference app.css (§10 of the decode) on top of the
-decius.css framework bundle that the Decius view theme loads.
+decius.css framework bundle. The Decius *view theme* only emits the
+`.dcs-*` / `.di-*` class names — the framework CSS that styles them (and
+the `di` icon font) is a separate bundle the app must load, exactly as the
+C++ examples do via app::read_framework_bundle. `read_decius_bundle()`
+below is the Python equivalent; app.py prepends it to PHOTO_CSS and hands
+the app the bundle's directory as the stylesheet base URL so the bundle's
+relative `url(../fonts/...)` resolve like a <link>ed sheet.
 """
+
+from __future__ import annotations
+
+from pathlib import Path
+
+# The framework version the Decius view theme defaults to (src/app/view.cpp
+# decius::default_version). Kept in one place so the bundle path matches
+# what the view emits classes for.
+DECIUS_VERSION = "0.6.2"
+
+
+def read_decius_bundle() -> tuple[str, str]:
+    """Return (css_text, base_url) for the Decius framework bundle.
+
+    Resolves the bundle file with the same candidate order the C++ helper
+    uses (beside the running script, then cwd-relative, then the repo
+    layout), so it works whether run from bindings/python, the repo root,
+    or a packaged copy. Returns ("", "") if not found — the app still runs,
+    just unstyled, which is the visible symptom this loader fixes.
+
+    base_url is the bundle directory (with a trailing slash): per CSS
+    semantics the bundle's `url(../fonts/decius-icons.woff2)` resolves
+    against the sheet's own location.
+    """
+    href = f"frameworks/css/decius-css-{DECIUS_VERSION}.bundle.min.css"
+    here = Path(__file__).resolve().parent           # …/photo_edit_app
+    examples_dir = here.parent                        # …/examples
+    candidates = [
+        examples_dir / href,                          # packaged beside examples/
+        Path(href),                                   # cwd-relative
+        Path("examples") / href,                      # repo/bindings/python
+        examples_dir.parent.parent.parent / "examples" / href,  # repo root
+    ]
+    for path in candidates:
+        try:
+            css = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if css:
+            base = path.parent.as_posix()
+            if not base.endswith("/"):
+                base += "/"
+            return css, base
+    return "", ""
+
 
 PHOTO_CSS = r"""
 /* ── Shell ─────────────────────────────────────────────────────────────── */

@@ -17,9 +17,34 @@ import affineui as ui
 from . import colors, dialogs, options, panels, stage
 from .specs import (LAYER_BLENDS, MENUS, TOOL_BY_ID, TOOL_DEFAULTS,
                     tool_icon_html)
-from .styles import PHOTO_CSS
+from .styles import PHOTO_CSS, read_decius_bundle
 
 _HEX_ONLY_RE = re.compile(r"#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3}")
+
+
+def _framework_asset_roots() -> list[str]:
+    """Absolute asset roots for the resource loader.
+
+    The framework's shipped assets (frameworks/fonts/*, frameworks/css/*)
+    live under the repo's examples/ dir. Relative url()s like
+    "frameworks/fonts/decius-icons.ttf" are looked up under each root, so
+    the root must be the directory that CONTAINS frameworks/. Walk up from
+    this file until that directory is found; fall back to the cwd. Absolute
+    so it works regardless of the launch directory.
+    """
+    from pathlib import Path
+
+    here = Path(__file__).resolve()
+    roots: list[str] = []
+    for parent in here.parents:
+        if (parent / "frameworks" / "css").is_dir():
+            roots.append(str(parent))
+            break
+        if (parent / "examples" / "frameworks" / "css").is_dir():
+            roots.append(str(parent / "examples"))
+            break
+    roots.append(str(Path.cwd()))  # last-resort for relative launches
+    return roots
 
 # Pseudo-random stamp anchors for click-to-paint (Phase B replaces these with
 # real pointer coordinates).
@@ -76,6 +101,9 @@ class PhotoEditApp:
         self.visual_style = "flat"
         self.accent = "blue"
         self.tweaks_open = False
+        # Decius framework bundle, read once and cached (reload() loads it).
+        self._decius_css: str | None = None
+        self._decius_base: str = ""
 
         self.status = TOOL_BY_ID[self.tool].tip
         self.panels = {"navigator": True, "color": True, "layers": True,
@@ -120,14 +148,37 @@ class PhotoEditApp:
         if self.app is None:
             return
         self.app.load_view(self.build_view())
-        self.app.set_stylesheet(PHOTO_CSS)
+        # The Decius view theme only emits .dcs-*/.di-* class names; the
+        # framework bundle that styles them (and the di icon font) is a
+        # separate sheet the app must load — without it everything renders
+        # unstyled with missing icons. Prepend the bundle to the app CSS
+        # and hand the app the bundle's directory as the base URL so its
+        # relative url(../fonts/…) resolve like a <link>ed sheet.
+        if self._decius_css is None:
+            self._decius_css, self._decius_base = read_decius_bundle()
+            if not self._decius_css:
+                print("[photo_edit] WARNING: Decius framework bundle not "
+                      "found — UI will be unstyled. Run from the repo or "
+                      "ship frameworks/ beside the app.")
+        combined = (self._decius_css + "\n" + PHOTO_CSS
+                    if self._decius_css else PHOTO_CSS)
+        self.app.set_stylesheet(combined, self._decius_base or None)
 
     def launch(self, high_dpi: bool, perf: bool, headless: bool) -> None:
+        # asset_folders roots are where the resource loader resolves
+        # relative url()s (the framework's frameworks/fonts/*, images, etc.)
+        # from — a font url "frameworks/fonts/decius-icons.ttf" is looked up
+        # under each root. The framework assets ship under the repo's
+        # examples/frameworks/; find that directory absolutely (walk up from
+        # this file until a frameworks/ is found) so assets resolve no
+        # matter what cwd the app is launched from — a bare "examples" only
+        # worked from the repo root and left every icon/image blank.
+        asset_roots = _framework_asset_roots()
         self.app = ui.App(
             title="Decius Photo Edit (Python)",
             width=1280,
             height=820,
-            asset_folders=["examples"],
+            asset_folders=asset_roots,
             high_dpi=high_dpi,
             perf_overlay=perf,
         )
