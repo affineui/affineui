@@ -1026,16 +1026,17 @@ void cb_event(const sapp_event* ev, void* user) {
             // platform's Chrome-DevTools shortcut — Cmd+Shift+I on macOS
             // (SAPP_MODIFIER_SUPER = NSEventModifierFlagCommand),
             // Ctrl+Shift+I on Windows/Linux (SAPP_MODIFIER_CTRL).
-#if defined(__APPLE__)
-            constexpr std::uint32_t kDevtoolsMod = SAPP_MODIFIER_SUPER;
-#else
-            constexpr std::uint32_t kDevtoolsMod = SAPP_MODIFIER_CTRL;
-#endif
             if (impl->config.devtools_hotkey &&
                 (ev->key_code == SAPP_KEYCODE_F12 ||
                  (ev->key_code == SAPP_KEYCODE_I &&
                   (ev->modifiers & SAPP_MODIFIER_SHIFT) != 0 &&
-                  (ev->modifiers & kDevtoolsMod) != 0))) {
+                  (ev->modifiers &
+#if defined(__APPLE__)
+                   SAPP_MODIFIER_SUPER
+#else
+                   SAPP_MODIFIER_CTRL
+#endif
+                  ) != 0))) {
                 (void) tools_open_devtools();
                 return;
             }
