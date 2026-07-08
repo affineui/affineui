@@ -1185,6 +1185,32 @@ std::string tag_name(lxb_dom_element_t* elem);
 std::string_view tag_view(lxb_dom_element_t* elem);
 std::string text_control_display_value(const Block& block,
                                        std::string_view value);
+
+// layout / collect boundary helpers
+void apply_pseudo_overlay(detail::DocumentImpl& impl, const Block& block,
+                          detail::ResolvedStyle& rs);
+void attach_matching_media_blocks_for_viewport(detail::DocumentImpl& impl);
+bool block_clips_overflow(const detail::DocumentImpl& impl, int idx);
+bool block_is_scrollable_y(const detail::DocumentImpl& impl, int idx);
+void collect_blocks(detail::DocumentImpl& impl,
+                    lxb_dom_node_t* node,
+                    const detail::ResolvedStyle& parent_style,
+                    int parent_idx);
+void debug_validate_attr_lists(detail::DocumentImpl& impl, const char* where);
+void dock_trace_state_if_changed(detail::DocumentImpl& impl,
+                                 std::string_view reason);
+const KeyframeBlock* find_keyframes(const detail::DocumentImpl& impl,
+                                    std::uint32_t name_hash);
+lxb_dom_element_t* next_element_sibling(lxb_dom_node_t* node);
+lxb_dom_element_t* parent_element(lxb_dom_element_t* elem);
+lxb_dom_element_t* previous_element_sibling(lxb_dom_node_t* node);
+void settle_view_batch(detail::DocumentImpl& impl);
+bool update_dcs_vec_compression(
+    detail::DocumentImpl& impl,
+    const std::vector<std::vector<int>>& child_indices,
+    const std::vector<detail::ComputedStyle>& layout_styles);
+
+Rect subtree_visual_rect(const detail::DocumentImpl& impl, int root_idx);
 #endif  // !AFFINEUI_STUB_BUILD
 
 }  // namespace detail
