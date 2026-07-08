@@ -1022,13 +1022,20 @@ void cb_event(const sapp_event* ev, void* user) {
             break;
         case SAPP_EVENTTYPE_KEY_DOWN:
 #if AFFINEUI_PERF
-            // DevTools hotkey (zero config, on by default): F12 or
-            // Ctrl+Shift+I opens affinetools attached to this process.
+            // DevTools hotkey (zero config, on by default): F12 or the
+            // platform's Chrome-DevTools shortcut — Cmd+Shift+I on macOS
+            // (SAPP_MODIFIER_SUPER = NSEventModifierFlagCommand),
+            // Ctrl+Shift+I on Windows/Linux (SAPP_MODIFIER_CTRL).
+#if defined(__APPLE__)
+            constexpr std::uint32_t kDevtoolsMod = SAPP_MODIFIER_SUPER;
+#else
+            constexpr std::uint32_t kDevtoolsMod = SAPP_MODIFIER_CTRL;
+#endif
             if (impl->config.devtools_hotkey &&
                 (ev->key_code == SAPP_KEYCODE_F12 ||
                  (ev->key_code == SAPP_KEYCODE_I &&
-                  (ev->modifiers & SAPP_MODIFIER_CTRL) != 0 &&
-                  (ev->modifiers & SAPP_MODIFIER_SHIFT) != 0))) {
+                  (ev->modifiers & SAPP_MODIFIER_SHIFT) != 0 &&
+                  (ev->modifiers & kDevtoolsMod) != 0))) {
                 (void) tools_open_devtools();
                 return;
             }
