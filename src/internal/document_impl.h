@@ -15,10 +15,11 @@
 #include "affineui/view.h"            // ViewSink (unique_ptr member)
 #include "imm/imm_runtime.h"          // ImmRuntime (unique_ptr member)
 #include "internal/animated_style.h"  // AnimatedStyle
-#include "internal/computed_style.h"  // ComputedStyle, GridTrackHint, CustomPropMap
+#include "internal/computed_style.h"  // ComputedStyle, CustomPropMap, BoxShadowList
 #include "internal/element_id.h"      // ElementId
 #include "internal/style_resolver.h"  // StyleResolver, ResolvedStyle
 #include "internal/style_store.h"     // StyleStore
+#include "layout/yoga_adapter.h"      // detail::GridTrackHint, kMaxGridTrackHints
 
 #include <array>
 #include <atomic>
@@ -135,9 +136,9 @@ struct TextControlGeometry {
     bool nowrap{false};
 };
 
-std::uint64_t fnv1a_64_bytes(std::uint64_t h,
-                             const void* data,
-                             std::size_t size) {
+inline std::uint64_t fnv1a_64_bytes(std::uint64_t h,
+                                    const void* data,
+                                    std::size_t size) {
     const auto* bytes = static_cast<const unsigned char*>(data);
     for (std::size_t i = 0; i < size; ++i) {
         h ^= static_cast<std::uint64_t>(bytes[i]);
@@ -151,7 +152,7 @@ void hash_mix(std::uint64_t& h, const T& value) {
     h = fnv1a_64_bytes(h, &value, sizeof(value));
 }
 
-void hash_mix_string(std::uint64_t& h, std::string_view value) {
+inline void hash_mix_string(std::uint64_t& h, std::string_view value) {
     h = fnv1a_64_bytes(h, value.data(), value.size());
     const std::uint64_t size = static_cast<std::uint64_t>(value.size());
     hash_mix(h, size);
@@ -301,6 +302,15 @@ enum class LiveControlKind : std::uint8_t {
     DeciusSlider,
     DeciusFader,
     DeciusKnob,
+};
+
+// Geometry of a block's painted vertical scrollbar (track/thumb in doc
+// space); filled by detail::vertical_scrollbar_geometry.
+struct ScrollbarGeometry {
+    Rect track{};
+    Rect thumb{};
+    int scroll_range{0};
+    int thumb_travel{0};
 };
 #endif  // !AFFINEUI_STUB_BUILD
 
@@ -693,5 +703,93 @@ struct DocumentImpl {
     }
 };
 
+// ── Cross-file document helpers ─────────────────────────────────────────────
+// Shared by the document_*.cpp implementation files. Each is defined exactly
+// once, in the file that owns its domain; call sites qualify `detail::`.
+// (Helpers used by only one file stay as anonymous-namespace locals there.)
+
+int scroll_offset_y_for(const std::vector<Block>& blocks,
+#if !defined(AFFINEUI_STUB_BUILD)
+                        const detail::StyleStore& styles,
+#endif
+                        int idx);
+
+#if !defined(AFFINEUI_STUB_BUILD)
+// element / block attribute primitives
+std::string attr_string(lxb_dom_element_t* elem, std::string_view name);
+bool has_attr(lxb_dom_element_t* elem, std::string_view name);
+double elem_attr_num(lxb_dom_element_t* elem, std::string_view name,
+                     double fallback);
+const std::string* block_attr_value(const Block& block, std::string_view name);
+bool block_has_attr(const Block& block, std::string_view name);
+bool block_has_class(const Block& block, std::string_view cls);
+double block_attr_double(const Block& block,
+                         std::string_view name,
+                         double fallback);
+int nearest_block_with_tag(const std::vector<Block>& blocks,
+                           int idx,
+                           std::string_view tag);
+
+// CSS text / color parsing
+std::string_view trim_css_ws(std::string_view s);
+bool parse_hex_color(std::string_view value, std::uint32_t& out);
+bool parse_generated_color(std::string value,
+                           const detail::ResolvedStyle& style,
+                           std::uint32_t& out);
+
+// geometry / z-order / scrollbars
+int effective_z_index(const detail::DocumentImpl& impl, int idx);
+int nearest_clip_ancestor_for_block(const detail::DocumentImpl& impl, int idx);
+bool vertical_scrollbar_geometry(const detail::DocumentImpl& impl,
+                                 int idx,
+                                 ScrollbarGeometry& out);
+
+// live-control value mapping
+double normalized_control_value(double value, double min, double max);
+double decius_knob_angle(double min, double max, double value);
+
+// fonts / svg paint
+void ensure_font_faces_registered(detail::DocumentImpl& impl,
+                                  Painter& painter);
+void paint_direct_child_svgs(detail::DocumentImpl& impl,
+                             const Block& b,
+                             const Rect& eff,
+                             const detail::ComputedStyle& cs,
+                             const detail::AnimatedStyle& an,
+                             Painter& painter,
+                             lxb_dom_element_t* parent_elem);
+
+// text-control layout / selection
+TextControlGeometry text_control_geometry(const detail::DocumentImpl& impl,
+                                          int idx,
+                                          Painter& painter);
+TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
+                                          int idx,
+                                          const TextControlGeometry& g,
+                                          const Block& block,
+                                          Painter& painter);
+float aligned_line_origin_x(const TextControlGeometry& g,
+                            const TextLayoutEntry& entry,
+                            std::uint16_t line);
+float aligned_line_origin_x(const TextLayoutEntry& entry,
+                            std::uint16_t line);
+bool has_text_selection(const Block& block);
+std::pair<std::size_t, std::size_t>
+normalized_selection(const Block& block);
+#endif  // !AFFINEUI_STUB_BUILD
+
 }  // namespace detail
+
+#if !defined(AFFINEUI_STUB_BUILD)
+// CSS animation sampling (defined at affineui scope in the animation section).
+bool animation_progress_at(const detail::ResolvedStyle::CssAnimation& anim,
+                           double elapsed_s,
+                           float& out_t,
+                           bool& out_applies);
+Mat2x3 effective_transform_for(const detail::DocumentImpl& impl, int idx);
+detail::AnimatedStyle sample_keyframes(detail::DocumentImpl& impl,
+                                       const Block& block,
+                                       float t);
+#endif  // !AFFINEUI_STUB_BUILD
+
 }  // namespace affineui

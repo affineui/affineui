@@ -141,6 +141,7 @@ target_sources(affineui PRIVATE
     src/app/automation.cpp
     src/app/view.cpp
     src/dom/document.cpp
+    src/dom/document_draw.cpp
     src/dom/dom_view.cpp
     src/style/cascade.cpp
     src/style/computed.cpp

@@ -473,6 +473,10 @@ std::string tag_name(lxb_dom_element_t* elem) {
     return std::string(reinterpret_cast<const char*>(name), len);
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 // Pull the value of an attribute as a std::string, empty if absent.
 std::string attr_string(lxb_dom_element_t* elem, std::string_view name) {
     size_t len = 0;
@@ -483,6 +487,9 @@ std::string attr_string(lxb_dom_element_t* elem, std::string_view name) {
     if (!v || len == 0) return {};
     return std::string(reinterpret_cast<const char*>(v), len);
 }
+}  // namespace detail
+namespace {
+
 
 // Attribute value as a view into lexbor's storage — no copy. Only valid
 // until the attribute mutates; for read-and-compare use exclusively.
@@ -529,11 +536,18 @@ element_attrs(lxb_dom_element_t* elem) {
     return out;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 // True if a (possibly value-less, boolean) attribute is present.
 bool has_attr(lxb_dom_element_t* elem, std::string_view name) {
     return lxb_dom_element_has_attribute(
         elem, reinterpret_cast<const lxb_char_t*>(name.data()), name.size());
 }
+}  // namespace detail
+namespace {
+
 
 // The text a closed <select> shows: the `selected` <option>'s text, or
 // the first option if none is marked. We render no popup/list â€” only the
@@ -546,7 +560,7 @@ std::string select_display_text(lxb_dom_element_t* select) {
         auto* el = lxb_dom_interface_element(c);
         if (tag_name(el) != "option") continue;
         if (first == nullptr) first = c;
-        if (has_attr(el, "selected")) return node_text(c);
+        if (detail::has_attr(el, "selected")) return node_text(c);
     }
     return first ? node_text(first) : std::string{};
 }
@@ -616,6 +630,10 @@ std::vector<std::string> split_classes(std::string_view s) {
     return out;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool block_has_class(const Block& block, std::string_view cls) {
     return std::find(block.classes.begin(), block.classes.end(), cls) !=
            block.classes.end();
@@ -629,15 +647,18 @@ const std::string* block_attr_value(const Block& block, std::string_view name) {
 }
 
 bool block_has_attr(const Block& block, std::string_view name) {
-    return block_attr_value(block, name) != nullptr;
+    return detail::block_attr_value(block, name) != nullptr;
 }
+}  // namespace detail
+namespace {
+
 
 int block_attr_int(const Block& block,
                    std::string_view name,
                    int fallback,
                    int min_value,
                    int max_value) {
-    const auto* value = block_attr_value(block, name);
+    const auto* value = detail::block_attr_value(block, name);
     if (!value || value->empty()) return fallback;
     char* end = nullptr;
     const long parsed = std::strtol(value->c_str(), &end, 10);
@@ -670,7 +691,7 @@ std::vector<ScrollStateEntry> snapshot_scroll_state(
         (void)include_elements;
 #endif
         entry.elem_id = block.elem_id;
-        if (const auto* name = block_attr_value(block, "data-aui-name")) {
+        if (const auto* name = detail::block_attr_value(block, "data-aui-name")) {
             entry.aui_name = *name;
         }
         entry.tag = block.tag;
@@ -686,7 +707,7 @@ void restore_scroll_state(detail::DocumentImpl& impl,
 
     std::vector<bool> used(state.size(), false);
     for (auto& block : impl.blocks) {
-        const auto* name = block_attr_value(block, "data-aui-name");
+        const auto* name = detail::block_attr_value(block, "data-aui-name");
         std::size_t best = state.size();
         int best_score = 0;
 #if !defined(AFFINEUI_STUB_BUILD)
@@ -722,10 +743,14 @@ void restore_scroll_state(detail::DocumentImpl& impl,
     }
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 double block_attr_double(const Block& block,
                          std::string_view name,
                          double fallback) {
-    const auto* value = block_attr_value(block, name);
+    const auto* value = detail::block_attr_value(block, name);
     if (!value || value->empty()) return fallback;
 
     char* end = nullptr;
@@ -733,6 +758,9 @@ double block_attr_double(const Block& block,
     if (end == value->c_str()) return fallback;
     return parsed;
 }
+}  // namespace detail
+namespace {
+
 
 std::string compact_number(double value, int places = 2) {
     char buf[64]{};
@@ -747,6 +775,10 @@ std::string percent_string(double fraction) {
     return compact_number(std::clamp(fraction, 0.0, 1.0) * 100.0) + "%";
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 double normalized_control_value(double value, double min, double max) {
     if (max <= min) return 0.0;
     return std::clamp((value - min) / (max - min), 0.0, 1.0);
@@ -762,6 +794,9 @@ int nearest_block_with_tag(const std::vector<Block>& blocks,
     }
     return -1;
 }
+}  // namespace detail
+namespace {
+
 
 bool is_block_tag(const std::string& tag) {
     return tag == "h1" || tag == "h2" || tag == "h3" ||
@@ -832,8 +867,8 @@ void collect_author_stylesheets(lxb_dom_node_t* node,
                 continue;  // skip <style>'s descendants
             }
             if (tag == "link" && impl.resource_loader) {
-                const auto rel = attr_string(el, "rel");
-                const auto href = attr_string(el, "href");
+                const auto rel = detail::attr_string(el, "rel");
+                const auto href = detail::attr_string(el, "href");
                 if (!href.empty() && rel_includes_stylesheet(rel)) {
                     if (auto css = impl.resource_loader(href); !css.empty()) {
                         scan_font_face_rules(
@@ -1309,7 +1344,14 @@ std::string_view ltrim_ws(std::string_view s) {
     while (!s.empty() && is_css_ws(s.front())) s.remove_prefix(1);
     return s;
 }
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 std::string_view trim_css_ws(std::string_view s) { return ltrim_ws(rtrim_ws(s)); }
+}  // namespace detail
+namespace {
+
 
 std::string style_with_properties(
     std::string_view style,
@@ -1327,12 +1369,12 @@ std::string style_with_properties(
         i = (semi == std::string_view::npos) ? style.size() : semi + 1;
         const std::size_t colon = decl.find(':');
         if (colon != std::string_view::npos) {
-            const std::string_view prop = trim_css_ws(decl.substr(0, colon));
+            const std::string_view prop = detail::trim_css_ws(decl.substr(0, colon));
             if (std::find(names.begin(), names.end(), prop) != names.end()) {
                 continue;
             }
         }
-        const std::string_view t = trim_css_ws(decl);
+        const std::string_view t = detail::trim_css_ws(decl);
         if (!t.empty()) {
             if (!out.empty()) out += ';';
             out += t;
@@ -1421,7 +1463,7 @@ bool parse_attribute_simple(std::string_view sel,
     const std::size_t close = sel.find(']', i + 1);
     if (close == std::string_view::npos) return false;
 
-    auto body = trim_css_ws(sel.substr(i + 1, close - i - 1));
+    auto body = detail::trim_css_ws(sel.substr(i + 1, close - i - 1));
     if (body.empty()) return false;
 
     SimpleSelector s;
@@ -1429,10 +1471,10 @@ bool parse_attribute_simple(std::string_view sel,
 
     const auto eq = body.find('=');
     if (eq == std::string_view::npos) {
-        s.name = std::string(trim_css_ws(body));
+        s.name = std::string(detail::trim_css_ws(body));
     } else {
-        const auto name = trim_css_ws(body.substr(0, eq));
-        auto value = trim_css_ws(body.substr(eq + 1));
+        const auto name = detail::trim_css_ws(body.substr(0, eq));
+        auto value = detail::trim_css_ws(body.substr(eq + 1));
         if (name.empty() || value.empty()) return false;
         s.name = std::string(name);
         if (value.size() >= 2 &&
@@ -1586,7 +1628,7 @@ std::string find_decl_value(std::string_view decls,
             }
             ++end;
         }
-        return std::string(trim_css_ws(rest.substr(0, end)));
+        return std::string(detail::trim_css_ws(rest.substr(0, end)));
     }
     return {};
 }
@@ -1691,21 +1733,21 @@ std::size_t find_top_level_comma(std::string_view s) {
 }
 
 std::string first_font_family(std::string_view value) {
-    value = trim_css_ws(value);
+    value = detail::trim_css_ws(value);
     const auto comma = find_top_level_comma(value);
     if (comma != std::string_view::npos) value = value.substr(0, comma);
     const auto important = value.find('!');
     if (important != std::string_view::npos) {
-        value = trim_css_ws(value.substr(0, important));
+        value = detail::trim_css_ws(value.substr(0, important));
     }
-    return strip_css_quotes(std::string(trim_css_ws(value)));
+    return strip_css_quotes(std::string(detail::trim_css_ws(value)));
 }
 
 std::string css_keyword_value(std::string value) {
-    value = std::string(trim_css_ws(value));
+    value = std::string(detail::trim_css_ws(value));
     const auto important = value.find('!');
     if (important != std::string::npos) {
-        value = std::string(trim_css_ws(
+        value = std::string(detail::trim_css_ws(
             std::string_view(value).substr(0, important)));
     }
     for (char& c : value) {
@@ -1745,7 +1787,7 @@ bool ends_with_ascii_ci(std::string_view s, std::string_view suffix) {
 std::string strip_css_important(std::string value) {
     const auto important = find_ascii_ci(value, "!", 0);
     if (important != std::string::npos) {
-        value = std::string(trim_css_ws(
+        value = std::string(detail::trim_css_ws(
             std::string_view(value).substr(0, important)));
     }
     return value;
@@ -1777,7 +1819,7 @@ std::vector<std::string_view> split_css_top_level_ws(std::string_view value) {
             continue;
         }
         if (start != std::string_view::npos) {
-            auto tok = trim_css_ws(value.substr(start, i - start));
+            auto tok = detail::trim_css_ws(value.substr(start, i - start));
             if (!tok.empty()) out.push_back(tok);
             start = std::string_view::npos;
         }
@@ -1786,7 +1828,7 @@ std::vector<std::string_view> split_css_top_level_ws(std::string_view value) {
 }
 
 bool parse_css_number(std::string_view s, float& out) {
-    s = trim_css_ws(s);
+    s = detail::trim_css_ws(s);
     if (s.empty()) return false;
     std::string tmp(s);
     char* end = nullptr;
@@ -1796,9 +1838,9 @@ bool parse_css_number(std::string_view s, float& out) {
 
 std::string_view css_function_inner(std::string_view value,
                                     std::string_view name) {
-    value = trim_css_ws(value);
+    value = detail::trim_css_ws(value);
     if (!starts_with_ascii_ci(value, name)) return {};
-    auto rest = trim_css_ws(value.substr(name.size()));
+    auto rest = detail::trim_css_ws(value.substr(name.size()));
     if (rest.size() < 2 || rest.front() != '(' || rest.back() != ')')
         return {};
     return rest.substr(1, rest.size() - 2);
@@ -1814,7 +1856,7 @@ bool append_grid_template_tracks(
         std::uint8_t& count) {
     bool appended = false;
     for (auto tok : split_css_top_level_ws(value)) {
-        tok = trim_css_ws(tok);
+        tok = detail::trim_css_ws(tok);
         if (tok.empty()) continue;
         if (auto inner = css_function_inner(tok, "repeat"); !inner.empty()) {
             const auto comma = find_top_level_comma(inner);
@@ -1853,7 +1895,7 @@ bool append_grid_template_tracks(
 
 bool parse_grid_track_token(std::string_view tok,
                             detail::GridTrackHint& out) {
-    tok = trim_css_ws(tok);
+    tok = detail::trim_css_ws(tok);
     if (tok.empty()) return false;
     if (auto inner = css_function_inner(tok, "minmax"); !inner.empty()) {
         const auto comma = find_top_level_comma(inner);
@@ -1885,7 +1927,7 @@ std::uint8_t parse_grid_template_columns(
         std::string value,
         std::array<detail::GridTrackHint,
                    detail::kMaxGridTrackHints>& out) {
-    value = strip_css_important(std::string(trim_css_ws(value)));
+    value = strip_css_important(std::string(detail::trim_css_ws(value)));
     if (value.empty()) return 0;
     std::uint8_t count = 0;
     append_grid_template_tracks(value, out, count);
@@ -1938,7 +1980,7 @@ bool is_absolute_resource_url(std::string_view url) {
 
 std::string resolve_css_url(std::string_view stylesheet_base_url,
                             std::string_view url) {
-    url = trim_css_ws(url);
+    url = detail::trim_css_ws(url);
     if (url.empty() || stylesheet_base_url.empty() ||
         is_absolute_resource_url(url)) {
         return std::string(url);
@@ -1959,12 +2001,12 @@ std::string parse_css_function_arg(std::string_view s,
     if (open >= s.size() || s[open] != '(') return {};
     const auto close = find_matching_paren(s, open);
     if (close == std::string_view::npos || close <= open) return {};
-    auto arg = trim_css_ws(s.substr(open + 1, close - open - 1));
+    auto arg = detail::trim_css_ws(s.substr(open + 1, close - open - 1));
     return strip_css_quotes(std::string(arg));
 }
 
 int parse_font_face_weight(std::string_view value) {
-    value = trim_css_ws(value);
+    value = detail::trim_css_ws(value);
     if (value.empty() || value == "normal") return 400;
     if (value == "bold") return 700;
     int weight = 0;
@@ -1986,7 +2028,7 @@ std::vector<FontFaceSource> parse_font_face_sources(
     std::vector<FontFaceSource> out;
     while (!src.empty()) {
         const auto comma = find_top_level_comma(src);
-        const auto item = trim_css_ws(src.substr(
+        const auto item = detail::trim_css_ws(src.substr(
             0, comma == std::string_view::npos ? src.size() : comma));
         if (!item.empty()) {
             auto url = parse_css_function_arg(item, "url");
@@ -2094,6 +2136,10 @@ std::string ttf_companion_url(std::string_view url) {
     return out;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 void ensure_font_faces_registered(detail::DocumentImpl& impl,
                                   Painter& painter) {
     static const bool font_trace =
@@ -2163,11 +2209,14 @@ void ensure_font_faces_registered(detail::DocumentImpl& impl,
         }
     }
 }
+}  // namespace detail
+namespace {
+
 
 bool selector_list_contains_root(std::string_view selector) {
     while (!selector.empty()) {
         const auto comma = find_top_level_comma(selector);
-        const auto group = trim_css_ws(selector.substr(
+        const auto group = detail::trim_css_ws(selector.substr(
             0,
             comma == std::string_view::npos ? selector.size() : comma));
         if (group == ":root") return true;
@@ -2200,7 +2249,7 @@ std::string read_declaration_value(std::string_view decls,
         else if (c == ';' && depth == 0) break;
         ++pos;
     }
-    return std::string(trim_css_ws(decls.substr(start, pos - start)));
+    return std::string(detail::trim_css_ws(decls.substr(start, pos - start)));
 }
 
 std::unordered_map<std::string, std::string>
@@ -2287,10 +2336,10 @@ std::string substitute_root_vars(
             break;
         }
 
-        const auto args = trim_css_ws(
+        const auto args = detail::trim_css_ws(
             value.substr(var_pos + 4, close - (var_pos + 4)));
         const auto comma = find_top_level_comma(args);
-        const auto name = std::string(trim_css_ws(args.substr(
+        const auto name = std::string(detail::trim_css_ws(args.substr(
             0,
             comma == std::string_view::npos ? args.size() : comma)));
 
@@ -2299,7 +2348,7 @@ std::string substitute_root_vars(
             out.append(substitute_root_vars(found->second, vars, depth + 1));
         } else if (comma != std::string_view::npos) {
             out.append(substitute_root_vars(
-                trim_css_ws(args.substr(comma + 1)), vars, depth + 1));
+                detail::trim_css_ws(args.substr(comma + 1)), vars, depth + 1));
         } else {
             out.append(value.substr(var_pos, close - var_pos + 1));
         }
@@ -2358,23 +2407,23 @@ void scan_rule_fills(lxb_css_stylesheet_t* sst,
         // installed face, matching browser font fallback semantics.
         const auto ff_value = find_decl_value(raw.decls, "font-family");
         auto ff = std::string(
-            trim_css_ws(substitute_root_vars(ff_value, root_vars)));
+            detail::trim_css_ws(substitute_root_vars(ff_value, root_vars)));
         const auto important = ff.find('!');
         if (important != std::string::npos) {
-            ff = std::string(trim_css_ws(
+            ff = std::string(detail::trim_css_ws(
                 std::string_view(ff).substr(0, important)));
         }
 
         const auto resize_value = find_decl_value(raw.decls, "resize");
         const auto [resize, has_resize] = parse_resize_keyword(
             substitute_root_vars(resize_value, root_vars));
-        const auto cursor_value = std::string(trim_css_ws(
+        const auto cursor_value = std::string(detail::trim_css_ws(
             substitute_root_vars(find_decl_value(raw.decls, "cursor"),
                                  root_vars)));
         const bool has_cursor = !cursor_value.empty();
         const auto cursor = has_cursor ? parse_cursor_keyword(cursor_value)
                                        : detail::ComputedStyle::Cursor::Default;
-        const auto bg_clip_value = std::string(trim_css_ws(
+        const auto bg_clip_value = std::string(detail::trim_css_ws(
             substitute_root_vars(
                 find_decl_value(raw.decls, "background-clip"), root_vars)));
         const bool has_background_clip = !bg_clip_value.empty();
@@ -2395,11 +2444,11 @@ void scan_rule_fills(lxb_css_stylesheet_t* sst,
         }
 
         // Each comma-separated group becomes its own RuleFill.
-        std::string_view sel_text = trim_css_ws(raw.selector);
+        std::string_view sel_text = detail::trim_css_ws(raw.selector);
         std::size_t s = 0;
         while (s <= sel_text.size()) {
             const auto comma = sel_text.find(',', s);
-            const auto group = trim_css_ws(sel_text.substr(s,
+            const auto group = detail::trim_css_ws(sel_text.substr(s,
                 (comma == std::string_view::npos
                      ? sel_text.size() : comma) - s));
             if (!group.empty()) {
@@ -2488,7 +2537,7 @@ bool parse_single_compound_selector(std::string_view sel,
 
 bool strip_generated_pseudo(std::string_view& selector,
                             GeneratedContentRule::Position& position) {
-    selector = trim_css_ws(selector);
+    selector = detail::trim_css_ws(selector);
     if (ends_with(selector, "::before")) {
         selector.remove_suffix(8);
         position = GeneratedContentRule::Position::Before;
@@ -2504,19 +2553,19 @@ bool strip_generated_pseudo(std::string_view& selector,
     } else {
         return false;
     }
-    selector = trim_css_ws(selector);
+    selector = detail::trim_css_ws(selector);
     return !selector.empty();
 }
 
 bool parse_generated_selector(std::string_view selector,
                               GeneratedContentRule& rule) {
-    selector = trim_css_ws(selector);
+    selector = detail::trim_css_ws(selector);
     if (!strip_generated_pseudo(selector, rule.position)) return false;
 
     const auto plus = find_top_level_char(selector, '+');
     if (plus != std::string_view::npos) {
-        const auto previous = trim_css_ws(selector.substr(0, plus));
-        const auto target = trim_css_ws(selector.substr(plus + 1));
+        const auto previous = detail::trim_css_ws(selector.substr(0, plus));
+        const auto target = detail::trim_css_ws(selector.substr(plus + 1));
         if (previous.empty() || target.empty()) return false;
         if (!parse_single_compound_selector(previous,
                                             rule.previous_adjacent)) {
@@ -2584,20 +2633,20 @@ std::string substitute_style_vars(
 
 std::string generated_content_text(std::string value,
                                    const detail::ResolvedStyle& style) {
-    value = std::string(trim_css_ws(substitute_style_vars(value, style)));
+    value = std::string(detail::trim_css_ws(substitute_style_vars(value, style)));
     if (value.empty() || value == "normal" || value == "none") return {};
     return decode_css_string_escapes(strip_css_quotes(std::move(value)));
 }
 
 bool generated_content_enabled(std::string value,
                                const detail::ResolvedStyle& style) {
-    value = std::string(trim_css_ws(substitute_style_vars(value, style)));
+    value = std::string(detail::trim_css_ws(substitute_style_vars(value, style)));
     return !value.empty() && value != "normal" && value != "none";
 }
 
 int parse_generated_length_px(std::string value,
                               const detail::ResolvedStyle& style) {
-    value = std::string(trim_css_ws(substitute_style_vars(value, style)));
+    value = std::string(detail::trim_css_ws(substitute_style_vars(value, style)));
     if (value.empty()) return 0;
 
     char* end = nullptr;
@@ -2626,6 +2675,10 @@ int hex_digit(char c) {
     return -1;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool parse_hex_color(std::string_view value, std::uint32_t& out) {
     if (value.empty() || value.front() != '#') return false;
     value.remove_prefix(1);
@@ -2659,6 +2712,9 @@ bool parse_hex_color(std::string_view value, std::uint32_t& out) {
     }
     return false;
 }
+}  // namespace detail
+namespace {
+
 
 std::string ascii_lower(std::string_view s) {
     std::string out;
@@ -2708,7 +2764,7 @@ std::uint8_t channel_to_u8(double channel) {
 bool parse_function_color(std::string_view value, std::uint32_t& out) {
     const auto open = value.find('(');
     if (open == std::string_view::npos || value.back() != ')') return false;
-    const auto name = ascii_lower(trim_css_ws(value.substr(0, open)));
+    const auto name = ascii_lower(detail::trim_css_ws(value.substr(0, open)));
     if (name != "rgb" && name != "rgba") return false;
 
     std::vector<double> components;
@@ -2728,10 +2784,14 @@ bool parse_function_color(std::string_view value, std::uint32_t& out) {
     return true;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool parse_generated_color(std::string value,
                            const detail::ResolvedStyle& style,
                            std::uint32_t& out) {
-    value = std::string(trim_css_ws(substitute_style_vars(value, style)));
+    value = std::string(detail::trim_css_ws(substitute_style_vars(value, style)));
     const auto lower = ascii_lower(value);
     if (lower.empty()) return false;
     if (lower == "currentcolor") {
@@ -2754,8 +2814,11 @@ bool parse_generated_color(std::string value,
         out = detail::pack_rgba(Color{128, 128, 128, 255});
         return true;
     }
-    return parse_hex_color(value, out) || parse_function_color(value, out);
+    return detail::parse_hex_color(value, out) || parse_function_color(value, out);
 }
+}  // namespace detail
+namespace {
+
 
 // ═══════════════════ Inline SVG (general subset) ═══════════════════
 // Renders inline <svg> children through the Painter's vector-path API.
@@ -2825,7 +2888,7 @@ bool parse_svg_transform(std::string_view s, SvgXf& out) {
         if (open == std::string_view::npos) return any;
         const auto close = s.find(')', open + 1);
         if (close == std::string_view::npos) return any;
-        const auto name = ascii_lower(trim_css_ws(s.substr(pos, open - pos)));
+        const auto name = ascii_lower(detail::trim_css_ws(s.substr(pos, open - pos)));
         std::vector<double> n;
         parse_number_list(s.substr(open + 1, close - open - 1), n);
         SvgXf m;
@@ -3270,7 +3333,7 @@ struct SvgGradientDef {
 
 double parse_svg_coord(lxb_dom_element_t* elem, std::string_view name,
                        double fallback) {
-    const std::string v = attr_string(elem, name);
+    const std::string v = detail::attr_string(elem, name);
     if (v.empty()) return fallback;
     char* end = nullptr;
     const double n = std::strtod(v.c_str(), &end);
@@ -3289,12 +3352,12 @@ void collect_svg_gradients(
         auto* elem = lxb_dom_interface_element(node);
         const auto tag = ascii_lower(tag_name(elem));
         if (tag == "lineargradient" || tag == "radialgradient") {
-            const std::string id = attr_string(elem, "id");
+            const std::string id = detail::attr_string(elem, "id");
             if (id.empty()) continue;
             SvgGradientDef def;
             def.radial = (tag == "radialgradient");
             def.user_space =
-                attr_string(elem, "gradientUnits") == "userSpaceOnUse";
+                detail::attr_string(elem, "gradientUnits") == "userSpaceOnUse";
             if (def.radial) {
                 def.cx = parse_svg_coord(elem, "cx", 0.5);
                 def.cy = parse_svg_coord(elem, "cy", 0.5);
@@ -3315,7 +3378,7 @@ void collect_svg_gradients(
                 stop.offset =
                     std::clamp(parse_svg_coord(stop_elem, "offset", 0.0),
                                0.0, 1.0);
-                stop.color = attr_string(stop_elem, "stop-color");
+                stop.color = detail::attr_string(stop_elem, "stop-color");
                 if (stop.color.empty()) stop.color = "black";
                 stop.opacity =
                     std::clamp(parse_svg_coord(stop_elem, "stop-opacity",
@@ -3378,7 +3441,7 @@ bool resolve_svg_paint(const std::string& raw_value,
                        const SvgPathSink& sink,
                        const SvgRenderCtx& ctx,
                        PathPaint& out) {
-    const std::string value(trim_css_ws(raw_value));
+    const std::string value(detail::trim_css_ws(raw_value));
     if (value.empty()) return false;
     const auto lower = ascii_lower(value);
     if (lower == "none" || lower == "transparent") return false;
@@ -3386,7 +3449,7 @@ bool resolve_svg_paint(const std::string& raw_value,
     if (lower.rfind("url(", 0) == 0) {
         const auto close = value.find(')');
         if (close == std::string::npos) return false;
-        std::string ref(trim_css_ws(
+        std::string ref(detail::trim_css_ws(
             std::string_view(value).substr(4, close - 4)));
         if (!ref.empty() && (ref.front() == '\'' || ref.front() == '"')) {
             ref = ref.substr(1, ref.size() >= 2 ? ref.size() - 2 : 0);
@@ -3403,7 +3466,7 @@ bool resolve_svg_paint(const std::string& raw_value,
         for (const auto& stop : def.stops) {
             if (out.stop_count >= PathPaint::kMaxStops) break;
             std::uint32_t rgba = 0;
-            if (!parse_generated_color(stop.color, ctx.style, rgba)) {
+            if (!detail::parse_generated_color(stop.color, ctx.style, rgba)) {
                 continue;
             }
             out.offsets[out.stop_count] = static_cast<float>(stop.offset);
@@ -3458,7 +3521,7 @@ bool resolve_svg_paint(const std::string& raw_value,
     }
 
     std::uint32_t rgba = 0;
-    if (!parse_generated_color(value, ctx.style, rgba)) return false;
+    if (!detail::parse_generated_color(value, ctx.style, rgba)) return false;
     const Color c = svg_color_with_alpha(rgba, alpha_mult);
     if (c.a == 0) return false;
     out = PathPaint::solid(c);
@@ -3515,7 +3578,7 @@ void emit_svg_rect(SvgPathSink& sink, double x, double y,
 
 bool emit_svg_poly(SvgPathSink& sink, lxb_dom_element_t* elem, bool close) {
     std::vector<double> pts;
-    if (!parse_number_list(attr_string(elem, "points"), pts) ||
+    if (!parse_number_list(detail::attr_string(elem, "points"), pts) ||
         pts.size() < 4) {
         return false;
     }
@@ -3545,10 +3608,10 @@ void render_svg_element_tree(lxb_dom_element_t* parent,
         }
 
         SvgInherited state = inherited;
-        if (const std::string v = attr_string(elem, "fill"); !v.empty()) {
+        if (const std::string v = detail::attr_string(elem, "fill"); !v.empty()) {
             state.fill = v;
         }
-        if (const std::string v = attr_string(elem, "stroke"); !v.empty()) {
+        if (const std::string v = detail::attr_string(elem, "stroke"); !v.empty()) {
             state.stroke = v;
         }
         state.opacity *= std::clamp(
@@ -3563,21 +3626,21 @@ void render_svg_element_tree(lxb_dom_element_t* parent,
             0.0, 1.0);
         state.stroke_width = parse_svg_number_attr(elem, "stroke-width",
                                                    state.stroke_width);
-        if (const std::string v = attr_string(elem, "stroke-linecap");
+        if (const std::string v = detail::attr_string(elem, "stroke-linecap");
             !v.empty()) {
             const auto lc = ascii_lower(v);
             state.cap = lc == "round"    ? LineCap::Round
                         : lc == "square" ? LineCap::Square
                                          : LineCap::Butt;
         }
-        if (const std::string v = attr_string(elem, "stroke-linejoin");
+        if (const std::string v = detail::attr_string(elem, "stroke-linejoin");
             !v.empty()) {
             const auto lj = ascii_lower(v);
             state.join = lj == "round"   ? LineJoin::Round
                          : lj == "bevel" ? LineJoin::Bevel
                                          : LineJoin::Miter;
         }
-        if (const std::string v = attr_string(elem, "transform");
+        if (const std::string v = detail::attr_string(elem, "transform");
             !v.empty()) {
             SvgXf local;
             if (parse_svg_transform(v, local)) {
@@ -3641,7 +3704,7 @@ void render_svg_element_tree(lxb_dom_element_t* parent,
 
         if (!have_local) {
             if (tag == "path") {
-                if (!build_svg_path_data(attr_string(elem, "d"), sink)) {
+                if (!build_svg_path_data(detail::attr_string(elem, "d"), sink)) {
                     if (cache_slot) cache_slot->local_cmds.clear();
                     continue;
                 }
@@ -3733,7 +3796,7 @@ void paint_inline_svg(detail::DocumentImpl& impl,
     double vb_y = 0.0;
     double vb_w = static_cast<double>(std::max(1, eff.w));
     double vb_h = static_cast<double>(std::max(1, eff.h));
-    (void) parse_svg_viewbox(attr_string(svg_elem, "viewBox"),
+    (void) parse_svg_viewbox(detail::attr_string(svg_elem, "viewBox"),
                              vb_x, vb_y, vb_w, vb_h);
     const double sx = static_cast<double>(eff.w) / vb_w;
     const double sy = static_cast<double>(eff.h) / vb_h;
@@ -3755,6 +3818,10 @@ void paint_inline_svg(detail::DocumentImpl& impl,
     render_svg_element_tree(svg_elem, ctx, base);
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 void paint_direct_child_svgs(detail::DocumentImpl& impl,
                              const Block& b,
                              const Rect& eff,
@@ -3771,6 +3838,9 @@ void paint_direct_child_svgs(detail::DocumentImpl& impl,
         }
     }
 }
+}  // namespace detail
+namespace {
+
 #endif
 
 void scan_generated_content_rules(lxb_css_parser_t* parser,
@@ -3791,7 +3861,7 @@ void scan_generated_content_rules(lxb_css_parser_t* parser,
         const auto padding_right_value =
             find_decl_value(raw.decls, "padding-right");
 
-        std::string_view sel_text = trim_css_ws(raw.selector);
+        std::string_view sel_text = detail::trim_css_ws(raw.selector);
         const lxb_css_rule_declaration_list_t* parsed_decls = nullptr;
         bool parsed_decls_attempted = false;
         auto decls_for_raw_rule = [&]() -> const lxb_css_rule_declaration_list_t* {
@@ -3809,7 +3879,7 @@ void scan_generated_content_rules(lxb_css_parser_t* parser,
 
         while (!sel_text.empty()) {
             const auto comma = find_top_level_comma(sel_text);
-            const auto group = trim_css_ws(sel_text.substr(
+            const auto group = detail::trim_css_ws(sel_text.substr(
                 0,
                 comma == std::string_view::npos ? sel_text.size() : comma));
             if (!group.empty()) {
@@ -3830,7 +3900,7 @@ void scan_generated_content_rules(lxb_css_parser_t* parser,
                 }
             }
             if (comma == std::string_view::npos) break;
-            sel_text = trim_css_ws(sel_text.substr(comma + 1));
+            sel_text = detail::trim_css_ws(sel_text.substr(comma + 1));
         }
     }
 
@@ -3926,7 +3996,7 @@ std::uint32_t fnv1a_32(std::string_view s) {
 }
 
 bool parse_keyframe_offset(std::string_view token, float& out) {
-    token = trim_css_ws(token);
+    token = detail::trim_css_ws(token);
     if (token == "from") {
         out = 0.0f;
         return true;
@@ -3937,7 +4007,7 @@ bool parse_keyframe_offset(std::string_view token, float& out) {
     }
     if (token.empty() || token.back() != '%') return false;
     token.remove_suffix(1);
-    token = trim_css_ws(token);
+    token = detail::trim_css_ws(token);
     if (token.empty()) return false;
 
     std::string tmp(token);
@@ -3952,15 +4022,15 @@ bool parse_keyframe_offset(std::string_view token, float& out) {
 
 std::vector<float> parse_keyframe_selector_offsets(std::string_view selector) {
     std::vector<float> offsets;
-    selector = trim_css_ws(selector);
+    selector = detail::trim_css_ws(selector);
     while (!selector.empty()) {
         const auto comma = find_top_level_comma(selector);
-        const auto piece = trim_css_ws(selector.substr(
+        const auto piece = detail::trim_css_ws(selector.substr(
             0, comma == std::string_view::npos ? selector.size() : comma));
         float offset = 0.0f;
         if (parse_keyframe_offset(piece, offset)) offsets.push_back(offset);
         if (comma == std::string_view::npos) break;
-        selector = trim_css_ws(selector.substr(comma + 1));
+        selector = detail::trim_css_ws(selector.substr(comma + 1));
     }
     return offsets;
 }
@@ -3983,7 +4053,7 @@ void scan_keyframe_blocks(lxb_css_stylesheet_t* sst,
         if (at_name != "keyframes" && at_name != "-webkit-keyframes") continue;
         if (!custom->block.data || custom->block.length == 0) continue;
 
-        auto name = strip_css_quotes(std::string(trim_css_ws(std::string_view(
+        auto name = strip_css_quotes(std::string(detail::trim_css_ws(std::string_view(
             reinterpret_cast<const char*>(custom->prelude.data),
             custom->prelude.length))));
         if (name.empty() || name == "none") continue;
@@ -4248,7 +4318,7 @@ bool element_matches_compound(lxb_dom_element_t* elem,
                 }
                 break;
             case SimpleSelector::Kind::Attr:
-                if (!has_attr(elem, s.name)) return false;
+                if (!detail::has_attr(elem, s.name)) return false;
                 if (s.attr_value_set &&
                     attr_view(elem, s.name) != s.value) {
                     return false;
@@ -4400,7 +4470,7 @@ void append_generated_content_for_element(
         }
         if (!rule.color_value.empty()) {
             std::uint32_t parsed = color_rgba;
-            if (parse_generated_color(rule.color_value, elem_style, parsed)) {
+            if (detail::parse_generated_color(rule.color_value, elem_style, parsed)) {
                 has_color = true;
                 color_rgba = parsed;
                 pseudo_style.animated.color_rgba = parsed;
@@ -4408,14 +4478,14 @@ void append_generated_content_for_element(
         }
         if (!rule.background_value.empty()) {
             std::uint32_t parsed = pseudo_style.animated.background_rgba;
-            if (parse_generated_color(rule.background_value, elem_style,
+            if (detail::parse_generated_color(rule.background_value, elem_style,
                                       parsed)) {
                 pseudo_style.animated.background_rgba = parsed;
             }
         }
         if (!rule.background_color_value.empty()) {
             std::uint32_t parsed = pseudo_style.animated.background_rgba;
-            if (parse_generated_color(rule.background_color_value, elem_style,
+            if (detail::parse_generated_color(rule.background_color_value, elem_style,
                                       parsed)) {
                 pseudo_style.animated.background_rgba = parsed;
             }
@@ -4437,7 +4507,7 @@ void append_generated_content_for_element(
     // the cascade winner decides (e.g. the bundle's title-only float rules
     // kill the active-tab accent bars with `--dock-tab:before{display:none}`).
     if (!display_value.empty() &&
-        trim_css_ws(substitute_style_vars(display_value, elem_style)) ==
+        detail::trim_css_ws(substitute_style_vars(display_value, elem_style)) ==
             "none") {
         return;
     }
@@ -4558,8 +4628,8 @@ void collect_blocks(detail::DocumentImpl& impl,
 
         if (!is_block_tag(tag)) {
             auto rs_inline = impl.resolver->resolve(elem, parent_style);
-            const auto elem_id_attr = attr_string(elem, "id");
-            const auto cls_attr = split_classes(attr_string(elem, "class"));
+            const auto elem_id_attr = detail::attr_string(elem, "id");
+            const auto cls_attr = split_classes(detail::attr_string(elem, "class"));
             apply_font_family_fills(impl, tag, elem_id_attr, cls_attr,
                                     parent_idx,
                                     /*state_bits=*/0,
@@ -4624,8 +4694,8 @@ void collect_blocks(detail::DocumentImpl& impl,
         // up to but not including this element â€” exactly what
         // ancestor_chain_matches needs to walk.
         const auto sb_at_collect = impl.style_store.state_bits(id);
-        const auto elem_id_attr  = attr_string(elem, "id");
-        const auto cls_attr      = split_classes(attr_string(elem, "class"));
+        const auto elem_id_attr  = detail::attr_string(elem, "id");
+        const auto cls_attr      = split_classes(detail::attr_string(elem, "class"));
         const auto elem_attrs    = element_attrs(elem);
 
         if (!impl.pseudo_rules.empty()) {
@@ -4745,21 +4815,21 @@ void collect_blocks(detail::DocumentImpl& impl,
         b.custom_props = rs.custom_props;
         b.box_shadows = rs.box_shadows;
         if (b.tag == "img") {
-            b.image_src = attr_string(elem, "src");
+            b.image_src = detail::attr_string(elem, "src");
         }
         if (b.tag == "input") {
-            b.input_type  = attr_string(elem, "type");
-            b.role_attr   = attr_string(elem, "role");
-            b.is_checked  = has_attr(elem, "checked");
-            b.is_disabled = has_attr(elem, "disabled");
+            b.input_type  = detail::attr_string(elem, "type");
+            b.role_attr   = detail::attr_string(elem, "role");
+            b.is_checked  = detail::has_attr(elem, "checked");
+            b.is_disabled = detail::has_attr(elem, "disabled");
         }
         if (b.tag == "textarea") {
             b.text_control = true;
-            b.is_disabled = has_attr(elem, "disabled");
-            b.placeholder = attr_string(elem, "placeholder");
+            b.is_disabled = detail::has_attr(elem, "disabled");
+            b.placeholder = detail::attr_string(elem, "placeholder");
         } else if (b.tag == "input") {
             b.text_control = input_type_accepts_text(b.input_type);
-            b.placeholder = attr_string(elem, "placeholder");
+            b.placeholder = detail::attr_string(elem, "placeholder");
         }
         b.parent_idx = effective_parent_idx;
         if ((rs.computed.display == detail::ComputedStyle::Display::Grid ||
@@ -4800,7 +4870,7 @@ void collect_blocks(detail::DocumentImpl& impl,
                         elem_node);
                     leaf.text_value = live != impl.live_text_values.end()
                         ? live->second
-                        : attr_string(elem, "value");
+                        : detail::attr_string(elem, "value");
                     auto caret = impl.live_text_carets.find(elem_node);
                     leaf.caret_offset = caret != impl.live_text_carets.end()
                         ? std::min(caret->second, leaf.text_value.size())
@@ -5136,8 +5206,8 @@ void Document::set_html(std::string_view html) {
         }
         auto* body_elem = lxb_dom_interface_element(body_node);
         impl_->root_style = impl_->resolver->resolve(body_elem, html_style);
-        apply_font_family_fills(*impl_, "body", attr_string(body_elem, "id"),
-                                split_classes(attr_string(body_elem, "class")),
+        apply_font_family_fills(*impl_, "body", detail::attr_string(body_elem, "id"),
+                                split_classes(detail::attr_string(body_elem, "class")),
                                 /*parent_idx=*/-1,
                                 /*state_bits=*/0,
                                 impl_->root_style);
@@ -5289,14 +5359,6 @@ void attach_matching_media_blocks_for_viewport(detail::DocumentImpl& impl) {
 
 namespace {
 #if !defined(AFFINEUI_STUB_BUILD)
-TextControlGeometry text_control_geometry(const detail::DocumentImpl& impl,
-                                          int idx,
-                                          Painter& painter);
-TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
-                                          int idx,
-                                          const TextControlGeometry& g,
-                                          const Block& block,
-                                          Painter& painter);
 void dock_trace_state(detail::DocumentImpl& impl, std::string_view reason);
 void dock_trace_state_if_changed(detail::DocumentImpl& impl,
                                  std::string_view reason);
@@ -5397,7 +5459,7 @@ void Document::layout(int viewport_width, int viewport_height,
 #if !defined(AFFINEUI_STUB_BUILD)
     if (measurer != nullptr) {
         impl_->last_measurer = measurer;
-        ensure_font_faces_registered(*impl_, *measurer);
+        detail::ensure_font_faces_registered(*impl_, *measurer);
     }
 #endif
 
@@ -5933,9 +5995,9 @@ void Document::layout(int viewport_width, int viewport_height,
         for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
             auto& b = impl_->blocks[i];
             if (!b.text_control || b.placeholder_visible) continue;
-            const auto g = text_control_geometry(
+            const auto g = detail::text_control_geometry(
                 *impl_, static_cast<int>(i), *measurer);
-            ensure_text_layout_entry(
+            detail::ensure_text_layout_entry(
                 *impl_, static_cast<int>(i), g, b, *measurer);
         }
     }
@@ -5956,40 +6018,14 @@ void Document::layout(int viewport_width, int viewport_height,
 }
 
 // Forward decls â€” definitions live in the anonymous namespace below,
-// alongside the dispatch helpers. Used by Document::draw to compute
-// scroll offsets + clip rects for the paint walk.
+// alongside the dispatch helpers. (Cross-file helpers formerly declared
+// here now live in internal/document_impl.h under namespace detail.)
 namespace {
 #if !defined(AFFINEUI_STUB_BUILD)
 bool block_is_scrollable_y(const detail::DocumentImpl& impl, int idx);
 bool block_clips_overflow(const detail::DocumentImpl& impl, int idx);
-int  nearest_clip_ancestor_for_block(const detail::DocumentImpl& impl,
-                                     int idx);
-int  scroll_offset_y_for(const std::vector<Block>& blocks,
-                         const detail::StyleStore& styles, int idx);
-int  effective_z_index(const detail::DocumentImpl& impl, int idx);
-struct ScrollbarGeometry {
-    Rect track{};
-    Rect thumb{};
-    int scroll_range{0};
-    int thumb_travel{0};
-};
-bool vertical_scrollbar_geometry(const detail::DocumentImpl& impl,
-                                 int idx,
-                                 ScrollbarGeometry& out);
 const KeyframeBlock* find_keyframes(const detail::DocumentImpl& impl,
                                     std::uint32_t name_hash);
-bool has_text_selection(const Block& block);
-std::pair<std::size_t, std::size_t> normalized_selection(const Block& block);
-TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
-                                          int idx,
-                                          const TextControlGeometry& g,
-                                          const Block& block,
-                                          Painter& painter);
-float aligned_line_origin_x(const TextControlGeometry& g,
-                            const TextLayoutEntry& entry,
-                            std::uint16_t line);
-float aligned_line_origin_x(const TextLayoutEntry& entry,
-                            std::uint16_t line);
 #endif
 }  // namespace
 
@@ -6197,7 +6233,7 @@ Mat2x3 effective_transform_for(const detail::DocumentImpl& impl, int idx) {
     Mat2x3 combined = Mat2x3::identity();
     for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
         const auto& b = impl.blocks[static_cast<std::size_t>(*it)];
-        const int dy = scroll_offset_y_for(impl.blocks, impl.style_store, *it);
+        const int dy = detail::scroll_offset_y_for(impl.blocks, impl.style_store, *it);
         const RectF eff{
             b.bounds_f.x,
             b.bounds_f.y - static_cast<float>(dy),
@@ -6211,46 +6247,8 @@ Mat2x3 effective_transform_for(const detail::DocumentImpl& impl, int idx) {
 }
 #endif
 
-namespace {
-
-// Defined later in this TU (live-control section); the knob chrome
-// painter below shares their geometry conventions.
-double normalized_control_value(double value, double min, double max);
-double decius_knob_angle(double min, double max, double value);
-
-// Append a circular arc as ≤90° cubic segments onto a kPath command
-// stream (caller seeds the leading kPathMove). Y-down coordinates,
-// angles in degrees, increasing = clockwise on screen — the same
-// convention as decius_knob_ring_point. Negative sweeps work (bipolar
-// knobs left of center).
-void append_arc_cubics(std::vector<float>& cmds, float cx, float cy,
-                       float r, double a0_deg, double a1_deg) {
-    constexpr double pi = 3.14159265358979323846;
-    const double total = (a1_deg - a0_deg) * pi / 180.0;
-    if (total == 0.0) return;
-    const int segs = std::max(
-        1, static_cast<int>(std::ceil(std::abs(total) / (pi * 0.5))));
-    double phi = a0_deg * pi / 180.0;
-    const double step = total / segs;
-    for (int s = 0; s < segs; ++s) {
-        const double p0 = phi;
-        const double p1 = phi + step;
-        const double k = 4.0 / 3.0 * std::tan((p1 - p0) * 0.25) *
-                         static_cast<double>(r);
-        const float x0 = cx + r * static_cast<float>(std::cos(p0));
-        const float y0 = cy + r * static_cast<float>(std::sin(p0));
-        const float x3 = cx + r * static_cast<float>(std::cos(p1));
-        const float y3 = cy + r * static_cast<float>(std::sin(p1));
-        const float c1x = x0 - static_cast<float>(std::sin(p0) * k);
-        const float c1y = y0 + static_cast<float>(std::cos(p0) * k);
-        const float c2x = x3 + static_cast<float>(std::sin(p1) * k);
-        const float c2y = y3 - static_cast<float>(std::cos(p1) * k);
-        cmds.insert(cmds.end(),
-                    {kPathCubic, c1x, c1y, c2x, c2y, x3, y3});
-        phi = p1;
-    }
-}
-
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 // Numeric data-* attribute straight off the element (paint-time read;
 // block.attrs can lag live-control writes within a frame).
 double elem_attr_num(lxb_dom_element_t* elem, std::string_view name,
@@ -6265,1728 +6263,11 @@ double elem_attr_num(lxb_dom_element_t* elem, std::string_view name,
     const double parsed = std::strtod(buf, &end);
     return end == buf ? fallback : parsed;
 }
+}  // namespace detail
+namespace {
+
 
 }  // namespace
-
-void Document::draw(Painter& painter) {
-    // Document::draw paints through *any* Painter â€” could be the real
-    // NanoVGPainter, could be a DisplayListBuilder that records into
-    // a DisplayList. The App layer decides which.
-    //
-    // This is the "paint" stage of the five-stage pipeline. It walks
-    // the box tree, fetches per-element ResolvedStyle from the
-    // StyleStore, and emits Painter calls. No GL calls happen here
-    // directly â€” that's the rasterize stage's job.
-    //
-    // Scroll: per-block, sum ancestor scroll_y to get the effective
-    // draw position. If any ancestor is a scrollable container, push
-    // its bounds as the clip rect for the duration of this block's
-    // draws so overflowing children stay inside the container.
-
-    // Body background fills the page. <body> is the implicit root
-    // and isn't in the block list (collect_blocks starts walking its
-    // children), so its bg needs an explicit pre-pass. The clear
-    // color is the window's, not the page's â€” without this, body's
-// bg-color silently does nothing.
-#if !defined(AFFINEUI_STUB_BUILD)
-    ensure_font_faces_registered(*impl_, painter);
-
-    if (impl_->doc) {
-        auto* body = lxb_html_document_body_element(impl_->doc);
-        if (body && impl_->resolver) {
-            const auto rs = impl_->resolver->resolve(
-                lxb_dom_interface_element(lxb_dom_interface_node(body)),
-                impl_->root_style);
-            if ((rs.animated.background_rgba & 0xFFu) != 0) {
-                painter.fill_rect(
-                    Rect{0, 0, impl_->content_size.width,
-                         impl_->content_size.height},
-                    detail::unpack_rgba(rs.animated.background_rgba));
-            }
-        }
-    }
-#endif
-
-    auto& child_counts = impl_->draw_child_counts;
-    auto& first_child_indices = impl_->draw_first_child_indices;
-    child_counts.assign(impl_->blocks.size(), 0);
-    first_child_indices.assign(impl_->blocks.size(), -1);
-    for (std::size_t child_idx = 0; child_idx < impl_->blocks.size(); ++child_idx) {
-        const auto& b = impl_->blocks[child_idx];
-        if (b.parent_idx >= 0 &&
-            static_cast<std::size_t>(b.parent_idx) < child_counts.size()) {
-            const auto parent_idx = static_cast<std::size_t>(b.parent_idx);
-            if (first_child_indices[parent_idx] < 0) {
-                first_child_indices[parent_idx] = static_cast<int>(child_idx);
-            }
-            ++child_counts[parent_idx];
-        }
-    }
-
-    auto& list_ordinals = impl_->draw_list_ordinals;
-    auto& list_counts_by_parent = impl_->draw_list_counts_by_parent;
-    list_ordinals.assign(impl_->blocks.size(), 0);
-    list_counts_by_parent.assign(impl_->blocks.size() + 1, 0);
-    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
-        const auto& b = impl_->blocks[i];
-        const auto& cs = impl_->style_store.computed(b.id);
-        if (cs.display == detail::ComputedStyle::Display::ListItem) {
-            const auto parent_slot =
-                static_cast<std::size_t>(std::max(-1, b.parent_idx) + 1);
-            list_ordinals[i] = ++list_counts_by_parent[parent_slot];
-        }
-    }
-
-    auto& paint_order = impl_->draw_paint_order;
-    paint_order.resize(impl_->blocks.size());
-    std::iota(paint_order.begin(), paint_order.end(), 0);
-#if !defined(AFFINEUI_STUB_BUILD)
-    std::stable_sort(paint_order.begin(), paint_order.end(),
-        [&](int a, int b) {
-            const int za = effective_z_index(*impl_, a);
-            const int zb = effective_z_index(*impl_, b);
-            if (za != zb) return za < zb;
-            return a < b;
-        });
-#endif
-
-    // Two paint passes per z level (CSS 2.1 Appendix E): every block's
-    // background/border at this stacking level paints before ANY of the
-    // level's text. Glyph ink that overhangs its box (descenders in
-    // line-height:1 menu rows) can then never be overpainted by the next
-    // sibling's background — matching browser painting order.
-    enum class BlockPaintPhase : std::uint8_t { Boxes, Text };
-    std::vector<std::pair<int, BlockPaintPhase>> phased_order;
-    phased_order.reserve(paint_order.size() * 2);
-    {
-        std::size_t group_begin = 0;
-        while (group_begin < paint_order.size()) {
-            std::size_t group_end = group_begin;
-#if !defined(AFFINEUI_STUB_BUILD)
-            const int group_z =
-                effective_z_index(*impl_, paint_order[group_begin]);
-            while (group_end < paint_order.size() &&
-                   effective_z_index(*impl_, paint_order[group_end]) ==
-                       group_z) {
-                ++group_end;
-            }
-#else
-            group_end = paint_order.size();
-#endif
-            for (std::size_t k = group_begin; k < group_end; ++k) {
-                phased_order.emplace_back(paint_order[k],
-                                          BlockPaintPhase::Boxes);
-            }
-            for (std::size_t k = group_begin; k < group_end; ++k) {
-                phased_order.emplace_back(paint_order[k],
-                                          BlockPaintPhase::Text);
-            }
-            group_begin = group_end;
-        }
-    }
-
-    // display:none subtree suppression. Hidden subtrees keep their Blocks
-    // (collection retains them so reveals are pure restyles), and unlike
-    // `visibility`, display is NOT inherited — a hidden menu's rows still
-    // compute display:flex. Propagate none-ness down the tree so no
-    // descendant box or glyph of a hidden subtree ever paints (Yoga zeroes
-    // their bounds, but text ink is drawn from the baseline and would
-    // otherwise smear at the origin). Blocks are appended in DFS order, so
-    // parent_idx < i and one forward pass settles the whole vector.
-    std::vector<char> in_none_subtree(impl_->blocks.size(), 0);
-    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
-        const auto& blk = impl_->blocks[i];
-        const bool parent_none =
-            blk.parent_idx >= 0 &&
-            in_none_subtree[static_cast<std::size_t>(blk.parent_idx)] != 0;
-        in_none_subtree[i] =
-            parent_none ||
-            impl_->style_store.computed(blk.id).display ==
-                detail::ComputedStyle::Display::None;
-    }
-
-    for (const auto& [paint_idx, phase] : phased_order) {
-        const std::size_t i = static_cast<std::size_t>(paint_idx);
-        const auto& b  = impl_->blocks[i];
-        if (in_none_subtree[i]) continue;
-        // Synthetic line-boxes are layout-only. They don't carry
-        // any visual style â€” skip the whole draw stanza.
-        if (b.synthetic) continue;
-        const auto& cs = impl_->style_store.computed(b.id);
-#if !defined(AFFINEUI_STUB_BUILD)
-        auto current_an = b.base_animated;
-        float anim_t = 0.0f;
-        bool anim_applies = false;
-        const double elapsed_s = std::chrono::duration<double>(
-            std::chrono::steady_clock::now() - b.animation_epoch).count();
-        (void) animation_progress_at(b.animation, elapsed_s, anim_t,
-                                     anim_applies);
-        if (anim_applies) current_an = sample_keyframes(*impl_, b, anim_t);
-        impl_->style_store.animated(b.id) = current_an;
-#endif
-        const auto& an = impl_->style_store.animated(b.id);
-
-        // CSS `display:none` removes the element from layout AND from
-        // paint â€” nothing is drawn, no space is reserved.
-        if (cs.display == detail::ComputedStyle::Display::None) {
-            continue;
-        }
-
-        // CSS `visibility:hidden` (or collapse): the box keeps its
-        // layout space but paints nothing â€” neither this element nor
-        // its descendants (unless a descendant re-asserts
-        // visibility:visible, in which case that block's own
-        // cs.visibility will be Visible and it will paint normally).
-        using V = detail::ComputedStyle::Visibility;
-        if (cs.visibility == V::Hidden || cs.visibility == V::Collapse) {
-            continue;
-        }
-
-        const int dy = scroll_offset_y_for(impl_->blocks, impl_->style_store,
-                                           static_cast<int>(i));
-        const Rect eff{b.bounds.x, b.bounds.y - dy, b.bounds.w, b.bounds.h};
-
-#if !defined(AFFINEUI_STUB_BUILD)
-        const Mat2x3 paint_transform =
-            effective_transform_for(*impl_, static_cast<int>(i));
-        const bool has_transform = !paint_transform.is_identity();
-        if (has_transform) painter.push_transform(paint_transform);
-#else
-        const bool has_transform = false;
-#endif
-
-        // Find the nearest ancestor whose overflow clips children
-        // (overflow: hidden | clip | scroll | auto). CSS clips descendant
-        // paint to the padding box, not the border box, so the ancestor's
-        // own border remains visible above clipped children.
-        const int clip_idx =
-            nearest_clip_ancestor_for_block(*impl_, static_cast<int>(i));
-        const bool clipped = (clip_idx >= 0);
-        Rect active_clip_rect{};
-        if (clipped) {
-            const auto& cb = impl_->blocks[static_cast<std::size_t>(clip_idx)];
-            const auto& ccs = impl_->style_store.computed(cb.id);
-            const int clip_dy = scroll_offset_y_for(
-                impl_->blocks, impl_->style_store, clip_idx);
-            active_clip_rect = Rect{
-                cb.bounds.x + ccs.used_border_left(),
-                cb.bounds.y - clip_dy + ccs.used_border_top(),
-                std::max(0, cb.bounds.w - ccs.used_border_left() - ccs.used_border_right()),
-                std::max(0, cb.bounds.h - ccs.used_border_top() - ccs.used_border_bottom()),
-            };
-            painter.push_clip(active_clip_rect);
-        }
-
-        static const bool paint_trace =
-            std::getenv("AFFINEUI_PAINT_TRACE") != nullptr;
-        if (paint_trace && block_has_class(b, "dcs-menu__sub")) {
-            std::fprintf(stderr,
-                         "[paint %zu] sub eff=%d,%d %dx%d clipped=%d "
-                         "clip=%d,%d %dx%d bg=%08x border=%08x opacity=%.2f "
-                         "anim=%d\n",
-                         i, eff.x, eff.y, eff.w, eff.h, clipped ? 1 : 0,
-                         active_clip_rect.x, active_clip_rect.y,
-                         active_clip_rect.w, active_clip_rect.h,
-                         an.background_rgba, an.border_rgba, an.opacity,
-                         b.animation.active ? 1 : 0);
-        }
-
-        // CSS `opacity` â€” composite this element's entire subtree at a
-        // group alpha. NanoVG's nvgGlobalAlpha multiplies onto whatever
-        // alpha is currently set, so save/restore gives clean isolation.
-        float effective_opacity = an.opacity;
-        for (int ai = b.parent_idx; ai >= 0; ) {
-            const auto& ab = impl_->blocks[static_cast<std::size_t>(ai)];
-            effective_opacity *= impl_->style_store.animated(ab.id).opacity;
-            ai = ab.parent_idx;
-        }
-        const bool has_opacity = (effective_opacity < 1.0f - 1e-5f);
-        if (has_opacity) painter.push_alpha(effective_opacity);
-
-        const float r_tl = detail::resolve_border_radius_px(
-            cs.border_radius_top_left, eff.w, eff.h);
-        const float r_tr = detail::resolve_border_radius_px(
-            cs.border_radius_top_right, eff.w, eff.h);
-        const float r_br = detail::resolve_border_radius_px(
-            cs.border_radius_bot_right, eff.w, eff.h);
-        const float r_bl = detail::resolve_border_radius_px(
-            cs.border_radius_bot_left, eff.w, eff.h);
-        const bool any_radius  = (r_tl > 0 || r_tr > 0 || r_br > 0 || r_bl > 0);
-        const bool uniform_r   = (r_tl == r_tr && r_tr == r_br && r_br == r_bl);
-        float bg_r_tl = r_tl;
-        float bg_r_tr = r_tr;
-        float bg_r_br = r_br;
-        float bg_r_bl = r_bl;
-        if (clipped) {
-            const auto& cb = impl_->blocks[static_cast<std::size_t>(clip_idx)];
-            const auto& ccs = impl_->style_store.computed(cb.id);
-            const float clip_tl = std::max(0.0f, detail::resolve_border_radius_px(
-                ccs.border_radius_top_left, cb.bounds.w, cb.bounds.h)
-                - static_cast<float>(std::max(ccs.used_border_left(), ccs.used_border_top())));
-            const float clip_tr = std::max(0.0f, detail::resolve_border_radius_px(
-                ccs.border_radius_top_right, cb.bounds.w, cb.bounds.h)
-                - static_cast<float>(std::max(ccs.used_border_right(), ccs.used_border_top())));
-            const float clip_br = std::max(0.0f, detail::resolve_border_radius_px(
-                ccs.border_radius_bot_right, cb.bounds.w, cb.bounds.h)
-                - static_cast<float>(std::max(ccs.used_border_right(), ccs.used_border_bottom())));
-            const float clip_bl = std::max(0.0f, detail::resolve_border_radius_px(
-                ccs.border_radius_bot_left, cb.bounds.w, cb.bounds.h)
-                - static_cast<float>(std::max(ccs.used_border_left(), ccs.used_border_bottom())));
-            constexpr float eps = 0.5f;
-            const float eff_r = static_cast<float>(eff.x + eff.w);
-            const float eff_b = static_cast<float>(eff.y + eff.h);
-            const float clip_r = static_cast<float>(active_clip_rect.x + active_clip_rect.w);
-            const float clip_b = static_cast<float>(active_clip_rect.y + active_clip_rect.h);
-            const bool touches_left = eff.x <= active_clip_rect.x + eps;
-            const bool touches_top = eff.y <= active_clip_rect.y + eps;
-            const bool touches_right = eff_r >= clip_r - eps;
-            const bool touches_bottom = eff_b >= clip_b - eps;
-            if (touches_left && touches_top) bg_r_tl = std::max(bg_r_tl, clip_tl);
-            if (touches_right && touches_top) bg_r_tr = std::max(bg_r_tr, clip_tr);
-            if (touches_right && touches_bottom) bg_r_br = std::max(bg_r_br, clip_br);
-            if (touches_left && touches_bottom) bg_r_bl = std::max(bg_r_bl, clip_bl);
-        }
-        const bool bg_any_radius =
-            (bg_r_tl > 0 || bg_r_tr > 0 || bg_r_br > 0 || bg_r_bl > 0);
-        const bool bg_uniform_r =
-            (bg_r_tl == bg_r_tr && bg_r_tr == bg_r_br && bg_r_br == bg_r_bl);
-        // Shared by both phases: text positioning needs the border insets.
-        const int used_border_top    = cs.used_border_top();
-        const int used_border_right  = cs.used_border_right();
-        const int used_border_bottom = cs.used_border_bottom();
-        const int used_border_left   = cs.used_border_left();
-        // ── PHASE: boxes ─────────────────────────────────────────────
-        // CSS painting order (2.1 Appendix E): within one stacking level,
-        // ALL block backgrounds/borders paint before ANY inline content.
-        // Interleaving them per block lets a sibling's background overpaint
-        // a neighbour's glyph overhang — e.g. menu rows at line-height:1,
-        // where the next row's hover highlight beheads descenders. The
-        // guarded region below (backgrounds, shadows, gradients, images,
-        // borders, focus rings) runs in the Boxes pass; text and widget
-        // chrome follow in the Text pass. (Intentionally not re-indented —
-        // the guard is the change, the stanzas are not.)
-        if (phase == BlockPaintPhase::Boxes) {
-        // Background color paints first; background images/gradients layer over it.
-        const bool native_color_square = block_has_class(b, "dcs-color-square");
-        const bool native_hue_bar = block_has_class(b, "dcs-hue-bar");
-        const bool native_color_picker_paint =
-            native_color_square || native_hue_bar;
-        const bool has_gradient =
-            !native_color_picker_paint &&
-            (an.gradient_kind != detail::AnimatedStyle::GradientKind::None);
-        const bool has_grid =
-            ((an.background_grid_rgba & 0xFFu) != 0 &&
-             an.background_grid_size_px != 0);
-        const bool has_bg = (an.background_rgba & 0xFFu) != 0;
-
-        // Resolve effective per-side border color. Explicit transparent is a
-        // valid override, so use AnimatedStyle's side bitmask rather than the
-        // color value itself as the "is set" marker.
-        using BS = detail::ComputedStyle::BorderStyle;
-        auto side_rgba = [&](std::uint32_t per_side_rgba,
-                             std::uint8_t side_bit,
-                             std::uint32_t fallback_rgba) -> std::uint32_t {
-            return (an.border_color_set & side_bit) ? per_side_rgba
-                                                    : fallback_rgba;
-        };
-
-        const std::uint32_t c_top    = side_rgba(an.border_top_rgba,
-            detail::AnimatedStyle::BorderTopColorSet, an.border_rgba);
-        const std::uint32_t c_right  = side_rgba(an.border_right_rgba,
-            detail::AnimatedStyle::BorderRightColorSet, an.border_rgba);
-        const std::uint32_t c_bottom = side_rgba(an.border_bottom_rgba,
-            detail::AnimatedStyle::BorderBottomColorSet, an.border_rgba);
-        const std::uint32_t c_left   = side_rgba(an.border_left_rgba,
-            detail::AnimatedStyle::BorderLeftColorSet, an.border_rgba);
-
-        // A side is visible if that side's border-style is non-None, the
-        // side has a non-zero used width, and its effective color is opaque.
-        auto side_visible = [&](int used_w, std::uint32_t rgba) -> bool {
-            return used_w > 0 && (rgba & 0xFFu) != 0;
-        };
-
-        const bool vis_top    = side_visible(used_border_top,    c_top);
-        const bool vis_right  = side_visible(used_border_right,  c_right);
-        const bool vis_bottom = side_visible(used_border_bottom, c_bottom);
-        const bool vis_left   = side_visible(used_border_left,   c_left);
-
-        const bool has_border = vis_top || vis_right || vis_bottom || vis_left;
-
-        // True when all visible sides share identical color and width, enabling
-        // the fast-path stroke_rect / stroke_rounded_rect for the Solid style.
-        const bool uniform_border =
-            has_border
-            && cs.border_style == BS::Solid
-            && c_top == c_right && c_right == c_bottom && c_bottom == c_left
-            && used_border_top == used_border_right &&
-               used_border_right == used_border_bottom &&
-               used_border_bottom == used_border_left;
-        const bool has_shadow = (an.shadow_rgba & 0xFFu) != 0
-            && (an.shadow_blur != 0 || an.shadow_spread != 0 ||
-                an.shadow_offset_x != 0 || an.shadow_offset_y != 0);
-
-        // Single radius for the shadow primitive (CSS box-shadow follows
-        // the largest corner; per-corner shadow radii are not a thing).
-        const float shadow_radius = any_radius
-            ? std::max({r_tl, r_tr, r_br, r_bl}) : 0.0f;
-        auto shadow_visible = [](const detail::BoxShadowLayer& layer) {
-            return (layer.rgba & 0xFFu) != 0 &&
-                (layer.blur != 0 || layer.spread != 0 ||
-                 layer.offset_x != 0 || layer.offset_y != 0);
-        };
-        auto adjust_inset_shadow_geometry = [&](Rect& shadow_rect,
-                                                float& layer_radius,
-                                                bool inset) {
-            if (inset) {
-                const int border_l = std::max(0, used_border_left);
-                const int border_t = std::max(0, used_border_top);
-                const int border_r = std::max(0, used_border_right);
-                const int border_b = std::max(0, used_border_bottom);
-                shadow_rect = Rect{
-                    eff.x + border_l,
-                    eff.y + border_t,
-                    std::max(0, eff.w - border_l - border_r),
-                    std::max(0, eff.h - border_t - border_b),
-                };
-                if (shadow_rect.w <= 0 || shadow_rect.h <= 0) return;
-                const int border_for_radius =
-                    std::max({border_l, border_t, border_r, border_b});
-                layer_radius = std::max(
-                    0.0f, shadow_radius - static_cast<float>(border_for_radius));
-            }
-        };
-        auto paint_shadow_layer = [&](const detail::BoxShadowLayer& layer,
-                                      bool inset) {
-            Rect shadow_rect = eff;
-            float layer_radius = shadow_radius;
-            adjust_inset_shadow_geometry(shadow_rect, layer_radius, inset);
-            if (shadow_rect.w <= 0 || shadow_rect.h <= 0) return;
-            painter.fill_box_shadow(
-                shadow_rect, layer_radius, detail::unpack_rgba(layer.rgba),
-                static_cast<float>(layer.offset_x),
-                static_cast<float>(layer.offset_y),
-                static_cast<float>(layer.blur),
-                static_cast<float>(layer.spread),
-                inset);
-        };
-        // Outset shadow paints BEHIND the background (CSS painting order).
-        if (b.box_shadows) {
-            for (auto it = b.box_shadows->rbegin();
-                 it != b.box_shadows->rend(); ++it) {
-                if (!it->inset && shadow_visible(*it)) {
-                    paint_shadow_layer(*it, false);
-                }
-            }
-        } else if (has_shadow && !an.shadow_inset) {
-            painter.fill_box_shadow(
-                eff, shadow_radius, detail::unpack_rgba(an.shadow_rgba),
-                static_cast<float>(an.shadow_offset_x),
-                static_cast<float>(an.shadow_offset_y),
-                static_cast<float>(an.shadow_blur),
-                static_cast<float>(an.shadow_spread),
-                /*inset=*/false);
-        }
-
-        // CSS `background-clip`: all background layers (color, gradients,
-        // grid) paint into the border box by default, or inset to the
-        // padding/content box. The transparent-border + padding-box pattern
-        // draws an inset highlight inside a full-bleed hit box (menu rows).
-        Rect bg_rect = eff;
-        float clip_r_tl = bg_r_tl;
-        float clip_r_tr = bg_r_tr;
-        float clip_r_br = bg_r_br;
-        float clip_r_bl = bg_r_bl;
-        using BgClip = detail::ComputedStyle::BackgroundClip;
-        if (cs.background_clip() != BgClip::BorderBox) {
-            int inset_l = used_border_left;
-            int inset_t = used_border_top;
-            int inset_r = used_border_right;
-            int inset_b = used_border_bottom;
-            if (cs.background_clip() == BgClip::ContentBox) {
-                inset_l += cs.padding_left;
-                inset_t += cs.padding_top;
-                inset_r += cs.padding_right;
-                inset_b += cs.padding_bottom;
-            }
-            bg_rect = Rect{eff.x + inset_l, eff.y + inset_t,
-                           std::max(0, eff.w - inset_l - inset_r),
-                           std::max(0, eff.h - inset_t - inset_b)};
-            clip_r_tl = std::max(0.0f, clip_r_tl - std::max(inset_l, inset_t));
-            clip_r_tr = std::max(0.0f, clip_r_tr - std::max(inset_r, inset_t));
-            clip_r_br = std::max(0.0f, clip_r_br - std::max(inset_r, inset_b));
-            clip_r_bl = std::max(0.0f, clip_r_bl - std::max(inset_l, inset_b));
-        }
-        const bool clip_any_radius =
-            (clip_r_tl > 0 || clip_r_tr > 0 || clip_r_br > 0 || clip_r_bl > 0);
-        const bool clip_uniform_r =
-            (clip_r_tl == clip_r_tr && clip_r_tr == clip_r_br &&
-             clip_r_br == clip_r_bl);
-
-        if (has_bg && bg_rect.w > 0 && bg_rect.h > 0) {
-            const Color bg = detail::unpack_rgba(an.background_rgba);
-            if      (!clip_any_radius)        painter.fill_rect(bg_rect, bg);
-            else if (clip_uniform_r)          painter.fill_rounded_rect(bg_rect, clip_r_tl, bg);
-            else                              painter.fill_rounded_rect_varying(
-                                                  bg_rect, clip_r_tl, clip_r_tr,
-                                                  clip_r_br, clip_r_bl, bg);
-        }
-
-        if (has_gradient && bg_rect.w > 0 && bg_rect.h > 0) {
-            const Color s0 = detail::unpack_rgba(an.gradient_stop0_rgba);
-            const Color s1 = detail::unpack_rgba(an.gradient_stop1_rgba);
-            if (an.gradient_kind == detail::AnimatedStyle::GradientKind::Linear) {
-                painter.fill_linear_gradient_rect(
-                    bg_rect, static_cast<float>(an.gradient_angle_deg),
-                    s0, s1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
-            } else if (an.gradient_kind == detail::AnimatedStyle::GradientKind::Radial) {
-                painter.fill_radial_gradient_rect(
-                    bg_rect, s0, s1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
-                    static_cast<float>(an.gradient_center_x_pct),
-                    static_cast<float>(an.gradient_center_y_pct),
-                    static_cast<float>(an.gradient_stop1_pos_pct));
-            } else if (an.gradient_kind == detail::AnimatedStyle::GradientKind::LinearStripes) {
-                painter.fill_linear_stripes_rect(
-                    bg_rect, static_cast<float>(an.gradient_angle_deg),
-                    s0, static_cast<float>(std::max(1, bg_rect.h)),
-                    clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
-            }
-        }
-
-        if (has_grid && bg_rect.w > 0 && bg_rect.h > 0) {
-            painter.fill_grid_rect(
-                bg_rect, detail::unpack_rgba(an.background_grid_rgba),
-                static_cast<float>(an.background_grid_size_px),
-                static_cast<float>(std::max<std::uint8_t>(
-                    1, an.background_grid_line_px)),
-                clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
-        }
-
-        if (native_color_square && eff.w > 0 && eff.h > 0) {
-            Color hue = Color::rgb(255, 0, 0);
-            if (b.custom_props) {
-                const auto it = b.custom_props->find("--hue");
-                if (it != b.custom_props->end()) {
-                    const std::string value(trim_css_ws(it->second));
-                    std::uint32_t rgba = 0;
-                    if (parse_hex_color(value, rgba)) {
-                        hue = detail::unpack_rgba(rgba);
-                    }
-                }
-            }
-            painter.fill_linear_gradient_rect(
-                eff, 90.0f, Color::rgb(255, 255, 255), hue,
-                bg_r_tl, bg_r_tr, bg_r_br, bg_r_bl);
-            painter.fill_linear_gradient_rect(
-                eff, 0.0f, Color::rgb(0, 0, 0),
-                Color::rgba(0, 0, 0, 0),
-                bg_r_tl, bg_r_tr, bg_r_br, bg_r_bl);
-        } else if (native_hue_bar && eff.w > 0 && eff.h > 0) {
-            const std::array<Color, 7> stops{
-                Color::rgb(255, 0, 0),   Color::rgb(255, 255, 0),
-                Color::rgb(0, 255, 0),   Color::rgb(0, 255, 255),
-                Color::rgb(0, 0, 255),   Color::rgb(255, 0, 255),
-                Color::rgb(255, 0, 0),
-            };
-            for (int segment = 0; segment < 6; ++segment) {
-                const int x0 = eff.x + (eff.w * segment) / 6;
-                const int x1 = eff.x + (eff.w * (segment + 1)) / 6;
-                const Rect seg{x0, eff.y, std::max(0, x1 - x0), eff.h};
-                if (seg.w <= 0) continue;
-                painter.fill_linear_gradient_rect(
-                    seg, 90.0f, stops[static_cast<std::size_t>(segment)],
-                    stops[static_cast<std::size_t>(segment + 1)],
-                    segment == 0 ? bg_r_tl : 0.0f,
-                    segment == 5 ? bg_r_tr : 0.0f,
-                    segment == 5 ? bg_r_br : 0.0f,
-                    segment == 0 ? bg_r_bl : 0.0f);
-            }
-        }
-
-        // Inset shadow paints ON TOP of the background/gradient but under
-        // the border and content (CSS painting order).
-        if (b.box_shadows) {
-            for (auto it = b.box_shadows->rbegin();
-                 it != b.box_shadows->rend(); ++it) {
-                if (it->inset && shadow_visible(*it)) {
-                    paint_shadow_layer(*it, true);
-                }
-            }
-        } else if (has_shadow && an.shadow_inset) {
-            Rect shadow_rect = eff;
-            float layer_radius = shadow_radius;
-            adjust_inset_shadow_geometry(
-                shadow_rect, layer_radius, /*inset=*/true);
-            painter.fill_box_shadow(
-                shadow_rect, layer_radius, detail::unpack_rgba(an.shadow_rgba),
-                static_cast<float>(an.shadow_offset_x),
-                static_cast<float>(an.shadow_offset_y),
-                static_cast<float>(an.shadow_blur),
-                static_cast<float>(an.shadow_spread),
-                /*inset=*/true);
-        }
-
-        if (!b.image_src.empty()) {
-            const auto image = painter.load_image(b.image_src);
-            const auto sz = painter.image_size(image);
-            if (image != 0 && sz.width > 0 && sz.height > 0) {
-                const Rect content_r{
-                    eff.x + used_border_left + cs.padding_left,
-                    eff.y + used_border_top + cs.padding_top,
-                    eff.w - used_border_left - used_border_right
-                          - cs.padding_left - cs.padding_right,
-                    eff.h - used_border_top - used_border_bottom
-                          - cs.padding_top - cs.padding_bottom,
-                };
-                if (content_r.w > 0 && content_r.h > 0) {
-                    painter.draw_image(image, content_r,
-                                       Rect{0, 0, sz.width, sz.height});
-                }
-            }
-        }
-
-#if !defined(AFFINEUI_STUB_BUILD)
-        if (auto* elem = impl_->style_store.element_of(b.id)) {
-            paint_direct_child_svgs(*impl_, b, eff, cs, an, painter, elem);
-            // Custom paint (canvas): delegate the element's border box to
-            // the app handler named by data-aui-paint. Runs after any
-            // inline-svg children so a handler can overlay static art.
-            if (!impl_->paint_handlers.empty()) {
-                if (const auto handler_name =
-                        attr_string(elem, "data-aui-paint");
-                    !handler_name.empty()) {
-                    if (auto it = impl_->paint_handlers.find(handler_name);
-                        it != impl_->paint_handlers.end() && it->second) {
-                        it->second(painter, eff);
-                    }
-                }
-            }
-        }
-#endif
-
-        if (has_border) {
-            const bool equal_border_widths =
-                used_border_top == used_border_right &&
-                used_border_right == used_border_bottom &&
-                used_border_bottom == used_border_left;
-            const float short_side =
-                static_cast<float>(std::min(eff.w, eff.h));
-            const bool circular_equal_border =
-                cs.border_style == BS::Solid && any_radius && uniform_r &&
-                equal_border_widths && short_side > 0.0f &&
-                std::abs(static_cast<float>(eff.w - eff.h)) <= 1.0f &&
-                r_tl >= short_side * 0.5f - 0.5f;
-
-            if (!uniform_border && circular_equal_border) {
-                // Equal-width circular borders with per-side colors are common
-                // in CSS spinners: each side owns one quadrant, with joins at
-                // 45-degree diagonals. This preserves transparent sides without
-                // a class-specific paint hook.
-                const float thickness = static_cast<float>(used_border_top);
-                const float radius = short_side * 0.5f - thickness * 0.5f;
-                if (radius > 0.0f) {
-                    const float cx = static_cast<float>(eff.x) +
-                                     static_cast<float>(eff.w) * 0.5f;
-                    const float cy = static_cast<float>(eff.y) +
-                                     static_cast<float>(eff.h) * 0.5f;
-                    if (vis_top) {
-                        painter.stroke_arc(cx, cy, radius, -45.0f, 45.0f,
-                                           detail::unpack_rgba(c_top),
-                                           thickness);
-                    }
-                    if (vis_right) {
-                        painter.stroke_arc(cx, cy, radius, 45.0f, 135.0f,
-                                           detail::unpack_rgba(c_right),
-                                           thickness);
-                    }
-                    if (vis_bottom) {
-                        painter.stroke_arc(cx, cy, radius, 135.0f, 225.0f,
-                                           detail::unpack_rgba(c_bottom),
-                                           thickness);
-                    }
-                    if (vis_left) {
-                        painter.stroke_arc(cx, cy, radius, 225.0f, 315.0f,
-                                           detail::unpack_rgba(c_left),
-                                           thickness);
-                    }
-                }
-            } else if (uniform_border && !any_radius) {
-                // CSS uniform solid border: fill the border area inside the
-                // border box. A centered vector stroke puts half of a 1px
-                // border outside the element and makes tiny controls mushy.
-                const float thickness = static_cast<float>(used_border_top);
-                painter.fill_rounded_rect_ring(
-                    eff, 0.0f, thickness, detail::unpack_rgba(c_top));
-            } else if (uniform_border && any_radius && uniform_r) {
-                // CSS uniform solid rounded border. The filled ring matches
-                // the border box / padding box geometry instead of stroking
-                // the centreline of the outer rounded rect.
-                const float thickness = static_cast<float>(used_border_top);
-                const Color bc = detail::unpack_rgba(c_top);
-                painter.fill_rounded_rect_ring(eff, r_tl, thickness, bc);
-            } else if (uniform_border && any_radius) {
-                const float thickness = static_cast<float>(used_border_top);
-                const int   inset     = used_border_top / 2;
-                const Rect  stroke_r{
-                    eff.x + inset, eff.y + inset,
-                    eff.w - 2 * inset, eff.h - 2 * inset,
-                };
-                const Color bc = detail::unpack_rgba(c_top);
-                painter.stroke_rounded_rect_varying(
-                    stroke_r, r_tl, r_tr, r_br, r_bl, bc, thickness);
-            } else {
-                // General path: draw each visible side independently.
-                //
-                // Geometry for per-side edge drawing (CSS box model):
-                //   The border sits inside the element's border-box.
-                //   Each edge is centred on the midpoint of its own border
-                //   half-width from the outer border-box edge.
-                //
-                // Corner convention: horizontal edges own the full width
-                // including their corner squares; vertical edges span only
-                // between the outer horizontal edge endpoints â€” matching
-                // the T-intersect rendering browsers produce for different
-                // side widths/colors.
-                //
-                // For non-solid styles (dashed/dotted/double), border-radius
-                // is ignored in this phase (same as the previous implementation
-                // which always used a single stroke_rect call regardless of
-                // style). Radius + non-solid border is rare in practice.
-
-                const float ex = static_cast<float>(eff.x);
-                const float ey = static_cast<float>(eff.y);
-                const float ew = static_cast<float>(eff.w);
-                const float eh = static_cast<float>(eff.h);
-
-                auto fill_border_rect = [&](float x, float y, float w, float h,
-                                            Color color) {
-                    const int ix = static_cast<int>(std::round(x));
-                    const int iy = static_cast<int>(std::round(y));
-                    const int iw = static_cast<int>(std::round(w));
-                    const int ih = static_cast<int>(std::round(h));
-                    if (iw > 0 && ih > 0) {
-                        painter.fill_rect(Rect{ix, iy, iw, ih}, color);
-                    }
-                };
-
-                // Helper: draw one edge segment with a given border style.
-                // (ax,ay)â†’(bx,by) are the outer-edge start/end points.
-                // `w` is the border width in px; style and color are side-specific.
-                auto draw_edge = [&](float ax, float ay, float bx, float by,
-                                     float w, BS style, Color color) {
-                    if (w <= 0.0f) return;
-                    const float dx = bx - ax;
-                    const float dy = by - ay;
-                    const float len = std::sqrt(dx * dx + dy * dy);
-                    if (len <= 0.0f) return;
-                    const bool horiz = (std::abs(dy) < 0.5f);
-                    const float ux = dx / len;
-                    const float uy = dy / len;
-                    // Centre of the border stripe, perpendicular to the edge.
-                    // For horizontal edges: shift down by w/2. For vertical:
-                    // shift right by w/2. Both are embedded in ax/ay already
-                    // for our usage â€” the caller passes midpoint coordinates.
-                    switch (style) {
-                        case BS::Solid: {
-                            painter.stroke_line(ax, ay, bx, by, color, w);
-                            break;
-                        }
-                        case BS::Dashed: {
-                            // CSS dashed: dash ~= 3x border width, gap ~= border width.
-                            // Fill border-area rectangles so stroke caps do not erase the gap.
-                            const float dash = std::max(w * 3.0f, 1.0f);
-                            const float gap = std::max(w, 1.0f);
-                            const float period = dash + gap;
-                            float t = 0.0f;
-                            while (t < len) {
-                                const float dash_end = std::min(t + dash, len);
-                                const float seg_len = dash_end - t;
-                                if (horiz) {
-                                    fill_border_rect(ax + ux * t,
-                                                     ay - w * 0.5f,
-                                                     seg_len,
-                                                     w,
-                                                     color);
-                                } else {
-                                    fill_border_rect(ax - w * 0.5f,
-                                                     ay + uy * t,
-                                                     w,
-                                                     seg_len,
-                                                     color);
-                                }
-                                t += period;
-                            }
-                            break;
-                        }
-                        case BS::Dotted: {
-                            // CSS dotted: circular dots, diameter = border width,
-                            // spaced at ~2x diameter (dot + equal gap).
-                            const float radius = w * 0.5f;
-                            const float period = w * 2.0f;
-                            float t = radius;  // first dot centred at w/2 from edge
-                            while (t <= len) {
-                                painter.fill_circle(ax + ux * t, ay + uy * t,
-                                                    radius, color);
-                                t += period;
-                            }
-                            break;
-                        }
-                        case BS::Double: {
-                            // CSS double: outer stripe + gap + inner stripe.
-                            const float sub_w = std::max(1.0f, std::floor(w / 3.0f));
-                            if (horiz) {
-                                const float y = ay - w * 0.5f;
-                                fill_border_rect(ax, y, len, sub_w, color);
-                                fill_border_rect(ax, y + w - sub_w, len, sub_w, color);
-                            } else {
-                                const float x = ax - w * 0.5f;
-                                fill_border_rect(x, ay, sub_w, len, color);
-                                fill_border_rect(x + w - sub_w, ay, sub_w, len, color);
-                            }
-                            break;
-                        }
-                        default: break;
-                    }
-                };
-
-                // All sides share the same style (per-side style variation
-                // is Phase 2C+ â€” see computed_style.h comment).
-                const BS bstyle = cs.border_style;
-
-                // border-collapse: collapse â€” adjacent cells share one border.
-                // Normally each edge sits half its width INSIDE the border box;
-                // two adjacent cells then draw the shared edge one stripe apart,
-                // doubling the interior grid line. In collapse mode we snap each
-                // edge to (boundary - 0.5): a 1px stroke there covers exactly one
-                // pixel column/row just inside the boundary, and BOTH neighbours
-                // (cell right == next cell left; row bottom == next row top, which
-                // also coincides with the cells' base border-bottom) snap to that
-                // same pixel â€” a single crisp grid line instead of a double.
-                const bool collapse = cs.border_collapse;
-                const float cwt = collapse ? -0.5f : 0.0f;  // half-pixel snap
-
-                // Top edge: runs full width from left edge to right edge.
-                if (vis_top) {
-                    const float wt = static_cast<float>(used_border_top);
-                    const float my = collapse ? ey + cwt : ey + wt * 0.5f;
-                    draw_edge(ex, my, ex + ew, my, wt, bstyle,
-                              detail::unpack_rgba(c_top));
-                }
-                // Bottom edge: full width.
-                if (vis_bottom) {
-                    const float wb = static_cast<float>(used_border_bottom);
-                    const float my = collapse ? ey + eh + cwt : ey + eh - wb * 0.5f;
-                    draw_edge(ex, my, ex + ew, my, wb, bstyle,
-                              detail::unpack_rgba(c_bottom));
-                }
-                // Left edge: between the top and bottom edges' outer boundaries.
-                if (vis_left) {
-                    const float wl  = static_cast<float>(used_border_left);
-                    const float mx  = collapse ? ex + cwt : ex + wl * 0.5f;
-                    const float y0  = collapse ? ey + cwt
-                                      : ey + static_cast<float>(used_border_top);
-                    const float y1  = collapse ? ey + eh + cwt
-                                      : ey + eh - static_cast<float>(used_border_bottom);
-                    draw_edge(mx, y0, mx, y1, wl, bstyle,
-                              detail::unpack_rgba(c_left));
-                }
-                // Right edge: between top and bottom edges' outer boundaries.
-                if (vis_right) {
-                    const float wr  = static_cast<float>(used_border_right);
-                    const float mx  = collapse ? ex + ew + cwt : ex + ew - wr * 0.5f;
-                    const float y0  = collapse ? ey + cwt
-                                      : ey + static_cast<float>(used_border_top);
-                    const float y1  = collapse ? ey + eh + cwt
-                                      : ey + eh - static_cast<float>(used_border_bottom);
-                    draw_edge(mx, y0, mx, y1, wr, bstyle,
-                              detail::unpack_rgba(c_right));
-                }
-            }
-        }
-
-        const bool dcs_drop_before =
-            block_has_class(b, "dcs-tree__row--drop-before") ||
-            block_has_class(b, "dcs-list__item--drop-before");
-        const bool dcs_drop_after =
-            block_has_class(b, "dcs-tree__row--drop-after") ||
-            block_has_class(b, "dcs-list__item--drop-after");
-        const bool dcs_drop_into =
-            block_has_class(b, "dcs-tree__row--drop-into") ||
-            block_has_class(b, "dcs-list__item--drop-into");
-        if ((dcs_drop_before || dcs_drop_after || dcs_drop_into) &&
-            eff.w > 0) {
-            Color accent = Color::rgb(77, 159, 255);
-            if (b.custom_props) {
-                const auto it = b.custom_props->find("--dcs-accent");
-                if (it != b.custom_props->end()) {
-                    std::uint32_t rgba = 0;
-                    if (parse_hex_color(std::string(trim_css_ws(it->second)),
-                                        rgba)) {
-                        accent = detail::unpack_rgba(rgba);
-                    }
-                }
-            }
-            if (dcs_drop_into) {
-                painter.fill_rect(Rect{eff.x, eff.y, eff.w, eff.h},
-                                  Color::rgba(accent.r, accent.g, accent.b,
-                                              48));
-                painter.fill_rect(Rect{eff.x, eff.y, 3, eff.h}, accent);
-            } else {
-                const int y = dcs_drop_before ? eff.y - 1 : eff.y + eff.h - 1;
-                painter.fill_rect(Rect{eff.x, y, eff.w, 2}, accent);
-            }
-        }
-
-        if (cs.display == detail::ComputedStyle::Display::ListItem &&
-            cs.list_style_type != detail::ComputedStyle::ListStyleType::None) {
-            const auto font = painter.resolve_font(
-                impl_->style_store.font_family_of(cs.font_id), cs.font_size_px,
-                cs.font_weight, cs.font_style != 0);
-            const Color marker_color = detail::unpack_rgba(an.color_rgba);
-            const int text_y = eff.y + used_border_top + cs.padding_top;
-            const auto metrics = painter.text_metrics(font);
-            const float natural_line_h = metrics.line_height > 0.0f
-                ? metrics.line_height
-                : static_cast<float>(cs.font_size_px);
-            const float css_line_h =
-                detail::resolved_line_height_px(cs, natural_line_h);
-            const float line_top =
-                static_cast<float>(text_y) + (css_line_h - natural_line_h) * 0.5f;
-            const float marker_cy = line_top + natural_line_h * 0.5f;
-            const float marker_cx = static_cast<float>(eff.x - 16);
-
-            using LT = detail::ComputedStyle::ListStyleType;
-            switch (cs.list_style_type) {
-                case LT::Disc:
-                case LT::Circle:
-                    painter.fill_circle(marker_cx, marker_cy, 3.0f,
-                                        marker_color);
-                    break;
-                case LT::Square:
-                    painter.fill_rect(
-                        Rect{static_cast<int>(std::round(marker_cx - 2.5f)),
-                             static_cast<int>(std::round(marker_cy - 2.5f)),
-                             5, 5},
-                        marker_color);
-                    break;
-                case LT::Decimal: {
-                    const auto marker =
-                        std::to_string(std::max(1, list_ordinals[i])) + ".";
-                    const float letter_spacing_px =
-                        static_cast<float>(cs.letter_spacing_x100) / 100.0f;
-                    painter.draw_text_box(
-                        font, Point{eff.x - 26, text_y}, marker, marker_color,
-                        20.0f, detail::effective_line_height_mult(cs),
-                        letter_spacing_px, Painter::TextAlign::Right);
-                    break;
-                }
-                case LT::None:
-                default:
-                    break;
-            }
-        }
-        }  // phase == BlockPaintPhase::Boxes
-
-        // ── PHASE: text + widget chrome ──────────────────────────────
-        if (phase == BlockPaintPhase::Text) {
-        if (!b.text.empty()) {
-            const auto font = painter.resolve_font(
-                impl_->style_store.font_family_of(cs.font_id), cs.font_size_px, cs.font_weight, cs.font_style != 0);
-            const int textarea_idx_for_text = nearest_block_with_tag(
-                impl_->blocks, static_cast<int>(i), "textarea");
-            int text_y = eff.y + used_border_top  + cs.padding_top;
-            // Sub-pixel remainders the int math drops. Browsers keep text
-            // positions fractional (yoga's float layout, half of an odd
-            // free space) and rasterize from the fractional baseline; the
-            // painter consumes the exact value, so the fractions ride along
-            // and only the rasterizer rounds.
-            float text_y_frac = b.bounds_f.y - static_cast<float>(b.bounds.y);
-            float text_x_frac = b.bounds_f.x - static_cast<float>(b.bounds.x);
-            const bool single_line_text =
-                b.text.find('\n') == std::string::npos &&
-                b.text.find('\r') == std::string::npos;
-            if (single_line_text && textarea_idx_for_text < 0 &&
-                (cs.display == detail::ComputedStyle::Display::Flex ||
-                 cs.display == detail::ComputedStyle::Display::InlineFlex)) {
-                const float content_h = static_cast<float>(
-                    eff.h - used_border_top - used_border_bottom
-                          - cs.padding_top - cs.padding_bottom);
-                const float css_line_h = detail::resolved_line_height_px(
-                    cs, painter.text_metrics(font).line_height);
-                const float free_h = content_h - css_line_h;
-                if (free_h > 0.0f) {
-                    using AI = detail::ComputedStyle::AlignItems;
-                    if (cs.align_items == AI::Center) {
-                        const float add = free_h * 0.5f;
-                        text_y += static_cast<int>(add);
-                        text_y_frac += add - std::floor(add);
-                    } else if (cs.align_items == AI::End) {
-                        text_y += static_cast<int>(free_h);
-                        text_y_frac += free_h - std::floor(free_h);
-                    }
-                }
-            }
-
-            // Map ComputedStyle::TextAlign â†’ Painter::TextAlign.
-            if (textarea_idx_for_text < 0 && b.tag == "input" &&
-                       b.input_type != "checkbox" &&
-                       b.input_type != "radio") {
-                // Single-line native text inputs also paint through an edit
-                // viewport inset from the painted border. CSS padding still
-                // controls the content origin; this accounts for the native
-                // control text viewport itself.
-                text_y += std::min<int>(1, used_border_top);
-            }
-
-            Painter::TextAlign paint_align = Painter::TextAlign::Left;
-            switch (cs.text_align) {
-                case detail::ComputedStyle::TextAlign::Left:
-                    paint_align = Painter::TextAlign::Left;    break;
-                case detail::ComputedStyle::TextAlign::Center:
-                    paint_align = Painter::TextAlign::Center;  break;
-                case detail::ComputedStyle::TextAlign::Right:
-                    paint_align = Painter::TextAlign::Right;   break;
-                case detail::ComputedStyle::TextAlign::Justify:
-                    paint_align = Painter::TextAlign::Justify; break;
-            }
-
-            // For text alignment (center/right), nvgTextBox needs:
-            //   x = left edge of the line box
-            //   breakRowWidth = width of the line box
-            // For block-level leaves (spans, divs) this is the block's
-            // own content area. For anonymous #text leaves that live
-            // inside a synthetic flex-row, the block's own width is the
-            // natural text width, so centering/right-aligning within it
-            // is a no-op. Instead, walk up to the nearest non-synthetic
-            // ancestor block and use its content geometry as the line box.
-            int text_x    = eff.x + used_border_left + cs.padding_left;
-            float content_w = static_cast<float>(
-                eff.w - used_border_left - used_border_right
-                      - cs.padding_left - cs.padding_right);
-            const bool native_select_text =
-                b.tag == "select" && !block_has_class(b, "form-select");
-            if (native_select_text) {
-                // Chrome's native closed select paints its value inside an
-                // internal edit field inset in addition to CSS padding. This
-                // inset is part of the platform control, not reflected in
-                // getComputedStyle(). Bootstrap's .form-select opts out with
-                // appearance:none and supplies its own SVG background.
-                constexpr int kNativeSelectTextInsetPx = 5;
-                text_x += kNativeSelectTextInsetPx;
-                content_w = std::max(
-                    1.0f,
-                    content_w - static_cast<float>(kNativeSelectTextInsetPx));
-            }
-
-            const bool is_justify = (paint_align == Painter::TextAlign::Justify);
-            const bool in_mixed_inline_run =
-                b.parent_idx >= 0 &&
-                static_cast<std::size_t>(b.parent_idx) < impl_->blocks.size() &&
-                impl_->blocks[static_cast<std::size_t>(b.parent_idx)].synthetic &&
-                static_cast<std::size_t>(b.parent_idx) < child_counts.size() &&
-                child_counts[static_cast<std::size_t>(b.parent_idx)] > 1;
-            const bool in_synthetic_inline_parent =
-                b.parent_idx >= 0 &&
-                static_cast<std::size_t>(b.parent_idx) < impl_->blocks.size() &&
-                impl_->blocks[static_cast<std::size_t>(b.parent_idx)].synthetic;
-            const bool first_in_synthetic_inline_parent =
-                in_synthetic_inline_parent &&
-                static_cast<std::size_t>(b.parent_idx) < first_child_indices.size() &&
-                first_child_indices[static_cast<std::size_t>(b.parent_idx)] ==
-                    static_cast<int>(i);
-            if (!in_synthetic_inline_parent || first_in_synthetic_inline_parent) {
-                int indent_px = cs.text_indent_value;
-                if (cs.text_indent_is_pct) {
-                    indent_px = static_cast<int>(std::lround(
-                        content_w * static_cast<float>(cs.text_indent_value) /
-                        10000.0f));
-                }
-                if (indent_px != 0) {
-                    text_x += indent_px;
-                    content_w = std::max(1.0f,
-                                         content_w - static_cast<float>(indent_px));
-                }
-            }
-            if (paint_align != Painter::TextAlign::Left &&
-                in_synthetic_inline_parent && b.synthetic == false &&
-                !in_mixed_inline_run) {
-                // Walk parent chain to find the first non-synthetic block.
-                int anc = b.parent_idx;
-                while (anc >= 0) {
-                    const auto& ab = impl_->blocks[static_cast<std::size_t>(anc)];
-                    if (!ab.synthetic) {
-                        const auto& acs =
-                            impl_->style_store.computed(ab.id);
-                        const int anc_dy = scroll_offset_y_for(
-                            impl_->blocks, impl_->style_store, anc);
-                        const Rect ae{
-                            ab.bounds.x, ab.bounds.y - anc_dy,
-                            ab.bounds.w, ab.bounds.h,
-                        };
-                        const int al = ae.x + acs.used_border_left() + acs.padding_left;
-                        const float aw = static_cast<float>(
-                            ae.w - acs.used_border_left() - acs.used_border_right()
-                                 - acs.padding_left - acs.padding_right);
-                        // Use the ancestor geometry when it's meaningfully
-                        // wider (the current block is narrower than the
-                        // container) â€” for center/right that's the line box.
-                        // For JUSTIFY we must also clamp DOWN to the
-                        // container when the leaf's natural (unwrapped) width
-                        // overflows it, so the text wraps to the line box and
-                        // fills it edge-to-edge instead of overflowing on one
-                        // line.
-                        if (aw > content_w + 1.0f || is_justify) {
-                            text_x    = al;
-                            content_w = aw;
-                        }
-                        break;
-                    }
-                    anc = ab.parent_idx;
-                }
-            }
-
-            bool pushed_text_control_clip = false;
-            if (b.text_control) {
-                const auto g = text_control_geometry(
-                    *impl_, static_cast<int>(i), painter);
-                text_x = g.text_x;
-                text_y = g.text_y;
-                content_w = g.content_w;
-                paint_align = g.align;
-                if (b.tag == "textarea") {
-                    // A textarea is a scroll container for its VALUE (UA
-                    // overflow:auto). text_control_geometry already shifted
-                    // the origin by the element's own scroll offset; clip
-                    // everything (selection, text, caret, decorations) to the
-                    // padding box so overflowing lines never paint over
-                    // content below.
-                    const Rect text_clip{
-                        eff.x + used_border_left,
-                        eff.y + used_border_top,
-                        std::max(0, eff.w - used_border_left -
-                                        used_border_right),
-                        std::max(0, eff.h - used_border_top -
-                                        used_border_bottom)};
-                    painter.push_clip(text_clip);
-                    pushed_text_control_clip = true;
-                }
-            }
-
-            // Add 1px slack to wrap width: measure rounds + draw word-
-            // break can disagree at the edge (text whose natural width
-            // exactly equals content_w sometimes wraps the last word
-            // onto a new line). The block was already sized to match
-            // the measure, so giving paint a single-pixel tolerance
-            // matches the design intent without overflowing.
-            // Slack: nvgTextBoxBounds returns RENDERED bounds (ink
-            // extent) but nvgTextBox's word-wrap uses glyph ADVANCE
-            // widths. Advance > rendered for fonts with sub-pixel
-            // overhang, so passing exactly content_w would wrap text
-            // that measure said fits. A few pixels of slack covers
-            // the gap for typical UI fonts at typical sizes.
-            //
-            // white-space: nowrap / pre â€” suppress line-wrapping by
-            // passing a very large max-width to both measure and draw.
-            using WS = detail::ComputedStyle::WhiteSpace;
-            const bool is_nowrap = (cs.white_space == WS::Nowrap ||
-                                    cs.white_space == WS::Pre);
-            const float letter_spacing_px =
-                static_cast<float>(cs.letter_spacing_x100) / 100.0f;
-            const float line_height_mult =
-                detail::effective_line_height_mult(cs);
-            const auto measure_text_width = [&](std::string_view text) {
-                if (cs.letter_spacing_x100 == 0) {
-                    return static_cast<float>(painter.measure_text(font, text));
-                }
-                return static_cast<float>(
-                    painter
-                        .measure_text_box(font, text, 1e6f,
-                                          line_height_mult,
-                                          letter_spacing_px)
-                        .width);
-            };
-            const auto natural_text_width = [&] {
-                return measure_text_width(b.text);
-            };
-
-            // white-space:nowrap forces a single line, which we signal to
-            // the painter with a huge wrap width. But nvgTextBox aligns
-            // center/right *within* that wrap width â€” at 1e6 it would fling
-            // the glyphs ~500k px off-screen (the symptom: nowrap centered
-            // text like progress-bar "%" labels and badges renders blank).
-            // So resolve the alignment offset here against the real line box
-            // and hand the painter a pre-positioned LEFT single-line draw.
-            if (is_nowrap && (paint_align == Painter::TextAlign::Center ||
-                              paint_align == Painter::TextAlign::Right)) {
-                const float tw = natural_text_width();
-                const float slack = content_w - tw;
-                if (paint_align == Painter::TextAlign::Center)
-                    text_x += static_cast<int>(std::lround(slack * 0.5f));
-                else  // Right
-                    text_x += static_cast<int>(std::lround(slack));
-                paint_align = Painter::TextAlign::Left;
-            }
-
-            bool force_single_line = is_nowrap;
-            if (!is_nowrap &&
-                !b.text_control &&
-                b.tag != "select" &&
-                !in_mixed_inline_run &&
-                b.text.find('\n') == std::string::npos &&
-                (paint_align == Painter::TextAlign::Center ||
-                 paint_align == Painter::TextAlign::Right)) {
-                constexpr float kAdvanceTolerancePx = 4.0f;
-                const float tw = natural_text_width();
-                if (tw <= content_w + kAdvanceTolerancePx) {
-                    const float slack = content_w - tw;
-                    if (paint_align == Painter::TextAlign::Center)
-                        text_x += static_cast<int>(std::lround(slack * 0.5f));
-                    else
-                        text_x += static_cast<int>(std::lround(slack));
-                    paint_align = Painter::TextAlign::Left;
-                    force_single_line = true;
-                }
-            }
-
-            // Justify fills exactly to the content edge â€” no wrap slack
-            // (the +4 below would let justified lines spill 4px past it).
-            const bool aligned_text =
-                paint_align == Painter::TextAlign::Center ||
-                paint_align == Painter::TextAlign::Right;
-            const bool suppress_wrap_slack = b.text_control ||
-                b.tag == "select" || aligned_text;
-            const float wrap_slack = suppress_wrap_slack ? 0.0f : 4.0f;
-            const float draw_max_w = force_single_line ? 1e6f
-                                   : (is_justify ? content_w
-                                                 : content_w + wrap_slack);
-            const TextLayoutEntry* cached_text_layout = nullptr;
-            if (b.text_control) {
-                TextControlGeometry g{};
-                g.font = font;
-                g.text_x = text_x;
-                g.text_y = text_y;
-                g.content_w = content_w;
-                g.letter_spacing_px = letter_spacing_px;
-                g.line_height_mult = line_height_mult;
-                g.align = paint_align;
-                g.nowrap = force_single_line;
-                cached_text_layout = &ensure_text_layout_entry(
-                    *impl_, static_cast<int>(i), g, b, painter);
-            }
-            if (cached_text_layout != nullptr && has_text_selection(b)) {
-                const auto& text_layout = *cached_text_layout;
-                const auto [sel_begin, sel_end] = normalized_selection(b);
-                const auto caret_index_for =
-                    [&](std::size_t offset) -> std::size_t {
-                    auto it = std::lower_bound(
-                        text_layout.caret_offsets.begin(),
-                        text_layout.caret_offsets.end(), offset);
-                    if (it == text_layout.caret_offsets.end()) {
-                        return text_layout.caret_offsets.empty()
-                            ? 0
-                            : text_layout.caret_offsets.size() - 1;
-                    }
-                    return static_cast<std::size_t>(
-                        std::distance(text_layout.caret_offsets.begin(), it));
-                };
-                const std::size_t begin_idx = caret_index_for(sel_begin);
-                const std::size_t end_idx = caret_index_for(sel_end);
-                const int first_line = text_layout.caret_lines[begin_idx];
-                const int last_line = text_layout.caret_lines[end_idx];
-                const float line_h = std::max(1.0f,
-                                              text_layout.css_line_height);
-                const float ink_h = std::max(1.0f,
-                                             text_layout.natural_line_height);
-                const Color selection_color{0x4D, 0xA3, 0xFF, 0x66};
-                for (int line = first_line; line <= last_line; ++line) {
-                    float x0 = 0.0f;
-                    float x1 = line < static_cast<int>(
-                                      text_layout.line_widths.size())
-                        ? text_layout.line_widths[static_cast<std::size_t>(line)]
-                        : 0.0f;
-                    if (line == first_line) {
-                        x0 = text_layout.caret_x[begin_idx];
-                    }
-                    if (line == last_line) {
-                        x1 = text_layout.caret_x[end_idx];
-                    }
-                    if (x1 < x0) std::swap(x0, x1);
-                    if (x1 <= x0) continue;
-                    const float line_origin =
-                        aligned_line_origin_x(
-                            text_layout,
-                            static_cast<std::uint16_t>(line));
-                    const float y = static_cast<float>(text_y) +
-                                    static_cast<float>(line) * line_h +
-                                    (line_h - ink_h) * 0.5f;
-                    painter.fill_rect(
-                        Rect{
-                            static_cast<int>(std::floor(line_origin + x0)),
-                            static_cast<int>(std::floor(y)),
-                            std::max(1, static_cast<int>(std::ceil(x1 - x0))),
-                            std::max(1, static_cast<int>(std::ceil(ink_h))),
-                        },
-                        selection_color);
-                }
-            }
-            painter.draw_text_box(font,
-                                  static_cast<float>(text_x) + text_x_frac,
-                                  static_cast<float>(text_y) + text_y_frac,
-                                  b.text,
-                                  detail::unpack_rgba(an.color_rgba),
-                                  draw_max_w,
-                                  line_height_mult,
-                                  letter_spacing_px,
-                                  paint_align);
-            if (b.text_control && static_cast<int>(i) == impl_->focused_idx) {
-                const TextLayoutEntry* caret_layout = cached_text_layout;
-                if (caret_layout == nullptr) {
-                    TextControlGeometry g{};
-                    g.font = font;
-                    g.text_x = text_x;
-                    g.text_y = text_y;
-                    g.content_w = content_w;
-                    g.letter_spacing_px = letter_spacing_px;
-                    g.line_height_mult = line_height_mult;
-                    g.align = paint_align;
-                    g.nowrap = force_single_line;
-                    caret_layout = &ensure_text_layout_entry(
-                        *impl_, static_cast<int>(i), g, b, painter);
-                }
-
-                const auto caret_offset =
-                    std::min(b.caret_offset, b.text_value.size());
-                auto it = std::lower_bound(
-                    caret_layout->caret_offsets.begin(),
-                    caret_layout->caret_offsets.end(), caret_offset);
-                std::size_t caret_index = it == caret_layout->caret_offsets.end()
-                    ? caret_layout->caret_offsets.size() - 1
-                    : static_cast<std::size_t>(
-                          std::distance(caret_layout->caret_offsets.begin(),
-                                        it));
-                if (caret_layout->caret_offsets[caret_index] != caret_offset) {
-                    caret_index = caret_index == 0 ? 0 : caret_index - 1;
-                }
-                const auto line = caret_layout->caret_lines[caret_index];
-                const float caret_x =
-                    aligned_line_origin_x(*caret_layout, line) +
-                    caret_layout->caret_x[caret_index];
-                const float natural_line_h =
-                    std::max(1.0f, caret_layout->natural_line_height);
-                const float css_line_h =
-                    std::max(1.0f, caret_layout->css_line_height);
-                const float line_top =
-                    static_cast<float>(text_y) +
-                    static_cast<float>(line) * css_line_h +
-                    (css_line_h - natural_line_h) * 0.5f;
-                const float y0 = std::floor(line_top + 2.0f) + 0.5f;
-                const float y1 =
-                    std::ceil(line_top + natural_line_h - 2.0f) + 0.5f;
-                painter.stroke_line(caret_x, y0, caret_x, y1,
-                                    detail::unpack_rgba(an.color_rgba),
-                                    1.0f);
-            }
-            if (cs.text_decoration_line != detail::ComputedStyle::DecorationNone) {
-                const auto metrics = painter.text_metrics(font);
-                const float natural_line_h =
-                    metrics.line_height > 0.0f
-                        ? metrics.line_height
-                        : static_cast<float>(cs.font_size_px);
-                const float css_line_h =
-                    detail::resolved_line_height_px(cs, natural_line_h);
-                const float line_top =
-                    static_cast<float>(text_y) +
-                    (css_line_h - natural_line_h) * 0.5f;
-                const float baseline = line_top + metrics.ascender;
-                const float tw = static_cast<float>(
-                    std::max(1, painter.measure_text(font, b.text)));
-                const float x0 = static_cast<float>(text_x);
-                const float x1 = x0 + tw;
-                const Color deco = an.text_decoration_rgba != 0
-                    ? detail::unpack_rgba(an.text_decoration_rgba)
-                    : detail::unpack_rgba(an.color_rgba);
-                const float thickness =
-                    std::max(1.0f, static_cast<float>(cs.font_size_px) / 16.0f);
-                if (cs.text_decoration_line &
-                    detail::ComputedStyle::DecorationUnderline) {
-                    painter.stroke_line(x0, baseline + thickness * 1.5f,
-                                        x1, baseline + thickness * 1.5f,
-                                        deco, thickness);
-                }
-                if (cs.text_decoration_line &
-                    detail::ComputedStyle::DecorationOverline) {
-                    painter.stroke_line(x0, line_top + thickness * 0.5f,
-                                        x1, line_top + thickness * 0.5f,
-                                        deco, thickness);
-                }
-                if (cs.text_decoration_line &
-                    detail::ComputedStyle::DecorationLineThrough) {
-                    const float y = line_top + metrics.ascender * 0.55f;
-                    painter.stroke_line(x0, y, x1, y, deco, thickness);
-                }
-            }
-            if (pushed_text_control_clip) painter.pop_clip();
-        }
-
-        // Closed single-row <select> controls expose an indicator supplied by
-        // either the native widget or a CSS background. We don't rasterize
-        // Bootstrap's data-URI SVG yet, so draw the same chevron geometry here.
-        if (b.tag == "select") {
-            const auto* size_attr = block_attr_value(b, "size");
-            const bool listbox =
-                block_attr_value(b, "multiple") != nullptr ||
-                (size_attr != nullptr && !size_attr->empty() && *size_attr != "1");
-            if (!listbox) {
-                const bool bootstrap_form_select =
-                    block_has_class(b, "form-select");
-                const float right = static_cast<float>(eff.x + eff.w);
-                const float cy = static_cast<float>(eff.y) +
-                                 static_cast<float>(eff.h) * 0.5f;
-                const float cx = bootstrap_form_select
-                    ? right - 20.5f
-                    : right - 9.75f;
-                const float half_w = bootstrap_form_select ? 4.0f : 3.75f;
-                const float half_h = 2.5f;
-                const float thickness = bootstrap_form_select ? 1.25f : 1.35f;
-                const Color chev = bootstrap_form_select
-                    ? Color{0x34, 0x3a, 0x40, 0xFF}
-                    : detail::unpack_rgba(an.color_rgba);
-                painter.stroke_line(cx - half_w, cy - half_h,
-                                    cx, cy + half_h,
-                                    chev, thickness);
-                painter.stroke_line(cx, cy + half_h,
-                                    cx + half_w, cy - half_h,
-                                    chev, thickness);
-            }
-        }
-
-        // â”€â”€ UA form-control drawing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        // Bootstrap's form-check-input uses SVG data: URIs for its
-        // checkbox checkmark, radio dot, and switch knob â€” none of which
-        // we rasterize. Draw UA approximations for :checked / unchecked
-        // states that match Chrome's static appearance. The box itself
-        // (border + background) is already painted by the normal path above.
-        if (b.tag == "input" &&
-            (b.input_type == "checkbox" || b.input_type == "radio")) {
-            const float bx = static_cast<float>(eff.x);
-            const float by = static_cast<float>(eff.y);
-            const float bw = static_cast<float>(eff.w);
-            const float bh = static_cast<float>(eff.h);
-            const float cx = bx + bw * 0.5f;
-            const float cy = by + bh * 0.5f;
-
-            const bool is_switch = (b.role_attr == "switch");
-
-            if (b.input_type == "checkbox" && !is_switch) {
-                if (b.is_checked) {
-                    // Bootstrap's checkbox icon is a 20x20 SVG path:
-                    // m6 10 3 3 6-6, stroke-width 3, round caps/joins.
-                    const float m = std::min(bw, bh);
-                    const float s = m / 20.0f;
-                    const float x0 = bx + 6.0f  * s, y0 = by + 10.0f * s;
-                    const float x1 = bx + 9.0f  * s, y1 = by + 13.0f * s;
-                    const float x2 = bx + 15.0f * s, y2 = by + 7.0f  * s;
-                    const float sw = std::max(1.0f, 3.0f * s);
-                    const Color white{0xFF, 0xFF, 0xFF, 0xFF};
-                    painter.stroke_line(x0, y0, x1, y1, white, sw);
-                    painter.stroke_line(x1, y1, x2, y2, white, sw);
-                    const float cap_r = sw * 0.5f;
-                    painter.fill_circle(x0, y0, cap_r, white);
-                    painter.fill_circle(x1, y1, cap_r, white);
-                    painter.fill_circle(x2, y2, cap_r, white);
-                }
-            } else if (b.input_type == "radio") {
-                if (b.is_checked) {
-                    // Bootstrap's radio icon is a circle r=2 in an 8x8
-                    // viewBox, scaled to contain in the control box.
-                    const float dot_r = std::min(bw, bh) * 0.25f;
-                    painter.fill_circle(cx, cy, dot_r, Color{0xFF, 0xFF, 0xFF, 0xFF});
-                }
-            }
-
-            // Switch knob: pill-shaped background is drawn by CSS (the
-            // form-switch input has a wide border-radius). We draw the
-            // round white knob positioned at left (unchecked) or right
-            // (checked).
-            if (b.input_type == "checkbox" && is_switch) {
-                const float knob_r   = bh * 0.5f - 2.0f;
-                const float knob_cx  = b.is_checked
-                    ? (bx + bw - knob_r - 2.0f)
-                    : (bx      + knob_r + 2.0f);
-                const Color knob = b.is_checked
-                    ? Color{0xFF, 0xFF, 0xFF, 0xFF}
-                    : Color{0x00, 0x00, 0x00, 0x40};
-                painter.fill_circle(knob_cx, cy, knob_r,
-                                    knob);
-            }
-        }
-
-        // ── Knob chrome (UA-drawn, same tier as checkbox/radio/switch) ──
-        // Ring + value arc paint here, UNDER the cap child block; the
-        // indicator paints in the CAP's own chrome below so it lands on
-        // top — matching the framework DOM's stacking (ring < cap <
-        // indicator). All state reads from data-* attrs at paint time:
-        // a knob move is one attribute write — no SVG path strings, no
-        // per-paint reparse ("SVG → static, paint → dynamic").
-        constexpr double kDegRad = 3.14159265358979323846 / 180.0;
-        if (block_has_attr(b, "data-dcs-knob") ||
-            block_has_attr(b, "data-aui-knob")) {
-            auto* kelem = impl_->style_store.element_of(b.id);
-            const float side = std::min(static_cast<float>(eff.w),
-                                        static_cast<float>(eff.h));
-            if (kelem != nullptr && side > 4.0f) {
-                const float scale = side / 24.0f;
-                const float kcx = static_cast<float>(eff.x) +
-                                  static_cast<float>(eff.w) * 0.5f;
-                const float kcy = static_cast<float>(eff.y) +
-                                  static_cast<float>(eff.h) * 0.5f;
-                const float radius = 10.5f * scale;
-                std::vector<float> cmds;
-                cmds.reserve(46);
-                const auto seed = [&](double deg) {
-                    cmds.clear();
-                    cmds.push_back(kPathMove);
-                    cmds.push_back(kcx + radius * static_cast<float>(
-                                             std::cos(deg * kDegRad)));
-                    cmds.push_back(kcy + radius * static_cast<float>(
-                                             std::sin(deg * kDegRad)));
-                };
-                // Ring background: -225° → 45°. Decius rings are white @
-                // 8%; the aui/Bootstrap variant used rgba(108,117,125,.35).
-                const bool aui_variant =
-                    !block_has_attr(b, "data-dcs-knob");
-                seed(-225.0);
-                append_arc_cubics(cmds, kcx, kcy, radius, -225.0, 45.0);
-                painter.stroke_path(cmds.data(), cmds.size(),
-                                    PathPaint::solid(
-                                        aui_variant
-                                            ? Color{108, 117, 125, 89}
-                                            : Color{255, 255, 255, 20}),
-                                    1.5f * scale, LineCap::Round,
-                                    LineJoin::Round);
-                // Value arc in the accent color.
-                const double vmin = elem_attr_num(kelem, "data-min", 0.0);
-                const double vmax = elem_attr_num(kelem, "data-max", 1.0);
-                const double val = elem_attr_num(kelem, "data-value", vmin);
-                const bool bipolar = has_attr(kelem, "data-bipolar");
-                const double p = normalized_control_value(val, vmin, vmax);
-                const double sweep = (bipolar ? p - 0.5 : p) * 270.0;
-                if (std::abs(sweep) > 0.5) {
-                    const double start = bipolar ? -90.0 : -225.0;
-                    detail::ResolvedStyle vrs;
-                    vrs.computed = cs;
-                    vrs.animated = an;
-                    vrs.custom_props = b.custom_props;
-                    // Bootstrap-blue fallback for the aui variant (its
-                    // old arc was a literal #0d6efd); Decius resolves
-                    // its accent custom property.
-                    std::uint32_t accent =
-                        aui_variant ? 0x0D6EFDFFu : 0x4D9FFFFFu;
-                    (void) parse_generated_color("var(--dcs-accent)", vrs,
-                                                 accent);
-                    seed(start);
-                    append_arc_cubics(cmds, kcx, kcy, radius, start,
-                                      start + sweep);
-                    painter.stroke_path(
-                        cmds.data(), cmds.size(),
-                        PathPaint::solid(detail::unpack_rgba(accent)),
-                        1.75f * scale, LineCap::Round, LineJoin::Round);
-                }
-            }
-        }
-        if ((block_has_class(b, "dcs-knob__cap") ||
-             block_has_class(b, "aui-knob__cap")) &&
-            b.parent_idx >= 0 &&
-            static_cast<std::size_t>(b.parent_idx) < impl_->blocks.size()) {
-            const auto& kb =
-                impl_->blocks[static_cast<std::size_t>(b.parent_idx)];
-            auto* kelem = impl_->style_store.element_of(kb.id);
-            if (kelem != nullptr && (has_attr(kelem, "data-dcs-knob") ||
-                                     has_attr(kelem, "data-aui-knob"))) {
-                // The cap is inset 18% per side, so the knob box is
-                // cap/0.64; indicator length is 38% of the knob box
-                // (.dcs-knob__indicator: height 38%, pivot at center,
-                // angle 0 = straight up, clockwise positive).
-                const float cap_side = std::min(static_cast<float>(eff.w),
-                                                static_cast<float>(eff.h));
-                const float kcx = static_cast<float>(eff.x) +
-                                  static_cast<float>(eff.w) * 0.5f;
-                const float kcy = static_cast<float>(eff.y) +
-                                  static_cast<float>(eff.h) * 0.5f;
-                const float len = cap_side * (0.38f / 0.64f);
-                const double vmin = elem_attr_num(kelem, "data-min", 0.0);
-                const double vmax = elem_attr_num(kelem, "data-max", 1.0);
-                const double val = elem_attr_num(kelem, "data-value", vmin);
-                const double angle =
-                    decius_knob_angle(vmin, vmax, val) * kDegRad;
-                const float tx =
-                    kcx + len * static_cast<float>(std::sin(angle));
-                const float ty =
-                    kcy - len * static_cast<float>(std::cos(angle));
-                // Resolve --dcs-accent against the KNOB block's style
-                // (where the custom property cascades to), not the cap's.
-                detail::ResolvedStyle vrs;
-                vrs.computed = impl_->style_store.computed(kb.id);
-                vrs.animated = impl_->style_store.animated(kb.id);
-                vrs.custom_props = kb.custom_props;
-                std::uint32_t accent =
-                    has_attr(kelem, "data-dcs-knob") ? 0x4D9FFFFFu
-                                                     : 0x0D6EFDFFu;
-                (void) parse_generated_color("var(--dcs-accent)", vrs,
-                                             accent);
-                const float icmds[] = {kPathMove, kcx, kcy,
-                                       kPathLine, tx, ty};
-                painter.stroke_path(icmds, 6,
-                                    PathPaint::solid(
-                                        detail::unpack_rgba(accent)),
-                                    2.0f, LineCap::Round, LineJoin::Round);
-            }
-        }
-
-        if (block_has_class(b, "dcs-check__box") && b.parent_idx >= 0 &&
-            static_cast<std::size_t>(b.parent_idx) < impl_->blocks.size()) {
-            const auto& parent =
-                impl_->blocks[static_cast<std::size_t>(b.parent_idx)];
-            const bool decius_check = block_has_class(parent, "dcs-check");
-            const bool decius_radio = block_has_class(parent, "dcs-radio");
-            const auto* checked_attr = block_attr_value(parent, "aria-checked");
-            const bool checked = checked_attr && *checked_attr == "true";
-            if (checked && (decius_check || decius_radio)) {
-                const float bx = static_cast<float>(eff.x);
-                const float by = static_cast<float>(eff.y);
-                const float bw = static_cast<float>(eff.w);
-                const float bh = static_cast<float>(eff.h);
-                Color mark_color =
-                    detail::unpack_rgba(an.color_rgba);
-                if (mark_color.a == 0) {
-                    mark_color = Color{0xFF, 0xFF, 0xFF, 0xFF};
-                }
-                if (decius_radio) {
-                    painter.fill_circle(bx + bw * 0.5f, by + bh * 0.5f,
-                                        std::max(2.0f, std::min(bw, bh) * 0.25f),
-                                        mark_color);
-                } else {
-                    const float m = std::min(bw, bh);
-                    const float s = m / 20.0f;
-                    const float x0 = bx + 6.0f  * s;
-                    const float y0 = by + 10.0f * s;
-                    const float x1 = bx + 9.0f  * s;
-                    const float y1 = by + 13.0f * s;
-                    const float x2 = bx + 15.0f * s;
-                    const float y2 = by + 7.0f  * s;
-                    const float sw = std::max(1.0f, 3.0f * s);
-                    painter.stroke_line(x0, y0, x1, y1, mark_color, sw);
-                    painter.stroke_line(x1, y1, x2, y2, mark_color, sw);
-                    const float cap_r = sw * 0.5f;
-                    painter.fill_circle(x0, y0, cap_r, mark_color);
-                    painter.fill_circle(x1, y1, cap_r, mark_color);
-                    painter.fill_circle(x2, y2, cap_r, mark_color);
-                }
-            }
-        }
-
-        if (b.tag == "input" && b.input_type == "color") {
-            std::uint32_t rgba = 0;
-            const auto* value = block_attr_value(b, "value");
-            if (value && parse_hex_color(*value, rgba)) {
-                const int inset_x = std::max(3, cs.padding_left / 2);
-                const int inset_y = std::max(3, cs.padding_top / 2);
-                Rect swatch{
-                    eff.x + cs.used_border_left() + inset_x,
-                    eff.y + cs.used_border_top() + inset_y,
-                    std::max(1, eff.w - cs.used_border_left()
-                                      - cs.used_border_right()
-                                      - inset_x * 2),
-                    std::max(1, eff.h - cs.used_border_top()
-                                      - cs.used_border_bottom()
-                                      - inset_y * 2),
-                };
-                painter.fill_rect(swatch, detail::unpack_rgba(rgba));
-            }
-        }
-
-        if (b.tag == "textarea" &&
-            cs.resize != detail::ComputedStyle::Resize::None) {
-            const float x1 = static_cast<float>(
-                eff.x + eff.w - cs.used_border_right() - 4);
-            const float y1 = static_cast<float>(
-                eff.y + eff.h - cs.used_border_bottom() - 4);
-            const Color grip = detail::unpack_rgba(an.color_rgba);
-            painter.stroke_line(x1 - 10.0f, y1, x1, y1 - 10.0f, grip, 1.0f);
-            painter.stroke_line(x1 - 5.0f, y1, x1, y1 - 5.0f, grip, 1.0f);
-        }
-
-        if (b.tag == "input" && b.input_type == "range") {
-            const double min_attr = block_attr_double(b, "min", 0.0);
-            double max_attr = block_attr_double(b, "max", 100.0);
-            if (max_attr <= min_attr) max_attr = min_attr + 1.0;
-            const double value_attr =
-                std::clamp(block_attr_double(b, "value", min_attr),
-                           min_attr, max_attr);
-            const float t = static_cast<float>(
-                (value_attr - min_attr) / (max_attr - min_attr));
-
-            const float bx = static_cast<float>(eff.x);
-            const float by = static_cast<float>(eff.y);
-            const float bw = static_cast<float>(eff.w);
-            const float bh = static_cast<float>(eff.h);
-            const float cy = by + bh * 0.5f;
-            const float thumb_r = std::clamp(bh * 0.34f, 5.0f, 10.0f);
-            const float x0 = bx + thumb_r;
-            const float x1 = bx + std::max(thumb_r, bw - thumb_r);
-            const float thumb_x = x0 + (x1 - x0) * t;
-            const float track_h = block_has_class(b, "form-range") ? 8.0f : 6.0f;
-            const Rect track{
-                static_cast<int>(std::round(x0)),
-                static_cast<int>(std::round(cy - track_h * 0.5f)),
-                std::max(1, static_cast<int>(std::round(x1 - x0))),
-                std::max(1, static_cast<int>(std::round(track_h))),
-            };
-            const Rect fill{
-                track.x,
-                track.y,
-                std::max(1, static_cast<int>(std::round(thumb_x - x0))),
-                track.h,
-            };
-
-            const Color track_color =
-                block_has_class(b, "form-range")
-                    ? Color{0xDE, 0xE2, 0xE6, 0xFF}
-                    : Color{0xB8, 0xC0, 0xCC, 0xFF};
-            const Color fill_color =
-                block_has_class(b, "form-range")
-                    ? Color{0x0D, 0x6E, 0xFD, 0xFF}
-                    : detail::unpack_rgba(an.color_rgba);
-            const Color thumb_color =
-                block_has_class(b, "form-range")
-                    ? Color{0x0D, 0x6E, 0xFD, 0xFF}
-                    : detail::unpack_rgba(an.color_rgba);
-
-            painter.fill_rounded_rect(track, track_h * 0.5f, track_color);
-            painter.fill_rounded_rect(fill, track_h * 0.5f, fill_color);
-            painter.fill_circle(thumb_x, cy, thumb_r, thumb_color);
-        }
-        }  // phase == BlockPaintPhase::Text
-
-        if (has_opacity) painter.pop_alpha();
-        if (clipped) painter.pop_clip();
-        if (has_transform) painter.pop_transform();
-    }
-
-    // Scrollbar overlay â€” drawn last so it sits on top of any
-    // clipped content. A simple right-side thumb showing how far
-    // we've scrolled; track is transparent.
-    for (const auto& b : impl_->blocks) {
-        ScrollbarGeometry scrollbar{};
-        if (!vertical_scrollbar_geometry(
-                *impl_, static_cast<int>(&b - impl_->blocks.data()),
-                scrollbar)) {
-            continue;
-        }
-        // Catppuccin overlay0-ish, semi-transparent.
-        painter.fill_rounded_rect(
-            scrollbar.thumb, 3.0f, Color{0x9c, 0xa0, 0xb0, 0xC0});
-    }
-}
 
 namespace {
 
@@ -7997,6 +6278,10 @@ inline bool rect_contains(const Rect& r, int x, int y) noexcept {
         && y >= r.y && y < r.y + r.h;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 // Sum of scroll offsets contributed by scrollable ancestors of
 // `idx`. Used by hit-test and paint to convert document-space block
 // bounds into the effective on-screen position.
@@ -8030,8 +6315,15 @@ int scroll_offset_y_for(const std::vector<Block>& blocks,
 #endif
     return sum;
 }
+}  // namespace detail
+namespace {
+
 
 #if !defined(AFFINEUI_STUB_BUILD)
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 int effective_z_index(const detail::DocumentImpl& impl, int idx) {
     int z = 0;
     for (int cur = idx;
@@ -8042,6 +6334,9 @@ int effective_z_index(const detail::DocumentImpl& impl, int idx) {
     }
     return z;
 }
+}  // namespace detail
+namespace {
+
 
 const KeyframeBlock* find_keyframes(const detail::DocumentImpl& impl,
                                     std::uint32_t name_hash) {
@@ -8077,13 +6372,13 @@ bool rect_contains_float(const Rect& r, float x, float y) noexcept {
 #endif
 
 bool hit_test_skip_for_pointer(const Block& block) {
-    if (block_has_class(block, "dcs-panel__resize-zones") ||
-        block_has_class(block, "dcs-panel__resize")) {
+    if (detail::block_has_class(block, "dcs-panel__resize-zones") ||
+        detail::block_has_class(block, "dcs-panel__resize")) {
         return true;
     }
     // Honor inline `pointer-events:none` — overlay layers (patch-cable
     // SVG, ghosts, HUDs) opt out of hit-testing the standard CSS way.
-    if (const auto* style = block_attr_value(block, "style")) {
+    if (const auto* style = detail::block_attr_value(block, "style")) {
         if (style->find("pointer-events:none") != std::string::npos ||
             style->find("pointer-events: none") != std::string::npos) {
             return true;
@@ -8095,9 +6390,9 @@ bool hit_test_skip_for_pointer(const Block& block) {
 bool hit_test_skip_for_dock_target(const Block& block) {
     return hit_test_skip_for_pointer(block) ||
            block.elem_id == "__dropind" || block.elem_id == "__dockghost" ||
-           block_has_class(block, "dcs-drop") ||
-           block_has_class(block, "dcs-dockpane__tab-ghost") ||
-           block_has_class(block, "dcs-panel__resize-zone");
+           detail::block_has_class(block, "dcs-drop") ||
+           detail::block_has_class(block, "dcs-dockpane__tab-ghost") ||
+           detail::block_has_class(block, "dcs-panel__resize-zone");
 }
 
 int hit_test_blocks_impl(const detail::DocumentImpl& impl,
@@ -8112,7 +6407,7 @@ int hit_test_blocks_impl(const detail::DocumentImpl& impl,
         if (skip_dock_overlay && hit_test_skip_for_dock_target(blocks[i]))
             continue;
 #if !defined(AFFINEUI_STUB_BUILD)
-        const int dy = scroll_offset_y_for(
+        const int dy = detail::scroll_offset_y_for(
             blocks, impl.style_store, static_cast<int>(i));
 #else
         const int dy = 0;
@@ -8133,7 +6428,7 @@ int hit_test_blocks_impl(const detail::DocumentImpl& impl,
             contains = rect_contains(eff, x, y);
         }
         if (contains) {
-            const int z = effective_z_index(impl, static_cast<int>(i));
+            const int z = detail::effective_z_index(impl, static_cast<int>(i));
             if (z > hit_z || (z == hit_z && static_cast<int>(i) > hit)) {
                 hit = static_cast<int>(i);
                 hit_z = z;
@@ -8901,8 +7196,8 @@ bool element_could_match_compound_modulo_attribute(
     std::string_view name) {
     if (!elem) return false;
     const auto tag = tag_name(elem);
-    const auto elem_id = attr_string(elem, "id");
-    const auto classes = split_classes(attr_string(elem, "class"));
+    const auto elem_id = detail::attr_string(elem, "id");
+    const auto classes = split_classes(detail::attr_string(elem, "class"));
     for (const auto& s : compound.simples) {
         if (simple_selector_depends_on_attribute(s, name)) continue;
         switch (s.kind) {
@@ -8917,8 +7212,8 @@ bool element_could_match_compound_modulo_attribute(
                     classes.end()) return false;
                 break;
             case SimpleSelector::Kind::Attr:
-                if (!has_attr(elem, s.name)) return false;
-                if (s.attr_value_set && attr_string(elem, s.name) != s.value)
+                if (!detail::has_attr(elem, s.name)) return false;
+                if (s.attr_value_set && detail::attr_string(elem, s.name) != s.value)
                     return false;
                 break;
         }
@@ -9071,8 +7366,8 @@ void recollect_blocks_from_current_dom(detail::DocumentImpl& impl) {
         }
         auto* body_elem = lxb_dom_interface_element(body_node);
         impl.root_style = impl.resolver->resolve(body_elem, html_style);
-        apply_font_family_fills(impl, "body", attr_string(body_elem, "id"),
-                                split_classes(attr_string(body_elem, "class")),
+        apply_font_family_fills(impl, "body", detail::attr_string(body_elem, "id"),
+                                split_classes(detail::attr_string(body_elem, "class")),
                                 /*parent_idx=*/-1,
                                 /*state_bits=*/0,
                                 impl.root_style);
@@ -9237,7 +7532,7 @@ Rect transform_border_rect(const Rect& r, const Mat2x3& m) {
 Rect block_border_visual_rect(const detail::DocumentImpl& impl, int idx) {
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return {};
     const auto& b = impl.blocks[static_cast<std::size_t>(idx)];
-    const int dy = scroll_offset_y_for(impl.blocks, impl.style_store, idx);
+    const int dy = detail::scroll_offset_y_for(impl.blocks, impl.style_store, idx);
     const Rect base{b.bounds.x, b.bounds.y - dy, b.bounds.w, b.bounds.h};
     return transform_border_rect(base, effective_transform_for(impl, idx));
 }
@@ -9245,7 +7540,7 @@ Rect block_border_visual_rect(const detail::DocumentImpl& impl, int idx) {
 Rect block_visual_rect(const detail::DocumentImpl& impl, int idx) {
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return {};
     const auto& b = impl.blocks[static_cast<std::size_t>(idx)];
-    const int dy = scroll_offset_y_for(impl.blocks, impl.style_store, idx);
+    const int dy = detail::scroll_offset_y_for(impl.blocks, impl.style_store, idx);
     const Rect base{b.bounds.x, b.bounds.y - dy, b.bounds.w, b.bounds.h};
     Rect out = base;
     if (b.box_shadows) {
@@ -9269,6 +7564,10 @@ Rect block_visual_rect(const detail::DocumentImpl& impl, int idx) {
     return out;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool vertical_scrollbar_geometry(const detail::DocumentImpl& impl,
                                  int idx,
                                  ScrollbarGeometry& out) {
@@ -9314,6 +7613,9 @@ bool vertical_scrollbar_geometry(const detail::DocumentImpl& impl,
     out.thumb_travel = thumb_travel;
     return true;
 }
+}  // namespace detail
+namespace {
+
 
 bool set_block_scroll_y(detail::DocumentImpl& impl, int idx, int scroll_y) {
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return false;
@@ -9333,7 +7635,7 @@ bool scrollbar_scroll_from_thumb_y(detail::DocumentImpl& impl,
                                    int idx,
                                    int thumb_y) {
     ScrollbarGeometry geometry{};
-    if (!vertical_scrollbar_geometry(impl, idx, geometry)) return false;
+    if (!detail::vertical_scrollbar_geometry(impl, idx, geometry)) return false;
     if (geometry.thumb_travel <= 0) return false;
     const int track_relative = std::clamp(
         thumb_y - geometry.track.y, 0, geometry.thumb_travel);
@@ -9350,7 +7652,7 @@ bool find_vertical_scrollbar_at(const detail::DocumentImpl& impl,
                                 ScrollbarGeometry& out) {
     for (std::size_t i = impl.blocks.size(); i-- > 0; ) {
         ScrollbarGeometry geometry{};
-        if (!vertical_scrollbar_geometry(
+        if (!detail::vertical_scrollbar_geometry(
                 impl, static_cast<int>(i), geometry)) {
             continue;
         }
@@ -9435,7 +7737,7 @@ lxb_dom_element_t* find_dom_element_by_id(lxb_dom_node_t* root,
     if (!root || elem_id.empty()) return nullptr;
     if (root->type == LXB_DOM_NODE_TYPE_ELEMENT) {
         auto* elem = lxb_dom_interface_element(root);
-        if (has_attr(elem, "id") && attr_string(elem, "id") == elem_id) {
+        if (detail::has_attr(elem, "id") && detail::attr_string(elem, "id") == elem_id) {
             return elem;
         }
     }
@@ -9481,23 +7783,23 @@ int block_index_for_element_or_ancestor(const detail::DocumentImpl& impl,
 void refresh_block_metadata_from_element(Block& block,
                                          lxb_dom_element_t* elem) {
     if (!elem) return;
-    block.elem_id = attr_string(elem, "id");
-    block.classes = split_classes(attr_string(elem, "class"));
+    block.elem_id = detail::attr_string(elem, "id");
+    block.classes = split_classes(detail::attr_string(elem, "class"));
     block.attrs = element_attrs(elem);
     if (block.tag == "img") {
-        block.image_src = attr_string(elem, "src");
+        block.image_src = detail::attr_string(elem, "src");
     }
     if (block.tag == "input" || block.tag == "textarea") {
-        block.placeholder = attr_string(elem, "placeholder");
+        block.placeholder = detail::attr_string(elem, "placeholder");
     }
     if (block.tag == "input") {
-        block.input_type  = attr_string(elem, "type");
-        block.role_attr   = attr_string(elem, "role");
-        block.is_checked  = has_attr(elem, "checked");
-        block.is_disabled = has_attr(elem, "disabled");
+        block.input_type  = detail::attr_string(elem, "type");
+        block.role_attr   = detail::attr_string(elem, "role");
+        block.is_checked  = detail::has_attr(elem, "checked");
+        block.is_disabled = detail::has_attr(elem, "disabled");
         block.text_control = input_type_accepts_text(block.input_type);
     } else if (block.tag == "textarea") {
-        block.is_disabled = has_attr(elem, "disabled");
+        block.is_disabled = detail::has_attr(elem, "disabled");
         block.text_control = true;
     }
 }
@@ -9533,7 +7835,7 @@ void mark_live_mutation_dirty(detail::DocumentImpl& impl,
 lxb_dom_element_t* first_descendant_with_class(lxb_dom_element_t* elem,
                                                std::string_view cls) {
     if (!elem) return nullptr;
-    const auto classes = split_classes(attr_string(elem, "class"));
+    const auto classes = split_classes(detail::attr_string(elem, "class"));
     if (std::find(classes.begin(), classes.end(), cls) != classes.end()) {
         return elem;
     }
@@ -9552,7 +7854,7 @@ lxb_dom_element_t* nearest_ancestor_with_class(lxb_dom_element_t* elem,
                                                std::string_view cls) {
     for (auto* current = elem; current != nullptr;
          current = parent_element(current)) {
-        const auto classes = split_classes(attr_string(current, "class"));
+        const auto classes = split_classes(detail::attr_string(current, "class"));
         if (std::find(classes.begin(), classes.end(), cls) != classes.end()) {
             return current;
         }
@@ -9595,8 +7897,8 @@ lxb_dom_element_t* nearest_checkbox_wrapper(lxb_dom_element_t* elem) {
          node != nullptr; node = node->parent) {
         if (node->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
         auto* candidate = lxb_dom_interface_element(node);
-        const auto classes = split_classes(attr_string(candidate, "class"));
-        const auto widget = attr_string(candidate, "data-aui-widget");
+        const auto classes = split_classes(detail::attr_string(candidate, "class"));
+        const auto widget = detail::attr_string(candidate, "data-aui-widget");
         const bool checkbox_widget = widget == "checkbox";
         const bool decius_widget =
             std::find(classes.begin(), classes.end(), "dcs-check") !=
@@ -9709,7 +8011,7 @@ bool selector_mutation_reveals_hidden_subtree(detail::DocumentImpl& impl,
                                  "[reveal] blockless child <%s> cls='%s' "
                                  "under blk %d\n",
                                  tag_name(child).c_str(),
-                                 attr_string(child, "class").c_str(), idx);
+                                 detail::attr_string(child, "class").c_str(), idx);
                 }
                 return true;
             }
@@ -9764,8 +8066,8 @@ bool pseudo_state_reveals_hidden_subtree(detail::DocumentImpl& impl,
             // id, and a never-collected child has no slot yet.
             pseudo_block.id = impl.style_store.acquire(child);
             pseudo_block.tag = tag_name(child);
-            pseudo_block.elem_id = attr_string(child, "id");
-            pseudo_block.classes = split_classes(attr_string(child, "class"));
+            pseudo_block.elem_id = detail::attr_string(child, "id");
+            pseudo_block.classes = split_classes(detail::attr_string(child, "class"));
             pseudo_block.attrs = element_attrs(child);
             pseudo_block.parent_idx = idx;
             apply_pseudo_overlay(impl, pseudo_block, rs);
@@ -9883,9 +8185,9 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
                               std::string_view name,
                               std::string_view value) {
     if (!elem || name.empty()) return false;
-    const bool already_present = has_attr(elem, name);
+    const bool already_present = detail::has_attr(elem, name);
     const std::string old_value =
-        already_present ? attr_string(elem, name) : std::string();
+        already_present ? detail::attr_string(elem, name) : std::string();
     if (already_present && old_value == value) return false;
     MutationTraceTimer trace_timer{"set", name};
 
@@ -10050,8 +8352,8 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
 bool remove_attribute_on_element(detail::DocumentImpl& impl,
                                  lxb_dom_element_t* elem,
                                  std::string_view name) {
-    if (!elem || name.empty() || !has_attr(elem, name)) return false;
-    const std::string old_value = attr_string(elem, name);
+    if (!elem || name.empty() || !detail::has_attr(elem, name)) return false;
+    const std::string old_value = detail::attr_string(elem, name);
     MutationTraceTimer trace_timer{"remove", name};
 
     const int target_idx = block_index_for_exact_element(impl, elem);
@@ -10266,8 +8568,8 @@ bool set_text_on_element(detail::DocumentImpl& impl,
 double element_attr_double(lxb_dom_element_t* elem,
                            std::string_view name,
                            double fallback) {
-    if (!elem || !has_attr(elem, name)) return fallback;
-    const auto value = attr_string(elem, name);
+    if (!elem || !detail::has_attr(elem, name)) return fallback;
+    const auto value = detail::attr_string(elem, name);
     if (value.empty()) return fallback;
     char* end = nullptr;
     const double parsed = std::strtod(value.c_str(), &end);
@@ -10275,18 +8577,18 @@ double element_attr_double(lxb_dom_element_t* elem,
 }
 
 bool element_attr_true(lxb_dom_element_t* elem, std::string_view name) {
-    if (!elem || !has_attr(elem, name)) return false;
-    const auto value = attr_string(elem, name);
+    if (!elem || !detail::has_attr(elem, name)) return false;
+    const auto value = detail::attr_string(elem, name);
     return value.empty() || value == "true" || value == "checked" ||
            value == "1";
 }
 
 std::string widget_event_name(lxb_dom_element_t* elem) {
     if (!elem) return {};
-    if (auto name = attr_string(elem, "data-aui-name"); !name.empty()) {
+    if (auto name = detail::attr_string(elem, "data-aui-name"); !name.empty()) {
         return name;
     }
-    return attr_string(elem, "id");
+    return detail::attr_string(elem, "id");
 }
 
 void emit_widget_change(detail::DocumentImpl& impl,
@@ -10310,7 +8612,7 @@ std::string emitted_text_control_value(const Block& block);
 
 std::string decius_slider_fill_style(double min, double max, double value,
                                      bool bipolar) {
-    const double p = normalized_control_value(value, min, max);
+    const double p = detail::normalized_control_value(value, min, max);
     if (!bipolar) return "width:" + percent_string(p);
     const double start = std::min(0.5, p);
     const double width = std::abs(p - 0.5);
@@ -10319,7 +8621,7 @@ std::string decius_slider_fill_style(double min, double max, double value,
 }
 
 std::string decius_slider_thumb_style(double min, double max, double value) {
-    return "left:" + percent_string(normalized_control_value(value, min, max));
+    return "left:" + percent_string(detail::normalized_control_value(value, min, max));
 }
 
 // Replace/append one declaration in an inline style string, preserving
@@ -10333,11 +8635,11 @@ std::string style_with_decl(std::string_view existing,
     while (pos < existing.size()) {
         auto end = existing.find(';', pos);
         if (end == std::string_view::npos) end = existing.size();
-        const auto decl = trim_css_ws(existing.substr(pos, end - pos));
+        const auto decl = detail::trim_css_ws(existing.substr(pos, end - pos));
         if (!decl.empty()) {
             const auto colon = decl.find(':');
             const auto name =
-                trim_css_ws(colon == std::string_view::npos
+                detail::trim_css_ws(colon == std::string_view::npos
                                 ? decl
                                 : decl.substr(0, colon));
             if (name != prop) {
@@ -10354,13 +8656,20 @@ std::string style_with_decl(std::string_view existing,
 }
 
 std::string decius_fader_style(double min, double max, double value) {
-    const double p = 1.0 - normalized_control_value(value, min, max);
+    const double p = 1.0 - detail::normalized_control_value(value, min, max);
     return "--pos:" + percent_string(p);
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 double decius_knob_angle(double min, double max, double value) {
-    return -135.0 + normalized_control_value(value, min, max) * 270.0;
+    return -135.0 + detail::normalized_control_value(value, min, max) * 270.0;
 }
+}  // namespace detail
+namespace {
+
 
 std::pair<double, double> decius_knob_ring_point(double deg) {
     constexpr double r = 10.5;
@@ -10371,7 +8680,7 @@ std::pair<double, double> decius_knob_ring_point(double deg) {
 
 std::string decius_knob_arc_path(double min, double max, double value,
                                  bool bipolar) {
-    const double p = normalized_control_value(value, min, max);
+    const double p = detail::normalized_control_value(value, min, max);
     const double sweep_degrees = bipolar ? (p - 0.5) * 270.0 : p * 270.0;
     if (std::abs(sweep_degrees) <= 0.5) return {};
 
@@ -10478,7 +8787,7 @@ bool update_live_control_value(detail::DocumentImpl& impl,
             }
         }
         auto* combo = nearest_ancestor_with_class(elem, "dcs-combo");
-        if (!combo && has_attr(elem, "data-dcs-combo")) combo = elem;
+        if (!combo && detail::has_attr(elem, "data-dcs-combo")) combo = elem;
         if (combo) {
             changed =
                 set_attribute_on_element(impl, combo, "data-value", value_text) ||
@@ -10493,7 +8802,7 @@ bool update_live_control_value(detail::DocumentImpl& impl,
             changed = set_attribute_on_element(
                 impl, combo, "style",
                 "--fill:" + percent_string(
-                    normalized_control_value(clamped, fill_min, fill_max))) ||
+                    detail::normalized_control_value(clamped, fill_min, fill_max))) ||
                 changed;
         }
     }
@@ -10520,10 +8829,10 @@ bool update_live_control_value(detail::DocumentImpl& impl,
         }
     } else if (kind == LiveControlKind::DeciusFader) {
         const double fader_pos =
-            1.0 - normalized_control_value(clamped, min, max);
+            1.0 - detail::normalized_control_value(clamped, min, max);
         changed = set_attribute_on_element(
             impl, elem, "style",
-            style_with_decl(attr_string(elem, "style"), "--pos",
+            style_with_decl(detail::attr_string(elem, "style"), "--pos",
                             percent_string(fader_pos))) || changed;
     } else if (kind == LiveControlKind::AuiKnob ||
                kind == LiveControlKind::DeciusKnob) {
@@ -10550,19 +8859,19 @@ LiveControlKind live_control_kind_for_block(const Block& block) {
     if (block.tag == "input" && block.input_type == "number") {
         return LiveControlKind::NumericInput;
     }
-    if (block_has_attr(block, "data-dcs-combo")) {
+    if (detail::block_has_attr(block, "data-dcs-combo")) {
         return LiveControlKind::NumericInput;
     }
-    if (block_has_attr(block, "data-aui-knob")) {
+    if (detail::block_has_attr(block, "data-aui-knob")) {
         return LiveControlKind::AuiKnob;
     }
-    if (block_has_attr(block, "data-dcs-slider")) {
+    if (detail::block_has_attr(block, "data-dcs-slider")) {
         return LiveControlKind::DeciusSlider;
     }
-    if (block_has_attr(block, "data-dcs-fader")) {
+    if (detail::block_has_attr(block, "data-dcs-fader")) {
         return LiveControlKind::DeciusFader;
     }
-    if (block_has_attr(block, "data-dcs-knob")) {
+    if (detail::block_has_attr(block, "data-dcs-knob")) {
         return LiveControlKind::DeciusKnob;
     }
     return LiveControlKind::None;
@@ -10583,7 +8892,7 @@ bool find_splitter_at(detail::DocumentImpl& impl,
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
         auto* elem = element_for_block(impl, idx);
-        if (!elem || !has_attr(elem, "data-dcs-splitter")) continue;
+        if (!elem || !detail::has_attr(elem, "data-dcs-splitter")) continue;
 
         auto* node = lxb_dom_interface_node(elem);
         auto* prev = previous_element_sibling(node);
@@ -10595,8 +8904,8 @@ bool find_splitter_at(detail::DocumentImpl& impl,
 
         const auto& blk = impl.blocks[static_cast<std::size_t>(idx)];
         const bool horizontal =
-            block_has_class(blk, "dcs-splitter--h") ||
-            attr_string(elem, "data-dcs-splitter") == "h";
+            detail::block_has_class(blk, "dcs-splitter--h") ||
+            detail::attr_string(elem, "data-dcs-splitter") == "h";
         const auto& pb = impl.blocks[static_cast<std::size_t>(prev_idx)];
         const auto& nb = impl.blocks[static_cast<std::size_t>(next_idx)];
         out.block_idx = idx;
@@ -10695,21 +9004,21 @@ bool find_live_control_at(detail::DocumentImpl& impl,
             ? nearest_ancestor_with_class(elem, "dcs-combo")
             : nullptr;
         if (kind == LiveControlKind::NumericInput && !combo &&
-            has_attr(elem, "data-dcs-combo")) {
+            detail::has_attr(elem, "data-dcs-combo")) {
             combo = elem;
         }
         const bool has_min_attr =
-            has_attr(elem, "min") || has_attr(elem, "data-min") ||
-            (combo && has_attr(combo, "data-min"));
+            detail::has_attr(elem, "min") || detail::has_attr(elem, "data-min") ||
+            (combo && detail::has_attr(combo, "data-min"));
         const bool has_max_attr =
-            has_attr(elem, "max") || has_attr(elem, "data-max") ||
-            (combo && has_attr(combo, "data-max"));
+            detail::has_attr(elem, "max") || detail::has_attr(elem, "data-max") ||
+            (combo && detail::has_attr(combo, "data-max"));
         const bool has_fill_min_attr =
-            has_attr(elem, "data-fill-min") ||
-            (combo && has_attr(combo, "data-fill-min"));
+            detail::has_attr(elem, "data-fill-min") ||
+            (combo && detail::has_attr(combo, "data-fill-min"));
         const bool has_fill_max_attr =
-            has_attr(elem, "data-fill-max") ||
-            (combo && has_attr(combo, "data-fill-max"));
+            detail::has_attr(elem, "data-fill-max") ||
+            (combo && detail::has_attr(combo, "data-fill-max"));
         out.min = element_attr_double(
             combo, "data-min",
             element_attr_double(elem, "min",
@@ -10755,7 +9064,7 @@ bool find_live_control_at(detail::DocumentImpl& impl,
             out.last_x = point.x;
         }
         if (out.max <= out.min) out.max = out.min + 1.0;
-        out.bipolar = has_attr(elem, "data-bipolar");
+        out.bipolar = detail::has_attr(elem, "data-bipolar");
         return true;
     }
     return false;
@@ -10847,13 +9156,13 @@ bool is_checkbox_like_block(const Block& block) {
         (block.input_type == "checkbox" || block.input_type == "radio")) {
         return true;
     }
-    if (block_attr_value(block, "data-aui-widget") &&
-        *block_attr_value(block, "data-aui-widget") == "checkbox") {
+    if (detail::block_attr_value(block, "data-aui-widget") &&
+        *detail::block_attr_value(block, "data-aui-widget") == "checkbox") {
         return true;
     }
-    return block_has_class(block, "dcs-check") ||
-           block_has_class(block, "dcs-radio") ||
-           block_has_class(block, "dcs-switch");
+    return detail::block_has_class(block, "dcs-check") ||
+           detail::block_has_class(block, "dcs-radio") ||
+           detail::block_has_class(block, "dcs-switch");
 }
 
 bool find_checkbox_control_at(detail::DocumentImpl& impl,
@@ -10879,12 +9188,12 @@ bool class_list_contains(lxb_dom_element_t* elem, std::string_view cls);
 std::string radio_group_name(lxb_dom_element_t* elem,
                              lxb_dom_element_t* input) {
     if (input) {
-        auto name = attr_string(input, "name");
+        auto name = detail::attr_string(input, "name");
         if (!name.empty()) return name;
     }
-    auto name = attr_string(elem, "data-dcs-name");
+    auto name = detail::attr_string(elem, "data-dcs-name");
     if (!name.empty()) return name;
-    return attr_string(elem, "name");
+    return detail::attr_string(elem, "name");
 }
 
 bool radio_peer_matches(lxb_dom_element_t* peer,
@@ -10893,7 +9202,7 @@ bool radio_peer_matches(lxb_dom_element_t* peer,
     if (!peer || peer == current) return false;
     const bool peer_radio = class_list_contains(peer, "dcs-radio") ||
                             (tag_name(peer) == "input" &&
-                             attr_string(peer, "type") == "radio");
+                             detail::attr_string(peer, "type") == "radio");
     if (!peer_radio) return false;
     if (!group_name.empty()) {
         return radio_group_name(peer,
@@ -10953,18 +9262,18 @@ bool toggle_checkbox_control(detail::DocumentImpl& impl, int idx,
     lxb_dom_element_t* visual_check =
         first_descendant_with_class(elem, "dcs-check__box");
     if (!visual_check) {
-        visual_check = block_has_class(block, "dcs-check") ||
-                       block_has_class(block, "dcs-radio")
+        visual_check = detail::block_has_class(block, "dcs-check") ||
+                       detail::block_has_class(block, "dcs-radio")
             ? elem
             : first_descendant_with_class(elem, "dcs-check");
     }
-    const bool radio = (input && attr_string(input, "type") == "radio") ||
-                       block_has_class(block, "dcs-radio") ||
+    const bool radio = (input && detail::attr_string(input, "type") == "radio") ||
+                       detail::block_has_class(block, "dcs-radio") ||
                        class_list_contains(elem, "dcs-radio") ||
                        (decius_control != nullptr &&
                         class_list_contains(decius_control, "dcs-radio"));
     const bool old_checked = input
-        ? has_attr(input, "checked")
+        ? detail::has_attr(input, "checked")
         : (decius_control
                ? element_attr_true(decius_control, "aria-checked")
                : element_attr_true(elem, "aria-checked"));
@@ -10980,11 +9289,11 @@ bool toggle_checkbox_control(detail::DocumentImpl& impl, int idx,
             ? (set_attribute_on_element(impl, input, "checked", "checked") || changed)
             : (remove_attribute_on_element(impl, input, "checked") || changed);
     }
-    if (input != elem || has_attr(elem, "aria-checked") ||
-        block_has_class(block, "dcs-check") ||
-        block_has_class(block, "dcs-radio") ||
-        block_has_class(block, "dcs-switch") ||
-        block_attr_value(block, "data-aui-widget")) {
+    if (input != elem || detail::has_attr(elem, "aria-checked") ||
+        detail::block_has_class(block, "dcs-check") ||
+        detail::block_has_class(block, "dcs-radio") ||
+        detail::block_has_class(block, "dcs-switch") ||
+        detail::block_attr_value(block, "data-aui-widget")) {
         changed = set_attribute_on_element(
             impl, elem, "aria-checked", checked ? "true" : "false") ||
             changed;
@@ -11001,7 +9310,7 @@ bool toggle_checkbox_control(detail::DocumentImpl& impl, int idx,
     }
     auto* wrapper = nearest_checkbox_wrapper(elem);
     if (wrapper != nullptr && wrapper != elem &&
-        attr_string(wrapper, "data-aui-widget") == "checkbox") {
+        detail::attr_string(wrapper, "data-aui-widget") == "checkbox") {
         changed = checked
             ? (set_attribute_on_element(impl, wrapper, "aria-checked", "true") || changed)
             : (remove_attribute_on_element(impl, wrapper, "aria-checked") || changed);
@@ -11014,11 +9323,11 @@ bool toggle_checkbox_control(detail::DocumentImpl& impl, int idx,
 
 bool is_button_like_block(const Block& block) {
     if (block.tag == "button") return true;
-    if (const auto* role = block_attr_value(block, "role");
+    if (const auto* role = detail::block_attr_value(block, "role");
         role && *role == "button") {
         return true;
     }
-    if (const auto* widget = block_attr_value(block, "data-aui-widget");
+    if (const auto* widget = detail::block_attr_value(block, "data-aui-widget");
         widget && *widget == "button") {
         return true;
     }
@@ -11043,10 +9352,10 @@ bool find_button_control_at(detail::DocumentImpl& impl,
 
 std::string activation_name(lxb_dom_element_t* elem) {
     if (!elem) return {};
-    if (auto name = attr_string(elem, "data-aui-name"); !name.empty()) {
+    if (auto name = detail::attr_string(elem, "data-aui-name"); !name.empty()) {
         return name;
     }
-    return attr_string(elem, "id");
+    return detail::attr_string(elem, "id");
 }
 
 bool activate_button_control(detail::DocumentImpl& impl,
@@ -11071,17 +9380,17 @@ bool find_button_group_option_at(detail::DocumentImpl& impl,
         auto* elem = element_for_block(impl, idx);
         if (!elem) continue;
         if (!out_option && block.tag == "button" && !block.is_disabled &&
-            (block_has_attr(block, "value") ||
-             block_has_attr(block, "data-dcs-value") ||
-             block_has_class(block, "dcs-btn"))) {
+            (detail::block_has_attr(block, "value") ||
+             detail::block_has_attr(block, "data-dcs-value") ||
+             detail::block_has_class(block, "dcs-btn"))) {
             out_option = elem;
         }
-        const auto* widget = block_attr_value(block, "data-aui-widget");
+        const auto* widget = detail::block_attr_value(block, "data-aui-widget");
         if (widget && *widget == "button-group") {
             out_group = elem;
             return out_option != nullptr;
         }
-        if (!decius_group && block_has_class(block, "dcs-btn-group")) {
+        if (!decius_group && detail::block_has_class(block, "dcs-btn-group")) {
             decius_group = elem;
         }
     }
@@ -11090,8 +9399,8 @@ bool find_button_group_option_at(detail::DocumentImpl& impl,
         // a visual grouping for independently-bound buttons. Generated
         // button_group widgets mark the outer field with data-aui-widget;
         // otherwise a named child button should keep its own on_click path.
-        if (has_attr(out_option, "data-aui-name") &&
-            attr_string(decius_group, "data-aui-widget") != "button-group") {
+        if (detail::has_attr(out_option, "data-aui-name") &&
+            detail::attr_string(decius_group, "data-aui-widget") != "button-group") {
             out_group = nullptr;
             out_option = nullptr;
             return false;
@@ -11111,7 +9420,7 @@ bool class_list_contains(lxb_dom_element_t* elem, std::string_view cls) {
 std::string class_list_set(lxb_dom_element_t* elem,
                            std::string_view cls,
                            bool present) {
-    auto classes = split_classes(attr_string(elem, "class"));
+    auto classes = split_classes(detail::attr_string(elem, "class"));
     auto it = std::find(classes.begin(), classes.end(), cls);
     if (present && it == classes.end()) {
         classes.emplace_back(cls);
@@ -11172,7 +9481,7 @@ bool set_layout_class(detail::DocumentImpl& impl,
 }
 
 double parse_css_number_prefix(std::string_view value, double fallback) {
-    const std::string text(trim_css_ws(value));
+    const std::string text(detail::trim_css_ws(value));
     if (text.empty()) return fallback;
     char* end = nullptr;
     const double parsed = std::strtod(text.c_str(), &end);
@@ -11196,7 +9505,7 @@ bool update_dcs_vec_compression(
     bool changed = false;
     for (std::size_t i = 0; i < impl.blocks.size(); ++i) {
         auto& vec = impl.blocks[i];
-        if (!block_has_class(vec, "dcs-vec")) continue;
+        if (!detail::block_has_class(vec, "dcs-vec")) continue;
         if (i >= child_indices.size()) continue;
         const auto& kids = child_indices[i];
         const int child_count = std::max(1, static_cast<int>(kids.size()));
@@ -11211,7 +9520,7 @@ bool update_dcs_vec_compression(
         lxb_dom_element_t* field_elem = nullptr;
         if (vec.parent_idx >= 0 &&
             static_cast<std::size_t>(vec.parent_idx) < impl.blocks.size() &&
-            block_has_class(impl.blocks[static_cast<std::size_t>(vec.parent_idx)],
+            detail::block_has_class(impl.blocks[static_cast<std::size_t>(vec.parent_idx)],
                             "dcs-field")) {
             const auto parent_idx = static_cast<std::size_t>(vec.parent_idx);
             const auto& parent = impl.blocks[parent_idx];
@@ -11285,7 +9594,7 @@ bool update_dcs_vec_compression(
                          "[vec %zu] post-toggle field style: h=%d minh=%d "
                          "hpct=%d classes=%s\n",
                          i, fcs.height, fcs.min_height, fcs.height_pct,
-                         attr_string(field_elem, "class").c_str());
+                         detail::attr_string(field_elem, "class").c_str());
         }
     }
     return changed;
@@ -11311,7 +9620,7 @@ std::string hex_from_color(Color color) {
 }
 
 std::string normalize_hex_color(std::string_view raw) {
-    std::string value(trim_css_ws(raw));
+    std::string value(detail::trim_css_ws(raw));
     if (value.empty()) return {};
     if (value.front() != '#' &&
         (value.size() == 3 || value.size() == 4 ||
@@ -11319,7 +9628,7 @@ std::string normalize_hex_color(std::string_view raw) {
         value.insert(value.begin(), '#');
     }
     std::uint32_t rgba = 0;
-    if (!parse_hex_color(value, rgba)) return {};
+    if (!detail::parse_hex_color(value, rgba)) return {};
     return hex_from_color(detail::unpack_rgba(rgba));
 }
 
@@ -11380,7 +9689,7 @@ HsvColor hsv_from_hex(std::string_view raw, HsvColor fallback) {
     const std::string hex = normalize_hex_color(raw);
     if (hex.empty()) return fallback;
     std::uint32_t rgba = 0;
-    if (!parse_hex_color(hex, rgba)) return fallback;
+    if (!detail::parse_hex_color(hex, rgba)) return fallback;
     return rgb_to_hsv(detail::unpack_rgba(rgba));
 }
 
@@ -11388,10 +9697,10 @@ lxb_dom_element_t* colorfield_owner(lxb_dom_element_t* field) {
     lxb_dom_element_t* named = nullptr;
     for (auto* current = field; current != nullptr;
          current = parent_element(current)) {
-        if (attr_string(current, "data-aui-widget") == "colorfield") {
+        if (detail::attr_string(current, "data-aui-widget") == "colorfield") {
             return current;
         }
-        if (!named && !attr_string(current, "data-aui-name").empty()) {
+        if (!named && !detail::attr_string(current, "data-aui-name").empty()) {
             named = current;
         }
     }
@@ -11409,16 +9718,16 @@ HsvColor current_dcs_colorfield_hsv(lxb_dom_element_t* field) {
 
     HsvColor out{};
     if (auto* owner = colorfield_owner(field)) {
-        if (try_value(attr_string(owner, "data-value"), out)) return out;
+        if (try_value(detail::attr_string(owner, "data-value"), out)) return out;
     }
-    if (try_value(attr_string(field, "data-value"), out)) return out;
+    if (try_value(detail::attr_string(field, "data-value"), out)) return out;
     if (auto* chip = first_descendant_with_class(
             field, "dcs-colorfield__chip")) {
-        if (try_value(attr_string(chip, "data-dcs-color"), out)) return out;
+        if (try_value(detail::attr_string(chip, "data-dcs-color"), out)) return out;
     }
     if (auto* input = first_descendant_with_class(
             field, "dcs-colorfield__hex")) {
-        if (try_value(attr_string(input, "value"), out)) return out;
+        if (try_value(detail::attr_string(input, "value"), out)) return out;
     }
     return fallback;
 }
@@ -11435,8 +9744,8 @@ bool sync_dcs_colorfield(detail::DocumentImpl& impl,
 
     auto* owner = colorfield_owner(field);
     const std::string previous = normalize_hex_color(
-        owner ? attr_string(owner, "data-value")
-              : attr_string(field, "data-value"));
+        owner ? detail::attr_string(owner, "data-value")
+              : detail::attr_string(field, "data-value"));
     const std::string hex = hex_from_hsv(hsv);
     const std::string hue_hex = hex_from_hsv({hsv.h, 1.0, 1.0});
 
@@ -11454,7 +9763,7 @@ bool sync_dcs_colorfield(detail::DocumentImpl& impl,
         changed = set_attribute_on_element(
                       impl, chip, "style",
                       style_with_properties(
-                          attr_string(chip, "style"),
+                          detail::attr_string(chip, "style"),
                           {{"--c", hex}, {"background", hex}})) ||
                   changed;
     }
@@ -11475,7 +9784,7 @@ bool sync_dcs_colorfield(detail::DocumentImpl& impl,
         changed = set_attribute_on_element(
                       impl, preview_chip, "style",
                       style_with_properties(
-                          attr_string(preview_chip, "style"),
+                          detail::attr_string(preview_chip, "style"),
                           {{"--c", hex}, {"background", hex}})) ||
                   changed;
     }
@@ -11496,7 +9805,7 @@ bool sync_dcs_colorfield(detail::DocumentImpl& impl,
         changed = set_attribute_on_element(
                       impl, square, "style",
                       style_with_properties(
-                          attr_string(square, "style"),
+                          detail::attr_string(square, "style"),
                           {{"--hue", hue_hex},
                            {"aspect-ratio", "1.4 / 1"}})) ||
                   changed;
@@ -11505,7 +9814,7 @@ bool sync_dcs_colorfield(detail::DocumentImpl& impl,
             changed = set_attribute_on_element(
                           impl, cursor, "style",
                           style_with_properties(
-                              attr_string(cursor, "style"),
+                              detail::attr_string(cursor, "style"),
                               {{"left", percent_string(hsv.s)},
                                {"top", percent_string(1.0 - hsv.v)}})) ||
                       changed;
@@ -11517,7 +9826,7 @@ bool sync_dcs_colorfield(detail::DocumentImpl& impl,
             changed = set_attribute_on_element(
                           impl, cursor, "style",
                           style_with_properties(
-                              attr_string(cursor, "style"),
+                              detail::attr_string(cursor, "style"),
                               {{"left", percent_string(hsv.h / 360.0)}})) ||
                       changed;
         }
@@ -11682,12 +9991,12 @@ bool update_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev) {
 
 std::string button_group_option_value(lxb_dom_element_t* elem) {
     if (!elem) return {};
-    auto value = attr_string(elem, "value");
+    auto value = detail::attr_string(elem, "value");
     if (!value.empty()) return value;
-    value = attr_string(elem, "data-dcs-value");
+    value = detail::attr_string(elem, "data-dcs-value");
     if (!value.empty()) return value;
     value = node_text(lxb_dom_interface_node(elem));
-    return std::string(trim_css_ws(value));
+    return std::string(detail::trim_css_ws(value));
 }
 
 bool update_button_group_option_states(detail::DocumentImpl& impl,
@@ -11696,8 +10005,8 @@ bool update_button_group_option_states(detail::DocumentImpl& impl,
     if (!elem) return false;
     bool changed = false;
     if (tag_name(elem) == "button" &&
-        (has_attr(elem, "value") ||
-         has_attr(elem, "data-dcs-value") ||
+        (detail::has_attr(elem, "value") ||
+         detail::has_attr(elem, "data-dcs-value") ||
          class_list_contains(elem, "dcs-btn"))) {
         const bool active = button_group_option_value(elem) == selected;
         changed = set_attribute_on_element(
@@ -11751,16 +10060,16 @@ bool find_dropdown_control_at(detail::DocumentImpl& impl,
         auto* elem = element_for_block(impl, idx);
         if (!elem) continue;
         if (!out_option && block.tag == "button" &&
-            block_has_attr(block, "value") &&
-            block_attr_value(block, "role") &&
-            *block_attr_value(block, "role") == "option" &&
+            detail::block_has_attr(block, "value") &&
+            detail::block_attr_value(block, "role") &&
+            *detail::block_attr_value(block, "role") == "option" &&
             !block.is_disabled) {
             out_option = elem;
         }
         if (!out_select && block.tag == "select" && !block.is_disabled) {
             out_select = elem;
         }
-        const auto* widget = block_attr_value(block, "data-aui-widget");
+        const auto* widget = detail::block_attr_value(block, "data-aui-widget");
         if (widget && *widget == "dropdown") {
             out_group = elem;
             return out_select != nullptr || out_option != nullptr;
@@ -11781,14 +10090,14 @@ bool update_dropdown_selection_states(detail::DocumentImpl& impl,
     if (tag == "select") {
         changed =
             set_attribute_on_element(impl, elem, "value", selected) || changed;
-    } else if (tag == "option" && has_attr(elem, "value")) {
-        const bool active = attr_string(elem, "value") == selected;
+    } else if (tag == "option" && detail::has_attr(elem, "value")) {
+        const bool active = detail::attr_string(elem, "value") == selected;
         changed = active
             ? (set_attribute_on_element(impl, elem, "selected", "selected") || changed)
             : (remove_attribute_on_element(impl, elem, "selected") || changed);
-    } else if (tag == "button" && has_attr(elem, "value") &&
-               attr_string(elem, "role") == "option") {
-        const bool active = attr_string(elem, "value") == selected;
+    } else if (tag == "button" && detail::has_attr(elem, "value") &&
+               detail::attr_string(elem, "role") == "option") {
+        const bool active = detail::attr_string(elem, "value") == selected;
         changed = active
             ? (set_attribute_on_element(impl, elem, "aria-selected", "true") || changed)
             : (remove_attribute_on_element(impl, elem, "aria-selected") || changed);
@@ -11833,8 +10142,8 @@ int overlay_item_count(lxb_dom_element_t* elem) {
         auto* child_elem = lxb_dom_interface_element(child);
         if (class_list_contains(child_elem, "dcs-menu__item") ||
             class_list_contains(child_elem, "dropdown-item") ||
-            attr_string(child_elem, "role") == "option" ||
-            attr_string(child_elem, "role") == "menuitem") {
+            detail::attr_string(child_elem, "role") == "option" ||
+            detail::attr_string(child_elem, "role") == "menuitem") {
             ++count;
         }
         count += overlay_item_count(child_elem);
@@ -12089,7 +10398,7 @@ std::string dropdown_menu_open_style(const detail::DocumentImpl& impl,
 bool toggle_dropdown_menu(detail::DocumentImpl& impl, lxb_dom_element_t* group) {
     auto* menu = first_descendant_with_class(group, "aui-select__menu");
     if (!menu) return false;
-    if (!has_attr(menu, "hidden")) {
+    if (!detail::has_attr(menu, "hidden")) {
         return hide_dropdown_menu(impl, group);
     }
     const std::string open_style = dropdown_menu_open_style(impl, group, menu);
@@ -12105,7 +10414,7 @@ bool update_dropdown_control(detail::DocumentImpl& impl,
                              lxb_dom_element_t* group,
                              lxb_dom_element_t* option) {
     if (!group || !option) return false;
-    const auto selected = attr_string(option, "value");
+    const auto selected = detail::attr_string(option, "value");
     if (selected.empty()) return false;
     bool changed =
         set_attribute_on_element(impl, group, "data-value", selected);
@@ -12146,7 +10455,7 @@ bool close_all_dropdown_menus(detail::DocumentImpl& impl,
     std::vector<lxb_dom_element_t*> menus;
     auto collect = [&](lxb_dom_element_t* elem) {
         if (elem != except && class_list_contains(elem, "aui-select__menu") &&
-            !has_attr(elem, "hidden")) {
+            !detail::has_attr(elem, "hidden")) {
             menus.push_back(elem);
         }
     };
@@ -12160,10 +10469,10 @@ bool close_all_dropdown_menus(detail::DocumentImpl& impl,
 }
 
 std::string target_id_from_selector(std::string_view selector) {
-    selector = trim_css_ws(selector);
+    selector = detail::trim_css_ws(selector);
     if (selector.empty() || selector.front() != '#') return {};
     selector.remove_prefix(1);
-    selector = trim_css_ws(selector);
+    selector = detail::trim_css_ws(selector);
     std::size_t end = 0;
     while (end < selector.size() &&
            !std::isspace(static_cast<unsigned char>(selector[end]))) {
@@ -12175,8 +10484,8 @@ std::string target_id_from_selector(std::string_view selector) {
 lxb_dom_element_t* dcs_target_for_trigger(detail::DocumentImpl& impl,
                                           lxb_dom_element_t* trigger) {
     if (!trigger) return nullptr;
-    auto selector = attr_string(trigger, "data-dcs-target");
-    if (selector.empty()) selector = attr_string(trigger, "href");
+    auto selector = detail::attr_string(trigger, "data-dcs-target");
+    if (selector.empty()) selector = detail::attr_string(trigger, "href");
     const auto target_id = target_id_from_selector(selector);
     return target_id.empty() ? nullptr : find_dom_element_by_id(impl, target_id);
 }
@@ -12198,12 +10507,12 @@ std::string with_float_position(std::string_view style, int left, int top) {
         i = (semi == std::string_view::npos) ? style.size() : semi + 1;
         const std::size_t colon = decl.find(':');
         if (colon != std::string_view::npos) {
-            const std::string_view prop = trim_css_ws(decl.substr(0, colon));
+            const std::string_view prop = detail::trim_css_ws(decl.substr(0, colon));
             if (prop == "left" || prop == "top" || prop == "right" ||
                 prop == "bottom")
                 continue;
         }
-        const std::string_view t = trim_css_ws(decl);
+        const std::string_view t = detail::trim_css_ws(decl);
         if (!t.empty()) {
             if (!out.empty()) out += ';';
             out += t;
@@ -12229,13 +10538,13 @@ std::string with_float_rect(std::string_view style,
         i = (semi == std::string_view::npos) ? style.size() : semi + 1;
         const std::size_t colon = decl.find(':');
         if (colon != std::string_view::npos) {
-            const std::string_view prop = trim_css_ws(decl.substr(0, colon));
+            const std::string_view prop = detail::trim_css_ws(decl.substr(0, colon));
             if (prop == "left" || prop == "top" || prop == "right" ||
                 prop == "bottom" || prop == "width" || prop == "height" ||
                 prop == "transform")
                 continue;
         }
-        const std::string_view t = trim_css_ws(decl);
+        const std::string_view t = detail::trim_css_ws(decl);
         if (!t.empty()) {
             if (!out.empty()) out += ';';
             out += t;
@@ -12264,7 +10573,7 @@ lxb_dom_element_t* resolve_drag_bounds_elem(detail::DocumentImpl& impl,
          n = lxb_dom_node_parent(n)) {
         if (n->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
         auto* e = lxb_dom_interface_element(n);
-        const bool m = by_id ? (attr_string(e, "id") == name)
+        const bool m = by_id ? (detail::attr_string(e, "id") == name)
                              : class_list_contains(e, name);
         if (m) return e;
     }
@@ -12287,7 +10596,7 @@ Rect document_float_host_bounds(detail::DocumentImpl& impl) {
     long long best_area = 0;
     for (int i = 0; i < static_cast<int>(impl.blocks.size()); ++i) {
         auto* e = element_for_block(impl, i);
-        if (!e || !has_attr(e, "data-dcs-float-host")) continue;
+        if (!e || !detail::has_attr(e, "data-dcs-float-host")) continue;
         if (class_list_contains(e, "dcs-dock--floathost")) continue;
         const auto& b = impl.blocks[static_cast<std::size_t>(i)].bounds;
         if (b.w <= 0 || b.h <= 0) continue;
@@ -12348,10 +10657,10 @@ int float_resize_dir_from_token(std::string_view dir) {
 }
 
 bool floating_resize_enabled(lxb_dom_element_t* elem) {
-    if (!elem || attr_string(elem, "data-dcs-resize") == "false") return false;
+    if (!elem || detail::attr_string(elem, "data-dcs-resize") == "false") return false;
     if (class_list_contains(elem, "dcs-panel--floating")) return true;
     return class_list_contains(elem, "dcs-toolbar--floating") &&
-           attr_string(elem, "data-dcs-resize") == "true";
+           detail::attr_string(elem, "data-dcs-resize") == "true";
 }
 
 bool find_float_resize_at(detail::DocumentImpl& impl, int from_idx, Point point,
@@ -12368,9 +10677,9 @@ bool find_float_resize_at(detail::DocumentImpl& impl, int from_idx, Point point,
         }
         if (elem && explicit_dir == 0 &&
             class_list_contains(elem, "dcs-panel__resize-zone")) {
-            explicit_dir = float_resize_dir_from_token(attr_string(elem, "data-dir"));
+            explicit_dir = float_resize_dir_from_token(detail::attr_string(elem, "data-dir"));
             if (explicit_dir == 0) {
-                const std::string classes = attr_string(elem, "class");
+                const std::string classes = detail::attr_string(elem, "class");
                 if (classes.find("--nw") != std::string::npos)
                     explicit_dir = FloatResizeN | FloatResizeW;
                 else if (classes.find("--ne") != std::string::npos)
@@ -12413,7 +10722,7 @@ bool find_float_resize_at(detail::DocumentImpl& impl, int from_idx, Point point,
         out.elem_h = blk.bounds.h;
         out.cb_x = blk.bounds.x - cur_left;
         out.cb_y = blk.bounds.y - cur_top;
-        out.panel_id = attr_string(elem, "data-dcs-dock-id");
+        out.panel_id = detail::attr_string(elem, "data-dcs-dock-id");
         dock_trace("float-resize-arm panel=" + out.panel_id +
                    " dir=" + std::to_string(dir) + " at=(" +
                    std::to_string(point.x) + "," + std::to_string(point.y) +
@@ -12422,7 +10731,7 @@ bool find_float_resize_at(detail::DocumentImpl& impl, int from_idx, Point point,
                    std::to_string(blk.bounds.w) + "x" +
                    std::to_string(blk.bounds.h) + ")");
         if (auto* be = resolve_drag_bounds_elem(
-                impl, elem, attr_string(elem, "data-dcs-drag-bounds"))) {
+                impl, elem, detail::attr_string(elem, "data-dcs-drag-bounds"))) {
             const int beidx = block_index_for_exact_element(impl, be);
             if (beidx >= 0) {
                 const auto& bb = impl.blocks[static_cast<std::size_t>(beidx)];
@@ -12471,8 +10780,8 @@ bool find_float_drag_at(detail::DocumentImpl& impl, int from_idx, Point point,
             class_list_contains(elem, "dcs-combo")) {
             return false;
         }
-        if (has_attr(elem, "data-dcs-drag-handle")) have_handle = true;
-        if (!has_attr(elem, "data-dcs-drag")) continue;
+        if (detail::has_attr(elem, "data-dcs-drag-handle")) have_handle = true;
+        if (!detail::has_attr(elem, "data-dcs-drag")) continue;
         // The draggable container. Require the press to have started on a handle
         // inside it, so the toolbar's own buttons still click rather than drag.
         if (!have_handle) return false;
@@ -12498,9 +10807,9 @@ bool find_float_drag_at(detail::DocumentImpl& impl, int from_idx, Point point,
         out.cb_y = blk.bounds.y - cur_top;
         out.elem_w = blk.bounds.w;
         out.elem_h = blk.bounds.h;
-        out.panel_id = attr_string(elem, "data-dcs-dock-id");
+        out.panel_id = detail::attr_string(elem, "data-dcs-dock-id");
         if (auto* be = resolve_drag_bounds_elem(
-                impl, elem, attr_string(elem, "data-dcs-drag-bounds"))) {
+                impl, elem, detail::attr_string(elem, "data-dcs-drag-bounds"))) {
             const int beidx = block_index_for_exact_element(impl, be);
             if (beidx >= 0) {
                 const auto& bb = impl.blocks[static_cast<std::size_t>(beidx)];
@@ -12537,7 +10846,7 @@ bool update_float_drag(detail::DocumentImpl& impl, const Event& ev) {
     }
     return set_attribute_on_element(
         impl, d.elem, "style",
-        with_float_position(attr_string(d.elem, "style"), x - d.cb_x,
+        with_float_position(detail::attr_string(d.elem, "style"), x - d.cb_x,
                             y - d.cb_y));
 }
 
@@ -12594,7 +10903,7 @@ bool update_float_resize(detail::DocumentImpl& impl, const Event& ev) {
     const Rect r = float_resize_rect(d, ev);
     return set_attribute_on_element(
         impl, d.elem, "style",
-        with_float_rect(attr_string(d.elem, "style"), r.x - d.cb_x,
+        with_float_rect(detail::attr_string(d.elem, "style"), r.x - d.cb_x,
                         r.y - d.cb_y, r.w, r.h));
 }
 
@@ -12639,7 +10948,7 @@ bool update_tab_drag_ghost(detail::DocumentImpl& impl,
     lxb_dom_element_set_attribute(ghost, as_lxb("style"), 5,
                                   as_lxb(style), style.size());
 
-    std::string label = std::string(trim_css_ws(label_text));
+    std::string label = std::string(detail::trim_css_ws(label_text));
     if (label.empty()) label = "Panel";
     lxb_dom_node_text_content_set(lxb_dom_interface_node(ghost),
                                   as_lxb(label), label.size());
@@ -12668,8 +10977,8 @@ bool remove_tab_drag_ghost(detail::DocumentImpl& impl) {
 }
 
 bool is_dcs_menu_trigger(lxb_dom_element_t* elem) {
-    return elem && attr_string(elem, "data-dcs-toggle") == "menu" &&
-           !has_attr(elem, "disabled");
+    return elem && detail::attr_string(elem, "data-dcs-toggle") == "menu" &&
+           !detail::has_attr(elem, "disabled");
 }
 
 bool set_all_dcs_menu_triggers_expanded(detail::DocumentImpl& impl,
@@ -12688,7 +10997,7 @@ bool set_all_dcs_menu_triggers_expanded(detail::DocumentImpl& impl,
         // a fresh view too, and a spurious attribute add restyles + dirties
         // layout — which used to swallow the very first click on any control
         // (found via the game-editor inspector "checkbox needs two clicks").
-        const std::string current = attr_string(trigger, "aria-expanded");
+        const std::string current = detail::attr_string(trigger, "aria-expanded");
         if (current == value) continue;
         if (value == "false" && current.empty()) continue;
         changed =
@@ -12716,7 +11025,7 @@ bool close_all_dcs_menus(detail::DocumentImpl& impl,
         // no longer reveal properly. It disappears with its parent menu.
         if (elem != except && class_list_contains(elem, "dcs-menu") &&
             !class_list_contains(elem, "dcs-menu__sub") &&
-            !has_attr(elem, "hidden")) {
+            !detail::has_attr(elem, "hidden")) {
             menus.push_back(elem);
         }
     };
@@ -12771,7 +11080,7 @@ bool toggle_dcs_menu(detail::DocumentImpl& impl,
                      lxb_dom_element_t* trigger,
                      lxb_dom_element_t* menu) {
     if (!trigger || !menu) return false;
-    if (!has_attr(menu, "hidden")) {
+    if (!detail::has_attr(menu, "hidden")) {
         bool changed = close_dcs_menu(impl, menu);
         changed =
             set_attribute_on_element(impl, trigger, "aria-expanded", "false") ||
@@ -12792,8 +11101,8 @@ bool toggle_dcs_menu(detail::DocumentImpl& impl,
 }
 
 bool is_dcs_popover_trigger(lxb_dom_element_t* elem) {
-    return elem && attr_string(elem, "data-dcs-toggle") == "popover" &&
-           !has_attr(elem, "disabled");
+    return elem && detail::attr_string(elem, "data-dcs-toggle") == "popover" &&
+           !detail::has_attr(elem, "disabled");
 }
 
 bool set_all_dcs_popover_triggers_expanded(detail::DocumentImpl& impl,
@@ -12810,7 +11119,7 @@ bool set_all_dcs_popover_triggers_expanded(detail::DocumentImpl& impl,
         // aria-expanded="false" to a virgin trigger (e.g. every colorfield
         // caret on a freshly built view) — the mutation dirties layout and
         // used to swallow the first click on unrelated controls.
-        const std::string current = attr_string(trigger, "aria-expanded");
+        const std::string current = detail::attr_string(trigger, "aria-expanded");
         if (current == value) continue;
         if (value == "false" && current.empty()) continue;
         changed =
@@ -12823,8 +11132,8 @@ bool set_all_dcs_popover_triggers_expanded(detail::DocumentImpl& impl,
 bool close_dcs_popover(detail::DocumentImpl& impl, lxb_dom_element_t* popover) {
     if (!popover) return false;
     bool changed = set_attribute_on_element(impl, popover, "hidden", "");
-    if (has_attr(popover, "data-dcs-base-style")) {
-        const std::string base = attr_string(popover, "data-dcs-base-style");
+    if (detail::has_attr(popover, "data-dcs-base-style")) {
+        const std::string base = detail::attr_string(popover, "data-dcs-base-style");
         changed = base.empty()
             ? (remove_attribute_on_element(impl, popover, "style") || changed)
             : (set_attribute_on_element(impl, popover, "style", base) ||
@@ -12844,7 +11153,7 @@ bool close_all_dcs_popovers(detail::DocumentImpl& impl,
     std::vector<lxb_dom_element_t*> popovers;
     auto collect = [&](lxb_dom_element_t* elem) {
         if (elem != except && class_list_contains(elem, "dcs-popover") &&
-            !has_attr(elem, "hidden")) {
+            !detail::has_attr(elem, "hidden")) {
             popovers.push_back(elem);
         }
     };
@@ -12893,14 +11202,14 @@ std::string dcs_popover_open_style(const detail::DocumentImpl& impl,
         }
     }
 
-    std::string placement = attr_string(trigger, "data-dcs-placement");
+    std::string placement = detail::attr_string(trigger, "data-dcs-placement");
     if (placement.empty()) placement = "bottom";
     const auto placed = place_anchored_overlay(
         impl, anchor_rect, pop_w,
         overlay_declared_outer_height(impl, popover, pop_h), placement, 6);
     const std::string width = std::to_string(pop_w) + "px";
     return style_with_properties(
-        attr_string(popover, "style"),
+        detail::attr_string(popover, "style"),
         {{"display", "flex"},
          {"position", "fixed"},
          {"left", std::to_string(placed.left) + "px"},
@@ -12915,7 +11224,7 @@ bool toggle_dcs_popover(detail::DocumentImpl& impl,
                         lxb_dom_element_t* trigger,
                         lxb_dom_element_t* popover) {
     if (!trigger || !popover) return false;
-    if (!has_attr(popover, "hidden")) {
+    if (!detail::has_attr(popover, "hidden")) {
         bool changed = close_dcs_popover(impl, popover);
         changed =
             set_attribute_on_element(impl, trigger, "aria-expanded", "false") ||
@@ -12927,7 +11236,7 @@ bool toggle_dcs_popover(detail::DocumentImpl& impl,
         sync_dcs_colorfield(impl, field, current_dcs_colorfield_hsv(field),
                             /*emit=*/false);
     }
-    const std::string base_style = attr_string(popover, "style");
+    const std::string base_style = detail::attr_string(popover, "style");
     const std::string open_style =
         dcs_popover_open_style(impl, trigger, popover);
     bool changed = close_transient_layers(impl, popover);
@@ -12985,8 +11294,8 @@ bool find_dcs_popover_trigger_at(detail::DocumentImpl& impl,
 }
 
 bool is_disabled_dcs_menu_item(lxb_dom_element_t* elem) {
-    return has_attr(elem, "disabled") ||
-           attr_string(elem, "aria-disabled") == "true" ||
+    return detail::has_attr(elem, "disabled") ||
+           detail::attr_string(elem, "aria-disabled") == "true" ||
            class_list_contains(elem, "dcs-menu__item--disabled");
 }
 
@@ -13057,11 +11366,11 @@ bool activate_dcs_menu_item(detail::DocumentImpl& impl,
         auto* el = lxb_dom_interface_element(n);
         if (class_list_contains(el, "dcs-menu")) menu = el;
     }
-    if (has_attr(menu, "data-aui-colorfield") &&
-        has_attr(item, "data-dcs-value")) {
-        const auto value = attr_string(item, "data-dcs-value");
+    if (detail::has_attr(menu, "data-aui-colorfield") &&
+        detail::has_attr(item, "data-dcs-value")) {
+        const auto value = detail::attr_string(item, "data-dcs-value");
         auto* colorfield =
-            find_dom_element_by_id(impl, attr_string(menu, "data-aui-colorfield"));
+            find_dom_element_by_id(impl, detail::attr_string(menu, "data-aui-colorfield"));
         bool changed = false;
         if (colorfield) {
             changed =
@@ -13085,8 +11394,8 @@ bool activate_dcs_menu_item(detail::DocumentImpl& impl,
         changed = set_all_dcs_menu_triggers_expanded(impl, "false") || changed;
         return changed;
     }
-    if (has_attr(item, "data-dcs-value")) {
-        emit_widget_change(impl, menu, attr_string(item, "data-dcs-value"));
+    if (detail::has_attr(item, "data-dcs-value")) {
+        emit_widget_change(impl, menu, detail::attr_string(item, "data-dcs-value"));
     }
     if (class_list_contains(item, "dcs-menu__item--has-sub")) return false;
 
@@ -13107,8 +11416,8 @@ bool is_dcs_select_row(lxb_dom_element_t* elem) {
 }
 
 bool is_disabled_dcs_select_row(lxb_dom_element_t* elem) {
-    return has_attr(elem, "disabled") ||
-           attr_string(elem, "aria-disabled") == "true" ||
+    return detail::has_attr(elem, "disabled") ||
+           detail::attr_string(elem, "aria-disabled") == "true" ||
            class_list_contains(elem, "dcs-list__item--disabled") ||
            class_list_contains(elem, "dcs-tree__row--disabled");
 }
@@ -13128,7 +11437,7 @@ bool find_dcs_select_row_at(detail::DocumentImpl& impl,
             if (is_disabled_dcs_select_row(elem)) return false;
             out_row = elem;
         }
-        if (out_row && has_attr(elem, "data-dcs-select")) {
+        if (out_row && detail::has_attr(elem, "data-dcs-select")) {
             out_box = elem;
             return true;
         }
@@ -13163,9 +11472,9 @@ std::string dcs_selected_rows_value(
     const std::vector<lxb_dom_element_t*>& rows) {
     std::string out;
     for (auto* row : rows) {
-        if (attr_string(row, "aria-selected") != "true") continue;
-        std::string value = attr_string(row, "data-dcs-value");
-        if (value.empty()) value = attr_string(row, "id");
+        if (detail::attr_string(row, "aria-selected") != "true") continue;
+        std::string value = detail::attr_string(row, "data-dcs-value");
+        if (value.empty()) value = detail::attr_string(row, "id");
         if (value.empty()) continue;
         if (!out.empty()) out.push_back(',');
         out += value;
@@ -13185,10 +11494,10 @@ bool update_dcs_select_control(detail::DocumentImpl& impl,
     const auto row_it = std::find(rows.begin(), rows.end(), row);
     if (row_it == rows.end()) return false;
 
-    const bool multi = attr_string(box, "data-dcs-select") == "multi";
+    const bool multi = detail::attr_string(box, "data-dcs-select") == "multi";
     bool changed = false;
     if (multi && (ev.ctrl || ev.super)) {
-        const bool selected = attr_string(row, "aria-selected") == "true";
+        const bool selected = detail::attr_string(row, "aria-selected") == "true";
         changed = set_dcs_row_selected(impl, row, !selected) || changed;
         impl.dcs_select_anchors[lxb_dom_interface_node(box)] =
             lxb_dom_interface_node(row);
@@ -13340,7 +11649,7 @@ bool switch_dockpane_tab(detail::DocumentImpl& impl, lxb_dom_element_t* tab) {
     if (!target) return false;
     // No-op if this tab is already the selected one (avoids churn when a future
     // drag begins on the active tab).
-    if (attr_string(tab, "aria-selected") == "true" && !has_attr(target, "hidden"))
+    if (detail::attr_string(tab, "aria-selected") == "true" && !detail::has_attr(target, "hidden"))
         return false;
 
     // The tab's parent is the .dcs-dockpane__tabs container; the pane is the
@@ -13381,7 +11690,7 @@ bool switch_dockpane_tab(detail::DocumentImpl& impl, lxb_dom_element_t* tab) {
              c = lxb_dom_node_next(c)) {
             if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
             auto* e = lxb_dom_interface_element(c);
-            if (!has_attr(e, "data-dcs-tabpanel")) continue;
+            if (!detail::has_attr(e, "data-dcs-tabpanel")) continue;
             changed = (e == target
                            ? remove_attribute_on_element(impl, e, "hidden")
                            : set_attribute_on_element(impl, e, "hidden", "")) ||
@@ -13391,14 +11700,14 @@ bool switch_dockpane_tab(detail::DocumentImpl& impl, lxb_dom_element_t* tab) {
     // Sync tab toolbars: show the toolbar bound to the activated tab, hide the
     // others (decius syncTabToolbars over [data-dcs-tabtoolbar]).
     {
-        const std::string sel = attr_string(tab, "data-dcs-target");
+        const std::string sel = detail::attr_string(tab, "data-dcs-target");
         std::vector<lxb_dom_element_t*> toolbars;
         auto collect = [&](lxb_dom_element_t* e) {
-            if (has_attr(e, "data-dcs-tabtoolbar")) toolbars.push_back(e);
+            if (detail::has_attr(e, "data-dcs-tabtoolbar")) toolbars.push_back(e);
         };
         walk_dom_elements(lxb_dom_interface_node(pane), collect);
         for (auto* tb : toolbars) {
-            const bool match = attr_string(tb, "data-dcs-tabtoolbar") == sel;
+            const bool match = detail::attr_string(tb, "data-dcs-tabtoolbar") == sel;
             changed = (match ? remove_attribute_on_element(impl, tb, "hidden")
                              : set_attribute_on_element(impl, tb, "hidden", "")) ||
                       changed;
@@ -13440,7 +11749,7 @@ bool hover_switch_dcs_menubar_menu(detail::DocumentImpl& impl,
         if (trace) std::fprintf(stderr, "[menu] hover-switch: no trigger at %d\n", hovered_idx);
         return false;
     }
-    if (!has_attr(menu, "hidden")) return false;  // ours is already open
+    if (!detail::has_attr(menu, "hidden")) return false;  // ours is already open
     auto* bar = ancestor_with_class(trigger, "dcs-menubar");
     if (!bar) {
         if (trace) std::fprintf(stderr, "[menu] hover-switch: trigger not in menubar\n");
@@ -13452,19 +11761,19 @@ bool hover_switch_dcs_menubar_menu(detail::DocumentImpl& impl,
     auto collect = [&](lxb_dom_element_t* elem) {
         if (open_trigger || elem == trigger) return;
         if (!is_dcs_menu_trigger(elem)) return;
-        const auto expanded = attr_string(elem, "aria-expanded");
+        const auto expanded = detail::attr_string(elem, "aria-expanded");
         auto* m = dcs_target_for_trigger(impl, elem);
         if (trace) {
             std::fprintf(stderr,
                          "[menu] hover-switch: sibling trigger id='%s' "
                          "expanded='%s' menu=%p hidden=%d\n",
-                         attr_string(elem, "id").c_str(), expanded.c_str(),
+                         detail::attr_string(elem, "id").c_str(), expanded.c_str(),
                          static_cast<void*>(m),
-                         m ? has_attr(m, "hidden") : -1);
+                         m ? detail::has_attr(m, "hidden") : -1);
         }
         if (expanded != "true") return;
         if (!m || !class_list_contains(m, "dcs-menu") ||
-            has_attr(m, "hidden")) {
+            detail::has_attr(m, "hidden")) {
             return;
         }
         open_trigger = elem;
@@ -13485,7 +11794,7 @@ bool hover_switch_dcs_menubar_menu(detail::DocumentImpl& impl,
 
 // The dockpanel id behind a tab (its data-dcs-target is "#<id>-body").
 std::string dockpane_tab_panel_id(lxb_dom_element_t* tab) {
-    std::string sel = attr_string(tab, "data-dcs-target");
+    std::string sel = detail::attr_string(tab, "data-dcs-target");
     if (!sel.empty() && sel.front() == '#') sel.erase(0, 1);
     static constexpr std::string_view kSuffix = "-body";
     if (sel.size() > kSuffix.size() &&
@@ -13497,7 +11806,7 @@ std::string dockpane_tab_panel_id(lxb_dom_element_t* tab) {
 int positive_int_attr(lxb_dom_element_t* elem, std::string_view name,
                       int fallback) {
     if (!elem) return fallback;
-    const std::string value = attr_string(elem, name);
+    const std::string value = detail::attr_string(elem, name);
     if (value.empty()) return fallback;
     char* end = nullptr;
     const long parsed = std::strtol(value.c_str(), &end, 10);
@@ -13507,7 +11816,7 @@ int positive_int_attr(lxb_dom_element_t* elem, std::string_view name,
 
 int int_attr(lxb_dom_element_t* elem, std::string_view name, int fallback) {
     if (!elem) return fallback;
-    const std::string value = attr_string(elem, name);
+    const std::string value = detail::attr_string(elem, name);
     if (value.empty()) return fallback;
     char* end = nullptr;
     const long parsed = std::strtol(value.c_str(), &end, 10);
@@ -13644,7 +11953,7 @@ lxb_dom_element_t* dock_title_tab(lxb_dom_element_t* dock) {
         if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
         auto* e = lxb_dom_interface_element(c);
         if (class_list_contains(e, "dcs-dockpane__tab") &&
-            has_attr(e, "data-dcs-title-tab"))
+            detail::has_attr(e, "data-dcs-title-tab"))
             return e;
     }
     return nullptr;
@@ -13731,7 +12040,7 @@ void activate_tab_in_dock(lxb_dom_element_t* dock, lxb_dom_element_t* tab) {
     for (auto* t : dock_tabs(dock)) {
         dock_set_attr(t, "aria-selected", t == tab ? "true" : "false");
     }
-    const std::string sel = attr_string(tab, "data-dcs-target");
+    const std::string sel = detail::attr_string(tab, "data-dcs-target");
     if (sel.empty() || sel.front() != '#') return;
     const std::string target_id = sel.substr(1);
     // The tabpanel lives in this dock's body; toggle hidden among siblings.
@@ -13741,8 +12050,8 @@ void activate_tab_in_dock(lxb_dom_element_t* dock, lxb_dom_element_t* tab) {
          c = lxb_dom_node_next(c)) {
         if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
         auto* e = lxb_dom_interface_element(c);
-        if (!has_attr(e, "data-dcs-tabpanel")) continue;
-        if (attr_string(e, "id") == target_id) {
+        if (!detail::has_attr(e, "data-dcs-tabpanel")) continue;
+        if (detail::attr_string(e, "id") == target_id) {
             lxb_dom_element_remove_attribute(e, as_lxb("hidden"), 6);
         } else {
             dock_set_attr(e, "hidden", "");
@@ -13751,11 +12060,11 @@ void activate_tab_in_dock(lxb_dom_element_t* dock, lxb_dom_element_t* tab) {
     // Toolbar visibility follows the active tab.
     std::vector<lxb_dom_element_t*> toolbars;
     auto collect = [&](lxb_dom_element_t* e) {
-        if (has_attr(e, "data-dcs-tabtoolbar")) toolbars.push_back(e);
+        if (detail::has_attr(e, "data-dcs-tabtoolbar")) toolbars.push_back(e);
     };
     walk_dom_elements(lxb_dom_interface_node(dock), collect);
     for (auto* tb : toolbars) {
-        if (attr_string(tb, "data-dcs-tabtoolbar") == sel) {
+        if (detail::attr_string(tb, "data-dcs-tabtoolbar") == sel) {
             lxb_dom_element_remove_attribute(tb, as_lxb("hidden"), 6);
         } else {
             dock_set_attr(tb, "hidden", "");
@@ -13901,12 +12210,12 @@ bool dock_move_tab_to(detail::DocumentImpl& impl, lxb_dom_element_t* tab,
     auto* body = dock_body_el(target);
     if (!tabs || !body) return false;
     // The toolbar bound to this tab rides along, into the target's slot.
-    const std::string sel = attr_string(tab, "data-dcs-target");
+    const std::string sel = detail::attr_string(tab, "data-dcs-target");
     if (!sel.empty()) {
         if (auto* slot = dock_toolbar_slot_el(target)) {
             std::vector<lxb_dom_element_t*> toolbars;
             auto collect = [&](lxb_dom_element_t* e) {
-                if (attr_string(e, "data-dcs-tabtoolbar") == sel)
+                if (detail::attr_string(e, "data-dcs-tabtoolbar") == sel)
                     toolbars.push_back(e);
             };
             if (source) {
@@ -13994,7 +12303,7 @@ void dock_cleanup_source(detail::DocumentImpl& impl, lxb_dom_element_t* dock) {
     }
     bool any_selected = false;
     for (auto* t : remaining) {
-        if (attr_string(t, "aria-selected") == "true") {
+        if (detail::attr_string(t, "aria-selected") == "true") {
             any_selected = true;
             break;
         }
@@ -14082,7 +12391,7 @@ void dock_split(detail::DocumentImpl& impl, lxb_dom_element_t* target,
         // Different-direction (or no) parent: wrap target+fresh in a new dock
         // of the matching direction; the wrapper INHERITS the target's slot.
         auto* wrap = dock_create_el(impl, "div", dock_cls);
-        std::string target_flex = find_decl_value(attr_string(target, "style"),
+        std::string target_flex = find_decl_value(detail::attr_string(target, "style"),
                                                   "flex");
         std::string wrap_style =
             (target_flex.empty() ? std::string("flex:1")
@@ -14314,7 +12623,7 @@ bool tear_off_panel(detail::DocumentImpl& impl, std::string_view panel_id,
 // survives reloads; apps serialize it for workspace persistence.
 Document::DockLayout::Node dock_layout_node(lxb_dom_element_t* e) {
     Document::DockLayout::Node n;
-    n.flex = find_decl_value(attr_string(e, "style"), "flex");
+    n.flex = find_decl_value(detail::attr_string(e, "style"), "flex");
     if (class_list_contains(e, "dcs-dock")) {
         n.split = true;
         n.vertical = class_list_contains(e, "dcs-dock--v");
@@ -14336,7 +12645,7 @@ Document::DockLayout::Node dock_layout_node(lxb_dom_element_t* e) {
         const std::string id = dockpane_tab_panel_id(tab);
         if (id.empty()) continue;
         n.tabs.push_back(id);
-        if (attr_string(tab, "aria-selected") == "true") n.active = id;
+        if (detail::attr_string(tab, "aria-selected") == "true") n.active = id;
     }
     return n;
 }
@@ -14445,14 +12754,14 @@ std::string drop_target_summary(const DropTarget& t) {
 // "panels". A drag only docks into a pane of the same kind (decius J()).
 std::string dock_kind_of(lxb_dom_element_t* pane) {
     if (!pane) return "panels";
-    const std::string k = attr_string(pane, "data-dcs-dock-kind");
+    const std::string k = detail::attr_string(pane, "data-dcs-dock-kind");
     if (!k.empty()) return k;
     return class_list_contains(pane, "dcs-dockpane--center") ? "documents"
                                                              : "panels";
 }
 
 std::string pane_panel_id(lxb_dom_element_t* pane) {
-    const std::string n = attr_string(pane, "data-aui-name");  // pane-<id>
+    const std::string n = detail::attr_string(pane, "data-aui-name");  // pane-<id>
     return n.rfind("pane-", 0) == 0 ? n.substr(5) : std::string();
 }
 
@@ -14531,16 +12840,16 @@ void add_rendered_dock_relations(
         const std::string id = pane_panel_id(pane);
         if (id.empty() || id == "__document__") continue;
 
-        if (attr_string(pane, "data-aui-dock-floating") == "true") {
+        if (detail::attr_string(pane, "data-aui-dock-floating") == "true") {
             rels[id] = DockGraphRel{true, {}, 0};
         } else {
-            const std::string side = attr_string(pane, "data-aui-dock-side");
+            const std::string side = detail::attr_string(pane, "data-aui-dock-side");
             if (!side.empty()) {
                 rels[id] = DockGraphRel{
                     false,
-                    attr_string(pane, "data-aui-dock-parent").empty()
+                    detail::attr_string(pane, "data-aui-dock-parent").empty()
                         ? std::string("__document__")
-                        : attr_string(pane, "data-aui-dock-parent"),
+                        : detail::attr_string(pane, "data-aui-dock-parent"),
                     int_attr(pane, "data-aui-dock-side", 0)};
             }
         }
@@ -14645,10 +12954,10 @@ std::string dock_trace_snapshot(detail::DocumentImpl& impl) {
         std::string placement;
         if (id == "__document__") {
             placement = "document";
-        } else if (attr_string(pane, "data-aui-dock-floating") == "true") {
+        } else if (detail::attr_string(pane, "data-aui-dock-floating") == "true") {
             placement = "float";
-        } else if (!attr_string(pane, "data-aui-dock-side").empty()) {
-            const std::string parent = attr_string(pane, "data-aui-dock-parent");
+        } else if (!detail::attr_string(pane, "data-aui-dock-side").empty()) {
+            const std::string parent = detail::attr_string(pane, "data-aui-dock-parent");
             placement = (parent.empty() ? std::string("__document__")
                                         : parent) +
                         ":" + dock_side_name(
@@ -14688,7 +12997,7 @@ Document::DockPlacement source_placement_for_pane(lxb_dom_element_t* pane,
                                                   const Rect& bounds) {
     Document::DockPlacement p;
     if (!pane) return p;
-    if (attr_string(pane, "data-aui-dock-floating") == "true") {
+    if (detail::attr_string(pane, "data-aui-dock-floating") == "true") {
         p.present = true;
         p.floating = true;
         p.x = int_attr(pane, "data-aui-dock-x", bounds.x);
@@ -14697,10 +13006,10 @@ Document::DockPlacement source_placement_for_pane(lxb_dom_element_t* pane,
         p.h = int_attr(pane, "data-aui-dock-h", bounds.h);
         return p;
     }
-    if (!has_attr(pane, "data-aui-dock-side")) return p;
+    if (!detail::has_attr(pane, "data-aui-dock-side")) return p;
     p.present = true;
     p.floating = false;
-    p.parent = attr_string(pane, "data-aui-dock-parent");
+    p.parent = detail::attr_string(pane, "data-aui-dock-parent");
     p.side = int_attr(pane, "data-aui-dock-side", 0);
     if (p.side == 0 || p.side == 1) {
         p.size = bounds.w;
@@ -14719,7 +13028,7 @@ void capture_tab_drag_metadata(detail::DocumentImpl& impl,
     drag.label.clear();
     if (tab) {
         drag.label = std::string(
-            trim_css_ws(node_text(lxb_dom_interface_node(tab))));
+            detail::trim_css_ws(node_text(lxb_dom_interface_node(tab))));
     }
     drag.source_tab_ids = dockpane_tab_ids(impl, pane);
     drag.source_placement = {};
@@ -15149,7 +13458,7 @@ bool apply_dock(detail::DocumentImpl& impl, std::string_view panel_id,
 
 int dcs_tree_row_depth(lxb_dom_element_t* row) {
     const std::string depth_value =
-        find_decl_value(attr_string(row, "style"), "--depth");
+        find_decl_value(detail::attr_string(row, "style"), "--depth");
     if (depth_value.empty()) return 0;
     char* end = nullptr;
     const long parsed = std::strtol(depth_value.c_str(), &end, 10);
@@ -15368,7 +13677,7 @@ lxb_dom_element_t* find_dcs_tree_row_at_point(detail::DocumentImpl& impl,
     std::vector<lxb_dom_element_t*> rows;
     collect_dcs_tree_rows(tree, rows);
     for (auto* row : rows) {
-        if (!row || has_attr(row, "hidden")) continue;
+        if (!row || detail::has_attr(row, "hidden")) continue;
         const int row_idx = block_index_for_exact_element(impl, row);
         if (row_idx < 0) continue;
         const Rect row_rect = block_border_visual_rect(impl, row_idx);
@@ -15388,8 +13697,8 @@ lxb_dom_element_t* find_dcs_tree_row_at_point(detail::DocumentImpl& impl,
 
 bool dcs_tree_row_draggable(lxb_dom_element_t* row) {
     if (!row) return false;
-    if (attr_string(row, "draggable") == "false") return false;
-    if (attr_string(row, "aria-disabled") == "true") return false;
+    if (detail::attr_string(row, "draggable") == "false") return false;
+    if (detail::attr_string(row, "aria-disabled") == "true") return false;
     return true;
 }
 
@@ -15453,7 +13762,7 @@ void shift_dcs_tree_subtree_depth_raw(
         const int next_depth = std::max(0, dcs_tree_row_depth(row) + delta);
         dock_set_attr(row, "style",
                       style_with_properties(
-                          attr_string(row, "style"),
+                          detail::attr_string(row, "style"),
                           {{"--depth", std::to_string(next_depth)}}));
     }
 }
@@ -15600,7 +13909,7 @@ bool cancel_dcs_tree_drag(detail::DocumentImpl& impl) {
 }
 
 bool is_open_transient_layer(lxb_dom_element_t* elem) {
-    return elem && !has_attr(elem, "hidden") &&
+    return elem && !detail::has_attr(elem, "hidden") &&
            (class_list_contains(elem, "aui-select__menu") ||
             class_list_contains(elem, "dcs-menu") ||
             class_list_contains(elem, "dcs-popover"));
@@ -15618,16 +13927,16 @@ bool point_preserves_transient_layers(detail::DocumentImpl& impl,
         }
         if (is_open_transient_layer(elem)) return true;
         if (auto* popover = nearest_ancestor_with_class(elem, "dcs-popover");
-            popover && !has_attr(popover, "hidden")) {
+            popover && !detail::has_attr(popover, "hidden")) {
             return true;
         }
         if (auto* menu = nearest_ancestor_with_class(elem, "dcs-menu");
-            menu && !has_attr(menu, "hidden")) {
+            menu && !detail::has_attr(menu, "hidden")) {
             return true;
         }
         if (auto* menu =
                 nearest_ancestor_with_class(elem, "aui-select__menu");
-            menu && !has_attr(menu, "hidden")) {
+            menu && !detail::has_attr(menu, "hidden")) {
             return true;
         }
     }
@@ -15643,14 +13952,14 @@ bool click_preserves_transient_layers(detail::DocumentImpl& impl,
         auto* elem = element_for_block(impl, idx);
         if (!elem) continue;
         if (auto* popover = nearest_ancestor_with_class(elem, "dcs-popover");
-            popover && !has_attr(popover, "hidden")) {
+            popover && !detail::has_attr(popover, "hidden")) {
             return true;
         }
         if (is_open_transient_layer(elem)) return true;
         if (is_dcs_menu_trigger(elem) || is_dcs_popover_trigger(elem)) {
             return true;
         }
-        if (attr_string(elem, "data-aui-widget") == "dropdown" ||
+        if (detail::attr_string(elem, "data-aui-widget") == "dropdown" ||
             tag_name(elem) == "select") {
             return true;
         }
@@ -15663,7 +13972,7 @@ lxb_dom_element_t* find_trigger_for_target(detail::DocumentImpl& impl,
     if (target_selector.empty()) return nullptr;
     lxb_dom_element_t* out = nullptr;
     auto collect = [&](lxb_dom_element_t* elem) {
-        if (!out && attr_string(elem, "data-dcs-target") == target_selector) {
+        if (!out && detail::attr_string(elem, "data-dcs-target") == target_selector) {
             out = elem;
         }
     };
@@ -15677,7 +13986,7 @@ Document::TransientState Document::capture_transient_state() const {
     TransientState state;
 #if !defined(AFFINEUI_STUB_BUILD)
     auto collect = [&](lxb_dom_element_t* elem) {
-        if (!elem || has_attr(elem, "hidden")) return;
+        if (!elem || detail::has_attr(elem, "hidden")) return;
         const bool popover = class_list_contains(elem, "dcs-popover");
         // Submenu cascades are hover-CSS state, not open layers — capturing
         // one would pin it "open" across a reload.
@@ -15685,12 +13994,12 @@ Document::TransientState Document::capture_transient_state() const {
                            !class_list_contains(elem, "dcs-menu__sub")) ||
                           class_list_contains(elem, "aui-select__menu");
         if (!popover && !menu) return;
-        const std::string id = attr_string(elem, "id");
+        const std::string id = detail::attr_string(elem, "id");
         if (id.empty()) return;
         TransientState::Layer layer;
         layer.id = id;
-        layer.style = attr_string(elem, "style");
-        layer.base_style = attr_string(elem, "data-dcs-base-style");
+        layer.style = detail::attr_string(elem, "style");
+        layer.base_style = detail::attr_string(elem, "data-dcs-base-style");
         layer.target_selector = "#" + id;
         layer.popover = popover;
         layer.menu = menu;
@@ -15868,7 +14177,7 @@ int focusable_ancestor(const detail::DocumentImpl& impl, int idx) {
         }
         if (t == "a") {
             auto* elem = impl.style_store.element_of(b.id);
-            if (elem && !attr_string(elem, "href").empty()) return idx;
+            if (elem && !detail::attr_string(elem, "href").empty()) return idx;
         }
         idx = b.parent_idx;
     }
@@ -15898,6 +14207,10 @@ int nearest_fixed_ancestor_or_self(const detail::DocumentImpl& impl, int idx) {
     return -1;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 int nearest_clip_ancestor_for_block(const detail::DocumentImpl& impl, int idx) {
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return -1;
     const int fixed_idx = nearest_fixed_ancestor_or_self(impl, idx);
@@ -15913,6 +14226,9 @@ int nearest_clip_ancestor_for_block(const detail::DocumentImpl& impl, int idx) {
     }
     return -1;
 }
+}  // namespace detail
+namespace {
+
 
 // True iff this block accepts scroll input on its Y axis.
 bool block_is_scrollable_y(const detail::DocumentImpl& impl, int idx) {
@@ -15990,12 +14306,16 @@ Painter::TextAlign painter_text_align(const detail::ComputedStyle& cs) {
     }
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 TextControlGeometry text_control_geometry(const detail::DocumentImpl& impl,
                                           int idx,
                                           Painter& painter) {
     const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
     const auto& cs = impl.style_store.computed(block.id);
-    const int dy = scroll_offset_y_for(impl.blocks, impl.style_store, idx);
+    const int dy = detail::scroll_offset_y_for(impl.blocks, impl.style_store, idx);
     const Rect eff{block.bounds.x, block.bounds.y - dy,
                    block.bounds.w, block.bounds.h};
     const int used_border_top = cs.used_border_top();
@@ -16028,7 +14348,7 @@ TextControlGeometry text_control_geometry(const detail::DocumentImpl& impl,
     g.nowrap = cs.white_space == WS::Nowrap || cs.white_space == WS::Pre;
 
     const int textarea_idx =
-        nearest_block_with_tag(impl.blocks, idx, "textarea");
+        detail::nearest_block_with_tag(impl.blocks, idx, "textarea");
     if (textarea_idx < 0 &&
         block.tag == "input" &&
         block.input_type != "checkbox" &&
@@ -16085,6 +14405,9 @@ TextControlGeometry text_control_geometry(const detail::DocumentImpl& impl,
     }
     return g;
 }
+}  // namespace detail
+namespace {
+
 
 std::uint64_t text_layout_signature(const detail::DocumentImpl& impl,
                                     int idx,
@@ -16132,6 +14455,10 @@ float measure_text_advance(Painter& painter,
                                  letter_spacing_px).width);
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
                                           int idx,
                                           const TextControlGeometry& g,
@@ -16290,6 +14617,9 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
     }
     return entry;
 }
+}  // namespace detail
+namespace {
+
 
 const TextLayoutEntry* cached_text_layout_entry(const detail::DocumentImpl& impl,
                                                 int idx) {
@@ -16308,6 +14638,10 @@ const TextLayoutEntry* cached_text_layout_entry(const detail::DocumentImpl& impl
     return nullptr;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 float aligned_line_origin_x(const TextControlGeometry& g,
                             const TextLayoutEntry& entry,
                             std::uint16_t line) {
@@ -16336,6 +14670,9 @@ float aligned_line_origin_x(const TextLayoutEntry& entry,
     }
     return x;
 }
+}  // namespace detail
+namespace {
+
 
 std::size_t text_caret_offset_from_point(detail::DocumentImpl& impl,
                                          int idx,
@@ -16345,8 +14682,8 @@ std::size_t text_caret_offset_from_point(detail::DocumentImpl& impl,
     if (!block.text_control || block.text_value.empty()) return 0;
     const TextLayoutEntry* entry = cached_text_layout_entry(impl, idx);
     if (entry == nullptr && impl.last_measurer != nullptr) {
-        const auto g = text_control_geometry(impl, idx, *impl.last_measurer);
-        entry = &ensure_text_layout_entry(
+        const auto g = detail::text_control_geometry(impl, idx, *impl.last_measurer);
+        entry = &detail::ensure_text_layout_entry(
             impl, idx, g, block, *impl.last_measurer);
     }
     if (entry == nullptr) {
@@ -16378,7 +14715,7 @@ std::size_t text_caret_offset_from_point(detail::DocumentImpl& impl,
                    entry->css_line_height));
     target_line = std::clamp(target_line, 0, line_count - 1);
     const std::uint16_t line = static_cast<std::uint16_t>(target_line);
-    const float origin_x = aligned_line_origin_x(*entry, line);
+    const float origin_x = detail::aligned_line_origin_x(*entry, line);
     const float local_x = static_cast<float>(p.x) - origin_x;
 
     std::size_t best = 0;
@@ -16394,6 +14731,10 @@ std::size_t text_caret_offset_from_point(detail::DocumentImpl& impl,
     return entry->caret_offsets[best];
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 std::pair<std::size_t, std::size_t>
 normalized_selection(const Block& block) {
     const auto a = std::min(block.selection_anchor, block.text_value.size());
@@ -16402,9 +14743,12 @@ normalized_selection(const Block& block) {
 }
 
 bool has_text_selection(const Block& block) {
-    const auto [begin, end] = normalized_selection(block);
+    const auto [begin, end] = detail::normalized_selection(block);
     return begin != end;
 }
+}  // namespace detail
+namespace {
+
 
 void set_text_selection(detail::DocumentImpl& impl,
                         int idx,
@@ -16597,7 +14941,7 @@ std::size_t next_word_boundary(std::string_view text, std::size_t pos) {
 }
 
 std::string selected_text(const Block& block) {
-    const auto [begin, end] = normalized_selection(block);
+    const auto [begin, end] = detail::normalized_selection(block);
     if (begin == end) return {};
     return emitted_text_control_value(block).substr(begin, end - begin);
 }
@@ -16669,8 +15013,8 @@ bool replace_text_selection_or_insert(detail::DocumentImpl& impl,
     const Rect old_rect = subtree_visual_rect(impl, idx);
     std::string next = emitted_text_control_value(block);
     std::size_t caret = block.caret_offset;
-    if (has_text_selection(block)) {
-        const auto [begin, end] = normalized_selection(block);
+    if (detail::has_text_selection(block)) {
+        const auto [begin, end] = detail::normalized_selection(block);
         next = replace_selected_text(std::move(next), begin, end, text, caret);
     } else {
         next = insert_text_at_caret(std::move(next), caret, text);
@@ -16688,7 +15032,7 @@ bool move_text_caret(detail::DocumentImpl& impl,
                      bool extend_selection) {
     caret = std::min(caret, block.text_value.size());
     const std::size_t anchor = extend_selection
-        ? (has_text_selection(block) ? block.selection_anchor
+        ? (detail::has_text_selection(block) ? block.selection_anchor
                                      : block.caret_offset)
         : caret;
     if (caret == block.caret_offset &&
@@ -16763,7 +15107,7 @@ Document::DockLayout Document::dock_layout() const {
         auto* pane = first_descendant_with_class(fp, "dcs-dockpane");
         if (!pane) continue;
         DockLayout::Float f;
-        const std::string style = attr_string(fp, "style");
+        const std::string style = detail::attr_string(fp, "style");
         auto px = [&](std::string_view prop) {
             const std::string v = find_decl_value(style, prop);
             return v.empty()
@@ -16826,7 +15170,7 @@ Rect Document::find_element_rect(std::string_view target) const {
     auto* body = lxb_html_document_body_element(impl_->doc);
     if (!body) return {};
     auto collect = [&](lxb_dom_element_t* e) {
-        if (!found && attr_string(e, attr_name) == attr_value) found = e;
+        if (!found && detail::attr_string(e, attr_name) == attr_value) found = e;
     };
     walk_dom_elements(lxb_dom_interface_node(body), collect);
     if (!found) return {};
@@ -17896,19 +16240,19 @@ DispatchResult Document::dispatch(const Event& ev) {
                     set_text_selection(*impl_, idx, *control, 0, text.size());
                     add_dirty_rect(*impl_, block_visual_rect(*impl_, idx));
                     result.redraw_requested = true;
-                } else if (!has_text_selection(*control) && !text.empty()) {
+                } else if (!detail::has_text_selection(*control) && !text.empty()) {
                     set_text_selection(*impl_, idx, *control, 0, text.size());
                     add_dirty_rect(*impl_, block_visual_rect(*impl_, idx));
                     result.redraw_requested = true;
                 }
             } else if (command && ev.key == Key::C) {
-                if (has_text_selection(*control)) {
+                if (detail::has_text_selection(*control)) {
                     clipboard_set_text(*impl_, selected_text(*control));
                 }
             } else if (command && ev.key == Key::X) {
-                if (has_text_selection(*control)) {
+                if (detail::has_text_selection(*control)) {
                     clipboard_set_text(*impl_, selected_text(*control));
-                    const auto [begin, end] = normalized_selection(*control);
+                    const auto [begin, end] = detail::normalized_selection(*control);
                     result.redraw_requested =
                         delete_text_range(*impl_, idx, *control, begin, end);
                 }
@@ -17917,8 +16261,8 @@ DispatchResult Document::dispatch(const Event& ev) {
                 result.redraw_requested =
                     replace_text_selection_or_insert(*impl_, idx, *control, paste);
             } else if (ev.key == Key::Backspace) {
-                if (has_text_selection(*control)) {
-                    const auto [begin, end] = normalized_selection(*control);
+                if (detail::has_text_selection(*control)) {
+                    const auto [begin, end] = detail::normalized_selection(*control);
                     result.redraw_requested =
                         delete_text_range(*impl_, idx, *control, begin, end);
                 } else if (command) {
@@ -17935,8 +16279,8 @@ DispatchResult Document::dispatch(const Event& ev) {
                                           control->caret_offset);
                 }
             } else if (ev.key == Key::Delete) {
-                if (has_text_selection(*control)) {
-                    const auto [begin, end] = normalized_selection(*control);
+                if (detail::has_text_selection(*control)) {
+                    const auto [begin, end] = detail::normalized_selection(*control);
                     result.redraw_requested =
                         delete_text_range(*impl_, idx, *control, begin, end);
                 } else if (command) {
@@ -17957,12 +16301,12 @@ DispatchResult Document::dispatch(const Event& ev) {
                        ev.key == Key::Home ||
                        ev.key == Key::End) {
                 std::size_t caret = control->caret_offset;
-                if (!ev.shift && has_text_selection(*control) &&
+                if (!ev.shift && detail::has_text_selection(*control) &&
                     ev.key == Key::ArrowLeft) {
-                    caret = normalized_selection(*control).first;
-                } else if (!ev.shift && has_text_selection(*control) &&
+                    caret = detail::normalized_selection(*control).first;
+                } else if (!ev.shift && detail::has_text_selection(*control) &&
                            ev.key == Key::ArrowRight) {
-                    caret = normalized_selection(*control).second;
+                    caret = detail::normalized_selection(*control).second;
                 } else if (ev.key == Key::ArrowLeft) {
                     caret = command
                         ? previous_word_boundary(text, caret)
@@ -18085,7 +16429,7 @@ int Document::hovered_cursor() const {
         // the plain arrow, regardless of the element's (or an ancestor's)
         // cursor — e.g. a textarea's UA `cursor:text` stops at the gutter.
         ScrollbarGeometry sb{};
-        if (vertical_scrollbar_geometry(*impl_, idx, sb)) {
+        if (detail::vertical_scrollbar_geometry(*impl_, idx, sb)) {
             const Rect box = block_border_visual_rect(*impl_, idx);
             const Rect gutter{sb.track.x - 2, box.y,
                               box.x + box.w - (sb.track.x - 2), box.h};
@@ -18476,7 +16820,7 @@ public:
                        std::string_view value) override {
         if (auto* e = elem(node.remote_id)) {
             const bool fresh_style =
-                name == "style" && !has_attr(e, name);
+                name == "style" && !detail::has_attr(e, name);
             set_attribute_on_element(impl_, e, name, value);
             // ev_set_value keeps an EXISTING style attribute parsed; a
             // fresh one arrives through the suppressed ev_insert hook.
