@@ -137,6 +137,10 @@ ENGINE_SOURCES = [
     "src/framework/app/event.cpp",
     "src/framework/app/automation.cpp",
     "src/framework/app/view.cpp",
+    # macOS-only NSEvent-queue drain. The two-file SDK is compiled as
+    # Objective-C++ on Apple (`clang++ -x objective-c++`), so the ObjC
+    # code inlined here compiles the same way as the modular build.
+    "src/framework/app/app_mac_native.mm",
     "src/renderer/dom/document_core.cpp",
     "src/renderer/dom/document_controls.cpp",
     "src/renderer/dom/document_dock.cpp",

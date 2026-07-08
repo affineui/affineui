@@ -157,7 +157,9 @@ public:
     void release_pointer();
     bool pointer_captured() const;
 
-    /// Start the main loop. Returns the OS exit code.
+    /// Start the main loop. Returns the OS exit code. Standalone apps
+    /// call this; embedders instead drive should_render()/render() from
+    /// their own pulse (see below).
     int run();
 
     /// Convenience: install a view fn and run() in one call.
@@ -165,6 +167,39 @@ public:
 
     /// Request the loop to exit cleanly after the current frame.
     void quit(int code = 0);
+
+    // ─── Embed API ────────────────────────────────────────────────────
+    // For hosts that own their own pulse (game engine, editor host, etc.)
+    // and want AffineUI to react rather than run its own main loop.
+    //
+    // Every host pulse should:
+    //   app.push_input(ev)  // for each input the host received
+    //   ...
+    //   if (app.should_render()) app.render();
+    //
+    // Input is not coalesced by the library — push every event the host
+    // has; PatchBay-style handlers see them all. Render is gated by
+    // (dirty || animations_active) AND min_frame_time_ms elapsed since
+    // the last render, so a host pulse that ticks faster than the paint
+    // budget skips the paint transparently.
+
+    /// Minimum wall-clock time between renders, in milliseconds. Zero
+    /// means "paint every time should_render() would otherwise be true"
+    /// (no throttle). Typical embed value is one display refresh (16.7
+    /// for 60 Hz). Default is 0.
+    void set_min_frame_time(double ms);
+    [[nodiscard]] double min_frame_time() const noexcept;
+
+    /// True iff a paint is needed (document dirty or animations running
+    /// or viewport changed) AND at least min_frame_time_ms has elapsed
+    /// since the last render. Cheap; call each pulse.
+    [[nodiscard]] bool should_render();
+
+    /// Paint one frame to the host swapchain. Idempotent guard against
+    /// pre-init; a no-op if the renderer isn't ready. Updates internal
+    /// last-render timestamp so the next should_render() honors the
+    /// min-frame-time gate.
+    void render();
 
     /// The underlying retained document. Lives as long as the App.
     Document&       document();

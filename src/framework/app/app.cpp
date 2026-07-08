@@ -48,6 +48,15 @@
 #    include "sokol_log.h"
 #endif
 
+#if defined(__APPLE__) && !defined(AFFINEUI_STUB_BUILD)
+// See src/framework/app/app_mac_native.mm. Drains the NSEvent queue in
+// place of AppKit's per-run-loop-iteration delivery, so cb_event fires
+// for every queued input event on each app pulse instead of one per
+// display refresh (which during modal drag stalls mouse-up behind a
+// backlog and produces multi-second unresponsive tails).
+extern "C" void affineui_mac_drain_native_events(void);
+#endif
+
 namespace affineui {
 
 namespace detail {
@@ -92,13 +101,30 @@ struct AppImpl {
     int                   last_h{-1};
     float                 last_dpi{1.0f};   // updated each frame for event→pt conversion
     int                   settle_frames{0};
-    // Mouse-move coalescing: motion collapses to at most ONE dispatch per
-    // frame. Without this, one expensive frame snowballs — every queued
-    // move pays its own synchronous hover update (+ relayout when the
-    // block tree was dirtied), which pushes the next frame even later
-    // (measured: 868 relayouts / 5.5 s of layout in one short session).
-    Event                 pending_mouse_move{};
-    bool                  has_pending_mouse_move{false};
+    // Min-frame-time gate (App::set_min_frame_time). Milliseconds
+    // between successive renders; 0 disables (paint whenever should_
+    // render() is otherwise true). Applied identically inside cb_frame
+    // for standalone run() and directly by embed hosts calling
+    // should_render()/render(). last_render_time is set at the top of
+    // render(), so the gate measures start-to-start.
+    // Default: 1000/120 ms — cap at 120 fps. Retina + ProMotion displays
+    // benefit from painting up to 120 Hz; the gate skips display refreshes
+    // above that even if the display link ticks faster.
+    double                min_frame_time_ms{1000.0 / 120.0};
+    std::chrono::steady_clock::time_point last_render_time{};
+    bool                  last_render_time_set{false};
+    // Input trace counters (AFFINEUI_INPUT_TRACE=1): MOUSE_MOVE events
+    // seen + dispatched per frame. With app-level coalescing removed
+    // these two are always equal (every event dispatches). Reset at the
+    // top of each render(); the count reveals how many events the OS
+    // delivered between paints.
+    std::uint32_t         moves_received_since_frame{0};
+    std::uint32_t         moves_dispatched_since_frame{0};
+    // Wall time of the last raw MOUSE_MOVE received in cb_event. Frame
+    // trace prints (frame_now - stamp) as "age" so we can see whether
+    // events themselves are stale on arrival or fresh but lag downstream.
+    std::chrono::steady_clock::time_point last_move_stamp{};
+    bool                  has_last_move_stamp{false};
     // Resize coalescing: the win32 sizing modal loop delivers WM_SIZE per
     // mouse move; each Resize dispatch pays a full relayout + text
     // re-measure, so uncoalesced resizes are seconds-slow. One per frame.
@@ -534,6 +560,41 @@ void App::request_custom_repaint(std::string_view name) {
     }
 }
 
+void App::set_min_frame_time(double ms) {
+    impl_->min_frame_time_ms = ms < 0.0 ? 0.0 : ms;
+}
+
+double App::min_frame_time() const noexcept {
+    return impl_->min_frame_time_ms;
+}
+
+bool App::should_render() {
+    // Dirty conditions (same set the internal frame path checks). The
+    // viewport-change condition needs live swapchain size, which we only
+    // check inside the render loop; a host that resizes should invalidate()
+    // explicitly and the internal check will fire on the next render().
+    const bool needs = impl_->dirty || impl_->animations_active ||
+                       impl_->settle_frames > 0 ||
+                       impl_->perf_overlay_enabled;
+    if (!needs) return false;
+    if (impl_->min_frame_time_ms <= 0.0) return true;
+    if (!impl_->last_render_time_set) return true;
+    const double elapsed_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - impl_->last_render_time).count();
+    return elapsed_ms >= impl_->min_frame_time_ms;
+}
+
+void App::render() {
+    // Embed entry point. Full extraction of cb_frame's body into an
+    // App-callable render step is in progress; for now, invoking render()
+    // marks a paint attempt (sets last_render_time so the min-frame-time
+    // gate advances) and defers the actual paint to the next cb_frame
+    // pulse. Standalone run() is unaffected; hosts driving their own loop
+    // should treat this as a work-in-progress until the extraction lands.
+    impl_->last_render_time = std::chrono::steady_clock::now();
+    impl_->last_render_time_set = true;
+}
+
 void App::set_perf_overlay_enabled(bool enabled) {
     impl_->perf_overlay_enabled = enabled;
     impl_->settle_frames = detail::kSwapchainSettleFrames;
@@ -774,17 +835,12 @@ void cb_init(void* user) {
     }
 }
 
-// Dispatch the coalesced mouse move (if any) and apply the hover cursor.
-// Called at frame start and before any button/wheel event so ordering is
-// preserved. (Cursor application from the frame callback is fine on
-// win32/D3D11; macOS's synchronous-cursor caveat applies to the direct
-// event path, which still handles non-move events inline.)
-void flush_pending_mouse_move(detail::AppImpl& impl) {
-    if (!impl.has_pending_mouse_move) return;
-    impl.has_pending_mouse_move = false;
-    const Event ev = impl.pending_mouse_move;
-    (void) detail::dispatch_loaded_view_event(impl, ev);
+// Sync the OS cursor to the DOM's hovered cursor kind. Called at the
+// end of each MouseMove dispatch in cb_event so cursor tracking stays
+// current at input rate, decoupled from the paint schedule.
+void sync_hover_cursor(detail::AppImpl& impl) {
     const int cur = impl.document.hovered_cursor();
+    if (cur == impl.last_cursor) return;
     sapp_set_mouse_cursor(map_cursor(cur));
     impl.last_cursor = cur;
 }
@@ -825,7 +881,27 @@ void cb_frame(void* user) {
             resize_ev.type = EventType::Resize;
             (void) detail::dispatch_loaded_view_event(*impl, resize_ev);
         }
-        flush_pending_mouse_move(*impl);
+        static const bool input_trace =
+            std::getenv("AFFINEUI_INPUT_TRACE") != nullptr;
+        double age_ms = -1.0;
+        if (impl->has_last_move_stamp) {
+            age_ms = std::chrono::duration<double, std::milli>(
+                         frame_now - impl->last_move_stamp)
+                         .count();
+        }
+        // Pulse start: drain any OS input events queued behind AppKit's
+        // per-run-loop-iteration throttle. This dispatches cb_event N
+        // times, one per queued NSEvent, so mouse-up on a fast drag isn't
+        // buried behind a backlog. No-op on non-Apple platforms.
+        const auto phase_t0 = std::chrono::steady_clock::now();
+#if defined(__APPLE__)
+        affineui_mac_drain_native_events();
+#endif
+        const auto phase_t_after_dispatch = std::chrono::steady_clock::now();
+        const std::uint32_t raw_this_frame = impl->moves_received_since_frame;
+        const std::uint32_t dsp_this_frame = impl->moves_dispatched_since_frame;
+        impl->moves_received_since_frame = 0;
+        impl->moves_dispatched_since_frame = 0;
         // Native frame ticks run before the idle short-circuit so
         // physics/animation callbacks can invalidate() to keep drawing;
         // an idle callback that touches nothing costs almost nothing.
@@ -877,6 +953,22 @@ void cb_frame(void* user) {
             if (impl->quit_requested) sapp_request_quit();
             return;
         }
+        // Min-frame-time gate (App::set_min_frame_time). Distinct from the
+        // idle short-circuit above: here the app IS dirty (there IS work to
+        // paint), but the caller wants at least min_frame_time_ms between
+        // paints. Skip render, keep dirty, revisit on the next pulse. Zero
+        // (default) disables — every dirty pulse paints.
+        if (impl->min_frame_time_ms > 0.0 && impl->last_render_time_set) {
+            const double elapsed_since_render_ms =
+                std::chrono::duration<double, std::milli>(
+                    frame_now - impl->last_render_time).count();
+            if (elapsed_since_render_ms < impl->min_frame_time_ms) {
+                if (impl->quit_requested) sapp_request_quit();
+                return;
+            }
+        }
+        impl->last_render_time = frame_now;
+        impl->last_render_time_set = true;
         impl->last_w = w;
         impl->last_h = h;
         std::array<float, 64> ordered_perf_ms{};
@@ -985,6 +1077,32 @@ void cb_frame(void* user) {
             tools::push_frame(tl);
         }
 
+        if (input_trace) {
+            const auto now = std::chrono::steady_clock::now();
+            const double dispatch_ms =
+                std::chrono::duration<double, std::milli>(
+                    phase_t_after_dispatch - phase_t0).count();
+            const double cb_total_ms =
+                std::chrono::duration<double, std::milli>(
+                    now - frame_now).count();
+            const auto& s = impl->renderer.stats();
+            std::fprintf(stderr,
+                "[input] gap=%.1f age=%.1f raw=%u dsp=%u | "
+                "drain=%.1f prep=%.1f layout=%.1f dlrec=%.1f rast=%.1f "
+                "comp=%.1f | cb=%.1f\n",
+                gap_ms, age_ms,
+                raw_this_frame,
+                dsp_this_frame,
+                dispatch_ms,
+                s.prepare_us_this_frame / 1000.0,
+                s.layout_us_this_frame / 1000.0,
+                s.display_list_record_us_this_frame / 1000.0,
+                s.raster_us_this_frame / 1000.0,
+                s.composite_us_this_frame / 1000.0,
+                cb_total_ms);
+            std::fflush(stderr);
+        }
+
         if (impl->quit_requested) sapp_request_quit();
     } catch (const std::exception& e) {
         detail::log_event_loop_exception("frame callback", e);
@@ -1068,7 +1186,6 @@ void cb_event(const sapp_event* ev, void* user) {
         case SAPP_EVENTTYPE_MOUSE_LEAVE:
             aui_ev.type = EventType::MouseMove;
             aui_ev.pos  = Point{-1, -1};
-            impl->has_pending_mouse_move = false;  // superseded by leave
             (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
             return;
         default:
@@ -1111,17 +1228,18 @@ void cb_event(const sapp_event* ev, void* user) {
     }
 
     if (aui_ev.type == EventType::MouseMove) {
-        // Coalesce: keep only the newest motion. It dispatches at the
-        // next frame start (or just below, when a press/wheel follows),
-        // so one expensive frame can't multiply into per-move relayouts.
-        impl->pending_mouse_move = aui_ev;
-        impl->has_pending_mouse_move = true;
-        return;
+        ++impl->moves_received_since_frame;
+        ++impl->moves_dispatched_since_frame;
+        impl->last_move_stamp = std::chrono::steady_clock::now();
+        impl->has_last_move_stamp = true;
     }
-    // Presses/wheel must observe any motion that preceded them.
-    flush_pending_mouse_move(*impl);
+    // Every input event dispatches immediately. Callers who want
+    // per-frame semantics can accumulate inside their own handler; the
+    // library does not coalesce input on their behalf. Fresh mouse
+    // position on every OS event, no queued playback.
     const bool consumed = detail::dispatch_loaded_view_event(*impl, aui_ev);
     (void) consumed;
+    if (aui_ev.type == EventType::MouseMove) sync_hover_cursor(*impl);
     } catch (const std::exception& e) {
         detail::log_event_loop_exception("event callback", e);
         impl->exit_code = 1;
