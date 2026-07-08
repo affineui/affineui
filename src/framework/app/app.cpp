@@ -1020,15 +1020,25 @@ void cb_event(const sapp_event* ev, void* user) {
         case SAPP_EVENTTYPE_MOUSE_SCROLL:
             aui_ev.type = EventType::MouseWheel;
             break;
-        case SAPP_EVENTTYPE_KEY_DOWN:
+        case SAPP_EVENTTYPE_KEY_DOWN: {
 #if AFFINEUI_PERF
-            // DevTools hotkey (zero config, on by default): F12 or
-            // Ctrl+Shift+I opens affinetools attached to this process.
+            // DevTools hotkey (zero config, on by default): F12 or the
+            // platform's Chrome-DevTools shortcut.
+            //   macOS:         Option+Cmd+I  (⌥⌘I)  = ALT | SUPER
+            //   Windows/Linux: Ctrl+Shift+I         = CTRL | SHIFT
+            // sokol modifier map on macOS: Option -> SAPP_MODIFIER_ALT,
+            // Cmd -> SAPP_MODIFIER_SUPER, Ctrl -> SAPP_MODIFIER_CTRL.
+#if defined(__APPLE__)
+            constexpr std::uint32_t kDevtoolsMods =
+                SAPP_MODIFIER_ALT | SAPP_MODIFIER_SUPER;
+#else
+            constexpr std::uint32_t kDevtoolsMods =
+                SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SHIFT;
+#endif
             if (impl->config.devtools_hotkey &&
                 (ev->key_code == SAPP_KEYCODE_F12 ||
                  (ev->key_code == SAPP_KEYCODE_I &&
-                  (ev->modifiers & SAPP_MODIFIER_CTRL) != 0 &&
-                  (ev->modifiers & SAPP_MODIFIER_SHIFT) != 0))) {
+                  (ev->modifiers & kDevtoolsMods) == kDevtoolsMods))) {
                 (void) tools_open_devtools();
                 return;
             }
@@ -1038,6 +1048,7 @@ void cb_event(const sapp_event* ev, void* user) {
             aui_ev.key      = key_to_affine(ev->key_code);
             (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
             return;
+        }
         case SAPP_EVENTTYPE_KEY_UP:
             aui_ev.type     = EventType::KeyUp;
             aui_ev.key_code = static_cast<int>(ev->key_code);
