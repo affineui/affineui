@@ -114,7 +114,7 @@ INTERNAL_HEADERS = [
     # Shared document-internal types (Block, DocumentImpl, CSS side tables).
     # Included by src/dom/document*.cpp; must follow every header it depends on
     # (style_store, computed_style, animated_style, style_resolver, imm_runtime).
-    "src/internal/document_impl.h",
+    "src/dom/document_impl.h",
 ]
 
 # Our C++ TUs. Order here is not load-bearing (declarations come from the
@@ -205,7 +205,7 @@ REQUIRED_EXTERNAL_FILES = [
 # ``src/layout/yoga_adapter.h``. An ``#include "<prefix>…"`` matching one
 # of these prefixes refers to a file that has already been inlined and
 # must be stripped from its referring TU.
-INTERNAL_PREFIXES = ("affineui/", "internal/", "engine/", "layout/", "imm/")
+INTERNAL_PREFIXES = ("affineui/", "internal/", "engine/", "layout/", "imm/", "dom/")
 INLINED_EXTERNAL_PREFIXES = (
     "lexbor/",
     "yoga/",

@@ -66,7 +66,7 @@
 #endif
 
 // Shared document-internal types (Block, DocumentImpl, CSS side tables).
-#include "internal/document_impl.h"
+#include "dom/document_impl.h"
 
 namespace affineui {
 

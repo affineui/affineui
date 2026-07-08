@@ -15,7 +15,7 @@
 #include "internal/animated_style.h"
 #include "internal/computed_style.h"
 #include "internal/diag.h"
-#include "internal/document_impl.h"
+#include "dom/document_impl.h"
 #include "internal/element_id.h"
 #include "internal/embed_log.h"
 #include "internal/style_resolver.h"
