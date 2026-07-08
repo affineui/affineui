@@ -28,7 +28,7 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <windows.h>
+    #include <windows.h>
 #endif
 
 namespace affineui {

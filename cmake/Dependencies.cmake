@@ -121,11 +121,11 @@ function(affineui_link_vendored_deps target)
 
     # Silence vendored-code warnings without polluting project flags.
     foreach(_tu
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/paint/nanovg_painter.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/paint/nanovg_sokol.c"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/paint/sokol_impl.c"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/text/fontstash_impl.c"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/text/stb_impl.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/paint/nanovg_painter.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/paint/nanovg_sokol.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/paint/sokol_impl.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/text/fontstash_impl.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/text/stb_impl.c"
     )
         if(EXISTS "${_tu}")
             set_source_files_properties("${_tu}" PROPERTIES COMPILE_FLAGS
@@ -139,7 +139,7 @@ function(affineui_link_vendored_deps target)
     # that ends up pulling in sokol_gfx Metal backend in later phases.
     if(APPLE)
         set_source_files_properties(
-            "${CMAKE_CURRENT_SOURCE_DIR}/src/paint/sokol_impl.c"
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer/paint/sokol_impl.c"
             PROPERTIES LANGUAGE OBJC)
     endif()
 endfunction()

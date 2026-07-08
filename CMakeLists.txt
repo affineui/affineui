@@ -134,6 +134,7 @@ target_sources(affineui PRIVATE
     src/core/diag/sampler.cpp
     src/core/diag/telemetry.cpp
     src/core/tools/tools_server.cpp
+    external/tinyjson/tiny-json.c
     src/framework/ui.cpp
     src/framework/themes.cpp
     src/framework/app/app.cpp
@@ -219,6 +220,8 @@ target_include_directories(affineui
         $<INSTALL_INTERFACE:include>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
+        # tiny-json: single-header JSON parser used by tools_server.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/tinyjson
 )
 
 target_compile_definitions(affineui

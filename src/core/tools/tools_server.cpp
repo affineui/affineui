@@ -21,7 +21,13 @@
 #include "affineui/log.h"
 #include "affineui/version.h"
 #include "core/log_internal.h"
-#include "core/tools/json_reader.h"
+// Inbound wire messages are parsed with tiny-json (external/tinyjson) —
+// a ~600 LOC single-header C parser with zero heap allocations. Same
+// code path in modular + amalgamated builds; the parser vendors cleanly
+// into the two-file SDK.
+extern "C" {
+#include "tiny-json.h"
+}
 
 #include <array>
 #include <atomic>
@@ -44,10 +50,10 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#include <windows.h>
-#include <process.h>
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+    #include <windows.h>
+    #include <process.h>
 using socket_t = SOCKET;
 static constexpr socket_t kInvalidSocket = INVALID_SOCKET;
 #else
@@ -89,7 +95,7 @@ bool sockets_init() noexcept {
 #endif
 }
 
-int current_pid() noexcept {
+int tools_pid() noexcept {
 #if defined(_WIN32)
     return _getpid();
 #else
@@ -285,22 +291,54 @@ void send_result(Connection& c, long long id, std::string_view result_json) {
     (void) send_framed(c.sock, msg);
 }
 
+// Small helpers around tiny-json's C surface. tiny-json's json_t union
+// stores every non-container leaf as a null-terminated char*, so string
+// access just wraps the pointer; number access runs strtod once.
+namespace {
+
+std::string_view tj_str(json_t const* obj, const char* prop) noexcept {
+    if (!obj) return {};
+    json_t const* v = json_getProperty(obj, prop);
+    if (!v || v->type != JSON_TEXT || !v->u.value) return {};
+    return std::string_view{v->u.value};
+}
+
+double tj_num(json_t const* obj, const char* prop, double fallback) noexcept {
+    if (!obj) return fallback;
+    json_t const* v = json_getProperty(obj, prop);
+    if (!v || !v->u.value) return fallback;
+    if (v->type != JSON_INTEGER && v->type != JSON_REAL) return fallback;
+    return std::strtod(v->u.value, nullptr);
+}
+
+// Ceiling on tokens per inbound message — hello / subscribe / etc. are
+// tiny (top-level object + maybe one params sub-object with a couple of
+// leaves). 64 is roomy for anything the current protocol emits and still
+// fits comfortably on the stack.
+constexpr unsigned kJsonPoolSize = 64;
+
+}  // namespace
+
 /// Returns false when the connection must be dropped.
 bool handle_message(ServerState& st, Connection& c, std::string_view text) {
-    detail::json::Value msg;
-    if (!detail::json::parse(text, msg) || !msg.is_object()) {
+    // tiny-json parses in place (writes '\0' terminators into the buffer),
+    // so hand it a mutable copy. Inbound frames are already size-bounded
+    // by drain_inbuf, so a std::string is fine here.
+    std::string buf(text);
+    json_t pool[kJsonPoolSize];
+    json_t const* msg = json_create(buf.data(), pool, kJsonPoolSize);
+    if (!msg || json_getType(msg) != JSON_OBJ) {
         return false;  // malformed → disconnect (hard-to-crash rule)
     }
-    const std::string_view method = msg.get_string("method");
-    const long long id = static_cast<long long>(msg.get_number("id", -1.0));
+
+    const std::string_view method = tj_str(msg, "method");
+    const long long id = static_cast<long long>(tj_num(msg, "id", -1.0));
 
     if (!c.authed) {
         // Only hello is accepted before auth; a bad token disconnects.
         if (method != "hello") return false;
-        const detail::json::Value* params = msg.get("params");
-        const std::string_view token =
-            params != nullptr ? params->get_string("token")
-                              : std::string_view{};
+        json_t const* params = json_getProperty(msg, "params");
+        const std::string_view token = tj_str(params, "token");
         if (token.empty() || token != st.token) return false;
         c.authed = true;
         std::string result;
@@ -568,7 +606,7 @@ void write_discovery_file(ServerState& st) {
     const std::string dir = discovery_dir();
     make_dir(dir);
     char name[64];
-    std::snprintf(name, sizeof(name), "%d.json", current_pid());
+    std::snprintf(name, sizeof(name), "%d.json", tools_pid());
 #if defined(_WIN32)
     st.discovery_file = dir + '\\' + name;
 #else
@@ -592,7 +630,7 @@ void write_discovery_file(ServerState& st) {
     std::fprintf(f,
                  "{\"pid\":%d,\"port\":%d,\"token\":\"%s\","
                  "\"exe\":\"%s\",\"affineui\":\"%s\"}\n",
-                 current_pid(), st.port, st.token.c_str(), exe.c_str(),
+                 tools_pid(), st.port, st.token.c_str(), exe.c_str(),
                  AFFINEUI_VERSION_STRING);
     std::fclose(f);
 }
@@ -646,7 +684,7 @@ bool tools_listen(int port) {
     std::call_once(exit_hook, [] { std::atexit([] { tools_shutdown(); }); });
 
     std::fprintf(stderr, "[tools] listening on 127.0.0.1:%d (pid %d)\n",
-                 st.port, current_pid());
+                 st.port, tools_pid());
     std::fflush(stderr);
     return true;
 }
@@ -763,7 +801,7 @@ bool tools_open_devtools() {
         exe = "affinetools";
 #endif
     }
-    if (!spawn_detached(exe, current_pid())) {
+    if (!spawn_detached(exe, tools_pid())) {
         std::fprintf(stderr,
                      "[tools] devtools viewer not found (looked beside the "
                      "exe, in the build tree, and on PATH; set "
@@ -772,7 +810,7 @@ bool tools_open_devtools() {
         return false;
     }
     std::fprintf(stderr, "[tools] devtools opening: %s --pid %d\n",
-                 exe.c_str(), current_pid());
+                 exe.c_str(), tools_pid());
     std::fflush(stderr);
     return true;
 }

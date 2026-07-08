@@ -2292,18 +2292,26 @@ void emit_widget_change(detail::DocumentImpl& impl,
     impl.changed_widgets.push_back({std::move(name), std::string(value)});
 }
 }  // namespace detail
-namespace {
 
-void detail::set_live_text_value(detail::DocumentImpl& impl,
+// Forward declarations of detail:: helpers defined later in this TU.
+// Placed at namespace scope: putting `void detail::foo(...)` inside an
+// anonymous namespace is ill-formed (Clang / GCC reject; MSVC accepts
+// silently). Keeping only the arg types qualified is fine — we're
+// already in namespace affineui.
+namespace detail {
+void set_live_text_value(DocumentImpl& impl,
                          int idx,
                          Block& block,
                          std::string value);
-void detail::set_live_text_state(detail::DocumentImpl& impl,
+void set_live_text_state(DocumentImpl& impl,
                          int idx,
                          Block& block,
                          std::string value,
                          std::size_t caret);
-std::string detail::emitted_text_control_value(const Block& block);
+std::string emitted_text_control_value(const Block& block);
+}  // namespace detail
+
+namespace {
 
 std::string decius_slider_fill_style(double min, double max, double value,
                                      bool bipolar) {

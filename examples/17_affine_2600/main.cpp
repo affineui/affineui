@@ -15,6 +15,7 @@
 #include <affineui/components.h>
 #include <affineui/view.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdlib>
 #include <random>
@@ -633,7 +634,11 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         if (std::string_view(argv[i]) == "--perf") {
             // Same switch as AFFINEUI_PERF_OVERLAY=1.
+#if defined(_WIN32)
             _putenv_s("AFFINEUI_PERF_OVERLAY", "1");
+#else
+            setenv("AFFINEUI_PERF_OVERLAY", "1", /*overwrite=*/1);
+#endif
         }
     }
     Affine2600 synth;

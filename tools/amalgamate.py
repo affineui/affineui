@@ -76,10 +76,12 @@ PUBLIC_HEADERS = [
     "include/affineui/automation.h",   # depends on document + types
     "include/affineui/renderer.h",
     "include/affineui/telemetry.h",   # FrameTelemetry R0/R1; depends on memory.h
+    "include/affineui/tools.h",       # devtools hook surface (AFFINEUI_TOOLS=0 → stubs)
     "include/affineui/ui.h",
     "include/affineui/app.h",           # load_view(const View&)
     "include/affineui/imm.h",
     "include/affineui/c_api.h",       # extern "C" surface; self-contained
+    "include/affineui/c_api_app.h",   # extern "C" App / Document / View surface
     "include/affineui/affineui.h",    # umbrella last
 ]
 
@@ -89,6 +91,9 @@ PUBLIC_HEADERS = [
 INTERNAL_HEADERS = [
     "src/core/embed_log.h",
     "src/core/log_internal.h",
+    "src/core/diag.h",              # TraceSpan + sampler; used by every renderer TU
+    "src/c_api_util.h",             # shared by c_api.cpp / c_api_app.cpp
+    "external/tinyjson/tiny-json.h",# used by core/tools/tools_server.cpp
     "src/renderer/style/element_id.h",
     "src/renderer/style/animated_style.h",
     "src/renderer/style/computed_style.h",
@@ -127,6 +132,7 @@ ENGINE_SOURCES = [
     "src/core/log.cpp",
     "src/core/diag/sampler.cpp",
     "src/core/diag/telemetry.cpp",
+    "src/core/tools/tools_server.cpp",  # Ctrl+Shift+I opens the affinetools viewer in every build
     "src/framework/app/app.cpp",
     "src/framework/app/event.cpp",
     "src/framework/app/automation.cpp",
@@ -176,6 +182,7 @@ ENGINE_SOURCES = [
     "src/framework/imm/reconciler.cpp",
     "src/framework/imm/state_store.cpp",
     "src/c_api.cpp",
+    "src/c_api_app.cpp",
 ]
 
 # Vendored-C wrapper TUs (one file each, ~50 LOC, mostly preprocessor
@@ -190,6 +197,7 @@ VENDORED_C_TUS = [
     "src/renderer/text/fontstash_impl.c",
     "src/renderer/paint/nanovg_sokol.c",
     "src/renderer/paint/sokol_impl.c",
+    "external/tinyjson/tiny-json.c",  # inbound wire parser for tools_server.cpp
 ]
 
 REQUIRED_EXTERNAL_FILES = [
@@ -225,6 +233,7 @@ INLINED_EXTERNAL_PREFIXES = (
     "fontstash.h",
     "stb_image.h",
     "stb_truetype.h",
+    "tiny-json.h",  # vendored inbound wire parser (external/tinyjson)
 )
 LEXBOR_REPEATABLE_HEADERS = {
     "lexbor/core/cpp_compat.h",
@@ -415,6 +424,7 @@ def resolve_external_include(root: Path, current_file: Path | None,
         root / "external" / "nanovg" / "src",
         root / "external" / "sokol",
         root / "external" / "yoga",
+        root / "external" / "tinyjson",
     ]
     for base in external_roots:
         candidates.append(base / name)

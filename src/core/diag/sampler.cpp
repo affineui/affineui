@@ -89,7 +89,7 @@ TraceSpan::~TraceSpan() {
 #if defined(_WIN32) && !defined(AFFINEUI_STUB_BUILD)
 
 #define WIN32_LEAN_AND_MEAN
-#include <windows.h>
+    #include <windows.h>
 
 #include <algorithm>
 #include <cstdint>

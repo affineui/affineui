@@ -339,10 +339,16 @@ void append_generated_content_for_element(
         has_color, color_rgba, position);
 }
 
-void detail::apply_pseudo_overlay(detail::DocumentImpl& impl, const Block& block,
-                          detail::ResolvedStyle& rs);
-
 }  // namespace
+
+// Forward declaration of a detail:: helper defined later in this TU.
+// Placed at namespace scope: `void detail::foo(...)` inside an
+// anonymous namespace is ill-formed (MSVC accepts it silently, Clang
+// and GCC reject it).
+namespace detail {
+void apply_pseudo_overlay(DocumentImpl& impl, const Block& block,
+                          ResolvedStyle& rs);
+}  // namespace detail
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -453,7 +459,7 @@ void collect_blocks(detail::DocumentImpl& impl,
                 continue;
             }
             const bool parent_blockifies_inline_children =
-                detail::is_flex_container_display(parent_style.computed.display) ||
+                is_flex_container_display(parent_style.computed.display) ||
                 parent_style.computed.display == Display::Grid ||
                 parent_style.computed.display == Display::InlineGrid;
             const bool flatten_as_inline_text =
@@ -584,7 +590,7 @@ void collect_blocks(detail::DocumentImpl& impl,
         using Display = detail::ComputedStyle::Display;
         using CssFloat = detail::ComputedStyle::Float;
         const bool parent_is_flex =
-            detail::is_flex_container_display(parent_style.computed.display);
+            is_flex_container_display(parent_style.computed.display);
         const bool parent_is_grid =
             parent_style.computed.display == Display::Grid ||
             parent_style.computed.display == Display::InlineGrid;
