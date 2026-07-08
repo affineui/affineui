@@ -1,6 +1,6 @@
 #include <doctest/doctest.h>
 
-#include "internal/display_list_painter.h"
+#include "renderer/paint/display_list_painter.h"
 
 namespace {
 

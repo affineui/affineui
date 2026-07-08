@@ -13,8 +13,8 @@
 #include <doctest/doctest.h>
 
 #include "affineui/types.h"
-#include "internal/computed_style.h"
-#include "layout/yoga_adapter.h"
+#include "renderer/style/computed_style.h"
+#include "renderer/layout/yoga_adapter.h"
 
 #include <array>
 #include <vector>

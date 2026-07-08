@@ -6,9 +6,9 @@
 
 #if !defined(AFFINEUI_STUB_BUILD)
 
-#    include "internal/animated_style.h"
-#    include "internal/computed_style.h"
-#    include "internal/style_resolver.h"
+#    include "renderer/style/animated_style.h"
+#    include "renderer/style/computed_style.h"
+#    include "renderer/style/style_resolver.h"
 
 #    include <lexbor/css/css.h>
 #    include <lexbor/dom/dom.h>

@@ -10,7 +10,7 @@
 #include "affineui/tools.h"
 #include "affineui/ui.h"
 
-#include "internal/c_api_util.h"
+#include "c_api_util.h"
 
 #include <string_view>
 #include <utility>

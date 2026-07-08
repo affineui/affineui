@@ -8,7 +8,7 @@
 
 #include "affineui_tools.h"
 
-#include "tools/json_reader.h"  // core-internal minimal JSON (src/tools)
+#include "core/tools/json_reader.h"  // core-internal minimal JSON (src/tools)
 
 #include <algorithm>
 #include <atomic>
