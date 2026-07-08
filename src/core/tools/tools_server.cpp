@@ -63,6 +63,10 @@ static constexpr socket_t kInvalidSocket = INVALID_SOCKET;
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#if defined(__APPLE__)
+    #include <mach-o/dyld.h>   // _NSGetExecutablePath
+    #include <sys/syslimits.h> // PATH_MAX
+#endif
 using socket_t = int;
 static constexpr socket_t kInvalidSocket = -1;
 #endif
@@ -162,6 +166,18 @@ std::string executable_path() {
     const ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
     return n > 0 ? std::string(buf, static_cast<std::size_t>(n))
                  : std::string{};
+#elif defined(__APPLE__)
+    // _NSGetExecutablePath fills the buffer with the invocation path,
+    // which may contain `..` / symlinks — realpath resolves it so
+    // parent_dir() walks give a canonical directory tree that
+    // find_devtools_exe() can compare against sibling `affinetools`
+    // and `tools/affinetools/affinetools` markers.
+    char raw[PATH_MAX];
+    std::uint32_t sz = sizeof(raw);
+    if (_NSGetExecutablePath(raw, &sz) != 0) return {};
+    char resolved[PATH_MAX];
+    if (realpath(raw, resolved) != nullptr) return std::string(resolved);
+    return std::string(raw);
 #else
     return {};
 #endif
