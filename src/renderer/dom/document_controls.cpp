@@ -31,6 +31,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <fstream>
 #include <initializer_list>
@@ -379,7 +380,6 @@ bool find_checkbox_control_at(detail::DocumentImpl& impl,
 }  // namespace detail
 namespace {
 
-bool detail::class_list_contains(lxb_dom_element_t* elem, std::string_view cls);
 
 std::string radio_group_name(lxb_dom_element_t* elem,
                              lxb_dom_element_t* input) {
@@ -625,9 +625,6 @@ bool find_button_group_option_at(detail::DocumentImpl& impl,
     return false;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -635,9 +632,6 @@ bool class_list_contains(lxb_dom_element_t* elem, std::string_view cls) {
     return detail::class_tokens_contain(detail::attr_view(elem, "class"), cls);
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1295,9 +1289,6 @@ bool update_button_group_control(detail::DocumentImpl& impl,
     return changed;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1690,9 +1681,6 @@ bool update_dropdown_control(detail::DocumentImpl& impl,
     return changed;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -2129,9 +2117,6 @@ bool update_float_drag(detail::DocumentImpl& impl, const Event& ev) {
                             y - d.cb_y));
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -2182,9 +2167,6 @@ Rect float_resize_rect(const detail::DocumentImpl::FloatResize& d,
             std::max(kMinH, bottom - top)};
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -2257,9 +2239,6 @@ bool update_tab_drag_ghost(detail::DocumentImpl& impl,
     return true;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -2279,9 +2258,6 @@ bool remove_tab_drag_ghost(detail::DocumentImpl& impl) {
     return changed;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -2416,9 +2392,6 @@ bool toggle_dcs_menu(detail::DocumentImpl& impl,
     return changed;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -2588,9 +2561,6 @@ bool toggle_dcs_popover(detail::DocumentImpl& impl,
     return changed;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -2614,9 +2584,6 @@ bool find_dcs_menu_trigger_at(detail::DocumentImpl& impl,
     return false;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -2676,9 +2643,6 @@ bool find_dcs_menu_item_at(detail::DocumentImpl& impl,
     return false;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -2692,9 +2656,6 @@ bool clear_pressed_dcs_menu_item(detail::DocumentImpl& impl) {
     return detail::set_element_class(impl, item, "dcs-menu__item--active", false);
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -2716,9 +2677,6 @@ bool press_dcs_menu_item(detail::DocumentImpl& impl,
     return changed;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -3031,8 +2989,6 @@ bool find_dockpane_tab_at(detail::DocumentImpl& impl, int from_idx,
 }  // namespace detail
 namespace {
 
-std::string detail::pane_panel_id(lxb_dom_element_t* pane);
-std::string detail::dockpane_tab_panel_id(lxb_dom_element_t* tab);
 
 }  // namespace
 
@@ -3198,9 +3154,6 @@ std::string dockpane_tab_panel_id(lxb_dom_element_t* tab) {
     return sel;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -3215,9 +3168,6 @@ int positive_int_attr(lxb_dom_element_t* elem, std::string_view name,
     return static_cast<int>(std::min<long>(parsed, 10000));
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {

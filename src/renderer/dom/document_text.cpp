@@ -31,6 +31,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <fstream>
 #include <initializer_list>
@@ -263,9 +264,6 @@ int focusable_ancestor(const detail::DocumentImpl& impl, int idx) {
     return -1;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -314,9 +312,6 @@ int nearest_clip_ancestor_for_block(const detail::DocumentImpl& impl, int idx) {
     return -1;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -330,9 +325,6 @@ bool block_is_scrollable_y(const detail::DocumentImpl& impl, int idx) {
     return b.content_h > b.bounds.h;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -848,9 +840,6 @@ bool has_text_selection(const Block& block) {
     return begin != end;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1199,18 +1188,12 @@ bool refresh_active_chain(detail::DocumentImpl&, bool* = nullptr) {
 bool set_focus(detail::DocumentImpl&, int)       { return false; }
 int  focusable_ancestor(const detail::DocumentImpl&, int) { return -1; }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
 int  find_scrollable_y_ancestor(const detail::DocumentImpl&, int) { return -1; }
 bool focused_text_control(detail::DocumentImpl&, Block*&) { return false; }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1228,9 +1211,6 @@ void set_live_text_value(detail::DocumentImpl&, int, Block&, std::string) {}
 void set_live_text_state(detail::DocumentImpl&, int, Block&, std::string,
                          std::size_t) {}
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {

@@ -31,6 +31,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <fstream>
 #include <initializer_list>
@@ -61,9 +62,6 @@ namespace {
 #if !defined(AFFINEUI_STUB_BUILD)
 
 }  // namespace (stranded opener above split)
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -339,8 +337,6 @@ void append_generated_content_for_element(
         has_color, color_rgba, position);
 }
 
-void detail::apply_pseudo_overlay(detail::DocumentImpl& impl, const Block& block,
-                          detail::ResolvedStyle& rs);
 
 }  // namespace
 

@@ -38,6 +38,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <fstream>
 #include <initializer_list>
@@ -101,9 +102,6 @@ bool dock_trace_enabled() {
     return !env_value("AFFINEUI_DOCK_TRACE_FILE").empty();
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -128,9 +126,6 @@ void dock_trace(std::string msg) {
     detail::log_msg(LogLevel::debug, msg.c_str());
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 namespace detail {
 // Bridge for the automation layer (src/app/automation.cpp).
@@ -535,20 +530,11 @@ double elem_attr_num(lxb_dom_element_t* elem, std::string_view name,
     return end == buf ? fallback : parsed;
 }
 }  // namespace detail
-namespace {
 
-}  // namespace
-
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -604,9 +590,6 @@ int effective_z_index(const detail::DocumentImpl& impl, int idx) {
     return z;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -729,9 +712,6 @@ int hit_test_blocks(const detail::DocumentImpl& impl, int x, int y) {
     return hit_test_blocks_impl(impl, x, y, false);
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -783,9 +763,6 @@ std::string hit_chain_summary(const detail::DocumentImpl& impl, int idx) {
     return out;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 void Document::set_resource_loader(ResourceLoader loader) {
     impl_->resource_loader = std::move(loader);
@@ -1354,9 +1331,6 @@ void settle_view_batch(detail::DocumentImpl& impl) {
     }
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 #endif  // !AFFINEUI_STUB_BUILD
 
 ViewSink* Document::begin_view_mutations() {

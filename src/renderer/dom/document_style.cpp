@@ -31,6 +31,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <fstream>
 #include <initializer_list>
@@ -334,9 +335,6 @@ std::string attr_string(lxb_dom_element_t* elem, std::string_view name) {
     return std::string(reinterpret_cast<const char*>(v), len);
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -398,9 +396,6 @@ bool has_attr(lxb_dom_element_t* elem, std::string_view name) {
         elem, reinterpret_cast<const lxb_char_t*>(name.data()), name.size());
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -515,9 +510,6 @@ bool block_has_attr(const Block& block, std::string_view name) {
     return detail::block_attr_value(block, name) != nullptr;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -628,9 +620,6 @@ double block_attr_double(const Block& block,
     return parsed;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -670,9 +659,6 @@ int nearest_block_with_tag(const std::vector<Block>& blocks,
     return -1;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1259,9 +1245,6 @@ std::string_view ltrim_ws(std::string_view s) {
 namespace detail {
 std::string_view trim_css_ws(std::string_view s) { return ltrim_ws(rtrim_ws(s)); }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {

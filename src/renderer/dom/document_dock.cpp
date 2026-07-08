@@ -31,6 +31,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <fstream>
 #include <initializer_list>
@@ -947,9 +948,6 @@ const char* drop_zone_name(DropZone zone) {
     }
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1206,9 +1204,6 @@ void dock_trace_state(detail::DocumentImpl& impl, std::string_view reason) {
     detail::dock_trace("state reason=" + std::string(reason) + " " + snapshot);
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -2102,9 +2097,6 @@ bool update_dcs_tree_drag(detail::DocumentImpl& impl, const Event& ev) {
     return changed;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -2243,9 +2235,6 @@ bool click_preserves_transient_layers(detail::DocumentImpl& impl,
     return point_preserves_transient_layers(impl, point);
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -2262,9 +2251,6 @@ lxb_dom_element_t* find_trigger_for_target(detail::DocumentImpl& impl,
     return out;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 Document::DockLayout Document::dock_layout() const {
     DockLayout out;

@@ -31,6 +31,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <fstream>
 #include <initializer_list>
@@ -598,9 +599,6 @@ bool restyle_subtree(detail::DocumentImpl& impl, int root_idx) {
     return needs_layout;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1143,9 +1141,6 @@ Rect block_border_visual_rect(const detail::DocumentImpl& impl, int idx) {
     return transform_border_rect(base, effective_transform_for(impl, idx));
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1176,9 +1171,6 @@ Rect block_visual_rect(const detail::DocumentImpl& impl, int idx) {
     return out;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1228,9 +1220,6 @@ bool vertical_scrollbar_geometry(const detail::DocumentImpl& impl,
     return true;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1248,9 +1237,6 @@ bool set_block_scroll_y(detail::DocumentImpl& impl, int idx, int scroll_y) {
     return true;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1288,9 +1274,6 @@ bool find_vertical_scrollbar_at(const detail::DocumentImpl& impl,
     return false;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1310,9 +1293,6 @@ Rect subtree_visual_rect(const detail::DocumentImpl& impl, int root_idx) {
     return out;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1364,9 +1344,6 @@ const lxb_dom_element_t* element_for_block(const detail::DocumentImpl& impl,
         impl.blocks[static_cast<std::size_t>(idx)].id);
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1380,10 +1357,6 @@ lxb_dom_element_t* element_for_block_or_ancestor(detail::DocumentImpl& impl,
     return nullptr;
 }
 }  // namespace detail
-namespace {
-
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1419,9 +1392,6 @@ lxb_dom_element_t* find_dom_element_by_id(detail::DocumentImpl& impl,
     return detail::find_dom_element_by_id(root, elem_id);
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1474,10 +1444,6 @@ bool element_has_element_child(lxb_dom_element_t* elem) {
     return false;
 }
 }  // namespace detail
-namespace {
-
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1500,9 +1466,6 @@ void mark_live_mutation_dirty(detail::DocumentImpl& impl,
     }
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1524,10 +1487,6 @@ lxb_dom_element_t* first_descendant_with_class(lxb_dom_element_t* elem,
     return nullptr;
 }
 }  // namespace detail
-namespace {
-
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1543,9 +1502,6 @@ lxb_dom_element_t* nearest_ancestor_with_class(lxb_dom_element_t* elem,
     return nullptr;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1711,10 +1667,6 @@ bool selector_mutation_reveals_hidden_subtree(detail::DocumentImpl& impl,
     return false;
 }
 }  // namespace detail
-namespace {
-
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1775,10 +1727,6 @@ bool pseudo_state_reveals_hidden_subtree(detail::DocumentImpl& impl,
     return false;
 }
 }  // namespace detail
-namespace {
-
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -1854,9 +1802,6 @@ void debug_validate_attr_lists(detail::DocumentImpl& impl, const char* where) {
     std::fflush(stderr);
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -2172,9 +2117,6 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
     return true;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -2294,16 +2236,6 @@ void emit_widget_change(detail::DocumentImpl& impl,
 }  // namespace detail
 namespace {
 
-void detail::set_live_text_value(detail::DocumentImpl& impl,
-                         int idx,
-                         Block& block,
-                         std::string value);
-void detail::set_live_text_state(detail::DocumentImpl& impl,
-                         int idx,
-                         Block& block,
-                         std::string value,
-                         std::size_t caret);
-std::string detail::emitted_text_control_value(const Block& block);
 
 std::string decius_slider_fill_style(double min, double max, double value,
                                      bool bipolar) {
@@ -2474,9 +2406,6 @@ bool point_in_textarea_resize_grip(const detail::DocumentImpl& impl,
                          point.x, point.y);
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -2570,10 +2499,6 @@ bool update_live_control_value(detail::DocumentImpl& impl,
     return changed;
 }
 }  // namespace detail
-namespace {
-
-
-}  // namespace
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
@@ -2602,7 +2527,4 @@ LiveControlKind live_control_kind_for_block(const Block& block) {
     return LiveControlKind::None;
 }
 }  // namespace detail
-namespace {
-
-}  // namespace
 }  // namespace affineui
