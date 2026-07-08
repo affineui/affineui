@@ -107,10 +107,9 @@ struct AppImpl {
     // for standalone run() and directly by embed hosts calling
     // should_render()/render(). last_render_time is set at the top of
     // render(), so the gate measures start-to-start.
-    // Default: 1000/120 ms — cap at 120 fps. Retina + ProMotion displays
-    // benefit from painting up to 120 Hz; the gate skips display refreshes
-    // above that even if the display link ticks faster.
-    double                min_frame_time_ms{1000.0 / 120.0};
+    // Default is 0 (no throttle) to match the App::set_min_frame_time
+    // public contract; callers who want a cap opt in explicitly.
+    double                min_frame_time_ms{0.0};
     std::chrono::steady_clock::time_point last_render_time{};
     bool                  last_render_time_set{false};
     // Input trace counters (AFFINEUI_INPUT_TRACE=1): MOUSE_MOVE events
@@ -586,13 +585,13 @@ bool App::should_render() {
 
 void App::render() {
     // Embed entry point. Full extraction of cb_frame's body into an
-    // App-callable render step is in progress; for now, invoking render()
-    // marks a paint attempt (sets last_render_time so the min-frame-time
-    // gate advances) and defers the actual paint to the next cb_frame
-    // pulse. Standalone run() is unaffected; hosts driving their own loop
-    // should treat this as a work-in-progress until the extraction lands.
-    impl_->last_render_time = std::chrono::steady_clock::now();
-    impl_->last_render_time_set = true;
+    // App-callable render step is in progress; until it lands, invoking
+    // render() from a host that is not driving cb_frame is a no-op.
+    // Notably, the min-frame-time gate is NOT advanced here — advancing
+    // it without an actual paint would starve subsequent should_render()
+    // calls even though nothing was drawn. The gate is advanced only
+    // inside cb_frame's real render path (see the last_render_time write
+    // there). Standalone run() is unaffected.
 }
 
 void App::set_perf_overlay_enabled(bool enabled) {
@@ -883,12 +882,6 @@ void cb_frame(void* user) {
         }
         static const bool input_trace =
             std::getenv("AFFINEUI_INPUT_TRACE") != nullptr;
-        double age_ms = -1.0;
-        if (impl->has_last_move_stamp) {
-            age_ms = std::chrono::duration<double, std::milli>(
-                         frame_now - impl->last_move_stamp)
-                         .count();
-        }
         // Pulse start: drain any OS input events queued behind AppKit's
         // per-run-loop-iteration throttle. This dispatches cb_event N
         // times, one per queued NSEvent, so mouse-up on a fast drag isn't
@@ -898,6 +891,15 @@ void cb_frame(void* user) {
         affineui_mac_drain_native_events();
 #endif
         const auto phase_t_after_dispatch = std::chrono::steady_clock::now();
+        // Sample age + counters AFTER the drain so all three describe the
+        // SAME batch of events (the drain updates last_move_stamp and the
+        // moves_received/dispatched counters as it dispatches).
+        double age_ms = -1.0;
+        if (impl->has_last_move_stamp) {
+            age_ms = std::chrono::duration<double, std::milli>(
+                         phase_t_after_dispatch - impl->last_move_stamp)
+                         .count();
+        }
         const std::uint32_t raw_this_frame = impl->moves_received_since_frame;
         const std::uint32_t dsp_this_frame = impl->moves_dispatched_since_frame;
         impl->moves_received_since_frame = 0;
@@ -1187,6 +1189,10 @@ void cb_event(const sapp_event* ev, void* user) {
             aui_ev.type = EventType::MouseMove;
             aui_ev.pos  = Point{-1, -1};
             (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
+            // Leave is a MouseMove-shaped event; the hover chain clears,
+            // and the cursor kind that was in effect is stale. Same sync
+            // path the normal MouseMove branch runs at end of dispatch.
+            sync_hover_cursor(*impl);
             return;
         default:
             return;
