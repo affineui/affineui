@@ -314,6 +314,12 @@ struct ScrollStateEntry {
     int scroll_y{0};
 };
 
+struct HsvColor {
+    double h{210.0};
+    double s{0.7};
+    double v{0.85};
+};
+
 // Geometry of a block's painted vertical scrollbar (track/thumb in doc
 // space); filled by detail::vertical_scrollbar_geometry.
 struct ScrollbarGeometry {
@@ -1211,6 +1217,66 @@ bool update_dcs_vec_compression(
     const std::vector<detail::ComputedStyle>& layout_styles);
 
 Rect subtree_visual_rect(const detail::DocumentImpl& impl, int root_idx);
+
+// text-control / mutation boundary helpers
+template <class Fn>
+void walk_dom_elements(lxb_dom_node_t* node, Fn& fn) {
+    if (!node) return;
+    if (node->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+        fn(lxb_dom_interface_element(node));
+    }
+    for (auto* child = lxb_dom_node_first_child(node);
+         child != nullptr; child = lxb_dom_node_next(child)) {
+        walk_dom_elements(child, fn);
+    }
+}
+
+std::vector<int> build_hover_chain(const std::vector<Block>& blocks, int idx);
+bool class_list_contains(lxb_dom_element_t* elem, std::string_view cls);
+HsvColor current_dcs_colorfield_hsv(lxb_dom_element_t* field);
+lxb_dom_node_t* document_dom_root(detail::DocumentImpl& impl);
+void emit_widget_change(detail::DocumentImpl& impl,
+                        lxb_dom_element_t* elem,
+                        std::string_view value);
+lxb_dom_element_t* find_trigger_for_target(detail::DocumentImpl& impl,
+                                           std::string_view target_selector);
+bool is_descendant_of_or_self(const std::vector<Block>& blocks,
+                              int idx,
+                              int root_idx);
+void mark_live_mutation_dirty(detail::DocumentImpl& impl,
+                              int dirty_root_idx,
+                              const Rect& old_rect,
+                              bool needs_layout);
+lxb_dom_element_t* nearest_ancestor_with_class(lxb_dom_element_t* elem,
+                                               std::string_view cls);
+bool pseudo_state_reveals_hidden_subtree(detail::DocumentImpl& impl,
+                                         int root_idx);
+bool remove_attribute_on_element(detail::DocumentImpl& impl,
+                                 lxb_dom_element_t* elem,
+                                 std::string_view name);
+bool restyle_block(detail::DocumentImpl& impl, int idx);
+bool restyle_subtree(detail::DocumentImpl& impl, int root_idx);
+bool set_attribute_on_element(detail::DocumentImpl& impl,
+                              lxb_dom_element_t* elem,
+                              std::string_view name,
+                              std::string_view value);
+void set_live_text_state(detail::DocumentImpl& impl,
+                         int idx,
+                         Block& block,
+                         std::string value,
+                         std::size_t caret);
+void set_live_text_value(detail::DocumentImpl& impl,
+                         int idx,
+                         Block& block,
+                         std::string value);
+bool sync_dcs_colorfield(detail::DocumentImpl& impl,
+                         lxb_dom_element_t* field,
+                         HsvColor hsv,
+                         bool emit);
+bool sync_dcs_colorfield(detail::DocumentImpl& impl,
+                         lxb_dom_element_t* field,
+                         std::string_view raw_hex,
+                         bool emit);
 #endif  // !AFFINEUI_STUB_BUILD
 
 }  // namespace detail

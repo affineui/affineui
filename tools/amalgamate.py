@@ -136,6 +136,7 @@ ENGINE_SOURCES = [
     "src/dom/document_draw.cpp",
     "src/dom/document_layout.cpp",
     "src/dom/document_style.cpp",
+    "src/dom/document_text.cpp",
     "src/dom/dom_view.cpp",
     "src/dom/lexbor_bridge.cpp",
     "src/style/cascade.cpp",
