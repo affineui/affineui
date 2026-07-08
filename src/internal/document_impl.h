@@ -312,6 +312,22 @@ struct ScrollbarGeometry {
     int scroll_range{0};
     int thumb_travel{0};
 };
+
+// Dock drag-and-drop hit target (see compute_drop_target).
+enum class DropZone { None, Left, Right, Top, Bottom, Tab };
+struct DropTarget {
+    std::string parent;   // "__document__" (window-edge dock) or target pane id
+    DropZone    zone{DropZone::None};
+    int x{0}, y{0}, w{0}, h{0};   // highlight rect in float-host coords
+    bool        valid{false};
+    // The element the surgery acts on: the hovered .dcs-dockpane, or for a
+    // window-edge drop the outermost matching .dcs-dock (decius edgeOwnerDock).
+    lxb_dom_element_t* pane{nullptr};
+    bool               window_edge{false};
+    // Center-on-your-own multi-tab pane: a VALID target (the preview shows) but
+    // a NO-OP on release — the tab is already there.
+    bool               self_noop{false};
+};
 #endif  // !AFFINEUI_STUB_BUILD
 
 namespace detail {
@@ -776,6 +792,273 @@ float aligned_line_origin_x(const TextLayoutEntry& entry,
 bool has_text_selection(const Block& block);
 std::pair<std::size_t, std::size_t>
 normalized_selection(const Block& block);
+
+// interaction / dispatch surface (hit-testing, drags, dock, menus, text)
+// True iff (x, y) is inside `r` (half-open: right/bottom edges are
+// excluded so adjacent rects don't both match).
+inline bool rect_contains(const Rect& r, int x, int y) noexcept {
+    return x >= r.x && x < r.x + r.w
+        && y >= r.y && y < r.y + r.h;
+}
+
+void add_dirty_rect(detail::DocumentImpl& impl, const Rect& r);
+lxb_dom_element_t* ancestor_with_class(lxb_dom_element_t* e,
+                                       std::string_view cls);
+bool arm_tab_drag_from_pending_press(
+    detail::DocumentImpl& impl,
+    const detail::DocumentImpl::PendingTabPress& press);
+bool begin_dcs_colorfield_drag(detail::DocumentImpl& impl,
+                               int from_idx,
+                               const Event& ev);
+int block_index_for_exact_element(const detail::DocumentImpl& impl,
+                                  lxb_dom_element_t* elem);
+Rect block_visual_rect(const detail::DocumentImpl& impl, int idx);
+void capture_tab_drag_metadata(detail::DocumentImpl& impl,
+                               detail::DocumentImpl::TabDrag& drag,
+                               lxb_dom_element_t* tab,
+                               lxb_dom_element_t* pane);
+DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
+                               std::string_view drag_kind,
+                               lxb_dom_element_t* source_pane = nullptr);
+bool dcs_tree_row_draggable(lxb_dom_element_t* row);
+std::string dock_kind_of(lxb_dom_element_t* pane);
+std::string dock_placement_summary(const Document::DockPlacement& p);
+std::string dock_rect_summary(const Rect& r);
+void dock_trace(std::string msg);
+std::string dockpane_tab_panel_id(lxb_dom_element_t* tab);
+std::string drop_target_summary(const DropTarget& t);
+lxb_dom_element_t* element_for_block(detail::DocumentImpl& impl, int idx);
+const lxb_dom_element_t* element_for_block(const detail::DocumentImpl& impl,
+                                           int idx);
+bool find_button_control_at(detail::DocumentImpl& impl,
+                            int from_idx,
+                            lxb_dom_element_t*& out_elem);
+bool find_checkbox_control_at(detail::DocumentImpl& impl,
+                              int from_idx,
+                              int& out_idx,
+                              lxb_dom_element_t*& out_elem);
+bool find_dcs_menu_item_at(detail::DocumentImpl& impl,
+                           int from_idx,
+                           lxb_dom_element_t*& out_menu,
+                           lxb_dom_element_t*& out_item);
+bool find_dcs_menu_trigger_at(detail::DocumentImpl& impl,
+                              int from_idx,
+                              lxb_dom_element_t*& out_trigger,
+                              lxb_dom_element_t*& out_menu);
+bool find_dcs_select_row_at(detail::DocumentImpl& impl,
+                            int from_idx,
+                            lxb_dom_element_t*& out_box,
+                            lxb_dom_element_t*& out_row);
+bool find_dcs_tree_row_at(detail::DocumentImpl& impl,
+                          int from_idx,
+                          lxb_dom_element_t*& out_tree,
+                          lxb_dom_element_t*& out_row);
+bool find_dockpane_tab_at(detail::DocumentImpl& impl, int from_idx,
+                          lxb_dom_element_t*& out_tab);
+lxb_dom_element_t* find_dockpane_tab_for_panel_id(detail::DocumentImpl& impl,
+                                                  std::string_view panel_id);
+bool find_dropdown_control_at(detail::DocumentImpl& impl,
+                              int from_idx,
+                              lxb_dom_element_t*& out_group,
+                              lxb_dom_element_t*& out_select,
+                              lxb_dom_element_t*& out_option);
+bool find_float_drag_at(detail::DocumentImpl& impl, int from_idx, Point point,
+                        detail::DocumentImpl::FloatDrag& out);
+bool find_float_resize_at(detail::DocumentImpl& impl, int from_idx, Point point,
+                          detail::DocumentImpl::FloatResize& out);
+bool find_live_control_at(detail::DocumentImpl& impl,
+                          int from_idx,
+                          Point point,
+                          detail::DocumentImpl::LiveControlDrag& out);
+bool find_splitter_at(detail::DocumentImpl& impl,
+                      int from_idx,
+                      Point /*point*/,
+                      detail::DocumentImpl::SplitterDrag& out);
+bool find_vertical_scrollbar_at(const detail::DocumentImpl& impl,
+                                Point point,
+                                int& out_idx,
+                                ScrollbarGeometry& out);
+int focusable_ancestor(const detail::DocumentImpl& impl, int idx);
+std::string hit_chain_summary(const detail::DocumentImpl& impl, int idx);
+int hit_test_blocks(const detail::DocumentImpl& impl, int x, int y);
+bool hover_switch_dcs_menubar_menu(detail::DocumentImpl& impl,
+                                   int hovered_idx);
+std::string pane_panel_id(lxb_dom_element_t* pane);
+bool press_dcs_menu_item(detail::DocumentImpl& impl,
+                         lxb_dom_element_t* item);
+void recollect_blocks_from_current_dom(detail::DocumentImpl& impl);
+bool refresh_active_chain(detail::DocumentImpl& impl,
+                          bool* out_needs_recollect = nullptr);
+bool refresh_hover_chain(detail::DocumentImpl& impl,
+                         bool* out_needs_recollect = nullptr);
+bool scrollbar_scroll_from_thumb_y(detail::DocumentImpl& impl,
+                                   int idx,
+                                   int thumb_y);
+bool set_drop_indicator(detail::DocumentImpl& impl, const DropTarget* t);
+bool set_element_class(detail::DocumentImpl& impl,
+                       lxb_dom_element_t* elem,
+                       std::string_view cls,
+                       bool present);
+bool set_focus(detail::DocumentImpl& impl, int target_idx);
+bool set_text_caret_from_point(detail::DocumentImpl& impl,
+                               int idx,
+                               Point p,
+                               bool extend_selection = false,
+                               std::size_t anchor = 0);
+void set_text_selection(detail::DocumentImpl& impl,
+                        int idx,
+                        Block& block,
+                        std::size_t anchor,
+                        std::size_t focus);
+std::string sorted_join(std::vector<std::string> parts,
+                        std::string_view sep = ",");
+bool switch_dockpane_tab(detail::DocumentImpl& impl, lxb_dom_element_t* tab);
+bool toggle_checkbox_control(detail::DocumentImpl& impl, int idx,
+                             lxb_dom_element_t* elem);
+bool toggle_dcs_menu(detail::DocumentImpl& impl,
+                     lxb_dom_element_t* trigger,
+                     lxb_dom_element_t* menu);
+bool toggle_dcs_tree_chevron_control(detail::DocumentImpl& impl, int from_idx);
+bool toggle_decius_collapse_control(detail::DocumentImpl& impl, int from_idx);
+bool update_active_live_control(detail::DocumentImpl& impl, const Event& ev);
+bool update_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev);
+bool update_dcs_select_control(detail::DocumentImpl& impl,
+                               lxb_dom_element_t* box,
+                               lxb_dom_element_t* row,
+                               const Event& ev);
+bool update_dcs_tree_drag(detail::DocumentImpl& impl, const Event& ev);
+bool update_float_drag(detail::DocumentImpl& impl, const Event& ev);
+bool update_float_resize(detail::DocumentImpl& impl, const Event& ev);
+bool update_splitter_drag(detail::DocumentImpl& impl, const Event& ev);
+bool update_tab_drag_ghost(detail::DocumentImpl& impl,
+                           std::string_view label_text,
+                           Point p);
+std::pair<std::size_t, std::size_t>
+word_bounds_at(std::string_view text, std::size_t caret);
+
+// dock-gesture DOM-insert suppression guard (RAII)
+// While a dock gesture restructures the tree, lexbor's EVENT-FUL inserts
+// (insert_before/after/child) fire lxb_html_document_event_insert, which
+// eagerly re-runs selector matching + style attach over a half-mutated tree —
+// walking an element's style weak-list while another element's is mid-teardown
+// → use-after-poison (found by the ASAN gesture fuzzer). We do our own restyle
+// in detail::dock_structure_changed(), so suppress lexbor's eager attach for the whole
+// gesture and let the finisher rebuild it once, consistently. RAII so it always
+// restores, even on an early return. (Moves still use *_wo_events to keep weak
+// handles alive; this additionally neutralizes the event-ful inserts.)
+struct SuppressDomStyleAttach {
+    lxb_dom_document_t*    dom{nullptr};
+    lxb_dom_event_insert_f saved_insert{nullptr};
+    explicit SuppressDomStyleAttach(detail::DocumentImpl& impl) {
+        if (impl.doc) {
+            dom = &impl.doc->dom_document;
+            saved_insert = dom->ev_insert;
+            dom->ev_insert = nullptr;
+        }
+    }
+    ~SuppressDomStyleAttach() {
+        if (dom) dom->ev_insert = saved_insert;
+    }
+    SuppressDomStyleAttach(const SuppressDomStyleAttach&) = delete;
+    SuppressDomStyleAttach& operator=(const SuppressDomStyleAttach&) = delete;
+};
+
+bool activate_button_control(detail::DocumentImpl& impl,
+                             lxb_dom_element_t* elem);
+bool activate_dcs_menu_item(detail::DocumentImpl& impl,
+                            lxb_dom_element_t* menu,
+                            lxb_dom_element_t* item);
+bool apply_deferred_text_focus(detail::DocumentImpl& impl,
+                               const detail::DocumentImpl::LiveControlDrag& drag,
+                               Point point);
+Rect block_border_visual_rect(const detail::DocumentImpl& impl, int idx);
+bool cancel_dcs_tree_drag(detail::DocumentImpl& impl);
+bool clear_pressed_dcs_menu_item(detail::DocumentImpl& impl);
+bool click_preserves_transient_layers(detail::DocumentImpl& impl,
+                                      int from_idx,
+                                      Point point);
+std::string clipboard_get_text(detail::DocumentImpl& impl);
+void clipboard_set_text(detail::DocumentImpl& impl, std::string_view text);
+bool close_transient_layers(detail::DocumentImpl& impl,
+                            lxb_dom_element_t* except = nullptr);
+bool command_modifier(const Event& ev);
+int cursor_for_float_resize_dir(int dir);
+bool delete_text_range(detail::DocumentImpl& impl,
+                       int idx,
+                       Block& block,
+                       std::size_t begin,
+                       std::size_t end);
+void dock_cleanup_source(detail::DocumentImpl& impl, lxb_dom_element_t* dock);
+lxb_dom_element_t* dock_create_pane(detail::DocumentImpl& impl,
+                                    std::string_view panel_id,
+                                    std::string_view kind);
+bool dock_move_tab_to(detail::DocumentImpl& impl, lxb_dom_element_t* tab,
+                      lxb_dom_element_t* panel, lxb_dom_element_t* target);
+lxb_dom_element_t* dock_spawn_floating_panel(
+    detail::DocumentImpl& impl, lxb_dom_element_t* tab,
+    lxb_dom_element_t* panel, Point drop, int w, int h, std::string_view kind,
+    std::string_view panel_id);
+void dock_split(detail::DocumentImpl& impl, lxb_dom_element_t* target,
+                DropZone edge, lxb_dom_element_t* fresh, bool window_edge);
+void dock_structure_changed(detail::DocumentImpl& impl);
+std::vector<lxb_dom_element_t*> dock_tabs(lxb_dom_element_t* dock);
+void dock_trace_state(detail::DocumentImpl& impl, std::string_view reason);
+const char* drop_zone_name(DropZone zone);
+std::string emitted_text_control_value(const Block& block);
+std::string emitted_text_control_value(const Block&);
+bool find_button_group_option_at(detail::DocumentImpl& impl,
+                                 int from_idx,
+                                 lxb_dom_element_t*& out_group,
+                                 lxb_dom_element_t*& out_option);
+bool find_dcs_popover_trigger_at(detail::DocumentImpl& impl,
+                                 int from_idx,
+                                 lxb_dom_element_t*& out_trigger,
+                                 lxb_dom_element_t*& out_popover);
+lxb_dom_element_t* find_dom_element_by_id(lxb_dom_node_t* root,
+                                          std::string_view elem_id);
+lxb_dom_element_t* find_dom_element_by_id(detail::DocumentImpl& impl,
+                                          std::string_view elem_id);
+int find_scrollable_y_ancestor(const detail::DocumentImpl& impl, int idx);
+int  find_scrollable_y_ancestor(const detail::DocumentImpl&, int);
+bool finish_dcs_tree_drag(detail::DocumentImpl& impl, const Event& ev);
+Rect float_resize_rect(const detail::DocumentImpl::FloatResize& d,
+                       const Event& ev);
+bool focused_text_control(detail::DocumentImpl& impl, Block*& out);
+bool focused_text_control(detail::DocumentImpl&, Block*&);
+LiveControlKind live_control_kind_for_block(const Block& block);
+bool move_text_caret(detail::DocumentImpl& impl,
+                     int idx,
+                     Block& block,
+                     std::size_t caret,
+                     bool extend_selection);
+std::size_t next_utf8_boundary(std::string_view text, std::size_t pos);
+std::size_t next_word_boundary(std::string_view text, std::size_t pos);
+bool point_in_textarea_resize_grip(const detail::DocumentImpl& impl,
+                                   int idx,
+                                   Point point,
+                                   bool& resize_x,
+                                   bool& resize_y);
+int positive_int_attr(lxb_dom_element_t* elem, std::string_view name,
+                      int fallback);
+std::size_t previous_utf8_boundary(std::string_view text, std::size_t pos);
+std::size_t previous_word_boundary(std::string_view text, std::size_t pos);
+bool remove_tab_drag_ghost(detail::DocumentImpl& impl);
+bool replace_text_selection_or_insert(detail::DocumentImpl& impl,
+                                      int idx,
+                                      Block& block,
+                                      std::string_view text);
+std::string selected_text(const Block& block);
+bool set_block_scroll_y(detail::DocumentImpl& impl, int idx, int scroll_y);
+bool toggle_dcs_popover(detail::DocumentImpl& impl,
+                        lxb_dom_element_t* trigger,
+                        lxb_dom_element_t* popover);
+bool toggle_dropdown_menu(detail::DocumentImpl& impl, lxb_dom_element_t* group);
+bool update_button_group_control(detail::DocumentImpl& impl,
+                                 lxb_dom_element_t* group,
+                                 lxb_dom_element_t* option);
+bool update_dropdown_control(detail::DocumentImpl& impl,
+                             lxb_dom_element_t* group,
+                             lxb_dom_element_t* option);
 #endif  // !AFFINEUI_STUB_BUILD
 
 }  // namespace detail

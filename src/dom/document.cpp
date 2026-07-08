@@ -101,6 +101,10 @@ bool dock_trace_enabled() {
     return !env_value("AFFINEUI_DOCK_TRACE_FILE").empty();
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 void dock_trace(std::string msg) {
     if (!dock_trace_enabled()) return;
     static std::atomic<std::uint64_t> sequence{1};
@@ -121,6 +125,9 @@ void dock_trace(std::string msg) {
     }
     detail::log_msg(LogLevel::debug, msg.c_str());
 }
+}  // namespace detail
+namespace {
+
 
 }  // namespace
 
@@ -490,7 +497,6 @@ std::string attr_string(lxb_dom_element_t* elem, std::string_view name) {
 }  // namespace detail
 namespace {
 
-
 // Attribute value as a view into lexbor's storage — no copy. Only valid
 // until the attribute mutates; for read-and-compare use exclusively.
 std::string_view attr_view(lxb_dom_element_t* elem, std::string_view name) {
@@ -547,7 +553,6 @@ bool has_attr(lxb_dom_element_t* elem, std::string_view name) {
 }
 }  // namespace detail
 namespace {
-
 
 // The text a closed <select> shows: the `selected` <option>'s text, or
 // the first option if none is marked. We render no popup/list â€” only the
@@ -651,7 +656,6 @@ bool block_has_attr(const Block& block, std::string_view name) {
 }
 }  // namespace detail
 namespace {
-
 
 int block_attr_int(const Block& block,
                    std::string_view name,
@@ -761,7 +765,6 @@ double block_attr_double(const Block& block,
 }  // namespace detail
 namespace {
 
-
 std::string compact_number(double value, int places = 2) {
     char buf[64]{};
     std::snprintf(buf, sizeof(buf), "%.*f", places, value);
@@ -796,7 +799,6 @@ int nearest_block_with_tag(const std::vector<Block>& blocks,
 }
 }  // namespace detail
 namespace {
-
 
 bool is_block_tag(const std::string& tag) {
     return tag == "h1" || tag == "h2" || tag == "h3" ||
@@ -1351,7 +1353,6 @@ namespace detail {
 std::string_view trim_css_ws(std::string_view s) { return ltrim_ws(rtrim_ws(s)); }
 }  // namespace detail
 namespace {
-
 
 std::string style_with_properties(
     std::string_view style,
@@ -2212,7 +2213,6 @@ void ensure_font_faces_registered(detail::DocumentImpl& impl,
 }  // namespace detail
 namespace {
 
-
 bool selector_list_contains_root(std::string_view selector) {
     while (!selector.empty()) {
         const auto comma = find_top_level_comma(selector);
@@ -2715,7 +2715,6 @@ bool parse_hex_color(std::string_view value, std::uint32_t& out) {
 }  // namespace detail
 namespace {
 
-
 std::string ascii_lower(std::string_view s) {
     std::string out;
     out.reserve(s.size());
@@ -2818,7 +2817,6 @@ bool parse_generated_color(std::string value,
 }
 }  // namespace detail
 namespace {
-
 
 // ═══════════════════ Inline SVG (general subset) ═══════════════════
 // Renders inline <svg> children through the Painter's vector-path API.
@@ -5334,11 +5332,9 @@ void Document::reload_stylesheets() {
 
 namespace {
 #if !defined(AFFINEUI_STUB_BUILD)
-void add_dirty_rect(detail::DocumentImpl& impl, const Rect& r);
 Rect subtree_visual_rect(const detail::DocumentImpl& impl, int root_idx);
 std::uint64_t media_match_signature(const detail::DocumentImpl& impl,
                                     int viewport_width);
-void recollect_blocks_from_current_dom(detail::DocumentImpl& impl);
 void attach_matching_media_blocks_for_viewport(detail::DocumentImpl& impl) {
     if (!impl.doc || impl.media_viewport_width_px <= 0) return;
     const std::size_t media_count = impl.media_blocks.size();
@@ -5352,14 +5348,14 @@ void attach_matching_media_blocks_for_viewport(detail::DocumentImpl& impl) {
         impl.media_viewport_height_px);
     impl.media_match_signature =
         media_match_signature(impl, impl.media_viewport_width_px);
-    recollect_blocks_from_current_dom(impl);
+    detail::recollect_blocks_from_current_dom(impl);
 }
 #endif
 }  // namespace
 
 namespace {
 #if !defined(AFFINEUI_STUB_BUILD)
-void dock_trace_state(detail::DocumentImpl& impl, std::string_view reason);
+void detail::dock_trace_state(detail::DocumentImpl& impl, std::string_view reason);
 void dock_trace_state_if_changed(detail::DocumentImpl& impl,
                                  std::string_view reason);
 bool update_dcs_vec_compression(
@@ -5439,7 +5435,7 @@ void Document::layout(int viewport_width, int viewport_height,
             impl_->resolver = detail::make_lexbor_resolver(
                 impl_->doc, impl_->media_viewport_width_px,
                 impl_->media_viewport_height_px);
-            recollect_blocks_from_current_dom(*impl_);
+            detail::recollect_blocks_from_current_dom(*impl_);
             impl_->media_match_signature = next_media_sig;
         } else {
             // A resize can change available layout width without changing any
@@ -6008,7 +6004,7 @@ void Document::layout(int viewport_width, int viewport_height,
         for (const int root_idx : impl_->pending_dirty_roots) {
             if (root_idx >= 0 &&
                 root_idx < static_cast<int>(impl_->blocks.size())) {
-                add_dirty_rect(*impl_, subtree_visual_rect(*impl_, root_idx));
+                detail::add_dirty_rect(*impl_, subtree_visual_rect(*impl_, root_idx));
             }
         }
         impl_->pending_dirty_roots.clear();
@@ -6266,17 +6262,17 @@ double elem_attr_num(lxb_dom_element_t* elem, std::string_view name,
 }  // namespace detail
 namespace {
 
-
 }  // namespace
 
 namespace {
 
-// True iff (x, y) is inside `r` (half-open: right/bottom edges are
-// excluded so adjacent rects don't both match).
-inline bool rect_contains(const Rect& r, int x, int y) noexcept {
-    return x >= r.x && x < r.x + r.w
-        && y >= r.y && y < r.y + r.h;
-}
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
+}  // namespace detail
+namespace {
+
 
 }  // namespace
 
@@ -6318,7 +6314,6 @@ int scroll_offset_y_for(const std::vector<Block>& blocks,
 }  // namespace detail
 namespace {
 
-
 #if !defined(AFFINEUI_STUB_BUILD)
 }  // namespace
 
@@ -6336,7 +6331,6 @@ int effective_z_index(const detail::DocumentImpl& impl, int idx) {
 }
 }  // namespace detail
 namespace {
-
 
 const KeyframeBlock* find_keyframes(const detail::DocumentImpl& impl,
                                     std::uint32_t name_hash) {
@@ -6425,7 +6419,7 @@ int hit_test_blocks_impl(const detail::DocumentImpl& impl,
                 Vec2{static_cast<float>(x), static_cast<float>(y)});
             contains = rect_contains_float(eff, local.x, local.y);
         } else {
-            contains = rect_contains(eff, x, y);
+            contains = detail::rect_contains(eff, x, y);
         }
         if (contains) {
             const int z = detail::effective_z_index(impl, static_cast<int>(i));
@@ -6435,7 +6429,7 @@ int hit_test_blocks_impl(const detail::DocumentImpl& impl,
             }
         }
 #else
-        if (rect_contains(eff, x, y)) {
+        if (detail::rect_contains(eff, x, y)) {
             hit = static_cast<int>(i);
         }
 #endif
@@ -6443,12 +6437,19 @@ int hit_test_blocks_impl(const detail::DocumentImpl& impl,
     return hit;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 // Deepest block whose effective border-box (after applying ancestor scroll
 // offsets and CSS transforms) contains (x, y), or -1 if none. z-index buckets
 // win first, then normal document order breaks ties.
 int hit_test_blocks(const detail::DocumentImpl& impl, int x, int y) {
     return hit_test_blocks_impl(impl, x, y, false);
 }
+}  // namespace detail
+namespace {
+
 
 int hit_test_blocks_for_dock_target(const detail::DocumentImpl& impl,
                                     int x,
@@ -6479,6 +6480,10 @@ std::string block_trace_name(const Block& b) {
     return out;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 std::string hit_chain_summary(const detail::DocumentImpl& impl, int idx) {
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return "none";
     std::string out;
@@ -6491,6 +6496,9 @@ std::string hit_chain_summary(const detail::DocumentImpl& impl, int idx) {
     }
     return out;
 }
+}  // namespace detail
+namespace {
+
 
 }  // namespace
 
@@ -7321,6 +7329,10 @@ void reset_dynamic_block_state(detail::DocumentImpl& impl) {
     impl.content_size = Size{0, 0};
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 void recollect_blocks_from_current_dom(detail::DocumentImpl& impl) {
 #if !defined(AFFINEUI_STUB_BUILD)
     if (!impl.doc) return;
@@ -7403,6 +7415,9 @@ void recollect_blocks_from_current_dom(detail::DocumentImpl& impl) {
     (void)impl;
 #endif
 }
+}  // namespace detail
+namespace {
+
 
 lxb_status_t rematch_stylesheet_matches(lxb_dom_node_t* node) {
 #if !defined(AFFINEUI_STUB_BUILD)
@@ -7465,10 +7480,17 @@ Rect union_rect(const Rect& a, const Rect& b) {
     return Rect{x0, y0, x1 - x0, y1 - y0};
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 void add_dirty_rect(detail::DocumentImpl& impl, const Rect& r) {
     if (!rect_valid(r)) return;
     impl.dirty_rects.push_back(r);
 }
+}  // namespace detail
+namespace {
+
 
 Rect shadow_extent(const Rect& base,
                    const detail::BoxShadowLayer& layer) {
@@ -7529,6 +7551,10 @@ Rect transform_border_rect(const Rect& r, const Mat2x3& m) {
     return Rect{x0, y0, x1 - x0, y1 - y0};
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 Rect block_border_visual_rect(const detail::DocumentImpl& impl, int idx) {
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return {};
     const auto& b = impl.blocks[static_cast<std::size_t>(idx)];
@@ -7536,7 +7562,14 @@ Rect block_border_visual_rect(const detail::DocumentImpl& impl, int idx) {
     const Rect base{b.bounds.x, b.bounds.y - dy, b.bounds.w, b.bounds.h};
     return transform_border_rect(base, effective_transform_for(impl, idx));
 }
+}  // namespace detail
+namespace {
 
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 Rect block_visual_rect(const detail::DocumentImpl& impl, int idx) {
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return {};
     const auto& b = impl.blocks[static_cast<std::size_t>(idx)];
@@ -7563,6 +7596,9 @@ Rect block_visual_rect(const detail::DocumentImpl& impl, int idx) {
 #endif
     return out;
 }
+}  // namespace detail
+namespace {
+
 
 }  // namespace
 
@@ -7573,7 +7609,7 @@ bool vertical_scrollbar_geometry(const detail::DocumentImpl& impl,
                                  ScrollbarGeometry& out) {
     if (!block_is_scrollable_y(impl, idx)) return false;
     const auto& b = impl.blocks[static_cast<std::size_t>(idx)];
-    const Rect box = block_border_visual_rect(impl, idx);
+    const Rect box = detail::block_border_visual_rect(impl, idx);
     constexpr int kTrackWidth = 6;
     constexpr int kTrackPad = 2;
     if (box.w <= kTrackWidth + kTrackPad * 2 ||
@@ -7616,7 +7652,10 @@ bool vertical_scrollbar_geometry(const detail::DocumentImpl& impl,
 }  // namespace detail
 namespace {
 
+}  // namespace
 
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool set_block_scroll_y(detail::DocumentImpl& impl, int idx, int scroll_y) {
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return false;
     if (!block_is_scrollable_y(impl, idx)) return false;
@@ -7625,12 +7664,19 @@ bool set_block_scroll_y(detail::DocumentImpl& impl, int idx, int scroll_y) {
     const int next = std::clamp(scroll_y, 0, max_scroll);
     if (next == block.scroll_y) return false;
 
-    add_dirty_rect(impl, block_visual_rect(impl, idx));
+    detail::add_dirty_rect(impl, detail::block_visual_rect(impl, idx));
     block.scroll_y = next;
-    add_dirty_rect(impl, block_visual_rect(impl, idx));
+    detail::add_dirty_rect(impl, detail::block_visual_rect(impl, idx));
     return true;
 }
+}  // namespace detail
+namespace {
 
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool scrollbar_scroll_from_thumb_y(detail::DocumentImpl& impl,
                                    int idx,
                                    int thumb_y) {
@@ -7643,7 +7689,7 @@ bool scrollbar_scroll_from_thumb_y(detail::DocumentImpl& impl,
         std::round(static_cast<double>(track_relative) *
                    static_cast<double>(geometry.scroll_range) /
                    static_cast<double>(geometry.thumb_travel)));
-    return set_block_scroll_y(impl, idx, next);
+    return detail::set_block_scroll_y(impl, idx, next);
 }
 
 bool find_vertical_scrollbar_at(const detail::DocumentImpl& impl,
@@ -7656,7 +7702,7 @@ bool find_vertical_scrollbar_at(const detail::DocumentImpl& impl,
                 impl, static_cast<int>(i), geometry)) {
             continue;
         }
-        if (rect_contains(geometry.track, point.x, point.y)) {
+        if (detail::rect_contains(geometry.track, point.x, point.y)) {
             out_idx = static_cast<int>(i);
             out = geometry;
             return true;
@@ -7664,6 +7710,9 @@ bool find_vertical_scrollbar_at(const detail::DocumentImpl& impl,
     }
     return false;
 }
+}  // namespace detail
+namespace {
+
 
 Rect subtree_visual_rect(const detail::DocumentImpl& impl, int root_idx) {
     Rect out{};
@@ -7676,7 +7725,7 @@ Rect subtree_visual_rect(const detail::DocumentImpl& impl, int root_idx) {
     // priced attribute writes on large documents (menu toggles most of all).
     for (int idx = root_idx; idx < static_cast<int>(impl.blocks.size()); ++idx) {
         if (!is_descendant_of_or_self(impl.blocks, idx, root_idx)) break;
-        out = union_rect(out, block_visual_rect(impl, idx));
+        out = union_rect(out, detail::block_visual_rect(impl, idx));
     }
     return out;
 }
@@ -7684,7 +7733,7 @@ Rect subtree_visual_rect(const detail::DocumentImpl& impl, int root_idx) {
 Rect document_visual_rect(const detail::DocumentImpl& impl) {
     Rect out{};
     for (int idx = 0; idx < static_cast<int>(impl.blocks.size()); ++idx) {
-        out = union_rect(out, block_visual_rect(impl, idx));
+        out = union_rect(out, detail::block_visual_rect(impl, idx));
     }
     return out;
 }
@@ -7698,6 +7747,10 @@ int find_block_by_elem_id(const detail::DocumentImpl& impl,
     return -1;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 int block_index_for_exact_element(const detail::DocumentImpl& impl,
                                   lxb_dom_element_t* elem) {
     if (!elem) return -1;
@@ -7721,17 +7774,24 @@ const lxb_dom_element_t* element_for_block(const detail::DocumentImpl& impl,
     return impl.style_store.element_of(
         impl.blocks[static_cast<std::size_t>(idx)].id);
 }
+}  // namespace detail
+namespace {
+
 
 lxb_dom_element_t* element_for_block_or_ancestor(detail::DocumentImpl& impl,
                                                  int idx) {
     for (int cur = idx;
          cur >= 0 && cur < static_cast<int>(impl.blocks.size());
          cur = impl.blocks[static_cast<std::size_t>(cur)].parent_idx) {
-        if (auto* elem = element_for_block(impl, cur)) return elem;
+        if (auto* elem = detail::element_for_block(impl, cur)) return elem;
     }
     return nullptr;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 lxb_dom_element_t* find_dom_element_by_id(lxb_dom_node_t* root,
                                           std::string_view elem_id) {
     if (!root || elem_id.empty()) return nullptr;
@@ -7743,7 +7803,7 @@ lxb_dom_element_t* find_dom_element_by_id(lxb_dom_node_t* root,
     }
     for (auto* child = lxb_dom_node_first_child(root);
          child != nullptr; child = lxb_dom_node_next(child)) {
-        if (auto* found = find_dom_element_by_id(child, elem_id)) {
+        if (auto* found = detail::find_dom_element_by_id(child, elem_id)) {
             return found;
         }
     }
@@ -7761,8 +7821,11 @@ lxb_dom_element_t* find_dom_element_by_id(detail::DocumentImpl& impl,
     auto* body = lxb_html_document_body_element(impl.doc);
     auto* root = body ? lxb_dom_interface_node(body)
                       : lxb_dom_interface_node(impl.doc);
-    return find_dom_element_by_id(root, elem_id);
+    return detail::find_dom_element_by_id(root, elem_id);
 }
+}  // namespace detail
+namespace {
+
 
 int block_index_for_element_or_ancestor(const detail::DocumentImpl& impl,
                                         lxb_dom_element_t* elem) {
@@ -7818,14 +7881,14 @@ void mark_live_mutation_dirty(detail::DocumentImpl& impl,
                               const Rect& old_rect,
                               bool needs_layout) {
     const auto dirty_count_before = impl.dirty_rects.size();
-    add_dirty_rect(impl, old_rect);
+    detail::add_dirty_rect(impl, old_rect);
     if (needs_layout) {
         if (dirty_root_idx >= 0) {
             impl.pending_dirty_roots.push_back(dirty_root_idx);
         }
         impl.content_size = Size{0, 0};
     } else if (dirty_root_idx >= 0) {
-        add_dirty_rect(impl, subtree_visual_rect(impl, dirty_root_idx));
+        detail::add_dirty_rect(impl, subtree_visual_rect(impl, dirty_root_idx));
     }
     if (impl.dirty_rects.size() == dirty_count_before && !needs_layout) {
         impl.paint_dirty = true;
@@ -7948,7 +8011,7 @@ bool selector_mutation_reveals_hidden_subtree(detail::DocumentImpl& impl,
             if (c->ns != LXB_NS_HTML) continue;
             auto* child = lxb_dom_interface_element(c);
             if (tag_view(child) == "svg") continue;  // paints, never boxes
-            if (block_index_for_exact_element(impl, child) >= 0) continue;
+            if (detail::block_index_for_exact_element(impl, child) >= 0) continue;
             if (impl.resolver->resolve(child, impl.root_style)
                     .computed.display != Display::None) {
                 return true;
@@ -7963,7 +8026,7 @@ bool selector_mutation_reveals_hidden_subtree(detail::DocumentImpl& impl,
     // child element's block (when it has one) always lives inside its
     // parent's range — so one pass over the range yields the complete
     // "has a block" set for every child we'll probe. The per-child
-    // block_index_for_exact_element() this replaces scanned the WHOLE
+    // detail::block_index_for_exact_element() this replaces scanned the WHOLE
     // document per child, which dominated hidden-toggle dispatch.
     int subtree_end = root_idx;
     std::unordered_set<const lxb_dom_element_t*> blocked_elems;
@@ -8059,7 +8122,7 @@ bool pseudo_state_reveals_hidden_subtree(detail::DocumentImpl& impl,
             if (c->ns != LXB_NS_HTML) continue;
             auto* child = lxb_dom_interface_element(c);
             if (tag_view(child) == "svg") continue;  // paints, never boxes
-            if (block_index_for_exact_element(impl, child) >= 0) continue;
+            if (detail::block_index_for_exact_element(impl, child) >= 0) continue;
             auto rs = impl.resolver->resolve(child, parent_rs);
             Block pseudo_block;
             // acquire (not lookup): overlay state checks index state_bits by
@@ -8191,7 +8254,7 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
     if (already_present && old_value == value) return false;
     MutationTraceTimer trace_timer{"set", name};
 
-    const int target_idx = block_index_for_exact_element(impl, elem);
+    const int target_idx = detail::block_index_for_exact_element(impl, elem);
     const int dirty_root_idx =
         target_idx >= 0 ? target_idx
                         : block_index_for_element_or_ancestor(impl, elem);
@@ -8296,7 +8359,7 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
         // whole document) made every menu open/close a multi-frame stall,
         // so menubar hover-follow skipped triggers under fast sweeps.
         if (recollect_generated_subtree) {
-            recollect_blocks_from_current_dom(impl);
+            detail::recollect_blocks_from_current_dom(impl);
             mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
                                      /*needs_layout=*/true);
             return true;
@@ -8320,7 +8383,7 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
         phase();
         if (selector_mutation_reveals_hidden_subtree(impl,
                                                      mutation_dirty_root_idx)) {
-            recollect_blocks_from_current_dom(impl);
+            detail::recollect_blocks_from_current_dom(impl);
             needs_layout = true;
         }
         const double reveal_ms = phase();
@@ -8356,7 +8419,7 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
     const std::string old_value = detail::attr_string(elem, name);
     MutationTraceTimer trace_timer{"remove", name};
 
-    const int target_idx = block_index_for_exact_element(impl, elem);
+    const int target_idx = detail::block_index_for_exact_element(impl, elem);
     const int dirty_root_idx =
         target_idx >= 0 ? target_idx
                         : block_index_for_element_or_ancestor(impl, elem);
@@ -8446,7 +8509,7 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
         // reveal check below recollect only when this removal exposes a
         // subtree whose boxes were never created (a menu's first open).
         if (recollect_generated_subtree) {
-            recollect_blocks_from_current_dom(impl);
+            detail::recollect_blocks_from_current_dom(impl);
             mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
                                      /*needs_layout=*/true);
             return true;
@@ -8464,7 +8527,7 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
         phase();
         if (selector_mutation_reveals_hidden_subtree(impl,
                                                      mutation_dirty_root_idx)) {
-            recollect_blocks_from_current_dom(impl);
+            detail::recollect_blocks_from_current_dom(impl);
             needs_layout = true;
         }
         const double reveal_ms = phase();
@@ -8499,7 +8562,7 @@ bool set_text_on_element(detail::DocumentImpl& impl,
     auto* node = lxb_dom_interface_node(elem);
     if (node_text(node) == text) return false;
 
-    const int target_idx = block_index_for_exact_element(impl, elem);
+    const int target_idx = detail::block_index_for_exact_element(impl, elem);
     if (target_idx < 0) return false;
     const Rect old_rect = subtree_visual_rect(impl, target_idx);
     if (lxb_dom_node_text_content_set(node, as_lxb(text), text.size())
@@ -8608,7 +8671,7 @@ void set_live_text_state(detail::DocumentImpl& impl,
                          Block& block,
                          std::string value,
                          std::size_t caret);
-std::string emitted_text_control_value(const Block& block);
+std::string detail::emitted_text_control_value(const Block& block);
 
 std::string decius_slider_fill_style(double min, double max, double value,
                                      bool bipolar) {
@@ -8669,7 +8732,6 @@ double decius_knob_angle(double min, double max, double value) {
 }
 }  // namespace detail
 namespace {
-
 
 std::pair<double, double> decius_knob_ring_point(double deg) {
     constexpr double r = 10.5;
@@ -8739,13 +8801,17 @@ Rect textarea_resize_grip_rect(const detail::DocumentImpl& impl, int idx) {
     bool resize_y = false;
     const auto& cs = impl.style_store.computed(block.id);
     if (!textarea_resize_axes(cs.resize, resize_x, resize_y)) return {};
-    const Rect bounds = block_border_visual_rect(impl, idx);
+    const Rect bounds = detail::block_border_visual_rect(impl, idx);
     const int grip = std::min(kTextareaResizeGripPx,
                               std::max(1, std::min(bounds.w, bounds.h)));
     return Rect{bounds.x + bounds.w - grip, bounds.y + bounds.h - grip,
                 grip, grip};
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool point_in_textarea_resize_grip(const detail::DocumentImpl& impl,
                                    int idx,
                                    Point point,
@@ -8758,9 +8824,12 @@ bool point_in_textarea_resize_grip(const detail::DocumentImpl& impl,
     if (block.tag != "textarea" || block.is_disabled) return false;
     const auto& cs = impl.style_store.computed(block.id);
     if (!textarea_resize_axes(cs.resize, resize_x, resize_y)) return false;
-    return rect_contains(textarea_resize_grip_rect(impl, idx),
+    return detail::rect_contains(textarea_resize_grip_rect(impl, idx),
                          point.x, point.y);
 }
+}  // namespace detail
+namespace {
+
 
 bool update_live_control_value(detail::DocumentImpl& impl,
                                lxb_dom_element_t* elem,
@@ -8779,7 +8848,7 @@ bool update_live_control_value(detail::DocumentImpl& impl,
         set_attribute_on_element(impl, elem, "value", value_text);
     changed = value_changed || changed;
     if (value_changed && kind == LiveControlKind::NumericInput) {
-        const int idx = block_index_for_exact_element(impl, elem);
+        const int idx = detail::block_index_for_exact_element(impl, elem);
         if (idx >= 0) {
             auto& block = impl.blocks[static_cast<std::size_t>(idx)];
             if (block.text_control) {
@@ -8852,6 +8921,10 @@ bool update_live_control_value(detail::DocumentImpl& impl,
     return changed;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 LiveControlKind live_control_kind_for_block(const Block& block) {
     if (block.tag == "input" && block.input_type == "range") {
         return LiveControlKind::RangeInput;
@@ -8876,7 +8949,14 @@ LiveControlKind live_control_kind_for_block(const Block& block) {
     }
     return LiveControlKind::None;
 }
+}  // namespace detail
+namespace {
 
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 // ── Dock splitter drag (data-dcs-splitter) ──────────────────────────────────
 // A `.dcs-splitter` between two flex panes. Grabbing it captures the pair's
 // sizes; dragging redistributes their shared budget via inline flex-basis.
@@ -8891,15 +8971,15 @@ bool find_splitter_at(detail::DocumentImpl& impl,
     for (int idx = from_idx;
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (!elem || !detail::has_attr(elem, "data-dcs-splitter")) continue;
 
         auto* node = lxb_dom_interface_node(elem);
         auto* prev = previous_element_sibling(node);
         auto* next = next_element_sibling(node);
         if (!prev || !next) return false;
-        const int prev_idx = block_index_for_exact_element(impl, prev);
-        const int next_idx = block_index_for_exact_element(impl, next);
+        const int prev_idx = detail::block_index_for_exact_element(impl, prev);
+        const int next_idx = detail::block_index_for_exact_element(impl, next);
         if (prev_idx < 0 || next_idx < 0) return false;
 
         const auto& blk = impl.blocks[static_cast<std::size_t>(idx)];
@@ -8976,14 +9056,14 @@ bool find_live_control_at(detail::DocumentImpl& impl,
         const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
         bool resize_x = false;
         bool resize_y = false;
-        if (point_in_textarea_resize_grip(impl, idx, point,
+        if (detail::point_in_textarea_resize_grip(impl, idx, point,
                                           resize_x, resize_y)) {
-            auto* elem = element_for_block(impl, idx);
+            auto* elem = detail::element_for_block(impl, idx);
             if (!elem) continue;
             out.kind = LiveControlKind::TextAreaResize;
             out.elem = elem;
             out.block_idx = idx;
-            out.bounds = block_border_visual_rect(impl, idx);
+            out.bounds = detail::block_border_visual_rect(impl, idx);
             out.start_w = out.bounds.w;
             out.start_h = out.bounds.h;
             out.resize_x = resize_x;
@@ -8991,15 +9071,15 @@ bool find_live_control_at(detail::DocumentImpl& impl,
             return true;
         }
 
-        const auto kind = live_control_kind_for_block(block);
+        const auto kind = detail::live_control_kind_for_block(block);
         if (kind == LiveControlKind::None || block.is_disabled) continue;
 
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (!elem) continue;
         out.kind = kind;
         out.elem = elem;
         out.block_idx = idx;
-        out.bounds = block_border_visual_rect(impl, idx);
+        out.bounds = detail::block_border_visual_rect(impl, idx);
         auto* combo = kind == LiveControlKind::NumericInput
             ? nearest_ancestor_with_class(elem, "dcs-combo")
             : nullptr;
@@ -9044,9 +9124,9 @@ bool find_live_control_at(detail::DocumentImpl& impl,
                 (has_min_attr || has_max_attr ||
                  has_fill_min_attr || has_fill_max_attr);
             if (combo != nullptr) {
-                const int combo_idx = block_index_for_exact_element(impl, combo);
+                const int combo_idx = detail::block_index_for_exact_element(impl, combo);
                 if (combo_idx >= 0) {
-                    out.bounds = block_border_visual_rect(impl, combo_idx);
+                    out.bounds = detail::block_border_visual_rect(impl, combo_idx);
                 }
             }
             if (!has_min_attr && !has_fill_min_attr) {
@@ -9069,6 +9149,9 @@ bool find_live_control_at(detail::DocumentImpl& impl,
     }
     return false;
 }
+}  // namespace detail
+namespace {
+
 
 bool update_textarea_resize(detail::DocumentImpl& impl,
                             detail::DocumentImpl::LiveControlDrag& drag,
@@ -9105,6 +9188,10 @@ bool update_textarea_resize(detail::DocumentImpl& impl,
     return true;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool update_active_live_control(detail::DocumentImpl& impl, const Event& ev) {
     auto& drag = impl.live_drag;
     if (drag.kind == LiveControlKind::None || !drag.elem) return false;
@@ -9150,6 +9237,9 @@ bool update_active_live_control(detail::DocumentImpl& impl, const Event& ev) {
     return update_live_control_value(impl, drag.elem, drag.kind, drag.min,
                                      drag.max, value, drag.bipolar);
 }
+}  // namespace detail
+namespace {
+
 
 bool is_checkbox_like_block(const Block& block) {
     if (block.tag == "input" &&
@@ -9165,6 +9255,10 @@ bool is_checkbox_like_block(const Block& block) {
            detail::block_has_class(block, "dcs-switch");
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool find_checkbox_control_at(detail::DocumentImpl& impl,
                               int from_idx,
                               int& out_idx,
@@ -9174,7 +9268,7 @@ bool find_checkbox_control_at(detail::DocumentImpl& impl,
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
         const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
         if (!is_checkbox_like_block(block) || block.is_disabled) continue;
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (!elem) continue;
         out_idx = idx;
         out_elem = elem;
@@ -9182,6 +9276,9 @@ bool find_checkbox_control_at(detail::DocumentImpl& impl,
     }
     return false;
 }
+}  // namespace detail
+namespace {
+
 
 bool class_list_contains(lxb_dom_element_t* elem, std::string_view cls);
 
@@ -9239,6 +9336,10 @@ bool uncheck_radio_peers(detail::DocumentImpl& impl,
     return changed;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool toggle_checkbox_control(detail::DocumentImpl& impl, int idx,
                              lxb_dom_element_t* elem) {
     if (!elem) return false;
@@ -9320,6 +9421,9 @@ bool toggle_checkbox_control(detail::DocumentImpl& impl, int idx,
     }
     return changed;
 }
+}  // namespace detail
+namespace {
+
 
 bool is_button_like_block(const Block& block) {
     if (block.tag == "button") return true;
@@ -9334,6 +9438,10 @@ bool is_button_like_block(const Block& block) {
     return false;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool find_button_control_at(detail::DocumentImpl& impl,
                             int from_idx,
                             lxb_dom_element_t*& out_elem) {
@@ -9342,13 +9450,16 @@ bool find_button_control_at(detail::DocumentImpl& impl,
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
         const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
         if (!is_button_like_block(block) || block.is_disabled) continue;
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (!elem) continue;
         out_elem = elem;
         return true;
     }
     return false;
 }
+}  // namespace detail
+namespace {
+
 
 std::string activation_name(lxb_dom_element_t* elem) {
     if (!elem) return {};
@@ -9358,6 +9469,10 @@ std::string activation_name(lxb_dom_element_t* elem) {
     return detail::attr_string(elem, "id");
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool activate_button_control(detail::DocumentImpl& impl,
                              lxb_dom_element_t* elem) {
     auto name = activation_name(elem);
@@ -9377,7 +9492,7 @@ bool find_button_group_option_at(detail::DocumentImpl& impl,
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
         const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (!elem) continue;
         if (!out_option && block.tag == "button" && !block.is_disabled &&
             (detail::block_has_attr(block, "value") ||
@@ -9412,6 +9527,9 @@ bool find_button_group_option_at(detail::DocumentImpl& impl,
     out_option = nullptr;
     return false;
 }
+}  // namespace detail
+namespace {
+
 
 bool class_list_contains(lxb_dom_element_t* elem, std::string_view cls) {
     return class_tokens_contain(attr_view(elem, "class"), cls);
@@ -9435,6 +9553,10 @@ std::string class_list_set(lxb_dom_element_t* elem,
     return out;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 // Add/remove a class on a live element (re-matches selectors, restyles).
 bool set_element_class(detail::DocumentImpl& impl,
                        lxb_dom_element_t* elem,
@@ -9445,6 +9567,9 @@ bool set_element_class(detail::DocumentImpl& impl,
     return set_attribute_on_element(impl, elem, "class",
                                     class_list_set(elem, cls, present));
 }
+}  // namespace detail
+namespace {
+
 
 // Layout-time responsive class toggle (dcs-vec compression): raw DOM
 // write + element-local rematch + scoped restyle ONLY. The caller runs
@@ -9524,7 +9649,7 @@ bool update_dcs_vec_compression(
                             "dcs-field")) {
             const auto parent_idx = static_cast<std::size_t>(vec.parent_idx);
             const auto& parent = impl.blocks[parent_idx];
-            field_elem = element_for_block(impl, vec.parent_idx);
+            field_elem = detail::element_for_block(impl, vec.parent_idx);
             const auto& parent_style = layout_styles[parent_idx];
             const double field_gap = parent_style.column_gap > 0
                 ? parent_style.column_gap
@@ -9555,7 +9680,7 @@ bool update_dcs_vec_compression(
         // row is clearly wide enough (+8px). Without the band, widths at
         // the threshold flip-flop between relayout rounds — every
         // splitter-drag crossing paid multiple toggle+relayout cycles.
-        auto* vec_elem = element_for_block(impl, static_cast<int>(i));
+        auto* vec_elem = detail::element_for_block(impl, static_cast<int>(i));
         const bool was_stacked =
             vec_elem != nullptr &&
             class_list_contains(vec_elem, "dcs-vec--stacked");
@@ -9771,7 +9896,7 @@ bool sync_dcs_colorfield(detail::DocumentImpl& impl,
             field, "dcs-colorfield__hex")) {
         changed = set_attribute_on_element(impl, input, "value", hex) ||
                   changed;
-        const int idx = block_index_for_exact_element(impl, input);
+        const int idx = detail::block_index_for_exact_element(impl, input);
         if (idx >= 0) {
             auto& block = impl.blocks[static_cast<std::size_t>(idx)];
             if (block.text_control) {
@@ -9792,7 +9917,7 @@ bool sync_dcs_colorfield(detail::DocumentImpl& impl,
             field, "dcs-colorfield__picker-input")) {
         changed = set_attribute_on_element(impl, preview_input, "value", hex) ||
                   changed;
-        const int idx = block_index_for_exact_element(impl, preview_input);
+        const int idx = detail::block_index_for_exact_element(impl, preview_input);
         if (idx >= 0) {
             auto& block = impl.blocks[static_cast<std::size_t>(idx)];
             if (block.text_control) {
@@ -9879,7 +10004,7 @@ bool find_dcs_colorfield_part_at(
     for (int idx = from_idx;
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (!elem) continue;
         Kind kind = Kind::None;
         if (!out_part && colorfield_part_kind(elem, kind)) {
@@ -9905,13 +10030,13 @@ bool find_dcs_colorfield_part_at_point(
     out_part = nullptr;
     out_kind = Kind::None;
     for (std::size_t i = impl.blocks.size(); i-- > 0; ) {
-        auto* elem = element_for_block(impl, static_cast<int>(i));
+        auto* elem = detail::element_for_block(impl, static_cast<int>(i));
         if (!elem) continue;
         Kind kind = Kind::None;
         if (!colorfield_part_kind(elem, kind)) continue;
-        const Rect bounds = block_border_visual_rect(impl, static_cast<int>(i));
+        const Rect bounds = detail::block_border_visual_rect(impl, static_cast<int>(i));
         if (bounds.w <= 0 || bounds.h <= 0 ||
-            !rect_contains(bounds, point.x, point.y)) {
+            !detail::rect_contains(bounds, point.x, point.y)) {
             continue;
         }
         auto* field = nearest_ancestor_with_class(elem, "dcs-colorfield");
@@ -9924,6 +10049,10 @@ bool find_dcs_colorfield_part_at_point(
     return false;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool begin_dcs_colorfield_drag(detail::DocumentImpl& impl,
                                int from_idx,
                                const Event& ev) {
@@ -9935,13 +10064,13 @@ bool begin_dcs_colorfield_drag(detail::DocumentImpl& impl,
         !find_dcs_colorfield_part_at_point(impl, ev.pos, field, part, kind)) {
         return false;
     }
-    const int part_idx = block_index_for_exact_element(impl, part);
+    const int part_idx = detail::block_index_for_exact_element(impl, part);
     if (part_idx < 0) return false;
     const HsvColor hsv = current_dcs_colorfield_hsv(field);
     impl.colorfield_drag.kind = kind;
     impl.colorfield_drag.field = field;
     impl.colorfield_drag.part = part;
-    impl.colorfield_drag.bounds = block_border_visual_rect(impl, part_idx);
+    impl.colorfield_drag.bounds = detail::block_border_visual_rect(impl, part_idx);
     impl.colorfield_drag.start_x = ev.pos.x;
     impl.colorfield_drag.start_y = ev.pos.y;
     impl.colorfield_drag.h = hsv.h;
@@ -9988,6 +10117,9 @@ bool update_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev) {
     }
     return sync_dcs_colorfield(impl, drag.field, next, /*emit=*/true);
 }
+}  // namespace detail
+namespace {
+
 
 std::string button_group_option_value(lxb_dom_element_t* elem) {
     if (!elem) return {};
@@ -10032,6 +10164,10 @@ bool update_button_group_option_states(detail::DocumentImpl& impl,
     return changed;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool update_button_group_control(detail::DocumentImpl& impl,
                                  lxb_dom_element_t* group,
                                  lxb_dom_element_t* option) {
@@ -10044,7 +10180,14 @@ bool update_button_group_control(detail::DocumentImpl& impl,
     if (changed) emit_widget_change(impl, group, selected);
     return changed;
 }
+}  // namespace detail
+namespace {
 
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool find_dropdown_control_at(detail::DocumentImpl& impl,
                               int from_idx,
                               lxb_dom_element_t*& out_group,
@@ -10057,7 +10200,7 @@ bool find_dropdown_control_at(detail::DocumentImpl& impl,
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
         const auto& block = impl.blocks[static_cast<std::size_t>(idx)];
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (!elem) continue;
         if (!out_option && block.tag == "button" &&
             detail::block_has_attr(block, "value") &&
@@ -10080,6 +10223,9 @@ bool find_dropdown_control_at(detail::DocumentImpl& impl,
     out_option = nullptr;
     return false;
 }
+}  // namespace detail
+namespace {
+
 
 bool update_dropdown_selection_states(detail::DocumentImpl& impl,
                                       lxb_dom_element_t* elem,
@@ -10120,8 +10266,6 @@ bool update_dropdown_selection_states(detail::DocumentImpl& impl,
     return changed;
 }
 
-bool close_transient_layers(detail::DocumentImpl& impl,
-                            lxb_dom_element_t* except = nullptr);
 
 int viewport_width_for_overlay(const detail::DocumentImpl& impl) {
     if (impl.media_viewport_width_px > 0) return impl.media_viewport_width_px;
@@ -10237,9 +10381,9 @@ int estimate_hidden_overlay_height_from_css(const detail::DocumentImpl& impl,
 int overlay_estimated_height(const detail::DocumentImpl& impl,
                              lxb_dom_element_t* elem,
                              int fallback) {
-    const int idx = block_index_for_exact_element(impl, elem);
+    const int idx = detail::block_index_for_exact_element(impl, elem);
     if (idx >= 0) {
-        const Rect rect = block_border_visual_rect(impl, idx);
+        const Rect rect = detail::block_border_visual_rect(impl, idx);
         if (rect.h > 0) return rect.h;
     }
     if (const int css_estimate =
@@ -10275,9 +10419,9 @@ int overlay_declared_outer_width(const detail::DocumentImpl& impl,
         declared > 0) {
         return declared;
     }
-    const int idx = block_index_for_exact_element(impl, elem);
+    const int idx = detail::block_index_for_exact_element(impl, elem);
     if (idx >= 0) {
-        const Rect rect = block_border_visual_rect(impl, idx);
+        const Rect rect = detail::block_border_visual_rect(impl, idx);
         if (rect.w > 0) return rect.w;
     }
     return std::max(1, fallback);
@@ -10379,7 +10523,7 @@ std::string dropdown_menu_open_style(const detail::DocumentImpl& impl,
     if (!anchor) anchor = group;
     const int anchor_idx = block_index_for_element_or_ancestor(impl, anchor);
     if (anchor_idx >= 0) {
-        anchor_rect = block_border_visual_rect(impl, anchor_idx);
+        anchor_rect = detail::block_border_visual_rect(impl, anchor_idx);
         width = std::max(1, anchor_rect.w);
     }
     const auto placed = place_anchored_overlay(
@@ -10395,6 +10539,10 @@ std::string dropdown_menu_open_style(const detail::DocumentImpl& impl,
            "px;overflow:auto;flex-direction:column;align-items:stretch;z-index:400";
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool toggle_dropdown_menu(detail::DocumentImpl& impl, lxb_dom_element_t* group) {
     auto* menu = first_descendant_with_class(group, "aui-select__menu");
     if (!menu) return false;
@@ -10402,7 +10550,7 @@ bool toggle_dropdown_menu(detail::DocumentImpl& impl, lxb_dom_element_t* group) 
         return hide_dropdown_menu(impl, group);
     }
     const std::string open_style = dropdown_menu_open_style(impl, group, menu);
-    bool changed = close_transient_layers(impl, menu);
+    bool changed = detail::close_transient_layers(impl, menu);
     changed = remove_attribute_on_element(impl, menu, "hidden") || changed;
     changed = set_attribute_on_element(
         impl, menu, "style", open_style) ||
@@ -10423,6 +10571,9 @@ bool update_dropdown_control(detail::DocumentImpl& impl,
     if (changed) emit_widget_change(impl, group, selected);
     return changed;
 }
+}  // namespace detail
+namespace {
+
 
 template <class Fn>
 void walk_dom_elements(lxb_dom_node_t* node, Fn& fn) {
@@ -10487,7 +10638,7 @@ lxb_dom_element_t* dcs_target_for_trigger(detail::DocumentImpl& impl,
     auto selector = detail::attr_string(trigger, "data-dcs-target");
     if (selector.empty()) selector = detail::attr_string(trigger, "href");
     const auto target_id = target_id_from_selector(selector);
-    return target_id.empty() ? nullptr : find_dom_element_by_id(impl, target_id);
+    return target_id.empty() ? nullptr : detail::find_dom_element_by_id(impl, target_id);
 }
 
 // ── Floating element drag (data-dcs-drag + data-dcs-drag-handle) ─────────────
@@ -10582,7 +10733,7 @@ lxb_dom_element_t* resolve_drag_bounds_elem(detail::DocumentImpl& impl,
 
 Rect root_float_host_bounds(detail::DocumentImpl& impl) {
     for (int i = 0; i < static_cast<int>(impl.blocks.size()); ++i) {
-        auto* e = element_for_block(impl, i);
+        auto* e = detail::element_for_block(impl, i);
         if (e && class_list_contains(e, "dcs-dock--floathost")) {
             return impl.blocks[static_cast<std::size_t>(i)].bounds;
         }
@@ -10595,7 +10746,7 @@ Rect document_float_host_bounds(detail::DocumentImpl& impl) {
     Rect best{};
     long long best_area = 0;
     for (int i = 0; i < static_cast<int>(impl.blocks.size()); ++i) {
-        auto* e = element_for_block(impl, i);
+        auto* e = detail::element_for_block(impl, i);
         if (!e || !detail::has_attr(e, "data-dcs-float-host")) continue;
         if (class_list_contains(e, "dcs-dock--floathost")) continue;
         const auto& b = impl.blocks[static_cast<std::size_t>(i)].bounds;
@@ -10635,6 +10786,10 @@ int float_resize_dir_for_point(const Rect& b, Point p) {
     return 0;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 int cursor_for_float_resize_dir(int dir) {
     const bool n = (dir & FloatResizeN) != 0;
     const bool s = (dir & FloatResizeS) != 0;
@@ -10646,6 +10801,9 @@ int cursor_for_float_resize_dir(int dir) {
     if (n || s) return 7;
     return 0;
 }
+}  // namespace detail
+namespace {
+
 
 int float_resize_dir_from_token(std::string_view dir) {
     int out = 0;
@@ -10663,13 +10821,17 @@ bool floating_resize_enabled(lxb_dom_element_t* elem) {
            detail::attr_string(elem, "data-dcs-resize") == "true";
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool find_float_resize_at(detail::DocumentImpl& impl, int from_idx, Point point,
                           detail::DocumentImpl::FloatResize& out) {
     int explicit_dir = 0;
     for (int idx = from_idx;
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (elem && (class_list_contains(elem, "dcs-dockpane__tab") ||
                      class_list_contains(elem, "dcs-dockpane__tab-close") ||
                      class_list_contains(elem, "dcs-panel__title--dock-tab"))) {
@@ -10699,7 +10861,7 @@ bool find_float_resize_at(detail::DocumentImpl& impl, int from_idx, Point point,
             }
         }
         if (!floating_resize_enabled(elem)) continue;
-        const int bidx = block_index_for_exact_element(impl, elem);
+        const int bidx = detail::block_index_for_exact_element(impl, elem);
         if (bidx < 0) return false;
         const auto& blk = impl.blocks[static_cast<std::size_t>(bidx)];
         const int dir = explicit_dir != 0
@@ -10723,7 +10885,7 @@ bool find_float_resize_at(detail::DocumentImpl& impl, int from_idx, Point point,
         out.cb_x = blk.bounds.x - cur_left;
         out.cb_y = blk.bounds.y - cur_top;
         out.panel_id = detail::attr_string(elem, "data-dcs-dock-id");
-        dock_trace("float-resize-arm panel=" + out.panel_id +
+        detail::dock_trace("float-resize-arm panel=" + out.panel_id +
                    " dir=" + std::to_string(dir) + " at=(" +
                    std::to_string(point.x) + "," + std::to_string(point.y) +
                    ") bounds=(" + std::to_string(blk.bounds.x) + "," +
@@ -10732,7 +10894,7 @@ bool find_float_resize_at(detail::DocumentImpl& impl, int from_idx, Point point,
                    std::to_string(blk.bounds.h) + ")");
         if (auto* be = resolve_drag_bounds_elem(
                 impl, elem, detail::attr_string(elem, "data-dcs-drag-bounds"))) {
-            const int beidx = block_index_for_exact_element(impl, be);
+            const int beidx = detail::block_index_for_exact_element(impl, be);
             if (beidx >= 0) {
                 const auto& bb = impl.blocks[static_cast<std::size_t>(beidx)];
                 out.bounds_x = bb.bounds.x;
@@ -10761,7 +10923,7 @@ bool find_float_drag_at(detail::DocumentImpl& impl, int from_idx, Point point,
     for (int idx = from_idx;
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (!elem) continue;
         // Match decius.js' gesture split: dragging a dock tab/title is a dock
         // operation, while dragging empty floating chrome moves the panel.
@@ -10785,7 +10947,7 @@ bool find_float_drag_at(detail::DocumentImpl& impl, int from_idx, Point point,
         // The draggable container. Require the press to have started on a handle
         // inside it, so the toolbar's own buttons still click rather than drag.
         if (!have_handle) return false;
-        const int bidx = block_index_for_exact_element(impl, elem);
+        const int bidx = detail::block_index_for_exact_element(impl, elem);
         if (bidx < 0) return false;
         const auto& blk = impl.blocks[static_cast<std::size_t>(bidx)];
         // The element's current left/top may come from the cascade (a class
@@ -10810,7 +10972,7 @@ bool find_float_drag_at(detail::DocumentImpl& impl, int from_idx, Point point,
         out.panel_id = detail::attr_string(elem, "data-dcs-dock-id");
         if (auto* be = resolve_drag_bounds_elem(
                 impl, elem, detail::attr_string(elem, "data-dcs-drag-bounds"))) {
-            const int beidx = block_index_for_exact_element(impl, be);
+            const int beidx = detail::block_index_for_exact_element(impl, be);
             if (beidx >= 0) {
                 const auto& bb = impl.blocks[static_cast<std::size_t>(beidx)];
                 out.bounds_x = bb.bounds.x;
@@ -10849,7 +11011,14 @@ bool update_float_drag(detail::DocumentImpl& impl, const Event& ev) {
         with_float_position(detail::attr_string(d.elem, "style"), x - d.cb_x,
                             y - d.cb_y));
 }
+}  // namespace detail
+namespace {
 
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 Rect float_resize_rect(const detail::DocumentImpl::FloatResize& d,
                        const Event& ev) {
     constexpr int kMinW = 160;
@@ -10896,16 +11065,26 @@ Rect float_resize_rect(const detail::DocumentImpl::FloatResize& d,
     return {left, top, std::max(kMinW, right - left),
             std::max(kMinH, bottom - top)};
 }
+}  // namespace detail
+namespace {
 
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool update_float_resize(detail::DocumentImpl& impl, const Event& ev) {
     auto& d = impl.float_resize;
     if (!d.elem) return false;
-    const Rect r = float_resize_rect(d, ev);
+    const Rect r = detail::float_resize_rect(d, ev);
     return set_attribute_on_element(
         impl, d.elem, "style",
         with_float_rect(detail::attr_string(d.elem, "style"), r.x - d.cb_x,
                         r.y - d.cb_y, r.w, r.h));
 }
+}  // namespace detail
+namespace {
+
 
 std::string tab_drag_ghost_style(Point p) {
     return "position:fixed;z-index:1000;pointer-events:none;left:" +
@@ -10913,6 +11092,10 @@ std::string tab_drag_ghost_style(Point p) {
         "px";
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool update_tab_drag_ghost(detail::DocumentImpl& impl,
                            std::string_view label_text,
                            Point p) {
@@ -10925,7 +11108,7 @@ bool update_tab_drag_ghost(detail::DocumentImpl& impl,
                                               "hidden") || changed;
         return changed;
     }
-    if (auto* existing = find_dom_element_by_id(impl, "__dockghost")) {
+    if (auto* existing = detail::find_dom_element_by_id(impl, "__dockghost")) {
         impl.tab_drag_ghost = existing;
         bool changed = set_attribute_on_element(impl, existing, "style",
                                                 style);
@@ -10955,15 +11138,22 @@ bool update_tab_drag_ghost(detail::DocumentImpl& impl,
     lxb_dom_node_insert_child(lxb_dom_interface_node(body),
                               lxb_dom_interface_node(ghost));
     impl.tab_drag_ghost = ghost;
-    recollect_blocks_from_current_dom(impl);
+    detail::recollect_blocks_from_current_dom(impl);
     impl.paint_dirty = true;
     return true;
 }
+}  // namespace detail
+namespace {
 
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool remove_tab_drag_ghost(detail::DocumentImpl& impl) {
     auto* ghost = impl.tab_drag_ghost;
     if (!ghost) {
-        ghost = find_dom_element_by_id(impl, "__dockghost");
+        ghost = detail::find_dom_element_by_id(impl, "__dockghost");
     }
     if (!ghost) return false;
     bool changed = set_attribute_on_element(impl, ghost, "hidden", "");
@@ -10975,6 +11165,9 @@ bool remove_tab_drag_ghost(detail::DocumentImpl& impl) {
     impl.paint_dirty = impl.paint_dirty || changed;
     return changed;
 }
+}  // namespace detail
+namespace {
+
 
 bool is_dcs_menu_trigger(lxb_dom_element_t* elem) {
     return elem && detail::attr_string(elem, "data-dcs-toggle") == "menu" &&
@@ -11048,7 +11241,7 @@ std::string dcs_menu_open_style(const detail::DocumentImpl& impl,
     const int trigger_idx =
         block_index_for_element_or_ancestor(impl, trigger);
     if (trigger_idx >= 0) {
-        anchor_rect = block_border_visual_rect(impl, trigger_idx);
+        anchor_rect = detail::block_border_visual_rect(impl, trigger_idx);
         if (stretch_to_anchor) {
             overlay_width = std::max(1, anchor_rect.w);
         }
@@ -11076,6 +11269,10 @@ std::string dcs_menu_open_style(const detail::DocumentImpl& impl,
     return style;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool toggle_dcs_menu(detail::DocumentImpl& impl,
                      lxb_dom_element_t* trigger,
                      lxb_dom_element_t* menu) {
@@ -11089,7 +11286,7 @@ bool toggle_dcs_menu(detail::DocumentImpl& impl,
     }
 
     const std::string open_style = dcs_menu_open_style(impl, trigger, menu);
-    bool changed = close_transient_layers(impl, menu);
+    bool changed = detail::close_transient_layers(impl, menu);
     changed = remove_attribute_on_element(impl, menu, "hidden") || changed;
     changed =
         set_attribute_on_element(impl, menu, "style", open_style) ||
@@ -11099,6 +11296,9 @@ bool toggle_dcs_menu(detail::DocumentImpl& impl,
         changed;
     return changed;
 }
+}  // namespace detail
+namespace {
+
 
 bool is_dcs_popover_trigger(lxb_dom_element_t* elem) {
     return elem && detail::attr_string(elem, "data-dcs-toggle") == "popover" &&
@@ -11167,6 +11367,10 @@ bool close_all_dcs_popovers(detail::DocumentImpl& impl,
     return changed;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool close_transient_layers(detail::DocumentImpl& impl,
                             lxb_dom_element_t* except) {
     const bool dropdowns = close_all_dropdown_menus(impl, except);
@@ -11174,15 +11378,18 @@ bool close_transient_layers(detail::DocumentImpl& impl,
     const bool popovers = close_all_dcs_popovers(impl, except);
     return dropdowns || menus || popovers;
 }
+}  // namespace detail
+namespace {
+
 
 std::string dcs_popover_open_style(const detail::DocumentImpl& impl,
                                    lxb_dom_element_t* trigger,
                                    lxb_dom_element_t* popover) {
     int pop_w = overlay_declared_outer_width(impl, popover, 220);
     int pop_h = 64;
-    const int popover_idx = block_index_for_exact_element(impl, popover);
+    const int popover_idx = detail::block_index_for_exact_element(impl, popover);
     if (popover_idx >= 0) {
-        const Rect pop_rect = block_border_visual_rect(impl, popover_idx);
+        const Rect pop_rect = detail::block_border_visual_rect(impl, popover_idx);
         if (pop_rect.w > 0) pop_w = pop_rect.w;
         if (pop_rect.h > 0) pop_h = pop_rect.h;
     }
@@ -11195,7 +11402,7 @@ std::string dcs_popover_open_style(const detail::DocumentImpl& impl,
     const int trigger_idx =
         block_index_for_element_or_ancestor(impl, anchor_elem);
     if (trigger_idx >= 0) {
-        anchor_rect = block_border_visual_rect(impl, trigger_idx);
+        anchor_rect = detail::block_border_visual_rect(impl, trigger_idx);
         if (class_list_contains(anchor_elem, "dcs-colorfield") &&
             anchor_rect.w > pop_w) {
             pop_w = anchor_rect.w;
@@ -11220,6 +11427,10 @@ std::string dcs_popover_open_style(const detail::DocumentImpl& impl,
          {"z-index", "400"}});
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool toggle_dcs_popover(detail::DocumentImpl& impl,
                         lxb_dom_element_t* trigger,
                         lxb_dom_element_t* popover) {
@@ -11239,7 +11450,7 @@ bool toggle_dcs_popover(detail::DocumentImpl& impl,
     const std::string base_style = detail::attr_string(popover, "style");
     const std::string open_style =
         dcs_popover_open_style(impl, trigger, popover);
-    bool changed = close_transient_layers(impl, popover);
+    bool changed = detail::close_transient_layers(impl, popover);
     changed = set_attribute_on_element(impl, popover, "data-dcs-base-style",
                                        base_style) ||
               changed;
@@ -11252,7 +11463,14 @@ bool toggle_dcs_popover(detail::DocumentImpl& impl,
         changed;
     return changed;
 }
+}  // namespace detail
+namespace {
 
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool find_dcs_menu_trigger_at(detail::DocumentImpl& impl,
                               int from_idx,
                               lxb_dom_element_t*& out_trigger,
@@ -11262,7 +11480,7 @@ bool find_dcs_menu_trigger_at(detail::DocumentImpl& impl,
     for (int idx = from_idx;
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (!is_dcs_menu_trigger(elem)) continue;
         auto* menu = dcs_target_for_trigger(impl, elem);
         if (!menu || !class_list_contains(menu, "dcs-menu")) continue;
@@ -11272,7 +11490,14 @@ bool find_dcs_menu_trigger_at(detail::DocumentImpl& impl,
     }
     return false;
 }
+}  // namespace detail
+namespace {
 
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool find_dcs_popover_trigger_at(detail::DocumentImpl& impl,
                                  int from_idx,
                                  lxb_dom_element_t*& out_trigger,
@@ -11282,7 +11507,7 @@ bool find_dcs_popover_trigger_at(detail::DocumentImpl& impl,
     for (int idx = from_idx;
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (!is_dcs_popover_trigger(elem)) continue;
         auto* popover = dcs_target_for_trigger(impl, elem);
         if (!popover || !class_list_contains(popover, "dcs-popover")) continue;
@@ -11292,6 +11517,9 @@ bool find_dcs_popover_trigger_at(detail::DocumentImpl& impl,
     }
     return false;
 }
+}  // namespace detail
+namespace {
+
 
 bool is_disabled_dcs_menu_item(lxb_dom_element_t* elem) {
     return detail::has_attr(elem, "disabled") ||
@@ -11299,6 +11527,10 @@ bool is_disabled_dcs_menu_item(lxb_dom_element_t* elem) {
            class_list_contains(elem, "dcs-menu__item--disabled");
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool find_dcs_menu_item_at(detail::DocumentImpl& impl,
                            int from_idx,
                            lxb_dom_element_t*& out_menu,
@@ -11308,7 +11540,7 @@ bool find_dcs_menu_item_at(detail::DocumentImpl& impl,
     for (int idx = from_idx;
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (!elem) continue;
         if (!out_item && class_list_contains(elem, "dcs-menu__item")) {
             if (is_disabled_dcs_menu_item(elem)) return false;
@@ -11322,7 +11554,14 @@ bool find_dcs_menu_item_at(detail::DocumentImpl& impl,
     out_item = nullptr;
     return false;
 }
+}  // namespace detail
+namespace {
 
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool clear_pressed_dcs_menu_item(detail::DocumentImpl& impl) {
     auto* item = impl.pressed_dcs_menu_item;
     const bool was_active = impl.pressed_dcs_menu_item_was_active;
@@ -11330,27 +11569,41 @@ bool clear_pressed_dcs_menu_item(detail::DocumentImpl& impl) {
     impl.pressed_dcs_menu_item_was_active = false;
     impl.pressed_dcs_menu_item_bounds = {};
     if (!item || was_active) return false;
-    return set_element_class(impl, item, "dcs-menu__item--active", false);
+    return detail::set_element_class(impl, item, "dcs-menu__item--active", false);
 }
+}  // namespace detail
+namespace {
 
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool press_dcs_menu_item(detail::DocumentImpl& impl,
                          lxb_dom_element_t* item) {
-    bool changed = clear_pressed_dcs_menu_item(impl);
+    bool changed = detail::clear_pressed_dcs_menu_item(impl);
     if (!item) return changed;
     impl.pressed_dcs_menu_item = item;
     impl.pressed_dcs_menu_item_was_active =
         class_list_contains(item, "dcs-menu__item--active");
-    if (const int idx = block_index_for_exact_element(impl, item); idx >= 0) {
+    if (const int idx = detail::block_index_for_exact_element(impl, item); idx >= 0) {
         impl.pressed_dcs_menu_item_bounds =
             impl.blocks[static_cast<std::size_t>(idx)].bounds;
     } else {
         impl.pressed_dcs_menu_item_bounds = {};
     }
-    changed = set_element_class(impl, item, "dcs-menu__item--active", true) ||
+    changed = detail::set_element_class(impl, item, "dcs-menu__item--active", true) ||
               changed;
     return changed;
 }
+}  // namespace detail
+namespace {
 
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool activate_dcs_menu_item(detail::DocumentImpl& impl,
                             lxb_dom_element_t* menu,
                             lxb_dom_element_t* item) {
@@ -11370,7 +11623,7 @@ bool activate_dcs_menu_item(detail::DocumentImpl& impl,
         detail::has_attr(item, "data-dcs-value")) {
         const auto value = detail::attr_string(item, "data-dcs-value");
         auto* colorfield =
-            find_dom_element_by_id(impl, detail::attr_string(menu, "data-aui-colorfield"));
+            detail::find_dom_element_by_id(impl, detail::attr_string(menu, "data-aui-colorfield"));
         bool changed = false;
         if (colorfield) {
             changed =
@@ -11409,6 +11662,9 @@ bool activate_dcs_menu_item(detail::DocumentImpl& impl,
     changed = set_all_dcs_menu_triggers_expanded(impl, "false") || changed;
     return changed;
 }
+}  // namespace detail
+namespace {
+
 
 bool is_dcs_select_row(lxb_dom_element_t* elem) {
     return elem && (class_list_contains(elem, "dcs-list__item") ||
@@ -11422,6 +11678,10 @@ bool is_disabled_dcs_select_row(lxb_dom_element_t* elem) {
            class_list_contains(elem, "dcs-tree__row--disabled");
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool find_dcs_select_row_at(detail::DocumentImpl& impl,
                             int from_idx,
                             lxb_dom_element_t*& out_box,
@@ -11431,7 +11691,7 @@ bool find_dcs_select_row_at(detail::DocumentImpl& impl,
     for (int idx = from_idx;
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (!elem) continue;
         if (!out_row && is_dcs_select_row(elem)) {
             if (is_disabled_dcs_select_row(elem)) return false;
@@ -11445,6 +11705,9 @@ bool find_dcs_select_row_at(detail::DocumentImpl& impl,
     out_row = nullptr;
     return false;
 }
+}  // namespace detail
+namespace {
+
 
 void collect_dcs_select_rows(lxb_dom_element_t* elem,
                              std::vector<lxb_dom_element_t*>& rows) {
@@ -11482,6 +11745,10 @@ std::string dcs_selected_rows_value(
     return out;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool update_dcs_select_control(detail::DocumentImpl& impl,
                                lxb_dom_element_t* box,
                                lxb_dom_element_t* row,
@@ -11541,6 +11808,9 @@ bool update_dcs_select_control(detail::DocumentImpl& impl,
     emit_widget_change(impl, box, dcs_selected_rows_value(rows));
     return changed;
 }
+}  // namespace detail
+namespace {
+
 
 bool find_decius_collapse_at(detail::DocumentImpl& impl,
                              int from_idx,
@@ -11561,7 +11831,7 @@ bool find_decius_collapse_at(detail::DocumentImpl& impl,
     for (int idx = from_idx;
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (!elem) continue;
         if (class_list_contains(elem, "dcs-subpanel__close") ||
             class_list_contains(elem, "dcs-foldout__tools")) {
@@ -11591,6 +11861,10 @@ bool find_decius_collapse_at(detail::DocumentImpl& impl,
     return false;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool toggle_decius_collapse_control(detail::DocumentImpl& impl, int from_idx) {
     lxb_dom_element_t* block = nullptr;
     lxb_dom_element_t* chevron = nullptr;
@@ -11631,7 +11905,7 @@ bool find_dockpane_tab_at(detail::DocumentImpl& impl, int from_idx,
     for (int idx = from_idx;
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (elem && class_list_contains(elem, "dcs-dockpane__tab")) {
             out_tab = elem;
             return true;
@@ -11639,10 +11913,17 @@ bool find_dockpane_tab_at(detail::DocumentImpl& impl, int from_idx,
     }
     return false;
 }
+}  // namespace detail
+namespace {
 
-std::string pane_panel_id(lxb_dom_element_t* pane);
-std::string dockpane_tab_panel_id(lxb_dom_element_t* tab);
 
+std::string detail::pane_panel_id(lxb_dom_element_t* pane);
+std::string detail::dockpane_tab_panel_id(lxb_dom_element_t* tab);
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool switch_dockpane_tab(detail::DocumentImpl& impl, lxb_dom_element_t* tab) {
     if (!tab) return false;
     auto* target = dcs_target_for_trigger(impl, tab);  // the body to reveal
@@ -11667,8 +11948,8 @@ bool switch_dockpane_tab(detail::DocumentImpl& impl, lxb_dom_element_t* tab) {
     }
     if (!pane) return false;
 
-    const std::string pane_id = pane_panel_id(pane);
-    const std::string active_id = dockpane_tab_panel_id(tab);
+    const std::string pane_id = detail::pane_panel_id(pane);
+    const std::string active_id = detail::dockpane_tab_panel_id(tab);
 
     bool changed = false;
     // Activate the clicked tab; deactivate its siblings (the tabs container's
@@ -11716,8 +11997,8 @@ bool switch_dockpane_tab(detail::DocumentImpl& impl, lxb_dom_element_t* tab) {
     if (!pane_id.empty() && !active_id.empty()) {
         if (active_id == pane_id) impl.dock_active_tabs.erase(pane_id);
         else impl.dock_active_tabs[pane_id] = active_id;
-        dock_trace("active-tab pane=" + pane_id + " active=" + active_id);
-        dock_trace_state(impl, "after-active-tab");
+        detail::dock_trace("active-tab pane=" + pane_id + " active=" + active_id);
+        detail::dock_trace_state(impl, "after-active-tab");
     }
     emit_widget_change(impl, tab, "tab");
     return changed;
@@ -11745,12 +12026,12 @@ bool hover_switch_dcs_menubar_menu(detail::DocumentImpl& impl,
     static const bool trace = std::getenv("AFFINEUI_MENU_TRACE") != nullptr;
     lxb_dom_element_t* trigger = nullptr;
     lxb_dom_element_t* menu = nullptr;
-    if (!find_dcs_menu_trigger_at(impl, hovered_idx, trigger, menu)) {
+    if (!detail::find_dcs_menu_trigger_at(impl, hovered_idx, trigger, menu)) {
         if (trace) std::fprintf(stderr, "[menu] hover-switch: no trigger at %d\n", hovered_idx);
         return false;
     }
     if (!detail::has_attr(menu, "hidden")) return false;  // ours is already open
-    auto* bar = ancestor_with_class(trigger, "dcs-menubar");
+    auto* bar = detail::ancestor_with_class(trigger, "dcs-menubar");
     if (!bar) {
         if (trace) std::fprintf(stderr, "[menu] hover-switch: trigger not in menubar\n");
         return false;
@@ -11789,7 +12070,7 @@ bool hover_switch_dcs_menubar_menu(detail::DocumentImpl& impl,
     // ourselves first would set `hidden` — a box-tree recollect — and the
     // placement math would then read zeroed trigger bounds, dropping the
     // switched menu at the window's top-left.
-    return toggle_dcs_menu(impl, trigger, menu);
+    return detail::toggle_dcs_menu(impl, trigger, menu);
 }
 
 // The dockpanel id behind a tab (its data-dcs-target is "#<id>-body").
@@ -11802,7 +12083,14 @@ std::string dockpane_tab_panel_id(lxb_dom_element_t* tab) {
         sel.erase(sel.size() - kSuffix.size());
     return sel;
 }
+}  // namespace detail
+namespace {
 
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 int positive_int_attr(lxb_dom_element_t* elem, std::string_view name,
                       int fallback) {
     if (!elem) return fallback;
@@ -11813,6 +12101,9 @@ int positive_int_attr(lxb_dom_element_t* elem, std::string_view name,
     if (end == value.c_str() || parsed <= 0) return fallback;
     return static_cast<int>(std::min<long>(parsed, 10000));
 }
+}  // namespace detail
+namespace {
+
 
 int int_attr(lxb_dom_element_t* elem, std::string_view name, int fallback) {
     if (!elem) return fallback;
@@ -11826,19 +12117,26 @@ int int_attr(lxb_dom_element_t* elem, std::string_view name, int fallback) {
                          std::numeric_limits<int>::max()));
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 lxb_dom_element_t* find_dockpane_tab_for_panel_id(detail::DocumentImpl& impl,
                                                   std::string_view panel_id) {
     if (panel_id.empty()) return nullptr;
     for (int i = 0; i < static_cast<int>(impl.blocks.size()); ++i) {
-        auto* elem = element_for_block(impl, i);
+        auto* elem = detail::element_for_block(impl, i);
         if (!elem || !class_list_contains(elem, "dcs-dockpane__tab")) {
             continue;
         }
-        const std::string tab_panel_id = dockpane_tab_panel_id(elem);
+        const std::string tab_panel_id = detail::dockpane_tab_panel_id(elem);
         if (std::string_view(tab_panel_id) == panel_id) return elem;
     }
     return nullptr;
 }
+}  // namespace detail
+namespace {
+
 
 // ── decius.js dock-layout surgery ────────────────────────────────────────────
 // Faithful port of the drag-to-dock layout manager in decius-css
@@ -11846,39 +12144,13 @@ lxb_dom_element_t* find_dockpane_tab_for_panel_id(detail::DocumentImpl& impl,
 // cleanupSourceDock / spawnFloatingPanel). Like the JS, these mutate the live
 // DOM — the dock structure IS the DOM — so docking works identically for
 // raw-HTML documents and View-built apps. After a gesture completes,
-// dock_structure_changed() recollects the box tree once and the Document's
+// detail::dock_structure_changed() recollects the box tree once and the Document's
 // dock-layout snapshot (read back by the View on re-emit) keeps the result
 // across view reloads.
 
 // The drop zone over a dock target (defined ahead of the geometry section so
 // the surgery ops can take an edge).
-enum class DropZone { None, Left, Right, Top, Bottom, Tab };
 
-// While a dock gesture restructures the tree, lexbor's EVENT-FUL inserts
-// (insert_before/after/child) fire lxb_html_document_event_insert, which
-// eagerly re-runs selector matching + style attach over a half-mutated tree —
-// walking an element's style weak-list while another element's is mid-teardown
-// → use-after-poison (found by the ASAN gesture fuzzer). We do our own restyle
-// in dock_structure_changed(), so suppress lexbor's eager attach for the whole
-// gesture and let the finisher rebuild it once, consistently. RAII so it always
-// restores, even on an early return. (Moves still use *_wo_events to keep weak
-// handles alive; this additionally neutralizes the event-ful inserts.)
-struct SuppressDomStyleAttach {
-    lxb_dom_document_t*    dom{nullptr};
-    lxb_dom_event_insert_f saved_insert{nullptr};
-    explicit SuppressDomStyleAttach(detail::DocumentImpl& impl) {
-        if (impl.doc) {
-            dom = &impl.doc->dom_document;
-            saved_insert = dom->ev_insert;
-            dom->ev_insert = nullptr;
-        }
-    }
-    ~SuppressDomStyleAttach() {
-        if (dom) dom->ev_insert = saved_insert;
-    }
-    SuppressDomStyleAttach(const SuppressDomStyleAttach&) = delete;
-    SuppressDomStyleAttach& operator=(const SuppressDomStyleAttach&) = delete;
-};
 
 // el(tag, classes) — create an element with a class list (raw attrs; the
 // post-gesture recollect restyles everything new).
@@ -11959,6 +12231,10 @@ lxb_dom_element_t* dock_title_tab(lxb_dom_element_t* dock) {
     return nullptr;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 // dockTabs: title tab (if any) + the tab-row tabs, in order.
 std::vector<lxb_dom_element_t*> dock_tabs(lxb_dom_element_t* dock) {
     std::vector<lxb_dom_element_t*> out;
@@ -11973,13 +12249,16 @@ std::vector<lxb_dom_element_t*> dock_tabs(lxb_dom_element_t* dock) {
     }
     return out;
 }
+}  // namespace detail
+namespace {
 
-std::string dock_kind_of(lxb_dom_element_t* pane);  // defined with the
+
+std::string detail::dock_kind_of(lxb_dom_element_t* pane);  // defined with the
                                                     // drop-zone geometry below
 
 bool is_floating_dock(lxb_dom_element_t* dock) {
-    return dock && dock_kind_of(dock) == "panels" &&
-           ancestor_with_class(dock, "dcs-panel--floating") != nullptr;
+    return dock && detail::dock_kind_of(dock) == "panels" &&
+           detail::ancestor_with_class(dock, "dcs-panel--floating") != nullptr;
 }
 
 // Raw class toggle — surgery runs on possibly-detached nodes mid-gesture; the
@@ -11993,7 +12272,7 @@ void dock_set_class(lxb_dom_element_t* e, std::string_view cls, bool on) {
 void sync_dock_tab_shape(detail::DocumentImpl& impl, lxb_dom_element_t* dock) {
     (void) impl;
     if (!dock) return;
-    const std::size_t count = dock_tabs(dock).size();
+    const std::size_t count = detail::dock_tabs(dock).size();
     dock_set_class(dock, "dcs-dockpane--single-tab", count == 1);
     dock_set_class(dock, "dcs-dockpane--multi-tab", count > 1);
     dock_set_class(dock, "dcs-dockpane--title-only",
@@ -12037,7 +12316,7 @@ void append_dock_tab(lxb_dom_element_t* tabs, lxb_dom_element_t* tab) {
 // structural moves; the gesture finisher recollects, so raw attrs are fine).
 void activate_tab_in_dock(lxb_dom_element_t* dock, lxb_dom_element_t* tab) {
     if (!dock || !tab) return;
-    for (auto* t : dock_tabs(dock)) {
+    for (auto* t : detail::dock_tabs(dock)) {
         dock_set_attr(t, "aria-selected", t == tab ? "true" : "false");
     }
     const std::string sel = detail::attr_string(tab, "data-dcs-target");
@@ -12131,7 +12410,7 @@ bool convert_dock_to_title_only(detail::DocumentImpl& impl,
         sync_dock_tab_shape(impl, dock);
         return true;
     }
-    auto tabs = dock_tabs(dock);
+    auto tabs = detail::dock_tabs(dock);
     if (tabs.size() != 1) return false;
     auto* tab = tabs.front();
     auto* titlebar = titlebar_for_dock(impl, dock);
@@ -12199,12 +12478,16 @@ void ensure_tabbed_dock(detail::DocumentImpl& impl, lxb_dom_element_t* dock) {
     sync_dock_tab_shape(impl, dock);
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 // moveTabTo: move a tab + its tabpanel (+ its bound tab toolbar) into a
 // target dock and activate it there.
 bool dock_move_tab_to(detail::DocumentImpl& impl, lxb_dom_element_t* tab,
                       lxb_dom_element_t* panel, lxb_dom_element_t* target) {
     if (!tab || !panel || !target) return false;
-    auto* source = ancestor_with_class(tab, "dcs-dockpane");
+    auto* source = detail::ancestor_with_class(tab, "dcs-dockpane");
     ensure_tabbed_dock(impl, target);
     auto* tabs = dock_tabs_el(target);
     auto* body = dock_body_el(target);
@@ -12238,6 +12521,9 @@ bool dock_move_tab_to(detail::DocumentImpl& impl, lxb_dom_element_t* tab,
     sync_dock_tab_shape(impl, target);
     return true;
 }
+}  // namespace detail
+namespace {
+
 
 // unsplitFromLayout: remove a pane (or emptied inner dock) + its adjacent
 // splitter; collapse empty .dcs-dock wrappers; rebalance survivors to
@@ -12287,14 +12573,18 @@ void dock_unsplit_from_layout(detail::DocumentImpl& impl,
     }
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 // cleanupSourceDock: after a tab leaves a pane — drop the pane when empty
 // (whole floater if floating), else keep a tab selected; a single-tab floater
 // collapses to title-only.
 void dock_cleanup_source(detail::DocumentImpl& impl, lxb_dom_element_t* dock) {
     if (!dock) return;
-    auto remaining = dock_tabs(dock);
+    auto remaining = detail::dock_tabs(dock);
     if (remaining.empty()) {
-        if (auto* floater = ancestor_with_class(dock, "dcs-panel--floating")) {
+        if (auto* floater = detail::ancestor_with_class(dock, "dcs-panel--floating")) {
             lxb_dom_node_remove(lxb_dom_interface_node(floater));
             return;
         }
@@ -12315,6 +12605,9 @@ void dock_cleanup_source(detail::DocumentImpl& impl, lxb_dom_element_t* dock) {
     }
     sync_dock_tab_shape(impl, dock);
 }
+}  // namespace detail
+namespace {
+
 
 // splitDock: insert `fresh` on an edge of `target`. Same-direction parent →
 // insert as a sibling (lock other siblings to their px, split the target's
@@ -12324,6 +12617,10 @@ void dock_cleanup_source(detail::DocumentImpl& impl, lxb_dom_element_t* dock) {
 constexpr int kDockNewPxH = 320;
 constexpr int kDockNewPxV = 220;
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 void dock_split(detail::DocumentImpl& impl, lxb_dom_element_t* target,
                 DropZone edge, lxb_dom_element_t* fresh, bool window_edge) {
     if (!target || !fresh) return;
@@ -12342,7 +12639,7 @@ void dock_split(detail::DocumentImpl& impl, lxb_dom_element_t* target,
         parent_is_dock && class_list_contains(parent, "dcs-dock--v");
     const bool need_vertical = !horizontal;
 
-    const int target_idx = block_index_for_exact_element(impl, target);
+    const int target_idx = detail::block_index_for_exact_element(impl, target);
     const Rect tb = target_idx >= 0
                         ? impl.blocks[static_cast<std::size_t>(target_idx)].bounds
                         : Rect{};
@@ -12368,7 +12665,7 @@ void dock_split(detail::DocumentImpl& impl, lxb_dom_element_t* target,
             if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
             auto* e = lxb_dom_interface_element(c);
             if (e == target || class_list_contains(e, "dcs-splitter")) continue;
-            const int bi = block_index_for_exact_element(impl, e);
+            const int bi = detail::block_index_for_exact_element(impl, e);
             if (bi < 0) continue;
             const auto& bb = impl.blocks[static_cast<std::size_t>(bi)].bounds;
             const int sz = horizontal ? bb.w : bb.h;
@@ -12499,16 +12796,16 @@ lxb_dom_element_t* dock_spawn_floating_panel(
     dock_set_attr(fp, "data-dcs-drag", "");
     dock_set_attr(fp, "data-dcs-drag-bounds", ".dcs-dock--floathost");
     dock_set_attr(fp, "data-dcs-dock-id", panel_id);
-    auto* dock = dock_create_pane(impl, panel_id, kind);
+    auto* dock = detail::dock_create_pane(impl, panel_id, kind);
     if (!dock) return nullptr;
     dock_set_attr(dock, "style", "flex:1;min-width:0;min-height:0");
     lxb_dom_node_insert_child(lxb_dom_interface_node(fp),
                               lxb_dom_interface_node(dock));
-    dock_move_tab_to(impl, tab, panel, dock);
+    detail::dock_move_tab_to(impl, tab, panel, dock);
     // Floats are root overlays (siblings of the split tree).
     lxb_dom_element_t* parent = nullptr;
     for (int i = 0; i < static_cast<int>(impl.blocks.size()); ++i) {
-        auto* e = element_for_block(impl, i);
+        auto* e = detail::element_for_block(impl, i);
         if (e && class_list_contains(e, "dcs-dock--floathost")) {
             parent = e;
             break;
@@ -12537,7 +12834,7 @@ void dock_structure_changed(detail::DocumentImpl& impl) {
     // resolver walks them (same contract as set_attribute_on_element).
     rematch_stylesheet_matches_for_subtree(impl, -1);
     const auto st1 = std::chrono::steady_clock::now();
-    recollect_blocks_from_current_dom(impl);
+    detail::recollect_blocks_from_current_dom(impl);
     const auto st2 = std::chrono::steady_clock::now();
     if (MutationTraceTimer::enabled()) {
         const auto ms = [](auto a, auto b) {
@@ -12556,6 +12853,9 @@ void dock_structure_changed(detail::DocumentImpl& impl) {
     mark_live_mutation_dirty(impl, -1, old_rect, /*needs_layout=*/true);
     impl.paint_dirty = true;
 }
+}  // namespace detail
+namespace {
+
 
 // Tear a docked panel off into a floating panel at the drop point: records a
 // floating placement override so the next resolve_dock emits it as a
@@ -12570,9 +12870,9 @@ bool tear_off_panel(detail::DocumentImpl& impl, std::string_view panel_id,
     constexpr int kMargin = 8;
     const Rect host = document_float_host_bounds(impl);
     const Rect root = root_float_host_bounds(impl);
-    auto* tab = find_dockpane_tab_for_panel_id(impl, panel_id);
-    int w = positive_int_attr(tab, "data-dcs-tearout-width", kDefaultW);
-    int h = positive_int_attr(tab, "data-dcs-tearout-height", kDefaultH);
+    auto* tab = detail::find_dockpane_tab_for_panel_id(impl, panel_id);
+    int w = detail::positive_int_attr(tab, "data-dcs-tearout-width", kDefaultW);
+    int h = detail::positive_int_attr(tab, "data-dcs-tearout-height", kDefaultH);
     // Place so the title lands near the cursor, clamped into the document
     // content float host. Runtime floating overrides are root-relative because
     // View emits tearoffs as root overlays, while the allowed rectangle remains
@@ -12609,12 +12909,12 @@ bool tear_off_panel(detail::DocumentImpl& impl, std::string_view panel_id,
     p.w = w;
     p.h = h;
     impl.dock_overrides[std::string(panel_id)] = p;
-    dock_trace("tearoff panel=" + std::string(panel_id) +
+    detail::dock_trace("tearoff panel=" + std::string(panel_id) +
                " drop=(" + std::to_string(drop.x) + "," +
                std::to_string(drop.y) + ") rect=(" + std::to_string(p.x) +
                "," + std::to_string(p.y) + "," + std::to_string(p.w) +
                "x" + std::to_string(p.h) + ")");
-    dock_trace_state(impl, "after-tearoff");
+    detail::dock_trace_state(impl, "after-tearoff");
     return true;
 }
 
@@ -12640,9 +12940,9 @@ Document::DockLayout::Node dock_layout_node(lxb_dom_element_t* e) {
         return n;
     }
     // Leaf: a dockpane.
-    n.kind = dock_kind_of(e);
-    for (auto* tab : dock_tabs(e)) {
-        const std::string id = dockpane_tab_panel_id(tab);
+    n.kind = detail::dock_kind_of(e);
+    for (auto* tab : detail::dock_tabs(e)) {
+        const std::string id = detail::dockpane_tab_panel_id(tab);
         if (id.empty()) continue;
         n.tabs.push_back(id);
         if (detail::attr_string(tab, "aria-selected") == "true") n.active = id;
@@ -12671,19 +12971,6 @@ lxb_dom_element_t* find_first_descendant_with_class(lxb_dom_node_t* root,
 //    (--center, kind "documents") is only a target for
 //    documents-kind tabs and only via window-edge / its tabbar — a body drop
 //    there yields no target, so the caller tears off.
-struct DropTarget {
-    std::string parent;   // "__document__" (window-edge dock) or target pane id
-    DropZone    zone{DropZone::None};
-    int x{0}, y{0}, w{0}, h{0};   // highlight rect in float-host coords
-    bool        valid{false};
-    // The element the surgery acts on: the hovered .dcs-dockpane, or for a
-    // window-edge drop the outermost matching .dcs-dock (decius edgeOwnerDock).
-    lxb_dom_element_t* pane{nullptr};
-    bool               window_edge{false};
-    // Center-on-your-own multi-tab pane: a VALID target (the preview shows) but
-    // a NO-OP on release — the tab is already there.
-    bool               self_noop{false};
-};
 
 // edgeOwnerDock: the OUTERMOST .dcs-dock whose direction matches the edge —
 // window-edge drops always split at the workspace level, not at an inner
@@ -12732,6 +13019,10 @@ lxb_dom_element_t* edge_owner_dock(detail::DocumentImpl& impl, DropZone edge) {
     return docks.empty() ? nullptr : docks.front();
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 const char* drop_zone_name(DropZone zone) {
     switch (zone) {
         case DropZone::Left: return "left";
@@ -12742,10 +13033,17 @@ const char* drop_zone_name(DropZone zone) {
         default: return "none";
     }
 }
+}  // namespace detail
+namespace {
 
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 std::string drop_target_summary(const DropTarget& t) {
     if (!t.valid) return "invalid";
-    return "parent=" + t.parent + " zone=" + drop_zone_name(t.zone) +
+    return "parent=" + t.parent + " zone=" + detail::drop_zone_name(t.zone) +
            " preview=(" + std::to_string(t.x) + "," + std::to_string(t.y) +
            "," + std::to_string(t.w) + "x" + std::to_string(t.h) + ")";
 }
@@ -12764,18 +13062,21 @@ std::string pane_panel_id(lxb_dom_element_t* pane) {
     const std::string n = detail::attr_string(pane, "data-aui-name");  // pane-<id>
     return n.rfind("pane-", 0) == 0 ? n.substr(5) : std::string();
 }
+}  // namespace detail
+namespace {
+
 
 std::vector<std::string> dockpane_tab_ids(detail::DocumentImpl& impl,
                                           lxb_dom_element_t* pane) {
     std::vector<std::string> out;
     if (!pane) return out;
     for (int i = 0; i < static_cast<int>(impl.blocks.size()); ++i) {
-        auto* elem = element_for_block(impl, i);
+        auto* elem = detail::element_for_block(impl, i);
         if (!elem || !class_list_contains(elem, "dcs-dockpane__tab")) {
             continue;
         }
-        if (ancestor_with_class(elem, "dcs-dockpane") != pane) continue;
-        const std::string id = dockpane_tab_panel_id(elem);
+        if (detail::ancestor_with_class(elem, "dcs-dockpane") != pane) continue;
+        const std::string id = detail::dockpane_tab_panel_id(elem);
         if (!id.empty() &&
             std::find(out.begin(), out.end(), id) == out.end()) {
             out.push_back(id);
@@ -12795,6 +13096,10 @@ std::string dock_side_name(int side) {
     }
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 std::string dock_rect_summary(const Rect& r) {
     return "(" + std::to_string(r.x) + "," + std::to_string(r.y) + "," +
            std::to_string(r.w) + "x" + std::to_string(r.h) + ")";
@@ -12814,7 +13119,7 @@ std::string dock_placement_summary(const Document::DockPlacement& p) {
 }
 
 std::string sorted_join(std::vector<std::string> parts,
-                        std::string_view sep = ",") {
+                        std::string_view sep) {
     std::sort(parts.begin(), parts.end());
     parts.erase(std::unique(parts.begin(), parts.end()), parts.end());
     std::string out;
@@ -12824,6 +13129,9 @@ std::string sorted_join(std::vector<std::string> parts,
     }
     return out;
 }
+}  // namespace detail
+namespace {
+
 
 struct DockGraphRel {
     bool floating{false};
@@ -12835,9 +13143,9 @@ void add_rendered_dock_relations(
     detail::DocumentImpl& impl,
     std::unordered_map<std::string, DockGraphRel>& rels) {
     for (int i = 0; i < static_cast<int>(impl.blocks.size()); ++i) {
-        auto* pane = element_for_block(impl, i);
+        auto* pane = detail::element_for_block(impl, i);
         if (!pane || !class_list_contains(pane, "dcs-dockpane")) continue;
-        const std::string id = pane_panel_id(pane);
+        const std::string id = detail::pane_panel_id(pane);
         if (id.empty() || id == "__document__") continue;
 
         if (detail::attr_string(pane, "data-aui-dock-floating") == "true") {
@@ -12916,14 +13224,14 @@ std::string dock_graph_warning_summary(
         }
     }
     if (warnings.empty()) return "none";
-    return sorted_join(std::move(warnings), ";");
+    return detail::sorted_join(std::move(warnings), ";");
 }
 
 std::string dock_trace_snapshot(detail::DocumentImpl& impl) {
     std::vector<std::string> override_parts;
     override_parts.reserve(impl.dock_overrides.size());
     for (const auto& [id, p] : impl.dock_overrides) {
-        override_parts.push_back(id + "=" + dock_placement_summary(p));
+        override_parts.push_back(id + "=" + detail::dock_placement_summary(p));
     }
 
     std::vector<std::string> active_parts;
@@ -12946,9 +13254,9 @@ std::string dock_trace_snapshot(detail::DocumentImpl& impl) {
 
     std::vector<std::string> rendered_parts;
     for (int i = 0; i < static_cast<int>(impl.blocks.size()); ++i) {
-        auto* pane = element_for_block(impl, i);
+        auto* pane = detail::element_for_block(impl, i);
         if (!pane || !class_list_contains(pane, "dcs-dockpane")) continue;
-        const std::string id = pane_panel_id(pane);
+        const std::string id = detail::pane_panel_id(pane);
         if (id.empty()) continue;
         const auto& b = impl.blocks[static_cast<std::size_t>(i)];
         std::string placement;
@@ -12966,23 +13274,30 @@ std::string dock_trace_snapshot(detail::DocumentImpl& impl) {
             placement = "unplaced";
         }
         rendered_parts.push_back(
-            id + "@" + dock_rect_summary(b.bounds) + ":" + placement +
-            ":tabs=[" + sorted_join(dockpane_tab_ids(impl, pane), "|") + "]");
+            id + "@" + detail::dock_rect_summary(b.bounds) + ":" + placement +
+            ":tabs=[" + detail::sorted_join(dockpane_tab_ids(impl, pane), "|") + "]");
     }
 
-    return "overrides={" + sorted_join(std::move(override_parts), ";") +
-           "} active={" + sorted_join(std::move(active_parts), ";") +
-           "} graph={" + sorted_join(std::move(graph_parts), ";") +
+    return "overrides={" + detail::sorted_join(std::move(override_parts), ";") +
+           "} active={" + detail::sorted_join(std::move(active_parts), ";") +
+           "} graph={" + detail::sorted_join(std::move(graph_parts), ";") +
            "} warnings={" + dock_graph_warning_summary(graph) +
-           "} rendered={" + sorted_join(std::move(rendered_parts), ";") + "}";
+           "} rendered={" + detail::sorted_join(std::move(rendered_parts), ";") + "}";
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 void dock_trace_state(detail::DocumentImpl& impl, std::string_view reason) {
     if (!dock_trace_enabled()) return;
     const std::string snapshot = dock_trace_snapshot(impl);
     impl.last_dock_trace_signature = snapshot;
-    dock_trace("state reason=" + std::string(reason) + " " + snapshot);
+    detail::dock_trace("state reason=" + std::string(reason) + " " + snapshot);
 }
+}  // namespace detail
+namespace {
+
 
 void dock_trace_state_if_changed(detail::DocumentImpl& impl,
                                  std::string_view reason) {
@@ -12990,7 +13305,7 @@ void dock_trace_state_if_changed(detail::DocumentImpl& impl,
     const std::string snapshot = dock_trace_snapshot(impl);
     if (snapshot == impl.last_dock_trace_signature) return;
     impl.last_dock_trace_signature = snapshot;
-    dock_trace("state reason=" + std::string(reason) + " " + snapshot);
+    detail::dock_trace("state reason=" + std::string(reason) + " " + snapshot);
 }
 
 Document::DockPlacement source_placement_for_pane(lxb_dom_element_t* pane,
@@ -13019,12 +13334,16 @@ Document::DockPlacement source_placement_for_pane(lxb_dom_element_t* pane,
     return p;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 void capture_tab_drag_metadata(detail::DocumentImpl& impl,
                                detail::DocumentImpl::TabDrag& drag,
                                lxb_dom_element_t* tab,
                                lxb_dom_element_t* pane) {
-    drag.source_pane_id = pane_panel_id(pane);
-    drag.drag_kind = dock_kind_of(pane);
+    drag.source_pane_id = detail::pane_panel_id(pane);
+    drag.drag_kind = detail::dock_kind_of(pane);
     drag.label.clear();
     if (tab) {
         drag.label = std::string(
@@ -13035,7 +13354,7 @@ void capture_tab_drag_metadata(detail::DocumentImpl& impl,
     drag.source_pane_bounds = {};
     drag.source_pane_bounds_valid = false;
     if (pane) {
-        const int pi = block_index_for_exact_element(impl, pane);
+        const int pi = detail::block_index_for_exact_element(impl, pane);
         if (pi >= 0) {
             drag.source_pane_bounds =
                 impl.blocks[static_cast<std::size_t>(pi)].bounds;
@@ -13050,10 +13369,10 @@ void capture_tab_drag_metadata(detail::DocumentImpl& impl,
 bool arm_tab_drag_from_pending_press(
     detail::DocumentImpl& impl,
     const detail::DocumentImpl::PendingTabPress& press) {
-    auto* tab = find_dockpane_tab_for_panel_id(impl, press.panel_id);
+    auto* tab = detail::find_dockpane_tab_for_panel_id(impl, press.panel_id);
     if (!tab) return false;
-    auto* pane = ancestor_with_class(tab, "dcs-dockpane");
-    if (!pane || dock_kind_of(pane) == "documents") return false;
+    auto* pane = detail::ancestor_with_class(tab, "dcs-dockpane");
+    if (!pane || detail::dock_kind_of(pane) == "documents") return false;
     impl.tab_drag = {};
     impl.tab_drag.tab = tab;
     impl.tab_drag.pane = pane;
@@ -13061,9 +13380,12 @@ bool arm_tab_drag_from_pending_press(
     impl.tab_drag.start_x = press.start_x;
     impl.tab_drag.start_y = press.start_y;
     impl.tab_drag.switched_on_down = press.switched_on_down;
-    capture_tab_drag_metadata(impl, impl.tab_drag, tab, pane);
+    detail::capture_tab_drag_metadata(impl, impl.tab_drag, tab, pane);
     return true;
 }
+}  // namespace detail
+namespace {
+
 
 // Is the point over the pane's own tabbar (its direct-child .dcs-dockpane__tabbar)?
 bool point_over_pane_tabbar(detail::DocumentImpl& impl, lxb_dom_element_t* pane,
@@ -13073,7 +13395,7 @@ bool point_over_pane_tabbar(detail::DocumentImpl& impl, lxb_dom_element_t* pane,
         if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
         auto* e = lxb_dom_interface_element(c);
         if (!class_list_contains(e, "dcs-dockpane__tabbar")) continue;
-        const int bi = block_index_for_exact_element(impl, e);
+        const int bi = detail::block_index_for_exact_element(impl, e);
         if (bi < 0) return false;
         const auto& b = impl.blocks[static_cast<std::size_t>(bi)].bounds;
         return pt.x >= b.x && pt.x < b.x + b.w && pt.y >= b.y && pt.y < b.y + b.h;
@@ -13099,7 +13421,7 @@ Rect dockpane_zone_bounds(detail::DocumentImpl& impl,
         if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
         auto* e = lxb_dom_interface_element(c);
         if (!is_dockpane_top_chrome(e)) continue;
-        const int bi = block_index_for_exact_element(impl, e);
+        const int bi = detail::block_index_for_exact_element(impl, e);
         if (bi < 0) continue;
         const auto& cb = impl.blocks[static_cast<std::size_t>(bi)].bounds;
         if (cb.w <= 0 || cb.h <= 0) continue;
@@ -13113,13 +13435,17 @@ Rect dockpane_zone_bounds(detail::DocumentImpl& impl,
     return pane_bounds;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
                                std::string_view drag_kind,
-                               lxb_dom_element_t* source_pane = nullptr) {
+                               lxb_dom_element_t* source_pane) {
     DropTarget out;
     int hx = 0, hy = 0, hw = 0, hh = 0;
     for (int i = 0; i < static_cast<int>(impl.blocks.size()); ++i) {
-        auto* e = element_for_block(impl, i);
+        auto* e = detail::element_for_block(impl, i);
         if (e && class_list_contains(e, "dcs-dock--floathost")) {
             const auto& hb = impl.blocks[static_cast<std::size_t>(i)].bounds;
             hx = hb.x; hy = hb.y; hw = hb.w; hh = hb.h;
@@ -13162,14 +13488,14 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
     // unrelated pane own the preview.
     const int hit = hit_test_blocks_for_dock_target(impl, pt.x, pt.y);
     auto* hit_elem = element_for_block_or_ancestor(impl, hit);
-    auto* e = ancestor_with_class(hit_elem, "dcs-dockpane");
-    dock_trace("drop-probe at=(" + std::to_string(pt.x) + "," +
+    auto* e = detail::ancestor_with_class(hit_elem, "dcs-dockpane");
+    detail::dock_trace("drop-probe at=(" + std::to_string(pt.x) + "," +
                std::to_string(pt.y) + ") hit=" + std::to_string(hit) +
-               " pane=" + (e ? pane_panel_id(e) : std::string("<none>")) +
-               " kind=" + (e ? dock_kind_of(e) : std::string()) +
+               " pane=" + (e ? detail::pane_panel_id(e) : std::string("<none>")) +
+               " kind=" + (e ? detail::dock_kind_of(e) : std::string()) +
                " drag_kind=" + std::string(drag_kind));
     if (e) {
-        const int bi = block_index_for_exact_element(impl, e);
+        const int bi = detail::block_index_for_exact_element(impl, e);
         if (bi < 0) return window_edge.valid ? window_edge : out;
         const auto& b = impl.blocks[static_cast<std::size_t>(bi)].bounds;
         if (!(pt.x >= b.x && pt.x < b.x + b.w && pt.y >= b.y &&
@@ -13182,16 +13508,16 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
         // tab — "split Console out of Assets" in one gesture. Single-tab
         // self-drops stay free-space (tearoff).
         const bool self_drop = e == source_pane;
-        if (dock_kind_of(e) != drag_kind ||
-            (self_drop && dock_tabs(e).size() <= 1)) {
+        if (detail::dock_kind_of(e) != drag_kind ||
+            (self_drop && detail::dock_tabs(e).size() <= 1)) {
             return window_edge.valid ? window_edge : out;
         }
-        const std::string id = pane_panel_id(e);
+        const std::string id = detail::pane_panel_id(e);
         if (id.empty()) return window_edge.valid ? window_edge : out;
         out.parent = id;
         out.pane = e;
         const int lx = b.x - hx, ly = b.y - hy;
-        if (ancestor_with_class(e, "dcs-panel--floating") ||
+        if (detail::ancestor_with_class(e, "dcs-panel--floating") ||
             point_over_pane_tabbar(impl, e, pt)) {
             out.zone = DropZone::Tab;
         } else {
@@ -13256,7 +13582,7 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
 // Position (and show) or hide the drop indicator. Reuses decius .dcs-drop--valid
 // (accent inset outline + dim fill); the rect is float-host-relative.
 bool set_drop_indicator(detail::DocumentImpl& impl, const DropTarget* t) {
-    auto* ind = find_dom_element_by_id(impl, "__dropind");
+    auto* ind = detail::find_dom_element_by_id(impl, "__dropind");
     if (!ind) return false;
     if (!t || !t->valid) {
         bool changed = set_attribute_on_element(impl, ind, "hidden", "");
@@ -13278,6 +13604,9 @@ bool set_drop_indicator(detail::DocumentImpl& impl, const DropTarget* t) {
     changed = remove_attribute_on_element(impl, ind, "hidden") || changed;
     return changed;
 }
+}  // namespace detail
+namespace {
+
 
 std::string primary_drag_reanchor_anchor(
     std::string_view panel_id,
@@ -13322,7 +13651,7 @@ bool reanchor_tabs_left_by_primary_drag(
         impl.dock_overrides[remaining[i]] = tab;
     }
 
-    dock_trace("dock-reanchor source=" + std::string(panel_id) +
+    detail::dock_trace("dock-reanchor source=" + std::string(panel_id) +
                " anchor=" + anchor +
                " tabs=" + std::to_string(remaining.size()));
     return true;
@@ -13386,9 +13715,9 @@ bool reparent_descendant_target_out_of_dragged_subtree(
         target_slot.parent = "__document__";
     }
     impl.dock_overrides[std::string(target_id)] = target_slot;
-    dock_trace("dock-cycle-break moving=" + std::string(panel_id) +
+    detail::dock_trace("dock-cycle-break moving=" + std::string(panel_id) +
                " target=" + std::string(target_id) +
-               " target-slot=" + dock_placement_summary(target_slot));
+               " target-slot=" + detail::dock_placement_summary(target_slot));
     return true;
 }
 
@@ -13399,21 +13728,21 @@ bool apply_dock(detail::DocumentImpl& impl, std::string_view panel_id,
                 const detail::DocumentImpl::TabDrag* drag = nullptr) {
     if (panel_id.empty() || !t.valid || t.zone == DropZone::None) return false;
     if (t.parent.empty()) {
-        dock_trace("dock-noop panel=" + std::string(panel_id) +
-                   " target=" + drop_target_summary(t));
+        detail::dock_trace("dock-noop panel=" + std::string(panel_id) +
+                   " target=" + detail::drop_target_summary(t));
         return false;
     }
     std::string parent = t.parent;
     if (parent == panel_id) {
         if (t.zone == DropZone::Tab) {
-            dock_trace("dock-noop panel=" + std::string(panel_id) +
-                       " target=" + drop_target_summary(t));
+            detail::dock_trace("dock-noop panel=" + std::string(panel_id) +
+                       " target=" + detail::drop_target_summary(t));
             return false;
         }
         parent = primary_drag_reanchor_anchor(panel_id, drag);
         if (parent.empty()) {
-            dock_trace("dock-noop panel=" + std::string(panel_id) +
-                       " target=" + drop_target_summary(t));
+            detail::dock_trace("dock-noop panel=" + std::string(panel_id) +
+                       " target=" + detail::drop_target_summary(t));
             return false;
         }
     }
@@ -13435,7 +13764,7 @@ bool apply_dock(detail::DocumentImpl& impl, std::string_view panel_id,
         const auto& old = it->second;
         if (old.present && !old.floating && old.parent == p.parent &&
             old.side == p.side && old.size == p.size) {
-            dock_trace("dock-noop-same panel=" + key +
+            detail::dock_trace("dock-noop-same panel=" + key +
                        " parent=" + p.parent +
                        " side=" + std::to_string(p.side));
             return false;
@@ -13449,10 +13778,10 @@ bool apply_dock(detail::DocumentImpl& impl, std::string_view panel_id,
         impl.dock_active_tabs[p.parent] = key;
     }
     prune_stale_dock_active_tabs(impl);
-    dock_trace("dock panel=" + key + " parent=" + p.parent +
+    detail::dock_trace("dock panel=" + key + " parent=" + p.parent +
                " side=" + std::to_string(p.side) +
-               " zone=" + drop_zone_name(t.zone));
-    dock_trace_state(impl, "after-dock");
+               " zone=" + detail::drop_zone_name(t.zone));
+    detail::dock_trace_state(impl, "after-dock");
     return true;
 }
 
@@ -13551,7 +13880,7 @@ bool find_dcs_tree_chevron_at(detail::DocumentImpl& impl,
     for (int idx = from_idx;
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (!elem) continue;
         if (class_list_contains(elem, "dcs-tree__chevron")) {
             if (class_list_contains(elem, "dcs-tree__chevron--leaf")) {
@@ -13572,6 +13901,10 @@ bool find_dcs_tree_chevron_at(detail::DocumentImpl& impl,
     return false;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool toggle_dcs_tree_chevron_control(detail::DocumentImpl& impl, int from_idx) {
     lxb_dom_element_t* tree = nullptr;
     lxb_dom_element_t* row = nullptr;
@@ -13599,6 +13932,9 @@ bool toggle_dcs_tree_chevron_control(detail::DocumentImpl& impl, int from_idx) {
     emit_widget_change(impl, tree, !open ? "open" : "closed");
     return changed;
 }
+}  // namespace detail
+namespace {
+
 
 using TreeDropZone = detail::DocumentImpl::TreeDrag::Zone;
 
@@ -13623,7 +13959,7 @@ bool clear_dcs_tree_drop_classes(detail::DocumentImpl& impl,
     for (std::string_view cls :
          {"dcs-tree__row--drop-before", "dcs-tree__row--drop-after",
           "dcs-tree__row--drop-into"}) {
-        changed = set_element_class(impl, row, cls, false) || changed;
+        changed = detail::set_element_class(impl, row, cls, false) || changed;
     }
     return changed;
 }
@@ -13644,6 +13980,10 @@ bool clear_dcs_tree_drop_highlight(detail::DocumentImpl& impl) {
     return changed;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool find_dcs_tree_row_at(detail::DocumentImpl& impl,
                           int from_idx,
                           lxb_dom_element_t*& out_tree,
@@ -13653,7 +13993,7 @@ bool find_dcs_tree_row_at(detail::DocumentImpl& impl,
     for (int idx = from_idx;
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (!elem) continue;
         if (!out_row && class_list_contains(elem, "dcs-tree__row")) {
             out_row = elem;
@@ -13665,22 +14005,25 @@ bool find_dcs_tree_row_at(detail::DocumentImpl& impl,
     }
     return false;
 }
+}  // namespace detail
+namespace {
+
 
 lxb_dom_element_t* find_dcs_tree_row_at_point(detail::DocumentImpl& impl,
                                               lxb_dom_element_t* tree,
                                               Point point) {
     if (!tree) return nullptr;
-    const int tree_idx = block_index_for_exact_element(impl, tree);
+    const int tree_idx = detail::block_index_for_exact_element(impl, tree);
     if (tree_idx < 0) return nullptr;
-    const Rect tree_rect = block_border_visual_rect(impl, tree_idx);
+    const Rect tree_rect = detail::block_border_visual_rect(impl, tree_idx);
 
     std::vector<lxb_dom_element_t*> rows;
     collect_dcs_tree_rows(tree, rows);
     for (auto* row : rows) {
         if (!row || detail::has_attr(row, "hidden")) continue;
-        const int row_idx = block_index_for_exact_element(impl, row);
+        const int row_idx = detail::block_index_for_exact_element(impl, row);
         if (row_idx < 0) continue;
-        const Rect row_rect = block_border_visual_rect(impl, row_idx);
+        const Rect row_rect = detail::block_border_visual_rect(impl, row_idx);
         if (row_rect.h <= 0) continue;
         const int left =
             tree_rect.w > 0 ? std::min(tree_rect.x, row_rect.x) : row_rect.x;
@@ -13695,12 +14038,19 @@ lxb_dom_element_t* find_dcs_tree_row_at_point(detail::DocumentImpl& impl,
     return nullptr;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool dcs_tree_row_draggable(lxb_dom_element_t* row) {
     if (!row) return false;
     if (detail::attr_string(row, "draggable") == "false") return false;
     if (detail::attr_string(row, "aria-disabled") == "true") return false;
     return true;
 }
+}  // namespace detail
+namespace {
+
 
 std::vector<lxb_dom_element_t*> dcs_tree_row_subtree(
     lxb_dom_element_t* row) {
@@ -13726,9 +14076,9 @@ TreeDropZone dcs_tree_drop_zone_for_point(
     detail::DocumentImpl& impl,
     lxb_dom_element_t* row,
     Point point) {
-    const int idx = block_index_for_exact_element(impl, row);
+    const int idx = detail::block_index_for_exact_element(impl, row);
     if (idx < 0) return TreeDropZone::Into;
-    const Rect bounds = block_border_visual_rect(impl, idx);
+    const Rect bounds = detail::block_border_visual_rect(impl, idx);
     if (bounds.h <= 0) return TreeDropZone::Into;
     const double y = static_cast<double>(point.y - bounds.y);
     if (y < bounds.h * 0.3) return TreeDropZone::Before;
@@ -13748,7 +14098,7 @@ bool set_dcs_tree_drop_highlight(detail::DocumentImpl& impl,
     bool changed = clear_dcs_tree_drop_highlight(impl);
     impl.tree_drag.target = target;
     impl.tree_drag.zone = zone;
-    changed = set_element_class(impl, target, dcs_tree_drop_class(zone),
+    changed = detail::set_element_class(impl, target, dcs_tree_drop_class(zone),
                                 true) ||
               changed;
     return changed;
@@ -13808,6 +14158,10 @@ void refresh_dcs_tree_visibility_raw(lxb_dom_element_t* tree) {
     }
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool update_dcs_tree_drag(detail::DocumentImpl& impl, const Event& ev) {
     auto& drag = impl.tree_drag;
     if (!drag.row || !drag.tree) return false;
@@ -13817,7 +14171,7 @@ bool update_dcs_tree_drag(detail::DocumentImpl& impl, const Event& ev) {
         const int dy = ev.pos.y - drag.start_y;
         if (dx * dx + dy * dy <= 36) return false;
         drag.dragging = true;
-        changed = set_element_class(impl, drag.row,
+        changed = detail::set_element_class(impl, drag.row,
                                     "dcs-tree__row--draggable", true) ||
                   changed;
     }
@@ -13837,7 +14191,14 @@ bool update_dcs_tree_drag(detail::DocumentImpl& impl, const Event& ev) {
               changed;
     return changed;
 }
+}  // namespace detail
+namespace {
 
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool finish_dcs_tree_drag(detail::DocumentImpl& impl, const Event& ev) {
     auto& drag = impl.tree_drag;
     if (!drag.dragging || !drag.row || !drag.tree) return false;
@@ -13874,7 +14235,7 @@ bool finish_dcs_tree_drag(detail::DocumentImpl& impl, const Event& ev) {
     auto* parent_node = lxb_dom_node_parent(lxb_dom_interface_node(target));
     if (!parent_node) return false;
 
-    SuppressDomStyleAttach no_eager_attach(impl);
+    detail::SuppressDomStyleAttach no_eager_attach(impl);
     clear_dcs_tree_drop_classes_raw(drag.target);
     dock_set_class(drag.row, "dcs-tree__row--draggable", false);
     shift_dcs_tree_subtree_depth_raw(source_subtree, delta_depth);
@@ -13894,19 +14255,22 @@ bool finish_dcs_tree_drag(detail::DocumentImpl& impl, const Event& ev) {
         }
     }
     refresh_dcs_tree_visibility_raw(drag.tree);
-    dock_structure_changed(impl);
+    detail::dock_structure_changed(impl);
     emit_widget_change(impl, drag.tree, "reorder");
     return true;
 }
 
 bool cancel_dcs_tree_drag(detail::DocumentImpl& impl) {
     bool changed = clear_dcs_tree_drop_highlight(impl);
-    changed = set_element_class(impl, impl.tree_drag.row,
+    changed = detail::set_element_class(impl, impl.tree_drag.row,
                                 "dcs-tree__row--draggable", false) ||
               changed;
     impl.tree_drag = {};
     return changed;
 }
+}  // namespace detail
+namespace {
+
 
 bool is_open_transient_layer(lxb_dom_element_t* elem) {
     return elem && !detail::has_attr(elem, "hidden") &&
@@ -13918,11 +14282,11 @@ bool is_open_transient_layer(lxb_dom_element_t* elem) {
 bool point_preserves_transient_layers(detail::DocumentImpl& impl,
                                       Point point) {
     for (std::size_t i = impl.blocks.size(); i-- > 0; ) {
-        auto* elem = element_for_block(impl, static_cast<int>(i));
+        auto* elem = detail::element_for_block(impl, static_cast<int>(i));
         if (!elem) continue;
-        const Rect bounds = block_border_visual_rect(impl, static_cast<int>(i));
+        const Rect bounds = detail::block_border_visual_rect(impl, static_cast<int>(i));
         if (bounds.w <= 0 || bounds.h <= 0 ||
-            !rect_contains(bounds, point.x, point.y)) {
+            !detail::rect_contains(bounds, point.x, point.y)) {
             continue;
         }
         if (is_open_transient_layer(elem)) return true;
@@ -13943,13 +14307,17 @@ bool point_preserves_transient_layers(detail::DocumentImpl& impl,
     return false;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool click_preserves_transient_layers(detail::DocumentImpl& impl,
                                       int from_idx,
                                       Point point) {
     for (int idx = from_idx;
          idx >= 0 && idx < static_cast<int>(impl.blocks.size());
          idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
-        auto* elem = element_for_block(impl, idx);
+        auto* elem = detail::element_for_block(impl, idx);
         if (!elem) continue;
         if (auto* popover = nearest_ancestor_with_class(elem, "dcs-popover");
             popover && !detail::has_attr(popover, "hidden")) {
@@ -13966,6 +14334,9 @@ bool click_preserves_transient_layers(detail::DocumentImpl& impl,
     }
     return point_preserves_transient_layers(impl, point);
 }
+}  // namespace detail
+namespace {
+
 
 lxb_dom_element_t* find_trigger_for_target(detail::DocumentImpl& impl,
                                            std::string_view target_selector) {
@@ -14013,7 +14384,7 @@ Document::TransientState Document::capture_transient_state() const {
 void Document::restore_transient_state(const TransientState& state) {
 #if !defined(AFFINEUI_STUB_BUILD)
     for (const auto& layer : state.open_layers) {
-        auto* elem = find_dom_element_by_id(*impl_, layer.id);
+        auto* elem = detail::find_dom_element_by_id(*impl_, layer.id);
         if (!elem) continue;
         if (layer.popover && !class_list_contains(elem, "dcs-popover")) {
             continue;
@@ -14121,15 +14492,19 @@ bool refresh_pseudo_chain(detail::DocumentImpl& impl,
     return true;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool refresh_hover_chain(detail::DocumentImpl& impl,
-                         bool* out_needs_recollect = nullptr) {
+                         bool* out_needs_recollect) {
     return refresh_pseudo_chain(impl, impl.hovered_chain,
                                 impl.hovered_idx, kHoverStateBit,
                                 out_needs_recollect);
 }
 
 bool refresh_active_chain(detail::DocumentImpl& impl,
-                          bool* out_needs_recollect = nullptr) {
+                          bool* out_needs_recollect) {
     return refresh_pseudo_chain(impl, impl.active_chain,
                                 impl.active_idx, kActiveStateBit,
                                 out_needs_recollect);
@@ -14183,6 +14558,9 @@ int focusable_ancestor(const detail::DocumentImpl& impl, int idx) {
     }
     return -1;
 }
+}  // namespace detail
+namespace {
+
 
 // True iff this block clips its children (overflow is non-visible).
 // CSS overflow: hidden | clip | scroll | auto all clip descendant paint.
@@ -14229,7 +14607,6 @@ int nearest_clip_ancestor_for_block(const detail::DocumentImpl& impl, int idx) {
 }  // namespace detail
 namespace {
 
-
 // True iff this block accepts scroll input on its Y axis.
 bool block_is_scrollable_y(const detail::DocumentImpl& impl, int idx) {
     if (idx < 0) return false;
@@ -14240,6 +14617,10 @@ bool block_is_scrollable_y(const detail::DocumentImpl& impl, int idx) {
     return b.content_h > b.bounds.h;
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 // Find the nearest scrollable-Y ancestor (or self) of `idx`. Returns
 // -1 when none exists. Used by wheel routing.
 int find_scrollable_y_ancestor(const detail::DocumentImpl& impl, int idx) {
@@ -14259,6 +14640,9 @@ bool focused_text_control(detail::DocumentImpl& impl, Block*& out) {
     out = &block;
     return true;
 }
+}  // namespace detail
+namespace {
+
 
 void remove_last_utf8_codepoint(std::string& text) {
     if (text.empty()) return;
@@ -14270,6 +14654,10 @@ void remove_last_utf8_codepoint(std::string& text) {
     text.erase(pos);
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 std::size_t previous_utf8_boundary(std::string_view text, std::size_t pos) {
     pos = std::min(pos, text.size());
     if (pos == 0) return 0;
@@ -14291,6 +14679,9 @@ std::size_t next_utf8_boundary(std::string_view text, std::size_t pos) {
     }
     return pos;
 }
+}  // namespace detail
+namespace {
+
 
 Painter::TextAlign painter_text_align(const detail::ComputedStyle& cs) {
     switch (cs.text_align) {
@@ -14408,13 +14799,12 @@ TextControlGeometry text_control_geometry(const detail::DocumentImpl& impl,
 }  // namespace detail
 namespace {
 
-
 std::uint64_t text_layout_signature(const detail::DocumentImpl& impl,
                                     int idx,
                                     const TextControlGeometry& g,
                                     const Block& block) {
     std::uint64_t h = 1469598103934665603ull;
-    if (const auto* elem = element_for_block(impl, idx)) {
+    if (const auto* elem = detail::element_for_block(impl, idx)) {
         const auto* node = lxb_dom_interface_node(
             const_cast<lxb_dom_element_t*>(elem));
         hash_mix(h, node);
@@ -14467,7 +14857,7 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
     const std::uint64_t signature =
         text_layout_signature(impl, idx, g, block);
     lxb_dom_node_t* node = nullptr;
-    if (auto* elem = element_for_block(impl, idx)) {
+    if (auto* elem = detail::element_for_block(impl, idx)) {
         node = lxb_dom_interface_node(elem);
     }
     if (auto found = impl.text_layout_cache.find(signature);
@@ -14547,7 +14937,7 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
         bool consumed_line = false;
 
         while (pos < block.text_value.size()) {
-            const std::size_t next = next_utf8_boundary(block.text_value, pos);
+            const std::size_t next = detail::next_utf8_boundary(block.text_value, pos);
             if (block.text_value[pos] == '\n') {
                 push_line(line_start, pos);
                 line_start = next;
@@ -14567,7 +14957,7 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
                         line_start = last_break_end;
                         while (is_soft_break_space(line_start)) {
                             line_start =
-                                next_utf8_boundary(block.text_value,
+                                detail::next_utf8_boundary(block.text_value,
                                                    line_start);
                         }
                     } else {
@@ -14605,7 +14995,7 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
         entry.line_widths.push_back(line_width);
         push_caret(visual.begin, 0.0f, caret_line);
         for (std::size_t pos = visual.begin; pos < visual.end;) {
-            const std::size_t next = next_utf8_boundary(block.text_value, pos);
+            const std::size_t next = detail::next_utf8_boundary(block.text_value, pos);
             push_caret(next,
                        measure_text_advance(
                            painter, g.font,
@@ -14620,10 +15010,9 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
 }  // namespace detail
 namespace {
 
-
 const TextLayoutEntry* cached_text_layout_entry(const detail::DocumentImpl& impl,
                                                 int idx) {
-    if (auto* elem = element_for_block(impl, idx)) {
+    if (auto* elem = detail::element_for_block(impl, idx)) {
         auto* node = lxb_dom_interface_node(elem);
         if (auto sig = impl.text_layout_signatures.find(node);
             sig != impl.text_layout_signatures.end()) {
@@ -14672,7 +15061,6 @@ float aligned_line_origin_x(const TextLayoutEntry& entry,
 }
 }  // namespace detail
 namespace {
-
 
 std::size_t text_caret_offset_from_point(detail::DocumentImpl& impl,
                                          int idx,
@@ -14749,7 +15137,10 @@ bool has_text_selection(const Block& block) {
 }  // namespace detail
 namespace {
 
+}  // namespace
 
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 void set_text_selection(detail::DocumentImpl& impl,
                         int idx,
                         Block& block,
@@ -14760,7 +15151,7 @@ void set_text_selection(detail::DocumentImpl& impl,
     block.selection_anchor = anchor;
     block.selection_focus = focus;
     block.caret_offset = focus;
-    if (auto* elem = element_for_block(impl, idx)) {
+    if (auto* elem = detail::element_for_block(impl, idx)) {
         auto* node = lxb_dom_interface_node(elem);
         impl.live_text_carets[node] = focus;
         impl.live_text_selections[node] = {anchor, focus};
@@ -14770,8 +15161,8 @@ void set_text_selection(detail::DocumentImpl& impl,
 bool set_text_caret_from_point(detail::DocumentImpl& impl,
                                int idx,
                                Point p,
-                               bool extend_selection = false,
-                               std::size_t anchor = 0) {
+                               bool extend_selection,
+                               std::size_t anchor) {
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return false;
     auto& block = impl.blocks[static_cast<std::size_t>(idx)];
     if (!block.text_control) return false;
@@ -14783,8 +15174,8 @@ bool set_text_caret_from_point(detail::DocumentImpl& impl,
         next == block.selection_focus) {
         return false;
     }
-    set_text_selection(impl, idx, block, next_anchor, next);
-    add_dirty_rect(impl, block_visual_rect(impl, idx));
+    detail::set_text_selection(impl, idx, block, next_anchor, next);
+    detail::add_dirty_rect(impl, detail::block_visual_rect(impl, idx));
     return true;
 }
 
@@ -14795,9 +15186,9 @@ word_bounds_at(std::string_view text, std::size_t caret) {
         return std::isalnum(c) || c == '_';
     };
     std::size_t begin = caret;
-    if (begin == text.size() && begin > 0) begin = previous_utf8_boundary(text, begin);
+    if (begin == text.size() && begin > 0) begin = detail::previous_utf8_boundary(text, begin);
     while (begin > 0) {
-        const std::size_t prev = previous_utf8_boundary(text, begin);
+        const std::size_t prev = detail::previous_utf8_boundary(text, begin);
         if (prev >= text.size() || !is_word(static_cast<unsigned char>(text[prev]))) {
             break;
         }
@@ -14806,14 +15197,17 @@ word_bounds_at(std::string_view text, std::size_t caret) {
     std::size_t end = caret;
     while (end < text.size()) {
         if (!is_word(static_cast<unsigned char>(text[end]))) break;
-        end = next_utf8_boundary(text, end);
+        end = detail::next_utf8_boundary(text, end);
     }
     if (begin == end && caret < text.size()) {
         begin = caret;
-        end = next_utf8_boundary(text, caret);
+        end = detail::next_utf8_boundary(text, caret);
     }
     return {begin, end};
 }
+}  // namespace detail
+namespace {
+
 
 std::string erase_selected_text(std::string text,
                                 std::size_t begin,
@@ -14843,7 +15237,7 @@ std::string replace_selected_text(std::string text,
 std::string erase_previous_codepoint(std::string text, std::size_t& caret) {
     caret = std::min(caret, text.size());
     if (caret == 0) return text;
-    const std::size_t start = previous_utf8_boundary(text, caret);
+    const std::size_t start = detail::previous_utf8_boundary(text, caret);
     text.erase(start, caret - start);
     caret = start;
     return text;
@@ -14852,7 +15246,7 @@ std::string erase_previous_codepoint(std::string text, std::size_t& caret) {
 std::string erase_next_codepoint(std::string text, std::size_t& caret) {
     caret = std::min(caret, text.size());
     if (caret >= text.size()) return text;
-    const std::size_t end = next_utf8_boundary(text, caret);
+    const std::size_t end = detail::next_utf8_boundary(text, caret);
     text.erase(caret, end - caret);
     return text;
 }
@@ -14890,7 +15284,7 @@ void set_live_text_state(detail::DocumentImpl& impl,
         block.placeholder_visible = true;
     }
 
-    if (auto* elem = element_for_block(impl, idx)) {
+    if (auto* elem = detail::element_for_block(impl, idx)) {
         auto* node = lxb_dom_interface_node(elem);
         impl.text_layout_signatures.erase(node);
         impl.live_text_values[node] = block.text_value;
@@ -14900,6 +15294,10 @@ void set_live_text_state(detail::DocumentImpl& impl,
     }
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 std::string emitted_text_control_value(const Block& block) {
     return block.placeholder_visible ? std::string{} : block.text_value;
 }
@@ -14907,6 +15305,9 @@ std::string emitted_text_control_value(const Block& block) {
 bool command_modifier(const Event& ev) {
     return ev.ctrl || ev.super;
 }
+}  // namespace detail
+namespace {
+
 
 bool text_word_byte(std::string_view text, std::size_t pos) {
     if (pos >= text.size()) return false;
@@ -14914,15 +15315,19 @@ bool text_word_byte(std::string_view text, std::size_t pos) {
     return c >= 0x80u || std::isalnum(c) || c == '_';
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 std::size_t previous_word_boundary(std::string_view text, std::size_t pos) {
     pos = std::min(pos, text.size());
     while (pos > 0) {
-        const std::size_t prev = previous_utf8_boundary(text, pos);
+        const std::size_t prev = detail::previous_utf8_boundary(text, pos);
         if (text_word_byte(text, prev)) break;
         pos = prev;
     }
     while (pos > 0) {
-        const std::size_t prev = previous_utf8_boundary(text, pos);
+        const std::size_t prev = detail::previous_utf8_boundary(text, pos);
         if (!text_word_byte(text, prev)) break;
         pos = prev;
     }
@@ -14932,10 +15337,10 @@ std::size_t previous_word_boundary(std::string_view text, std::size_t pos) {
 std::size_t next_word_boundary(std::string_view text, std::size_t pos) {
     pos = std::min(pos, text.size());
     while (pos < text.size() && text_word_byte(text, pos)) {
-        pos = next_utf8_boundary(text, pos);
+        pos = detail::next_utf8_boundary(text, pos);
     }
     while (pos < text.size() && !text_word_byte(text, pos)) {
-        pos = next_utf8_boundary(text, pos);
+        pos = detail::next_utf8_boundary(text, pos);
     }
     return pos;
 }
@@ -14943,7 +15348,7 @@ std::size_t next_word_boundary(std::string_view text, std::size_t pos) {
 std::string selected_text(const Block& block) {
     const auto [begin, end] = detail::normalized_selection(block);
     if (begin == end) return {};
-    return emitted_text_control_value(block).substr(begin, end - begin);
+    return detail::emitted_text_control_value(block).substr(begin, end - begin);
 }
 
 std::string clipboard_get_text(detail::DocumentImpl& impl) {
@@ -14971,29 +15376,36 @@ void clipboard_set_text(detail::DocumentImpl& impl, std::string_view text) {
         }
     }
 }
+}  // namespace detail
+namespace {
+
 
 void emit_text_control_change(detail::DocumentImpl& impl, int idx, Block& block) {
-    if (auto* elem = element_for_block(impl, idx)) {
+    if (auto* elem = detail::element_for_block(impl, idx)) {
         if (class_list_contains(elem, "dcs-colorfield__hex") ||
             class_list_contains(elem, "dcs-colorfield__picker-input")) {
             if (auto* field = nearest_ancestor_with_class(elem,
                                                           "dcs-colorfield")) {
                 sync_dcs_colorfield(impl, field,
-                                    emitted_text_control_value(block),
+                                    detail::emitted_text_control_value(block),
                                     /*emit=*/true);
             }
             return;
         }
-        emit_widget_change(impl, elem, emitted_text_control_value(block));
+        emit_widget_change(impl, elem, detail::emitted_text_control_value(block));
     }
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool delete_text_range(detail::DocumentImpl& impl,
                        int idx,
                        Block& block,
                        std::size_t begin,
                        std::size_t end) {
-    std::string next = emitted_text_control_value(block);
+    std::string next = detail::emitted_text_control_value(block);
     std::size_t caret = block.caret_offset;
     const std::string old = next;
     next = erase_selected_text(std::move(next), begin, end, caret);
@@ -15011,7 +15423,7 @@ bool replace_text_selection_or_insert(detail::DocumentImpl& impl,
                                       std::string_view text) {
     if (text.empty()) return false;
     const Rect old_rect = subtree_visual_rect(impl, idx);
-    std::string next = emitted_text_control_value(block);
+    std::string next = detail::emitted_text_control_value(block);
     std::size_t caret = block.caret_offset;
     if (detail::has_text_selection(block)) {
         const auto [begin, end] = detail::normalized_selection(block);
@@ -15040,8 +15452,8 @@ bool move_text_caret(detail::DocumentImpl& impl,
         caret == block.selection_focus) {
         return false;
     }
-    set_text_selection(impl, idx, block, anchor, caret);
-    add_dirty_rect(impl, block_visual_rect(impl, idx));
+    detail::set_text_selection(impl, idx, block, anchor, caret);
+    detail::add_dirty_rect(impl, detail::block_visual_rect(impl, idx));
     return true;
 }
 
@@ -15052,11 +15464,18 @@ bool apply_deferred_text_focus(detail::DocumentImpl& impl,
         drag.focus_idx >= static_cast<int>(impl.blocks.size())) {
         return false;
     }
-    bool changed = set_focus(impl, drag.focus_idx);
-    changed = set_text_caret_from_point(impl, drag.focus_idx, point) || changed;
+    bool changed = detail::set_focus(impl, drag.focus_idx);
+    changed = detail::set_text_caret_from_point(impl, drag.focus_idx, point) || changed;
     return changed;
 }
+}  // namespace detail
+namespace {
+
 #else  // stub build â€” no DOM, no pseudo / scroll bookkeeping
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool refresh_hover_chain(detail::DocumentImpl&, bool* = nullptr) {
     return false;
 }
@@ -15065,15 +15484,39 @@ bool refresh_active_chain(detail::DocumentImpl&, bool* = nullptr) {
 }
 bool set_focus(detail::DocumentImpl&, int)       { return false; }
 int  focusable_ancestor(const detail::DocumentImpl&, int) { return -1; }
+}  // namespace detail
+namespace {
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 int  find_scrollable_y_ancestor(const detail::DocumentImpl&, int) { return -1; }
 bool focused_text_control(detail::DocumentImpl&, Block*&) { return false; }
+}  // namespace detail
+namespace {
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 bool set_text_caret_from_point(detail::DocumentImpl&, int, Point, bool = false,
                                std::size_t = 0) { return false; }
+}  // namespace detail
+namespace {
+
 void remove_last_utf8_codepoint(std::string&) {}
 void set_live_text_value(detail::DocumentImpl&, int, Block&, std::string) {}
 void set_live_text_state(detail::DocumentImpl&, int, Block&, std::string,
                          std::size_t) {}
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
 std::string emitted_text_control_value(const Block&) { return {}; }
+}  // namespace detail
+namespace {
+
 #endif
 }  // namespace
 
@@ -15174,1324 +15617,13 @@ Rect Document::find_element_rect(std::string_view target) const {
     };
     walk_dom_elements(lxb_dom_interface_node(body), collect);
     if (!found) return {};
-    const int bi = block_index_for_exact_element(*impl_, found);
+    const int bi = detail::block_index_for_exact_element(*impl_, found);
     if (bi < 0) return {};
     return impl_->blocks[static_cast<std::size_t>(bi)].bounds;
 #else
     (void) target;
     return {};
 #endif
-}
-
-DispatchResult Document::dispatch(const Event& ev) {
-    DispatchResult result{};
-    auto ensure_interaction_layout = [&]() {
-#if !defined(AFFINEUI_STUB_BUILD)
-        // Relayout with the last-known metrics whenever a mutation dirtied the
-        // block tree. A null measurer is fine — painterless layout estimates
-        // glyph metrics — so interaction code always sees current geometry
-        // (headless apps included; stale blocks read as swallowed clicks,
-        // flickering drop cursors, and drops that land nowhere).
-        if (impl_->content_size.width == 0 &&
-            impl_->media_viewport_width_px > 0) {
-            layout(impl_->media_viewport_width_px,
-                   impl_->media_viewport_height_px, impl_->last_measurer);
-        }
-#endif
-    };
-    // A pseudo-state change (:hover/:active) revealed a display:none subtree
-    // that has no boxes (`.item:hover > .sub{display:block}` submenus).
-    // Recollect (state bits survive it), relayout, and rebuild the chains
-    // against fresh block indices so the revealed subtree is hit-testable in
-    // THIS dispatch, not a frame later.
-    auto handle_pseudo_reveal = [&](bool needs_recollect) {
-#if !defined(AFFINEUI_STUB_BUILD)
-        if (!needs_recollect) return;
-        auto* active_elem = element_for_block(*impl_, impl_->active_idx);
-        recollect_blocks_from_current_dom(*impl_);
-        ensure_interaction_layout();
-        impl_->hovered_idx = hit_test_blocks(*impl_, impl_->last_mouse_pos.x,
-                                             impl_->last_mouse_pos.y);
-        impl_->active_idx = active_elem
-            ? block_index_for_exact_element(*impl_, active_elem)
-            : -1;
-        refresh_hover_chain(*impl_);
-        refresh_active_chain(*impl_);
-        result.redraw_requested = true;
-#else
-        (void) needs_recollect;
-#endif
-    };
-    switch (ev.type) {
-        case EventType::MouseMove: {
-            impl_->last_mouse_pos = ev.pos;
-            // A prior dispatch may have mutated the DOM (drop-highlight class,
-            // transient-layer close, ...) and dirtied layout without a frame
-            // running since. Every pointer event starts by ensuring the block
-            // tree is current — hit tests and geometric row/target lookups on a
-            // stale tree miss, which reads as flickering drop cursors and
-            // swallowed clicks. No-op when the tree is clean.
-            ensure_interaction_layout();
-            if (impl_->scrollbar_drag.block_idx >= 0) {
-                if (scrollbar_scroll_from_thumb_y(
-                        *impl_,
-                        impl_->scrollbar_drag.block_idx,
-                        ev.pos.y - impl_->scrollbar_drag.thumb_offset_y)) {
-                    result.redraw_requested = true;
-                }
-                break;
-            }
-#if !defined(AFFINEUI_STUB_BUILD)
-            if (impl_->splitter_drag.block_idx >= 0) {
-                if (update_splitter_drag(*impl_, ev)) {
-                    result.redraw_requested = true;
-                }
-                break;
-            }
-            if (impl_->float_resize.elem) {
-                if (update_float_resize(*impl_, ev)) {
-                    impl_->content_size = Size{0, 0};
-                    result.redraw_requested = true;
-                }
-                break;
-            }
-            if (impl_->float_drag.elem) {
-                if (update_float_drag(*impl_, ev)) {
-                    result.redraw_requested = true;
-                }
-                break;
-            }
-            // A pressed tab becomes a drag once it moves past a small threshold;
-            // while dragging, show the drop indicator for the hovered zone.
-            if (!impl_->tab_drag.tab &&
-                !impl_->pending_tab_press.panel_id.empty()) {
-                const int dx = ev.pos.x - impl_->pending_tab_press.start_x;
-                const int dy = ev.pos.y - impl_->pending_tab_press.start_y;
-                if (dx * dx + dy * dy > 36) {
-                    ensure_interaction_layout();
-                    if (arm_tab_drag_from_pending_press(
-                            *impl_, impl_->pending_tab_press)) {
-                        impl_->tab_drag.dragging = true;
-                        dock_trace("tab-drag-start panel=" +
-                                   impl_->tab_drag.panel_id +
-                                   " from=" +
-                                   impl_->tab_drag.source_pane_id +
-                                   " source-placement=" +
-                                   dock_placement_summary(
-                                       impl_->tab_drag.source_placement) +
-                                   " source-tabs=[" +
-                                   sorted_join(
-                                       impl_->tab_drag.source_tab_ids, "|") +
-                                   "] source-bounds=" +
-                                   dock_rect_summary(
-                                       impl_->tab_drag.source_pane_bounds) +
-                                   " at=(" + std::to_string(ev.pos.x) + "," +
-                                   std::to_string(ev.pos.y) + ")");
-                    }
-                    impl_->pending_tab_press = {};
-                }
-            }
-            if (impl_->tab_drag.tab) {
-                if (!impl_->tab_drag.dragging) {
-                    const int dx = ev.pos.x - impl_->tab_drag.start_x;
-                    const int dy = ev.pos.y - impl_->tab_drag.start_y;
-                    if (dx * dx + dy * dy > 36) {
-                        impl_->tab_drag.dragging = true;
-                        dock_trace("tab-drag-start panel=" +
-                                   impl_->tab_drag.panel_id +
-                                   " from=" +
-                                   impl_->tab_drag.source_pane_id +
-                                   " source-placement=" +
-                                   dock_placement_summary(
-                                       impl_->tab_drag.source_placement) +
-                                   " source-tabs=[" +
-                                   sorted_join(
-                                       impl_->tab_drag.source_tab_ids, "|") +
-                                   "] source-bounds=" +
-                                   dock_rect_summary(
-                                       impl_->tab_drag.source_pane_bounds) +
-                                   " at=(" + std::to_string(ev.pos.x) + "," +
-                                   std::to_string(ev.pos.y) + ")");
-                    }
-                }
-                if (impl_->tab_drag.dragging) {
-                    ensure_interaction_layout();
-                    dock_trace("drag-move at=(" + std::to_string(ev.pos.x) +
-                               "," + std::to_string(ev.pos.y) + ")");
-                    // Re-resolve the source pane each move (a reload during the
-                    // drag invalidates captured element pointers).
-                    auto* drag_src_tab = find_dockpane_tab_for_panel_id(
-                        *impl_, impl_->tab_drag.panel_id);
-                    auto* drag_src_pane =
-                        ancestor_with_class(drag_src_tab, "dcs-dockpane");
-                    const auto t = compute_drop_target(
-                        *impl_, ev.pos, impl_->tab_drag.drag_kind,
-                        drag_src_pane);
-                    const bool target_changed =
-                        impl_->tab_drag.drop_valid != t.valid ||
-                        impl_->tab_drag.drop_parent !=
-                            (t.valid ? t.parent : std::string()) ||
-                        impl_->tab_drag.drop_zone !=
-                            (t.valid ? static_cast<int>(t.zone)
-                                     : static_cast<int>(DropZone::None)) ||
-                        impl_->tab_drag.drop_x != t.x ||
-                        impl_->tab_drag.drop_y != t.y ||
-                        impl_->tab_drag.drop_w != t.w ||
-                        impl_->tab_drag.drop_h != t.h;
-                    if (target_changed) {
-                        const int hit =
-                            hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
-                        dock_trace("preview panel=" +
-                                   impl_->tab_drag.panel_id +
-                                   " at=(" + std::to_string(ev.pos.x) + "," +
-                                   std::to_string(ev.pos.y) + ") " +
-                                   drop_target_summary(t) +
-                                   " hit=" +
-                                   hit_chain_summary(*impl_, hit));
-                    }
-                    const bool indicator_was_visible =
-                        impl_->tab_drag.drop_indicator_visible;
-                    impl_->tab_drag.drop_valid = t.valid;
-                    impl_->tab_drag.drop_parent = t.valid ? t.parent : std::string();
-                    impl_->tab_drag.drop_zone =
-                        t.valid ? static_cast<int>(t.zone)
-                                : static_cast<int>(DropZone::None);
-                    impl_->tab_drag.drop_x = t.x;
-                    impl_->tab_drag.drop_y = t.y;
-                    impl_->tab_drag.drop_w = t.w;
-                    impl_->tab_drag.drop_h = t.h;
-                    impl_->tab_drag.drop_indicator_visible = t.valid;
-                    if (set_drop_indicator(*impl_, t.valid ? &t : nullptr) ||
-                        indicator_was_visible != t.valid) {
-                        result.redraw_requested = true;
-                    }
-                    if (update_tab_drag_ghost(
-                            *impl_, impl_->tab_drag.label, ev.pos)) {
-                        result.redraw_requested = true;
-                    }
-                }
-            }
-            if (impl_->ui_control_script_attached &&
-                impl_->colorfield_drag.kind !=
-                    detail::DocumentImpl::ColorfieldDrag::Kind::None) {
-                result.defer_widget_changes = true;
-                if (update_dcs_colorfield_drag(*impl_, ev)) {
-                    result.redraw_requested = true;
-                }
-                break;
-            }
-            if (impl_->ui_control_script_attached && impl_->tree_drag.row) {
-                if (update_dcs_tree_drag(*impl_, ev)) {
-                    result.redraw_requested = true;
-                }
-                if (impl_->tree_drag.dragging) break;
-            }
-            if (impl_->ui_control_script_attached &&
-                impl_->live_drag.kind != LiveControlKind::None) {
-                if (update_active_live_control(*impl_, ev)) {
-                    result.redraw_requested = true;
-                }
-                break;
-            }
-#endif
-            if (impl_->text_selection_drag_idx >= 0) {
-                if (set_text_caret_from_point(
-                        *impl_, impl_->text_selection_drag_idx, ev.pos,
-                        true, impl_->text_selection_drag_anchor)) {
-                    result.redraw_requested = true;
-                }
-                break;
-            }
-            const int new_hover = hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
-            if (new_hover != impl_->hovered_idx) {
-                impl_->hovered_idx      = new_hover;
-                result.redraw_requested = true;
-            }
-            // Refresh :hover chain even when hovered_idx didn't change â€”
-            // mouse may have moved within the same leaf block (no-op
-            // here) or the tree may have churned underneath us (rare,
-            // but cheap to verify).
-            {
-                bool reveal = false;
-                if (refresh_hover_chain(*impl_, &reveal)) {
-                    result.redraw_requested = true;
-                }
-                handle_pseudo_reveal(reveal);
-            }
-            if (impl_->ui_control_script_attached &&
-                hover_switch_dcs_menubar_menu(*impl_, impl_->hovered_idx)) {
-                // The switch mutated hidden/style attrs and dirtied
-                // layout; resolve it in-dispatch so the very next hit
-                // test and hover refresh see the newly opened panel.
-                ensure_interaction_layout();
-                impl_->hovered_idx =
-                    hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
-                bool reveal = false;
-                refresh_hover_chain(*impl_, &reveal);
-                handle_pseudo_reveal(reveal);
-                result.redraw_requested = true;
-            }
-            break;
-        }
-        case EventType::MouseDown: {
-            impl_->last_mouse_pos = ev.pos;
-            ensure_interaction_layout();  // see MouseMove — never press on a
-                                          // stale block tree
-            impl_->hovered_idx    = hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
-            impl_->mouse_down_consumed_release = false;
-            impl_->text_selection_drag_idx = -1;
-            impl_->scrollbar_drag = {};
-#if !defined(AFFINEUI_STUB_BUILD)
-            impl_->splitter_drag = {};
-            impl_->float_resize = {};
-            impl_->pending_tab_press = {};
-            impl_->pressed_button = nullptr;
-#endif
-            if (ev.button == MouseButton::Left) {
-                int scrollbar_idx = -1;
-                ScrollbarGeometry scrollbar{};
-                if (find_vertical_scrollbar_at(
-                        *impl_, ev.pos, scrollbar_idx, scrollbar)) {
-                    impl_->scrollbar_drag.block_idx = scrollbar_idx;
-                    impl_->scrollbar_drag.start_y = ev.pos.y;
-                    impl_->scrollbar_drag.start_scroll_y =
-                        impl_->blocks[static_cast<std::size_t>(
-                            scrollbar_idx)].scroll_y;
-                    impl_->scrollbar_drag.thumb_offset_y =
-                        rect_contains(scrollbar.thumb, ev.pos.x, ev.pos.y)
-                            ? ev.pos.y - scrollbar.thumb.y
-                            : scrollbar.thumb.h / 2;
-                    if (!rect_contains(scrollbar.thumb, ev.pos.x, ev.pos.y) &&
-                        scrollbar_scroll_from_thumb_y(
-                            *impl_, scrollbar_idx,
-                            ev.pos.y -
-                                impl_->scrollbar_drag.thumb_offset_y)) {
-                        result.redraw_requested = true;
-                    }
-                    break;
-                }
-            }
-#if !defined(AFFINEUI_STUB_BUILD)
-            // Dock splitter grab takes priority over anything inside the panes
-            // (the splitter is a thin element the pointer lands on directly).
-            if (impl_->ui_control_script_attached &&
-                ev.button == MouseButton::Left) {
-                detail::DocumentImpl::SplitterDrag sd{};
-                if (find_splitter_at(*impl_, impl_->hovered_idx, ev.pos, sd)) {
-                    impl_->splitter_drag = sd;
-                    impl_->splitter_drag.start_pos =
-                        sd.horizontal ? ev.pos.y : ev.pos.x;
-                    if (auto* selem =
-                            element_for_block(*impl_, sd.block_idx)) {
-                        set_element_class(*impl_, selem,
-                                          "dcs-splitter--active", true);
-                    }
-                    break;
-                }
-            }
-            // Floating tearoff resize from the synthetic JS-compatible edge and
-            // corner zones. This has priority over chrome dragging.
-            if (impl_->ui_control_script_attached &&
-                ev.button == MouseButton::Left) {
-                detail::DocumentImpl::FloatResize fr{};
-                if (find_float_resize_at(*impl_, impl_->hovered_idx, ev.pos,
-                                         fr)) {
-                    impl_->float_resize = fr;
-                    result.redraw_requested = true;
-                    break;
-                }
-            }
-            // Floating toolbar / panel grab: a [data-dcs-drag] container dragged
-            // by a [data-dcs-drag-handle] inside it. Falls through if the press
-            // wasn't on a handle, so the toolbar's own buttons still click.
-            if (impl_->ui_control_script_attached &&
-                ev.button == MouseButton::Left) {
-                detail::DocumentImpl::FloatDrag fd{};
-                if (find_float_drag_at(*impl_, impl_->hovered_idx, ev.pos, fd)) {
-                    impl_->float_drag = fd;
-                    result.redraw_requested = true;
-                    break;
-                }
-            }
-            if (impl_->ui_control_script_attached &&
-                ev.button == MouseButton::Left) {
-                if (begin_dcs_colorfield_drag(*impl_, impl_->hovered_idx, ev)) {
-                    const auto kind = impl_->colorfield_drag.kind;
-                    result.defer_widget_changes = true;
-                    if (kind ==
-                            detail::DocumentImpl::ColorfieldDrag::Kind::Square ||
-                        kind ==
-                            detail::DocumentImpl::ColorfieldDrag::Kind::Hue) {
-                        update_dcs_colorfield_drag(*impl_, ev);
-                    }
-                    result.redraw_requested = true;
-                    break;
-                }
-            }
-#endif
-            // :active follows the press: set to whatever's under the
-            // pointer right now, refresh the active chain so the bit
-            // toggles on and an immediate restyle visualizes the press.
-            impl_->active_idx     = impl_->hovered_idx;
-            bool press_reveal = false;
-            const bool h = refresh_hover_chain(*impl_, &press_reveal);
-            const bool a = refresh_active_chain(*impl_, &press_reveal);
-            handle_pseudo_reveal(press_reveal);
-#if !defined(AFFINEUI_STUB_BUILD)
-            detail::DocumentImpl::LiveControlDrag pending_live_drag{};
-            const bool has_pending_live_drag =
-                impl_->ui_control_script_attached &&
-                ev.button == MouseButton::Left &&
-                find_live_control_at(*impl_, impl_->hovered_idx, ev.pos,
-                                     pending_live_drag);
-            const bool defer_text_focus =
-                has_pending_live_drag &&
-                pending_live_drag.kind == LiveControlKind::NumericInput;
-            const bool resize_textarea =
-                has_pending_live_drag &&
-                pending_live_drag.kind == LiveControlKind::TextAreaResize;
-#else
-            const bool defer_text_focus = false;
-            const bool resize_textarea = false;
-#endif
-            // Focus moves to the nearest focusable ancestor of whatever
-            // the press landed on. Clicking blank space (no focusable
-            // ancestor) clears focus, matching browser behavior for
-            // mousedown outside any form control.
-            const int target = focusable_ancestor(*impl_, impl_->hovered_idx);
-            bool f = false;
-            bool caret = false;
-            if (!defer_text_focus && !resize_textarea) {
-                f = set_focus(*impl_, target);
-                caret = set_text_caret_from_point(*impl_, target, ev.pos);
-            }
-            if (!defer_text_focus && !resize_textarea && target >= 0 &&
-                target < static_cast<int>(impl_->blocks.size()) &&
-                impl_->blocks[static_cast<std::size_t>(target)].text_control) {
-                auto& block = impl_->blocks[static_cast<std::size_t>(target)];
-                const auto now = std::chrono::steady_clock::now();
-                const bool double_click =
-                    impl_->last_text_click_valid &&
-                    impl_->last_text_click_idx == target &&
-                    std::chrono::duration_cast<std::chrono::milliseconds>(
-                        now - impl_->last_text_click_time).count() < 500 &&
-                    std::abs(ev.pos.x - impl_->last_text_click_pos.x) <= 4 &&
-                    std::abs(ev.pos.y - impl_->last_text_click_pos.y) <= 4;
-                if (double_click && !block.text_value.empty()) {
-                    const auto [begin, end] =
-                        word_bounds_at(block.text_value, block.caret_offset);
-                    set_text_selection(*impl_, target, block, begin, end);
-                    add_dirty_rect(*impl_, block_visual_rect(*impl_, target));
-                    caret = true;
-                    impl_->last_text_click_valid = false;
-                } else {
-                    impl_->last_text_click_valid = true;
-                    impl_->last_text_click_idx = target;
-                    impl_->last_text_click_pos = ev.pos;
-                    impl_->last_text_click_time = now;
-                    if (ev.button == MouseButton::Left) {
-                        impl_->text_selection_drag_idx = target;
-                        impl_->text_selection_drag_anchor =
-                            block.caret_offset;
-                    }
-                }
-            } else {
-                impl_->text_selection_drag_idx = -1;
-            }
-            if (h || a || f || caret) result.redraw_requested = true;
-#if !defined(AFFINEUI_STUB_BUILD)
-            // Checks / radios / switches toggle on PRESS (decius.js wires
-            // pointerdown — waiting for the release reads as sluggish). The
-            // release path only claims the click for checkbox-like targets so
-            // the same gesture can't also activate a menu/dropdown beneath.
-            if (impl_->ui_control_script_attached &&
-                ev.button == MouseButton::Left && !has_pending_live_drag) {
-                int check_idx = -1;
-                lxb_dom_element_t* check_elem = nullptr;
-                if (find_checkbox_control_at(*impl_, impl_->hovered_idx,
-                                             check_idx, check_elem) &&
-                    toggle_checkbox_control(*impl_, check_idx, check_elem)) {
-                    result.redraw_requested = true;
-                }
-            }
-            // Collapsibles (foldout/subpanel headers), tree chevrons, and
-            // selectable rows resolve on PRESS for the same immediate feel as
-            // tabs. A chevron press consumes row selection so expand/collapse
-            // does not also select the tree row underneath it.
-            bool press_consumed_by_collapse = false;
-            if (impl_->ui_control_script_attached &&
-                ev.button == MouseButton::Left && !has_pending_live_drag) {
-                if (toggle_decius_collapse_control(*impl_, impl_->hovered_idx) ||
-                    toggle_dcs_tree_chevron_control(*impl_, impl_->hovered_idx)) {
-                    result.redraw_requested = true;
-                    press_consumed_by_collapse = true;
-                }
-                if (!press_consumed_by_collapse) {
-                    lxb_dom_element_t* tree = nullptr;
-                    lxb_dom_element_t* row = nullptr;
-                    const bool draggable_tree_row =
-                        find_dcs_tree_row_at(*impl_, impl_->hovered_idx,
-                                             tree, row) &&
-                        dcs_tree_row_draggable(row);
-                    lxb_dom_element_t* select_box = nullptr;
-                    lxb_dom_element_t* select_row = nullptr;
-                    const bool selectable_row =
-                        find_dcs_select_row_at(*impl_, impl_->hovered_idx,
-                                               select_box, select_row);
-                    if (draggable_tree_row) {
-                        impl_->tree_drag = {};
-                        impl_->tree_drag.tree = tree;
-                        impl_->tree_drag.row = row;
-                        impl_->tree_drag.select_box = select_box;
-                        impl_->tree_drag.select_row =
-                            selectable_row ? select_row : nullptr;
-                        impl_->tree_drag.start_x = ev.pos.x;
-                        impl_->tree_drag.start_y = ev.pos.y;
-                        impl_->tree_drag.press_ctrl = ev.ctrl;
-                        impl_->tree_drag.press_shift = ev.shift;
-                        impl_->tree_drag.press_super = ev.super;
-                    } else if (selectable_row &&
-                               update_dcs_select_control(*impl_, select_box,
-                                                         select_row, ev)) {
-                        result.redraw_requested = true;
-                    }
-                }
-            }
-            // Decius menu triggers/items SELECT on press. Opening a menubar
-            // menu is selection; leaf item activation still happens on release.
-            if (impl_->ui_control_script_attached &&
-                ev.button == MouseButton::Left && !has_pending_live_drag) {
-                lxb_dom_element_t* menu_elem = nullptr;
-                lxb_dom_element_t* menu_item = nullptr;
-                lxb_dom_element_t* trigger_elem = nullptr;
-                lxb_dom_element_t* dropdown_group = nullptr;
-                lxb_dom_element_t* dropdown_select = nullptr;
-                lxb_dom_element_t* dropdown_option = nullptr;
-                const bool over_dropdown =
-                    find_dropdown_control_at(*impl_, impl_->hovered_idx,
-                                             dropdown_group, dropdown_select,
-                                             dropdown_option);
-                bool consume_release = false;
-                if (!over_dropdown &&
-                    find_dcs_menu_item_at(*impl_, impl_->hovered_idx,
-                                          menu_elem, menu_item)) {
-                    if (press_dcs_menu_item(*impl_, menu_item)) {
-                        result.redraw_requested = true;
-                    }
-                } else if (!over_dropdown &&
-                           find_dcs_menu_trigger_at(*impl_, impl_->hovered_idx,
-                                                    trigger_elem, menu_elem)) {
-                    if (toggle_dcs_menu(*impl_, trigger_elem, menu_elem)) {
-                        result.redraw_requested = true;
-                    }
-                    consume_release = true;
-                }
-                if (consume_release) {
-                    impl_->mouse_down_consumed_release = true;
-                }
-            }
-            if (impl_->ui_control_script_attached &&
-                ev.button == MouseButton::Left && !has_pending_live_drag) {
-                lxb_dom_element_t* button_elem = nullptr;
-                if (find_button_control_at(*impl_, impl_->hovered_idx,
-                                           button_elem)) {
-                    impl_->pressed_button = button_elem;
-                }
-            }
-            // Dock-pane tab: SELECT IMMEDIATELY on press so it feels responsive
-            // (first click always selects — the standard drag/drop rule), then
-            // arm a potential drag. If the pointer then moves out of the pane it
-            // tears off; if not, the press already did its job (selection).
-            if (impl_->ui_control_script_attached &&
-                ev.button == MouseButton::Left) {
-                lxb_dom_element_t* tab_elem = nullptr;
-                if (find_dockpane_tab_at(*impl_, impl_->hovered_idx, tab_elem)) {
-                    const bool switched = switch_dockpane_tab(*impl_, tab_elem);
-                    if (switched) {
-                        result.invalidate_view = true;
-                        result.layout_changed = true;
-                        result.redraw_requested = true;
-                    }
-                    auto* pane = ancestor_with_class(tab_elem, "dcs-dockpane");
-                    const std::string panel_id = dockpane_tab_panel_id(tab_elem);
-                    impl_->pending_tab_press.panel_id = panel_id;
-                    impl_->pending_tab_press.start_x = ev.pos.x;
-                    impl_->pending_tab_press.start_y = ev.pos.y;
-                    impl_->pending_tab_press.switched_on_down = switched;
-                    dock_trace("tab-press panel=" + panel_id +
-                               " pane=" + pane_panel_id(pane) +
-                               " switched=" + (switched ? "1" : "0") +
-                               " at=(" + std::to_string(ev.pos.x) + "," +
-                               std::to_string(ev.pos.y) + ")");
-                    if (dock_kind_of(pane) == "documents") {
-                        break;
-                    }
-                    impl_->tab_drag = {};
-                    impl_->tab_drag.tab = tab_elem;
-                    impl_->tab_drag.pane = pane;
-                    impl_->tab_drag.panel_id = panel_id;
-                    impl_->tab_drag.start_x = ev.pos.x;
-                    impl_->tab_drag.start_y = ev.pos.y;
-                    impl_->tab_drag.switched_on_down = switched;
-                    capture_tab_drag_metadata(
-                        *impl_, impl_->tab_drag, tab_elem, pane);
-                }
-            }
-            if (has_pending_live_drag) {
-                impl_->live_drag = pending_live_drag;
-                impl_->live_drag.start_x = ev.pos.x;
-                impl_->live_drag.start_y = ev.pos.y;
-                impl_->live_drag.last_x = ev.pos.x;
-                if (impl_->live_drag.kind == LiveControlKind::NumericInput) {
-                    impl_->live_drag.defer_text_focus = true;
-                    impl_->live_drag.focus_idx = target;
-                    impl_->live_drag.focus_point = ev.pos;
-                }
-                if (impl_->live_drag.kind != LiveControlKind::AuiKnob &&
-                    impl_->live_drag.kind != LiveControlKind::DeciusKnob &&
-                    impl_->live_drag.kind != LiveControlKind::NumericInput &&
-                    impl_->live_drag.kind != LiveControlKind::TextAreaResize &&
-                    update_active_live_control(*impl_, ev)) {
-                    result.redraw_requested = true;
-                }
-            }
-#endif
-            break;
-        }
-        case EventType::MouseUp: {
-            impl_->last_mouse_pos = ev.pos;
-            ensure_interaction_layout();  // see MouseMove — never release on a
-                                          // stale block tree
-            if (impl_->scrollbar_drag.block_idx >= 0) {
-                if (scrollbar_scroll_from_thumb_y(
-                        *impl_,
-                        impl_->scrollbar_drag.block_idx,
-                        ev.pos.y - impl_->scrollbar_drag.thumb_offset_y)) {
-                    result.redraw_requested = true;
-                }
-                impl_->scrollbar_drag = {};
-                break;
-            }
-#if !defined(AFFINEUI_STUB_BUILD)
-            if (impl_->splitter_drag.block_idx >= 0) {
-                const bool persist_layout = impl_->splitter_drag.persist_layout;
-                if (update_splitter_drag(*impl_, ev)) {
-                    result.redraw_requested = true;
-                }
-                if (auto* selem =
-                        element_for_block(*impl_, impl_->splitter_drag.block_idx)) {
-                    if (set_element_class(*impl_, selem, "dcs-splitter--active",
-                                          false)) {
-                        result.redraw_requested = true;
-                    }
-                }
-                impl_->splitter_drag = {};
-                // A pane was resized — let the app persist the new dock layout.
-                result.layout_changed = persist_layout;
-                break;
-            }
-            if (impl_->float_resize.elem) {
-                if (update_float_resize(*impl_, ev)) {
-                    impl_->content_size = Size{0, 0};
-                    result.redraw_requested = true;
-                }
-                const auto fr = impl_->float_resize;
-                const Rect r = float_resize_rect(fr, ev);
-                impl_->float_resize = {};
-                if (!fr.panel_id.empty()) {
-                    Document::DockPlacement p;
-                    p.present = true;
-                    p.floating = true;
-                    p.x = r.x - fr.cb_x;
-                    p.y = r.y - fr.cb_y;
-                    p.w = r.w;
-                    p.h = r.h;
-                    impl_->dock_overrides[fr.panel_id] = p;
-                    dock_trace("float-resize panel=" + fr.panel_id +
-                               " rect=(" + std::to_string(p.x) + "," +
-                               std::to_string(p.y) + "," +
-                               std::to_string(p.w) + "x" +
-                               std::to_string(p.h) + ")");
-                    dock_trace_state(*impl_, "after-float-resize");
-                    result.layout_changed = true;
-                }
-                result.redraw_requested = true;
-                break;
-            }
-            if (impl_->float_drag.elem) {
-                if (update_float_drag(*impl_, ev)) {
-                    result.redraw_requested = true;
-                }
-                const auto fd = impl_->float_drag;
-                impl_->float_drag = {};
-                if (set_drop_indicator(*impl_, nullptr)) {  // hide
-                    result.redraw_requested = true;
-                }
-                if (!fd.panel_id.empty()) {
-                    // Moving floating chrome only moves the panel. Re-docking is
-                    // handled by dragging the dock tab/title, mirroring
-                    // decius.js and preventing accidental reparents while a
-                    // user is simply repositioning a tearoff.
-                    int nx = fd.elem_doc_x + (ev.pos.x - fd.start_x);
-                    int ny = fd.elem_doc_y + (ev.pos.y - fd.start_y);
-                    if (fd.bounds_w > 0)
-                        nx = std::clamp(nx, fd.bounds_x,
-                                        std::max(fd.bounds_x, fd.bounds_x +
-                                                                  fd.bounds_w -
-                                                                  fd.elem_w));
-                    if (fd.bounds_h > 0)
-                        ny = std::clamp(ny, fd.bounds_y,
-                                        std::max(fd.bounds_y, fd.bounds_y +
-                                                                  fd.bounds_h -
-                                                                  fd.elem_h));
-                    Document::DockPlacement p;
-                    p.present = true;
-                    p.floating = true;
-                    p.x = nx - fd.cb_x;
-                    p.y = ny - fd.cb_y;
-                    p.w = fd.elem_w;
-                    p.h = fd.elem_h;
-                    impl_->dock_overrides[fd.panel_id] = p;
-                    dock_trace("float-move panel=" + fd.panel_id +
-                               " rect=(" + std::to_string(p.x) + "," +
-                               std::to_string(p.y) + "," +
-                               std::to_string(p.w) + "x" +
-                               std::to_string(p.h) + ")");
-                    dock_trace_state(*impl_, "after-float-move");
-                    result.layout_changed = true;  // re-seed + rebuild
-                    result.redraw_requested = true;
-                } else {
-                    // A non-dockable float (e.g. a toolbar): in-session move only
-                    // (no override store yet — see the float-position follow-up).
-                    result.redraw_requested = true;
-                }
-                break;
-            }
-            // Dock-pane tab release: the tab was already selected on press; here
-            // we only complete a DRAG. decius.js drop semantics, applied as DOM
-            // surgery: center → join the target's tab row; edge → split the
-            // target; anywhere else (free space, wrong-kind pane, or the source
-            // pane itself) → tear off into a floating panel.
-            if (impl_->tab_drag.tab) {
-                const auto td = impl_->tab_drag;
-                impl_->tab_drag = {};
-                impl_->pending_tab_press = {};
-                if (td.dragging) {
-                    if (remove_tab_drag_ghost(*impl_)) {
-                        result.redraw_requested = true;
-                    }
-                    if (set_drop_indicator(*impl_, nullptr)) {  // hide
-                        result.redraw_requested = true;
-                    }
-                    ensure_interaction_layout();
-                    // Re-resolve the live elements by panel id (a reload during
-                    // the drag invalidates the captured pointers).
-                    auto* tab = find_dockpane_tab_for_panel_id(*impl_,
-                                                               td.panel_id);
-                    auto* panel = find_dom_element_by_id(
-                        *impl_, td.panel_id + "-body");
-                    auto* source =
-                        tab ? ancestor_with_class(tab, "dcs-dockpane") : nullptr;
-                    // Suppress lexbor's eager insert-time style attach for the
-                    // whole gesture (incl. the finisher) — moves leave the tree
-                    // transiently inconsistent and the eager attach reads a
-                    // half-torn-down style weak-list (ASAN use-after-poison).
-                    // dock_structure_changed() rebuilds all styles once.
-                    SuppressDomStyleAttach no_eager_attach(*impl_);
-                    bool changed_dock = false;
-                    if (tab && panel && source) {
-                        const auto t = compute_drop_target(
-                            *impl_, ev.pos, td.drag_kind, source);
-                        auto* floater =
-                            ancestor_with_class(source, "dcs-panel--floating");
-                        const bool only_floater_tab =
-                            floater && dock_tabs(source).size() == 1;
-                        if (t.self_noop) {
-                            // Released back on the center of its own multi-tab
-                            // pane: the tab is already here — do nothing.
-                            dock_trace("dock-noop-self panel=" + td.panel_id);
-                        } else if (t.valid && t.pane &&
-                                   t.zone == DropZone::Tab) {
-                            // Center: join the target pane's tab row.
-                            changed_dock =
-                                dock_move_tab_to(*impl_, tab, panel, t.pane);
-                            if (changed_dock) {
-                                dock_cleanup_source(*impl_, source);
-                                dock_trace("dock panel=" + td.panel_id +
-                                           " target=" + t.parent);
-                            }
-                        } else if (t.valid && t.pane) {
-                            // Edge: a fresh pane owns the tab; split the target.
-                            auto* fresh = dock_create_pane(*impl_, td.panel_id,
-                                                           td.drag_kind);
-                            if (fresh &&
-                                dock_move_tab_to(*impl_, tab, panel, fresh)) {
-                                dock_split(*impl_, t.pane, t.zone, fresh,
-                                           t.window_edge);
-                                dock_cleanup_source(*impl_, source);
-                                changed_dock = true;
-                                dock_trace(
-                                    "edge-dock panel=" + td.panel_id +
-                                    " edge=" + drop_zone_name(t.zone) +
-                                    (t.window_edge ? " window-edge" : "") +
-                                    " target=" + t.parent);
-                            }
-                        } else if (only_floater_tab) {
-                            // A single-tab floater repositions via its chrome;
-                            // its title tab dropping in free space is a no-op.
-                            dock_trace("tab-drag-cancel panel=" + td.panel_id);
-                        } else {
-                            // Free space → tear off (JS spawns even over the
-                            // source pane — the Photoshop gesture).
-                            const int si =
-                                block_index_for_exact_element(*impl_, source);
-                            const Rect sb =
-                                si >= 0 ? impl_->blocks[static_cast<std::size_t>(
-                                                            si)]
-                                              .bounds
-                                        : Rect{};
-                            int w = sb.w > 0 ? std::min(420, sb.w) : 320;
-                            int h = sb.h > 0 ? std::min(360, sb.h) : 240;
-                            w = positive_int_attr(tab, "data-dcs-tearout-width",
-                                                  w);
-                            h = positive_int_attr(tab,
-                                                  "data-dcs-tearout-height", h);
-                            auto* fp = dock_spawn_floating_panel(
-                                *impl_, tab, panel, ev.pos, w, h, td.drag_kind,
-                                td.panel_id);
-                            if (fp) {
-                                dock_cleanup_source(*impl_, source);
-                                changed_dock = true;
-                                dock_trace("tearoff panel=" + td.panel_id);
-                            }
-                        }
-                    }
-                    if (changed_dock) {
-                        dock_structure_changed(*impl_);
-                        dock_trace_state(*impl_, "after-dock-surgery");
-                        result.layout_changed = true;  // app persists + re-emits
-                        result.redraw_requested = true;
-                    }
-                }
-                break;  // tab interaction consumed this release
-            }
-            if (!impl_->pending_tab_press.panel_id.empty()) {
-                impl_->pending_tab_press = {};
-                break;  // tab press survived a rebuild; release is consumed
-            }
-            if (impl_->ui_control_script_attached &&
-                impl_->colorfield_drag.kind !=
-                    detail::DocumentImpl::ColorfieldDrag::Kind::None) {
-                if (update_dcs_colorfield_drag(*impl_, ev)) {
-                    result.redraw_requested = true;
-                }
-                impl_->colorfield_drag = {};
-                result.redraw_requested = true;
-                break;
-            }
-            if (impl_->ui_control_script_attached && impl_->tree_drag.row) {
-                const bool was_dragging = impl_->tree_drag.dragging;
-                bool changed = false;
-                if (was_dragging) {
-                    changed = finish_dcs_tree_drag(*impl_, ev);
-                    if (!changed) {
-                        changed = cancel_dcs_tree_drag(*impl_) || changed;
-                    } else {
-                        impl_->tree_drag = {};
-                    }
-                } else {
-                    auto* select_box = impl_->tree_drag.select_box;
-                    auto* select_row = impl_->tree_drag.select_row;
-                    const bool press_ctrl = impl_->tree_drag.press_ctrl;
-                    const bool press_shift = impl_->tree_drag.press_shift;
-                    const bool press_super = impl_->tree_drag.press_super;
-                    impl_->tree_drag = {};
-                    if (select_box && select_row) {
-                        Event select_event = ev;
-                        select_event.ctrl = press_ctrl;
-                        select_event.shift = press_shift;
-                        select_event.super = press_super;
-                        changed = update_dcs_select_control(
-                                      *impl_, select_box, select_row,
-                                      select_event) ||
-                                  changed;
-                    }
-                }
-                if (changed) result.redraw_requested = true;
-                break;
-            }
-#endif
-            bool released_live_control = false;
-#if !defined(AFFINEUI_STUB_BUILD)
-            if (impl_->ui_control_script_attached &&
-                impl_->live_drag.kind != LiveControlKind::None) {
-                const auto released_drag = impl_->live_drag;
-                if (update_active_live_control(*impl_, ev)) {
-                    result.redraw_requested = true;
-                }
-                if (released_drag.kind == LiveControlKind::NumericInput &&
-                    !impl_->live_drag.moved &&
-                    apply_deferred_text_focus(*impl_, released_drag, ev.pos)) {
-                    result.redraw_requested = true;
-                }
-                released_live_control = true;
-                impl_->live_drag = {};
-            }
-#endif
-            impl_->hovered_idx    = hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
-            impl_->text_selection_drag_idx = -1;
-            // Clear :active on every MouseUp â€” the press is over. We
-            // don't try to be clever about "release outside the
-            // pressed element" today; that nuance is part of the
-            // click-state machinery to layer in later.
-            impl_->active_idx     = -1;
-            bool release_reveal = false;
-            const bool h = refresh_hover_chain(*impl_, &release_reveal);
-            const bool a = refresh_active_chain(*impl_, &release_reveal);
-            if (h || a) result.redraw_requested = true;
-            handle_pseudo_reveal(release_reveal);
-            auto* pressed_menu_item = impl_->pressed_dcs_menu_item;
-            const auto pressed_menu_item_bounds =
-                impl_->pressed_dcs_menu_item_bounds;
-            const bool pressed_menu_item_in_bounds =
-                pressed_menu_item &&
-                rect_contains(pressed_menu_item_bounds, ev.pos.x, ev.pos.y);
-            if (clear_pressed_dcs_menu_item(*impl_)) {
-                result.redraw_requested = true;
-            }
-            auto* pressed_button = impl_->pressed_button;
-            impl_->pressed_button = nullptr;
-            bool activated_pressed_menu_item = false;
-            if (pressed_menu_item_in_bounds) {
-                if (auto* menu_elem =
-                        ancestor_with_class(pressed_menu_item, "dcs-menu")) {
-                    if (activate_dcs_menu_item(*impl_, menu_elem,
-                                               pressed_menu_item)) {
-                        result.redraw_requested = true;
-                    }
-                    activated_pressed_menu_item = true;
-                }
-            }
-            const bool release_consumed_on_down =
-                impl_->mouse_down_consumed_release;
-            impl_->mouse_down_consumed_release = false;
-#if !defined(AFFINEUI_STUB_BUILD)
-            if (release_consumed_on_down || activated_pressed_menu_item) {
-                break;
-            }
-            if (impl_->ui_control_script_attached &&
-                ev.button == MouseButton::Left && !released_live_control) {
-                if (!click_preserves_transient_layers(*impl_, impl_->hovered_idx,
-                                                      ev.pos) &&
-                    close_transient_layers(*impl_)) {
-                    result.redraw_requested = true;
-                    // The close mutated the DOM (hidden/style/aria attrs) and
-                    // dirtied layout; re-hit-testing the stale tree returns -1
-                    // and the release would be swallowed — the click must BOTH
-                    // dismiss the layer and reach the control under the cursor
-                    // (browser behavior). Relayout before resolving the target.
-                    ensure_interaction_layout();
-                    impl_->hovered_idx =
-                        hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
-                    if (refresh_hover_chain(*impl_)) {
-                        result.redraw_requested = true;
-                    }
-                }
-                bool toggled_checkbox = false;
-                int check_idx = -1;
-                lxb_dom_element_t* check_elem = nullptr;
-                if (find_checkbox_control_at(*impl_, impl_->hovered_idx,
-                                             check_idx, check_elem)) {
-                    // The toggle itself happened on MouseDown (pointerdown
-                    // model). The release only claims the click so it does
-                    // not fall through to dropdown/menu activation.
-                    toggled_checkbox = true;
-                }
-                bool changed_button_group = false;
-                bool changed_dropdown = false;
-                if (!toggled_checkbox) {
-                    lxb_dom_element_t* dropdown_group = nullptr;
-                    lxb_dom_element_t* dropdown_select = nullptr;
-                    lxb_dom_element_t* dropdown_option = nullptr;
-                    if (find_dropdown_control_at(*impl_, impl_->hovered_idx,
-                                                 dropdown_group,
-                                                 dropdown_select,
-                                                 dropdown_option)) {
-                        if (dropdown_option &&
-                            update_dropdown_control(*impl_, dropdown_group,
-                                                    dropdown_option)) {
-                            result.redraw_requested = true;
-                            changed_dropdown = true;
-                        } else if (dropdown_select &&
-                                   toggle_dropdown_menu(*impl_,
-                                                        dropdown_group)) {
-                            result.redraw_requested = true;
-                            changed_dropdown = true;
-                        }
-                    }
-                }
-                if (!toggled_checkbox && !changed_dropdown) {
-                    lxb_dom_element_t* group_elem = nullptr;
-                    lxb_dom_element_t* option_elem = nullptr;
-                    if (find_button_group_option_at(*impl_, impl_->hovered_idx,
-                                                    group_elem, option_elem) &&
-                        update_button_group_control(*impl_, group_elem,
-                                                    option_elem)) {
-                        result.redraw_requested = true;
-                        changed_button_group = true;
-                    }
-                }
-                bool changed_menu = false;
-                if (!toggled_checkbox && !changed_dropdown &&
-                    !changed_button_group) {
-                    lxb_dom_element_t* menu_elem = nullptr;
-                    lxb_dom_element_t* menu_item = nullptr;
-                    lxb_dom_element_t* trigger_elem = nullptr;
-                    if (find_dcs_menu_item_at(*impl_, impl_->hovered_idx,
-                                              menu_elem, menu_item)) {
-                        if (menu_item == pressed_menu_item &&
-                            activate_dcs_menu_item(*impl_, menu_elem,
-                                                   menu_item)) {
-                            result.redraw_requested = true;
-                        }
-                        changed_menu = true;
-                    } else if (find_dcs_menu_trigger_at(*impl_,
-                                                       impl_->hovered_idx,
-                                                       trigger_elem,
-                                                       menu_elem)) {
-                        if (toggle_dcs_menu(*impl_, trigger_elem,
-                                            menu_elem)) {
-                            result.redraw_requested = true;
-                        }
-                        changed_menu = true;
-                    }
-                }
-                bool changed_popover = false;
-                if (!toggled_checkbox && !changed_dropdown &&
-                    !changed_button_group && !changed_menu) {
-                    lxb_dom_element_t* trigger_elem = nullptr;
-                    lxb_dom_element_t* popover_elem = nullptr;
-                    if (find_dcs_popover_trigger_at(*impl_,
-                                                    impl_->hovered_idx,
-                                                    trigger_elem,
-                                                    popover_elem)) {
-                        if (toggle_dcs_popover(*impl_, trigger_elem,
-                                               popover_elem)) {
-                            result.redraw_requested = true;
-                        }
-                        changed_popover = true;
-                    }
-                }
-                // NB: foldout/subpanel collapse and tree-chevron expand are
-                // handled on MouseDown (press) — see the MouseDown case — so
-                // they are intentionally absent here.
-                bool changed_selection = false;
-                if (!toggled_checkbox && !changed_dropdown &&
-                    !changed_button_group && !changed_menu &&
-                    !changed_popover) {
-                    lxb_dom_element_t* select_box = nullptr;
-                    lxb_dom_element_t* select_row = nullptr;
-                    if (find_dcs_select_row_at(*impl_, impl_->hovered_idx,
-                                               select_box, select_row)) {
-                        changed_selection = true;
-                    }
-                }
-                // NB: dock-pane tab selection is handled by the tab-drag release
-                // path above (a clean click selects; a drag tears off), so it is
-                // intentionally absent from this click chain.
-                if (!toggled_checkbox && !changed_dropdown &&
-                    !changed_button_group && !changed_menu &&
-                    !changed_popover && !changed_selection) {
-                    lxb_dom_element_t* button_elem = nullptr;
-                    if (find_button_control_at(*impl_, impl_->hovered_idx,
-                                               button_elem) &&
-                        button_elem == pressed_button &&
-                        activate_button_control(*impl_, button_elem)) {
-                        result.redraw_requested = true;
-                    }
-                }
-            }
-#endif
-            break;
-        }
-#if !defined(AFFINEUI_STUB_BUILD)
-        case EventType::KeyDown: {
-            // ESC clears focus, matching the convention browsers use for
-            // dismissing a focused control.
-            if (ev.key == Key::Escape) {
-#if !defined(AFFINEUI_STUB_BUILD)
-                if (impl_->ui_control_script_attached &&
-                    close_transient_layers(*impl_)) {
-                    result.redraw_requested = true;
-                }
-#endif
-                if (set_focus(*impl_, -1)) result.redraw_requested = true;
-                break;
-            }
-
-            Block* control = nullptr;
-            if (!focused_text_control(*impl_, control)) break;
-            const int idx = impl_->focused_idx;
-            const auto text = emitted_text_control_value(*control);
-            const bool command = command_modifier(ev);
-
-            if (command && ev.key == Key::A) {
-                if (move_text_caret(*impl_, idx, *control, text.size(), true)) {
-                    set_text_selection(*impl_, idx, *control, 0, text.size());
-                    add_dirty_rect(*impl_, block_visual_rect(*impl_, idx));
-                    result.redraw_requested = true;
-                } else if (!detail::has_text_selection(*control) && !text.empty()) {
-                    set_text_selection(*impl_, idx, *control, 0, text.size());
-                    add_dirty_rect(*impl_, block_visual_rect(*impl_, idx));
-                    result.redraw_requested = true;
-                }
-            } else if (command && ev.key == Key::C) {
-                if (detail::has_text_selection(*control)) {
-                    clipboard_set_text(*impl_, selected_text(*control));
-                }
-            } else if (command && ev.key == Key::X) {
-                if (detail::has_text_selection(*control)) {
-                    clipboard_set_text(*impl_, selected_text(*control));
-                    const auto [begin, end] = detail::normalized_selection(*control);
-                    result.redraw_requested =
-                        delete_text_range(*impl_, idx, *control, begin, end);
-                }
-            } else if (command && ev.key == Key::V) {
-                const std::string paste = clipboard_get_text(*impl_);
-                result.redraw_requested =
-                    replace_text_selection_or_insert(*impl_, idx, *control, paste);
-            } else if (ev.key == Key::Backspace) {
-                if (detail::has_text_selection(*control)) {
-                    const auto [begin, end] = detail::normalized_selection(*control);
-                    result.redraw_requested =
-                        delete_text_range(*impl_, idx, *control, begin, end);
-                } else if (command) {
-                    const std::size_t begin =
-                        previous_word_boundary(text, control->caret_offset);
-                    result.redraw_requested =
-                        delete_text_range(*impl_, idx, *control, begin,
-                                          control->caret_offset);
-                } else {
-                    std::size_t begin =
-                        previous_utf8_boundary(text, control->caret_offset);
-                    result.redraw_requested =
-                        delete_text_range(*impl_, idx, *control, begin,
-                                          control->caret_offset);
-                }
-            } else if (ev.key == Key::Delete) {
-                if (detail::has_text_selection(*control)) {
-                    const auto [begin, end] = detail::normalized_selection(*control);
-                    result.redraw_requested =
-                        delete_text_range(*impl_, idx, *control, begin, end);
-                } else if (command) {
-                    const std::size_t end =
-                        next_word_boundary(text, control->caret_offset);
-                    result.redraw_requested =
-                        delete_text_range(*impl_, idx, *control,
-                                          control->caret_offset, end);
-                } else {
-                    const std::size_t end =
-                        next_utf8_boundary(text, control->caret_offset);
-                    result.redraw_requested =
-                        delete_text_range(*impl_, idx, *control,
-                                          control->caret_offset, end);
-                }
-            } else if (ev.key == Key::ArrowLeft ||
-                       ev.key == Key::ArrowRight ||
-                       ev.key == Key::Home ||
-                       ev.key == Key::End) {
-                std::size_t caret = control->caret_offset;
-                if (!ev.shift && detail::has_text_selection(*control) &&
-                    ev.key == Key::ArrowLeft) {
-                    caret = detail::normalized_selection(*control).first;
-                } else if (!ev.shift && detail::has_text_selection(*control) &&
-                           ev.key == Key::ArrowRight) {
-                    caret = detail::normalized_selection(*control).second;
-                } else if (ev.key == Key::ArrowLeft) {
-                    caret = command
-                        ? previous_word_boundary(text, caret)
-                        : previous_utf8_boundary(text, caret);
-                } else if (ev.key == Key::ArrowRight) {
-                    caret = command
-                        ? next_word_boundary(text, caret)
-                        : next_utf8_boundary(text, caret);
-                } else if (ev.key == Key::Home) {
-                    caret = 0;
-                } else {
-                    caret = text.size();
-                }
-                if (move_text_caret(*impl_, idx, *control, caret, ev.shift)) {
-                    result.redraw_requested = true;
-                }
-            }
-            break;
-        }
-        case EventType::TextInput: {
-            Block* control = nullptr;
-            if (focused_text_control(*impl_, control) && !ev.text.empty()) {
-                result.redraw_requested =
-                    replace_text_selection_or_insert(
-                        *impl_, impl_->focused_idx, *control, ev.text);
-            }
-            break;
-        }
-        case EventType::MouseWheel: {
-            // Route to the nearest scrollable-Y ancestor of whatever
-            // the pointer is over. Convention: positive wheel_dy
-            // scrolls content up (i.e. scroll position increases).
-            // The platform adapter is responsible for normalizing
-            // direction + step size before we get here.
-            const int wheel_hover =
-                hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
-            const int target = find_scrollable_y_ancestor(
-                *impl_, wheel_hover >= 0 ? wheel_hover : impl_->hovered_idx);
-            if (target < 0) break;
-            auto& sb = impl_->blocks[static_cast<std::size_t>(target)];
-            constexpr int kPxPerWheelStep = 24;
-            const int delta = static_cast<int>(
-                -ev.wheel_dy * kPxPerWheelStep);
-            const int max_scroll = std::max(0, sb.content_h - sb.bounds.h);
-            const int next       = std::clamp(sb.scroll_y + delta,
-                                              0, max_scroll);
-            if (set_block_scroll_y(*impl_, target, next)) {
-                result.redraw_requested = true;
-            }
-            break;
-        }
-#endif
-        default:
-            break;
-    }
-    return result;
-}
-
-namespace {
-// Walk from the hovered block up the parent chain, returning the
-// nearest non-default cursor. CSS-correct: a child without its own
-// cursor inherits from its parent. The cascade already does this for
-// ComputedStyle::cursor, but the *root* element with no inline
-// cursor returns Default â€” so this walk is mostly belt-and-braces.
-detail::ComputedStyle::Cursor effective_cursor(
-        const std::vector<Block>& blocks,
-        const detail::StyleStore& styles,
-        int idx) {
-    using C = detail::ComputedStyle::Cursor;
-    while (idx >= 0) {
-        const auto c = styles.computed(blocks[static_cast<std::size_t>(idx)].id).cursor;
-        if (c != C::Default) return c;
-        idx = blocks[static_cast<std::size_t>(idx)].parent_idx;
-    }
-    return C::Default;
-}
-
-// Translate the internal Cursor enum to the stable integer protocol that
-// App's map_cursor() consumes: 0 default, 1 pointer, 2 text, 3 crosshair,
-// 4 move/all, 5 not-allowed, 6 ew-resize, 7 ns-resize, 8 nwse-resize,
-// 9 nesw-resize. Explicit on purpose — do NOT lean on enum ordinals lining up
-// with the protocol codes (they don't, and that mismatch silently showed a
-// diagonal cursor for ew-resize and a plain arrow for ns-resize).
-int cursor_protocol_code(detail::ComputedStyle::Cursor c) {
-    using C = detail::ComputedStyle::Cursor;
-    switch (c) {
-        case C::Pointer:    return 1;
-        case C::Text:       return 2;
-        case C::Crosshair:  return 3;
-        case C::Move:       return 4;
-        case C::NotAllowed: return 5;
-        case C::ResizeEW:   return 6;
-        case C::ResizeNS:   return 7;
-        default:            return 0;  // Default
-    }
-}
-}  // namespace
-
-/// Cursor the OS should display right now (under the last mouse pos).
-/// Lives on the public Document surface so App can poll it once per
-/// frame without taking a Painter-style dependency.
-int Document::hovered_cursor() const {
-#if !defined(AFFINEUI_STUB_BUILD)
-    for (int idx = impl_->hovered_idx;
-         idx >= 0 && idx < static_cast<int>(impl_->blocks.size());
-         idx = impl_->blocks[static_cast<std::size_t>(idx)].parent_idx) {
-        const auto& block = impl_->blocks[static_cast<std::size_t>(idx)];
-        if (live_control_kind_for_block(block) == LiveControlKind::NumericInput) {
-            return 6;
-        }
-        bool resize_x = false;
-        bool resize_y = false;
-        if (point_in_textarea_resize_grip(*impl_, idx, impl_->last_mouse_pos,
-                                          resize_x, resize_y)) {
-            if (resize_x && !resize_y) return 6;
-            if (!resize_x && resize_y) return 7;
-            return 4;
-        }
-        // A visible scrollbar is browser UI, not content: it always shows
-        // the plain arrow, regardless of the element's (or an ancestor's)
-        // cursor — e.g. a textarea's UA `cursor:text` stops at the gutter.
-        ScrollbarGeometry sb{};
-        if (detail::vertical_scrollbar_geometry(*impl_, idx, sb)) {
-            const Rect box = block_border_visual_rect(*impl_, idx);
-            const Rect gutter{sb.track.x - 2, box.y,
-                              box.x + box.w - (sb.track.x - 2), box.h};
-            if (rect_contains(gutter, impl_->last_mouse_pos.x,
-                              impl_->last_mouse_pos.y)) {
-                return 0;
-            }
-        }
-        detail::DocumentImpl::FloatResize fr{};
-        if (find_float_resize_at(*impl_, idx, impl_->last_mouse_pos, fr)) {
-            return cursor_for_float_resize_dir(fr.dir);
-        }
-    }
-#endif
-    return cursor_protocol_code(
-        effective_cursor(impl_->blocks, impl_->style_store, impl_->hovered_idx));
-}
-
-Document::HoverInfo Document::hovered_info() const {
-    HoverInfo info{};
-    const int idx = impl_->hovered_idx;
-    if (idx < 0 || idx >= static_cast<int>(impl_->blocks.size())) return info;
-    const auto& b = impl_->blocks[static_cast<std::size_t>(idx)];
-    info.valid   = true;
-    info.tag     = b.tag;
-    info.elem_id = b.elem_id;
-    info.classes = b.classes;
-    info.attrs   = b.attrs;
-#if !defined(AFFINEUI_STUB_BUILD)
-    info.bounds  = block_border_visual_rect(*impl_, idx);
-#else
-    info.bounds  = b.bounds;
-#endif
-    return info;
-}
-
-std::vector<Document::HoverInfo> Document::hovered_info_chain() const {
-    std::vector<HoverInfo> chain;
-    hovered_info_chain(chain);
-    return chain;
-}
-
-void Document::hovered_info_chain(std::vector<HoverInfo>& chain) const {
-    chain.clear();
-    chain.reserve(impl_->hovered_chain.size());
-    int idx = impl_->hovered_idx;
-    while (idx >= 0 && idx < static_cast<int>(impl_->blocks.size())) {
-        const auto& b = impl_->blocks[static_cast<std::size_t>(idx)];
-        HoverInfo info{};
-        info.valid   = true;
-        info.tag     = b.tag;
-        info.elem_id = b.elem_id;
-        info.classes = b.classes;
-        info.attrs   = b.attrs;
-#if !defined(AFFINEUI_STUB_BUILD)
-        info.bounds  = block_border_visual_rect(*impl_, idx);
-#else
-        info.bounds  = b.bounds;
-#endif
-        chain.push_back(std::move(info));
-        idx = b.parent_idx;
-    }
 }
 
 void Document::set_resource_loader(ResourceLoader loader) {
@@ -16509,7 +15641,7 @@ DomHandle Document::weak_handle_for_id(std::string_view elem_id) {
     DomHandle out{};
 #if !defined(AFFINEUI_STUB_BUILD)
     if (!impl_->doc || elem_id.empty()) return out;
-    auto* elem = find_dom_element_by_id(*impl_, elem_id);
+    auto* elem = detail::find_dom_element_by_id(*impl_, elem_id);
     if (!elem) return out;
     auto* node = lxb_dom_interface_node(elem);
     if (!node) return out;
@@ -16845,7 +15977,7 @@ private:
         return e ? lxb_dom_interface_node(e) : nullptr;
     }
     lxb_dom_node_t* root_dom() {
-        auto* root = find_dom_element_by_id(impl_, "aui-root");
+        auto* root = detail::find_dom_element_by_id(impl_, "aui-root");
         return root ? lxb_dom_interface_node(root) : nullptr;
     }
     lxb_dom_node_t* parent_dom(const WidgetNode* parent) {
@@ -16865,7 +15997,7 @@ private:
         }
         for (auto* n = scope; n != nullptr; n = n->parent) {
             if (n->type != LXB_DOM_NODE_TYPE_ELEMENT) break;
-            const int idx = block_index_for_exact_element(
+            const int idx = detail::block_index_for_exact_element(
                 impl_, lxb_dom_interface_element(n));
             if (idx >= 0) {
                 impl_.view_batch_structure_roots.push_back(idx);
@@ -16927,7 +16059,7 @@ void settle_view_batch(detail::DocumentImpl& impl) {
         impl.view_batch_attr_roots.clear();
         impl.view_batch_structure_roots.clear();
         const auto t0 = std::chrono::steady_clock::now();
-        dock_structure_changed(impl);
+        detail::dock_structure_changed(impl);
         if (MutationTraceTimer::enabled()) {
             const double ms = std::chrono::duration<double, std::milli>(
                                   std::chrono::steady_clock::now() - t0)
@@ -16963,13 +16095,13 @@ void settle_view_batch(detail::DocumentImpl& impl) {
         const Rect old_rect = document_visual_rect(impl);
         const auto t1 = std::chrono::steady_clock::now();
         for (const int r : kept) {
-            if (auto* e = element_for_block(impl, r)) {
+            if (auto* e = detail::element_for_block(impl, r)) {
                 invalidate_resolver_deep(impl, lxb_dom_interface_node(e));
             }
             (void) rematch_stylesheet_matches_for_subtree(impl, r);
         }
         const auto t2 = std::chrono::steady_clock::now();
-        recollect_blocks_from_current_dom(impl);
+        detail::recollect_blocks_from_current_dom(impl);
         const auto t3 = std::chrono::steady_clock::now();
         // Block indices shifted — stale interaction indices are the
         // dangling-pointer class of bug (same contract as
@@ -17036,7 +16168,7 @@ void settle_view_batch(detail::DocumentImpl& impl) {
         for (const auto& k : kept) {
             if (selector_mutation_reveals_hidden_subtree(impl,
                                                          k.root_idx)) {
-                recollect_blocks_from_current_dom(impl);
+                detail::recollect_blocks_from_current_dom(impl);
                 recollected = true;
                 break;
             }
@@ -17126,7 +16258,7 @@ bool Document::request_custom_repaint(std::string_view name) {
         for (const auto& [attr_name, attr_value] : block.attrs) {
             if (attr_name != "data-aui-paint") continue;
             if (attr_value == name) {
-                add_dirty_rect(*impl_, block.bounds);
+                detail::add_dirty_rect(*impl_, block.bounds);
                 any = true;
             }
             break;
@@ -17147,7 +16279,7 @@ bool Document::set_attribute_by_id(std::string_view elem_id,
                                    std::string_view value) {
 #if !defined(AFFINEUI_STUB_BUILD)
     if (!impl_->doc || name.empty()) return false;
-    auto* elem = find_dom_element_by_id(*impl_, elem_id);
+    auto* elem = detail::find_dom_element_by_id(*impl_, elem_id);
     if (!elem) return false;
     return set_attribute_on_element(*impl_, elem, name, value);
 #else
@@ -17160,7 +16292,7 @@ bool Document::remove_attribute_by_id(std::string_view elem_id,
                                       std::string_view name) {
 #if !defined(AFFINEUI_STUB_BUILD)
     if (!impl_->doc || name.empty()) return false;
-    auto* elem = find_dom_element_by_id(*impl_, elem_id);
+    auto* elem = detail::find_dom_element_by_id(*impl_, elem_id);
     if (!elem) return false;
     return remove_attribute_on_element(*impl_, elem, name);
 #else
@@ -17173,7 +16305,7 @@ bool Document::set_text_by_id(std::string_view elem_id,
                               std::string_view text) {
 #if !defined(AFFINEUI_STUB_BUILD)
     if (!impl_->doc) return false;
-    auto* elem = find_dom_element_by_id(*impl_, elem_id);
+    auto* elem = detail::find_dom_element_by_id(*impl_, elem_id);
     if (!elem || element_has_element_child(elem)) return false;
 
     int target_idx = -1;
@@ -17324,7 +16456,7 @@ void Document::tick_imm() {
     // 2. Re-cascade + re-collect. This is the same tail as set_html
     //    after parsing â€” minus the stylesheet re-attach (those are
     //    still bound to impl_->doc from the original set_html).
-    recollect_blocks_from_current_dom(*impl_);
+    detail::recollect_blocks_from_current_dom(*impl_);
 #endif
 }
 
