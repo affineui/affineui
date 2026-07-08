@@ -5,8 +5,11 @@
 // C++ sample stays focused on the direct scoped declaration style.
 
 #include <affineui/affineui.h>
+#include <affineui/log.h>
 
 #include <cstdio>
+#include <cstdlib>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -243,5 +246,27 @@ int main(int argc, char** argv) {
 
     affineui::App app{config};
     app.load_view(build_view(style));
+    // AFT_LOG_DEMO=1: emit a periodic diagnostic through affineui::log so a
+    // developer can watch the affinetools log panel (frame-stamped lines,
+    // click-to-select). Off unless the env var is set — the app is silent
+    // by default. Handy for demoing/verifying the tools; costs nothing when
+    // unset.
+    if (std::getenv("AFT_LOG_DEMO") != nullptr) {
+        auto counter = std::make_shared<int>(0);
+        auto accum = std::make_shared<double>(0.0);
+        app.on_frame([counter, accum](double dt) {
+            *accum += dt;
+            if (*accum >= 0.4) {
+                *accum = 0.0;
+                ++*counter;
+                affineui::LogLevel lvl =
+                    (*counter % 7 == 0)   ? affineui::LogLevel::error
+                    : (*counter % 3 == 0) ? affineui::LogLevel::warn
+                                          : affineui::LogLevel::info;
+                affineui::log(lvl, "demo diagnostic #" +
+                                       std::to_string(*counter));
+            }
+        });
+    }
     return app.run();
 }

@@ -18,13 +18,16 @@
 #include "affineui/app.h"
 
 #include "affineui/document.h"
+#include "affineui/log.h"
 #include "affineui/renderer.h"
 #include "affineui/themes.h"
 #include "affineui/tools.h"
 #include "internal/diag.h"
+#include "internal/log_internal.h"
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -48,6 +51,15 @@
 namespace affineui {
 
 namespace detail {
+
+// Log frame-stamping source (log.cpp installs this via a fn-ptr, which
+// can't capture — so cb_frame publishes the current frame + t_ms here).
+std::atomic<std::uint64_t> g_log_frame{0};
+std::atomic<double>        g_log_t_ms{0.0};
+std::pair<std::uint64_t, double> app_log_frame_source() {
+    return {g_log_frame.load(std::memory_order_relaxed),
+            g_log_t_ms.load(std::memory_order_relaxed)};
+}
 
 // Sokol does not expose exact swap-image age to App today. Use the common
 // triple-buffered desktop budget so a newly composited retained layer reaches
@@ -131,15 +143,6 @@ std::string read_file(const std::filesystem::path& path) {
     return bytes.str();
 }
 
-bool safe_relative_asset_path(const std::filesystem::path& path) {
-    if (path.empty() || path.is_absolute()) return false;
-    const auto normalized = path.lexically_normal();
-    for (const auto& part : normalized) {
-        if (part == "..") return false;
-    }
-    return true;
-}
-
 ResourceLoader make_asset_resource_loader(std::vector<std::string> folders) {
     if (folders.empty()) folders.push_back(".");
     std::vector<std::filesystem::path> roots;
@@ -151,11 +154,22 @@ ResourceLoader make_asset_resource_loader(std::vector<std::string> folders) {
     return [roots](std::string_view url) -> std::string {
         if (!local_asset_url(url)) return {};
 
-        const std::filesystem::path rel =
-            std::filesystem::path{std::string(url)}.lexically_normal();
-        if (!safe_relative_asset_path(rel)) return {};
+        // Resolve the url against each asset root and read it. `../` is
+        // allowed and NORMAL here — a framework stylesheet in css/ points
+        // at ../fonts/ for its icon font, exactly as a browser resolves it
+        // relative to the sheet's own location. An absolute url() (from an
+        // absolute stylesheet base_url) is read directly. No traversal
+        // sandbox: this is a local desktop binary loading its own shipped
+        // assets, not a served document. (An earlier blanket "reject any
+        // path containing ..'" refused the framework's own font urls and
+        // left every icon blank.)
+        const std::filesystem::path url_path{std::string(url)};
+        if (url_path.is_absolute()) {
+            return read_file(url_path.lexically_normal());
+        }
         for (const auto& root : roots) {
-            if (auto bytes = read_file(root / rel); !bytes.empty()) {
+            const auto resolved = (root / url_path).lexically_normal();
+            if (auto bytes = read_file(resolved); !bytes.empty()) {
                 return bytes;
             }
         }
@@ -350,6 +364,10 @@ App::App(Config cfg) : impl_{std::make_unique<detail::AppImpl>()} {
     // affinetools attach: AFFINEUI_TOOLS_LISTEN=1|<port> starts the
     // protocol server (docs/AFFINETOOLS_DESIGN.md §3.1; off by default).
     tools_listen_from_env();
+    // Frame-stamp diagnostics: every affineui::log line records the
+    // presented-frame index current when it was emitted, so the devtools
+    // log panel can align a line with the performance graph.
+    detail::set_log_frame_source(&detail::app_log_frame_source);
     impl_->renderer.set_clear_color(impl_->config.clear_color);
     impl_->document.set_resource_loader(
         impl_->config.resource_loader
@@ -793,6 +811,12 @@ void cb_frame(void* user) {
         if (gap_ms > impl->gap_max_ms_window) {
             impl->gap_max_ms_window = static_cast<float>(gap_ms);
         }
+        // Publish the current frame + wall-clock time for log stamping. The
+        // frame about to be assembled is presented_frames+1 (the graph's
+        // newest bar), so logs during this callback align with it.
+        detail::g_log_frame.store(impl->presented_frames + 1,
+                                  std::memory_order_relaxed);
+        detail::g_log_t_ms.store(t_ms, std::memory_order_relaxed);
 
         // Coalesced resize + pointer motion: at most one of each per frame.
         if (impl->has_pending_resize) {

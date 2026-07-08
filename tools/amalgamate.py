@@ -61,6 +61,7 @@ PUBLIC_HEADERS = [
     "include/affineui/keymap.h",      # keybindings; depends on types.h
     "include/affineui/embed.h",       # depends only on types.h; before renderer/ui
     "include/affineui/memory.h",      # allocator seam + stats; depends on embed.h
+    "include/affineui/log.h",         # diagnostics facility; depends on embed.h
     "include/affineui/themes.h",
     "include/affineui/geom.h",
     "include/affineui/style.h",
@@ -87,6 +88,7 @@ PUBLIC_HEADERS = [
 # follow can see them.
 INTERNAL_HEADERS = [
     "src/internal/embed_log.h",
+    "src/internal/log_internal.h",
     "src/internal/element_id.h",
     "src/internal/animated_style.h",
     "src/internal/computed_style.h",
@@ -118,6 +120,7 @@ ENGINE_SOURCES = [
     "src/themes.cpp",
     "src/affineui.cpp",
     "src/memory.cpp",
+    "src/log.cpp",
     "src/diag/sampler.cpp",
     "src/diag/telemetry.cpp",
     "src/app/app.cpp",

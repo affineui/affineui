@@ -331,6 +331,39 @@ will render 10k-row lists and blame the framework. Needed soon:
   unvirtualized children ("did you mean virtual_list?").
 Acceptance: 100k-row list scrolls at display refresh with flat memory.
 
+## T13 — virtual_list rows land outside the clip box (no scroll-sync); descendant text clipping (OPEN, 2026-07-05)
+
+**Found building the affinetools log panel.** `View::virtual_list`
+(src/app/view.cpp) implements windowing the browser way: a tall
+`__spacer` (height = `item_offset(start)`) pushes the materialized rows
+down to their virtual position, and the list is `overflow:auto`, relying
+on the container being SCROLLED to `item_offset(first)` so the window
+lands in view. But nothing sets that scroll position — the app only
+changes `data-first-item` and rebuilds. Result: for a list scrolled to
+line 100, the spacer is ~1764px tall inside a 180px box and the rows sit
+far below the visible clip region → the list renders EMPTY. There is no
+native behavior that reads `data-first-item`/`data-item-size` and applies
+the matching `scroll_y` to the virtual-list block.
+
+Two things to fix at the right layer:
+1. **Scroll-sync for virtual_list** — a native behavior (or the reconcile
+   path) must set the virtual-list block's `scroll_y` to
+   `item_offset(first)` whenever `data-first-item` changes, so the
+   spacer-pushed window is actually visible. Until then, virtual_list is
+   only correct at first_item==0.
+2. **Descendant text clipping to overflow containers** (same class as
+   T10.1) — text runs of children inside an `overflow:hidden`/`auto` box
+   must clip to that box. The log rows' `text-overflow:ellipsis` +
+   `overflow:hidden` depend on it.
+
+**Workaround in affinetools (landed):** the log panel does NOT use
+virtual_list; it builds ONLY the visible tail slice directly into a
+fixed-height flex box (honest mini-virtualization keyed on a
+self-managed `log_first` + wheel handler). Rows render correctly this
+way (frame-stamped, level-colored, click-to-select). The general
+virtual_list fix is still needed for large lists that must scroll
+smoothly (the Elements tree in S2 will hit this).
+
 ## T12 — Window renders BLANK after a minor resize (affinetools; OPEN, user-reported 2026-07-04)
 
 **Symptom:** the affinetools viewer window renders correctly on first

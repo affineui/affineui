@@ -1300,6 +1300,27 @@ WidgetRef& WidgetRef::cls(std::string_view classes) {
     return attr("class", classes);
 }
 
+WidgetRef& WidgetRef::add_class(std::string_view token) {
+    if (token.empty() || !owner_) return *this;
+    auto* n = owner_->resolve_widget_ref(*this);
+    if (!n) return *this;
+    std::string_view current;
+    if (const auto* a = find_attr(n->attrs, "class")) current = a->value;
+    // Idempotent: skip if the token is already a whole class in the list.
+    std::size_t pos = 0;
+    while (pos < current.size()) {
+        while (pos < current.size() && current[pos] == ' ') ++pos;
+        const std::size_t start = pos;
+        while (pos < current.size() && current[pos] != ' ') ++pos;
+        if (current.substr(start, pos - start) == token) return *this;
+    }
+    std::string next(current);
+    if (!next.empty()) next += ' ';
+    next += token;
+    owner_->set_attr(*n, "class", next);
+    return *this;
+}
+
 WidgetRef& WidgetRef::on_click(std::function<void()> cb) {
     if (owner_) {
         if (auto* n = owner_->resolve_widget_ref(*this)) {

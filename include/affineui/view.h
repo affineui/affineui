@@ -490,7 +490,14 @@ public:
     WidgetRef& attr(std::string_view name, std::string_view value);
     WidgetRef& remove_attr(std::string_view name);
     WidgetRef& selector(std::string_view name, std::string_view value);
+    /// Replace the element's class list. NOTE: this overwrites whatever the
+    /// widget builder set (e.g. a Decius button's `dcs-btn`). To ADD a
+    /// modifier while keeping the framework's base classes, use add_class().
     WidgetRef& cls(std::string_view classes);
+    /// Append a class token (idempotent) without disturbing the classes the
+    /// widget builder already applied — the right way to add a variant like
+    /// `dcs-btn--sm` to a `button()` or an app-specific hook to any widget.
+    WidgetRef& add_class(std::string_view token);
     WidgetRef& on_click(std::function<void()> cb);
     WidgetRef& on_change(std::function<void(std::string_view)> cb);
     WidgetRef& append(const std::function<void(View&)>& build);

@@ -50,10 +50,12 @@ crashed targets simply fail to connect.
 
 | method | params | result |
 | --- | --- | --- |
-| `hello` | `token` (required), `client` (informational) | `protocol` (int, 0), `affineui`, `session_id` (16 hex), `capabilities` (["telemetry"]), `t0_wall` |
+| `hello` | `token` (required), `client` (informational) | `protocol` (int, 0), `affineui`, `session_id` (16 hex), `capabilities` (["telemetry","log"]), `t0_wall` |
 | `ping` | — | `{}` |
 | `telemetry.subscribe` | — | `{}`; `telemetry.frame` / `target.idle` events start flowing |
 | `telemetry.unsubscribe` | — | `{}` |
+| `log.subscribe` | — | `{}`; `log.line` events start flowing (recent buffered history first) |
+| `log.unsubscribe` | — | `{}` |
 
 ### Events (v0)
 
@@ -62,6 +64,27 @@ crashed targets simply fail to connect.
 | `telemetry.frame` | a `frame` record (below) per presented frame |
 | `target.idle` | an `idle` record — ≤1 Hz heartbeat while the target idle-short-circuits |
 | `telemetry.dropped` | `{count}` — records lost to ring overflow while the reader was slow (DESIGN §2.2 drop-oldest; the app thread never blocks) |
+| `log.line` | a `log` record (below) — one AffineUI diagnostic line, frame-stamped |
+| `log.dropped` | `{count}` — log lines lost to the budgeted ring (1024 lines) |
+
+## `log` — one diagnostic line (`log.line`)
+
+AffineUI's own warnings/errors/parse diagnostics (the `affineui::log`
+facility). Each is stamped with the presented-frame index current at
+emission, so the panel can align a line with the performance graph and
+select that frame on click. Budget: the target keeps the most recent 1024
+lines; overflow is reported via `log.dropped`.
+
+```json
+{"level":"warn","frame":412,"t_ms":6883.21,"text":"font 'x' NOT LOADED"}
+```
+
+| field | type | meaning |
+| --- | --- | --- |
+| `level` | string | `debug` / `info` / `warn` / `error` |
+| `frame` | u64 | presented-frame index at emission (0 = pre-first-frame) |
+| `t_ms` | ms | time since session `t0` |
+| `text` | string | the diagnostic message (JSON-escaped) |
 
 ## Conventions
 

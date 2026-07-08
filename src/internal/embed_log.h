@@ -11,4 +11,9 @@ namespace affineui::detail {
 void set_log_sink(LogFn fn, void* user) noexcept;
 void log_msg(LogLevel level, const char* msg) noexcept;
 
+// The embedder's raw-pointer sink, exposed for the log facility (log.cpp)
+// so it keeps firing alongside the std::function handler.
+LogFn legacy_log_fn() noexcept;
+void* legacy_log_user() noexcept;
+
 }  // namespace affineui::detail

@@ -130,6 +130,7 @@ endif()
 target_sources(affineui PRIVATE
     src/affineui.cpp
     src/memory.cpp
+    src/log.cpp
     src/diag/sampler.cpp
     src/diag/telemetry.cpp
     src/tools/tools_server.cpp

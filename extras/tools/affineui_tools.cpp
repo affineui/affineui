@@ -207,6 +207,10 @@ struct Client::Impl {
     ClientStatus model;
     std::deque<FrameTelemetry> history;  // recent frames (scrolling graph)
     static constexpr std::size_t kHistoryMax = 512;
+    std::deque<LogEntry> logs;            // recent log lines (log panel)
+    static constexpr std::size_t kLogMax = 4096;  // client-side log budget
+    std::size_t   log_total{0};           // lines received this session
+    std::uint64_t log_dropped_total{0};   // budget/ring drops (target + client)
     int next_id{1};
 
     bool request(const std::string& method, const std::string& params_json,
@@ -263,6 +267,24 @@ struct Client::Impl {
         } else if (method == "telemetry.dropped" && params != nullptr) {
             model.dropped +=
                 static_cast<std::uint64_t>(params->get_number("count"));
+        } else if (method == "log.line" && params != nullptr) {
+            LogEntry e;
+            const std::string_view lvl = params->get_string("level");
+            e.level = lvl == "debug" ? 0 : lvl == "warn" ? 2
+                      : lvl == "error"                    ? 3
+                                                          : 1;
+            e.frame = static_cast<std::uint64_t>(params->get_number("frame"));
+            e.t_ms = params->get_number("t_ms");
+            e.text = std::string(params->get_string("text"));
+            logs.push_back(std::move(e));
+            ++log_total;
+            if (logs.size() > kLogMax) {
+                logs.pop_front();
+                ++log_dropped_total;
+            }
+        } else if (method == "log.dropped" && params != nullptr) {
+            log_dropped_total +=
+                static_cast<std::uint64_t>(params->get_number("count"));
         }
     }
 
@@ -316,7 +338,8 @@ bool Client::attach(const TargetInfo& target) {
     params += "\",\"client\":\"affinetools\"}";
     json::Value hello;
     if (!impl_->request("hello", params, &hello) ||
-        !impl_->request("telemetry.subscribe", {}, nullptr)) {
+        !impl_->request("telemetry.subscribe", {}, nullptr) ||
+        !impl_->request("log.subscribe", {}, nullptr)) {
         close_socket(impl_->sock);
         impl_->sock = kInvalidSocket;
         return false;
@@ -326,6 +349,9 @@ bool Client::attach(const TargetInfo& target) {
         const std::lock_guard<std::mutex> lock(impl_->mutex);
         impl_->model = ClientStatus{};
         impl_->history.clear();
+        impl_->logs.clear();
+        impl_->log_total = 0;
+        impl_->log_dropped_total = 0;
         impl_->model.connected = true;
         impl_->model.pid = target.pid;
         impl_->model.exe = target.exe;
@@ -388,6 +414,73 @@ void Client::frame_history(std::vector<FrameTelemetry>& out,
          ++i) {
         out.push_back(impl_->history[i]);
     }
+}
+
+void Client::log_history(std::vector<LogEntry>& out, std::size_t max) const {
+    const std::lock_guard<std::mutex> lock(impl_->mutex);
+    const std::size_t n = std::min(max, impl_->logs.size());
+    out.clear();
+    out.reserve(n);
+    for (std::size_t i = impl_->logs.size() - n; i < impl_->logs.size(); ++i) {
+        out.push_back(impl_->logs[i]);
+    }
+}
+
+std::size_t Client::log_count() const noexcept {
+    const std::lock_guard<std::mutex> lock(impl_->mutex);
+    return impl_->logs.size();
+}
+
+std::uint64_t Client::log_dropped() const noexcept {
+    const std::lock_guard<std::mutex> lock(impl_->mutex);
+    return impl_->log_dropped_total;
+}
+
+RangeStats compute_range_stats(const std::vector<FrameTelemetry>& frames,
+                               std::size_t begin, std::size_t end,
+                               double budget_ms) {
+    RangeStats out;
+    out.budget_ms = budget_ms;
+    end = std::min(end, frames.size());
+    if (begin >= end) return out;
+
+    const std::size_t n = end - begin;
+    out.frames = n;
+    double sum_gap = 0.0, sum_cb = 0.0;
+    double sum_layout = 0.0, sum_raster = 0.0, sum_comp = 0.0, sum_other = 0.0;
+    out.min_gap_ms = frames[begin].gap_ms;
+    out.max_gap_ms = frames[begin].gap_ms;
+    std::vector<double> gaps;
+    gaps.reserve(n);
+    for (std::size_t i = begin; i < end; ++i) {
+        const FrameTelemetry& f = frames[i];
+        sum_gap += f.gap_ms;
+        sum_cb += f.cb_ms;
+        out.min_gap_ms = std::min(out.min_gap_ms, f.gap_ms);
+        out.max_gap_ms = std::max(out.max_gap_ms, f.gap_ms);
+        if (f.gap_ms > budget_ms) ++out.over_budget;
+        const double layout = f.layout_us / 1000.0;
+        const double raster = f.raster_us / 1000.0;
+        const double comp = f.composite_us / 1000.0;
+        sum_layout += layout;
+        sum_raster += raster;
+        sum_comp += comp;
+        sum_other += std::max(0.0, f.gap_ms - (layout + raster + comp));
+        gaps.push_back(f.gap_ms);
+    }
+    const double dn = static_cast<double>(n);
+    out.avg_gap_ms = sum_gap / dn;
+    out.avg_cb_ms = sum_cb / dn;
+    out.avg_layout_ms = sum_layout / dn;
+    out.avg_raster_ms = sum_raster / dn;
+    out.avg_composite_ms = sum_comp / dn;
+    out.avg_other_ms = sum_other / dn;
+    out.avg_fps = out.avg_gap_ms > 0.0 ? 1000.0 / out.avg_gap_ms : 0.0;
+    std::sort(gaps.begin(), gaps.end());
+    out.p95_gap_ms = gaps[(gaps.size() * 95) / 100 >= gaps.size()
+                              ? gaps.size() - 1
+                              : (gaps.size() * 95) / 100];
+    return out;
 }
 
 DumpSummary summarize_dump(const std::string& path) {

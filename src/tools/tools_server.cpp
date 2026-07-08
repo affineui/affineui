@@ -18,7 +18,9 @@
 
 #if AFFINEUI_PERF
 
+#include "affineui/log.h"
 #include "affineui/version.h"
+#include "internal/log_internal.h"
 #include "tools/json_reader.h"
 
 #include <array>
@@ -28,6 +30,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <deque>
 #include <mutex>
 #include <random>
 #include <string>
@@ -189,9 +192,20 @@ struct QueuedRecord {
     FrameTelemetry t{};  // idle records use t.t_ms / t.skipped only
 };
 
+// A diagnostic line queued for the log domain. The budget (kLogRingCapacity)
+// caps memory when a client is slow or absent; drop-oldest, like telemetry.
+struct QueuedLog {
+    int           level{1};       // 0 debug, 1 info, 2 warn, 3 error
+    std::uint64_t frame{0};       // presented-frame index at emission
+    double        t_ms{0.0};
+    std::string   msg;
+};
+constexpr std::size_t kLogRingCapacity = 1024;  // log budget (lines)
+
 struct ServerState {
     std::atomic<bool> running{false};
     std::atomic<bool> subscribed{false};  // authed client wants telemetry
+    std::atomic<bool> log_subscribed{false};  // authed client wants logs
 
     std::thread thread;
     socket_t    listen_sock{kInvalidSocket};
@@ -207,6 +221,12 @@ struct ServerState {
     std::size_t                             ring_head{0};
     std::size_t                             ring_count{0};
     std::uint64_t                           ring_dropped{0};
+
+    // Log ring (budgeted, drop-oldest). Separate mutex so a burst of log
+    // lines never contends with the telemetry ring.
+    std::mutex               log_mutex;
+    std::deque<QueuedLog>    log_ring;
+    std::uint64_t            log_dropped{0};
 };
 
 ServerState& state() {
@@ -292,7 +312,7 @@ bool handle_message(ServerState& st, Connection& c, std::string_view text) {
         result += ",\"affineui\":\"" AFFINEUI_VERSION_STRING "\"";
         result += ",\"session_id\":\"";
         result += st.session_id;  // hex — no escaping needed
-        result += "\",\"capabilities\":[\"telemetry\"],\"t0_wall\":\"";
+        result += "\",\"capabilities\":[\"telemetry\",\"log\"],\"t0_wall\":\"";
         result += utc_now_iso();
         result += "\"}";
         send_result(c, id, result);
@@ -310,6 +330,16 @@ bool handle_message(ServerState& st, Connection& c, std::string_view text) {
     }
     if (method == "telemetry.unsubscribe") {
         st.subscribed.store(false, std::memory_order_release);
+        send_result(c, id, "{}");
+        return true;
+    }
+    if (method == "log.subscribe") {
+        st.log_subscribed.store(true, std::memory_order_release);
+        send_result(c, id, "{}");
+        return true;
+    }
+    if (method == "log.unsubscribe") {
+        st.log_subscribed.store(false, std::memory_order_release);
         send_result(c, id, "{}");
         return true;
     }
@@ -411,6 +441,62 @@ void flush_ring(ServerState& st, Connection& c) {
     }
 }
 
+const char* log_level_name(int level) {
+    switch (level) {
+        case 0: return "debug";
+        case 2: return "warn";
+        case 3: return "error";
+        default: return "info";
+    }
+}
+
+void flush_log_ring(ServerState& st, Connection& c) {
+    if (c.sock == kInvalidSocket || !c.authed ||
+        !st.log_subscribed.load(std::memory_order_acquire)) {
+        // Not streaming logs: keep the ring bounded but don't clear it —
+        // a client may subscribe later and want recent history. (The ring
+        // is already capped at kLogRingCapacity by push_log.)
+        return;
+    }
+    std::deque<QueuedLog> batch;
+    std::uint64_t dropped = 0;
+    {
+        const std::lock_guard<std::mutex> lock(st.log_mutex);
+        batch.swap(st.log_ring);
+        dropped = st.log_dropped;
+        st.log_dropped = 0;
+    }
+    if (dropped > 0) {
+        char buf[128];
+        const int n = std::snprintf(
+            buf, sizeof(buf),
+            "{\"method\":\"log.dropped\",\"params\":{\"count\":%llu}}",
+            static_cast<unsigned long long>(dropped));
+        if (n > 0 && !send_framed(c.sock, std::string_view(
+                                              buf, static_cast<std::size_t>(n)))) {
+            drop_connection(st, c);
+            return;
+        }
+    }
+    for (const QueuedLog& e : batch) {
+        std::string msg;
+        msg.reserve(e.msg.size() + 96);
+        char head[96];
+        std::snprintf(head, sizeof(head),
+                      "{\"method\":\"log.line\",\"params\":{\"level\":\"%s\","
+                      "\"frame\":%llu,\"t_ms\":%.2f,\"text\":\"",
+                      log_level_name(e.level),
+                      static_cast<unsigned long long>(e.frame), e.t_ms);
+        msg += head;
+        json_escape_into(msg, e.msg);
+        msg += "\"}}";
+        if (!send_framed(c.sock, msg)) {
+            drop_connection(st, c);
+            return;
+        }
+    }
+}
+
 void drop_connection(ServerState& st, Connection& c) {
     if (c.sock != kInvalidSocket) {
         close_socket(c.sock);
@@ -419,6 +505,7 @@ void drop_connection(ServerState& st, Connection& c) {
     c.authed = false;
     c.inbuf.clear();
     st.subscribed.store(false, std::memory_order_release);
+    st.log_subscribed.store(false, std::memory_order_release);
 }
 
 void server_loop(ServerState& st) {
@@ -472,6 +559,7 @@ void server_loop(ServerState& st) {
             }
         }
         flush_ring(st, conn);
+        flush_log_ring(st, conn);
     }
     drop_connection(st, conn);
 }
@@ -511,6 +599,9 @@ void write_discovery_file(ServerState& st) {
 
 }  // namespace
 
+// Log forwarder (defined below) registered with the core log facility.
+void forward_log(const LogRecord& record);
+
 // ── public API ────────────────────────────────────────────────────────────
 
 bool tools_listen(int port) {
@@ -548,6 +639,8 @@ bool tools_listen(int port) {
     write_discovery_file(st);
     st.running.store(true, std::memory_order_release);
     st.thread = std::thread([&st] { server_loop(st); });
+    // Tap the core log facility so AffineUI diagnostics reach the panel.
+    detail::set_tools_log_forwarder(&forward_log);
 
     static std::once_flag exit_hook;
     std::call_once(exit_hook, [] { std::atexit([] { tools_shutdown(); }); });
@@ -691,7 +784,9 @@ int tools_port() noexcept {
 void tools_shutdown() {
     ServerState& st = state();
     if (!st.running.exchange(false, std::memory_order_acq_rel)) return;
+    detail::set_tools_log_forwarder(nullptr);  // stop tapping the log facility
     st.subscribed.store(false, std::memory_order_release);
+    st.log_subscribed.store(false, std::memory_order_release);
     close_socket(st.listen_sock);  // also wakes select via readability
     if (st.thread.joinable()) st.thread.join();
     st.listen_sock = kInvalidSocket;
@@ -700,6 +795,33 @@ void tools_shutdown() {
         st.discovery_file.clear();
     }
     st.port = 0;
+}
+
+// Log forwarder registered with the core log facility. Runs on whatever
+// thread emitted the log (usually the app thread). Copy-only critical
+// section; drop-oldest past the budget. Never blocks on IO — the server
+// thread drains and sends.
+void forward_log(const LogRecord& record) {
+    ServerState& st = state();
+    if (!st.running.load(std::memory_order_relaxed)) return;
+    // Even with no subscriber we keep a bounded recent-history ring so a
+    // client that subscribes mid-session sees the latest lines.
+    QueuedLog e;
+    switch (record.level) {
+        case LogLevel::debug: e.level = 0; break;
+        case LogLevel::warn:  e.level = 2; break;
+        case LogLevel::error: e.level = 3; break;
+        default:              e.level = 1; break;
+    }
+    e.frame = record.frame;
+    e.t_ms = record.t_ms;
+    e.msg.assign(record.msg.data(), record.msg.size());
+    const std::lock_guard<std::mutex> lock(st.log_mutex);
+    if (st.log_ring.size() >= kLogRingCapacity) {
+        st.log_ring.pop_front();
+        ++st.log_dropped;
+    }
+    st.log_ring.push_back(std::move(e));
 }
 
 namespace tools {

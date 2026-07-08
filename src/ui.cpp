@@ -15,9 +15,11 @@
 
 #include "affineui/ui.h"
 
+#include "affineui/log.h"
 #include "internal/embed_log.h"
 
 #include <algorithm>
+#include <string_view>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -105,16 +107,19 @@ void set_log_sink(LogFn fn, void* user) noexcept {
     g_log_user = user;
 }
 
+// Exposed to the log facility (log.cpp) so the embedder's raw-pointer sink
+// keeps firing alongside the new std::function handler.
+LogFn legacy_log_fn() noexcept   { return g_log_fn; }
+void* legacy_log_user() noexcept { return g_log_user; }
+
 void log_msg(LogLevel level, const char* msg) noexcept {
-    if (g_log_fn) {
-        g_log_fn(level, msg ? msg : "", g_log_user);
-        return;
+    // Route through the public facility: default = console + affinetools,
+    // frame-stamped; a host handler / legacy LogFn sink both honored there.
+    // noexcept boundary: log() may allocate; swallow to keep callers safe.
+    try {
+        affineui::log(level, msg ? std::string_view(msg) : std::string_view{});
+    } catch (...) {
     }
-#ifndef NDEBUG
-    std::fprintf(stderr, "%s\n", msg ? msg : "");
-#else
-    (void)level; (void)msg;
-#endif
 }
 
 }  // namespace detail

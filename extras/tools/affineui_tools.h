@@ -34,6 +34,16 @@ struct TargetInfo {
 /// crashed targets are included — they simply fail to connect.
 [[nodiscard]] std::vector<TargetInfo> discover_targets();
 
+/// One diagnostic line from the target's log stream. `frame` is the
+/// presented-frame index the line was emitted on (0 if pre-first-frame),
+/// so the log panel can jump the performance graph to it on click.
+struct LogEntry {
+    int           level{1};   // 0 debug, 1 info, 2 warn, 3 error
+    std::uint64_t frame{0};
+    double        t_ms{0.0};
+    std::string   text;
+};
+
 /// Thread-safe snapshot of everything the client knows about its target.
 struct ClientStatus {
     bool        connected{false};   ///< socket up + hello accepted
@@ -78,10 +88,47 @@ public:
     void frame_history(std::vector<FrameTelemetry>& out,
                        std::size_t max = 240) const;
 
+    /// Copy the most recent log lines (oldest first, up to `max`) into
+    /// `out` — the log panel's data source. Thread-safe.
+    void log_history(std::vector<LogEntry>& out, std::size_t max = 4096) const;
+
+    /// Total log lines received this session (for the panel's scroll math
+    /// and the "N lines" readout), and lines dropped to the budget.
+    [[nodiscard]] std::size_t   log_count() const noexcept;
+    [[nodiscard]] std::uint64_t log_dropped() const noexcept;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+
+/// Summary statistics over a span of frame records — the frametime
+/// graph's point/range selection readout. `over_budget` counts frames
+/// whose wall-clock gap exceeded `budget_ms` (default 6.94 ms = 144 Hz).
+/// Per-component averages are the stage timings; `other` is the
+/// wall-clock gap minus the summed stages (idle wait + untracked cost).
+struct RangeStats {
+    std::size_t frames{0};
+    double      avg_fps{0.0};
+    double      avg_gap_ms{0.0};
+    double      min_gap_ms{0.0};
+    double      max_gap_ms{0.0};
+    double      p95_gap_ms{0.0};
+    std::size_t over_budget{0};
+    double      budget_ms{6.94};
+    // Average per-component contribution across the span (ms).
+    double      avg_layout_ms{0.0};
+    double      avg_raster_ms{0.0};
+    double      avg_composite_ms{0.0};
+    double      avg_other_ms{0.0};
+    double      avg_cb_ms{0.0};
+};
+
+/// Compute RangeStats over frames[begin, end) (end clamped to size).
+/// begin==end (or an empty span) yields a zeroed result with frames==0.
+[[nodiscard]] RangeStats compute_range_stats(
+    const std::vector<FrameTelemetry>& frames,
+    std::size_t begin, std::size_t end, double budget_ms = 6.94);
 
 /// Post-mortem: summarize a telemetry JSONL dump (a recorded session —
 /// AFFINEUI_TELEMETRY output or `affinetools_cli.py dump`).
