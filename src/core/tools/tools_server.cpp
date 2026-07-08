@@ -21,19 +21,13 @@
 #include "affineui/log.h"
 #include "affineui/version.h"
 #include "core/log_internal.h"
-// AFFINEUI_TOOLS_JSON: modular build parses inbound wire messages via the
-// in-tree JSON reader. The amalgamated two-file SDK pins this to 0 so the
-// json_reader header (and any external dep it might grow) stays out of
-// the core lib; handle_message() then rejects every inbound frame until
-// the wire protocol is migrated to binary framing. All the rest of the
-// server (socket, discovery file, viewer launch, outbound event
-// broadcast) still works.
-#ifndef AFFINEUI_TOOLS_JSON
-#  define AFFINEUI_TOOLS_JSON 1
-#endif
-#if AFFINEUI_TOOLS_JSON
-#  include "core/tools/json_reader.h"
-#endif
+// Inbound wire messages are parsed with tiny-json (external/tinyjson) —
+// a ~600 LOC single-header C parser with zero heap allocations. Same
+// code path in modular + amalgamated builds; the parser vendors cleanly
+// into the two-file SDK.
+extern "C" {
+#include "tiny-json.h"
+}
 
 #include <array>
 #include <atomic>
@@ -297,27 +291,54 @@ void send_result(Connection& c, long long id, std::string_view result_json) {
     (void) send_framed(c.sock, msg);
 }
 
-/// Returns false when the connection must be dropped. Without JSON
-/// (AFFINEUI_TOOLS_JSON=0, used by the amalgamated build), every inbound
-/// frame is treated as malformed — the viewer can still connect to the
-/// socket but its `hello` is refused. The binary-framing rework the tool
-/// agent lands next lifts this restriction.
+// Small helpers around tiny-json's C surface. tiny-json's json_t union
+// stores every non-container leaf as a null-terminated char*, so string
+// access just wraps the pointer; number access runs strtod once.
+namespace {
+
+std::string_view tj_str(json_t const* obj, const char* prop) noexcept {
+    if (!obj) return {};
+    json_t const* v = json_getProperty(obj, prop);
+    if (!v || v->type != JSON_TEXT || !v->u.value) return {};
+    return std::string_view{v->u.value};
+}
+
+double tj_num(json_t const* obj, const char* prop, double fallback) noexcept {
+    if (!obj) return fallback;
+    json_t const* v = json_getProperty(obj, prop);
+    if (!v || !v->u.value) return fallback;
+    if (v->type != JSON_INTEGER && v->type != JSON_REAL) return fallback;
+    return std::strtod(v->u.value, nullptr);
+}
+
+// Ceiling on tokens per inbound message — hello / subscribe / etc. are
+// tiny (top-level object + maybe one params sub-object with a couple of
+// leaves). 64 is roomy for anything the current protocol emits and still
+// fits comfortably on the stack.
+constexpr unsigned kJsonPoolSize = 64;
+
+}  // namespace
+
+/// Returns false when the connection must be dropped.
 bool handle_message(ServerState& st, Connection& c, std::string_view text) {
-#if AFFINEUI_TOOLS_JSON
-    detail::json::Value msg;
-    if (!detail::json::parse(text, msg) || !msg.is_object()) {
+    // tiny-json parses in place (writes '\0' terminators into the buffer),
+    // so hand it a mutable copy. Inbound frames are already size-bounded
+    // by drain_inbuf, so a std::string is fine here.
+    std::string buf(text);
+    json_t pool[kJsonPoolSize];
+    json_t const* msg = json_create(buf.data(), pool, kJsonPoolSize);
+    if (!msg || json_getType(msg) != JSON_OBJ) {
         return false;  // malformed → disconnect (hard-to-crash rule)
     }
-    const std::string_view method = msg.get_string("method");
-    const long long id = static_cast<long long>(msg.get_number("id", -1.0));
+
+    const std::string_view method = tj_str(msg, "method");
+    const long long id = static_cast<long long>(tj_num(msg, "id", -1.0));
 
     if (!c.authed) {
         // Only hello is accepted before auth; a bad token disconnects.
         if (method != "hello") return false;
-        const detail::json::Value* params = msg.get("params");
-        const std::string_view token =
-            params != nullptr ? params->get_string("token")
-                              : std::string_view{};
+        json_t const* params = json_getProperty(msg, "params");
+        const std::string_view token = tj_str(params, "token");
         if (token.empty() || token != st.token) return false;
         c.authed = true;
         std::string result;
@@ -362,10 +383,6 @@ bool handle_message(ServerState& st, Connection& c, std::string_view text) {
     }
     send_error(c, id, -32601, "unknown method");
     return true;
-#else   // AFFINEUI_TOOLS_JSON == 0: no inbound parser wired up
-    (void)st; (void)c; (void)text;
-    return false;
-#endif
 }
 
 /// Consume complete frames from the connection buffer. Returns false when

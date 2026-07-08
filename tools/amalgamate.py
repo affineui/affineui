@@ -93,11 +93,7 @@ INTERNAL_HEADERS = [
     "src/core/log_internal.h",
     "src/core/diag.h",              # TraceSpan + sampler; used by every renderer TU
     "src/c_api_util.h",             # shared by c_api.cpp / c_api_app.cpp
-    # NOTE: src/core/tools/json_reader.h intentionally omitted — the
-    # amalgamation pins AFFINEUI_TOOLS_JSON=0, which drops the include
-    # in tools_server.cpp and short-circuits handle_message(). The
-    # socket + viewer launch still work; only the inbound wire parser
-    # is off until the binary-framing rework lands.
+    "external/tinyjson/tiny-json.h",# used by core/tools/tools_server.cpp
     "src/renderer/style/element_id.h",
     "src/renderer/style/animated_style.h",
     "src/renderer/style/computed_style.h",
@@ -201,6 +197,7 @@ VENDORED_C_TUS = [
     "src/renderer/text/fontstash_impl.c",
     "src/renderer/paint/nanovg_sokol.c",
     "src/renderer/paint/sokol_impl.c",
+    "external/tinyjson/tiny-json.c",  # inbound wire parser for tools_server.cpp
 ]
 
 REQUIRED_EXTERNAL_FILES = [
@@ -236,6 +233,7 @@ INLINED_EXTERNAL_PREFIXES = (
     "fontstash.h",
     "stb_image.h",
     "stb_truetype.h",
+    "tiny-json.h",  # vendored inbound wire parser (external/tinyjson)
 )
 LEXBOR_REPEATABLE_HEADERS = {
     "lexbor/core/cpp_compat.h",
@@ -426,6 +424,7 @@ def resolve_external_include(root: Path, current_file: Path | None,
         root / "external" / "nanovg" / "src",
         root / "external" / "sokol",
         root / "external" / "yoga",
+        root / "external" / "tinyjson",
     ]
     for base in external_roots:
         candidates.append(base / name)
@@ -880,17 +879,6 @@ def emit_impl(root: Path, out_path: Path, version: str, cxx: str) -> int:
     # externally linked. Set AFFINEUI_HOST_PROVIDES_NANOVG to disable our
     # copy if the host also links NanoVG.
     parts.append(
-        "// ─── AFFINEUI_TOOLS_JSON gate (inbound wire parser off in the SDK) ─────\n"
-        "// The devtools socket, discovery file, and viewer launcher stay compiled\n"
-        "// in — Ctrl+Shift+I still opens affinetools in every build. But the\n"
-        "// inbound JSON wire parser (core/tools/json_reader.h) is dropped from\n"
-        "// the two-file SDK: pinning AFFINEUI_TOOLS_JSON=0 short-circuits\n"
-        "// handle_message() so the viewer can't push commands until the binary-\n"
-        "// framing rework lands. Modular builds get the real parser back.\n"
-        "#ifndef AFFINEUI_TOOLS_JSON\n"
-        "#  define AFFINEUI_TOOLS_JSON 0\n"
-        "#endif\n"
-        "\n"
         "// ─── vendored-symbol shielding (TU-local linkage) ───────────────────────\n"
         "// Each define is honored by the matching upstream header; the\n"
         "// AFFINEUI_HOST_PROVIDES_* guard lets a host swap in its own copy.\n"
