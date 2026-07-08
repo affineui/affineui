@@ -111,6 +111,10 @@ INTERNAL_HEADERS = [
     "src/engine/engine.h",
     "src/layout/yoga_adapter.h",
     "src/imm/imm_runtime.h",
+    # Shared document-internal types (Block, DocumentImpl, CSS side tables).
+    # Included by src/dom/document*.cpp; must follow every header it depends on
+    # (style_store, computed_style, animated_style, style_resolver, imm_runtime).
+    "src/internal/document_impl.h",
 ]
 
 # Our C++ TUs. Order here is not load-bearing (declarations come from the
