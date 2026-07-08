@@ -157,7 +157,9 @@ public:
     void release_pointer();
     bool pointer_captured() const;
 
-    /// Start the main loop. Returns the OS exit code.
+    /// Start the main loop. Returns the OS exit code. Standalone apps
+    /// call this; embedders instead drive should_render()/render() from
+    /// their own pulse (see below).
     int run();
 
     /// Convenience: install a view fn and run() in one call.
@@ -165,6 +167,47 @@ public:
 
     /// Request the loop to exit cleanly after the current frame.
     void quit(int code = 0);
+
+    // ─── Embed API ────────────────────────────────────────────────────
+    // For hosts that own their own pulse (game engine, editor host, etc.)
+    // and want AffineUI to react rather than run its own main loop.
+    //
+    // Every host pulse should:
+    //   for (const Event& ev : host_input_this_pulse)
+    //       app.dispatch(ev);                 // input entry point (above)
+    //   if (app.should_render()) app.render();
+    //
+    // Input is not coalesced by the library — pass every event the host
+    // has; handlers see them all. Render is gated by
+    // (dirty || animations_active) AND min_frame_time_ms elapsed since
+    // the last render, so a host pulse that ticks faster than the paint
+    // budget skips the paint transparently.
+    //
+    // Resize: should_render() detects DOM/animation dirtiness but does
+    // NOT probe the host swapchain for a viewport change (it doesn't
+    // have one). When the host resizes its target, either dispatch()
+    // a Resize event or call invalidate() before the next pulse — the
+    // internal cb_frame path handles viewport-change detection because
+    // it owns the sokol swapchain; hosts must signal it explicitly.
+
+    /// Minimum wall-clock time between renders, in milliseconds. Zero
+    /// means "paint every time should_render() would otherwise be true"
+    /// (no throttle). Typical embed value is one display refresh (16.7
+    /// for 60 Hz, 8.3 for 120 Hz). Default is 0.
+    void set_min_frame_time(double ms);
+    [[nodiscard]] double min_frame_time() const noexcept;
+
+    /// True iff a paint is needed (document dirty or animations running)
+    /// AND at least min_frame_time_ms has elapsed since the last render.
+    /// Cheap; call each pulse. NOTE: does not detect host-swapchain
+    /// resizes — signal those via dispatch(Resize) or invalidate().
+    [[nodiscard]] bool should_render();
+
+    /// Paint one frame to the host swapchain. Currently a stub while the
+    /// cb_frame body is being extracted; standalone run() is unaffected.
+    /// When the extraction lands, this will advance the min-frame-time
+    /// gate on real paint (not on the call itself).
+    void render();
 
     /// The underlying retained document. Lives as long as the App.
     Document&       document();

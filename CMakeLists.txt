@@ -141,6 +141,10 @@ target_sources(affineui PRIVATE
     src/framework/app/event.cpp
     src/framework/app/automation.cpp
     src/framework/app/view.cpp
+    # macOS-only helper: drain the NSEvent queue per app pulse (see file
+    # header for rationale). Attached as a source unconditionally; empty
+    # on non-Apple platforms via #ifdef __APPLE__ inside the file.
+    $<$<PLATFORM_ID:Darwin>:src/framework/app/app_mac_native.mm>
     src/renderer/dom/document_core.cpp
     src/renderer/dom/document_controls.cpp
     src/renderer/dom/document_dispatch.cpp

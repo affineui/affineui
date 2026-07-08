@@ -245,7 +245,13 @@ def test_keyless_widgets_are_write_only_declarations():
     unnamed = view.button("Write only")
     view.end()
 
-    assert not unnamed
+    # A keyless widget still hands back a LIVE id-addressed ref — builders
+    # chain .text() / .attr() on it (module titles, jack labels) — but it
+    # is not findable by name: neither the empty string (no name != wildcard)
+    # nor its label resolve to it. Mirrors the C++ contract in
+    # tests/test_view.cpp: "View keyless widgets are write-only declarations".
+    assert unnamed
+    assert not view.find_widget("")
     assert not view.find_widget("Write only")
     assert "Write only" in view.to_html_fragment()
 
