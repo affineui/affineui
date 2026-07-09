@@ -208,6 +208,17 @@ jobs:
           ref: v${{ needs.prepare.outputs.version }}
           persist-credentials: false   # cargo publish uses CARGO_REGISTRY_TOKEN, not git
       - uses: dtolnay/rust-toolchain@stable
+      # `cargo publish` runs a verify build by default, which invokes
+      # affineui-sys's build.rs → cmake against the vendored source,
+      # which pulls in sokol_app's X11 / GL / ALSA / xkbcommon deps.
+      # ubuntu-latest doesn't ship those dev headers by default.
+      # Same install as native_libs Linux + wheels.yml manylinux.
+      - name: Install X11 + GL + ALSA dev headers (for cargo publish verify)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev libxi-dev libxcursor-dev \
+            libxkbcommon-dev libgl1-mesa-dev libasound2-dev
       - name: Set version everywhere
         run: python3 scripts/set_version.py "${{ needs.prepare.outputs.version }}"
       # affineui-sys ships as a source-build crate: its build.rs invokes
