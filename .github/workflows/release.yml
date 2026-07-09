@@ -272,12 +272,24 @@ jobs:
       # compilers wired up.
       - uses: ilammy/msvc-dev-cmd@v1
         if: matrix.os == 'windows-latest'
-      - name: Install Ninja
+      - name: Install Ninja + platform dev headers
         shell: bash
+        # Linux needs X11 / GL / ALSA / xkbcommon headers because the
+        # top-level CMakeLists (line 298) does `find_package(X11)` and
+        # sokol_app pulls in the GL + input libs. The macos-latest and
+        # windows-latest images ship with everything their sokol
+        # backends need.
         run: |
-          if   [ "$RUNNER_OS" = "Linux"   ]; then sudo apt-get update && sudo apt-get install -y ninja-build
-          elif [ "$RUNNER_OS" = "macOS"   ]; then brew install ninja
-          elif [ "$RUNNER_OS" = "Windows" ]; then choco install ninja -y --no-progress
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y \
+              ninja-build \
+              libx11-dev libxi-dev libxcursor-dev \
+              libxkbcommon-dev libgl1-mesa-dev libasound2-dev
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            brew install ninja
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            choco install ninja -y --no-progress
           fi
       - name: Configure + build affineui_c
         shell: bash
