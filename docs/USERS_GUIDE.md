@@ -402,9 +402,17 @@ return app.run();
 What you get at this layer is a webpage's rendering model: the full CSS
 cascade (author/user/UA origins), selectors and specificity, flexbox layout,
 `@font-face`, `@media`, CSS animations and transitions, images,
-backgrounds, borders, shadows, gradients, inline SVG. `01_bootstrap` and
+backgrounds, borders, shadows, and gradients. `01_bootstrap` and
 `10_bootstrap_dashboard` in `examples/` render real, unmodified Bootstrap
 4.6 CSS from disk to prove the point.
+
+**Inline SVG** is supported, with honest caveats: coverage is currently
+*so-so* — good enough for the static vector art the framework and examples
+use (icons, panel artwork, decorative shapes), but it is not a full SVG
+engine, and complex SVG documents will find the edges. Treat it as a
+static-art facility (and for anything dynamic, use the
+[custom-paint canvas](#custom-drawing-the-canvas) instead — that's the
+project's own rule).
 
 What you do **not** get is a browser: no JavaScript, no network fetch (see
 resource loading below), no cross-origin machinery, and no sandbox — treat
