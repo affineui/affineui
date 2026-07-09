@@ -240,10 +240,65 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "::notice::Published affineui-sys@${VERSION} + affineui@${VERSION} to crates.io"
 
+  # ────── native libraries for the NuGet package ─────────────────────
+  # NuGet packages that ship native code carry a `runtimes/<rid>/native/`
+  # payload per RID. We build affineui_c on all three OSes in parallel,
+  # upload each as an artifact, and the `nuget` job below downloads all
+  # three into build/ninja/ so the csproj bundles the full triple.
+  native_libs:
+    name: Build affineui_c (${{ matrix.rid }})
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            lib: affineui_c.dll
+          - os: ubuntu-latest
+            rid: linux-x64
+            lib: libaffineui_c.so
+          - os: macos-latest
+            rid: osx-arm64
+            lib: libaffineui_c.dylib
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.prepare.outputs.version }}
+          persist-credentials: false
+      # Windows only: put MSVC on PATH so cmake picks up cl.exe for the
+      # Ninja generator. macOS + Ubuntu images already have their
+      # compilers wired up.
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: matrix.os == 'windows-latest'
+      - name: Install Ninja
+        shell: bash
+        run: |
+          if   [ "$RUNNER_OS" = "Linux"   ]; then sudo apt-get update && sudo apt-get install -y ninja-build
+          elif [ "$RUNNER_OS" = "macOS"   ]; then brew install ninja
+          elif [ "$RUNNER_OS" = "Windows" ]; then choco install ninja -y --no-progress
+          fi
+      - name: Configure + build affineui_c
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build/ninja -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DAFFINEUI_BUILD_C_SHARED=ON
+          cmake --build build/ninja --target affineui_c
+          ls build/ninja/${{ matrix.lib }}
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: affineui_c-${{ matrix.rid }}
+          path: build/ninja/${{ matrix.lib }}
+          if-no-files-found: error
+
   # ────── nuget (nuget.org) ────────────────────────────────────────
   nuget:
     name: Publish nuget.org
-    needs: [prepare, amalgamate]
+    needs: [prepare, amalgamate, native_libs]
     runs-on: ubuntu-latest
     steps:
       # Check out the tag explicitly — a UI retry might dispatch from
@@ -255,6 +310,23 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      # Pull in all three native libs from the matrix build. Each
+      # artifact contains a single file; `merge-multiple: true`
+      # flattens them into build/ninja/ (matching the csproj's
+      # default AffineUINativeDir), so `dotnet pack` finds all three.
+      - name: Download native libs
+        uses: actions/download-artifact@v4
+        with:
+          path: build/ninja
+          pattern: 'affineui_c-*'
+          merge-multiple: true
+      - name: Confirm all three natives are present
+        run: |
+          set -euo pipefail
+          ls build/ninja/
+          test -f build/ninja/affineui_c.dll        || { echo "::error::missing affineui_c.dll (win-x64)";     exit 1; }
+          test -f build/ninja/libaffineui_c.so      || { echo "::error::missing libaffineui_c.so (linux-x64)"; exit 1; }
+          test -f build/ninja/libaffineui_c.dylib   || { echo "::error::missing libaffineui_c.dylib (osx-arm64)"; exit 1; }
       - name: Set version everywhere
         run: python3 scripts/set_version.py "${{ needs.prepare.outputs.version }}"
       - name: Pack
@@ -281,9 +353,11 @@ jobs:
             echo ""
             echo "- [\`AffineUI ${VERSION}\`](https://www.nuget.org/packages/AffineUI/${VERSION})"
             echo ""
+            echo "Bundled RIDs: \`win-x64\`, \`linux-x64\`, \`osx-arm64\`"
+            echo ""
             echo "Install: \`dotnet add package AffineUI --version ${VERSION}\`"
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "::notice::Published AffineUI ${VERSION} to nuget.org"
+          echo "::notice::Published AffineUI ${VERSION} to nuget.org (win-x64 + linux-x64 + osx-arm64)"
 
   # ────── GitHub Release ───────────────────────────────────────────
   # Create the Release + attach the amalgamation zip. Marks the release
