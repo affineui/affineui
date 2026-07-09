@@ -68,7 +68,7 @@ keyed on `<CORE>`, so:
 Force-with-lease guards against clobbering human edits merged to `main`.
 Concurrency-gated so a re-dispatch supersedes an in-flight draft.
 
-**Step 2 — reviewer merges the notes PR.** Edit `docs/release-notes/v<VERSION>.md`
+**Step 2 — reviewer merges the notes PR.** Edit `docs/release-notes/v<CORE>.md`
 inline in the PR — the AI draft is a starting point, not the final copy.
 The Highlights section in particular usually wants a human pass. Squash-
 or rebase-merge as usual.
@@ -78,10 +78,11 @@ or rebase-merge as usual.
 job:
 
 1. Re-validates the version via `scripts/set_version.py --check`.
-2. Confirms `docs/release-notes/v<VERSION>.md` exists on `main`.
+2. Confirms `docs/release-notes/v<CORE>.md` exists on `main` (same file
+   shared across every pre-release + the final in this cycle).
 3. Confirms `origin` has no tag with that name yet.
-4. Creates an annotated tag `v<VERSION>` **with the notes file as the tag
-   message**.
+4. Creates an annotated tag `v<VERSION>` (the FULL version, including any
+   `-rc.N` suffix) **with the notes file's contents as the tag message**.
 5. Pushes.
 
 The existing [`release.yml`](../.github/workflows/release.yml) and

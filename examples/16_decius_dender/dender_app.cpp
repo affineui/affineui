@@ -231,7 +231,7 @@ affineui::App::Config DenderApp::make_config() {
     cfg.high_dpi = true;
     // Perf HUD on by default while UI performance is being debugged
     // (user directive 2026-07-03): fps/ms graph + stage flags, top-right.
-    cfg.perf_overlay = true;
+    cfg.perf_overlay = false;
     // frameworks/ is copied next to the exe; "examples" works from repo root.
     cfg.asset_folders = {".", "examples"};
     // Persist dock sizes after splitter drags and rebuild so structural

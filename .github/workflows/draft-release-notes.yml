@@ -283,7 +283,14 @@ jobs:
           # Create the branch off main (fresh each run); if it exists on
           # origin, we rebase on top so old CI-drafted commits are dropped
           # but merged human edits to unrelated files persist.
+          # ALSO fetch refs/heads/${branch} so the local remote-tracking
+          # ref matches what's actually on origin — without that,
+          # --force-with-lease compares against an empty/stale ref and
+          # can reject the push on a re-dispatch (or, worse, silently
+          # succeed against the wrong ref). Ignore fetch failure: the
+          # branch may not exist on origin yet on the first dispatch.
           git fetch origin main
+          git fetch origin "refs/heads/${branch}:refs/remotes/origin/${branch}" || true
           git checkout -B "$branch" origin/main
           # Bring the notes file we just wrote (Copilot wrote in the
           # workspace root, which is on branch main-tip; the checkout
@@ -294,6 +301,9 @@ jobs:
             exit 0
           fi
           git commit -m "docs: draft AI release notes for v${CORE} (drafted as ${BUMP}/${MODE} → v${NEXT})"
+          # --force-with-lease uses the just-refreshed origin/${branch} as
+          # the expected state, so a concurrent human push to the same
+          # branch fails loud rather than silently getting clobbered.
           git push --force-with-lease origin "$branch"
 
           if gh pr view "$branch" --json number 2>/dev/null >/dev/null; then
