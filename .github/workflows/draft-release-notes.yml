@@ -346,3 +346,58 @@ jobs:
                 "_Re-dispatching \`Draft release notes\` with any (bump, mode) that resolves to the same core version refreshes this PR in place._" \
               )"
           fi
+
+      # ───── run summary ─────
+      # Every important artifact this workflow produced, one click away.
+      # Shows up on the run's Summary tab; also emits a ::notice:: line so
+      # the PR link is visible at a glance in the raw log.
+      - name: Summary
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT: ${{ steps.next.outputs.next }}
+          CORE: ${{ steps.next.outputs.core }}
+          LAST_STABLE: ${{ steps.last.outputs.last_stable }}
+          LAST_ANY: ${{ steps.last.outputs.last_any }}
+          COUNT: ${{ steps.log.outputs.count }}
+          BUMP: ${{ inputs.bump }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          branch="release-notes/v${CORE}"
+          notes_path="docs/release-notes/v${CORE}.md"
+          server="${GITHUB_SERVER_URL:-https://github.com}"
+          repo="${GITHUB_REPOSITORY}"
+          # PR may not exist yet if the workflow failed early — swallow errors.
+          pr_number=$(gh pr view "$branch" --json number --jq .number 2>/dev/null || echo "")
+          pr_url=$(gh pr view "$branch" --json url --jq .url 2>/dev/null || echo "")
+          {
+            echo "## Draft release notes for v${CORE}"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Next version | \`v${NEXT}\` |"
+            echo "| Core (notes-file key) | \`${CORE}\` |"
+            echo "| Bump / Mode | \`${BUMP}\` / \`${MODE}\` |"
+            echo "| Previous stable tag | \`${LAST_STABLE:-<none>}\` |"
+            echo "| Previous any tag | \`${LAST_ANY:-<none>}\` |"
+            echo "| Commits covered | ${COUNT:-<unknown>} |"
+            echo "| Branch | [\`${branch}\`](${server}/${repo}/tree/${branch}) |"
+            echo "| Notes file | [\`${notes_path}\`](${server}/${repo}/blob/${branch}/${notes_path}) |"
+            if [ -n "$pr_number" ]; then
+              echo "| Pull request | [#${pr_number}](${pr_url}) |"
+            else
+              echo "| Pull request | _not yet opened_ |"
+            fi
+            echo ""
+            if [ -n "$pr_number" ]; then
+              echo "**Next step:** review + merge [#${pr_number}](${pr_url}), then dispatch **Cut release** with version \`${NEXT}\`."
+            else
+              echo "**Next step:** open the PR manually (or re-dispatch this workflow) then dispatch **Cut release** with version \`${NEXT}\`."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$pr_url" ]; then
+            echo "::notice::Drafted release notes for v${CORE} — ${pr_url}"
+          else
+            echo "::notice::Drafted release notes for v${CORE} (see run summary)"
+          fi

@@ -210,6 +210,41 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+      - name: Summary
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            # Version comes from the sdist filename since no tag drives this.
+            version=$(ls dist/affineui-*.tar.gz 2>/dev/null | head -1 \
+                     | sed -E 's|.*affineui-(.*)\.tar\.gz|\1|')
+          else
+            # Tag events: strip leading v. PEP-440 normalization (v1.0.0-rc.1
+            # → 1.0.0rc1) happens inside the sdist filename; expose both.
+            tag_version="${GITHUB_REF_NAME#v}"
+            version="$tag_version"
+          fi
+          wheels=$(ls dist/*.whl 2>/dev/null | wc -l | tr -d ' ')
+          sdist=$(ls dist/*.tar.gz 2>/dev/null | head -1 | xargs -I{} basename {})
+          {
+            echo "## Published to TestPyPI"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Version | \`${version:-<unknown>}\` |"
+            echo "| Project page | [test.pypi.org/project/affineui/${version}/](https://test.pypi.org/project/affineui/${version}/) |"
+            echo "| Wheels uploaded | ${wheels} |"
+            echo "| sdist | \`${sdist:-<none>}\` |"
+            echo ""
+            echo '**Install (TestPyPI needs a dual-index so runtime deps resolve from real PyPI):**'
+            echo ''
+            echo '```bash'
+            echo "pip install \\"
+            echo "  --index-url https://test.pypi.org/simple/ \\"
+            echo "  --extra-index-url https://pypi.org/simple/ \\"
+            echo "  affineui==${version}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::Published affineui ${version} to TestPyPI — https://test.pypi.org/project/affineui/${version}/"
 
   publish_pypi:
     name: Publish to PyPI
@@ -244,3 +279,27 @@ jobs:
           path: dist
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Summary
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            version=$(ls dist/affineui-*.tar.gz 2>/dev/null | head -1 \
+                     | sed -E 's|.*affineui-(.*)\.tar\.gz|\1|')
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          wheels=$(ls dist/*.whl 2>/dev/null | wc -l | tr -d ' ')
+          sdist=$(ls dist/*.tar.gz 2>/dev/null | head -1 | xargs -I{} basename {})
+          {
+            echo "## Published to PyPI"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Version | \`${version:-<unknown>}\` |"
+            echo "| Project page | [pypi.org/project/affineui/${version}/](https://pypi.org/project/affineui/${version}/) |"
+            echo "| Wheels uploaded | ${wheels} |"
+            echo "| sdist | \`${sdist:-<none>}\` |"
+            echo ""
+            echo "**Install:** \`pip install affineui==${version}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::Published affineui ${version} to PyPI — https://pypi.org/project/affineui/${version}/"

@@ -168,6 +168,21 @@ jobs:
         with:
           name: amalgamation
           path: ${{ steps.package.outputs.zip_name }}
+      - name: Summary
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          ZIP: ${{ steps.package.outputs.zip_name }}
+        run: |
+          server="${GITHUB_SERVER_URL:-https://github.com}"
+          repo="${GITHUB_REPOSITORY}"
+          {
+            echo "### Amalgamated SDK zip"
+            echo ""
+            echo "- **Version:** \`${VERSION}\`"
+            echo "- **Artifact:** \`${ZIP}\` — contains \`affineui.h\`, \`affineui.cpp\`, \`LICENSE\`, \`README.md\`"
+            echo "- **Run artifact:** [\`amalgamation\`](${server}/${repo}/actions/runs/${GITHUB_RUN_ID})"
+            echo "- Will be attached to the GitHub Release below."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ────── cargo (crates.io) ────────────────────────────────────────
   # Publish both crates in the workspace. affineui-sys must go first because
@@ -205,6 +220,19 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo publish --allow-dirty
+      - name: Summary
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          {
+            echo "### crates.io"
+            echo ""
+            echo "- [\`affineui-sys@${VERSION}\`](https://crates.io/crates/affineui-sys/${VERSION})"
+            echo "- [\`affineui@${VERSION}\`](https://crates.io/crates/affineui/${VERSION})"
+            echo ""
+            echo "Install: \`cargo add affineui@${VERSION}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::Published affineui-sys@${VERSION} + affineui@${VERSION} to crates.io"
 
   # ────── nuget (nuget.org) ────────────────────────────────────────
   nuget:
@@ -238,6 +266,18 @@ jobs:
             --api-key "$NUGET_API_KEY" \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
+      - name: Summary
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          {
+            echo "### NuGet"
+            echo ""
+            echo "- [\`AffineUI ${VERSION}\`](https://www.nuget.org/packages/AffineUI/${VERSION})"
+            echo ""
+            echo "Install: \`dotnet add package AffineUI --version ${VERSION}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::Published AffineUI ${VERSION} to nuget.org"
 
   # ────── GitHub Release ───────────────────────────────────────────
   # Create the Release + attach the amalgamation zip. Marks the release
@@ -303,3 +343,24 @@ jobs:
           body_path: ${{ steps.notes.outputs.path }}
           generate_release_notes: ${{ steps.notes.outputs.auto }}
           files: ${{ needs.amalgamate.outputs.zip_name }}
+      - name: Summary
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          IS_PRE: ${{ needs.prepare.outputs.is_prerelease }}
+          CORE: ${{ needs.prepare.outputs.core }}
+          ZIP: ${{ needs.amalgamate.outputs.zip_name }}
+        run: |
+          server="${GITHUB_SERVER_URL:-https://github.com}"
+          repo="${GITHUB_REPOSITORY}"
+          tag="v${VERSION}"
+          release_label="Release"
+          [ "${IS_PRE}" = "true" ] && release_label="Pre-release"
+          {
+            echo "### GitHub ${release_label}"
+            echo ""
+            echo "- **Page:** [${tag}](${server}/${repo}/releases/tag/${tag})"
+            echo "- **Body:** \`docs/release-notes/v${CORE}.md\`"
+            echo "- **Asset:** \`${ZIP}\` — two-file C++ drop-in"
+            echo "- **Pre-release flag:** \`${IS_PRE}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::Created GitHub ${release_label} ${tag} — ${server}/${repo}/releases/tag/${tag}"
