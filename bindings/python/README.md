@@ -48,7 +48,7 @@ view = ui.View(ui.ViewTheme.Decius)
 view.begin()
 view.heading(1, "Hello from Python")
 view.paragraph("AffineUI — native HTML/CSS, no browser, no JS.")
-view.button("Click me", key="go").on_click(lambda: print("clicked!"))
+view.button("Click me", primary=True, key="go").on_click(lambda: print("clicked!"))
 view.end()
 
 app = ui.App(title="Hello", width=720, height=480)
@@ -103,8 +103,8 @@ def build_view() -> ui.View:
     view = ui.View(ui.ViewTheme.Decius)
     view.begin()
     view.heading(1, f"Count: {count}")
-    view.button("Increment", key="inc").on_click(bump)
-    view.button("Reset",     key="reset").on_click(reset)
+    view.button("Increment", primary=True, key="inc").on_click(bump)
+    view.button("Reset",                    key="reset").on_click(reset)
     view.end()
     return view
 
