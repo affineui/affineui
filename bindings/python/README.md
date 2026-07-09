@@ -1,89 +1,180 @@
-# AffineUI Python
+# AffineUI for Python
 
-Initial proof-of-concept Python bindings for AffineUI.
+<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_dender.png" width="720" alt="AffineUI running the Dender 3D-print slicer — the default Decius CSS look">
 
-The package builds a small `pybind11` extension over the C++ core. The
-first slice exposes:
+<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_bootstrap.png" width="720" alt="AffineUI rendering a Bootstrap dashboard">
 
-- `affineui.version()`
-- `affineui.native_backend()` (`"sokol"` for this package)
-- `affineui.Color`, `Size`, and `Rect`
-- headless `affineui.Document`
-- `affineui.App` construction, HTML/CSS loading, native `run()`, and
-  native `launch()`
-- command-tree `affineui.View` plus safe `WidgetRef` handles for named
-  widgets
+**A small, HTML5-compliant, GPU-accelerated UI renderer with an integrated
+component framework — a native replacement for Electron and Qt, for Python.**
 
-The intended production model is:
+Think Gradio, but native: describe your UI as a tree of typed components,
+get a real HTML/CSS renderer with a browser-quality cascade, animations,
+hit-testing, and 120 Hz paint — all in one binary, no browser embedded, no
+JavaScript runtime, no Electron. Bootstrap and Tailwind-style stylesheets
+render out of the box; the bundled default is
+[Decius CSS](https://deciuscss.com).
 
-- the C++ core owns `App`, rendering, widget behavior, and callback lists;
-- the C++ core keeps its two-file zero-dependency SDK shape; pybind11 and
-  scikit-build are Python packaging tools, not AffineUI runtime/core
-  dependencies;
-- Python exposes a Pythonic package on top of that core;
-- bound Python methods are mapped to weak-method callbacks in the Python
-  layer before they enter the shared C++ callback substrate.
+**Status:** alpha. Broad standards coverage, real UIs run today, but
+expect bugs and expect APIs to move.
 
-This proof of concept links the modular CMake target because that is the
-fastest development path. The binding architecture must also support
-building against the generated `affineui.h` / `affineui.cpp`
-amalgamation for embedders who want the same two-file core in a Python
-extension.
+---
 
-The native wheel backend is sokol (`sokol_app` + `sokol_gfx`) compiled
-into `_affineui`. SDL is not a Python package dependency; it remains an
-optional C++ embedding adapter. The graphics backend is still selected
-by AffineUI's normal platform logic (`d3d11` on Windows, Metal on macOS,
-GL where appropriate).
+## Install
 
-## Install from the repository
-
-```powershell
-python -m pip install ./bindings/python
+```bash
+pip install affineui
 ```
 
-For editable development:
+Prebuilt wheels ship for CPython 3.9 – 3.13 on Linux (`manylinux_2_28`
+x86_64), macOS (universal2 — Intel + Apple Silicon), and Windows AMD64.
 
-```powershell
-python -m pip install -e ./bindings/python
+For a source install from a clone of the [main repo](https://github.com/benjcooley/affineui):
+
+```bash
+pip install ./bindings/python           # regular install
+pip install -e ./bindings/python        # editable / dev
 ```
 
-## Smoke test
+---
+
+## Hello, world
+
+### Component API (recommended)
+
+```python
+import affineui as ui
+
+view = ui.View(ui.ViewTheme.Decius)
+view.begin()
+view.heading(1, "Hello from Python")
+view.paragraph("AffineUI — native HTML/CSS, no browser, no JS.")
+view.button("Click me", key="go").on_click(lambda: print("clicked!"))
+view.end()
+
+app = ui.App(title="Hello", width=720, height=480)
+app.load_view(view)
+raise SystemExit(app.run())
+```
+
+### Raw HTML
+
+```python
+import affineui as ui
+
+app = ui.App(title="Hello", width=720, height=480)
+app.load_html("""
+  <main style="padding: 24px; font-family: sans-serif;">
+    <h1>Hello from Python</h1>
+    <p>AffineUI is alive.</p>
+    <button>Click me</button>
+  </main>
+""")
+raise SystemExit(app.run())
+```
+
+### Headless (no window — for CI and tests)
 
 ```python
 import affineui as ui
 
 doc = ui.document(
-    "<main><h1>Hello from Python</h1><p id='msg'>AffineUI</p></main>",
+    "<main><h1>Hello</h1><p>Layout without a window.</p></main>",
     "main { padding: 16px; } h1 { font-size: 32px; }",
+    width=640, height=360,
 )
 print(ui.version(), doc.content_size())
 ```
 
-Native window smoke:
+---
+
+## A modest app
+
+A live-updating counter — state lives in Python; the reconciler diffs
+your view and patches the DOM in place. CSS hover/focus/animation keeps
+running between updates.
 
 ```python
 import affineui as ui
 
-app = ui.App("AffineUI Python")
-app.load_html("<main><h1>Hello</h1><p>Native sokol window.</p></main>")
-app.launch(native=True)
+count = 0
+app = ui.App(title="Counter", width=480, height=240)
+
+def build_view() -> ui.View:
+    view = ui.View(ui.ViewTheme.Decius)
+    view.begin()
+    view.heading(1, f"Count: {count}")
+    view.button("Increment", key="inc").on_click(bump)
+    view.button("Reset",     key="reset").on_click(reset)
+    view.end()
+    return view
+
+def bump():
+    global count
+    count += 1
+    app.load_view(build_view())
+
+def reset():
+    global count
+    count = 0
+    app.load_view(build_view())
+
+app.load_view(build_view())
+raise SystemExit(app.run())
 ```
 
-Command-tree component gallery:
+The main repo's [`bindings/python/examples/`](https://github.com/benjcooley/affineui/tree/main/bindings/python/examples)
+ships larger runnable programs — a component gallery, a photo editor,
+and a full Bootstrap-styled panel demo.
 
-```powershell
-python bindings/python/examples/component_gallery.py
-python bindings/python/examples/component_gallery.py --style=decius
+---
+
+## Loading design-system CSS
+
+Decius CSS is the default when you use the component API. To render your
+own HTML with a framework stylesheet, tell the app where its asset
+folder is:
+
+```python
+app = ui.App(
+    title="Bootstrap demo",
+    width=1280,
+    height=720,
+    asset_folders=["examples"],          # so href="frameworks/..." resolves
+)
+app.load_html("""
+  <link rel="stylesheet" href="frameworks/css/bootstrap-5.3.8.min.css">
+  <div class="container py-4">
+    <button class="btn btn-primary">Native Bootstrap</button>
+  </div>
+""")
+raise SystemExit(app.run())
 ```
 
-The example passes `asset_folders=["examples"]` to the app so framework
-links such as `frameworks/css/bootstrap-5.3.8.min.css` resolve from the
-checked-in demo assets. If omitted, the default asset folder is `"."`.
+Bootstrap 4.6 / 5.3, Tailwind-style utility classes, and Ant-style
+component markup all render — this is a real CSS engine, not an
+HTML-shaped layout solver.
 
-Headless check:
+---
 
-```powershell
-python bindings/python/examples/component_gallery.py --headless
-python bindings/python/examples/component_gallery.py --headless --style=decius
-```
+## What AffineUI is *not*
+
+- **Not a browser.** No navigation, no `fetch`, no cookies.
+- **Not a nerfed HTML5.** Missing non-esoteric features are bugs.
+- **Not a security sandbox.** Never feed it untrusted HTML/CSS/JS.
+- **Not an everything-included framework.** No video decode, no audio,
+  no 3D — those are your app's job.
+- **Not (yet) a JS runtime.** JS + React support is on the roadmap as
+  an opt-in extension.
+
+See the [main README](https://github.com/benjcooley/affineui) for the
+full picture, embedding notes, C++ / Rust / C# APIs, and the demo
+gallery.
+
+---
+
+## Links
+
+- **Repository:** <https://github.com/benjcooley/affineui>
+- **Docs:** <https://github.com/benjcooley/affineui/tree/main/docs>
+- **Issues:** <https://github.com/benjcooley/affineui/issues>
+- **License:** MIT

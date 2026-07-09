@@ -1,5 +1,9 @@
 # affineui
 
+<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="AffineUI game-editor demo — the default Decius CSS look">
+
+<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_bootstrap.png" width="720" alt="AffineUI rendering a Bootstrap dashboard">
+
 Safe, idiomatic Rust bindings for
 [AffineUI](https://github.com/benjcooley/affineui) — a tiny
 GPU-accelerated HTML/CSS UI renderer for tools and game engines.
