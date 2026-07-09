@@ -1,0 +1,75 @@
+name: Cut release
+
+# Two-step release UX, step 2. First run "Draft release notes" to compute
+# the next version and get a reviewed PR with `docs/release-notes/v<V>.md`.
+# Merge that PR into main. THEN run this workflow, pass the same version,
+# and it turns the merged notes file into an annotated git tag (`vX.Y.Z…`)
+# — release.yml + wheels.yml react to the tag push and publish everywhere.
+#
+# Why annotated tags: the tag message becomes the GitHub Release body,
+# ships in every git clone (no round-trip to GitHub needed to see the
+# release story), and gives us a git-signed record of what shipped.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to cut, bare (e.g. 1.2.4-rc.1). Must match a docs/release-notes/v<VERSION>.md that has already been merged to main.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cut-release-${{ inputs.version }}
+  cancel-in-progress: false   # never cancel a mid-flight tag push
+
+jobs:
+  cut:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # push the tag
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # We DO push (the tag), so leave credentials persisted.
+
+      - name: Validate version + notes file present
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # Same semver check the release-tagged workflows use, so a
+          # malformed input fails here rather than deep inside cargo /
+          # nuget publish.
+          python3 scripts/set_version.py --check "$VERSION"
+
+          notes="docs/release-notes/v${VERSION}.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::${notes} not found on main."
+            echo "::error::Run the 'Draft release notes' workflow with a matching bump/mode combo first, review the opened PR, merge it, then re-dispatch this workflow."
+            exit 1
+          fi
+
+          # Refuse to re-tag. Local tag might not exist yet; check origin.
+          if git ls-remote --exit-code --tags origin "v${VERSION}" >/dev/null 2>&1; then
+            echo "::error::Tag v${VERSION} already exists on origin. Cutting a release twice for the same version isn't supported (registries reject duplicates anyway)."
+            exit 1
+          fi
+
+      - name: Create + push annotated tag
+        env:
+          VERSION: ${{ inputs.version }}
+        # `git tag -a -F` reads the tag message from a file — the notes
+        # markdown IS the tag message. release.yml's gh_release job then
+        # uses that same message as the GitHub Release body.
+        run: |
+          set -euo pipefail
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name  'github-actions[bot]'
+          tag="v${VERSION}"
+          git tag -a "$tag" -F "docs/release-notes/v${VERSION}.md"
+          git push origin "$tag"
+          echo "::notice::Pushed tag ${tag}. release.yml and wheels.yml will publish shortly."

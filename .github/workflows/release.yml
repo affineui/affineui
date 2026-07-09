@@ -232,16 +232,46 @@ jobs:
     permissions:
       contents: write   # required to create the Release
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Download amalgamation artifact
         uses: actions/download-artifact@v4
         with:
           name: amalgamation
+
+      # If cut-release.yml produced a docs/release-notes/v<VERSION>.md
+      # for this tag, use it as the Release body (that's the file the
+      # human just reviewed + edited before merging the notes PR).
+      # Otherwise fall back to auto-generated notes from GitHub's PR/commit
+      # diff so pushing a tag directly (bypassing the drafts flow) still
+      # produces a usable Release.
+      - name: Locate release notes
+        id: notes
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          f="docs/release-notes/v${VERSION}.md"
+          if [ -f "$f" ]; then
+            echo "path=$f" >> "$GITHUB_OUTPUT"
+            echo "auto=false" >> "$GITHUB_OUTPUT"
+            echo "Using curated notes at $f"
+          else
+            echo "path=" >> "$GITHUB_OUTPUT"
+            echo "auto=true" >> "$GITHUB_OUTPUT"
+            echo "No $f found; falling back to auto-generated notes."
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          # `push` events already have the tag; dispatch runs mint one below.
           tag_name: v${{ needs.prepare.outputs.version }}
           name: v${{ needs.prepare.outputs.version }}
           prerelease: ${{ needs.prepare.outputs.is_prerelease }}
-          generate_release_notes: true
+          # body_path wins over generate_release_notes when both are set;
+          # empty body_path with generate_release_notes=true gives the
+          # auto-generated notes (see the fallback above).
+          body_path: ${{ steps.notes.outputs.path }}
+          generate_release_notes: ${{ steps.notes.outputs.auto }}
           files: ${{ needs.amalgamate.outputs.zip_name }}
