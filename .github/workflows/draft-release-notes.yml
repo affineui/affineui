@@ -182,10 +182,17 @@ jobs:
               - Sentence describing the fix. (#126)
 
           Section rules:
-          * **Highlights** = 1-3 bullets summarising the marquee items of
-            this release, drawn from the biggest fix / feature / change.
-            OK to duplicate the exact text of a lower-section bullet if it
-            is the marquee item. Include the PR number.
+          * **Highlights** = 1-3 bullets summarising the marquee items
+            of this release, drawn strictly from things END USERS of
+            the AffineUI library will observe. Marquee-worthy examples:
+            new public API, user-visible bug fix, perf improvement,
+            behaviour change in a widget/renderer/binding. NEVER
+            include in Highlights: CI changes, build-system changes,
+            repo housekeeping / chore, release-tooling changes,
+            internal refactors that don't move the surface, docs-only
+            edits, dependency bumps. Those all live in Changes below.
+            OK to duplicate the exact text of a lower-section bullet
+            if it is the marquee item — always include the PR number.
           * **New features** = commits with a \`feat:\` prefix.
           * **Changes** = anything that changes behaviour but isn't a
             new feature and isn't a bug fix: \`refactor:\`, \`perf:\`,
@@ -194,9 +201,22 @@ jobs:
           * **Bug fixes** = commits with a \`fix:\` prefix.
           * If a section (except Highlights) would be empty, OMIT the
             heading entirely.
-          * If there are literally no user-facing changes worth flagging,
-            Highlights can be one bullet that reads "internal / plumbing
-            release" — but only as a last resort.
+          * If NO end-user-facing item qualifies as marquee, pick the
+            fallback that matches the shape of the release. Use EXACTLY
+            one Highlights bullet with the literal text below — no PR
+            number, no additional text, no stretching to fit marginal
+            items.
+
+            – Release is clearly a bug-fix point patch (bug fixes are
+              the dominant category, no marquee new-features / user-
+              visible changes):
+                  "This version is mainly focused on bug fixes."
+
+            – Release has no user-facing changes at all (only build /
+              CI / repo / tooling / refactor / docs), OR is a mix of
+              bug fixes and minor improvements without a clear marquee
+              item:
+                  "This version is mainly focused on issues and improvements."
 
           Style rules:
           * Preserve the PR number \`(#N)\` if present in the subject; do
