@@ -102,6 +102,13 @@ typedef struct affineui_app_config {
     const char* const* asset_folders;        // default {"."}
     size_t             asset_folder_count;
     int                perf_overlay;         // 0/1, default 0
+    // Runtime opt-out for the compile-time embedded Decius bundle.
+    // 0 (default) → bundle is used (auto-applied stylesheet + fallback
+    // for `frameworks/*` URLs when asset_folders come back empty).
+    // 1 → embed disabled at runtime; the app runs entirely against
+    // user assets. Ignored when affineui_c was built with
+    // -DAFFINEUI_NO_BUNDLE_DECIUS.
+    int                no_bundle_decius;     // 0/1, default 0
 } affineui_app_config;
 
 AFFINEUI_C_API void affineui_app_config_init(affineui_app_config* cfg);

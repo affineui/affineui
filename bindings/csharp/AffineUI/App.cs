@@ -41,6 +41,14 @@ public sealed class AppConfig
 
     /// <summary>Show the performance overlay. Default false.</summary>
     public bool? PerfOverlay { get; set; }
+
+    /// <summary>Runtime opt-out for the compile-time bundled Decius
+    /// resources. The bundle is ON by default (this is false); set to
+    /// true to disable — no auto-applied stylesheet, no fallback-to-
+    /// embedded on <c>frameworks/*</c> URLs — even when the bundle is
+    /// compiled in. Ignored when affineui_c was built with
+    /// <c>-DAFFINEUI_NO_BUNDLE_DECIUS</c>.</summary>
+    public bool? NoBundleDecius { get; set; }
 }
 
 /// <summary>
@@ -95,6 +103,7 @@ public sealed class App : IDisposable
                     native.AssetFolderCount = folders.Count;
                 }
                 if (config.PerfOverlay is bool po) native.PerfOverlay = po ? 1 : 0;
+                if (config.NoBundleDecius is bool nb) native.NoBundleDecius = nb ? 1 : 0;
             }
 
             // The config is copied by the core, so the temporaries can be

@@ -62,6 +62,7 @@ internal struct NativeAppConfig
     public IntPtr AssetFolders;        // const char* const*
     public nuint AssetFolderCount;
     public int PerfOverlay;
+    public int NoBundleDecius;
 }
 
 /// <summary>Mirrors <c>affineui_gpu_context</c>.</summary>

@@ -32,7 +32,8 @@ affineui::App::Config make_app_config(const std::string& title,
                                       const std::string& default_font_family,
                                       int default_font_size,
                                       const std::vector<std::string>& asset_folders,
-                                      bool perf_overlay) {
+                                      bool perf_overlay,
+                                      bool no_bundle_decius) {
     affineui::App::Config cfg{};
     cfg.title = title;
     cfg.width = width;
@@ -44,6 +45,7 @@ affineui::App::Config make_app_config(const std::string& title,
     cfg.default_font_size = default_font_size;
     cfg.asset_folders = asset_folders;
     cfg.perf_overlay = perf_overlay;
+    cfg.no_bundle_decius = no_bundle_decius;
     return cfg;
 }
 
@@ -1301,7 +1303,8 @@ PYBIND11_MODULE(_affineui, m) {
                           const std::string& default_font_family,
                           int default_font_size,
                           const std::vector<std::string>& asset_folders,
-                          bool perf_overlay) {
+                          bool perf_overlay,
+                          bool no_bundle_decius) {
                   return std::make_unique<affineui::App>(
                       make_app_config(title,
                                       width,
@@ -1312,7 +1315,8 @@ PYBIND11_MODULE(_affineui, m) {
                                       default_font_family,
                                       default_font_size,
                                       asset_folders,
-                                      perf_overlay));
+                                      perf_overlay,
+                                      no_bundle_decius));
               }),
              py::arg("title") = "AffineUI",
              py::arg("width") = 1024,
@@ -1323,7 +1327,8 @@ PYBIND11_MODULE(_affineui, m) {
               py::arg("default_font_family") = "sans-serif",
               py::arg("default_font_size") = 16,
               py::arg("asset_folders") = std::vector<std::string>{"."},
-              py::arg("perf_overlay") = false)
+              py::arg("perf_overlay") = false,
+              py::arg("no_bundle_decius") = false)
         .def("load_html", [](affineui::App& app, const std::string& html) {
             app.load_html(html);
         })

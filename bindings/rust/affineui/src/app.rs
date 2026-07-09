@@ -23,6 +23,12 @@ pub struct Config {
     pub default_font_size: i32,
     pub asset_folders: Vec<String>,
     pub perf_overlay: bool,
+    /// Runtime opt-out for the compile-time bundled Decius resources.
+    /// The bundle is ON by default (this field is `false`); set to `true`
+    /// to disable — no auto-applied stylesheet, no fallback-to-embedded
+    /// on `frameworks/*` URLs — even when the bundle is compiled in.
+    /// Ignored when affineui_c was built with `-DAFFINEUI_NO_BUNDLE_DECIUS`.
+    pub no_bundle_decius: bool,
 }
 
 impl Default for Config {
@@ -38,6 +44,7 @@ impl Default for Config {
             default_font_size: 16,
             asset_folders: vec![".".to_owned()],
             perf_overlay: false,
+            no_bundle_decius: false,
         }
     }
 }
@@ -67,6 +74,12 @@ impl Config {
     }
     pub fn perf_overlay(mut self, on: bool) -> Config {
         self.perf_overlay = on;
+        self
+    }
+    /// Disable the compile-time embedded Decius bundle for this app.
+    /// See the field docs on `Config::no_bundle_decius`.
+    pub fn no_bundle_decius(mut self, on: bool) -> Config {
+        self.no_bundle_decius = on;
         self
     }
 }
@@ -113,6 +126,7 @@ impl App {
             asset_folders: if folder_ptrs.is_empty() { std::ptr::null() } else { folder_ptrs.as_ptr() },
             asset_folder_count: folder_ptrs.len(),
             perf_overlay: cfg.perf_overlay as i32,
+            no_bundle_decius: cfg.no_bundle_decius as i32,
         };
         let raw = unsafe { sys::affineui_app_create(&c_cfg) };
         App { inner: Rc::new(AppInner { raw, _not_send: NotThreadSafe::default() }) }
