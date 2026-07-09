@@ -16,11 +16,24 @@ name: Draft release notes
 # merged into main are preserved — only the still-open PR gets refreshed.
 #
 # ────────────────────────────────────────────────────────────────────
-# No dedicated secret needed — Copilot CLI works with the workflow's
-# built-in `GITHUB_TOKEN` per the GitHub docs
-# (docs.github.com/en/copilot/how-tos/copilot-cli/automate-copilot-cli/automate-with-actions):
-# "Using GITHUB_TOKEN (recommended for organization-owned repositories):
-#  No PAT or stored secrets required."
+# Copilot CLI needs a PAT with `Copilot Requests: Read`. The workflow's
+# built-in `GITHUB_TOKEN` only carries that permission on ORG-owned
+# repositories (per the GitHub docs). For a USER-owned repo like this
+# one it doesn't — auth fails with "Your GitHub token may be invalid,
+# expired, or lacking the required permissions".
+#
+# Fix: a fine-grained PAT stored as repo secret `COPILOT_PAT`.
+# Because the Copilot CLI only talks to `api.githubcopilot.com` — it
+# doesn't touch the repo — the PAT needs no repo write. The narrowest
+# working shape:
+#   - Resource access: "Public repositories (read-only)"
+#     (required — this is the only fine-grained-PAT shape that surfaces
+#      the "Copilot Requests" permission at all)
+#   - Account permissions → "Copilot Requests": Read
+#
+# Every other step in this workflow (checkout, git log, git push,
+# `gh pr create`) still uses the ephemeral `github.token`, which has
+# the repo write it needs and stays scoped to this run.
 # ────────────────────────────────────────────────────────────────────
 
 on:
@@ -139,7 +152,10 @@ jobs:
         env:
           # Built-in workflow token — no PAT/secret needed. See the
           # header comment for the doc reference.
-          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+          # See the header comment: user-owned repos don't get Copilot
+          # Requests on the ephemeral GITHUB_TOKEN, so route through a
+          # fine-grained PAT stored as the COPILOT_PAT repo secret.
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
           NEXT: ${{ steps.next.outputs.next }}
           CORE: ${{ steps.next.outputs.core }}
           LAST_STABLE: ${{ steps.last.outputs.last_stable }}
