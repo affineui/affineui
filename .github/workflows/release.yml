@@ -1,0 +1,247 @@
+name: Release
+
+# Tag-driven release for the non-Python artifacts. Python wheels have their
+# own workflow (wheels.yml) and remain the source of truth for PyPI/TestPyPI.
+#
+# Tag → what happens
+#   v1.2.3           final release: cargo publish → crates.io,
+#                    dotnet nuget push → nuget.org, GitHub Release with
+#                    the amalgamated .h/.cpp attached.
+#   v1.2.3-rc.1      pre-release: same registries, but the pre-release
+#                    suffix makes both crates.io and nuget.org hide the
+#                    version from default installs (`cargo add` / `dotnet
+#                    add` won't grab it without --version). Marked as
+#                    "pre-release" on the GitHub Release too.
+#
+# Any suffix after the patch triplet (`-rc.1`, `-alpha.1`, `-beta.2`,
+# even bare `-preview`) counts as a pre-release. Everything else is
+# treated as a final.
+#
+# ────────────────────────────────────────────────────────────────────
+# REQUIRED REPO SECRETS (owner-managed, add via repo Settings → Secrets):
+#   CARGO_REGISTRY_TOKEN  — crates.io API token (Account Settings → API Tokens)
+#   NUGET_API_KEY         — nuget.org API key (Account → API Keys)
+# ────────────────────────────────────────────────────────────────────
+# Python wheels: no secret needed. wheels.yml uses PyPI Trusted Publisher
+# (OIDC) via the `pypi` / `testpypi` environments already configured on
+# this repo. That workflow triggers on the same `v*` tags in parallel.
+# ────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Also allow manual firing for dry-run rehearsals — inputs let the operator
+  # skip publishing to any single channel while still exercising the build.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 1.2.3 or 1.2.3-rc.1). Bare, no leading v.'
+        required: true
+        type: string
+      publish_cargo:
+        description: 'Publish to crates.io'
+        default: true
+        type: boolean
+      publish_nuget:
+        description: 'Publish to nuget.org'
+        default: true
+        type: boolean
+      publish_gh_release:
+        description: 'Create GitHub Release with amalgamation'
+        default: true
+        type: boolean
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false   # never cancel a release mid-publish
+
+# Least-privilege default. gh_release elevates to `contents: write` per-job
+# to create the Release + upload assets. cargo/nuget/amalgamate need only
+# checkout + registry token — read is enough.
+permissions:
+  contents: read
+
+jobs:
+  # ────── prepare ──────────────────────────────────────────────────
+  # Extract the version + prerelease flag once so downstream jobs share
+  # a single answer. Runs on a tiny runner and outputs the values via
+  # GITHUB_OUTPUT, which the other jobs consume via `needs.prepare.outputs`.
+  prepare:
+    name: Determine version + prerelease flag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # prepare doesn't push
+      - id: version
+        name: Parse version from tag or dispatch input
+        # DISPATCH_VERSION goes through `env:` (not `${{ }}` interpolation)
+        # so a maliciously-crafted workflow_dispatch input can't inject shell
+        # into the run block. `set_version.py --check` validates the value +
+        # writes `version=` and `is_prerelease=` to $GITHUB_OUTPUT using the
+        # SAME semver parser that the file-patching mode uses — so we can't
+        # drift between "what we build" and "what we classify". The parser
+        # correctly ignores build metadata after `+` when deciding prerelease
+        # (a hyphen inside +build.42 is not a pre-release marker).
+        env:
+          DISPATCH_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            version="$DISPATCH_VERSION"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          python3 scripts/set_version.py --check "$version"
+
+  # ────── amalgamation ─────────────────────────────────────────────
+  # Regenerate the two-file SDK against the tag's version and produce
+  # a zip that ships as a GitHub Release asset. This is the single source
+  # people fetch when they want the raw .cpp + .h without a package manager.
+  amalgamate:
+    name: Build amalgamated two-file SDK
+    needs: prepare
+    runs-on: macos-latest   # macOS keeps parity with the CI amalgamation check
+    outputs:
+      zip_name: ${{ steps.package.outputs.zip_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # amalgamate doesn't push
+      - name: Install Ninja
+        run: brew install ninja
+      - name: Set version everywhere
+        run: python3 scripts/set_version.py "${{ needs.prepare.outputs.version }}"
+      - name: Configure + amalgamate
+        run: |
+          cmake --preset release
+          cmake --build build/release --target amalgamate
+      - id: package
+        name: Package amalgamation
+        run: |
+          set -euo pipefail
+          v="${{ needs.prepare.outputs.version }}"
+          out="affineui-${v}"
+          mkdir "$out"
+          cp build/release/dist/affineui.h    "$out/"
+          cp build/release/dist/affineui.cpp  "$out/"
+          cp LICENSE "$out/" || true         # LICENSE may live at root
+          cp README.md "$out/" 2>/dev/null || true
+          zip -qr "${out}.zip" "$out"
+          echo "zip_name=${out}.zip" >> "$GITHUB_OUTPUT"
+          ls -la "${out}.zip"
+      - name: Upload amalgamation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: amalgamation
+          path: ${{ steps.package.outputs.zip_name }}
+
+  # ────── cargo (crates.io) ────────────────────────────────────────
+  # Publish both crates in the workspace. affineui-sys must go first because
+  # affineui depends on it — cargo publish is synchronous per crate, and
+  # crates.io indexes new versions in a few seconds, so a small sleep between
+  # them keeps the second `cargo publish` from failing to resolve the sys
+  # crate we just uploaded.
+  cargo:
+    name: Publish crates.io
+    needs: [prepare, amalgamate]
+    if: |
+      (github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_cargo == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # cargo publish uses CARGO_REGISTRY_TOKEN, not git
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Set version everywhere
+        run: python3 scripts/set_version.py "${{ needs.prepare.outputs.version }}"
+      - name: Publish affineui-sys → crates.io
+        working-directory: bindings/rust/affineui-sys
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        # --allow-dirty because set_version.py mutated Cargo.toml above and
+        # we deliberately don't commit that mutation in CI.
+        run: cargo publish --allow-dirty
+      - name: Wait for crates.io index to catch up
+        # 45s is comfortable — index updates typically land in under 10s
+        # but crates.io occasionally throttles.
+        run: sleep 45
+      - name: Publish affineui → crates.io
+        working-directory: bindings/rust/affineui
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --allow-dirty
+
+  # ────── nuget (nuget.org) ────────────────────────────────────────
+  nuget:
+    name: Publish nuget.org
+    needs: [prepare, amalgamate]
+    if: |
+      (github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_nuget == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # nuget push uses NUGET_API_KEY, not git
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Set version everywhere
+        run: python3 scripts/set_version.py "${{ needs.prepare.outputs.version }}"
+      - name: Pack
+        working-directory: bindings/csharp/AffineUI
+        # csproj Version was patched above; -c Release enforces a clean build.
+        run: dotnet pack -c Release -o ../artifacts
+      - name: Push to nuget.org
+        working-directory: bindings/csharp/artifacts
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        # --skip-duplicate lets a re-run of a failed publish succeed silently
+        # instead of erroring on the already-uploaded package.
+        run: |
+          dotnet nuget push "*.nupkg" \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+  # ────── GitHub Release ───────────────────────────────────────────
+  # Create the Release + attach the amalgamation zip. Marks the release
+  # as pre-release when the tag has a suffix, so GitHub's "latest release"
+  # link stays pointed at the last final version.
+  gh_release:
+    name: Publish GitHub Release
+    needs: [prepare, amalgamate, cargo, nuget]
+    # Don't fail the release step if a downstream registry job was skipped
+    # (e.g. dispatch with publish_cargo=false) — but do fail if a job that
+    # ran actually failed. `always()` + explicit-check pattern.
+    if: |
+      always() &&
+      (needs.cargo.result == 'success' || needs.cargo.result == 'skipped') &&
+      (needs.nuget.result == 'success' || needs.nuget.result == 'skipped') &&
+      needs.amalgamate.result == 'success' &&
+      ((github.event_name == 'push') ||
+       (github.event_name == 'workflow_dispatch' &&
+        github.event.inputs.publish_gh_release == 'true'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required to create the Release
+    steps:
+      - name: Download amalgamation artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: amalgamation
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          # `push` events already have the tag; dispatch runs mint one below.
+          tag_name: v${{ needs.prepare.outputs.version }}
+          name: v${{ needs.prepare.outputs.version }}
+          prerelease: ${{ needs.prepare.outputs.is_prerelease }}
+          generate_release_notes: true
+          files: ${{ needs.amalgamate.outputs.zip_name }}
