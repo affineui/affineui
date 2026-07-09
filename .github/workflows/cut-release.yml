@@ -162,10 +162,17 @@ jobs:
           # tag push — dispatch immediately can 404 with "ref not found".
           # Bounded retry (5 attempts, 5s between) covers the lag without
           # unbounded waiting on a systemic outage.
+          # `release.yml` takes a `version` input so a manual UI retry
+          # (which defaults `--ref` to main) still works. We pass both:
+          # `--ref "$tag"` selects the workflow file that shipped with
+          # the tag, and `--field version=...` carries the version.
+          # `wheels.yml` has its own `publish_target` input; we leave
+          # it at the default (`none` → let the workflow's own
+          # tag-vs-dispatch conditions decide routing based on the ref).
           dispatch() {
-            local wf="$1"
+            local wf="$1" ; shift
             for attempt in 1 2 3 4 5; do
-              if gh workflow run "$wf" --ref "$tag" 2>&1; then
+              if gh workflow run "$wf" --ref "$tag" "$@" 2>&1; then
                 return 0
               fi
               echo "::warning::Dispatch of ${wf} against ${tag} failed (attempt ${attempt}/5); retrying in 5s…"
@@ -174,7 +181,7 @@ jobs:
             echo "::error::Failed to dispatch ${wf} against ${tag} after 5 attempts."
             return 1
           }
-          dispatch release.yml
+          dispatch release.yml --field version="$VERSION"
           dispatch wheels.yml
           echo "::notice::Dispatched release.yml + wheels.yml against ${tag}."
 
