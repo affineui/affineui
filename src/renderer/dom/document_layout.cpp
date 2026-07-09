@@ -928,10 +928,42 @@ void Document::layout(int viewport_width, int viewport_height,
         if (media_set_changed) {
             if (first_viewport) {
                 detail::attach_matching_media_blocks_for_viewport(*impl_);
+            } else if (impl_->view_sink_reset) {
+                // Reconciler-driven app (View::begin_view_mutations was
+                // ever used → view_sink_reset stays set for the doc's
+                // lifetime): the live DOM has content that ISN'T in
+                // impl_->html. impl_->html holds only the shell that
+                // App::rebuild_view seeded via load_html(view.to_html_shell());
+                // the real tree was appended via begin_view_mutations /
+                // replay_view_node. Re-parsing the shell here would wipe
+                // that reconciler subtree, blocks.size() would collapse to
+                // ~1, and the composite would show the "resize-to-blank"
+                // symptom (bug 2026-07-08).
+                //
+                // Use recollect + fresh resolver instead. Trade-off: the
+                // stylesheet-level @media attach graph isn't rebuilt (the
+                // Lexbor detach path isn't hardened yet), but the resolver
+                // DOES re-evaluate @media rules at resolve time against
+                // the new viewport, so viewport-gated responsive rules
+                // still work for reconciler apps. Rules that need the
+                // full attach/detach cycle may resolve stale until either
+                // a full set_html or the detach path is hardened.
+                impl_->resolver = detail::make_lexbor_resolver(
+                    impl_->doc, impl_->media_viewport_width_px,
+                    impl_->media_viewport_height_px);
+                detail::recollect_blocks_from_current_dom(*impl_);
+                impl_->media_match_signature = next_media_sig;
             } else {
-                // Changing an already-attached media set requires detaching old
-                // stylesheet matches. Keep this conservative until the Lexbor
-                // stylesheet replacement path is hardened.
+                // Pure set_html-driven app (no reconciler use ever). The
+                // full detach-via-reparse workaround is safe here because
+                // impl_->html IS the whole document; the tests in
+                // test_bootstrap / test_document verify @media buckets
+                // re-cascade cleanly on viewport width change and rely on
+                // this path.
+                //
+                // TODO(media-detach): once Lexbor's stylesheet detach path
+                // is hardened, both this branch and the reconciler branch
+                // above collapse into a single recollect-plus-detach.
                 const std::string html = impl_->html;
                 set_html(html);
             }
