@@ -293,12 +293,17 @@ against and embeds; Bootstrap demonstrates that the emitted markup is
 ordinary HTML any CSS framework can style; Plain emits unstyled structure
 for your own design system.
 
-Theme-wide knobs are **selector attributes** set on the view or a widget:
+Theme-wide knobs are **selector attributes** set on the view or a widget.
+The two main knobs, across all selectors, are **density** and the **key
+(accent) color**:
 
 ```cpp
-view.selector("density", "compact");   // dcs density
-view.selector("dark", "true");
+view.selector("density", "compact");   // compact | comfortable | spacious
+view.selector("accent", "#4d8be8");    // the key color widgets derive from
 ```
+
+Further selectors refine from there: `size` (`sm`/`md`/`lg`), `style`
+(`flat`/`3d`), `radius`, and `dark`.
 
 Customizing appearance, in order of preference:
 

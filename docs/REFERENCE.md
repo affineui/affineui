@@ -159,9 +159,11 @@ parameter on every builder).
 | `struct FloatingToolbarOptions` | `vertical{true}, small{true}, drag_bounds, position` — floating tool rail. |
 
 Framework-constant namespaces: `decius::` and `bootstrap::` carry
-`default_version`, selector-attribute names (`decius::selector::size`,
-`density`, `dark`, …), token values, and emitted class names. Free
-functions `framework_bundle_href(theme, version = {})` and
+`default_version`, selector-attribute names, token values, and emitted
+class names. The main knobs across all selectors are **`density`**
+(`compact`/`comfortable`/`spacious`) and **`accent`** (the key color);
+`size`, `style`, `radius`, and `dark` refine from there. Free functions
+`framework_bundle_href(theme, version = {})` and
 `framework_default_version(theme)` expose the CSS bundle a theme targets.
 
 ## `View` — lifecycle & configuration
