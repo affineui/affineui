@@ -651,12 +651,24 @@ and [HOW_TO_PROFILE.md](HOW_TO_PROFILE.md).
 ## Language bindings
 
 The component framework, the renderer, docking, themes, and the interaction
-layer are identical across **Python** (`pip install affineui`), **Rust**
-(`cargo add affineui`), and **C#** (`dotnet add package AffineUI`) — the
-widget behavior lives in the C++ core, so nothing is reimplemented per
-language. Python binds the C++ API directly; Rust and C# wrap the shared
-`affineui_c` C ABI ([LANGUAGE_BINDINGS.md](LANGUAGE_BINDINGS.md)). Each
-binding's README carries its own getting-started.
+layer are identical across **Python**, **Rust**, and **C#** — the widget
+behavior lives in the C++ core, so nothing is reimplemented per language.
+Python binds the C++ API directly; Rust and C# wrap the shared `affineui_c`
+C ABI ([LANGUAGE_BINDINGS.md](LANGUAGE_BINDINGS.md)).
+
+> **Pre-release channels for now.** Alpha/beta/rc builds don't go to the
+> stable registries, so plain `pip install affineui` / `cargo add affineui` /
+> `dotnet add package AffineUI` won't find anything yet. Use the pre-release
+> form: Python from **TestPyPI**
+> (`pip install --pre --index-url https://test.pypi.org/simple/ affineui`),
+> Rust with an explicit version (`cargo add affineui@<version>`), C# with
+> `dotnet add package AffineUI --prerelease`. Until the first stable release,
+> check the registry for the current alpha/beta/rc version:
+> [TestPyPI](https://test.pypi.org/project/affineui/) ·
+> [crates.io](https://crates.io/crates/affineui) ·
+> [NuGet](https://www.nuget.org/packages/AffineUI). Full details — version
+> pinning, PEP 440 normalization — in [RELEASING.md](RELEASING.md). (The C++
+> two-file drop-in needs no registry.)
 
 ## Where to go next
 
@@ -675,5 +687,38 @@ A good path through `examples/`:
    [`02_hello_sdl`](../examples/02_hello_sdl) — embedding in a host engine.
 6. [`17_affine_2600`](../examples/17_affine_2600) — how far custom paint +
    custom skinning can go.
+
+## Getting help
+
+Found a bug? File it at
+[github.com/benjcooley/affineui/issues](https://github.com/benjcooley/affineui/issues)
+— it's alpha, so bug reports are genuinely useful. To ask questions or
+discuss AffineUI, head to [r/affineui](https://www.reddit.com/r/affineui/).
+
+---
+
+## How this was built
+
+AffineUI is an AI-assisted project, and we won't pretend otherwise: most of
+the code was written by AI agents (you'll see `claude` and `gpt codex`
+alongside the human author in the commit history). It was not, however,
+"vibe-coded." The architecture, the invariants, and the hard trade-off
+decisions were human-made and continuously debated; the agents did the work
+of turning those decisions into code, held to the same review bar any human
+contributor's code would face — tested, called out when sloppy, and
+rewritten from first principles when a design wasn't good enough.
+
+There is a standing "no bodges" rule: fixes go at the correct architectural
+layer, not papered over in the app. Where a deliberate shortcut is taken to
+get unblocked, it's marked as such and carries a real fix on a ticket.
+Supporting that discipline: an adversarially-reviewed reconciliation spec, a
+conformance harness that pixel-diffs against a real browser, a
+memory-debugging allocator, and a sampling profiler — all inspectable in the
+tree.
+
+It is not perfect; no engineering project is. When we find a bodge — same as
+in any codebase, human-written or not — we fix it, at the right layer, the
+right way. Judge it by the code and the artifacts, not by how the lines were
+typed.
 
 For the complete API surface, continue to [REFERENCE.md](REFERENCE.md).

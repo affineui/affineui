@@ -97,30 +97,64 @@ until the first tagged release lands you can build from source (see below).
 
 ## Install
 
+> **⚠️ Pre-release channels only.** We don't publish alpha/beta/rc builds to
+> the *stable* registries — no `affineui` on PyPI, no stable release on
+> crates.io / NuGet yet. Pre-releases are published where pre-releases
+> belong: Python to **TestPyPI**, Rust and C# as **pre-release versions** on
+> crates.io / NuGet. So the plain commands below won't find anything until
+> the first stable release; use the pre-release form for now. The **C++**
+> two-file drop-in is available today with no registry at all.
+
 Pick your language. All four bindings sit on the same C++ core.
 
-**Python** — like Gradio, but native:
+**Python** — like Gradio, but native. Stable release (not published yet):
 
 ```bash
+# ⚠️ Pre-release only for now — stable not on PyPI yet
 pip install affineui
 ```
 
-**Rust:**
+Pre-release from TestPyPI (where we route pre-releases today):
 
 ```bash
-cargo add affineui
+# ⚠️ Until first stable release, check https://test.pypi.org/project/affineui/
+#    for the current alpha/beta/rc version
+pip install --pre --index-url https://test.pypi.org/simple/ affineui
 ```
 
-**C#:**
+`affineui` has no runtime dependencies, so the TestPyPI index alone is
+enough — no `--extra-index-url` needed. **`--pre` is required**, though:
+without it pip ignores every pre-release even when pointed at TestPyPI, and
+the install finds nothing.
+
+If you pin an exact version, note PEP 440 normalizes it: the tag
+`v0.4.0-rc.1` becomes `0.4.0rc1` (no dash, no dot before `rc`) —
+`affineui==0.4.0rc1`, not the tag string.
+
+**Rust** — `cargo add` picks the newest *stable* by default, so opt into the
+current pre-release explicitly:
 
 ```bash
-dotnet add package AffineUI
+# ⚠️ Until first stable release, check https://crates.io/crates/affineui
+#    for the current alpha/beta/rc version
+cargo add affineui@<version>
 ```
 
-**C++ (drop-in, zero dependencies):** grab the two files
+**C#** — `dotnet add package` skips pre-releases by default; opt in:
+
+```bash
+# ⚠️ Until first stable release, check https://www.nuget.org/packages/AffineUI
+#    for the current alpha/beta/rc version
+dotnet add package AffineUI --prerelease
+```
+
+**C++ (drop-in, zero dependencies) — available now:** grab the two files
 [`dist/affineui.h`](dist/affineui.h) and [`dist/affineui.cpp`](dist/affineui.cpp),
 add them to your project, and compile `affineui.cpp` once as C++20.
 That's the entire SDK — no package manager, no submodule tree, no DLL.
+
+See [RELEASING.md](docs/RELEASING.md) for the full pre-release install
+details (pinning exact versions, PEP 440 version normalization).
 
 Supported platforms: Windows, macOS, Linux, iOS, Android, WebGL. See
 [docs/BUILDING.md](docs/BUILDING.md) for platform-specific notes and
@@ -487,6 +521,16 @@ cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example component_
 
 ---
 
+## Community
+
+- **Found a bug?** File it at
+  [github.com/benjcooley/affineui/issues](https://github.com/benjcooley/affineui/issues).
+  It's alpha — expect bugs, and bug reports are genuinely useful.
+- **Want to talk about AffineUI?** Discussion, questions, and show-and-tell
+  live at [r/affineui](https://www.reddit.com/r/affineui/).
+
+---
+
 ## Docs
 
 | Doc | What's in it |
@@ -500,6 +544,7 @@ cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example component_
 | [docs/RELEASING.md](docs/RELEASING.md) | Release process, versioning, per-registry install commands |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What's shipping next |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | How to contribute |
+| [docs/USERS_GUIDE.md#how-this-was-built](docs/USERS_GUIDE.md#how-this-was-built) | How this was built — an AI-assisted project, and the engineering discipline behind it |
 
 ---
 
@@ -541,6 +586,20 @@ design judgment matters.
 **Delegated:** HTML5 tokenization, CSS3 tokenization, selector matching,
 flexbox math, glyph rasterization, vector painting, window + input.
 Everything where spec compliance and battle-testing matter.
+
+---
+
+## How this was built
+
+AffineUI is an AI-assisted project — most of the code was written by AI
+agents, with the architecture, invariants, and hard trade-offs decided and
+debated by a human. It was not vibe-coded: agent output is held to the same
+review bar as any contributor's, there's a standing "no bodges" rule, and
+the discipline is backed by inspectable artifacts (an adversarially-reviewed
+reconciliation spec, a conformance harness that pixel-diffs against a real
+browser, a memory-debugging allocator, a sampling profiler). It isn't
+perfect — no project is — and the full story is in
+[the User's Guide](docs/USERS_GUIDE.md#how-this-was-built).
 
 ---
 
