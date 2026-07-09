@@ -1,0 +1,241 @@
+# Releasing
+
+The AffineUI release process is a two-step, human-in-the-loop flow driven
+entirely by two `workflow_dispatch` UIs on the GitHub Actions tab. Nobody
+tags by hand, nobody edits `pyproject.toml` by hand, nobody types a version
+number twice. This document describes the model and the concrete steps.
+
+## The model
+
+We ship four artifacts on every release:
+
+| Artifact         | Ecosystem   | Registry           | Trigger                     |
+|------------------|-------------|--------------------|-----------------------------|
+| Python wheels    | PyPI        | pypi.org           | tag `vX.Y.Z` (final)        |
+| Python wheels    | TestPyPI    | test.pypi.org      | tag `vX.Y.Z-rc.N` (pre-rel) |
+| Rust crates      | crates.io   | crates.io          | any `v*` tag                |
+| .NET / NuGet     | nuget.org   | nuget.org          | any `v*` tag                |
+| Amalgamated SDK  | GitHub      | GitHub Release     | any `v*` tag                |
+
+Every published version MUST correspond to a
+`docs/release-notes/v<VERSION>.md` file that a human reviewed and merged
+into `main`. That's the enforceable contract — the publish jobs fail loud
+if that file is missing. This makes the two-step flow the only sanctioned
+path to a release.
+
+### The two steps
+
+**Step 1 — [Draft release notes](../.github/workflows/draft-release-notes.yml)** —
+`workflow_dispatch`. Pick which segment to bump (`patch`, `minor`, `major`,
+or `none`) and which channel (`release`, `rc`, `beta`, `alpha`). The job:
+
+1. Reads the last `v*` tag on `origin`.
+2. Runs [`scripts/next_version.py`](../scripts/next_version.py) to compute
+   the next version. Understands series continuation
+   (`v1.1.2-rc.1` + bump=none + mode=rc → `1.1.2-rc.2`), promotion
+   (`v1.1.2-rc.2` + bump=none + mode=release → `1.1.2`), and refuses no-ops.
+3. Installs `@github/copilot` (the GitHub Copilot CLI) and feeds it the
+   git log since the last **stable** tag (so `v1.1.2` notes cover everything
+   since `v1.1.1`, not since the interim `v1.1.2-alpha.1`).
+4. Copilot drafts `docs/release-notes/v<VERSION>.md` in the requested
+   Highlights / New features / Changes / Bug fixes shape.
+5. Opens a PR titled `Release notes for v<VERSION>`.
+
+The workflow is **idempotent** — running it again with the same
+`(bump, mode)` refreshes the same PR branch (`force-with-lease`).
+Concurrency-gated so a re-dispatch supersedes an in-flight draft.
+
+**Step 2 — reviewer merges the notes PR.** Edit `docs/release-notes/v<VERSION>.md`
+inline in the PR — the AI draft is a starting point, not the final copy.
+The Highlights section in particular usually wants a human pass. Squash-
+or rebase-merge as usual.
+
+**Step 3 — [Cut release](../.github/workflows/cut-release.yml)** —
+`workflow_dispatch`. Pass the same version (bare, e.g. `1.2.4-rc.1`). The
+job:
+
+1. Re-validates the version via `scripts/set_version.py --check`.
+2. Confirms `docs/release-notes/v<VERSION>.md` exists on `main`.
+3. Confirms `origin` has no tag with that name yet.
+4. Creates an annotated tag `v<VERSION>` **with the notes file as the tag
+   message**.
+5. Pushes.
+
+The existing [`release.yml`](../.github/workflows/release.yml) and
+[`wheels.yml`](../.github/workflows/wheels.yml) workflows already trigger
+on `push: tags: 'v*'` and take it from there — cargo, nuget, PyPI or
+TestPyPI, GitHub Release with the amalgamation zip attached.
+
+## Repo secrets
+
+Add these once at Settings → Secrets and variables → Actions:
+
+| Secret                 | Scope     | Where you get it                                                                                                        |
+|------------------------|-----------|-------------------------------------------------------------------------------------------------------------------------|
+| `COPILOT_TOKEN`        | PAT       | github.com/settings/tokens (fine-grained). Required permission: **Copilot chat** ("Copilot Requests" on classic tokens). |
+| `CARGO_REGISTRY_TOKEN` | crates.io | crates.io Account Settings → API Tokens                                                                                 |
+| `NUGET_API_KEY`        | nuget.org | nuget.org Account → API Keys                                                                                            |
+
+Python publishing uses PyPI Trusted Publisher (OIDC) via the `pypi` /
+`testpypi` GitHub environments already configured on the repo — no token
+needed.
+
+## The initial seed
+
+On a fresh repo (no `v*` tags on `origin`), the workflows need a baseline
+tag to compute "since when". The one-time bootstrap:
+
+```bash
+git tag -a v0.1.0 -m "seed tag for release automation (not a real release)"
+git push origin v0.1.0
+```
+
+Because there is no `docs/release-notes/v0.1.0.md`, the publish gate in
+`release.yml` + `wheels.yml` fails fast on the seed tag — the tag is
+created on `origin` (so `next_version.py` has something to read), but
+nothing gets published anywhere. This is the intended shape.
+
+After that, the first real cycle runs through the Draft → Cut flow like
+any other release.
+
+## Version scheme
+
+Semver 2.0.0 with a `v` prefix on tags:
+
+```
+vMAJOR.MINOR.PATCH[-PRE][+BUILD]
+```
+
+`MAJOR.MINOR.PATCH` are non-negative integers. `-PRE` is optional and
+identifies pre-releases (`-rc.1`, `-beta.2`, `-alpha.3`). `+BUILD` is
+optional build metadata — **not** a pre-release marker, even though it
+also contains a `-`.
+
+### Bump semantics
+
+| bump   | Effect on `X.Y.Z`      |
+|--------|------------------------|
+| `major`| `(X+1).0.0`            |
+| `minor`| `X.(Y+1).0`            |
+| `patch`| `X.Y.(Z+1)`            |
+| `none` | `X.Y.Z` (unchanged)    |
+
+`none` is the right pick when you want to bump only the pre-release
+counter (e.g. rc.1 → rc.2) or promote a pre-release to the stable
+triplet.
+
+### Mode semantics
+
+| mode      | Suffix     | Counter                                                                 |
+|-----------|------------|-------------------------------------------------------------------------|
+| `release` | (none)     | n/a — strips any existing pre-release                                   |
+| `rc`      | `-rc.N`    | Continues if last tag was same-core `-rc.M` (`N = M+1`); else starts at 1 |
+| `beta`    | `-beta.N`  | Same continuation rule                                                  |
+| `alpha`   | `-alpha.N` | Same continuation rule                                                  |
+
+The counter continues only when both bump=none AND the mode matches the
+last tag's suffix. Bumping the core (patch/minor/major) always starts a
+fresh series at `.1`. Switching modes (rc → beta) also starts fresh.
+
+## Cutting a release: five common recipes
+
+### Cut a bug-fix patch release
+
+Last tag `v1.2.3`. Want `v1.2.4`.
+
+1. Draft: bump=`patch`, mode=`release` → PR opens with `docs/release-notes/v1.2.4.md`.
+2. Review + merge.
+3. Cut: version=`1.2.4`.
+
+### Cut a patch RC series and iterate
+
+Last tag `v1.2.3`. Want `v1.2.4-rc.1`, then iterate through `-rc.2`,
+`-rc.3`, then promote.
+
+1. Draft: bump=`patch`, mode=`rc` → PR for `v1.2.4-rc.1`. Merge.
+2. Cut: version=`1.2.4-rc.1`. → wheels ship to TestPyPI; cargo + nuget
+   publish as pre-release.
+3. Fix issues, land PRs on `main`.
+4. Draft: bump=`none`, mode=`rc` → PR for `v1.2.4-rc.2` (notes range is
+   still against `v1.2.3` — the last stable — so nothing gets lost).
+   Merge. Cut.
+5. Repeat.
+6. Promote: draft with bump=`none`, mode=`release` → PR for `v1.2.4`
+   (same range against `v1.2.3`). Merge. Cut. → wheels ship to real PyPI.
+
+### Cut a minor release
+
+Last tag `v1.2.3`. Want `v1.3.0`.
+
+1. Draft: bump=`minor`, mode=`release` → PR for `v1.3.0`. Merge.
+2. Cut: version=`1.3.0`.
+
+Skip the RC dance when you're confident. A minor bump directly to
+`release` is normal and expected — the RC flow is for when you want a
+soak period against real users first.
+
+### Cut a major release
+
+Same as minor, with bump=`major`. Consider running an RC series first
+for anything users have been depending on for a while.
+
+### Promote an RC to release without any new commits
+
+Last tag `v1.2.4-rc.2`. Everything since RC-2 has been enough soak;
+you're ready to ship.
+
+1. Draft: bump=`none`, mode=`release`. → notes for `v1.2.4` cover the
+   whole delta against `v1.2.3` (the last stable), not the empty delta
+   against `v1.2.4-rc.2`. Merge (usually with only cosmetic edits over
+   the RC's notes).
+2. Cut: version=`1.2.4`. → wheels ship to real PyPI, cargo + nuget
+   drop the `-rc` suffix, GitHub Release is marked final.
+
+## What lives where
+
+| File                                                  | Role                                                                                  |
+|-------------------------------------------------------|---------------------------------------------------------------------------------------|
+| [`scripts/set_version.py`](../scripts/set_version.py) | Patches every version-holding file in the repo to a given version, then validates. Also runs in `--check` mode to classify pre-release vs stable. |
+| [`scripts/next_version.py`](../scripts/next_version.py) | Computes the next version from `(last_tag, bump, mode)`.                              |
+| [`.github/workflows/draft-release-notes.yml`](../.github/workflows/draft-release-notes.yml) | Step 1 — draft + PR.                                                                  |
+| [`.github/workflows/cut-release.yml`](../.github/workflows/cut-release.yml)                 | Step 3 — validate + tag + push.                                                       |
+| [`.github/workflows/release.yml`](../.github/workflows/release.yml)                         | Triggered by tag push. Amalgamates the two-file SDK, publishes cargo + nuget, creates GitHub Release. |
+| [`.github/workflows/wheels.yml`](../.github/workflows/wheels.yml)                           | Triggered by tag push. Builds Python wheels + sdist across three OSes, publishes to PyPI (final) or TestPyPI (pre-release). |
+| `docs/release-notes/v<VERSION>.md`                     | The reviewed notes for one release. Committed to `main` before cutting.               |
+
+## What each publisher does with a pre-release
+
+- **crates.io** accepts `1.2.4-rc.1` verbatim. `cargo add affineui` picks the newest stable version; users opt into pre-releases with `cargo add affineui --version 1.2.4-rc.1` or by listing an explicit version in `Cargo.toml`.
+- **nuget.org** accepts `1.2.4-rc.1` verbatim. `dotnet add package` skips pre-releases by default; users opt in with `--prerelease`.
+- **PyPI** doesn't have a "hidden pre-release" bucket — for us, pre-release tags publish to **TestPyPI** instead. Users install pre-releases with `pip install --index-url https://test.pypi.org/simple/ affineui`.
+- **GitHub Release** is marked as pre-release (a UI badge, and it doesn't count as "latest").
+
+## Troubleshooting
+
+**"docs/release-notes/vX.Y.Z.md not found on this ref" during `release.yml` prepare or `wheels.yml` publish.**
+That's the notes-file gate. Either you're pushing a seed tag (in which
+case this failure is what you wanted), or you forgot to run the Draft
+flow and merge the notes PR. Run the Draft workflow, review + merge,
+then re-dispatch Cut.
+
+**"Tag vX.Y.Z already exists on origin" during Cut.**
+Cutting the same version twice isn't supported — the registries reject
+duplicates anyway. Bump the version (e.g. `-rc.N+1` or a patch).
+
+**Draft-notes PR looks bad / Copilot got confused.**
+Just edit the notes file inline in the PR. The AI draft is a starting
+point; nothing downstream cares whether Copilot or a human authored the
+final markdown. Re-dispatching Draft with the same `(bump, mode)`
+overwrites the file with a fresh draft (force-with-lease), so you can
+also re-run if you want to start over.
+
+**Need to yank a bad release.**
+crates.io: `cargo yank --version X.Y.Z affineui`. PyPI has no yank —
+delete + reupload. NuGet: unlist via the site. GitHub Release: delete
+the Release + tag from the UI. Update `docs/release-notes/v<VERSION>.md`
+in a subsequent release to note what went wrong.
+
+**Need to publish without going through the AI drafts.**
+Author `docs/release-notes/v<VERSION>.md` by hand, PR it, merge, then
+dispatch Cut with the version. The Draft workflow is a convenience — the
+enforceable contract is only "a merged notes file must exist".
