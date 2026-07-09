@@ -491,13 +491,15 @@ cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example component_
 
 | Doc | What's in it |
 | --- | --- |
+| [docs/USERS_GUIDE.md](docs/USERS_GUIDE.md) | Building apps with AffineUI — the component framework, the HTML5 renderer, and when to use which |
+| [docs/REFERENCE.md](docs/REFERENCE.md) | The complete public API, organized by layer |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Engine internals — cascade, resolver, reconciler, paint |
 | [docs/BUILDING.md](docs/BUILDING.md) | Platform-specific build notes |
 | [docs/EMBEDDING.md](docs/EMBEDDING.md) | Wiring AffineUI into an existing window / frame loop |
 | [docs/LANGUAGE_BINDINGS.md](docs/LANGUAGE_BINDINGS.md) | How the Python / Rust / C# bindings expose the C++ core |
 | [docs/RELEASING.md](docs/RELEASING.md) | Release process, versioning, per-registry install commands |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What's shipping next |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
+| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | How to contribute |
 
 ---
 
