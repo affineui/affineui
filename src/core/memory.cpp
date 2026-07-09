@@ -14,6 +14,26 @@
 // (0xCD fresh, 0xDD freed) and double-free is detected via a header magic. Zero
 // of this is compiled in release builds; the live/peak counters below are always
 // on (cheap atomics).
+//
+// AFFINEUI_MEM_POISON: when defined, alloc/free memset the payload with
+// 0xCD/0xDD. It's OFF under AddressSanitizer because our blanket memset
+// blindly writes over regions that vendored pools (lexbor mraw, etc.)
+// have marked poisoned via ASAN's own API — the memset then trips ASAN
+// on regions we don't logically own. ASAN's use-after-free / heap-overflow
+// detection is stronger than the 0xDD marker anyway, so dropping it under
+// ASAN loses nothing.
+#if defined(__has_feature)
+#    if __has_feature(address_sanitizer)
+#        define AFFINEUI_ASAN_ACTIVE 1
+#    endif
+#endif
+#if defined(__SANITIZE_ADDRESS__)
+#    define AFFINEUI_ASAN_ACTIVE 1
+#endif
+
+#if defined(AFFINEUI_MEM_DEBUG) && !defined(AFFINEUI_ASAN_ACTIVE)
+#    define AFFINEUI_MEM_POISON 1
+#endif
 
 namespace affineui::mem {
 namespace {
@@ -146,6 +166,8 @@ void* allocate(std::size_t size, std::size_t align) {
 
 #if defined(AFFINEUI_MEM_DEBUG)
     dbg_link(h);
+#endif
+#if defined(AFFINEUI_MEM_POISON)
     std::memset(reinterpret_cast<void*>(payload), 0xCD, size);
 #endif
     return reinterpret_cast<void*>(payload);
@@ -172,6 +194,8 @@ void deallocate(void* p) {
 
 #if defined(AFFINEUI_MEM_DEBUG)
     dbg_unlink(h);
+#endif
+#if defined(AFFINEUI_MEM_POISON)
     std::memset(p, 0xDD, h->size);  // poison payload to catch use-after-free
 #endif
     h->magic = kFreedMagic;

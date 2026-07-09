@@ -952,6 +952,15 @@ void cb_frame(void* user) {
                     tools::push_idle(t_ms, impl->skipped_since_present);
                 }
             }
+            if (input_trace) {
+                std::fprintf(stderr,
+                    "[skip] gap=%.1f sc=%dx%d sapp=%dx%d dirty=0 anim=0 "
+                    "vp_ch=0 settle=%d pend_resize=%d\n",
+                    gap_ms, w, h, sapp_width(), sapp_height(),
+                    impl->settle_frames,
+                    impl->has_pending_resize ? 1 : 0);
+                std::fflush(stderr);
+            }
             if (impl->quit_requested) sapp_request_quit();
             return;
         }
@@ -1088,13 +1097,31 @@ void cb_frame(void* user) {
                 std::chrono::duration<double, std::milli>(
                     now - frame_now).count();
             const auto& s = impl->renderer.stats();
+            const char flag_rast   = s.root_layer_rasterized_this_frame ? 'R' : '-';
+            const char flag_part   = s.root_layer_partial_this_frame    ? 'P' : '-';
+            const char flag_direct = s.root_layer_direct_this_frame     ? 'D' : '-';
+            const char flag_reused = s.root_layer_reused_this_frame     ? 'u' : '-';
+            const char flag_alloc  = s.root_layer_allocated_this_frame  ? 'A' : '-';
             std::fprintf(stderr,
-                "[input] gap=%.1f age=%.1f raw=%u dsp=%u | "
+                "[input] gap=%.1f age=%.1f raw=%u dsp=%u sc=%dx%d sapp=%dx%d "
+                "vp_ch=%d settle=%d rndr[%c%c%c%c%c] rndr_vp=%d rndr_ldirty=%d "
+                "rndr_pdirty=%d dlchg=%d dlops=%u cap=%ux%u ct=%ux%u | "
                 "drain=%.1f prep=%.1f layout=%.1f dlrec=%.1f rast=%.1f "
                 "comp=%.1f | cb=%.1f\n",
                 gap_ms, age_ms,
                 raw_this_frame,
                 dsp_this_frame,
+                w, h, sapp_width(), sapp_height(),
+                viewport_changed ? 1 : 0,
+                impl->settle_frames,
+                flag_rast, flag_part, flag_direct, flag_reused, flag_alloc,
+                s.viewport_changed ? 1 : 0,
+                s.layout_dirty ? 1 : 0,
+                s.paint_dirty ? 1 : 0,
+                s.display_list_changed_this_frame ? 1 : 0,
+                s.cached_ops,
+                s.root_layer_capacity_w, s.root_layer_capacity_h,
+                s.root_layer_content_w,  s.root_layer_content_h,
                 dispatch_ms,
                 s.prepare_us_this_frame / 1000.0,
                 s.layout_us_this_frame / 1000.0,
@@ -1184,6 +1211,17 @@ void cb_event(const sapp_event* ev, void* user) {
             return;
         case SAPP_EVENTTYPE_RESIZED:
             impl->has_pending_resize = true;  // coalesced: ≤1 per frame
+            {
+                static const bool input_trace_local =
+                    std::getenv("AFFINEUI_INPUT_TRACE") != nullptr;
+                if (input_trace_local) {
+                    std::fprintf(stderr,
+                        "[resize-evt] sapp=%dx%d fb=%dx%d\n",
+                        sapp_width(), sapp_height(),
+                        ev->framebuffer_width, ev->framebuffer_height);
+                    std::fflush(stderr);
+                }
+            }
             return;
         case SAPP_EVENTTYPE_MOUSE_LEAVE:
             aui_ev.type = EventType::MouseMove;
