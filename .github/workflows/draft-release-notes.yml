@@ -70,38 +70,57 @@ jobs:
 
       # ───── determine last + next version ─────
       - id: last
-        name: Determine last release tag
-        # `git tag --sort=-v:refname` is lexical over semver — good enough
-        # for our tag shape (v1.2.3, v1.2.3-rc.1 …). Refnames without a
-        # semver-shaped `vX.Y.Z…` tail are ignored via the pattern.
+        name: Determine last tags (any + stable)
+        # Two different questions, two different queries:
+        #
+        # `last_any`    is the most recent tag ANY variety (stable OR
+        #               pre-release). next_version.py needs this to
+        #               continue a pre-release series correctly, e.g.
+        #               v1.1.2-alpha.1 + mode=alpha → v1.1.2-alpha.2.
+        #
+        # `last_stable` is the most recent tag WITHOUT a `-<pre>` suffix.
+        #               The release-notes range uses this so the notes
+        #               for v1.1.2 cover everything since v1.1.1 (the
+        #               last real release), NOT just the diff since the
+        #               interim alpha/beta/rc that a user shouldn't be
+        #               reading changelogs for.
+        #
+        # Both may be empty (first release ever). Regex `^v[0-9]+\.[0-9]+\.[0-9]+$`
+        # matches only bare-triplet tags for last_stable — no `-…`, no `+…`.
         run: |
           set -euo pipefail
-          last=$(git tag --list 'v*' --sort=-v:refname | head -1 || true)
-          echo "last=$last" >> "$GITHUB_OUTPUT"
-          echo "resolved last=${last:-<none>}"
+          last_any=$(git tag --list 'v*' --sort=-v:refname | head -1 || true)
+          last_stable=$(git tag --list 'v*' --sort=-v:refname \
+                        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+                        | head -1 || true)
+          echo "last_any=$last_any"       >> "$GITHUB_OUTPUT"
+          echo "last_stable=$last_stable" >> "$GITHUB_OUTPUT"
+          echo "resolved last_any=${last_any:-<none>} last_stable=${last_stable:-<none>}"
 
       - id: next
         name: Compute next version
         env:
-          LAST: ${{ steps.last.outputs.last }}
+          LAST_ANY: ${{ steps.last.outputs.last_any }}
           BUMP: ${{ inputs.bump }}
           MODE: ${{ inputs.mode }}
         run: |
           set -euo pipefail
-          python3 scripts/next_version.py --last "$LAST" --bump "$BUMP" --mode "$MODE"
+          python3 scripts/next_version.py --last "$LAST_ANY" --bump "$BUMP" --mode "$MODE"
 
       # ───── draft the notes with Copilot CLI ─────
       - name: Install Copilot CLI
         run: npm install -g @github/copilot
 
-      - name: Collect commit log since last tag
+      - name: Collect commit log since last STABLE release
         id: log
         env:
-          LAST: ${{ steps.last.outputs.last }}
+          # Notes range is against last_stable — see the "two queries"
+          # comment in the `last` step for why.
+          LAST_STABLE: ${{ steps.last.outputs.last_stable }}
         run: |
           set -euo pipefail
-          if [ -n "$LAST" ]; then
-            range="${LAST}..HEAD"
+          if [ -n "$LAST_STABLE" ]; then
+            range="${LAST_STABLE}..HEAD"
           else
             range="HEAD"
           fi
@@ -112,9 +131,9 @@ jobs:
           git log "$range" --format='- %s' --no-merges > /tmp/commit_log.txt
           count=$(wc -l < /tmp/commit_log.txt | tr -d ' ')
           echo "count=$count" >> "$GITHUB_OUTPUT"
-          echo "commit count: $count"
+          echo "commit count since ${LAST_STABLE:-<none>}: $count"
           if [ "$count" -eq 0 ]; then
-            echo "::error::No commits between ${LAST:-<none>} and HEAD; nothing to draft."
+            echo "::error::No commits between ${LAST_STABLE:-<none>} and HEAD; nothing to draft."
             exit 1
           fi
 
@@ -122,24 +141,24 @@ jobs:
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_TOKEN }}
           NEXT: ${{ steps.next.outputs.next }}
-          LAST: ${{ steps.last.outputs.last }}
+          LAST_STABLE: ${{ steps.last.outputs.last_stable }}
         run: |
           set -euo pipefail
           mkdir -p docs/release-notes
           notes_path="docs/release-notes/v${NEXT}.md"
           # Compose the prompt on disk (safer than a giant -p '…' arg on
           # the CLI). Copilot has file-write access via --allow-tool=write.
-          prev_line="The previous release was ${LAST}."
-          if [ -z "${LAST:-}" ]; then
-            prev_line="This is the first release; there is no previous tag."
+          prev_line="The previous stable release was ${LAST_STABLE}."
+          if [ -z "${LAST_STABLE:-}" ]; then
+            prev_line="This is the first release; there is no previous stable tag."
           fi
           cat > /tmp/prompt.md <<PROMPT
           Draft release notes for the AffineUI native UI library, version v${NEXT}.
           ${prev_line}
 
           Below is the list of git commit subjects merged since the previous
-          release, one per line. Squash-merged PR numbers appear at the end
-          of each subject in \`(#123)\` form.
+          stable release, one per line. Squash-merged PR numbers appear at
+          the end of each subject in \`(#123)\` form.
 
           \`\`\`
           $(cat /tmp/commit_log.txt)
@@ -150,33 +169,43 @@ jobs:
 
               Short 1-2 sentence overview paragraph.
 
-              ### Fixes
-              - Sentence describing the fix, tersely. (#123)
+              ### Highlights
+              - The biggest / most user-facing thing that shipped. (#123)
 
-              ### Features
+              ### New features
               - Sentence describing the feature. (#124)
 
-              ### Refactors / internals
-              - …
+              ### Changes
+              - Sentence describing a behaviour / API change or refactor. (#125)
 
-              ### CI / build
-              - …
+              ### Bug fixes
+              - Sentence describing the fix. (#126)
 
-              ### Docs
-              - …
+          Section rules:
+          * **Highlights** = 1-3 bullets summarising the marquee items of
+            this release, drawn from the biggest fix / feature / change.
+            OK to duplicate the exact text of a lower-section bullet if it
+            is the marquee item. Include the PR number.
+          * **New features** = commits with a \`feat:\` prefix.
+          * **Changes** = anything that changes behaviour but isn't a
+            new feature and isn't a bug fix: \`refactor:\`, \`perf:\`,
+            \`build:\`, \`ci:\`, \`test:\`, \`chore:\`, \`docs:\` — fold
+            all of these into this one section.
+          * **Bug fixes** = commits with a \`fix:\` prefix.
+          * If a section (except Highlights) would be empty, OMIT the
+            heading entirely.
+          * If there are literally no user-facing changes worth flagging,
+            Highlights can be one bullet that reads "internal / plumbing
+            release" — but only as a last resort.
 
-          Rules:
-          * Group by conventional-commit prefix on each subject (\`fix:\` →
-            Fixes, \`feat:\` → Features, \`refactor:\` → Refactors / internals,
-            \`ci:\` or \`build:\` → CI / build, \`docs:\` → Docs,
-            \`test:\`/\`chore:\` fold into Refactors / internals).
-          * If a section would be empty, OMIT the heading entirely.
+          Style rules:
           * Preserve the PR number \`(#N)\` if present in the subject; do
             not invent numbers.
-          * One sentence per bullet. Trim scope prefixes like \`fix(app):\`
-            down to just the human-facing summary.
+          * One sentence per bullet. Trim scope prefixes like
+            \`fix(app):\` down to just the human-facing summary.
           * Do not wrap the whole output in code fences.
-          * Do not include a heading with the version number.
+          * Do not include a heading with the version number — the tag /
+            Release surface adds that.
 
           Overwrite the file if it already exists. Exit when the file is
           written.

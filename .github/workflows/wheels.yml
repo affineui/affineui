@@ -156,6 +156,27 @@ jobs:
     permissions:
       id-token: write  # OIDC for Trusted Publisher
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require reviewed release notes (tag pushes only)
+        # Every published version MUST correspond to a
+        # docs/release-notes/v<VERSION>.md that a human reviewed + merged.
+        # A tag push with no matching notes file fails here loud rather
+        # than publishing a placeholder to TestPyPI. Seed tags (initial
+        # baseline etc.) intentionally have no notes file and trip this
+        # gate — that's the intended behaviour, they must not publish.
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          notes="docs/release-notes/v${version}.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::${notes} not found on this ref — refusing to publish."
+            echo "::error::Run the 'Draft release notes' workflow → review + merge → dispatch 'Cut release' with version ${version}."
+            exit 1
+          fi
       - name: Download wheel artifacts
         uses: actions/download-artifact@v4
         with:
@@ -190,6 +211,24 @@ jobs:
     permissions:
       id-token: write  # OIDC for Trusted Publisher
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require reviewed release notes (tag pushes only)
+        # Same contract as publish_testpypi above. A tag push with no
+        # matching docs/release-notes/v<VERSION>.md fails here loud —
+        # never publish a version without reviewed notes.
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          notes="docs/release-notes/v${version}.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::${notes} not found on this ref — refusing to publish."
+            echo "::error::Run the 'Draft release notes' workflow → review + merge → dispatch 'Cut release' with version ${version}."
+            exit 1
+          fi
       - name: Download wheel artifacts
         uses: actions/download-artifact@v4
         with:
