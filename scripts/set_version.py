@@ -4,16 +4,21 @@
 Usage:
     python scripts/set_version.py 1.2.3
     python scripts/set_version.py 1.2.3-rc.1
+    python scripts/set_version.py --check 1.2.3-rc.1   # validate + classify only
 
-Called by .github/workflows/release.yml right before build/publish so the
-built artifacts carry the tag's version. Also useful locally for cutting a
-release candidate — run it, commit, tag `v<VERSION>`, push.
+Called by .github/workflows/release.yml + wheels.yml right before build/publish
+so the built artifacts carry the tag's version. Also useful locally for cutting
+a release candidate — run it, commit, tag `v<VERSION>`, push.
 
-Version input is bare (no leading `v`). Format is validated as
+Version input is bare (no leading `v`, but a leading `v` is tolerated and
+stripped). Format is validated as
+
     MAJOR.MINOR.PATCH[-PRE][+BUILD]
+
 with MAJOR/MINOR/PATCH being non-negative integers. Anything after `-` is
-carried through verbatim to every ecosystem (PEP 440, semver, NuGet all
-accept the `-rc.1`/`-alpha.1` style).
+carried through verbatim to every ecosystem (PEP 440, semver, NuGet all accept
+the `-rc.1`/`-alpha.1` style). Build metadata after `+` is stripped for
+downstream consumers that don't accept it.
 
 Files patched:
     bindings/python/pyproject.toml       version = "..."
@@ -26,10 +31,20 @@ The C# csproj Version is not stripped for NuGet — NuGet accepts the same
 semver-ish shape (`1.2.3-rc.1`). The CMake project VERSION() macro does NOT
 accept pre-release suffixes, so we strip everything after `-` for that
 one file only (CMake gets 1.2.3 from 1.2.3-rc.1).
+
+--check mode
+------------
+Prints `version=…` and `is_prerelease=true|false` (both to stdout for local
+runs; also appended to $GITHUB_OUTPUT when set). Used by release.yml + wheels.yml
+to derive `is_prerelease` from THIS parser instead of a separate shell regex,
+so the two never drift. Crucially, `is_prerelease` reflects the SEMVER `-pre`
+group only — build metadata after `+` (which is also allowed to contain `-`)
+does NOT flip the flag.
 """
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -74,13 +89,43 @@ def patch(rel_path: str, pattern: str, replacement: str) -> None:
     print(f"[set_version] patched {rel_path}")
 
 
+def classify(version: str) -> tuple[str, bool]:
+    """Validate and classify a semver string.
+
+    Returns (version_without_v_prefix, is_prerelease). `is_prerelease` is
+    True iff the SEMVER `-pre` group is present — NOT for build metadata
+    after `+` (which is also `-`-separated but semantically distinct).
+    """
+    v = version.lstrip("v")
+    m = SEMVER_RE.match(v)
+    if not m:
+        raise SystemExit(f"[set_version] invalid semver: {version!r}")
+    return v, m["pre"] is not None
+
+
 def main() -> int:
+    if len(sys.argv) >= 2 and sys.argv[1] == "--check":
+        if len(sys.argv) != 3:
+            raise SystemExit("[set_version] --check requires a VERSION argument")
+        v, is_pre = classify(sys.argv[2])
+        line_v = f"version={v}"
+        line_p = f"is_prerelease={'true' if is_pre else 'false'}"
+        # $GITHUB_OUTPUT is the runner's per-step outputs file. When present
+        # (any GitHub Actions step), also append to it so `steps.<id>.outputs`
+        # picks the values up. Local invocations just get the stdout lines.
+        gh_out = os.environ.get("GITHUB_OUTPUT")
+        if gh_out:
+            with open(gh_out, "a") as f:
+                f.write(line_v + "\n")
+                f.write(line_p + "\n")
+        print(line_v)
+        print(line_p)
+        return 0
+
     if len(sys.argv) != 2:
         print(__doc__)
         return 2
-    version = sys.argv[1].lstrip("v")  # tolerate `v1.2.3`
-    if not SEMVER_RE.match(version):
-        raise SystemExit(f"[set_version] invalid semver: {version!r}")
+    version, _is_pre = classify(sys.argv[1])
     cmake_v = core_version(version)  # CMake project() rejects -rc.1
 
     # Python (pyproject.toml). scikit-build-core reads `version` at build.

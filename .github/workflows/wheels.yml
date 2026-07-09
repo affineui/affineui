@@ -55,8 +55,11 @@ jobs:
       # included) to match the tag before cibuildwheel reads it. On PRs
       # and main-branch pushes the current pyproject.toml version stands
       # (used for smoke-only builds — not published anywhere).
+      # `shell: bash` forced because ${VAR#prefix} is a bash parameter
+      # expansion that PowerShell (Windows default shell) doesn't parse.
       - name: Patch version to tag
         if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
         run: python3 scripts/set_version.py "${GITHUB_REF_NAME#v}"
 
       - name: Build wheels

@@ -56,6 +56,12 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false   # never cancel a release mid-publish
 
+# Least-privilege default. gh_release elevates to `contents: write` per-job
+# to create the Release + upload assets. cargo/nuget/amalgamate need only
+# checkout + registry token — read is enough.
+permissions:
+  contents: read
+
 jobs:
   # ────── prepare ──────────────────────────────────────────────────
   # Extract the version + prerelease flag once so downstream jobs share
@@ -69,28 +75,28 @@ jobs:
       is_prerelease: ${{ steps.version.outputs.is_prerelease }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # prepare doesn't push
       - id: version
         name: Parse version from tag or dispatch input
-        # `github.ref_name` is `v1.2.3` for a tag push and the branch name
-        # for a dispatch. We strip the `v` and treat any `-` in the version
-        # as the pre-release marker (semver + PEP 440 + NuGet all agree).
+        # DISPATCH_VERSION goes through `env:` (not `${{ }}` interpolation)
+        # so a maliciously-crafted workflow_dispatch input can't inject shell
+        # into the run block. `set_version.py --check` validates the value +
+        # writes `version=` and `is_prerelease=` to $GITHUB_OUTPUT using the
+        # SAME semver parser that the file-patching mode uses — so we can't
+        # drift between "what we build" and "what we classify". The parser
+        # correctly ignores build metadata after `+` when deciding prerelease
+        # (a hyphen inside +build.42 is not a pre-release marker).
+        env:
+          DISPATCH_VERSION: ${{ github.event.inputs.version }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            version="${{ github.event.inputs.version }}"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            version="$DISPATCH_VERSION"
           else
             version="${GITHUB_REF_NAME#v}"
           fi
-          # Reject anything set_version.py would reject, before doing any work.
-          python3 scripts/set_version.py "$version" > /dev/null
-          git checkout -- .    # undo the local write, we just wanted validation
-          case "$version" in
-            *-*) is_prerelease=true ;;
-            *)   is_prerelease=false ;;
-          esac
-          echo "version=$version"             >> "$GITHUB_OUTPUT"
-          echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
-          echo "resolved: version=$version prerelease=$is_prerelease"
+          python3 scripts/set_version.py --check "$version"
 
   # ────── amalgamation ─────────────────────────────────────────────
   # Regenerate the two-file SDK against the tag's version and produce
@@ -104,6 +110,8 @@ jobs:
       zip_name: ${{ steps.package.outputs.zip_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # amalgamate doesn't push
       - name: Install Ninja
         run: brew install ninja
       - name: Set version everywhere
@@ -147,6 +155,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # cargo publish uses CARGO_REGISTRY_TOKEN, not git
       - uses: dtolnay/rust-toolchain@stable
       - name: Set version everywhere
         run: python3 scripts/set_version.py "${{ needs.prepare.outputs.version }}"
@@ -177,6 +187,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # nuget push uses NUGET_API_KEY, not git
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
