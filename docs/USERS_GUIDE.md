@@ -522,12 +522,110 @@ sync with what Chrome DevTools provides, so the workflow you already know
 carries over. Disable the hotkey with `Config::devtools_hotkey = false`
 (e.g. when your app binds F12 itself).
 
-## Performance instrumentation
+## Performance
+
+### The stance
+
+AffineUI's target is **120 Hz on most systems with modest-sized trees** —
+not "eventually smooth", but headroom to spare on ordinary hardware.
+Performance regressions are treated as **serious bugs**, on par with
+crashes: they get root-caused and fixed at the engine layer, not papered
+over in apps.
+
+The reason the bar is set there: AffineUI aspires to be a **general
+game-engine UI system** — in-game UI, not just game/DCC tooling — and a UI
+library is only usable inside a game if it is *always* safe to have around:
+predictable frame cost, near-zero cost when idle, no hidden work, no frame
+spikes. Violations of that are, again, bugs — report them.
+
+### On-demand rendering
+
+AffineUI does not render every frame. A frame paints only when something
+is **dirty or animating**; an idle app short-circuits to almost nothing (a
+few flag checks). Input and rendering are **queued separately**: every
+input event is dispatched immediately through the document — updating
+hover, focus, control state, and firing your callbacks — while *painting*
+is a separate decision made at most once per display frame from the
+accumulated dirty state. A burst of mouse moves costs you event dispatch,
+not five repaints. In embedded hosts the same split is explicit:
+`dispatch()` everything, then `should_render()`/`render()` once per pulse,
+optionally throttled by `set_min_frame_time`.
+
+### How frames stay cheap
+
+- **Retained display lists.** Paint output is recorded as a compact,
+  hashable op stream per layer. If a layer's ops hash the same as last
+  frame, rasterization is skipped entirely; unchanged frames replay from
+  cache.
+- **Dirty-rect damage.** Live mutations (an attribute change, a text
+  update) invalidate only the affected subtree's rectangles; partial
+  rasterization repaints just those regions of the layer.
+- **Layers and compositing.** Elements that animate (CSS `transform`,
+  `opacity`, `will-change` hints, fixed/scrolling content) are promoted to
+  their own compositing layers. Moving a layer re-composites a cached
+  texture — a quad blit — instead of re-painting content.
+- **CSS computation is engineered, not naive.** Computed styles are
+  pre-resolved (no `inherit` chasing at layout time), packed into a
+  cache-dense ~256-byte struct, and reference-counted so identical siblings
+  share one allocation. Selector matching is allocation-free, restyles are
+  scoped to the mutated subtree rather than the document, and attribute
+  changes consult a dependency cache so a mutation that *can't* change
+  style doesn't trigger one. More is planned — style sharing/dedup across
+  the tree and further struct tightening are on the roadmap.
+- **Reconciliation is diff-based.** A `set_view` rebuild diffs the
+  component tree and emits only net changes; attribute/text-only changes
+  take a paint-only path with no layout at all. A clean rebuild emits zero
+  operations.
+
+### Memory
+
+The same discipline applies to memory. All engine heap traffic — including
+the vendored parsers' DOM and CSS arenas — funnels through **one
+allocator**, so a host engine can supply its own memory, budgets are
+observable (`mem::stats()`: live bytes/blocks, peak, alloc/free counts),
+and debug builds track every block for leak and use-after-free detection on
+every platform (`mem::report_leaks()`, allocation tags). Styles are shared
+by refcount rather than duplicated per element; rare style data (shadows,
+filters, transforms) lives behind an optional pointer so the common case
+allocates nothing extra; and paint output is compact tagged ops, not
+per-node object graphs. The library itself stays small — the whole engine
+is a couple of megabytes.
+
+### Best practices for well-behaved UI
+
+The engine works hard so ordinary UIs are fast by default, but apps decide
+which path their updates take. In rough order of importance:
+
+- **Prefer updates that don't cause re-layout.** Attribute, text, class,
+  and inline-color changes ride the cheap restyle/paint paths. Structural
+  churn (adding/removing/reordering many elements) forces layout — batch it
+  into one rebuild rather than dribbling it out.
+- **Animate `transform` and `opacity`,** not width/height/margins/insets.
+  Transform and opacity animate on the compositor against cached layer
+  textures; geometry properties re-run layout every frame.
+- **Use the canvas for per-frame geometry.** Anything whose shape changes
+  every frame — meters, scopes, cables, drag previews — belongs in a
+  custom-paint canvas with `request_custom_repaint`, which repaints without
+  touching DOM, styles, or layout. Don't generate SVG or DOM per frame.
+- **Keep keys stable.** Stable widget keys let the reconciler match nodes
+  across rebuilds; unstable keys turn updates into teardown-and-recreate.
+- **Use `virtual_list` for long lists** — it builds only the visible
+  window.
+- **Toggle visibility, don't rebuild.** Showing/hiding subtrees
+  (`display:none`, `hidden`) is a restyle, not a structural edit; the
+  engine retains the hidden subtree's layout state.
+- **Let idle be idle.** Drive animations from `on_frame` and call
+  `invalidate()` only when something actually changed; an `on_frame` that
+  does nothing keeps the app in its near-zero idle path.
+
+### Instrumentation
 
 A native perf overlay (`Config::perf_overlay`) and per-frame telemetry
 (`App::frame_telemetry()`, JSONL via `AFFINEUI_TELEMETRY=<path>`) are built
-in; all of it — devtools hotkey included — compiles out with
-`AFFINEUI_PERF=0`. See
+in — the telemetry's headline metric is the wall-clock frame gap, which
+exposes stalls that per-stage timings hide. All of it — devtools hotkey
+included — compiles out with `AFFINEUI_PERF=0`, and when compiled in but
+inactive it costs one atomic check per frame. See
 [TRACING_AND_PERFORMANCE_LOGGING.md](TRACING_AND_PERFORMANCE_LOGGING.md)
 and [HOW_TO_PROFILE.md](HOW_TO_PROFILE.md).
 
