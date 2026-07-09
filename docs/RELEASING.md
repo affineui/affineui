@@ -205,10 +205,151 @@ you're ready to ship.
 
 ## What each publisher does with a pre-release
 
-- **crates.io** accepts `1.2.4-rc.1` verbatim. `cargo add affineui` picks the newest stable version; users opt into pre-releases with `cargo add affineui --version 1.2.4-rc.1` or by listing an explicit version in `Cargo.toml`.
-- **nuget.org** accepts `1.2.4-rc.1` verbatim. `dotnet add package` skips pre-releases by default; users opt in with `--prerelease`.
-- **PyPI** doesn't have a "hidden pre-release" bucket — for us, pre-release tags publish to **TestPyPI** instead. Users install pre-releases with `pip install --index-url https://test.pypi.org/simple/ affineui`.
+- **crates.io** accepts `1.2.4-rc.1` verbatim. `cargo add affineui` picks the newest stable version by default; users opt into pre-releases explicitly.
+- **nuget.org** accepts `1.2.4-rc.1` verbatim. `dotnet add package` skips pre-releases by default; users opt in with `--prerelease` or an explicit version.
+- **PyPI** doesn't have a "hidden pre-release" bucket — for us, pre-release tags publish to **TestPyPI** instead. Users install pre-releases from that index.
 - **GitHub Release** is marked as pre-release (a UI badge, and it doesn't count as "latest").
+
+## Consuming AffineUI
+
+Concrete install commands for consumers, split by ecosystem and by
+whether you want the latest stable or a specific pre-release.
+
+### Rust — crates.io
+
+Stable, latest:
+
+```bash
+cargo add affineui
+```
+
+Stable, a specific version:
+
+```bash
+cargo add affineui@1.2.3
+```
+
+Pre-release (crates.io accepts `-rc.N`/`-beta.N`/`-alpha.N` inline):
+
+```bash
+cargo add affineui@1.2.4-rc.1
+```
+
+Or add it in `Cargo.toml` directly — cargo requires you to name the
+pre-release exactly, it will not auto-resolve to a suffix:
+
+```toml
+[dependencies]
+affineui = "1.2.4-rc.1"     # exact opt-in
+# or a semver range that INCLUDES pre-releases in that core:
+affineui = ">=1.2.4-rc.1, <1.3.0"
+```
+
+Cargo will not pick up `1.2.4-rc.2` from `affineui = "1.2.4"` — a bare
+version requirement excludes all pre-releases. That's what you want as a
+downstream: your `cargo update` won't accidentally pull in an RC.
+
+### .NET — nuget.org
+
+Stable, latest:
+
+```bash
+dotnet add package AffineUI
+```
+
+Pre-release (nuget's opt-in is a flag on `add package`):
+
+```bash
+dotnet add package AffineUI --prerelease
+```
+
+That resolves to the newest version including pre-releases. To pin an
+exact pre-release:
+
+```bash
+dotnet add package AffineUI --version 1.2.4-rc.1
+```
+
+Or in the `.csproj`:
+
+```xml
+<ItemGroup>
+  <PackageReference Include="AffineUI" Version="1.2.4-rc.1" />
+</ItemGroup>
+```
+
+Same rule as cargo: a bare stable-versioned `PackageReference` will not
+resolve to a pre-release, even if a newer pre-release exists.
+
+### Python — PyPI / TestPyPI
+
+Stable, latest, from real PyPI:
+
+```bash
+pip install affineui
+```
+
+Stable, exact version:
+
+```bash
+pip install affineui==1.2.3
+```
+
+Pre-release, from TestPyPI (that's where we route pre-releases):
+
+```bash
+pip install \
+  --index-url https://test.pypi.org/simple/ \
+  --extra-index-url https://pypi.org/simple/ \
+  affineui==1.2.4rc1
+```
+
+The `--extra-index-url` on PyPI is what lets `pip` still find the
+transitive dependencies (numpy, pybind11 runtime, etc.) that live on real
+PyPI while pulling `affineui` itself from TestPyPI. Order matters —
+`--index-url` is preferred over `--extra-index-url`, which is how
+`affineui` ends up coming from TestPyPI even though it's on both.
+
+PEP 440 normalises the version — the tag `v1.2.4-rc.1` becomes the PyPI
+version `1.2.4rc1` (no `-`, no dot before `rc`). If your `pip install`
+command mirrors the tag exactly it will silently miss.
+
+To pin in a `requirements.txt` or `pyproject.toml`:
+
+```
+affineui==1.2.4rc1
+```
+
+Or, if you want `pip install --pre` to consider pre-releases without
+naming one:
+
+```bash
+pip install --pre \
+  --index-url https://test.pypi.org/simple/ \
+  --extra-index-url https://pypi.org/simple/ \
+  affineui
+```
+
+Without `--pre`, `pip` ignores every pre-release even when the index is
+TestPyPI.
+
+### Amalgamated .h / .cpp (no package manager)
+
+Every `v*` tag gets a GitHub Release with `affineui-<VERSION>.zip`
+attached. Contains `affineui.h`, `affineui.cpp`, `LICENSE`, `README.md`.
+
+Latest stable:
+
+```bash
+curl -LO https://github.com/benjcooley/affineui/releases/latest/download/affineui-latest.zip
+```
+
+Note: GitHub's `latest` redirect is only to the newest **non-prerelease**
+Release. Pre-release SDK zips must be named by version:
+
+```bash
+curl -LO https://github.com/benjcooley/affineui/releases/download/v1.2.4-rc.1/affineui-1.2.4-rc.1.zip
+```
 
 ## Troubleshooting
 
