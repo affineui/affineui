@@ -369,8 +369,15 @@ jobs:
           server="${GITHUB_SERVER_URL:-https://github.com}"
           repo="${GITHUB_REPOSITORY}"
           # PR may not exist yet if the workflow failed early — swallow errors.
-          pr_number=$(gh pr view "$branch" --json number --jq .number 2>/dev/null || echo "")
-          pr_url=$(gh pr view "$branch" --json url --jq .url 2>/dev/null || echo "")
+          # Single query for both fields; jq splits them out.
+          pr_json=$(gh pr view "$branch" --json number,url 2>/dev/null || true)
+          if [ -n "$pr_json" ]; then
+            pr_number=$(echo "$pr_json" | jq -r '.number')
+            pr_url=$(echo "$pr_json" | jq -r '.url')
+          else
+            pr_number=""
+            pr_url=""
+          fi
           {
             echo "## Draft release notes for v${CORE}"
             echo ""

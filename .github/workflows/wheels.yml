@@ -213,18 +213,19 @@ jobs:
       - name: Summary
         run: |
           set -euo pipefail
+          # `find` returns exit 0 even when no matches, so it stays safe
+          # under `pipefail`. `ls glob | ...` would abort the pipeline.
+          sdist_path=$(find dist -maxdepth 1 -name 'affineui-*.tar.gz' -type f 2>/dev/null | head -1 || true)
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             # Version comes from the sdist filename since no tag drives this.
-            version=$(ls dist/affineui-*.tar.gz 2>/dev/null | head -1 \
-                     | sed -E 's|.*affineui-(.*)\.tar\.gz|\1|')
+            version=$(basename "${sdist_path:-}" | sed -E 's|^affineui-(.*)\.tar\.gz$|\1|')
           else
             # Tag events: strip leading v. PEP-440 normalization (v1.0.0-rc.1
             # → 1.0.0rc1) happens inside the sdist filename; expose both.
-            tag_version="${GITHUB_REF_NAME#v}"
-            version="$tag_version"
+            version="${GITHUB_REF_NAME#v}"
           fi
-          wheels=$(ls dist/*.whl 2>/dev/null | wc -l | tr -d ' ')
-          sdist=$(ls dist/*.tar.gz 2>/dev/null | head -1 | xargs -I{} basename {})
+          wheels=$(find dist -maxdepth 1 -name '*.whl' -type f 2>/dev/null | wc -l | tr -d ' ')
+          sdist=$(basename "${sdist_path:-<none>}")
           {
             echo "## Published to TestPyPI"
             echo ""
@@ -282,14 +283,16 @@ jobs:
       - name: Summary
         run: |
           set -euo pipefail
+          # `find` returns exit 0 even when no matches, so it stays safe
+          # under `pipefail`. `ls glob | ...` would abort the pipeline.
+          sdist_path=$(find dist -maxdepth 1 -name 'affineui-*.tar.gz' -type f 2>/dev/null | head -1 || true)
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            version=$(ls dist/affineui-*.tar.gz 2>/dev/null | head -1 \
-                     | sed -E 's|.*affineui-(.*)\.tar\.gz|\1|')
+            version=$(basename "${sdist_path:-}" | sed -E 's|^affineui-(.*)\.tar\.gz$|\1|')
           else
             version="${GITHUB_REF_NAME#v}"
           fi
-          wheels=$(ls dist/*.whl 2>/dev/null | wc -l | tr -d ' ')
-          sdist=$(ls dist/*.tar.gz 2>/dev/null | head -1 | xargs -I{} basename {})
+          wheels=$(find dist -maxdepth 1 -name '*.whl' -type f 2>/dev/null | wc -l | tr -d ' ')
+          sdist=$(basename "${sdist_path:-<none>}")
           {
             echo "## Published to PyPI"
             echo ""
