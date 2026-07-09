@@ -73,6 +73,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+      core: ${{ steps.version.outputs.core }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -97,6 +98,34 @@ jobs:
             version="${GITHUB_REF_NAME#v}"
           fi
           python3 scripts/set_version.py --check "$version"
+
+      - name: Require reviewed release notes
+        # The drafts→cut flow is the only sanctioned path to a release —
+        # every published version MUST correspond to a
+        # docs/release-notes/v<CORE>.md that a human reviewed + merged.
+        # Notes are keyed on CORE (MAJOR.MINOR.PATCH), so v1.2.4-rc.1,
+        # v1.2.4-rc.2, and v1.2.4 all share the SAME docs/release-notes/
+        # v1.2.4.md file — one story per release cycle, iterated through
+        # its pre-releases and its eventual final.
+        #
+        # Seeding: pushing a `v*` tag with no matching notes file
+        # trips this check and stops the workflow before amalgamate /
+        # cargo / nuget / gh_release run. Ideal for the initial baseline
+        # tag that shouldn't publish anywhere.
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          CORE: ${{ steps.version.outputs.core }}
+        run: |
+          set -euo pipefail
+          notes="docs/release-notes/v${CORE}.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::${notes} not found on this ref."
+            echo "::error::Every release must be accompanied by reviewed release notes for its core version (${CORE})."
+            echo "::error::Run the 'Draft release notes' workflow → review + merge the PR → dispatch 'Cut release' with version ${VERSION}."
+            echo "::error::(If this tag is a SEED tag that intentionally shouldn't publish, this failure is the intended behavior — no action needed.)"
+            exit 1
+          fi
+          echo "::notice::Found ${notes} — release will use it as the Release body."
 
   # ────── amalgamation ─────────────────────────────────────────────
   # Regenerate the two-file SDK against the tag's version and produce
@@ -232,16 +261,45 @@ jobs:
     permissions:
       contents: write   # required to create the Release
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Download amalgamation artifact
         uses: actions/download-artifact@v4
         with:
           name: amalgamation
+
+      # The core-versioned notes file is the tag's body (per prepare's
+      # notes-file gate). Every tag in the same v${CORE} cycle uses the
+      # same file — that's the point of the shared notes.
+      - name: Locate release notes
+        id: notes
+        env:
+          CORE: ${{ needs.prepare.outputs.core }}
+        run: |
+          set -euo pipefail
+          f="docs/release-notes/v${CORE}.md"
+          if [ -f "$f" ]; then
+            echo "path=$f" >> "$GITHUB_OUTPUT"
+            echo "auto=false" >> "$GITHUB_OUTPUT"
+            echo "Using curated notes at $f"
+          else
+            # Shouldn't happen — prepare's notes-file gate should have
+            # already failed the workflow. Kept as a safety net.
+            echo "path=" >> "$GITHUB_OUTPUT"
+            echo "auto=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::${f} not found; falling back to auto-generated notes (should never happen — prepare should have gated)."
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          # `push` events already have the tag; dispatch runs mint one below.
           tag_name: v${{ needs.prepare.outputs.version }}
           name: v${{ needs.prepare.outputs.version }}
           prerelease: ${{ needs.prepare.outputs.is_prerelease }}
-          generate_release_notes: true
+          # body_path wins over generate_release_notes when both are set;
+          # empty body_path with generate_release_notes=true gives the
+          # auto-generated notes (see the fallback above).
+          body_path: ${{ steps.notes.outputs.path }}
+          generate_release_notes: ${{ steps.notes.outputs.auto }}
           files: ${{ needs.amalgamate.outputs.zip_name }}

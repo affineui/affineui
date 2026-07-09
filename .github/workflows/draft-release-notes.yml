@@ -1,0 +1,332 @@
+name: Draft release notes
+
+# Dispatch UI for humans cutting a release. Pick which segment to bump
+# (patch / minor / major / none) and which channel (release / rc / beta /
+# alpha); the workflow computes the next version, has Copilot CLI draft
+# release notes from the commit log since the last tag, and opens a PR
+# with the notes file at `docs/release-notes/v<CORE>.md` (keyed on the
+# MAJOR.MINOR.PATCH triplet, shared across every -rc/-beta/-alpha in the
+# cycle and the final release). Reviewer
+# edits the file inline in the PR. Once merged, dispatch `cut-release.yml`
+# with the same version to actually create + push the annotated tag —
+# release.yml + wheels.yml take it from there.
+#
+# Idempotent: dispatching again with the same (bump, mode) rebuilds
+# the notes and force-pushes the PR branch. Any human edits already
+# merged into main are preserved — only the still-open PR gets refreshed.
+#
+# ────────────────────────────────────────────────────────────────────
+# No dedicated secret needed — Copilot CLI works with the workflow's
+# built-in `GITHUB_TOKEN` per the GitHub docs
+# (docs.github.com/en/copilot/how-tos/copilot-cli/automate-copilot-cli/automate-with-actions):
+# "Using GITHUB_TOKEN (recommended for organization-owned repositories):
+#  No PAT or stored secrets required."
+# ────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Which core segment to bump. Pick `none` when just incrementing a pre-release counter (e.g. rc.1 → rc.2) or promoting a pre-release to a stable release.'
+        required: true
+        type: choice
+        default: 'patch'
+        options: ['none', 'patch', 'minor', 'major']
+      mode:
+        description: 'Release channel. `release` = plain triplet (v1.2.3). rc/beta/alpha = pre-release with auto-incremented counter (v1.2.3-rc.1, v1.2.3-rc.2 …).'
+        required: true
+        type: choice
+        default: 'rc'
+        options: ['release', 'rc', 'beta', 'alpha']
+
+permissions:
+  contents: read
+  pull-requests: read   # elevated in the job below where needed
+
+concurrency:
+  # Only one active draft run per (bump,mode) combo — a re-dispatch
+  # supersedes the previous. Prevents the "two parallel drafts fought
+  # over the same PR branch" failure mode.
+  group: draft-release-notes-${{ inputs.bump }}-${{ inputs.mode }}
+  cancel-in-progress: true
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # push the release-notes branch
+      pull-requests: write   # open / update the PR
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need every tag to find the previous release
+
+      - name: Set up Node (for Copilot CLI)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # ───── determine last + next version ─────
+      - id: last
+        name: Determine last tags (any + stable)
+        # Two different questions, two different queries:
+        #
+        # `last_any`    is the most recent tag ANY variety (stable OR
+        #               pre-release). next_version.py needs this to
+        #               continue a pre-release series correctly, e.g.
+        #               v1.1.2-alpha.1 + mode=alpha → v1.1.2-alpha.2.
+        #
+        # `last_stable` is the most recent tag WITHOUT a `-<pre>` suffix.
+        #               The release-notes range uses this so the notes
+        #               for v1.1.2 cover everything since v1.1.1 (the
+        #               last real release), NOT just the diff since the
+        #               interim alpha/beta/rc that a user shouldn't be
+        #               reading changelogs for.
+        #
+        # Both may be empty (first release ever). Regex `^v[0-9]+\.[0-9]+\.[0-9]+$`
+        # matches only bare-triplet tags for last_stable — no `-…`, no `+…`.
+        run: |
+          set -euo pipefail
+          last_any=$(git tag --list 'v*' --sort=-v:refname | head -1 || true)
+          last_stable=$(git tag --list 'v*' --sort=-v:refname \
+                        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+                        | head -1 || true)
+          echo "last_any=$last_any"       >> "$GITHUB_OUTPUT"
+          echo "last_stable=$last_stable" >> "$GITHUB_OUTPUT"
+          echo "resolved last_any=${last_any:-<none>} last_stable=${last_stable:-<none>}"
+
+      - id: next
+        name: Compute next version
+        env:
+          LAST_ANY: ${{ steps.last.outputs.last_any }}
+          BUMP: ${{ inputs.bump }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          python3 scripts/next_version.py --last "$LAST_ANY" --bump "$BUMP" --mode "$MODE"
+
+      # ───── draft the notes with Copilot CLI ─────
+      - name: Install Copilot CLI
+        run: npm install -g @github/copilot
+
+      - name: Collect commit log since last STABLE release
+        id: log
+        env:
+          # Notes range is against last_stable — see the "two queries"
+          # comment in the `last` step for why.
+          LAST_STABLE: ${{ steps.last.outputs.last_stable }}
+        run: |
+          set -euo pipefail
+          if [ -n "$LAST_STABLE" ]; then
+            range="${LAST_STABLE}..HEAD"
+          else
+            range="HEAD"
+          fi
+          # `--no-merges` keeps squash-merge commits (which carry `(#N)`)
+          # and drops the raw merge commits GitHub makes for "Rebase and
+          # merge" fallbacks — those are always duplicates of a squashed
+          # commit already in the range.
+          git log "$range" --format='- %s' --no-merges > /tmp/commit_log.txt
+          count=$(wc -l < /tmp/commit_log.txt | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "commit count since ${LAST_STABLE:-<none>}: $count"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::No commits between ${LAST_STABLE:-<none>} and HEAD; nothing to draft."
+            exit 1
+          fi
+
+      - name: Draft release notes with Copilot CLI
+        env:
+          # Built-in workflow token — no PAT/secret needed. See the
+          # header comment for the doc reference.
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+          NEXT: ${{ steps.next.outputs.next }}
+          CORE: ${{ steps.next.outputs.core }}
+          LAST_STABLE: ${{ steps.last.outputs.last_stable }}
+        run: |
+          set -euo pipefail
+          mkdir -p docs/release-notes
+          # Notes are keyed on CORE (MAJOR.MINOR.PATCH), not on the full
+          # pre-release version. So v1.1.3-rc.1, v1.1.3-rc.2, and v1.1.3
+          # itself all share `docs/release-notes/v1.1.3.md`. The RC
+          # drafts THIS release's notes; iterating the RC series
+          # re-drafts the SAME file; the eventual final release ships
+          # with that same file as the tag body. Range against the last
+          # stable release means the notes cover everything since v1.1.2.
+          notes_path="docs/release-notes/v${CORE}.md"
+          # Compose the prompt on disk (safer than a giant -p '…' arg on
+          # the CLI). Copilot has file-write access via --allow-tool=write.
+          prev_line="The previous stable release was ${LAST_STABLE}."
+          if [ -z "${LAST_STABLE:-}" ]; then
+            prev_line="This is the first release; there is no previous stable tag."
+          fi
+          cat > /tmp/prompt.md <<PROMPT
+          Draft release notes for the AffineUI native UI library, version v${CORE}.
+          The next tag to cut in this cycle is v${NEXT}, but these notes cover
+          the whole v${CORE} release — they'll be used verbatim for v${CORE}-rc.N,
+          v${CORE}-beta.N, and the eventual final v${CORE} tag.
+          ${prev_line}
+
+          Below is the list of git commit subjects merged since the previous
+          stable release, one per line. Squash-merged PR numbers appear at
+          the end of each subject in \`(#123)\` form.
+
+          \`\`\`
+          $(cat /tmp/commit_log.txt)
+          \`\`\`
+
+          Write the notes to \`${notes_path}\` as GitHub-flavored markdown,
+          EXACTLY like this structure:
+
+              Short 1-2 sentence overview paragraph.
+
+              ### Highlights
+              - The biggest / most user-facing thing that shipped. (#123)
+
+              ### New features
+              - Sentence describing the feature. (#124)
+
+              ### Changes
+              - Sentence describing a behaviour / API change or refactor. (#125)
+
+              ### Bug fixes
+              - Sentence describing the fix. (#126)
+
+          Section rules:
+          * **Highlights** = one bullet PER notable, user-facing
+            item shipped in this release. Include every important
+            or notable end-user-visible thing — not a sampler, not a
+            top-3 pick. If ten notable features shipped, ten bullets.
+            If one, one. Ordering: most impactful → least. Drawn
+            strictly from things END USERS of the AffineUI library
+            will observe. Marquee-worthy examples: new public API,
+            user-visible bug fix, perf improvement, behaviour change
+            in a widget/renderer/binding. NEVER include in Highlights:
+            CI changes, build-system changes, repo housekeeping /
+            chore, release-tooling changes, internal refactors that
+            don't move the surface, docs-only edits, dependency
+            bumps. Those all live in Changes below. Highlights bullets
+            can and often do duplicate the exact text of a lower-
+            section bullet — always include the PR number.
+          * **New features** = commits with a \`feat:\` prefix.
+          * **Changes** = anything that changes behaviour but isn't a
+            new feature and isn't a bug fix: \`refactor:\`, \`perf:\`,
+            \`build:\`, \`ci:\`, \`test:\`, \`chore:\`, \`docs:\` — fold
+            all of these into this one section.
+          * **Bug fixes** = commits with a \`fix:\` prefix.
+          * If a section (except Highlights) would be empty, OMIT the
+            heading entirely.
+          * If NO end-user-facing item qualifies as marquee, pick the
+            fallback that matches the shape of the release. Use EXACTLY
+            one Highlights bullet with the literal text below — no PR
+            number, no additional text, no stretching to fit marginal
+            items.
+
+            – Release is clearly a bug-fix point patch (bug fixes are
+              the dominant category, no marquee new-features / user-
+              visible changes):
+                  "This version is mainly focused on bug fixes."
+
+            – Release has no user-facing changes at all (only build /
+              CI / repo / tooling / refactor / docs), OR is a mix of
+              bug fixes and minor improvements without a clear marquee
+              item:
+                  "This version is mainly focused on issues and improvements."
+
+          Style rules:
+          * Preserve the PR number \`(#N)\` if present in the subject; do
+            not invent numbers.
+          * One sentence per bullet. Trim scope prefixes like
+            \`fix(app):\` down to just the human-facing summary.
+          * Do not wrap the whole output in code fences.
+          * Do not include a heading with the version number — the tag /
+            Release surface adds that.
+
+          Overwrite the file if it already exists. Exit when the file is
+          written.
+          PROMPT
+          copilot -p "$(cat /tmp/prompt.md)" \
+            --allow-tool=write \
+            --allow-tool='shell(cat:*)' \
+            --no-ask-user
+          # Sanity check: Copilot might have written the file elsewhere or
+          # not at all; fail loud if the expected path is empty.
+          if [ ! -s "$notes_path" ]; then
+            echo "::error::${notes_path} not written or empty after Copilot run."
+            exit 1
+          fi
+          head -20 "$notes_path"
+
+      # ───── open / refresh the PR ─────
+      - name: Push branch + open/update PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT: ${{ steps.next.outputs.next }}
+          CORE: ${{ steps.next.outputs.core }}
+          LAST: ${{ steps.last.outputs.last_stable }}
+          BUMP: ${{ inputs.bump }}
+          MODE: ${{ inputs.mode }}
+        # Idempotent update — if the branch/PR already exist from a prior
+        # dispatch (same core), force-with-lease refreshes them; if not,
+        # we create both. force-with-lease guards against overwriting
+        # human edits that already made it to the branch (they'd be
+        # detected as a non-fast-forward and cause the push to fail loud).
+        # Both branch and PR are keyed on CORE, not NEXT — so refreshing
+        # from -rc.1 to -rc.2 updates the SAME PR.
+        run: |
+          set -euo pipefail
+          branch="release-notes/v${CORE}"
+          notes_path="docs/release-notes/v${CORE}.md"
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name  'github-actions[bot]'
+
+          # Create the branch off main (fresh each run); if it exists on
+          # origin, we rebase on top so old CI-drafted commits are dropped
+          # but merged human edits to unrelated files persist.
+          # ALSO fetch refs/heads/${branch} so the local remote-tracking
+          # ref matches what's actually on origin — without that,
+          # --force-with-lease compares against an empty/stale ref and
+          # can reject the push on a re-dispatch (or, worse, silently
+          # succeed against the wrong ref). Ignore fetch failure: the
+          # branch may not exist on origin yet on the first dispatch.
+          git fetch origin main
+          git fetch origin "refs/heads/${branch}:refs/remotes/origin/${branch}" || true
+          git checkout -B "$branch" origin/main
+          # Bring the notes file we just wrote (Copilot wrote in the
+          # workspace root, which is on branch main-tip; the checkout
+          # above kept it in the worktree).
+          git add "$notes_path"
+          if git diff --cached --quiet; then
+            echo "::warning::No change to $notes_path — skipping push."
+            exit 0
+          fi
+          git commit -m "docs: draft AI release notes for v${CORE} (drafted as ${BUMP}/${MODE} → v${NEXT})"
+          # --force-with-lease uses the just-refreshed origin/${branch} as
+          # the expected state, so a concurrent human push to the same
+          # branch fails loud rather than silently getting clobbered.
+          git push --force-with-lease origin "$branch"
+
+          if gh pr view "$branch" --json number 2>/dev/null >/dev/null; then
+            echo "PR for $branch already exists — refreshed with new commit."
+            gh pr comment "$branch" --body \
+              "🔄 Release notes refreshed (drafted as bump=${BUMP}, mode=${MODE} → v${NEXT}). Latest commit head: \`$(git rev-parse --short HEAD)\`. Same v${CORE} notes will apply to every -rc / -beta / -alpha in this cycle and to the final v${CORE} tag."
+          else
+            gh pr create \
+              --base main \
+              --head "$branch" \
+              --title "Release notes for v${CORE}" \
+              --body "$(printf '%s\n' \
+                "**AI-drafted release notes for the v${CORE} release cycle.**" \
+                "" \
+                "These notes cover **every version cut in this cycle** — v${CORE}-rc.N, v${CORE}-beta.N, and the eventual final v${CORE} tag all use this same file as their tag body. Iterate the RC series without regenerating the file; only re-run \`Draft release notes\` if the log of merged PRs has changed enough to warrant a new draft." \
+                "" \
+                "- First drafted as: v${NEXT}" \
+                "- Bump: \`${BUMP}\`" \
+                "- Mode: \`${MODE}\`" \
+                "- Previous tag: \`${LAST:-<none>}\`" \
+                "" \
+                "Review + edit \`${notes_path}\` inline in this PR. When you're happy, merge this PR, then dispatch \`Cut release\` with any version in the v${CORE} cycle (e.g. \`${NEXT}\`) to create + push the annotated tag. The existing \`release.yml\` + \`wheels.yml\` workflows will pick up the tag push and publish to crates.io / nuget.org / PyPI or TestPyPI / GitHub Release." \
+                "" \
+                "_Re-dispatching \`Draft release notes\` with any (bump, mode) that resolves to the same core version refreshes this PR in place._" \
+              )"
+          fi

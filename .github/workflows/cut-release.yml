@@ -1,0 +1,93 @@
+name: Cut release
+
+# Two-step release UX, step 2. First run "Draft release notes" to compute
+# the next version and get a reviewed PR with the notes file at
+# `docs/release-notes/v<CORE>.md` (keyed on MAJOR.MINOR.PATCH, shared
+# across every -rc/-beta/-alpha in the cycle and the final release).
+# Merge that PR into main. THEN run this workflow, pass the same version,
+# and it turns the merged notes file into an annotated git tag (`vX.Y.Z…`)
+# — release.yml + wheels.yml react to the tag push and publish everywhere.
+#
+# Why annotated tags: the tag message becomes the GitHub Release body,
+# ships in every git clone (no round-trip to GitHub needed to see the
+# release story), and gives us a git-signed record of what shipped.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to cut, bare (e.g. 1.2.4-rc.1 or 1.2.4). Needs a docs/release-notes/v<CORE>.md merged on main — where CORE is the MAJOR.MINOR.PATCH of the version, shared across every pre-release + the final.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cut-release-${{ inputs.version }}
+  cancel-in-progress: false   # never cancel a mid-flight tag push
+
+jobs:
+  cut:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # push the tag
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # We DO push (the tag), so leave credentials persisted.
+
+      - id: check
+        name: Validate version + resolve notes file
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # `--check` validates AND writes version= / is_prerelease= /
+          # core= to $GITHUB_OUTPUT. `core` is MAJOR.MINOR.PATCH with
+          # any -pre / +build stripped.
+          python3 scripts/set_version.py --check "$VERSION"
+
+      - name: Confirm notes file + tag preconditions
+        env:
+          VERSION: ${{ inputs.version }}
+          CORE: ${{ steps.check.outputs.core }}
+        run: |
+          set -euo pipefail
+          # Notes are keyed on core version. Same file is used for every
+          # v${CORE}-rc.N and for the final v${CORE} tag. That's the file
+          # release.yml + wheels.yml will look up as the release body.
+          notes="docs/release-notes/v${CORE}.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::${notes} not found on main."
+            echo "::error::Notes are shared across every version in the v${CORE} cycle. Run 'Draft release notes' (any bump/mode that resolves to core ${CORE}), review the opened PR, merge it, then re-dispatch this workflow."
+            exit 1
+          fi
+
+          # Refuse to re-tag the SAME version (registries would reject
+          # anyway). Different pre-releases in the cycle are fine — this
+          # only checks the exact v${VERSION} tag.
+          if git ls-remote --exit-code --tags origin "v${VERSION}" >/dev/null 2>&1; then
+            echo "::error::Tag v${VERSION} already exists on origin."
+            echo "::error::Cutting the same version twice isn't supported. Pick a different one (e.g. bump the pre-release counter)."
+            exit 1
+          fi
+
+      - name: Create + push annotated tag
+        env:
+          VERSION: ${{ inputs.version }}
+          CORE: ${{ steps.check.outputs.core }}
+        # `git tag -a -F` reads the tag message from a file — the CORE
+        # release notes ARE the tag message. release.yml's gh_release
+        # job then uses that same message as the GitHub Release body.
+        # v${CORE}-rc.1, v${CORE}-rc.2, and v${CORE} all get the same
+        # notes body — that's the point of the shared notes file.
+        run: |
+          set -euo pipefail
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name  'github-actions[bot]'
+          tag="v${VERSION}"
+          git tag -a "$tag" -F "docs/release-notes/v${CORE}.md"
+          git push origin "$tag"
+          echo "::notice::Pushed tag ${tag} with notes from docs/release-notes/v${CORE}.md. release.yml and wheels.yml will publish shortly."
