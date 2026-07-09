@@ -9,8 +9,8 @@ a two file no-dep header/cpp lib.**
 AffineUI ships a real browser-style HTML/CSS layout and paint engine as a
 two-file C++ drop-in, a Python library (Gradio-style), a Rust crate, and a
 C# NuGet package. One renderer, one component API, four host languages.
-It runs at 120 Hz, animates smoothly, and does not embed a browser, a
-JavaScript VM, or a large framework.
+It runs at 120 Hz, is about 1MB in optimized code, animates smoothly, and 
+does not embed a browser, a JavaScript VM, or a large framework.
 
 It's built for:
 
