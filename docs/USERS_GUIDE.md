@@ -502,14 +502,32 @@ validates results against the trace log and dock-layout invariants. The
 conformance harness ([CONFORMANCE.md](CONFORMANCE.md)) A/B-renders content
 against real Chrome and pixel-diffs the result.
 
-## DevTools and performance
+## DevTools: affinetools
 
-Every app has Chrome-style devtools: press **F12** (or Ctrl+Shift+I) to
-launch the affinetools viewer attached to the process (disable with
-`Config::devtools_hotkey = false`). A native perf overlay
-(`Config::perf_overlay`) and per-frame telemetry
+AffineUI ships **affinetools**, a Chrome DevTools clone for AffineUI apps.
+Use it the way you use Chrome's: press **F12** (or Ctrl+Shift+I) in any
+running app and the tools open against it — inspect the live element tree
+and its styles, watch performance, follow the log.
+
+Under the hood it works differently from Chrome in one deliberate way:
+affinetools is a **separate application**, not an in-process panel. The
+hotkey starts a small loopback protocol server inside your app and launches
+the affinetools viewer as its own process, attached to yours. That keeps
+the tools' cost out of your app (a disabled server is one atomic check per
+frame) and means the viewer can attach to any process — including one you
+started headless (`AFFINEUI_TOOLS_LISTEN=1`).
+
+affinetools is a **work in progress**; the goal is to keep it generally in
+sync with what Chrome DevTools provides, so the workflow you already know
+carries over. Disable the hotkey with `Config::devtools_hotkey = false`
+(e.g. when your app binds F12 itself).
+
+## Performance instrumentation
+
+A native perf overlay (`Config::perf_overlay`) and per-frame telemetry
 (`App::frame_telemetry()`, JSONL via `AFFINEUI_TELEMETRY=<path>`) are built
-in; all of it compiles out with `AFFINEUI_PERF=0`. See
+in; all of it — devtools hotkey included — compiles out with
+`AFFINEUI_PERF=0`. See
 [TRACING_AND_PERFORMANCE_LOGGING.md](TRACING_AND_PERFORMANCE_LOGGING.md)
 and [HOW_TO_PROFILE.md](HOW_TO_PROFILE.md).
 
