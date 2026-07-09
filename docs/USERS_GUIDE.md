@@ -347,6 +347,27 @@ The rule of thumb the project itself follows: **SVG for static declarative
 art, the painter for anything dynamic.** `request_custom_repaint` is the
 cheap path — it never touches the DOM.
 
+## Extensions
+
+The library ships **sidecar widget kits** under [`extras/`](../extras/) —
+optional libraries built on the same component framework, linked only by
+apps that want them.
+
+The flagship is the **skeuomorphic hardware kit**
+(`extras/skeuo`, `affineui_skeuo.h`): builders and typed components for
+hardware-emulation UIs — modular synthesizers, drum machines, guitar
+pedals, mixing consoles. It provides chassis faceplates with selectable
+finishes and corner screws (`hw_panel`), silkscreen group boxes (`silk`),
+etched panel labels, TS/TRS patch jacks with chrome hex nuts, backlit
+buttons, 7-segment LED displays (`lcd`), LED bargraph meters, synth
+faders, and steppers — plus **PatchBay**, Reason-style patch cabling
+between jacks: drag to connect, re-route, click to remove, with cables
+hanging on a catenary and swinging on a spring-damper while dragged. (The
+cables are a custom-paint canvas, exactly the SVG-static / painter-dynamic
+split described above.) The kit is Decius-only by design; see
+[`examples/17_affine_2600`](../examples/17_affine_2600) — a full
+ARP-2600-style semi-modular synth — for it in action.
+
 ---
 
 # Part II — The HTML5 renderer
