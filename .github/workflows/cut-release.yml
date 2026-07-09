@@ -48,6 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write   # push the tag
+      actions:  write   # `gh workflow run` release.yml + wheels.yml after push
     steps:
       - uses: actions/checkout@v4
         with:
@@ -157,11 +158,24 @@ jobs:
         run: |
           set -euo pipefail
           tag="v${VERSION}"
-          # Small wait so GitHub's ref database has the new tag indexed
-          # before we ask a workflow to run against it.
-          sleep 5
-          gh workflow run release.yml --ref "$tag"
-          gh workflow run wheels.yml  --ref "$tag"
+          # GitHub's ref database occasionally lags a beat behind the
+          # tag push — dispatch immediately can 404 with "ref not found".
+          # Bounded retry (5 attempts, 5s between) covers the lag without
+          # unbounded waiting on a systemic outage.
+          dispatch() {
+            local wf="$1"
+            for attempt in 1 2 3 4 5; do
+              if gh workflow run "$wf" --ref "$tag" 2>&1; then
+                return 0
+              fi
+              echo "::warning::Dispatch of ${wf} against ${tag} failed (attempt ${attempt}/5); retrying in 5s…"
+              sleep 5
+            done
+            echo "::error::Failed to dispatch ${wf} against ${tag} after 5 attempts."
+            return 1
+          }
+          dispatch release.yml
+          dispatch wheels.yml
           echo "::notice::Dispatched release.yml + wheels.yml against ${tag}."
 
       # ───── run summary ─────
