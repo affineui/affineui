@@ -10,5 +10,38 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# Explicit include list — the vendored C++ source is populated in
+# `vendor/` by `scripts/vendor.sh` at cargo publish time and lives in
+# `.gitignore` in the monorepo. Without this whitelist, `cargo package`
+# respects .gitignore and would ship an empty vendor/ to crates.io.
+include = [
+    "src/**/*",
+    "build.rs",
+    "Cargo.toml",
+    "README.md",
+    "vendor/**/*",
+]
+
 [lib]
 doctest = false
+
+[features]
+# Default: build affineui_c from vendored C++ source via cmake.
+# `cargo add affineui` + `cargo build` Just Works (first build ~1-2 min
+# on a laptop; subsequent builds hit the cargo cache).
+default = ["vendored"]
+
+# Build affineui_c from vendored C++ source. Requires a C++20 compiler
+# and cmake on the system. Produces a shared library that gets copied
+# next to the final Rust binary at build time.
+vendored = []
+
+# Link against a system-installed libaffineui_c. Fastest builds but
+# requires the caller to have built and placed the shared library on
+# the linker path (via AFFINEUI_LIB_DIR or a system-wide install).
+# Use alone by disabling default features:
+#   affineui-sys = { version = "…", default-features = false, features = ["system"] }
+system = []
+
+[build-dependencies]
+cmake = "0.1"
