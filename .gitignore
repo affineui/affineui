@@ -105,3 +105,6 @@ dender.workspace.toml
 
 # CI-generated NuGet artifacts (see release.yml nuget job)
 bindings/csharp/artifacts/
+
+# affineui-sys vendored source (regenerated per release by scripts/vendor.sh)
+bindings/rust/affineui-sys/vendor/

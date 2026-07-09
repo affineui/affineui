@@ -210,6 +210,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Set version everywhere
         run: python3 scripts/set_version.py "${{ needs.prepare.outputs.version }}"
+      # affineui-sys ships as a source-build crate: its build.rs invokes
+      # cmake on a vendored copy of the repo's C++ source. The vendor
+      # tree is gitignored (see .gitignore) and populated here from the
+      # current checkout right before `cargo publish`.
+      - name: Vendor C++ source into affineui-sys
+        run: bash bindings/rust/affineui-sys/scripts/vendor.sh
       - name: Publish affineui-sys → crates.io
         working-directory: bindings/rust/affineui-sys
         env:
