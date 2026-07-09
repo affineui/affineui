@@ -612,8 +612,12 @@ public:
     WidgetRef html(std::string_view markup,
                    std::string_view key = {},
                    std::source_location here = std::source_location::current());
+    // `primary` defaults to true: a minimal `view.button("...")` should
+    // produce the framework's headline button style (blue in Decius,
+    // .btn-primary in Bootstrap) so hello worlds are visually obvious.
+    // Pass `false` explicitly for subordinate / secondary actions.
     WidgetRef button(std::string_view label,
-                     bool primary = false,
+                     bool primary = true,
                      std::string_view key = {},
                      std::source_location here = std::source_location::current());
     WidgetRef checkbox(std::string_view label,
