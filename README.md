@@ -1,7 +1,8 @@
 # AffineUI
 
 **A small, HTML5-compliant, GPU-accelerated UI renderer with an integrated
-component framework — a native replacement for Electron and Qt. Written in C++.**
+component framework — a native replacement for Electron and Qt. Written in C++ as 
+a two file no-dep header/cpp lib.**
 
 <img src="images/affineui_dender.png" width="720" alt="AffineUI running the Dender 3D-print slicer">
 
