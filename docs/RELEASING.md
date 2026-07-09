@@ -17,11 +17,21 @@ We ship four artifacts on every release:
 | .NET / NuGet     | nuget.org   | nuget.org          | any `v*` tag                |
 | Amalgamated SDK  | GitHub      | GitHub Release     | any `v*` tag                |
 
-Every published version MUST correspond to a
-`docs/release-notes/v<VERSION>.md` file that a human reviewed and merged
-into `main`. That's the enforceable contract — the publish jobs fail loud
-if that file is missing. This makes the two-step flow the only sanctioned
+Every published version MUST correspond to a merged, reviewed release
+notes file. Notes are keyed on the **core** version (`MAJOR.MINOR.PATCH`),
+so `v1.1.3-rc.1`, `v1.1.3-rc.2`, and the final `v1.1.3` all share the
+SAME `docs/release-notes/v1.1.3.md` file — one story per release cycle,
+iterated through its pre-releases and its eventual final. That's the
+enforceable contract — the publish jobs fail loud if the core-versioned
+notes file is missing. This makes the two-step flow the only sanctioned
 path to a release.
+
+The notes cover **everything since the last stable release**, not just
+the diff since the interim pre-release. If the last stable was `v1.1.2`,
+then `docs/release-notes/v1.1.3.md` covers everything from `v1.1.2..HEAD`
+regardless of which iteration (`-rc.1`, `-rc.2`, or the final) you're
+about to cut. Re-drafting during RC iteration picks up any newly-merged
+PRs.
 
 ### The two steps
 
@@ -29,20 +39,33 @@ path to a release.
 `workflow_dispatch`. Pick which segment to bump (`patch`, `minor`, `major`,
 or `none`) and which channel (`release`, `rc`, `beta`, `alpha`). The job:
 
-1. Reads the last `v*` tag on `origin`.
+1. Reads the last `v*` tag on `origin` (both "last of any kind" and
+   "last stable" — the former for series continuation, the latter for
+   the changelog range).
 2. Runs [`scripts/next_version.py`](../scripts/next_version.py) to compute
    the next version. Understands series continuation
-   (`v1.1.2-rc.1` + bump=none + mode=rc → `1.1.2-rc.2`), promotion
-   (`v1.1.2-rc.2` + bump=none + mode=release → `1.1.2`), and refuses no-ops.
+   (`v1.1.3-rc.1` + bump=none + mode=rc → `1.1.3-rc.2`), promotion
+   (`v1.1.3-rc.2` + bump=none + mode=release → `1.1.3`), and refuses
+   no-ops. Also emits the `core` (MAJOR.MINOR.PATCH) for the file path.
 3. Installs `@github/copilot` (the GitHub Copilot CLI) and feeds it the
-   git log since the last **stable** tag (so `v1.1.2` notes cover everything
-   since `v1.1.1`, not since the interim `v1.1.2-alpha.1`).
-4. Copilot drafts `docs/release-notes/v<VERSION>.md` in the requested
-   Highlights / New features / Changes / Bug fixes shape.
-5. Opens a PR titled `Release notes for v<VERSION>`.
+   git log since the last **stable** tag.
+4. Copilot drafts `docs/release-notes/v<CORE>.md` in the requested
+   Highlights / New features / Changes / Bug fixes shape. Same file
+   regardless of whether we're drafting an rc.1, rc.2, or final —
+   the whole cycle shares one notes doc.
+5. Opens (or refreshes) a PR titled `Release notes for v<CORE>` off
+   the branch `release-notes/v<CORE>`.
 
-The workflow is **idempotent** — running it again with the same
-`(bump, mode)` refreshes the same PR branch (`force-with-lease`).
+The workflow is **idempotent**. Both the branch and the notes file are
+keyed on `<CORE>`, so:
+
+- Re-drafting from `-rc.1` to `-rc.2` (bump=none, mode=rc, same core)
+  refreshes the SAME PR with any newly-merged PRs picked up from the
+  log range.
+- Drafting from `-rc.N` to final (bump=none, mode=release, same core)
+  refreshes the SAME PR — usually with only cosmetic tightening.
+
+Force-with-lease guards against clobbering human edits merged to `main`.
 Concurrency-gated so a re-dispatch supersedes an in-flight draft.
 
 **Step 2 — reviewer merges the notes PR.** Edit `docs/release-notes/v<VERSION>.md`
@@ -70,33 +93,46 @@ TestPyPI, GitHub Release with the amalgamation zip attached.
 
 Add these once at Settings → Secrets and variables → Actions:
 
-| Secret                 | Scope     | Where you get it                                                                                                        |
-|------------------------|-----------|-------------------------------------------------------------------------------------------------------------------------|
-| `COPILOT_TOKEN`        | PAT       | github.com/settings/tokens (fine-grained). Required permission: **Copilot chat** ("Copilot Requests" on classic tokens). |
-| `CARGO_REGISTRY_TOKEN` | crates.io | crates.io Account Settings → API Tokens                                                                                 |
-| `NUGET_API_KEY`        | nuget.org | nuget.org Account → API Keys                                                                                            |
+| Secret                 | Scope     | Where you get it                                             |
+|------------------------|-----------|--------------------------------------------------------------|
+| `CARGO_REGISTRY_TOKEN` | crates.io | crates.io Account Settings → API Tokens                      |
+| `NUGET_API_KEY`        | nuget.org | nuget.org Account → API Keys                                 |
 
-Python publishing uses PyPI Trusted Publisher (OIDC) via the `pypi` /
-`testpypi` GitHub environments already configured on the repo — no token
-needed.
+That's the full list. Two ecosystems don't need a secret:
 
-## The initial seed
+- **PyPI + TestPyPI**: Trusted Publisher (OIDC) via the `pypi` / `testpypi`
+  GitHub environments already configured on the repo.
+- **Copilot CLI** (release-notes drafting): the built-in `GITHUB_TOKEN`
+  works directly — no PAT required. Per the GitHub docs, "using
+  `GITHUB_TOKEN` (recommended for organization-owned repositories) — no
+  PAT or stored secrets required."
+
+## The initial retro-tag
 
 On a fresh repo (no `v*` tags on `origin`), the workflows need a baseline
-tag to compute "since when". The one-time bootstrap:
+tag to compute "since when". Because the binding manifests
+(`bindings/python/pyproject.toml`, `bindings/rust/Cargo.toml`) have been
+declaring `0.0.3` for a while, we retro-tag the current baseline as
+`v0.3.0` — that becomes the last-stable reference for the first real
+release cycle.
 
 ```bash
-git tag -a v0.1.0 -m "seed tag for release automation (not a real release)"
-git push origin v0.1.0
+# From a clean origin/main checkout:
+git tag -a v0.3.0 -m "baseline tag for release automation (retro-tag; not a published release)"
+git push origin v0.3.0
 ```
 
-Because there is no `docs/release-notes/v0.1.0.md`, the publish gate in
-`release.yml` + `wheels.yml` fails fast on the seed tag — the tag is
+Because there is no `docs/release-notes/v0.3.0.md`, the publish gate in
+`release.yml` + `wheels.yml` fails fast on the retro-tag — the tag is
 created on `origin` (so `next_version.py` has something to read), but
-nothing gets published anywhere. This is the intended shape.
+nothing gets published to any registry. That's the intended shape:
+`v0.3.0` is a REFERENCE POINT, not a published release.
 
 After that, the first real cycle runs through the Draft → Cut flow like
-any other release.
+any other release. Typical first move: dispatch **Draft release notes**
+with `bump=minor`, `mode=release` → produces `v0.4.0` (or higher, if you
+want a bigger bump). The notes cover everything since `v0.3.0`, which is
+what you want.
 
 ## Version scheme
 
@@ -141,38 +177,49 @@ fresh series at `.1`. Switching modes (rc → beta) also starts fresh.
 
 ### Cut a bug-fix patch release
 
-Last tag `v1.2.3`. Want `v1.2.4`.
+Last stable `v1.2.3`. Want `v1.2.4`.
 
-1. Draft: bump=`patch`, mode=`release` → PR opens with `docs/release-notes/v1.2.4.md`.
+1. Draft: bump=`patch`, mode=`release` → PR opens with
+   `docs/release-notes/v1.2.4.md` (notes covering `v1.2.3..HEAD`).
 2. Review + merge.
 3. Cut: version=`1.2.4`.
 
 ### Cut a patch RC series and iterate
 
-Last tag `v1.2.3`. Want `v1.2.4-rc.1`, then iterate through `-rc.2`,
-`-rc.3`, then promote.
+Last stable `v1.2.3`. Want `v1.2.4-rc.1`, then iterate through `-rc.2`,
+`-rc.3`, then promote to final.
 
-1. Draft: bump=`patch`, mode=`rc` → PR for `v1.2.4-rc.1`. Merge.
+1. Draft: bump=`patch`, mode=`rc` → PR opens with
+   `docs/release-notes/v1.2.4.md`. Same core, same file. Merge.
 2. Cut: version=`1.2.4-rc.1`. → wheels ship to TestPyPI; cargo + nuget
-   publish as pre-release.
+   publish as pre-release; both use `docs/release-notes/v1.2.4.md` as
+   the release body.
 3. Fix issues, land PRs on `main`.
-4. Draft: bump=`none`, mode=`rc` → PR for `v1.2.4-rc.2` (notes range is
-   still against `v1.2.3` — the last stable — so nothing gets lost).
-   Merge. Cut.
+4. Draft: bump=`none`, mode=`rc` → **refreshes the SAME PR** with an
+   updated `docs/release-notes/v1.2.4.md` (Copilot re-drafts against
+   `v1.2.3..HEAD`, picking up the freshly-merged PRs). Merge. Cut
+   version=`1.2.4-rc.2`.
 5. Repeat.
-6. Promote: draft with bump=`none`, mode=`release` → PR for `v1.2.4`
-   (same range against `v1.2.3`). Merge. Cut. → wheels ship to real PyPI.
+6. Promote: draft with bump=`none`, mode=`release` → SAME PR refreshes
+   one last time (notes still against `v1.2.3`, still in the same file).
+   Merge. Cut version=`1.2.4` → wheels ship to real PyPI, `-rc` suffix
+   drops.
+
+Key point: **one PR + one notes file per release cycle.** Every dispatch
+during the v1.2.4 cycle updates `docs/release-notes/v1.2.4.md` — never a
+separate file per RC.
 
 ### Cut a minor release
 
-Last tag `v1.2.3`. Want `v1.3.0`.
+Last stable `v1.2.3`. Want `v1.3.0`.
 
-1. Draft: bump=`minor`, mode=`release` → PR for `v1.3.0`. Merge.
+1. Draft: bump=`minor`, mode=`release` → PR for
+   `docs/release-notes/v1.3.0.md`. Merge.
 2. Cut: version=`1.3.0`.
 
 Skip the RC dance when you're confident. A minor bump directly to
-`release` is normal and expected — the RC flow is for when you want a
-soak period against real users first.
+`release` is normal — the RC flow is for when you want a soak period
+against real users first.
 
 ### Cut a major release
 
@@ -181,15 +228,15 @@ for anything users have been depending on for a while.
 
 ### Promote an RC to release without any new commits
 
-Last tag `v1.2.4-rc.2`. Everything since RC-2 has been enough soak;
-you're ready to ship.
+Last cut `v1.2.4-rc.2` (last stable is still `v1.2.3`). You're ready to
+ship.
 
-1. Draft: bump=`none`, mode=`release`. → notes for `v1.2.4` cover the
-   whole delta against `v1.2.3` (the last stable), not the empty delta
-   against `v1.2.4-rc.2`. Merge (usually with only cosmetic edits over
-   the RC's notes).
-2. Cut: version=`1.2.4`. → wheels ship to real PyPI, cargo + nuget
-   drop the `-rc` suffix, GitHub Release is marked final.
+1. Draft: bump=`none`, mode=`release`. → refreshes
+   `docs/release-notes/v1.2.4.md` (notes still range against `v1.2.3`,
+   still cover the same delta). Usually only cosmetic edits over the
+   RC's notes. Merge.
+2. Cut: version=`1.2.4`. → wheels ship to real PyPI, cargo + nuget drop
+   the `-rc` suffix, GitHub Release is marked final.
 
 ## What lives where
 
@@ -201,7 +248,7 @@ you're ready to ship.
 | [`.github/workflows/cut-release.yml`](../.github/workflows/cut-release.yml)                 | Step 3 — validate + tag + push.                                                       |
 | [`.github/workflows/release.yml`](../.github/workflows/release.yml)                         | Triggered by tag push. Amalgamates the two-file SDK, publishes cargo + nuget, creates GitHub Release. |
 | [`.github/workflows/wheels.yml`](../.github/workflows/wheels.yml)                           | Triggered by tag push. Builds Python wheels + sdist across three OSes, publishes to PyPI (final) or TestPyPI (pre-release). |
-| `docs/release-notes/v<VERSION>.md`                     | The reviewed notes for one release. Committed to `main` before cutting.               |
+| `docs/release-notes/v<CORE>.md`                       | The reviewed notes for a release cycle. Committed to `main` before cutting. Same file is used for every `-rc/-beta/-alpha` in the cycle and for the final. |
 
 ## What each publisher does with a pre-release
 
@@ -354,10 +401,12 @@ curl -LO https://github.com/benjcooley/affineui/releases/download/v1.2.4-rc.1/af
 ## Troubleshooting
 
 **"docs/release-notes/vX.Y.Z.md not found on this ref" during `release.yml` prepare or `wheels.yml` publish.**
-That's the notes-file gate. Either you're pushing a seed tag (in which
-case this failure is what you wanted), or you forgot to run the Draft
-flow and merge the notes PR. Run the Draft workflow, review + merge,
-then re-dispatch Cut.
+That's the notes-file gate. The file it's looking for is keyed on the
+**core** version (`X.Y.Z` with any `-pre`/`+build` stripped), so
+`v1.2.4-rc.1` looks for `docs/release-notes/v1.2.4.md`. Either you're
+pushing the retro-tag (in which case this failure is what you wanted),
+or you forgot to run the Draft flow and merge the notes PR. Run the
+Draft workflow, review + merge, then re-dispatch Cut.
 
 **"Tag vX.Y.Z already exists on origin" during Cut.**
 Cutting the same version twice isn't supported — the registries reject
@@ -377,6 +426,7 @@ the Release + tag from the UI. Update `docs/release-notes/v<VERSION>.md`
 in a subsequent release to note what went wrong.
 
 **Need to publish without going through the AI drafts.**
-Author `docs/release-notes/v<VERSION>.md` by hand, PR it, merge, then
-dispatch Cut with the version. The Draft workflow is a convenience — the
-enforceable contract is only "a merged notes file must exist".
+Author `docs/release-notes/v<CORE>.md` by hand, PR it, merge, then
+dispatch Cut with the full version (pre-release or final). The Draft
+workflow is a convenience — the enforceable contract is only "a merged
+notes file at the core-version path must exist".

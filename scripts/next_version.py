@@ -158,12 +158,17 @@ def main() -> int:
     args = ap.parse_args()
 
     next_v = compute(args.last, args.bump, args.mode)
-    line = f"next={next_v}"
-    print(line)
+    # `core` = MAJOR.MINOR.PATCH, stripped of any -pre / +build. The
+    # release-notes workflow keys the notes file on core so v1.2.4-rc.1,
+    # v1.2.4-rc.2, and v1.2.4 all share `docs/release-notes/v1.2.4.md`.
+    core = next_v.split("-", 1)[0].split("+", 1)[0]
+    lines = [f"next={next_v}", f"core={core}"]
+    for line in lines:
+        print(line)
     gh_out = os.environ.get("GITHUB_OUTPUT")
     if gh_out:
         with open(gh_out, "a") as f:
-            f.write(line + "\n")
+            f.write("\n".join(lines) + "\n")
     return 0
 
 

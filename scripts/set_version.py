@@ -108,18 +108,24 @@ def main() -> int:
         if len(sys.argv) != 3:
             raise SystemExit("[set_version] --check requires a VERSION argument")
         v, is_pre = classify(sys.argv[2])
-        line_v = f"version={v}"
-        line_p = f"is_prerelease={'true' if is_pre else 'false'}"
+        # `core` = MAJOR.MINOR.PATCH, no `-pre`, no `+build`. Notes files
+        # in docs/release-notes/ are keyed on core, so v1.2.4-rc.1 and
+        # v1.2.4-rc.2 and v1.2.4 all share the same notes file.
+        core = core_version(v)
+        lines = [
+            f"version={v}",
+            f"is_prerelease={'true' if is_pre else 'false'}",
+            f"core={core}",
+        ]
         # $GITHUB_OUTPUT is the runner's per-step outputs file. When present
         # (any GitHub Actions step), also append to it so `steps.<id>.outputs`
         # picks the values up. Local invocations just get the stdout lines.
         gh_out = os.environ.get("GITHUB_OUTPUT")
         if gh_out:
             with open(gh_out, "a") as f:
-                f.write(line_v + "\n")
-                f.write(line_p + "\n")
-        print(line_v)
-        print(line_p)
+                f.write("\n".join(lines) + "\n")
+        for line in lines:
+            print(line)
         return 0
 
     if len(sys.argv) != 2:

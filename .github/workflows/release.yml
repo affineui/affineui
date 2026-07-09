@@ -73,6 +73,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+      core: ${{ steps.version.outputs.core }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -101,10 +102,11 @@ jobs:
       - name: Require reviewed release notes
         # The drafts→cut flow is the only sanctioned path to a release —
         # every published version MUST correspond to a
-        # docs/release-notes/v<VERSION>.md that a human reviewed + merged.
-        # Fail loud here rather than silently publish something without
-        # release notes (or auto-generated placeholder notes) to a
-        # registry.
+        # docs/release-notes/v<CORE>.md that a human reviewed + merged.
+        # Notes are keyed on CORE (MAJOR.MINOR.PATCH), so v1.2.4-rc.1,
+        # v1.2.4-rc.2, and v1.2.4 all share the SAME docs/release-notes/
+        # v1.2.4.md file — one story per release cycle, iterated through
+        # its pre-releases and its eventual final.
         #
         # Seeding: pushing a `v*` tag with no matching notes file
         # trips this check and stops the workflow before amalgamate /
@@ -112,12 +114,13 @@ jobs:
         # tag that shouldn't publish anywhere.
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          CORE: ${{ steps.version.outputs.core }}
         run: |
           set -euo pipefail
-          notes="docs/release-notes/v${VERSION}.md"
+          notes="docs/release-notes/v${CORE}.md"
           if [ ! -f "$notes" ]; then
             echo "::error::${notes} not found on this ref."
-            echo "::error::Every release must be accompanied by reviewed release notes."
+            echo "::error::Every release must be accompanied by reviewed release notes for its core version (${CORE})."
             echo "::error::Run the 'Draft release notes' workflow → review + merge the PR → dispatch 'Cut release' with version ${VERSION}."
             echo "::error::(If this tag is a SEED tag that intentionally shouldn't publish, this failure is the intended behavior — no action needed.)"
             exit 1
@@ -266,27 +269,26 @@ jobs:
         with:
           name: amalgamation
 
-      # If cut-release.yml produced a docs/release-notes/v<VERSION>.md
-      # for this tag, use it as the Release body (that's the file the
-      # human just reviewed + edited before merging the notes PR).
-      # Otherwise fall back to auto-generated notes from GitHub's PR/commit
-      # diff so pushing a tag directly (bypassing the drafts flow) still
-      # produces a usable Release.
+      # The core-versioned notes file is the tag's body (per prepare's
+      # notes-file gate). Every tag in the same v${CORE} cycle uses the
+      # same file — that's the point of the shared notes.
       - name: Locate release notes
         id: notes
         env:
-          VERSION: ${{ needs.prepare.outputs.version }}
+          CORE: ${{ needs.prepare.outputs.core }}
         run: |
           set -euo pipefail
-          f="docs/release-notes/v${VERSION}.md"
+          f="docs/release-notes/v${CORE}.md"
           if [ -f "$f" ]; then
             echo "path=$f" >> "$GITHUB_OUTPUT"
             echo "auto=false" >> "$GITHUB_OUTPUT"
             echo "Using curated notes at $f"
           else
+            # Shouldn't happen — prepare's notes-file gate should have
+            # already failed the workflow. Kept as a safety net.
             echo "path=" >> "$GITHUB_OUTPUT"
             echo "auto=true" >> "$GITHUB_OUTPUT"
-            echo "No $f found; falling back to auto-generated notes."
+            echo "::warning::${f} not found; falling back to auto-generated notes (should never happen — prepare should have gated)."
           fi
 
       - name: Create GitHub Release

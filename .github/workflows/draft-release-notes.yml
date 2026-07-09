@@ -4,7 +4,9 @@ name: Draft release notes
 # (patch / minor / major / none) and which channel (release / rc / beta /
 # alpha); the workflow computes the next version, has Copilot CLI draft
 # release notes from the commit log since the last tag, and opens a PR
-# with the notes file at `docs/release-notes/v<VERSION>.md`. Reviewer
+# with the notes file at `docs/release-notes/v<CORE>.md` (keyed on the
+# MAJOR.MINOR.PATCH triplet, shared across every -rc/-beta/-alpha in the
+# cycle and the final release). Reviewer
 # edits the file inline in the PR. Once merged, dispatch `cut-release.yml`
 # with the same version to actually create + push the annotated tag —
 # release.yml + wheels.yml take it from there.
@@ -14,15 +16,11 @@ name: Draft release notes
 # merged into main are preserved — only the still-open PR gets refreshed.
 #
 # ────────────────────────────────────────────────────────────────────
-# REQUIRED SECRETS
-#
-#   COPILOT_TOKEN   Personal Access Token (classic or fine-grained) with
-#                   the "Copilot Requests" permission. Copilot CLI runs
-#                   against the account behind this token. Create at
-#                   github.com/settings/tokens → generate → select
-#                   Copilot Requests (fine-grained: "Copilot chat" scope).
-#                   The default GITHUB_TOKEN doesn't have Copilot scope,
-#                   which is why we pass an explicit PAT.
+# No dedicated secret needed — Copilot CLI works with the workflow's
+# built-in `GITHUB_TOKEN` per the GitHub docs
+# (docs.github.com/en/copilot/how-tos/copilot-cli/automate-copilot-cli/automate-with-actions):
+# "Using GITHUB_TOKEN (recommended for organization-owned repositories):
+#  No PAT or stored secrets required."
 # ────────────────────────────────────────────────────────────────────
 
 on:
@@ -139,13 +137,23 @@ jobs:
 
       - name: Draft release notes with Copilot CLI
         env:
-          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_TOKEN }}
+          # Built-in workflow token — no PAT/secret needed. See the
+          # header comment for the doc reference.
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
           NEXT: ${{ steps.next.outputs.next }}
+          CORE: ${{ steps.next.outputs.core }}
           LAST_STABLE: ${{ steps.last.outputs.last_stable }}
         run: |
           set -euo pipefail
           mkdir -p docs/release-notes
-          notes_path="docs/release-notes/v${NEXT}.md"
+          # Notes are keyed on CORE (MAJOR.MINOR.PATCH), not on the full
+          # pre-release version. So v1.1.3-rc.1, v1.1.3-rc.2, and v1.1.3
+          # itself all share `docs/release-notes/v1.1.3.md`. The RC
+          # drafts THIS release's notes; iterating the RC series
+          # re-drafts the SAME file; the eventual final release ships
+          # with that same file as the tag body. Range against the last
+          # stable release means the notes cover everything since v1.1.2.
+          notes_path="docs/release-notes/v${CORE}.md"
           # Compose the prompt on disk (safer than a giant -p '…' arg on
           # the CLI). Copilot has file-write access via --allow-tool=write.
           prev_line="The previous stable release was ${LAST_STABLE}."
@@ -153,7 +161,10 @@ jobs:
             prev_line="This is the first release; there is no previous stable tag."
           fi
           cat > /tmp/prompt.md <<PROMPT
-          Draft release notes for the AffineUI native UI library, version v${NEXT}.
+          Draft release notes for the AffineUI native UI library, version v${CORE}.
+          The next tag to cut in this cycle is v${NEXT}, but these notes cover
+          the whole v${CORE} release — they'll be used verbatim for v${CORE}-rc.N,
+          v${CORE}-beta.N, and the eventual final v${CORE} tag.
           ${prev_line}
 
           Below is the list of git commit subjects merged since the previous
@@ -251,18 +262,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NEXT: ${{ steps.next.outputs.next }}
-          LAST: ${{ steps.last.outputs.last }}
+          CORE: ${{ steps.next.outputs.core }}
+          LAST: ${{ steps.last.outputs.last_stable }}
           BUMP: ${{ inputs.bump }}
           MODE: ${{ inputs.mode }}
         # Idempotent update — if the branch/PR already exist from a prior
-        # dispatch, force-with-lease refreshes them; if not, we create
-        # both. force-with-lease guards against overwriting human edits
-        # that already made it to the branch (they'd be detected as a
-        # non-fast-forward and cause the push to fail loud).
+        # dispatch (same core), force-with-lease refreshes them; if not,
+        # we create both. force-with-lease guards against overwriting
+        # human edits that already made it to the branch (they'd be
+        # detected as a non-fast-forward and cause the push to fail loud).
+        # Both branch and PR are keyed on CORE, not NEXT — so refreshing
+        # from -rc.1 to -rc.2 updates the SAME PR.
         run: |
           set -euo pipefail
-          branch="release-notes/v${NEXT}"
-          notes_path="docs/release-notes/v${NEXT}.md"
+          branch="release-notes/v${CORE}"
+          notes_path="docs/release-notes/v${CORE}.md"
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           git config user.name  'github-actions[bot]'
 
@@ -279,27 +293,30 @@ jobs:
             echo "::warning::No change to $notes_path — skipping push."
             exit 0
           fi
-          git commit -m "docs: draft AI release notes for v${NEXT} (${BUMP}/${MODE})"
+          git commit -m "docs: draft AI release notes for v${CORE} (drafted as ${BUMP}/${MODE} → v${NEXT})"
           git push --force-with-lease origin "$branch"
 
           if gh pr view "$branch" --json number 2>/dev/null >/dev/null; then
             echo "PR for $branch already exists — refreshed with new commit."
             gh pr comment "$branch" --body \
-              "🔄 Release notes refreshed (bump=${BUMP}, mode=${MODE}). Latest commit head: \`$(git rev-parse --short HEAD)\`."
+              "🔄 Release notes refreshed (drafted as bump=${BUMP}, mode=${MODE} → v${NEXT}). Latest commit head: \`$(git rev-parse --short HEAD)\`. Same v${CORE} notes will apply to every -rc / -beta / -alpha in this cycle and to the final v${CORE} tag."
           else
             gh pr create \
               --base main \
               --head "$branch" \
-              --title "Release notes for v${NEXT}" \
+              --title "Release notes for v${CORE}" \
               --body "$(printf '%s\n' \
-                "**AI-drafted release notes for v${NEXT}**" \
+                "**AI-drafted release notes for the v${CORE} release cycle.**" \
                 "" \
+                "These notes cover **every version cut in this cycle** — v${CORE}-rc.N, v${CORE}-beta.N, and the eventual final v${CORE} tag all use this same file as their tag body. Iterate the RC series without regenerating the file; only re-run \`Draft release notes\` if the log of merged PRs has changed enough to warrant a new draft." \
+                "" \
+                "- First drafted as: v${NEXT}" \
                 "- Bump: \`${BUMP}\`" \
                 "- Mode: \`${MODE}\`" \
                 "- Previous tag: \`${LAST:-<none>}\`" \
                 "" \
-                "Review + edit \`${notes_path}\` inline in this PR. When you're happy, merge this PR, then dispatch \`Cut release\` with version \`${NEXT}\` to create + push the annotated tag. The existing \`release.yml\` + \`wheels.yml\` workflows will pick up the tag push and publish to crates.io / nuget.org / PyPI / GitHub Release." \
+                "Review + edit \`${notes_path}\` inline in this PR. When you're happy, merge this PR, then dispatch \`Cut release\` with any version in the v${CORE} cycle (e.g. \`${NEXT}\`) to create + push the annotated tag. The existing \`release.yml\` + \`wheels.yml\` workflows will pick up the tag push and publish to crates.io / nuget.org / PyPI or TestPyPI / GitHub Release." \
                 "" \
-                "_Re-dispatching \`Draft release notes\` with the same (bump, mode) will refresh this PR in place._" \
+                "_Re-dispatching \`Draft release notes\` with any (bump, mode) that resolves to the same core version refreshes this PR in place._" \
               )"
           fi
