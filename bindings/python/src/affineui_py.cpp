@@ -637,13 +637,10 @@ PYBIND11_MODULE(_affineui, m) {
                  return view.button(label, primary, key);
              },
              py::arg("label"),
-             py::arg("primary") = true,
+             py::arg("primary") = false,
              py::arg("key") = "",
              py::keep_alive<0, 1>(),
-             "Add a button. `primary=true` (default) picks the framework's "
-             "headline button style (blue in Decius, .btn-primary in "
-             "Bootstrap). Pass `primary=False` for subordinate actions. "
-             "The returned WidgetRef keeps the View alive.")
+             "Add a button. The returned WidgetRef keeps the View alive.")
         .def("checkbox",
              [](affineui::View& view,
                 const std::string& label,
