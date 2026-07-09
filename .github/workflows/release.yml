@@ -28,27 +28,29 @@ name: Release
 # ────────────────────────────────────────────────────────────────────
 
 on:
-  # Two entry points, one behavior. Both use the version parsed from
-  # GITHUB_REF_NAME, so there's no drift between them:
+  # Two entry points, both eventually resolve to a specific v* tag:
   #
   # 1. `push` on a v* tag — a user pushing a tag with their own
-  #    credentials cascades here directly.
+  #    credentials cascades here directly. Version comes from the ref.
   #
-  # 2. `workflow_dispatch` with `--ref v*` — the sanctioned path when
-  #    Cut release is what pushed the tag. GitHub Actions has a
-  #    documented rule: events triggered by the ephemeral GITHUB_TOKEN
-  #    do NOT create new workflow runs, with two exceptions —
-  #    workflow_dispatch and repository_dispatch. So Cut release pushes
-  #    the tag, then explicitly `gh workflow run release.yml --ref
-  #    v<VERSION>` to bootstrap this workflow. No new secrets or PATs
-  #    required.
-  #
-  # No dispatch inputs: everything the workflow needs (version,
-  # prerelease flag, core) is derivable from the tag ref itself.
+  # 2. `workflow_dispatch` with a `version` input — the sanctioned
+  #    path when Cut release is what pushed the tag (GitHub Actions'
+  #    GITHUB_TOKEN rule blocks tag pushes from cascading, but leaves
+  #    workflow_dispatch as an explicit re-entry point), AND the path
+  #    for a human retrying a failed publish from the Actions UI.
+  #    The `version` input is required so a UI dispatch that defaults
+  #    the ref to main (which parsing from `${GITHUB_REF_NAME}` alone
+  #    could not handle) still works — the operator just types the
+  #    version they want to (re)publish.
   push:
     tags:
       - 'v*'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to (re)publish, bare (e.g. 0.4.0-beta.2). Must match an existing v* tag; each publishing job checks out that tag explicitly, so the "Use workflow from" branch does not matter.'
+        required: true
+        type: string
 
 concurrency:
   group: release-${{ github.ref }}
@@ -77,18 +79,26 @@ jobs:
         with:
           persist-credentials: false   # prepare doesn't push
       - id: version
-        name: Parse version from tag
-        # Purely tag-driven — the version is `${GITHUB_REF_NAME}` with
-        # its leading `v` stripped. `set_version.py --check` validates
-        # the value and writes `version=` / `is_prerelease=` / `core=`
-        # to $GITHUB_OUTPUT using the SAME semver parser that the
-        # file-patching mode uses — so we can't drift between "what we
-        # build" and "what we classify". The parser correctly ignores
-        # build metadata after `+` when deciding prerelease (a hyphen
-        # inside +build.42 is not a pre-release marker).
+        name: Resolve version
+        # DISPATCH_VERSION goes through `env:` (not `${{ }}` string
+        # interpolation) so a maliciously-crafted workflow_dispatch
+        # input can't inject shell into the run block.
+        # `set_version.py --check` validates the value and writes
+        # `version=` / `is_prerelease=` / `core=` to $GITHUB_OUTPUT
+        # using the SAME semver parser that the file-patching mode
+        # uses — so we can't drift between "what we build" and
+        # "what we classify". The parser correctly ignores build
+        # metadata after `+` when deciding prerelease.
+        env:
+          DISPATCH_VERSION: ${{ github.event.inputs.version }}
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            version="$DISPATCH_VERSION"
+          else
+            # push event: ref is `refs/tags/v...`, name is `v...`.
+            version="${GITHUB_REF_NAME#v}"
+          fi
           python3 scripts/set_version.py --check "$version"
 
       - name: Require reviewed release notes
@@ -130,8 +140,12 @@ jobs:
     outputs:
       zip_name: ${{ steps.package.outputs.zip_name }}
     steps:
+      # Check out THE TAG, not whatever ref the workflow was dispatched
+      # against. Guarantees a UI retry publishes the exact same code no
+      # matter which "Use workflow from" branch the operator picked.
       - uses: actions/checkout@v4
         with:
+          ref: v${{ needs.prepare.outputs.version }}
           persist-credentials: false   # amalgamate doesn't push
       - name: Install Ninja
         run: brew install ninja
@@ -187,8 +201,11 @@ jobs:
     needs: [prepare, amalgamate]
     runs-on: ubuntu-latest
     steps:
+      # Check out the tag explicitly — a UI retry might dispatch from
+      # any branch; we always want to publish the tagged code.
       - uses: actions/checkout@v4
         with:
+          ref: v${{ needs.prepare.outputs.version }}
           persist-credentials: false   # cargo publish uses CARGO_REGISTRY_TOKEN, not git
       - uses: dtolnay/rust-toolchain@stable
       - name: Set version everywhere
@@ -229,8 +246,11 @@ jobs:
     needs: [prepare, amalgamate]
     runs-on: ubuntu-latest
     steps:
+      # Check out the tag explicitly — a UI retry might dispatch from
+      # any branch; we always want to publish the tagged code.
       - uses: actions/checkout@v4
         with:
+          ref: v${{ needs.prepare.outputs.version }}
           persist-credentials: false   # nuget push uses NUGET_API_KEY, not git
       - uses: actions/setup-dotnet@v4
         with:
@@ -280,8 +300,12 @@ jobs:
     permissions:
       contents: write   # required to create the Release
     steps:
+      # Check out the tag explicitly so the release notes file we
+      # attach is the version the tag actually shipped — a UI retry
+      # against main would otherwise pick up any post-tag notes edits.
       - uses: actions/checkout@v4
         with:
+          ref: v${{ needs.prepare.outputs.version }}
           persist-credentials: false
       - name: Download amalgamation artifact
         uses: actions/download-artifact@v4
