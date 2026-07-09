@@ -925,6 +925,19 @@ void Document::layout(int viewport_width, int viewport_height,
             (height_changed && viewport_dependency.height);
         impl_->media_viewport_width_px = viewport_width;
         impl_->media_viewport_height_px = viewport_height;
+        // Rebuild the resolver against the just-updated media_viewport_*
+        // and re-collect blocks from the live DOM, then commit the new
+        // media_match_signature. Both viewport-change branches below
+        // that DON'T take the set_html full-reparse path (reconciler
+        // media crossing + computed-style viewport change) use this
+        // exact three-step sequence — extracted so they stay in lockstep.
+        auto rebuild_resolver_and_recollect = [&]() {
+            impl_->resolver = detail::make_lexbor_resolver(
+                impl_->doc, impl_->media_viewport_width_px,
+                impl_->media_viewport_height_px);
+            detail::recollect_blocks_from_current_dom(*impl_);
+            impl_->media_match_signature = next_media_sig;
+        };
         if (media_set_changed) {
             if (first_viewport) {
                 detail::attach_matching_media_blocks_for_viewport(*impl_);
@@ -948,11 +961,7 @@ void Document::layout(int viewport_width, int viewport_height,
                 // still work for reconciler apps. Rules that need the
                 // full attach/detach cycle may resolve stale until either
                 // a full set_html or the detach path is hardened.
-                impl_->resolver = detail::make_lexbor_resolver(
-                    impl_->doc, impl_->media_viewport_width_px,
-                    impl_->media_viewport_height_px);
-                detail::recollect_blocks_from_current_dom(*impl_);
-                impl_->media_match_signature = next_media_sig;
+                rebuild_resolver_and_recollect();
             } else {
                 // Pure set_html-driven app (no reconciler use ever). The
                 // full detach-via-reparse workaround is safe here because
@@ -968,11 +977,7 @@ void Document::layout(int viewport_width, int viewport_height,
                 set_html(html);
             }
         } else if (computed_style_viewport_changed) {
-            impl_->resolver = detail::make_lexbor_resolver(
-                impl_->doc, impl_->media_viewport_width_px,
-                impl_->media_viewport_height_px);
-            detail::recollect_blocks_from_current_dom(*impl_);
-            impl_->media_match_signature = next_media_sig;
+            rebuild_resolver_and_recollect();
         } else {
             // A resize can change available layout width without changing any
             // computed CSS values. Keep the existing block/style tree and only
