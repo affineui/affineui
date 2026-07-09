@@ -36,6 +36,18 @@
 #    include "nanovg_sokol.h"
 #endif
 
+// The GL-family backends share two quirks the other backends do not have:
+// sokol_gfx compiles its GL path with has_bgra=false (BGRA8 is never a valid
+// texture/render-target format), and GL offscreen render targets use a
+// bottom-left texel origin. Both the pixel-format defaults and the root
+// composite's V orientation must agree on which backends those apply to, so
+// the predicate lives here rather than being repeated at each site.
+#if defined(AFFINEUI_BACKEND_GL) || defined(SOKOL_GLCORE) || defined(SOKOL_GLES3)
+#    define AFFINEUI_GL_FAMILY 1
+#else
+#    define AFFINEUI_GL_FAMILY 0
+#endif
+
 namespace affineui {
 
 namespace detail {
@@ -53,11 +65,10 @@ struct RendererImpl {
     float                    last_dpi{1.0f};
     bool                     first_frame{true};
     bool                     owns_sg{false};  // we called sg_setup (embedded)
-    // Default swapchain/composite color format. sokol's GL backend hardcodes
-    // has_bgra=false, so BGRA8 textures/render-targets are unsupported on every
-    // GL device; the offscreen root composite is a texture, so GL must default
-    // to RGBA8. Metal/D3D11 keep their native BGRA8 swapchain format.
-#if defined(AFFINEUI_BACKEND_GL) || defined(SOKOL_GLCORE) || defined(SOKOL_GLES3)
+    // Default swapchain/composite color format. The offscreen root composite is
+    // a texture, so the GL family must default to RGBA8 (see AFFINEUI_GL_FAMILY).
+    // Metal/D3D11 keep their native BGRA8 swapchain format.
+#if AFFINEUI_GL_FAMILY
     sg_pixel_format          sw_color{SG_PIXELFORMAT_RGBA8};          // embedded swapchain formats
 #else
     sg_pixel_format          sw_color{SG_PIXELFORMAT_BGRA8};          // embedded swapchain formats
@@ -161,11 +172,10 @@ sg_pixel_format to_sg_format(PixelFormat f, bool is_depth) {
         case PixelFormat::default_:
         default:
             if (is_depth) return SG_PIXELFORMAT_DEPTH_STENCIL;
-            // sokol's GL backend hardcodes has_bgra=false, so BGRA8 textures /
-            // render targets are unsupported on every GL device (not just
-            // llvmpipe). Metal/D3D11 have native BGRA8 swapchains, so only the
-            // GL path must fall back to RGBA8 for the neutral default.
-#if defined(AFFINEUI_BACKEND_GL) || defined(SOKOL_GLCORE) || defined(SOKOL_GLES3)
+            // Metal/D3D11 have native BGRA8 swapchains; the GL family cannot
+            // create BGRA8 textures at all, so only it falls back to RGBA8 for
+            // the neutral default. Explicit bgra8 above is honored regardless.
+#if AFFINEUI_GL_FAMILY
             return SG_PIXELFORMAT_RGBA8;
 #else
             return SG_PIXELFORMAT_BGRA8;
@@ -896,7 +906,7 @@ void composite_root_layer(detail::RendererImpl& impl,
             // visible viewport (spare capacity to avoid reallocating on
             // resize), so the flipped band is [1 - v_max, 1], NOT [0, v_max]:
             // the drawn content is anchored to the high-V end on GL.
-#if defined(AFFINEUI_BACKEND_GL) || defined(SOKOL_GLCORE) || defined(SOKOL_GLES3)
+#if AFFINEUI_GL_FAMILY
             const float v_lo = 1.0f - v_max;
             const RootCompositeVertex quad[] = {
                 {-1.0f, -1.0f, 0.0f,  v_lo},
