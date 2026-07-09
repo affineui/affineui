@@ -139,7 +139,30 @@ jobs:
           tag="v${VERSION}"
           git tag -a "$tag" -F "docs/release-notes/v${CORE}.md"
           git push origin "$tag"
-          echo "::notice::Pushed tag ${tag} with notes from docs/release-notes/v${CORE}.md. release.yml and wheels.yml will publish shortly."
+          echo "::notice::Pushed tag ${tag} with notes from docs/release-notes/v${CORE}.md."
+
+      - name: Trigger release + wheels workflows
+        # GitHub Actions rule: events triggered by the ephemeral
+        # GITHUB_TOKEN — including the `push` from the previous step —
+        # do NOT create new workflow runs. So the tag push alone would
+        # NOT cascade release.yml or wheels.yml. `workflow_dispatch`
+        # and `repository_dispatch` are the two documented exceptions:
+        # we use the former to explicitly bootstrap both workflows
+        # against the tag ref. They then parse `${GITHUB_REF_NAME}`
+        # exactly like they would for a real push.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.next.outputs.next }}
+        if: steps.push_tag.outcome == 'success'
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          # Small wait so GitHub's ref database has the new tag indexed
+          # before we ask a workflow to run against it.
+          sleep 5
+          gh workflow run release.yml --ref "$tag"
+          gh workflow run wheels.yml  --ref "$tag"
+          echo "::notice::Dispatched release.yml + wheels.yml against ${tag}."
 
       # ───── run summary ─────
       # Every important artifact this workflow produced, one click away.
