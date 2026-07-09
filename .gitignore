@@ -102,3 +102,6 @@ bindings/csharp/**/obj/
 affineui_profile.txt
 affineui_trace.json
 dender.workspace.toml
+
+# CI-generated NuGet artifacts (see release.yml nuget job)
+bindings/csharp/artifacts/

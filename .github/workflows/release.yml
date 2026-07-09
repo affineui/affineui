@@ -349,10 +349,22 @@ jobs:
         working-directory: bindings/csharp/artifacts
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-        # --skip-duplicate lets a re-run of a failed publish succeed silently
-        # instead of erroring on the already-uploaded package.
+          VERSION: ${{ needs.prepare.outputs.version }}
+        # Push the SPECIFIC nupkg for this version, not `*.nupkg` — a
+        # `*.nupkg` glob picks up stale artifacts left behind by prior
+        # local dev builds if they were ever committed to the repo,
+        # which would resurface old versions on nuget.org each release.
+        # --skip-duplicate makes a re-run of a failed publish succeed
+        # silently instead of erroring on the already-uploaded version.
         run: |
-          dotnet nuget push "*.nupkg" \
+          set -euo pipefail
+          nupkg="AffineUI.${VERSION}.nupkg"
+          if [ ! -f "$nupkg" ]; then
+            ls -la
+            echo "::error::Expected ${nupkg} in artifacts/ but it isn't there."
+            exit 1
+          fi
+          dotnet nuget push "$nupkg" \
             --api-key "$NUGET_API_KEY" \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
