@@ -53,7 +53,15 @@ struct RendererImpl {
     float                    last_dpi{1.0f};
     bool                     first_frame{true};
     bool                     owns_sg{false};  // we called sg_setup (embedded)
-    sg_pixel_format          sw_color{SG_PIXELFORMAT_BGRA8};         // embedded swapchain formats
+    // Default swapchain/composite color format. sokol's GL backend hardcodes
+    // has_bgra=false, so BGRA8 textures/render-targets are unsupported on every
+    // GL device; the offscreen root composite is a texture, so GL must default
+    // to RGBA8. Metal/D3D11 keep their native BGRA8 swapchain format.
+#if defined(AFFINEUI_BACKEND_GL) || defined(SOKOL_GLCORE) || defined(SOKOL_GLES3)
+    sg_pixel_format          sw_color{SG_PIXELFORMAT_RGBA8};          // embedded swapchain formats
+#else
+    sg_pixel_format          sw_color{SG_PIXELFORMAT_BGRA8};          // embedded swapchain formats
+#endif
     sg_pixel_format          sw_depth{SG_PIXELFORMAT_DEPTH_STENCIL};
     Allocator                alloc{};         // copied host allocator (embedded)
     bool                     has_alloc{false};
@@ -152,7 +160,16 @@ sg_pixel_format to_sg_format(PixelFormat f, bool is_depth) {
         case PixelFormat::depth_stencil: return SG_PIXELFORMAT_DEPTH_STENCIL;
         case PixelFormat::default_:
         default:
-            return is_depth ? SG_PIXELFORMAT_DEPTH_STENCIL : SG_PIXELFORMAT_BGRA8;
+            if (is_depth) return SG_PIXELFORMAT_DEPTH_STENCIL;
+            // sokol's GL backend hardcodes has_bgra=false, so BGRA8 textures /
+            // render targets are unsupported on every GL device (not just
+            // llvmpipe). Metal/D3D11 have native BGRA8 swapchains, so only the
+            // GL path must fall back to RGBA8 for the neutral default.
+#if defined(AFFINEUI_BACKEND_GL) || defined(SOKOL_GLCORE) || defined(SOKOL_GLES3)
+            return SG_PIXELFORMAT_RGBA8;
+#else
+            return SG_PIXELFORMAT_BGRA8;
+#endif
     }
 }
 
@@ -872,12 +889,29 @@ void composite_root_layer(detail::RendererImpl& impl,
                          static_cast<float>(layer.h), 0.0f, 1.0f)
             : 1.0f;
         if (u_max != comp.u_max || v_max != comp.v_max) {
+            // GL offscreen render targets use a bottom-left texel origin, so
+            // the composite must sample V flipped (v' = 1 - v) relative to the
+            // top-left origin used by Metal/D3D11, otherwise the root layer
+            // blits upside down. The layer texture is often taller than the
+            // visible viewport (spare capacity to avoid reallocating on
+            // resize), so the flipped band is [1 - v_max, 1], NOT [0, v_max]:
+            // the drawn content is anchored to the high-V end on GL.
+#if defined(AFFINEUI_BACKEND_GL) || defined(SOKOL_GLCORE) || defined(SOKOL_GLES3)
+            const float v_lo = 1.0f - v_max;
+            const RootCompositeVertex quad[] = {
+                {-1.0f, -1.0f, 0.0f,  v_lo},
+                { 1.0f, -1.0f, u_max, v_lo},
+                {-1.0f,  1.0f, 0.0f,  1.0f},
+                { 1.0f,  1.0f, u_max, 1.0f},
+            };
+#else
             const RootCompositeVertex quad[] = {
                 {-1.0f, -1.0f, 0.0f,  v_max},
                 { 1.0f, -1.0f, u_max, v_max},
                 {-1.0f,  1.0f, 0.0f,  0.0f},
                 { 1.0f,  1.0f, u_max, 0.0f},
             };
+#endif
             sg_update_buffer(comp.vertex_buffer, SG_RANGE(quad));
             comp.u_max = u_max;
             comp.v_max = v_max;
