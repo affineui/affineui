@@ -15,49 +15,54 @@ underlying C ABI will change while AffineUI is pre-1.0.
 
 ---
 
-## Getting started (read all three steps — each one is required)
-
-The crate is a wrapper over a **native shared library** (`affineui_c`)
-plus **CSS framework assets**. crates.io ships neither, so a working
-setup needs: the crate + the built library + the assets.
-
-### 1. Build the native library (once)
-
-Requires CMake ≥ 3.20 and a C++20 compiler (MSVC 2022 on Windows).
-From a clone of the AffineUI repo:
+## Getting started
 
 ```sh
-cmake -S . -B build/ninja -DAFFINEUI_BUILD_C_SHARED=ON
-cmake --build build/ninja --target affineui_c
+cargo add affineui
 ```
 
-This produces `affineui_c.dll` + `affineui_c.lib` (Windows) or
-`libaffineui_c.so` / `.dylib` in `build/ninja`.
+That's the whole setup. The crate vendors the AffineUI C++ source and
+the default `vendored` feature builds the native library (`affineui_c`)
+automatically via cmake — you need **CMake ≥ 3.20 and a C++20 compiler**
+on the machine (MSVC 2022 on Windows), the usual `-sys`-crate convention.
+The first build compiles the engine (~1–2 min); after that it's cached.
+The build script also copies the shared library next to every binary
+cargo produces (examples and test executables included), so `cargo run`
+and `cargo test` work with no PATH / LD_LIBRARY_PATH setup.
 
-### 2. Point cargo at it
+The default **Decius** framework — CSS, UI fonts, and the icon/symbol
+font — is **embedded inside the library itself**. `Theme::Decius` apps
+render fully styled with zero on-disk assets and zero configuration.
+Opt out with `Config::default().no_bundle_decius(true)` if you want to
+serve your own copy via `asset_folders`.
 
-Create `.cargo/config.toml` **in your project** (adjust the path to
-your AffineUI checkout):
+### Linking a pre-built library instead (optional)
+
+If you'd rather skip the vendored build (faster CI, or you build the
+engine yourself), disable default features and point the build script
+at your library directory:
 
 ```toml
+[dependencies]
+affineui = { version = "0.4.0-beta.6", default-features = false, features = ["system"] }
+```
+
+```toml
+# .cargo/config.toml in your project
 [env]
 AFFINEUI_LIB_DIR = "C:\\path\\to\\affineui\\build\\ninja"
 ```
 
-That's the only wiring needed: the build script links against that
-directory **and copies the shared library next to every binary cargo
-builds** (including examples and test executables), so `cargo run` and
-`cargo test` work with no PATH / LD_LIBRARY_PATH setup.
+Build the library from a repo checkout with
+`cmake -S . -B build/ninja -DAFFINEUI_BUILD_C_SHARED=ON` followed by
+`cmake --build build/ninja --target affineui_c`.
 
-After rebuilding the native library, refresh the copied DLL with
-`cargo clean -p affineui-sys` (or touch anything that rebuilds it).
+### Non-default frameworks and your own assets
 
-### 3. Give the app the framework CSS assets
-
-Themes (`Theme::Decius`, `Theme::Bootstrap`) load their stylesheet
-from a `frameworks/css/...` path resolved against the app's
-`asset_folders`. Those CSS bundles live in the AffineUI repo's
-`examples/` directory — pass it (or your own copy of it):
+Only Decius is embedded. `Theme::Bootstrap` (and any assets of your
+own — images, extra fonts, custom stylesheets) still resolve against
+the app's `asset_folders`; the Bootstrap CSS bundles live in the
+AffineUI repo's `examples/` directory:
 
 ```rust
 let app = App::new(
@@ -66,10 +71,6 @@ let app = App::new(
         .asset_folders(&[r"C:\path\to\affineui\examples", "."]),
 );
 ```
-
-**If you skip this, the app runs but renders unstyled** (it looks like
-a bare web page). Icon fonts and other framework assets resolve from
-the same folder.
 
 ### Minimal complete program
 
@@ -91,12 +92,9 @@ fn main() {
             .on_change(|value| println!("enabled = {value}"));
     });
 
-    let app = App::new(
-        Config::default()
-            .title("AffineUI Rust")
-            .size(720, 480)
-            .asset_folders(&[r"C:\path\to\affineui\examples", "."]),
-    );
+    // No asset_folders needed — the embedded Decius bundle supplies the
+    // CSS, fonts, and icon font.
+    let app = App::new(Config::default().title("AffineUI Rust").size(720, 480));
     app.load_view(&view);
     std::process::exit(app.run());
 }
@@ -111,9 +109,11 @@ app shell automatically.
 
 | Symptom | Cause / fix |
 |---|---|
-| link error: cannot find `affineui_c.lib` | `AFFINEUI_LIB_DIR` not set / wrong, or the native library was never built (step 1–2). |
+| build fails: "The C compiler identification is unknown" / "No CMAKE_C_COMPILER could be found" (Windows, compiler installed) | Usually MSVC's 260-char path limit, not a missing compiler: a deep project directory pushes cmake's probe files past it and `cl.exe` fails with C1083. The build script detects this and relocates the native build to a short `%LOCALAPPDATA%\affineui-sys\…` dir automatically; if you still hit it, set `CARGO_TARGET_DIR` to a short path. (The `LongPathsEnabled` registry switch does **not** help — `cl.exe` isn't long-path aware.) |
+| build fails: cmake or a C++ compiler not found | The default `vendored` feature compiles the engine — install CMake ≥ 3.20 + a C++20 toolchain, or use the `system` feature with a pre-built library. |
+| link error: cannot find `affineui_c.lib` (`system` feature) | `AFFINEUI_LIB_DIR` not set / wrong, or the native library was never built. |
 | `STATUS_DLL_NOT_FOUND` (0xc0000135) at run | Stale target dir from before the DLL-copy existed: `cargo clean -p affineui-sys`, rebuild. |
-| Window opens but the UI looks like a plain web page | Framework CSS not found — `asset_folders` doesn't contain the `frameworks/css/...` bundles (step 3). |
+| `Theme::Bootstrap` (or your own assets) render unstyled | Non-Decius frameworks aren't embedded — `asset_folders` must contain the `frameworks/css/...` bundles. |
 | panic: "AffineUI C ABI mismatch" | The crate and the built `affineui_c` disagree on ABI version — rebuild the native library from a matching checkout. |
 | Widgets render but clicks/changes do nothing | Handlers must be registered on the `Widget` returned by the builder **before** `App::load_view` (load_view copies the view, callbacks included). |
 

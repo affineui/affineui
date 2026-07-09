@@ -90,12 +90,55 @@ fn locate_cmake_source() -> Option<PathBuf> {
     //    (bindings/rust/affineui-sys → repo root).
     let candidate = manifest.join("..").join("..").join("..");
     if let Ok(repo_root) = candidate.canonicalize() {
+        let repo_root = strip_verbatim(repo_root);
         if repo_root.join("CMakeLists.txt").is_file() {
             return Some(repo_root);
         }
     }
 
     None
+}
+
+/// On Windows `Path::canonicalize` returns a verbatim `\\?\C:\…` path.
+/// CMake accepts it as a source dir, but `file(GLOB)` against a verbatim
+/// base silently matches nothing — lexbor/yoga then fail with
+/// "No SOURCES given to target". Strip the prefix back to a normal path.
+fn strip_verbatim(p: PathBuf) -> PathBuf {
+    let s = p.to_string_lossy();
+    match s.strip_prefix(r"\\?\") {
+        Some(rest) if !rest.starts_with("UNC\\") => PathBuf::from(rest.to_owned()),
+        _ => p,
+    }
+}
+
+/// MSVC's `cl.exe` cannot open paths past 260 characters — it has no
+/// `longPathAware` manifest, so the OS-level `LongPathsEnabled` registry
+/// switch does not apply to it. A deep project directory pushes cmake's
+/// compiler-probe scratch files
+/// (`$OUT_DIR/build/CMakeFiles/CMakeScratch/TryCompile-…/testCCompiler.c`)
+/// past the limit, `cl` fails with C1083, and cmake reports the wildly
+/// misleading "The C compiler identification is unknown".
+///
+/// When OUT_DIR is too deep to leave headroom for the paths cmake
+/// creates beneath it (~100 chars for TryCompile scratch and per-source
+/// .obj paths), build in a short, stable directory under %LOCALAPPDATA%
+/// instead, keyed by a hash of OUT_DIR so distinct projects/profiles
+/// never collide.
+#[cfg(windows)]
+fn short_build_dir_if_needed(out_dir: &Path) -> Option<PathBuf> {
+    const WIN_MAX_PATH: usize = 260;
+    const CMAKE_HEADROOM: usize = 100;
+    if out_dir.as_os_str().len() + CMAKE_HEADROOM <= WIN_MAX_PATH {
+        return None;
+    }
+    let base = env::var_os("LOCALAPPDATA").map(PathBuf::from)?;
+    // FNV-1a over OUT_DIR: stable across rebuilds of the same project.
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in out_dir.to_string_lossy().bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    Some(base.join("affineui-sys").join(format!("{h:016x}")))
 }
 
 fn build_vendored(src_dir: &Path) {
@@ -109,7 +152,23 @@ fn build_vendored(src_dir: &Path) {
     // but with no targets emitted; the vendored source tree includes
     // those subdirectories precisely so the add_subdirectory calls
     // don't error.
-    let dst = cmake::Config::new(src_dir)
+    let mut config = cmake::Config::new(src_dir);
+
+    #[cfg(windows)]
+    {
+        let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+        if let Some(short) = short_build_dir_if_needed(&out_dir) {
+            println!(
+                "cargo:warning=affineui-sys: project path is too deep for \
+                 MSVC's 260-char path limit; building affineui_c in {} \
+                 instead (note: `cargo clean` does not remove that directory)",
+                short.display()
+            );
+            config.out_dir(&short);
+        }
+    }
+
+    let dst = config
         .define("AFFINEUI_BUILD_C_SHARED", "ON")
         .define("AFFINEUI_BUILD_EXAMPLES", "OFF")
         .define("AFFINEUI_BUILD_TESTS", "OFF")

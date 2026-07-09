@@ -6,16 +6,6 @@
 
 use affineui::{App, Config, Theme, View};
 
-/// The repo's `examples/` dir (framework CSS bundles), located from this
-/// crate's source dir so the cargo run CWD doesn't matter. Outside a repo
-/// checkout, point this at your copy of the framework assets instead.
-fn assets_dir() -> String {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../examples")
-        .to_string_lossy()
-        .into_owned()
-}
-
 fn main() {
     let view = View::new(Theme::Decius);
     view.build(|v| {
@@ -33,13 +23,9 @@ fn main() {
         return;
     }
 
-    let assets = assets_dir();
-    let app = App::new(
-        Config::default()
-            .title("AffineUI Rust")
-            .size(720, 480)
-            .asset_folders(&[assets.as_str(), "."]),
-    );
+    // No asset_folders needed — the embedded Decius bundle supplies the
+    // CSS, fonts, and icon font.
+    let app = App::new(Config::default().title("AffineUI Rust").size(720, 480));
     app.load_view(&view);
     std::process::exit(app.run());
 }
