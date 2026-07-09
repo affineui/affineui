@@ -16,6 +16,7 @@
 // pass without a windowing system.
 
 #include "affineui/app.h"
+#include "affineui/decius_bundle.h"
 
 #include "affineui/document.h"
 #include "affineui/log.h"
@@ -394,10 +395,31 @@ App::App(Config cfg) : impl_{std::make_unique<detail::AppImpl>()} {
     // log panel can align a line with the performance graph.
     detail::set_log_frame_source(&detail::app_log_frame_source);
     impl_->renderer.set_clear_color(impl_->config.clear_color);
-    impl_->document.set_resource_loader(
-        impl_->config.resource_loader
-            ? impl_->config.resource_loader
-            : detail::make_asset_resource_loader(impl_->config.asset_folders));
+    {
+        // Base loader: the user's explicit resource_loader, or a
+        // filesystem-backed one over their asset_folders.
+        auto base_loader =
+            impl_->config.resource_loader
+                ? impl_->config.resource_loader
+                : detail::make_asset_resource_loader(impl_->config.asset_folders);
+#ifdef AFFINEUI_NO_BUNDLE_DECIUS
+        impl_->document.set_resource_loader(std::move(base_loader));
+#else
+        // Wrap with the compile-time Decius bundle as an INVISIBLE
+        // FALLBACK. Every URL request goes through the base loader
+        // first — asset_folders / user's own resource_loader always
+        // win. Only if the base comes back empty do we serve from
+        // the embedded bytes. The moment a matching file is dropped
+        // where the base loader can find it, it takes over; the
+        // embed is a floor, never a ceiling.
+        impl_->document.set_resource_loader(
+            [base = std::move(base_loader)](std::string_view url) -> std::string {
+                std::string from_disk = base(url);
+                if (!from_disk.empty()) return from_disk;
+                return affineui::decius::load(url);
+            });
+#endif
+    }
 #if !defined(AFFINEUI_STUB_BUILD)
     impl_->document.set_clipboard(
         []() -> std::string {
@@ -411,6 +433,19 @@ App::App(Config cfg) : impl_{std::make_unique<detail::AppImpl>()} {
 #endif
     // User-agent baseline so unstyled docs pick up sensible defaults.
     impl_->document.set_user_stylesheet(theme::ua_default());
+#ifndef AFFINEUI_NO_BUNDLE_DECIUS
+    // Auto-apply the bundled Decius stylesheet on top of the UA baseline.
+    // This is what makes `App(Config{}).load_view(view)` show a styled
+    // UI with zero explicit configuration — matches the "just works"
+    // contract. Users who provide their own stylesheet later via
+    // `App::set_stylesheet(...)` replace this; users who drop a
+    // matching CSS file in an asset folder shadow the embedded one
+    // via the resource-loader chain above.
+    if (affineui::decius::available()) {
+        impl_->document.set_user_stylesheet(
+            affineui::decius::css_bundle(), "frameworks/css/");
+    }
+#endif
 }
 
 App::~App() = default;

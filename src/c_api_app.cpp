@@ -7,6 +7,7 @@
 
 #include "affineui/app.h"
 #include "affineui/c_api_app.h"
+#include "affineui/decius_bundle.h"
 #include "affineui/document.h"
 #include "affineui/types.h"
 #include "affineui/view.h"
@@ -710,6 +711,30 @@ void affineui_widget_replace(affineui_widget* w, affineui_build_fn build, void* 
 affineui_widget* affineui_widget_find_widget(const affineui_widget* w, const char* name) {
     if (!w) return nullptr;
     return wrap(to_widget(w)->find_widget(sv(name)));
+}
+
+// ─── bundled Decius CSS framework ─────────────────────────────────────
+// See include/affineui/decius_bundle.h for the C++ surface; this is the
+// C ABI. When compiled with -DAFFINEUI_NO_BUNDLE_DECIUS, both return
+// "not compiled in" values (0 / -1) so callers can degrade gracefully.
+
+int affineui_decius_available(void) {
+#ifdef AFFINEUI_NO_BUNDLE_DECIUS
+    return 0;
+#else
+    return affineui::decius::available() ? 1 : 0;
+#endif
+}
+
+int affineui_decius_apply(affineui_app* app) {
+#ifdef AFFINEUI_NO_BUNDLE_DECIUS
+    (void)app;
+    return -1;
+#else
+    if (!app) return -1;
+    affineui::decius::apply(*to_app(app));
+    return 0;
+#endif
 }
 
 }  // extern "C"

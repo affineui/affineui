@@ -149,7 +149,7 @@ view = ui.View(ui.ViewTheme.Decius)
 view.begin()
 view.heading(1, "Hello from Python")
 view.paragraph("AffineUI — native HTML/CSS, no browser, no JS.")
-view.button("Click me", key="go").on_click(lambda: print("clicked!"))
+view.button("Click me", primary=True, key="go").on_click(lambda: print("clicked!"))
 view.end()
 
 app = ui.App(title="Hello", width=720, height=480)
@@ -224,7 +224,7 @@ view.Build(v =>
 {
     v.Heading(1, "Hello from C#");
     v.Paragraph("AffineUI — native HTML/CSS, no browser, no JS.");
-    v.Button("Click me", key: "go").OnClick(() => Console.WriteLine("clicked!"));
+    v.Button("Click me", primary: true, key: "go").OnClick(() => Console.WriteLine("clicked!"));
 });
 
 using var app = new App(new AppConfig { Title = "Hello", Width = 720, Height = 480 });
@@ -260,7 +260,7 @@ int main() {
     view.begin();
     view.heading(1, "Hello from C++");
     view.paragraph("AffineUI — native HTML/CSS, no browser, no JS.");
-    view.button("Click me", /*primary=*/false, "go")
+    view.button("Click me", /*primary=*/true, "go")
         .on_click([] { std::puts("clicked!"); });
     view.end();
 
@@ -317,8 +317,8 @@ def build_view() -> ui.View:
     view = ui.View(ui.ViewTheme.Decius)
     view.begin()
     view.heading(1, f"Count: {count}")
-    view.button("Increment", key="inc").on_click(bump)
-    view.button("Reset",     key="reset").on_click(reset)
+    view.button("Increment", primary=True, key="inc").on_click(bump)
+    view.button("Reset",                    key="reset").on_click(reset)
     view.end()
     return view
 

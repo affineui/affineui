@@ -433,6 +433,19 @@ AFFINEUI_C_API void affineui_widget_replace(affineui_widget* w,
 AFFINEUI_C_API affineui_widget* affineui_widget_find_widget(const affineui_widget* w,
                                                             const char* name);
 
+// ─── bundled Decius CSS framework ─────────────────────────────────────
+// Compile-time embedded CSS bundle so the component API ships with a
+// working default look and no on-disk asset copying. Present only when
+// affineui_c was built without -DAFFINEUI_NO_BUNDLE_DECIUS (cmake option
+// AFFINEUI_BUNDLE_DECIUS=OFF).
+//
+// affineui_decius_available()   — 1 if the bundle was compiled in.
+// affineui_decius_apply(app)    — load the embedded CSS into `app`.
+//                                 Returns 0 on success, -1 if the bundle
+//                                 wasn't compiled in.
+AFFINEUI_C_API int affineui_decius_available(void);
+AFFINEUI_C_API int affineui_decius_apply(affineui_app* app);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

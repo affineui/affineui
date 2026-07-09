@@ -547,7 +547,12 @@ public:
         std::size_t unwind_to_{0};
     };
 
-    explicit View(ViewTheme theme = ViewTheme::Bootstrap);
+    // Decius is the default theme — it's the framework the engine ships
+    // its embedded CSS + icon font for (see include/affineui/decius_bundle.h),
+    // so `View v;` + `App(Config{}).load_view(v)` produces a styled UI
+    // with zero explicit configuration. Pass `ViewTheme::Bootstrap` etc.
+    // to opt into a different framework's class-name style.
+    explicit View(ViewTheme theme = ViewTheme::Decius);
 
     void clear();
     View& selector(std::string_view name, std::string_view value);

@@ -1,5 +1,6 @@
 #include <affineui/app.h>
 #include <affineui/components.h>
+#include <affineui/decius_bundle.h>
 #include <affineui/document.h>
 #include <affineui/tools.h>
 #include <affineui/types.h>
@@ -86,6 +87,25 @@ PYBIND11_MODULE(_affineui, m) {
     m.attr("__version__") = AFFINEUI_PY_VERSION;
     m.def("version", [] { return std::string{affineui::version_string()}; });
     m.def("native_backend", [] { return std::string{"sokol"}; });
+
+    // ── Bundled Decius CSS framework ──────────────────────────────────
+    // Exposed as module-level `_decius_apply` and `_decius_available`
+    // (leading underscore = internal). The Python `class decius:` in
+    // __init__.py adds static-method wrappers so users call
+    // `ui.decius.apply(app)` / `ui.decius.available()` — no namespace
+    // collision with the existing selector-constants class.
+    m.def("_decius_available", [] {
+        return affineui::decius::available();
+    });
+    m.def("_decius_apply", [](affineui::App& app) {
+        if (!affineui::decius::available()) {
+            throw std::runtime_error(
+                "Decius bundle was not compiled into affineui_c "
+                "(AFFINEUI_BUNDLE_DECIUS=OFF at build time). Load a "
+                "stylesheet manually with App.set_stylesheet(...).");
+        }
+        affineui::decius::apply(app);
+    }, py::arg("app"));
 
     // affinetools attach (docs/AFFINETOOLS_DESIGN.md §3): loopback-only
     // devtools server with token auth via <tempdir>/affineui-tools/. Lets
