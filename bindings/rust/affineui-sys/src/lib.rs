@@ -162,6 +162,7 @@ pub struct affineui_app_config {
     pub asset_folders: *const *const c_char,
     pub asset_folder_count: usize,
     pub perf_overlay: c_int,
+    pub no_bundle_decius: c_int,
 }
 
 // ── Embedded-mode structs (c_api.h) ──────────────────────────────────

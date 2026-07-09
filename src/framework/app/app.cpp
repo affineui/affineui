@@ -405,19 +405,27 @@ App::App(Config cfg) : impl_{std::make_unique<detail::AppImpl>()} {
 #ifdef AFFINEUI_NO_BUNDLE_DECIUS
         impl_->document.set_resource_loader(std::move(base_loader));
 #else
-        // Wrap with the compile-time Decius bundle as an INVISIBLE
-        // FALLBACK. Every URL request goes through the base loader
-        // first — asset_folders / user's own resource_loader always
-        // win. Only if the base comes back empty do we serve from
-        // the embedded bytes. The moment a matching file is dropped
-        // where the base loader can find it, it takes over; the
-        // embed is a floor, never a ceiling.
-        impl_->document.set_resource_loader(
-            [base = std::move(base_loader)](std::string_view url) -> std::string {
-                std::string from_disk = base(url);
-                if (!from_disk.empty()) return from_disk;
-                return affineui::decius::load(url);
-            });
+        // Runtime opt-out (Config::no_bundle_decius = true) skips the
+        // wrap AND the auto-apply below — matches the macro semantic
+        // but at runtime, so the language bindings can turn the embed
+        // off per-app.
+        if (impl_->config.no_bundle_decius) {
+            impl_->document.set_resource_loader(std::move(base_loader));
+        } else {
+            // Wrap with the compile-time Decius bundle as an INVISIBLE
+            // FALLBACK. Every URL request goes through the base loader
+            // first — asset_folders / user's own resource_loader always
+            // win. Only if the base comes back empty do we serve from
+            // the embedded bytes. The moment a matching file is dropped
+            // where the base loader can find it, it takes over; the
+            // embed is a floor, never a ceiling.
+            impl_->document.set_resource_loader(
+                [base = std::move(base_loader)](std::string_view url) -> std::string {
+                    std::string from_disk = base(url);
+                    if (!from_disk.empty()) return from_disk;
+                    return affineui::decius::load(url);
+                });
+        }
 #endif
     }
 #if !defined(AFFINEUI_STUB_BUILD)
@@ -440,8 +448,9 @@ App::App(Config cfg) : impl_{std::make_unique<detail::AppImpl>()} {
     // contract. Users who provide their own stylesheet later via
     // `App::set_stylesheet(...)` replace this; users who drop a
     // matching CSS file in an asset folder shadow the embedded one
-    // via the resource-loader chain above.
-    if (affineui::decius::available()) {
+    // via the resource-loader chain above. Gated on the runtime
+    // opt-out flag so language bindings can turn it off per-app.
+    if (!impl_->config.no_bundle_decius && affineui::decius::available()) {
         impl_->document.set_user_stylesheet(
             affineui::decius::css_bundle(), "frameworks/css/");
     }

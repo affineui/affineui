@@ -42,6 +42,15 @@ public:
         // Called after an interaction changed the dock layout (e.g. a splitter
         // drag). The app reads document().dock_pane_sizes() and persists them.
         std::function<void()> on_layout_changed{};
+        // Runtime opt-out for the compile-time bundled Decius resources.
+        // The bundle is ON by default (this flag is false); set it to
+        // true to disable — no auto-applied stylesheet, no fallback-to-
+        // embedded on `frameworks/*` URLs — even when the bundle is
+        // compiled in. Use this to run entirely against your own on-disk
+        // assets without any implicit bundled fallback. Ignored (no-op)
+        // when the bundle wasn't compiled in (AFFINEUI_NO_BUNDLE_DECIUS
+        // at build time). Same semantic as the macro, at runtime.
+        bool        no_bundle_decius{false};
     };
 
     App();

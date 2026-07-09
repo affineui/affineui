@@ -40,11 +40,14 @@ class BundledAsset:
     disk_path: Path
 
 
-# Minimum working set — CSS + one TTF per family. The engine's font
-# stack (fontstash + stb_truetype) parses TTF/OTF only; woff/woff2 are
-# skipped because we'd need a brotli/zlib unwrapper on top. TTF versions
-# ship only for `decius-icons` today — body/mono fonts fall back to the
-# host OS's default sans/mono, which is fine for MVP.
+# CSS + a TTF per font family (regular / medium / semibold body,
+# regular mono). Only TTF is bundled — the engine's font stack
+# (fontstash + stb_truetype) parses sfnt directly; woff/woff2 would
+# need a brotli/zlib unwrapper on top. The IBM Plex Sans + JetBrains
+# Mono TTFs are the LATIN subset (~46 KB each) rather than the full
+# CJK-including originals; enough to cover a typical Western UI and
+# keeps the embedded bundle to ~150 KB compressed. Latin-ext + other
+# scripts fall back to the host OS font stack.
 ASSETS: list[BundledAsset] = [
     BundledAsset(
         url_suffix="frameworks/css/decius-css-0.6.2.bundle.min.css",
@@ -56,6 +59,28 @@ ASSETS: list[BundledAsset] = [
     BundledAsset(
         url_suffix="frameworks/fonts/decius-icons.ttf",
         disk_path=FRAMEWORKS / "fonts" / "decius-icons.ttf",
+    ),
+    # Body text: IBM Plex Sans (regular, medium, semibold). Decius's
+    # padding + line-height values were tuned against these metrics;
+    # without them, buttons render with off-center text under whatever
+    # system font takes over.
+    BundledAsset(
+        url_suffix="frameworks/fonts/ibm-plex-sans-latin-400-normal.ttf",
+        disk_path=FRAMEWORKS / "fonts" / "ibm-plex-sans-latin-400-normal.ttf",
+    ),
+    BundledAsset(
+        url_suffix="frameworks/fonts/ibm-plex-sans-latin-500-normal.ttf",
+        disk_path=FRAMEWORKS / "fonts" / "ibm-plex-sans-latin-500-normal.ttf",
+    ),
+    BundledAsset(
+        url_suffix="frameworks/fonts/ibm-plex-sans-latin-600-normal.ttf",
+        disk_path=FRAMEWORKS / "fonts" / "ibm-plex-sans-latin-600-normal.ttf",
+    ),
+    # Code / monospace: JetBrains Mono regular. Used by Decius's
+    # `<code>` / `.dcs-kbd` / etc.
+    BundledAsset(
+        url_suffix="frameworks/fonts/jetbrains-mono-latin-400-normal.ttf",
+        disk_path=FRAMEWORKS / "fonts" / "jetbrains-mono-latin-400-normal.ttf",
     ),
 ]
 

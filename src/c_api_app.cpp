@@ -94,6 +94,7 @@ void affineui_app_config_init(affineui_app_config* cfg) {
     cfg->asset_folders       = nullptr;  // create() interprets null as {"."}
     cfg->asset_folder_count  = 0;
     cfg->perf_overlay        = defaults.perf_overlay ? 1 : 0;
+    cfg->no_bundle_decius    = defaults.no_bundle_decius ? 1 : 0;
 }
 
 affineui_app* affineui_app_create(const affineui_app_config* cfg) {
@@ -112,6 +113,7 @@ affineui_app* affineui_app_create(const affineui_app_config* cfg) {
             cpp.asset_folders = to_strings(cfg->asset_folders, cfg->asset_folder_count);
         }
         cpp.perf_overlay = cfg->perf_overlay != 0;
+        cpp.no_bundle_decius = cfg->no_bundle_decius != 0;
     }
     return reinterpret_cast<affineui_app*>(new affineui::App(std::move(cpp)));
 }
