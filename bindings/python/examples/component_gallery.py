@@ -12,6 +12,27 @@ if str(EXAMPLE_DIR) not in sys.path:
 from test_panels import collections, controls, decius_reference, forms, photo
 
 
+def asset_root() -> str:
+    """Absolute path to the assets directory that holds ``frameworks/`` (the
+    framework CSS bundles the gallery renders against).
+
+    Resolved from this file's own location, never the current working
+    directory, so the gallery loads its stylesheets no matter where it is
+    launched from — running it should always just work. We walk up from here
+    looking for a directory that contains ``frameworks/css``; the repo layout
+    puts it at ``<repo>/examples``. Falls back to this file's own directory so
+    a self-contained/installed copy that ships its own ``frameworks/`` beside
+    the script keeps working.
+    """
+    for base in (EXAMPLE_DIR, *EXAMPLE_DIR.parents):
+        candidate = base / "examples"
+        if (candidate / "frameworks" / "css").is_dir():
+            return str(candidate)
+        if (base / "frameworks" / "css").is_dir():
+            return str(base)
+    return str(EXAMPLE_DIR)
+
+
 PanelBuilder = Callable[["ComponentGalleryApp", ui.View], None]
 
 
@@ -628,8 +649,10 @@ def main() -> None:
     parser.add_argument(
         "--style",
         choices=("bootstrap", "decius"),
-        default="bootstrap",
-        help="Framework selector set to use.",
+        default="decius",
+        help="Framework selector set to use. Decius is the default and the "
+             "fully-supported personality; the Bootstrap set does not yet "
+             "carry CSS for every AffineUI widget.",
     )
     parser.add_argument(
         "--perf",
@@ -659,7 +682,7 @@ def main() -> None:
         title=f"AffineUI Component Gallery ({args.style})",
         width=1024,
         height=680,
-        asset_folders=["examples"],
+        asset_folders=[asset_root()],
         perf_overlay=args.perf,
         high_dpi=args.dpi == "retina",
     )
