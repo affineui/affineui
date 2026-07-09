@@ -51,6 +51,14 @@ jobs:
         with:
           python-version: '3.12'
 
+      # On a tag push, patch every version-holding file (pyproject.toml
+      # included) to match the tag before cibuildwheel reads it. On PRs
+      # and main-branch pushes the current pyproject.toml version stands
+      # (used for smoke-only builds — not published anywhere).
+      - name: Patch version to tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python3 scripts/set_version.py "${GITHUB_REF_NAME#v}"
+
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.21.3
         with:
@@ -116,6 +124,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Patch version to tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python3 scripts/set_version.py "${GITHUB_REF_NAME#v}"
       - name: Build sdist
         run: |
           python -m pip install --upgrade pip build
@@ -126,12 +137,16 @@ jobs:
           path: sdist/*.tar.gz
 
   publish_testpypi:
-    name: Publish to TestPyPI (dry run)
+    name: Publish to TestPyPI
     needs: [build_wheels, build_sdist]
     runs-on: ubuntu-latest
-    # TestPyPI is the dry-run path — only on manual dispatch with the
-    # matching choice. Use this to validate the publish flow before tagging.
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish_target == 'testpypi'
+    # TestPyPI is now the RELEASE path for pre-release tags AND the dry-run
+    # path for manual dispatch. Pre-release tags (v1.2.3-rc.1, v1.2.3-alpha.2,
+    # etc.) publish here so they can be `pip install`ed with the TestPyPI
+    # index URL before promoting to real PyPI via a bare-triplet tag.
+    if: |
+      (startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '-')) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_target == 'testpypi')
     environment:
       name: testpypi
       url: https://test.pypi.org/p/affineui
@@ -158,11 +173,13 @@ jobs:
     name: Publish to PyPI
     needs: [build_wheels, build_sdist]
     runs-on: ubuntu-latest
-    # Tags `v*` always publish to live PyPI. Manual dispatch publishes only
-    # when the user explicitly picks `pypi` (default is `none` for build-
-    # only smoke runs).
+    # Live PyPI is reserved for FINAL tags — bare `v1.2.3` triplets with
+    # no pre-release suffix. Pre-release tags (`v1.2.3-rc.1` etc.) route
+    # to TestPyPI above so they can be validated before promotion.
+    # Manual dispatch with publish_target=pypi still works as an escape
+    # hatch for re-publishing.
     if: |
-      startsWith(github.ref, 'refs/tags/v') ||
+      (startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')) ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_target == 'pypi')
     environment:
       name: pypi
