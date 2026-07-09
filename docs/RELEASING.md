@@ -12,7 +12,7 @@ We ship four artifacts on every release:
 | Artifact         | Ecosystem   | Registry           | Trigger                     |
 |------------------|-------------|--------------------|-----------------------------|
 | Python wheels    | PyPI        | pypi.org           | tag `vX.Y.Z` (final)        |
-| Python wheels    | TestPyPI    | test.pypi.org      | tag `vX.Y.Z-rc.N` (pre-rel) |
+| Python wheels    | TestPyPI    | test.pypi.org      | any prerelease tag (`vX.Y.Z-rc.N`, `-beta.N`, `-alpha.N`) |
 | Rust crates      | crates.io   | crates.io          | any `v*` tag                |
 | .NET / NuGet     | nuget.org   | nuget.org          | any `v*` tag                |
 | Amalgamated SDK  | GitHub      | GitHub Release     | any `v*` tag                |
@@ -138,7 +138,7 @@ what you want.
 
 Semver 2.0.0 with a `v` prefix on tags:
 
-```
+```text
 vMAJOR.MINOR.PATCH[-PRE][+BUILD]
 ```
 
@@ -363,7 +363,7 @@ command mirrors the tag exactly it will silently miss.
 
 To pin in a `requirements.txt` or `pyproject.toml`:
 
-```
+```text
 affineui==1.2.4rc1
 ```
 
@@ -420,10 +420,13 @@ overwrites the file with a fresh draft (force-with-lease), so you can
 also re-run if you want to start over.
 
 **Need to yank a bad release.**
-crates.io: `cargo yank --version X.Y.Z affineui`. PyPI has no yank —
-delete + reupload. NuGet: unlist via the site. GitHub Release: delete
-the Release + tag from the UI. Update `docs/release-notes/v<VERSION>.md`
-in a subsequent release to note what went wrong.
+crates.io: `cargo yank --version X.Y.Z affineui`. PyPI: `twine yank` or
+the "Yank" button on the release page — a yanked version stops appearing
+in default resolves but stays downloadable by explicit pin (PyPI does
+NOT let you delete + reupload; the version number is burned). NuGet:
+"Unlist" via the site. GitHub Release: delete the Release + tag from the
+UI. Then cut a new fixed version (via the normal Draft → Cut flow) and
+note the yanked release in its notes.
 
 **Need to publish without going through the AI drafts.**
 Author `docs/release-notes/v<CORE>.md` by hand, PR it, merge, then

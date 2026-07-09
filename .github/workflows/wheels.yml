@@ -36,8 +36,42 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Fast preflight: on a tag push, refuse to run the (expensive) wheel +
+  # sdist builds if there's no reviewed docs/release-notes/v<CORE>.md
+  # merged on the ref. Fails within seconds instead of after ~10-15 min
+  # of cibuildwheel across three OSes. On non-tag events (PRs, main
+  # pushes) this passes through as a no-op so smoke builds still run.
+  check_notes:
+    name: Require reviewed release notes (tag pushes only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify notes file for tag pushes
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          # Notes are keyed on CORE (MAJOR.MINOR.PATCH) — same file
+          # covers every -rc/-beta/-alpha in the cycle and the final.
+          core="${version%%-*}"
+          core="${core%%+*}"
+          notes="docs/release-notes/v${core}.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::${notes} not found on this ref — refusing to publish."
+            echo "::error::Notes are shared across every version in the v${core} cycle. Run 'Draft release notes' → review + merge → dispatch 'Cut release' with version ${version}."
+            exit 1
+          fi
+          echo "::notice::Found ${notes} — build + publish will proceed."
+      - name: Non-tag event — skip
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: echo "Non-tag event — nothing to check; smoke builds proceed."
+
   build_wheels:
     name: Wheels (${{ matrix.os }})
+    needs: check_notes
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -121,6 +155,7 @@ jobs:
 
   build_sdist:
     name: Source distribution
+    needs: check_notes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -156,34 +191,10 @@ jobs:
     permissions:
       id-token: write  # OIDC for Trusted Publisher
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Require reviewed release notes (tag pushes only)
-        # Every published version MUST correspond to a
-        # docs/release-notes/v<CORE>.md that a human reviewed + merged.
-        # A tag push with no matching notes file fails here loud rather
-        # than publishing a placeholder to TestPyPI. Seed tags (initial
-        # baseline etc.) intentionally have no notes file and trip this
-        # gate — that's the intended behaviour, they must not publish.
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          # Notes file is keyed on CORE (MAJOR.MINOR.PATCH), not on the
-          # full pre-release version. `set_version.py --check` emits
-          # `core=X.Y.Z` to $GITHUB_OUTPUT — but for this one-off inline
-          # check we just strip the suffix locally to avoid another
-          # script invocation.
-          core="${version%%-*}"
-          core="${core%%+*}"
-          notes="docs/release-notes/v${core}.md"
-          if [ ! -f "$notes" ]; then
-            echo "::error::${notes} not found on this ref — refusing to publish."
-            echo "::error::Notes are shared across every version in the v${core} cycle. Run 'Draft release notes' → review + merge → dispatch 'Cut release' with version ${version}."
-            exit 1
-          fi
+      # Notes-file check happens in the check_notes preflight job at
+      # the top of the workflow (transitively via build_wheels /
+      # build_sdist), so by the time we get here the presence of
+      # docs/release-notes/v<CORE>.md is already guaranteed.
       - name: Download wheel artifacts
         uses: actions/download-artifact@v4
         with:
@@ -218,31 +229,8 @@ jobs:
     permissions:
       id-token: write  # OIDC for Trusted Publisher
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Require reviewed release notes (tag pushes only)
-        # Same contract as publish_testpypi above. A tag push with no
-        # matching docs/release-notes/v<CORE>.md fails here loud —
-        # never publish a version without reviewed notes.
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          # Notes file is keyed on CORE (MAJOR.MINOR.PATCH), not on the
-          # full pre-release version. `set_version.py --check` emits
-          # `core=X.Y.Z` to $GITHUB_OUTPUT — but for this one-off inline
-          # check we just strip the suffix locally to avoid another
-          # script invocation.
-          core="${version%%-*}"
-          core="${core%%+*}"
-          notes="docs/release-notes/v${core}.md"
-          if [ ! -f "$notes" ]; then
-            echo "::error::${notes} not found on this ref — refusing to publish."
-            echo "::error::Notes are shared across every version in the v${core} cycle. Run 'Draft release notes' → review + merge → dispatch 'Cut release' with version ${version}."
-            exit 1
-          fi
+      # Notes-file check is already enforced by check_notes at the top
+      # of the workflow — no per-publish-job repetition needed.
       - name: Download wheel artifacts
         uses: actions/download-artifact@v4
         with:
