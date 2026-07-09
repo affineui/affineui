@@ -182,17 +182,21 @@ jobs:
               - Sentence describing the fix. (#126)
 
           Section rules:
-          * **Highlights** = 1-3 bullets summarising the marquee items
-            of this release, drawn strictly from things END USERS of
-            the AffineUI library will observe. Marquee-worthy examples:
-            new public API, user-visible bug fix, perf improvement,
-            behaviour change in a widget/renderer/binding. NEVER
-            include in Highlights: CI changes, build-system changes,
-            repo housekeeping / chore, release-tooling changes,
-            internal refactors that don't move the surface, docs-only
-            edits, dependency bumps. Those all live in Changes below.
-            OK to duplicate the exact text of a lower-section bullet
-            if it is the marquee item — always include the PR number.
+          * **Highlights** = one bullet PER notable, user-facing
+            item shipped in this release. Include every important
+            or notable end-user-visible thing — not a sampler, not a
+            top-3 pick. If ten notable features shipped, ten bullets.
+            If one, one. Ordering: most impactful → least. Drawn
+            strictly from things END USERS of the AffineUI library
+            will observe. Marquee-worthy examples: new public API,
+            user-visible bug fix, perf improvement, behaviour change
+            in a widget/renderer/binding. NEVER include in Highlights:
+            CI changes, build-system changes, repo housekeeping /
+            chore, release-tooling changes, internal refactors that
+            don't move the surface, docs-only edits, dependency
+            bumps. Those all live in Changes below. Highlights bullets
+            can and often do duplicate the exact text of a lower-
+            section bullet — always include the PR number.
           * **New features** = commits with a \`feat:\` prefix.
           * **Changes** = anything that changes behaviour but isn't a
             new feature and isn't a bug fix: \`refactor:\`, \`perf:\`,
