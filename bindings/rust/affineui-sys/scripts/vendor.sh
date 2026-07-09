@@ -35,6 +35,17 @@ copy_paths=(
                              # the top-level CMakeLists; the crate turns
                              # their targets off via -D options but the
                              # directories themselves must exist.
+  "tools/embed_decius.py"    # the crate's cmake build re-runs the embed
+                             # to produce include/affineui/_decius_bundle.h;
+                             # ship the script + the source assets below.
+  "examples/frameworks/css/decius-css-0.6.2.bundle.min.css"
+  "examples/frameworks/fonts/decius-icons.ttf"
+  "examples/frameworks/fonts/ibm-plex-sans-latin-400-normal.ttf"
+  "examples/frameworks/fonts/ibm-plex-sans-latin-500-normal.ttf"
+  "examples/frameworks/fonts/ibm-plex-sans-latin-600-normal.ttf"
+  "examples/frameworks/fonts/jetbrains-mono-latin-400-normal.ttf"
+  "examples/frameworks/fonts/ibm-plex-sans-OFL.txt"
+  "examples/frameworks/fonts/jetbrains-mono-OFL.txt"
 )
 
 for p in "${copy_paths[@]}"; do
@@ -44,15 +55,17 @@ for p in "${copy_paths[@]}"; do
     continue
   fi
   echo "  ▸ $p"
-  # rsync is used over cp -R for the --exclude flags and consistent
-  # behavior across macOS + Linux.
-  rsync -a \
-    --exclude='__pycache__' \
-    --exclude='.git*' \
-    --exclude='.DS_Store' \
-    --exclude='build/' \
-    --exclude='node_modules/' \
-    "$src" "$vendor/"
+  # `-R` (relative) preserves the source path structure — so a file at
+  # `tools/embed_decius.py` lands at `$vendor/tools/embed_decius.py`
+  # rather than getting flattened to `$vendor/embed_decius.py`. Run
+  # from the repo root so `-R` computes relative paths correctly.
+  ( cd "$repo_root" && rsync -aR \
+      --exclude='__pycache__' \
+      --exclude='.git*' \
+      --exclude='.DS_Store' \
+      --exclude='build/' \
+      --exclude='node_modules/' \
+      "$p" "$vendor/" )
 done
 
 echo "▸ vendor tree size:"
