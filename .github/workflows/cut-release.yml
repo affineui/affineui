@@ -74,7 +74,8 @@ jobs:
             exit 1
           fi
 
-      - name: Create + push annotated tag
+      - id: push_tag
+        name: Create + push annotated tag
         env:
           VERSION: ${{ inputs.version }}
           CORE: ${{ steps.check.outputs.core }}
@@ -91,3 +92,63 @@ jobs:
           git tag -a "$tag" -F "docs/release-notes/v${CORE}.md"
           git push origin "$tag"
           echo "::notice::Pushed tag ${tag} with notes from docs/release-notes/v${CORE}.md. release.yml and wheels.yml will publish shortly."
+
+      # ───── run summary ─────
+      # Every important artifact this workflow produced, one click away.
+      # Gated on push_tag.outcome so we don't render a "success" narrative
+      # (with links to a tag that doesn't exist) when a preflight step or
+      # the tag push itself failed.
+      - name: Summary
+        if: always()
+        env:
+          VERSION: ${{ inputs.version }}
+          CORE: ${{ steps.check.outputs.core }}
+          IS_PRE: ${{ steps.check.outputs.is_prerelease }}
+          TAG_OUTCOME: ${{ steps.push_tag.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "${TAG_OUTCOME:-}" != "success" ]; then
+            {
+              echo "## ❌ Cut release failed"
+              echo ""
+              echo "| Field | Value |"
+              echo "| --- | --- |"
+              echo "| Requested version | \`v${VERSION}\` |"
+              echo "| Tag push outcome | \`${TAG_OUTCOME:-<did not run>}\` |"
+              echo ""
+              echo "No tag was created or pushed. Check the earlier step logs — most common causes: missing \`docs/release-notes/v\${CORE}.md\` on main, \`v\${VERSION}\` already exists on origin, or an invalid version string."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          tag="v${VERSION}"
+          server="${GITHUB_SERVER_URL:-https://github.com}"
+          repo="${GITHUB_REPOSITORY}"
+          sha=$(git rev-parse HEAD)
+          short=$(git rev-parse --short HEAD)
+          release_type="Release"
+          [ "${IS_PRE:-false}" = "true" ] && release_type="Pre-release"
+          {
+            echo "## Cut ${release_type}: ${tag}"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Tag | [\`${tag}\`](${server}/${repo}/releases/tag/${tag}) |"
+            echo "| Core (notes-file key) | \`${CORE}\` |"
+            echo "| Pre-release | \`${IS_PRE:-false}\` |"
+            echo "| Notes body | [\`docs/release-notes/v${CORE}.md\`](${server}/${repo}/blob/main/docs/release-notes/v${CORE}.md) |"
+            echo "| Anchor commit | [\`${short}\`](${server}/${repo}/commit/${sha}) |"
+            echo ""
+            echo "**What happens next:** the tag push triggers \`release.yml\` and \`wheels.yml\`. Both react to the same \`v*\` push and publish to the appropriate registries:"
+            echo ""
+            if [ "${IS_PRE:-false}" = "true" ]; then
+              echo "- **crates.io** — \`affineui@${VERSION}\` (hidden from default \`cargo add\` — needs \`--version ${VERSION}\`)"
+              echo "- **nuget.org** — \`AffineUI ${VERSION}\` (hidden from default \`dotnet add\` — needs \`--version ${VERSION}\`)"
+              echo "- **TestPyPI** — \`affineui==${VERSION}\` (pre-releases go here, not live PyPI)"
+              echo "- **GitHub Release** — marked as pre-release"
+            else
+              echo "- **crates.io** — \`affineui@${VERSION}\`"
+              echo "- **nuget.org** — \`AffineUI ${VERSION}\`"
+              echo "- **PyPI** — \`affineui==${VERSION}\` (final releases only)"
+              echo "- **GitHub Release** — marked as latest"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
