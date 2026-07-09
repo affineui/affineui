@@ -540,12 +540,16 @@ Performance regressions are treated as **serious bugs**, on par with
 crashes: they get root-caused and fixed at the engine layer, not papered
 over in apps.
 
-To be candid about where things stand: **some operations regularly miss
-120 Hz today**. Those cases are known, on the bug list, and being worked
-through with the same root-cause discipline — the target is the target.
-In the meantime, **test your UI with affinetools** to see how it actually
-behaves with the renderer: the frame timeline shows you exactly which
-interactions are cheap and which currently spike.
+Where things stand today, candidly: an idle UI or ordinary animation is
+generally **not even visible in a profiler**. The big operations — layout,
+structural restyles — get heavier, but stay at interactive speeds on most
+PCs and mobile-class devices. Staying above **60 Hz** is where the engine
+already does well; there are **corner cases that miss the 120 Hz bar**,
+and those are known, filed as bugs, and being worked through with the same
+root-cause discipline — the target is the target. In the meantime, **test
+your UI with affinetools** to see how it actually behaves with the
+renderer: the frame timeline shows you exactly which interactions are
+cheap and which currently spike.
 
 The reason the bar is set there: AffineUI aspires to be a **general
 game-engine UI system** — in-game UI, not just game/DCC tooling — and a UI
