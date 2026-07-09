@@ -34,8 +34,10 @@ public sealed class View : IDisposable
     private readonly ViewSafeHandle _handle;
     private readonly List<WeakReference<Widget.WidgetSafeHandle>> _widgetHandles = new();
 
-    /// <summary>Creates a new view. The core's default theme is Bootstrap.</summary>
-    public View(Theme theme = Theme.Bootstrap)
+    /// <summary>Creates a new view. Default theme is <see cref="Theme.Decius"/>
+    /// — the framework the compile-time bundle ships CSS + fonts for, so a
+    /// bare <c>new View()</c> produces styled widgets out of the box.</summary>
+    public View(Theme theme = Theme.Decius)
     {
         AffineUIRuntime.EnsureLoaded();
         AffineUIRuntime.CheckThread();

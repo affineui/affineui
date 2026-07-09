@@ -554,7 +554,10 @@ PYBIND11_MODULE(_affineui, m) {
 
     py::class_<affineui::View>(m, "View")
         .def(py::init<affineui::ViewTheme>(),
-             py::arg("theme") = affineui::ViewTheme::Bootstrap)
+             // Default matches the C++ default in view.h — Decius is the
+             // framework the compile-time bundle ships CSS + fonts for,
+             // so a bare `ui.View()` produces a styled UI out of the box.
+             py::arg("theme") = affineui::ViewTheme::Decius)
         .def("clear", &affineui::View::clear)
         .def("selector",
              [](affineui::View& view,
