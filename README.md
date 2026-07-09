@@ -1,9 +1,29 @@
+<p align="center">
+  <sub>
+    <b>Read this in:</b>
+    <a href="README.md">English</a> ·
+    <a href="docs/zh-CN/README.md">中文</a> ·
+    <a href="docs/es/README.md">Español</a> ·
+    <a href="docs/hi/README.md">हिन्दी</a> ·
+    <a href="docs/ar/README.md">العربية</a> ·
+    <a href="docs/pt-BR/README.md">Português&nbsp;(BR)</a> ·
+    <a href="docs/ru/README.md">Русский</a> ·
+    <a href="docs/ja/README.md">日本語</a> ·
+    <a href="docs/ko/README.md">한국어</a> ·
+    <a href="docs/fr/README.md">Français</a> ·
+    <a href="docs/de/README.md">Deutsch</a> ·
+    <a href="docs/id/README.md">Indonesia</a>
+  </sub>
+</p>
+
 # AffineUI
 
 **A small, HTML5-compliant, GPU-accelerated UI renderer with an integrated
 component framework — a native replacement for Electron and Qt.**
 
 <img src="images/affineui_dender.png" width="720" alt="AffineUI running the Dender 3D-print slicer">
+
+*Dender — a 3D-print slicer showing AffineUI's default Decius CSS look. Docked panels, a custom viewport, and a full-app layout, all rendered natively.*
 
 AffineUI ships a real browser-style HTML/CSS layout and paint engine as a
 two-file C++ drop-in, a Python library (Gradio-style), a Rust crate, and a
@@ -28,6 +48,8 @@ call — no build-system fork, no runtime download, no separate window.
 Include, load, render, done.
 
 <img src="images/affineui_skeuomorphic.png" width="720" alt="Skeuomorphic synth demo built with AffineUI">
+
+*A skeuomorphic modular synth demo — everything on screen is standard HTML + CSS: knobs, cables, panel textures, animations. No custom widget toolkit, no plugins.*
 
 ---
 
@@ -349,6 +371,8 @@ component markup all render out of the box — see
 
 <img src="images/affineui_bootstrap.png" width="720" alt="AffineUI rendering Bootstrap CSS">
 
+*The unmodified Bootstrap 4.6 CSS library rendering natively — cards, navbars, buttons, and hover/active states, straight off the real `.min.css`.*
+
 ### Framework JavaScript
 
 There is no JS engine (see [What AffineUI is *not*](#what-affineui-is-not)).
@@ -447,6 +471,8 @@ Run any of them straight from the build directory:
 ```
 
 <img src="images/affineui_game_editor.png" width="720" alt="Game editor demo">
+
+*Decius Game Editor demo — docked panels, tree view, inspector, and toolbars in AffineUI's default Decius CSS look.*
 
 The Python and Rust bindings ship their own runnable examples:
 
