@@ -214,9 +214,25 @@ jobs:
         working-directory: bindings/rust/affineui-sys
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        # --allow-dirty because set_version.py mutated Cargo.toml above and
-        # we deliberately don't commit that mutation in CI.
-        run: cargo publish --allow-dirty
+          VERSION: ${{ needs.prepare.outputs.version }}
+        # --allow-dirty because set_version.py mutated Cargo.toml above
+        # and we deliberately don't commit that mutation in CI. The
+        # `already exists` fallthrough is the cargo equivalent of
+        # `nuget push --skip-duplicate`: a partial-failure retry
+        # (e.g. this crate published but the second one didn't) still
+        # completes cleanly instead of failing loud on the just-uploaded
+        # version.
+        run: |
+          set -euo pipefail
+          log=/tmp/cargo-sys.log
+          if cargo publish --allow-dirty 2>&1 | tee "$log"; then
+            exit 0
+          fi
+          if grep -qE "already exists on crates.io|already exists on the crates.io index" "$log"; then
+            echo "::notice::affineui-sys@${VERSION} already on crates.io — skipping (idempotent retry)."
+            exit 0
+          fi
+          exit 1
       - name: Wait for crates.io index to catch up
         # 45s is comfortable — index updates typically land in under 10s
         # but crates.io occasionally throttles.
@@ -225,7 +241,18 @@ jobs:
         working-directory: bindings/rust/affineui
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --allow-dirty
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          log=/tmp/cargo-affineui.log
+          if cargo publish --allow-dirty 2>&1 | tee "$log"; then
+            exit 0
+          fi
+          if grep -qE "already exists on crates.io|already exists on the crates.io index" "$log"; then
+            echo "::notice::affineui@${VERSION} already on crates.io — skipping (idempotent retry)."
+            exit 0
+          fi
+          exit 1
       - name: Summary
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
