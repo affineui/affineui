@@ -28,16 +28,27 @@ name: Release
 # ────────────────────────────────────────────────────────────────────
 
 on:
-  # Purely tag-driven. The canonical way to trigger this workflow is to
-  # dispatch "Cut release" (which computes the version from a (bump, mode)
-  # pair, pushes an annotated tag, and this workflow reacts to the push).
-  # The old workflow_dispatch entry point (with an explicit version input
-  # and per-channel publish toggles) was removed once "Cut release"
-  # became the sanctioned path — two dispatches doing the "same" thing
-  # invited version-drift and mismatched notes.
+  # Two entry points, one behavior. Both use the version parsed from
+  # GITHUB_REF_NAME, so there's no drift between them:
+  #
+  # 1. `push` on a v* tag — a user pushing a tag with their own
+  #    credentials cascades here directly.
+  #
+  # 2. `workflow_dispatch` with `--ref v*` — the sanctioned path when
+  #    Cut release is what pushed the tag. GitHub Actions has a
+  #    documented rule: events triggered by the ephemeral GITHUB_TOKEN
+  #    do NOT create new workflow runs, with two exceptions —
+  #    workflow_dispatch and repository_dispatch. So Cut release pushes
+  #    the tag, then explicitly `gh workflow run release.yml --ref
+  #    v<VERSION>` to bootstrap this workflow. No new secrets or PATs
+  #    required.
+  #
+  # No dispatch inputs: everything the workflow needs (version,
+  # prerelease flag, core) is derivable from the tag ref itself.
   push:
     tags:
       - 'v*'
+  workflow_dispatch: {}
 
 concurrency:
   group: release-${{ github.ref }}

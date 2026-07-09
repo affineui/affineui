@@ -48,6 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write   # push the tag
+      actions:  write   # `gh workflow run` release.yml + wheels.yml after push
     steps:
       - uses: actions/checkout@v4
         with:
@@ -139,7 +140,43 @@ jobs:
           tag="v${VERSION}"
           git tag -a "$tag" -F "docs/release-notes/v${CORE}.md"
           git push origin "$tag"
-          echo "::notice::Pushed tag ${tag} with notes from docs/release-notes/v${CORE}.md. release.yml and wheels.yml will publish shortly."
+          echo "::notice::Pushed tag ${tag} with notes from docs/release-notes/v${CORE}.md."
+
+      - name: Trigger release + wheels workflows
+        # GitHub Actions rule: events triggered by the ephemeral
+        # GITHUB_TOKEN — including the `push` from the previous step —
+        # do NOT create new workflow runs. So the tag push alone would
+        # NOT cascade release.yml or wheels.yml. `workflow_dispatch`
+        # and `repository_dispatch` are the two documented exceptions:
+        # we use the former to explicitly bootstrap both workflows
+        # against the tag ref. They then parse `${GITHUB_REF_NAME}`
+        # exactly like they would for a real push.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.next.outputs.next }}
+        if: steps.push_tag.outcome == 'success'
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          # GitHub's ref database occasionally lags a beat behind the
+          # tag push — dispatch immediately can 404 with "ref not found".
+          # Bounded retry (5 attempts, 5s between) covers the lag without
+          # unbounded waiting on a systemic outage.
+          dispatch() {
+            local wf="$1"
+            for attempt in 1 2 3 4 5; do
+              if gh workflow run "$wf" --ref "$tag" 2>&1; then
+                return 0
+              fi
+              echo "::warning::Dispatch of ${wf} against ${tag} failed (attempt ${attempt}/5); retrying in 5s…"
+              sleep 5
+            done
+            echo "::error::Failed to dispatch ${wf} against ${tag} after 5 attempts."
+            return 1
+          }
+          dispatch release.yml
+          dispatch wheels.yml
+          echo "::notice::Dispatched release.yml + wheels.yml against ${tag}."
 
       # ───── run summary ─────
       # Every important artifact this workflow produced, one click away.
