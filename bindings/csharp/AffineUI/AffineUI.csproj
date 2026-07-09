@@ -29,19 +29,36 @@
 
   <ItemGroup>
     <None Include="..\README.md" Pack="true" PackagePath="\" Visible="false" />
-    <!-- Native payload: win-x64 only for the preview; other RIDs come
-         from CI builds later. NativeLibrary default probing finds it at
-         runtimes/<rid>/native when installed from NuGet. -->
+    <!-- Native payload per RID. CI's `native_libs` matrix builds all
+         three and drops them under $(AffineUINativeDir); local dev
+         builds usually have only the host OS's native. Each Include
+         is Exists()-gated so a partial build still packs (with a
+         warning below when at least one RID is missing).
+         NativeLibrary default probing finds them at
+         runtimes/<rid>/native once installed from NuGet. -->
     <None Include="$(AffineUINativeDir)\affineui_c.dll"
           Condition="Exists('$(AffineUINativeDir)\affineui_c.dll')"
           Pack="true" PackagePath="runtimes\win-x64\native" Visible="false" />
+    <None Include="$(AffineUINativeDir)\libaffineui_c.so"
+          Condition="Exists('$(AffineUINativeDir)\libaffineui_c.so')"
+          Pack="true" PackagePath="runtimes\linux-x64\native" Visible="false" />
+    <None Include="$(AffineUINativeDir)\libaffineui_c.dylib"
+          Condition="Exists('$(AffineUINativeDir)\libaffineui_c.dylib')"
+          Pack="true" PackagePath="runtimes\osx-arm64\native" Visible="false" />
   </ItemGroup>
 
-  <!-- Packing without the native library would produce a package that
-       cannot load anywhere; fail fast instead. -->
+  <!-- Packing with NO native library would produce a package that can't
+       load anywhere. At least one must exist. CI is expected to produce
+       all three via the release.yml native_libs matrix. -->
   <Target Name="AffineUIRequireNativeForPack" BeforeTargets="GenerateNuspec">
-    <Error Condition="!Exists('$(AffineUINativeDir)\affineui_c.dll')"
-           Text="affineui_c.dll not found under '$(AffineUINativeDir)'. Build it first (cmake -DAFFINEUI_BUILD_C_SHARED=ON, target affineui_c) or set AffineUINativeDir." />
+    <Error Condition="!Exists('$(AffineUINativeDir)\affineui_c.dll') AND !Exists('$(AffineUINativeDir)\libaffineui_c.so') AND !Exists('$(AffineUINativeDir)\libaffineui_c.dylib')"
+           Text="No affineui_c native library found under '$(AffineUINativeDir)'. Build one first (cmake -DAFFINEUI_BUILD_C_SHARED=ON, target affineui_c) or set AffineUINativeDir." />
+    <Warning Condition="!Exists('$(AffineUINativeDir)\affineui_c.dll')"
+             Text="affineui_c.dll missing under '$(AffineUINativeDir)' — the packed NuGet will not run on Windows." />
+    <Warning Condition="!Exists('$(AffineUINativeDir)\libaffineui_c.so')"
+             Text="libaffineui_c.so missing under '$(AffineUINativeDir)' — the packed NuGet will not run on Linux." />
+    <Warning Condition="!Exists('$(AffineUINativeDir)\libaffineui_c.dylib')"
+             Text="libaffineui_c.dylib missing under '$(AffineUINativeDir)' — the packed NuGet will not run on macOS (arm64)." />
   </Target>
 
 </Project>
