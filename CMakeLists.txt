@@ -42,6 +42,12 @@ option(AFFINEUI_INSTALL         "Install AffineUI library and CMake package conf
 option(AFFINEUI_ENABLE_IMM      "Enable immediate-mode layer"  ON)
 option(AFFINEUI_ENABLE_C_API    "Build the extern \"C\" surface" ON)
 option(AFFINEUI_BUILD_C_SHARED  "Build the affineui_c shared library for language bindings" OFF)
+# Embed the Decius CSS framework + a small set of woff2 fonts into affineui
+# so `View(ViewTheme::Decius)` renders with the intended look out of the
+# box (no on-disk asset copying). ~140 KB of zlib-compressed data added
+# to the compiled binary. The two-file drop-in defaults ON as well; the
+# host opts out with -DAFFINEUI_NO_BUNDLE_DECIUS.
+option(AFFINEUI_BUNDLE_DECIUS   "Embed the Decius CSS framework as compile-time data" ON)
 option(AFFINEUI_WARNINGS_AS_ERRORS "Treat warnings as errors"  OFF)
 option(AFFINEUI_HTML_ENTITIES_FULL "Use Lexbor's full HTML5 named entity table" OFF)
 option(AFFINEUI_NO_EMBEDDED_FONTS  "Don't embed the default Roboto font (use host/system fonts)" OFF)
@@ -218,6 +224,31 @@ if(AFFINEUI_ENABLE_C_API)
     target_sources(affineui PRIVATE src/c_api.cpp src/c_api_app.cpp)
 endif()
 
+# Compile-time bundled Decius CSS framework. The generated header lives
+# at include/affineui/_decius_bundle.h (leading underscore = generated,
+# gitignored). Regenerating it is driven by DEPENDS on the source assets
+# so `cmake --build` picks up an updated CSS or icon font automatically.
+if(AFFINEUI_BUNDLE_DECIUS)
+    set(_decius_gen "${CMAKE_CURRENT_SOURCE_DIR}/include/affineui/_decius_bundle.h")
+    set(_decius_src
+        "${CMAKE_CURRENT_SOURCE_DIR}/examples/frameworks/css/decius-css-0.6.2.bundle.min.css"
+        "${CMAKE_CURRENT_SOURCE_DIR}/examples/frameworks/fonts/decius-icons.ttf")
+    # Ensure Python3 is on hand; the other python-driven build steps
+    # (tools/amalgamate.py, etc.) also rely on it, so a simple find_
+    # package here composes fine.
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_custom_command(
+        OUTPUT  "${_decius_gen}"
+        COMMAND ${CMAKE_COMMAND} -E echo "▸ embedding Decius bundle → ${_decius_gen}"
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_decius.py" "${_decius_gen}"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_decius.py" ${_decius_src}
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        COMMENT "Generating Decius CSS bundle header")
+    add_custom_target(affineui_decius_bundle_gen DEPENDS "${_decius_gen}")
+    add_dependencies(affineui affineui_decius_bundle_gen)
+    target_sources(affineui PRIVATE src/decius_bundle.cpp "${_decius_gen}")
+endif()
+
 target_include_directories(affineui
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -236,6 +267,7 @@ target_compile_definitions(affineui
     PRIVATE
         $<$<NOT:$<BOOL:${AFFINEUI_ENABLE_IMM}>>:AFFINEUI_NO_IMM>
         $<$<NOT:$<BOOL:${AFFINEUI_ENABLE_C_API}>>:AFFINEUI_NO_C_API>
+        $<$<NOT:$<BOOL:${AFFINEUI_BUNDLE_DECIUS}>>:AFFINEUI_NO_BUNDLE_DECIUS>
         $<$<NOT:$<BOOL:${AFFINEUI_DEPS_AVAILABLE}>>:AFFINEUI_STUB_BUILD>
 )
 
