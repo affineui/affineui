@@ -1,12 +1,18 @@
 name: Cut release
 
-# Two-step release UX, step 2. First run "Draft release notes" to compute
-# the next version and get a reviewed PR with the notes file at
-# `docs/release-notes/v<CORE>.md` (keyed on MAJOR.MINOR.PATCH, shared
-# across every -rc/-beta/-alpha in the cycle and the final release).
-# Merge that PR into main. THEN run this workflow, pass the same version,
-# and it turns the merged notes file into an annotated git tag (`vX.Y.Z…`)
-# — release.yml + wheels.yml react to the tag push and publish everywhere.
+# Two-step release UX, step 2. First run "Draft release notes" with a
+# (bump, mode) pair to compute the next version and get a reviewed PR
+# with the notes file at `docs/release-notes/v<CORE>.md` (keyed on
+# MAJOR.MINOR.PATCH, shared across every -rc/-beta/-alpha in the cycle
+# and the final release). Merge that PR into main. THEN run THIS
+# workflow with the SAME (bump, mode) pair — it re-runs the same
+# next-version computation, refuses to run if the notes file isn't on
+# main, and turns the notes file into an annotated git tag (`vX.Y.Z…`).
+# release.yml + wheels.yml react to the tag push and publish everywhere.
+#
+# UI matches "Draft release notes" on purpose: same two dropdowns, same
+# semantics, same next_version.py — so the operator never has to type
+# a version string by hand or reconcile two different mental models.
 #
 # Why annotated tags: the tag message becomes the GitHub Release body,
 # ships in every git clone (no round-trip to GitHub needed to see the
@@ -15,17 +21,27 @@ name: Cut release
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version to cut, bare (e.g. 1.2.4-rc.1 or 1.2.4). Needs a docs/release-notes/v<CORE>.md merged on main — where CORE is the MAJOR.MINOR.PATCH of the version, shared across every pre-release + the final.'
+      bump:
+        description: 'Which core segment to bump. Pick `none` when just incrementing a pre-release counter (e.g. rc.1 → rc.2) or promoting a pre-release to a stable release.'
         required: true
-        type: string
+        type: choice
+        default: 'patch'
+        options: ['none', 'patch', 'minor', 'major']
+      mode:
+        description: 'Release channel. `release` = plain triplet (v1.2.3). rc/beta/alpha = pre-release with auto-incremented counter (v1.2.3-rc.1, v1.2.3-rc.2 …).'
+        required: true
+        type: choice
+        default: 'rc'
+        options: ['release', 'rc', 'beta', 'alpha']
 
 permissions:
   contents: read
 
 concurrency:
-  group: cut-release-${{ inputs.version }}
-  cancel-in-progress: false   # never cancel a mid-flight tag push
+  # Only one active cut per (bump,mode) combo; matches draft's grouping.
+  # cancel-in-progress: false so we never abort a mid-flight tag push.
+  group: cut-release-${{ inputs.bump }}-${{ inputs.mode }}
+  cancel-in-progress: false
 
 jobs:
   cut:
@@ -38,21 +54,52 @@ jobs:
           fetch-depth: 0
           # We DO push (the tag), so leave credentials persisted.
 
-      - id: check
-        name: Validate version + resolve notes file
-        env:
-          VERSION: ${{ inputs.version }}
+      # ───── determine last + next version (same math as draft-release-notes) ─────
+      - id: last
+        name: Determine last tags (any + stable)
+        # `last_any` is the most recent tag (stable OR pre-release).
+        # next_version.py needs this to continue a pre-release series
+        # correctly (e.g. rc.1 → rc.2 or -rc.5 → final).
         run: |
           set -euo pipefail
-          # `--check` validates AND writes version= / is_prerelease= /
-          # core= to $GITHUB_OUTPUT. `core` is MAJOR.MINOR.PATCH with
-          # any -pre / +build stripped.
+          last_any=$(git tag --list 'v*' --sort=-v:refname | head -1 || true)
+          last_stable=$(git tag --list 'v*' --sort=-v:refname \
+                        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+                        | head -1 || true)
+          echo "last_any=$last_any"       >> "$GITHUB_OUTPUT"
+          echo "last_stable=$last_stable" >> "$GITHUB_OUTPUT"
+          echo "resolved last_any=${last_any:-<none>} last_stable=${last_stable:-<none>}"
+
+      - id: next
+        name: Compute next version
+        env:
+          LAST_ANY: ${{ steps.last.outputs.last_any }}
+          BUMP: ${{ inputs.bump }}
+          MODE: ${{ inputs.mode }}
+        # Emits `next=` (the full version we're about to tag) and
+        # `core=` (MAJOR.MINOR.PATCH, the notes-file key).
+        run: |
+          set -euo pipefail
+          python3 scripts/next_version.py --last "$LAST_ANY" --bump "$BUMP" --mode "$MODE"
+
+      - id: check
+        name: Validate computed version + is_prerelease
+        env:
+          VERSION: ${{ steps.next.outputs.next }}
+        # `--check` re-validates the version with the SAME parser used
+        # to patch pyproject/Cargo/csproj and writes `is_prerelease=`
+        # to $GITHUB_OUTPUT — which the Summary step uses to describe
+        # what release.yml + wheels.yml will publish next.
+        run: |
+          set -euo pipefail
           python3 scripts/set_version.py --check "$VERSION"
 
       - name: Confirm notes file + tag preconditions
         env:
-          VERSION: ${{ inputs.version }}
-          CORE: ${{ steps.check.outputs.core }}
+          VERSION: ${{ steps.next.outputs.next }}
+          CORE: ${{ steps.next.outputs.core }}
+          BUMP: ${{ inputs.bump }}
+          MODE: ${{ inputs.mode }}
         run: |
           set -euo pipefail
           # Notes are keyed on core version. Same file is used for every
@@ -61,7 +108,8 @@ jobs:
           notes="docs/release-notes/v${CORE}.md"
           if [ ! -f "$notes" ]; then
             echo "::error::${notes} not found on main."
-            echo "::error::Notes are shared across every version in the v${CORE} cycle. Run 'Draft release notes' (any bump/mode that resolves to core ${CORE}), review the opened PR, merge it, then re-dispatch this workflow."
+            echo "::error::(bump=${BUMP}, mode=${MODE}) resolves to v${VERSION} — CORE ${CORE}."
+            echo "::error::Notes are shared across every version in the v${CORE} cycle. Run 'Draft release notes' with any (bump, mode) that resolves to core ${CORE}, review the opened PR, merge it, then re-dispatch this workflow."
             exit 1
           fi
 
@@ -70,15 +118,15 @@ jobs:
           # only checks the exact v${VERSION} tag.
           if git ls-remote --exit-code --tags origin "v${VERSION}" >/dev/null 2>&1; then
             echo "::error::Tag v${VERSION} already exists on origin."
-            echo "::error::Cutting the same version twice isn't supported. Pick a different one (e.g. bump the pre-release counter)."
+            echo "::error::Cutting the same version twice isn't supported. Re-dispatch with a different (bump, mode) — e.g. same bump but mode advances the pre-release counter, or bump=none + mode=release to promote."
             exit 1
           fi
 
       - id: push_tag
         name: Create + push annotated tag
         env:
-          VERSION: ${{ inputs.version }}
-          CORE: ${{ steps.check.outputs.core }}
+          VERSION: ${{ steps.next.outputs.next }}
+          CORE: ${{ steps.next.outputs.core }}
         # `git tag -a -F` reads the tag message from a file — the CORE
         # release notes ARE the tag message. release.yml's gh_release
         # job then uses that same message as the GitHub Release body.
@@ -101,9 +149,12 @@ jobs:
       - name: Summary
         if: always()
         env:
-          VERSION: ${{ inputs.version }}
-          CORE: ${{ steps.check.outputs.core }}
+          VERSION: ${{ steps.next.outputs.next }}
+          CORE: ${{ steps.next.outputs.core }}
           IS_PRE: ${{ steps.check.outputs.is_prerelease }}
+          BUMP: ${{ inputs.bump }}
+          MODE: ${{ inputs.mode }}
+          LAST_ANY: ${{ steps.last.outputs.last_any }}
           TAG_OUTCOME: ${{ steps.push_tag.outcome }}
         run: |
           set -euo pipefail
@@ -113,10 +164,12 @@ jobs:
               echo ""
               echo "| Field | Value |"
               echo "| --- | --- |"
-              echo "| Requested version | \`v${VERSION}\` |"
+              echo "| Bump / Mode | \`${BUMP}\` / \`${MODE}\` |"
+              echo "| Resolved version | \`v${VERSION:-<unresolved>}\` |"
+              echo "| Previous tag | \`${LAST_ANY:-<none>}\` |"
               echo "| Tag push outcome | \`${TAG_OUTCOME:-<did not run>}\` |"
               echo ""
-              echo "No tag was created or pushed. Check the earlier step logs — most common causes: missing \`docs/release-notes/v\${CORE}.md\` on main, \`v\${VERSION}\` already exists on origin, or an invalid version string."
+              echo "No tag was created or pushed. Check the earlier step logs — most common causes: missing \`docs/release-notes/v\${CORE}.md\` on main, \`v\${VERSION}\` already exists on origin, or the version couldn't be computed."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -132,9 +185,11 @@ jobs:
             echo ""
             echo "| Field | Value |"
             echo "| --- | --- |"
+            echo "| Bump / Mode | \`${BUMP}\` / \`${MODE}\` |"
             echo "| Tag | [\`${tag}\`](${server}/${repo}/releases/tag/${tag}) |"
             echo "| Core (notes-file key) | \`${CORE}\` |"
             echo "| Pre-release | \`${IS_PRE:-false}\` |"
+            echo "| Previous tag | \`${LAST_ANY:-<none>}\` |"
             echo "| Notes body | [\`docs/release-notes/v${CORE}.md\`](${server}/${repo}/blob/main/docs/release-notes/v${CORE}.md) |"
             echo "| Anchor commit | [\`${short}\`](${server}/${repo}/commit/${sha}) |"
             echo ""

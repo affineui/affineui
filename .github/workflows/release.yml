@@ -28,29 +28,16 @@ name: Release
 # ────────────────────────────────────────────────────────────────────
 
 on:
+  # Purely tag-driven. The canonical way to trigger this workflow is to
+  # dispatch "Cut release" (which computes the version from a (bump, mode)
+  # pair, pushes an annotated tag, and this workflow reacts to the push).
+  # The old workflow_dispatch entry point (with an explicit version input
+  # and per-channel publish toggles) was removed once "Cut release"
+  # became the sanctioned path — two dispatches doing the "same" thing
+  # invited version-drift and mismatched notes.
   push:
     tags:
       - 'v*'
-  # Also allow manual firing for dry-run rehearsals — inputs let the operator
-  # skip publishing to any single channel while still exercising the build.
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to build (e.g. 1.2.3 or 1.2.3-rc.1). Bare, no leading v.'
-        required: true
-        type: string
-      publish_cargo:
-        description: 'Publish to crates.io'
-        default: true
-        type: boolean
-      publish_nuget:
-        description: 'Publish to nuget.org'
-        default: true
-        type: boolean
-      publish_gh_release:
-        description: 'Create GitHub Release with amalgamation'
-        default: true
-        type: boolean
 
 concurrency:
   group: release-${{ github.ref }}
@@ -79,24 +66,18 @@ jobs:
         with:
           persist-credentials: false   # prepare doesn't push
       - id: version
-        name: Parse version from tag or dispatch input
-        # DISPATCH_VERSION goes through `env:` (not `${{ }}` interpolation)
-        # so a maliciously-crafted workflow_dispatch input can't inject shell
-        # into the run block. `set_version.py --check` validates the value +
-        # writes `version=` and `is_prerelease=` to $GITHUB_OUTPUT using the
-        # SAME semver parser that the file-patching mode uses — so we can't
-        # drift between "what we build" and "what we classify". The parser
-        # correctly ignores build metadata after `+` when deciding prerelease
-        # (a hyphen inside +build.42 is not a pre-release marker).
-        env:
-          DISPATCH_VERSION: ${{ github.event.inputs.version }}
+        name: Parse version from tag
+        # Purely tag-driven — the version is `${GITHUB_REF_NAME}` with
+        # its leading `v` stripped. `set_version.py --check` validates
+        # the value and writes `version=` / `is_prerelease=` / `core=`
+        # to $GITHUB_OUTPUT using the SAME semver parser that the
+        # file-patching mode uses — so we can't drift between "what we
+        # build" and "what we classify". The parser correctly ignores
+        # build metadata after `+` when deciding prerelease (a hyphen
+        # inside +build.42 is not a pre-release marker).
         run: |
           set -euo pipefail
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            version="$DISPATCH_VERSION"
-          else
-            version="${GITHUB_REF_NAME#v}"
-          fi
+          version="${GITHUB_REF_NAME#v}"
           python3 scripts/set_version.py --check "$version"
 
       - name: Require reviewed release notes
@@ -193,9 +174,6 @@ jobs:
   cargo:
     name: Publish crates.io
     needs: [prepare, amalgamate]
-    if: |
-      (github.event_name == 'push') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_cargo == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -238,9 +216,6 @@ jobs:
   nuget:
     name: Publish nuget.org
     needs: [prepare, amalgamate]
-    if: |
-      (github.event_name == 'push') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_nuget == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -285,18 +260,11 @@ jobs:
   # link stays pointed at the last final version.
   gh_release:
     name: Publish GitHub Release
+    # Runs after every prior job succeeds — default `needs` semantics
+    # give us that without an explicit `if:`. (The old `always()` +
+    # skipped-branch pattern existed to accommodate workflow_dispatch's
+    # per-channel toggles; those are gone now.)
     needs: [prepare, amalgamate, cargo, nuget]
-    # Don't fail the release step if a downstream registry job was skipped
-    # (e.g. dispatch with publish_cargo=false) — but do fail if a job that
-    # ran actually failed. `always()` + explicit-check pattern.
-    if: |
-      always() &&
-      (needs.cargo.result == 'success' || needs.cargo.result == 'skipped') &&
-      (needs.nuget.result == 'success' || needs.nuget.result == 'skipped') &&
-      needs.amalgamate.result == 'success' &&
-      ((github.event_name == 'push') ||
-       (github.event_name == 'workflow_dispatch' &&
-        github.event.inputs.publish_gh_release == 'true'))
     runs-on: ubuntu-latest
     permissions:
       contents: write   # required to create the Release
