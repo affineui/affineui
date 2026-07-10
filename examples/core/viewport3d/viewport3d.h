@@ -54,10 +54,13 @@ public:
         NodeFactory make_node{};
     };
 
-    // Default arg spelled `Config{}` not `{}`: GCC rejects converting a bare
-    // `{}` default argument to this aggregate (string members with default
-    // initializers + a std::function member); the explicit type name is fine.
-    explicit Viewport3D(Config config = Config{});
+    // Two constructors instead of a defaulted argument: a `Config{}` default
+    // ARGUMENT would reference Config's default member initializers before
+    // this enclosing class is complete, which GCC rejects (MSVC accepts). A
+    // separate no-arg ctor that constructs the Config in its own body avoids
+    // the parse-order problem on both compilers.
+    Viewport3D() : Viewport3D(Config{}) {}
+    explicit Viewport3D(Config config);
     ~Viewport3D() override;
 
     /// Install/replace the node factory after construction (alternative to
