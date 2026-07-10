@@ -33,6 +33,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -563,10 +564,13 @@ void App::rebuild_view() {
         // the cheap path; structural edits settle in one restyle).
         auto* sink = impl_->document.begin_view_mutations();
         view.begin(sink);
+        bool view_end_attempted = false;
         try {
             impl_->view_builder(view);
+            view_end_attempted = true;
             view.end();
-        } catch (const std::exception& e) {
+        } catch (...) {
+            const auto failure = std::current_exception();
             // A builder exception mid-batch must not leave the mutation
             // window open: ev_insert stays suppressed, recorded work never
             // settles, and blocks keep pointing at elements the batch
@@ -575,16 +579,29 @@ void App::rebuild_view() {
             // swallows the resulting faults, so the app limps on corrupt).
             // Close the window so the document settles what was applied,
             // then propagate.
-            std::fprintf(stderr, "AffineUI view builder failed: %s\n",
-                         e.what());
-            view.end();
+            if (!view_end_attempted) {
+                view_end_attempted = true;
+                try {
+                    view.end();
+                } catch (const std::exception& e) {
+                    std::fprintf(stderr,
+                                 "AffineUI view cleanup failed: %s\n",
+                                 e.what());
+                } catch (...) {
+                    std::fprintf(stderr,
+                                 "AffineUI view cleanup failed\n");
+                }
+            }
             impl_->document.end_view_mutations();
-            throw;
-        } catch (...) {
-            std::fprintf(stderr, "AffineUI view builder failed\n");
-            view.end();
-            impl_->document.end_view_mutations();
-            throw;
+            try {
+                std::rethrow_exception(failure);
+            } catch (const std::exception& e) {
+                std::fprintf(stderr, "AffineUI view builder failed: %s\n",
+                             e.what());
+            } catch (...) {
+                std::fprintf(stderr, "AffineUI view builder failed\n");
+            }
+            std::rethrow_exception(failure);
         }
         impl_->document.end_view_mutations();
     }

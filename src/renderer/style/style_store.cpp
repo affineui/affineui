@@ -4,6 +4,8 @@
 
 #include "renderer/style/style_store.h"
 
+#include <limits>
+
 namespace affineui::detail {
 
 namespace {
@@ -14,8 +16,9 @@ constexpr std::uint8_t kAllDirty =
     StyleStore::DirtyComposite;
 
 std::uint16_t next_generation(std::uint16_t generation) {
-    ++generation;
-    return generation == 0 ? 1 : generation;
+    // release() retires UINT16_MAX slots instead of adding them to the free
+    // list, so every reusable slot has a strictly advancing generation.
+    return static_cast<std::uint16_t>(generation + 1);
 }
 }
 
@@ -77,7 +80,12 @@ void StyleStore::release(lxb_dom_element_t* element) {
     dirty_[index] = 0;
     generations_[index] = 0;
     elements_[index] = nullptr;
-    free_slots_.push_back({index, generation});
+    // Never wrap to generation 1: that would make an ancient ElementId for
+    // this index valid again. A saturated slot stays freed/retired, and the
+    // next acquire appends a fresh slot instead.
+    if (generation != std::numeric_limits<std::uint16_t>::max()) {
+        free_slots_.push_back({index, generation});
+    }
 }
 
 void StyleStore::reset() {

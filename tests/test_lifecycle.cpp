@@ -6,6 +6,7 @@
 #include "affineui/view.h"
 
 #include <algorithm>
+#include <limits>
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
@@ -182,6 +183,17 @@ TEST_CASE("StyleStore release invalidates and safely recycles a slot") {
         current = next;
     }
     CHECK(store.size() == 1);
+
+    while (current.generation <
+           std::numeric_limits<std::uint16_t>::max()) {
+        store.release(element);
+        current = store.acquire(element);
+    }
+    store.release(element);
+    const auto after_retirement = store.acquire(element);
+    CHECK(after_retirement.index != current.index);
+    CHECK(store.element_of(current) == nullptr);
+    CHECK(store.size() == 2);
 
     lxb_html_document_destroy(doc);
 }
