@@ -620,6 +620,63 @@ bool starts_with(std::string_view value, std::string_view prefix) {
            value.substr(0, prefix.size()) == prefix;
 }
 
+bool ascii_iequals(std::string_view a, std::string_view b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        const char ca = a[i] >= 'A' && a[i] <= 'Z' ? char(a[i] + 32) : a[i];
+        if (ca != b[i]) return false;
+    }
+    return true;
+}
+
+// True when EVERY declaration in an inline style text is "descendant
+// inert": a non-inherited box/paint property that cannot change any
+// descendant's computed style. Inline styles never affect selector
+// matching, so a style write whose old AND new text pass this check only
+// needs the element's own block restyled — not its whole subtree (a
+// splitter drag was restyling a 465-block pane at mouse-move rate for a
+// flex-basis change). Fails closed: custom properties (`--x` inherits),
+// inherited text properties, `display` (subtree reveal semantics), and
+// anything unrecognized all fall back to the subtree walk.
+bool inline_style_is_descendant_inert(std::string_view css) {
+    static constexpr std::string_view kInert[] = {
+        "flex", "flex-grow", "flex-shrink", "flex-basis",
+        "width", "height", "min-width", "min-height",
+        "max-width", "max-height",
+        "left", "top", "right", "bottom", "inset",
+        "position", "z-index", "order", "align-self",
+        "margin", "margin-top", "margin-right", "margin-bottom",
+        "margin-left",
+        "padding", "padding-top", "padding-right", "padding-bottom",
+        "padding-left",
+        "overflow", "overflow-x", "overflow-y",
+        "opacity", "transform", "pointer-events",
+        "background", "background-color",
+        "border", "border-top", "border-right", "border-bottom",
+        "border-left", "border-color", "border-width", "border-radius",
+        "box-shadow", "gap",
+    };
+    std::size_t pos = 0;
+    while (pos < css.size()) {
+        const std::size_t end = css.find(';', pos);
+        const std::string_view decl = css.substr(
+            pos, end == std::string_view::npos ? css.size() - pos
+                                               : end - pos);
+        pos = end == std::string_view::npos ? css.size() : end + 1;
+        const std::size_t colon = decl.find(':');
+        const std::string_view prop = detail::trim_css_ws(
+            colon == std::string_view::npos ? decl : decl.substr(0, colon));
+        if (prop.empty()) continue;  // stray ';' or trailing whitespace
+        if (colon == std::string_view::npos) return false;  // malformed
+        bool known = false;
+        for (const auto inert : kInert) {
+            if (ascii_iequals(prop, inert)) { known = true; break; }
+        }
+        if (!known) return false;
+    }
+    return true;
+}
+
 bool attribute_can_affect_selector_matching(std::string_view name) {
     // Inline style changes are parsed as declarations on the element and
     // SVG geometry attrs (e.g. path "d") should stay on the cheap paint path.
@@ -2062,12 +2119,24 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
         auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
         detail::refresh_block_metadata_from_element(block, elem);
         (void) mt_lap();  // reset the lap so the print isolates the restyle
-        needs_layout = detail::restyle_subtree(impl, target_idx);
+        // A style write that is descendant-inert on BOTH sides (old and new
+        // text: only non-inherited box/paint props, no `--x`, no `display`)
+        // cannot change any descendant's computed style — restyle just this
+        // block. Splitter/float/ghost gestures live on this path at
+        // mouse-move rate.
+        const bool style_local =
+            name == "style" &&
+            inline_style_is_descendant_inert(old_value) &&
+            inline_style_is_descendant_inert(value);
+        needs_layout = style_local
+                           ? detail::restyle_block(impl, target_idx)
+                           : detail::restyle_subtree(impl, target_idx);
         const double tail_restyle_ms = mt_lap();
         if (mt_on && tail_restyle_ms >= 1.0) {
             std::fprintf(stderr,
-                         "[attr]   set '%s' TAIL restyle_subtree(%d)=%.2f ms\n",
-                         std::string(name).c_str(), target_idx,
+                         "[attr]   set '%s' TAIL restyle_%s(%d)=%.2f ms\n",
+                         std::string(name).c_str(),
+                         style_local ? "block" : "subtree", target_idx,
                          tail_restyle_ms);
         }
         if (block.tag == "img" && name == "src") needs_layout = true;
