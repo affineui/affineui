@@ -177,12 +177,56 @@ void Document::draw(Painter& painter) {
         });
 #endif
 
-    // Two paint passes per z level (CSS 2.1 Appendix E): every block's
-    // background/border at this stacking level paints before ANY of the
-    // level's text. Glyph ink that overhangs its box (descenders in
+    // Two paint passes per STACKING CONTEXT (CSS 2.1 Appendix E): every
+    // block's background/border in a context paints before ANY of that
+    // context's text. Glyph ink that overhangs its box (descenders in
     // line-height:1 menu rows) can then never be overpainted by the next
     // sibling's background — matching browser painting order.
-    enum class BlockPaintPhase : std::uint8_t { Boxes, Text };
+    //
+    // The grouping must be per stacking ROOT, not per z VALUE: two floating
+    // panels both at z-index:60 are separate atomic units — the earlier
+    // panel's TEXT must paint before the later panel's BACKGROUND, or a
+    // covered palette's labels bleed through the panel above it. Blocks are
+    // appended in DFS order, so a root's subtree is contiguous within its z
+    // group and the group boundary is a simple root change.
+    //
+    // KNOWN LIMIT: effective_z_index is max-along-the-ancestor-chain, so a
+    // HIGHER-z descendant (z:100 popover inside a z:60 float) sorts into its
+    // own z band and escapes its parent's atomic group — it paints above a
+    // LATER sibling float, where CSS keeps the whole subtree below it. Full
+    // fidelity needs hierarchical (lexicographic z-path) paint ordering.
+    // Today that divergence only shows for open popovers inside floats,
+    // where painting above neighbouring panels is the desirable UX anyway.
+    //
+    // stacking_roots[i]: the NEAREST ancestor-or-self carrying a positive
+    // z-index (the float section, a menu, a popover), or -1 for base flow.
+    // NEAREST, not outermost: the View's float LAYER div also carries a
+    // z-index, and an outermost rule made it the shared root of every
+    // floating panel — collapsing them back into one paint group. CSS
+    // semantics: each z-indexed positioned element is its own stacking
+    // context, atomic WITHIN its parent context. parent_idx < i (DFS append
+    // order), so one forward pass settles it.
+    std::vector<int> stacking_roots(impl_->blocks.size(), -1);
+#if !defined(AFFINEUI_STUB_BUILD)
+    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
+        const auto& blk = impl_->blocks[i];
+        const int parent_root =
+            blk.parent_idx >= 0
+                ? stacking_roots[static_cast<std::size_t>(blk.parent_idx)]
+                : -1;
+        stacking_roots[i] =
+            impl_->style_store.computed(blk.id).z_index_low > 0
+                ? static_cast<int>(i)
+                : parent_root;
+    }
+#endif
+    // Overlay is a third per-context phase: a pane's scrollbar thumb paints
+    // on top of its OWN context's content but underneath later/higher
+    // contexts. (The old global draw-last scrollbar pass painted every
+    // pane's thumb over overlapping floating panels — wrong z.) Only blocks
+    // that actually have a scrollbar get an Overlay entry, so the extra
+    // phase costs nothing for everything else.
+    enum class BlockPaintPhase : std::uint8_t { Boxes, Text, Overlay };
     std::vector<std::pair<int, BlockPaintPhase>> phased_order;
     phased_order.reserve(paint_order.size() * 2);
     {
@@ -192,9 +236,13 @@ void Document::draw(Painter& painter) {
 #if !defined(AFFINEUI_STUB_BUILD)
             const int group_z =
                 detail::effective_z_index(*impl_, paint_order[group_begin]);
+            const int group_root = stacking_roots[static_cast<std::size_t>(
+                paint_order[group_begin])];
             while (group_end < paint_order.size() &&
                    detail::effective_z_index(*impl_, paint_order[group_end]) ==
-                       group_z) {
+                       group_z &&
+                   stacking_roots[static_cast<std::size_t>(
+                       paint_order[group_end])] == group_root) {
                 ++group_end;
             }
 #else
@@ -208,6 +256,16 @@ void Document::draw(Painter& painter) {
                 phased_order.emplace_back(paint_order[k],
                                           BlockPaintPhase::Text);
             }
+#if !defined(AFFINEUI_STUB_BUILD)
+            for (std::size_t k = group_begin; k < group_end; ++k) {
+                ScrollbarGeometry sb{};
+                if (detail::vertical_scrollbar_geometry(*impl_,
+                                                        paint_order[k], sb)) {
+                    phased_order.emplace_back(paint_order[k],
+                                              BlockPaintPhase::Overlay);
+                }
+            }
+#endif
             group_begin = group_end;
         }
     }
@@ -1180,14 +1238,32 @@ void Document::draw(Painter& painter) {
                     // the origin by the element's own scroll offset; clip
                     // everything (selection, text, caret, decorations) to the
                     // padding box so overflowing lines never paint over
-                    // content below.
-                    const Rect text_clip{
+                    // content below. The scissor REPLACES the active clip,
+                    // so intersect with the ancestor clip chain too — a
+                    // textarea hanging past its scrolled pane must not paint
+                    // its value outside the pane (tearoff bottom edge).
+                    Rect text_clip{
                         eff.x + used_border_left,
                         eff.y + used_border_top,
                         std::max(0, eff.w - used_border_left -
                                         used_border_right),
                         std::max(0, eff.h - used_border_top -
                                         used_border_bottom)};
+                    Rect anc_clip;
+                    if (detail::clip_rect_for_block(*impl_,
+                                                    static_cast<int>(i),
+                                                    anc_clip)) {
+                        const auto x0 = std::max(text_clip.x, anc_clip.x);
+                        const auto y0 = std::max(text_clip.y, anc_clip.y);
+                        const auto x1 = std::min(text_clip.x + text_clip.w,
+                                                 anc_clip.x + anc_clip.w);
+                        const auto y1 = std::min(text_clip.y + text_clip.h,
+                                                 anc_clip.y + anc_clip.h);
+                        text_clip.x = x0;
+                        text_clip.y = y0;
+                        text_clip.w = std::max(x1 - x0, decltype(x1){0});
+                        text_clip.h = std::max(y1 - y0, decltype(y1){0});
+                    }
                     painter.push_clip(text_clip);
                     pushed_text_control_clip = true;
                 }
@@ -1789,24 +1865,32 @@ void Document::draw(Painter& painter) {
         }
         }  // phase == BlockPaintPhase::Text
 
+        // ── PHASE: overlay ───────────────────────────────────────────
+        // Scrollbar thumb, on top of this stacking context's own content
+        // (boxes + text painted above) but under later/higher contexts —
+        // the old global draw-last pass put every pane's thumb over
+        // overlapping floating panels. The geometry is already in VISUAL
+        // space (block_border_visual_rect applies effective_transform_for),
+        // so it must draw with the block's transform popped — drawing it
+        // transformed applied the drag translation twice and the thumb
+        // diverged from its pane as a float moved.
+#if !defined(AFFINEUI_STUB_BUILD)
+        if (phase == BlockPaintPhase::Overlay) {
+            ScrollbarGeometry scrollbar{};
+            if (detail::vertical_scrollbar_geometry(
+                    *impl_, static_cast<int>(i), scrollbar)) {
+                if (has_transform) painter.pop_transform();
+                // Catppuccin overlay0-ish, semi-transparent.
+                painter.fill_rounded_rect(
+                    scrollbar.thumb, 3.0f, Color{0x9c, 0xa0, 0xb0, 0xC0});
+                if (has_transform) painter.push_transform(paint_transform);
+            }
+        }
+#endif
+
         if (has_opacity) painter.pop_alpha();
         if (clipped) painter.pop_clip();
         if (has_transform) painter.pop_transform();
-    }
-
-    // Scrollbar overlay â€” drawn last so it sits on top of any
-    // clipped content. A simple right-side thumb showing how far
-    // we've scrolled; track is transparent.
-    for (const auto& b : impl_->blocks) {
-        ScrollbarGeometry scrollbar{};
-        if (!detail::vertical_scrollbar_geometry(
-                *impl_, static_cast<int>(&b - impl_->blocks.data()),
-                scrollbar)) {
-            continue;
-        }
-        // Catppuccin overlay0-ish, semi-transparent.
-        painter.fill_rounded_rect(
-            scrollbar.thumb, 3.0f, Color{0x9c, 0xa0, 0xb0, 0xC0});
     }
 }
 }  // namespace affineui

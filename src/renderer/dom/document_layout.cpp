@@ -1772,6 +1772,23 @@ Mat2x3 effective_transform_for(const detail::DocumentImpl& impl, int idx) {
             drag_dy = static_cast<float>(d.cur_y - d.elem_doc_y);
         }
     }
+    // The tab-drag ghost moves the same way: its style is anchored once at
+    // the spawn point and every subsequent mousemove only updates cur_*.
+    int ghost_idx = -1;
+    float ghost_dx = 0.0f;
+    float ghost_dy = 0.0f;
+    if (impl.tab_drag_ghost && impl.tab_drag_ghost_block_idx >= 0 &&
+        impl.tab_drag_ghost_block_idx < static_cast<int>(impl.blocks.size()) &&
+        (impl.tab_drag_ghost_cur_x != impl.tab_drag_ghost_spawn_x ||
+         impl.tab_drag_ghost_cur_y != impl.tab_drag_ghost_spawn_y) &&
+        detail::element_for_block(impl, impl.tab_drag_ghost_block_idx) ==
+            impl.tab_drag_ghost) {
+        ghost_idx = impl.tab_drag_ghost_block_idx;
+        ghost_dx = static_cast<float>(impl.tab_drag_ghost_cur_x -
+                                      impl.tab_drag_ghost_spawn_x);
+        ghost_dy = static_cast<float>(impl.tab_drag_ghost_cur_y -
+                                      impl.tab_drag_ghost_spawn_y);
+    }
     std::vector<int> chain;
     for (int cur = idx; cur >= 0; ) {
         chain.push_back(cur);
@@ -1784,6 +1801,9 @@ Mat2x3 effective_transform_for(const detail::DocumentImpl& impl, int idx) {
             // Doc-space translation applied outside the block's own
             // transform, inside its ancestors'.
             combined = Mat2x3::translate(drag_dx, drag_dy).then(combined);
+        }
+        if (*it == ghost_idx) {
+            combined = Mat2x3::translate(ghost_dx, ghost_dy).then(combined);
         }
         const int dy = detail::scroll_offset_y_for(impl.blocks, impl.style_store, *it);
         const RectF eff{
