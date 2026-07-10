@@ -47,6 +47,7 @@ public:
         affineui::Mat2x3 transform;
     };
     struct RoundedFillDraw {
+        int seq{0};  // global op order (shared counter with Fill/TextDraw)
         affineui::Rect rect;
         float tl{0.0f};
         float tr{0.0f};
@@ -201,7 +202,8 @@ public:
     void fill_rounded_rect(const affineui::Rect& rect, float radius,
                            affineui::Color color) override {
         fill_colors.push_back(color);
-        rounded_fill_draws.push_back({rect, radius, radius, radius, radius, color});
+        rounded_fill_draws.push_back(
+            {++op_seq, rect, radius, radius, radius, radius, color});
     }
     void stroke_rounded_rect(const affineui::Rect&, float, affineui::Color color, float) override {
         stroke_colors.push_back(color);
@@ -210,7 +212,7 @@ public:
                                    float br, float bl,
                                    affineui::Color color) override {
         fill_colors.push_back(color);
-        rounded_fill_draws.push_back({rect, tl, tr, br, bl, color});
+        rounded_fill_draws.push_back({++op_seq, rect, tl, tr, br, bl, color});
     }
     void stroke_rounded_rect_varying(const affineui::Rect&, float, float, float, float,
                                      affineui::Color color, float) override {
@@ -8055,10 +8057,15 @@ TEST_CASE("paint: same-z floating panels paint ATOMICALLY - the lower "
                  height: 120px; }
         .under { left: 20px;  top: 20px; background: #222222; }
         .over  { left: 120px; top: 60px; background: #123456; }
+        .scroll { height: 60px; overflow: auto; }
+        .tall   { height: 400px; }
         </style>
         <div class="host">
           <div class="layer">
-            <div class="float under"><div>COVERED LABEL</div></div>
+            <div class="float under">
+              <div>COVERED LABEL</div>
+              <div class="scroll"><div class="tall">tall</div></div>
+            </div>
             <div class="float over"><div>ON TOP</div></div>
           </div>
         </div>
@@ -8085,6 +8092,22 @@ TEST_CASE("paint: same-z floating panels paint ATOMICALLY - the lower "
     // The lower float paints atomically (bg THEN text) before the upper
     // float's background — so the label ends up underneath.
     CHECK(covered->seq < over_bg->seq);
+
+    // The lower float's SCROLLBAR THUMB is part of the same atomic unit
+    // (per-context Overlay phase), so it too paints before the upper
+    // float's background. The old global draw-last scrollbar pass put
+    // every pane's thumb over overlapping panels.
+    const RecordingPainter::RoundedFillDraw* thumb = nullptr;
+    for (const auto& f : paint.rounded_fill_draws) {
+        // The thumb's fixed overlay color (0x9c,0xa0,0xb0).
+        if (f.color.r == 0x9c && f.color.g == 0xa0 && f.color.b == 0xb0) {
+            thumb = &f;
+        }
+    }
+    REQUIRE(thumb != nullptr);
+    MESSAGE("thumb seq=", thumb->seq);
+    CHECK(thumb->seq > covered->seq);   // above its own context's content
+    CHECK(thumb->seq < over_bg->seq);   // under the upper float
 }
 
 TEST_CASE("paint: a textarea's VALUE clip intersects the ancestor chain "

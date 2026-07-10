@@ -212,7 +212,13 @@ void Document::draw(Painter& painter) {
                 : parent_root;
     }
 #endif
-    enum class BlockPaintPhase : std::uint8_t { Boxes, Text };
+    // Overlay is a third per-context phase: a pane's scrollbar thumb paints
+    // on top of its OWN context's content but underneath later/higher
+    // contexts. (The old global draw-last scrollbar pass painted every
+    // pane's thumb over overlapping floating panels — wrong z.) Only blocks
+    // that actually have a scrollbar get an Overlay entry, so the extra
+    // phase costs nothing for everything else.
+    enum class BlockPaintPhase : std::uint8_t { Boxes, Text, Overlay };
     std::vector<std::pair<int, BlockPaintPhase>> phased_order;
     phased_order.reserve(paint_order.size() * 2);
     {
@@ -241,6 +247,14 @@ void Document::draw(Painter& painter) {
             for (std::size_t k = group_begin; k < group_end; ++k) {
                 phased_order.emplace_back(paint_order[k],
                                           BlockPaintPhase::Text);
+            }
+            for (std::size_t k = group_begin; k < group_end; ++k) {
+                ScrollbarGeometry sb{};
+                if (detail::vertical_scrollbar_geometry(*impl_,
+                                                        paint_order[k], sb)) {
+                    phased_order.emplace_back(paint_order[k],
+                                              BlockPaintPhase::Overlay);
+                }
             }
             group_begin = group_end;
         }
@@ -1841,24 +1855,25 @@ void Document::draw(Painter& painter) {
         }
         }  // phase == BlockPaintPhase::Text
 
+        // ── PHASE: overlay ───────────────────────────────────────────
+        // Scrollbar thumb, on top of this stacking context's own content
+        // (boxes + text painted above) but under later/higher contexts —
+        // the old global draw-last pass put every pane's thumb over
+        // overlapping floating panels. Shares the block's transform/clip
+        // pushes so a dragged float's thumb rides its paint translation.
+        if (phase == BlockPaintPhase::Overlay) {
+            ScrollbarGeometry scrollbar{};
+            if (detail::vertical_scrollbar_geometry(
+                    *impl_, static_cast<int>(i), scrollbar)) {
+                // Catppuccin overlay0-ish, semi-transparent.
+                painter.fill_rounded_rect(
+                    scrollbar.thumb, 3.0f, Color{0x9c, 0xa0, 0xb0, 0xC0});
+            }
+        }
+
         if (has_opacity) painter.pop_alpha();
         if (clipped) painter.pop_clip();
         if (has_transform) painter.pop_transform();
-    }
-
-    // Scrollbar overlay â€” drawn last so it sits on top of any
-    // clipped content. A simple right-side thumb showing how far
-    // we've scrolled; track is transparent.
-    for (const auto& b : impl_->blocks) {
-        ScrollbarGeometry scrollbar{};
-        if (!detail::vertical_scrollbar_geometry(
-                *impl_, static_cast<int>(&b - impl_->blocks.data()),
-                scrollbar)) {
-            continue;
-        }
-        // Catppuccin overlay0-ish, semi-transparent.
-        painter.fill_rounded_rect(
-            scrollbar.thumb, 3.0f, Color{0x9c, 0xa0, 0xb0, 0xC0});
     }
 }
 }  // namespace affineui
