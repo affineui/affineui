@@ -831,6 +831,51 @@ TEST_CASE("App dispatch invokes command widget change callbacks") {
     CHECK(value == "true");
 }
 
+TEST_CASE("App tree row click emits the selected value via the tree's on_change") {
+    // A v.tree() is a data-dcs-select box: clicking a row is a SELECTION
+    // (emits a widget change on the tree with the row's data-dcs-value),
+    // NOT a button click. The app binds on_change on the tree — a per-row
+    // on_click never fires. Pins the hierarchy-selection wiring the game
+    // editor relies on.
+    affineui::View view{affineui::ViewTheme::Decius};
+    std::string selected;
+
+    view.begin();
+    {
+        auto tree = view.tree("scene-tree");
+        tree.ref().on_change([&](std::string_view v) {
+            selected = std::string(v);
+        });
+        affineui::TreeRowOptions opts;
+        view.tree_row("Hero", opts, "row-hero").attr("data-dcs-value", "hero");
+        view.tree_row("Light", opts, "row-light").attr("data-dcs-value", "light");
+    }
+    view.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    app.load_view(view);
+    app.document().layout(280, 160);
+
+    // Click the second row.
+    const auto row = find_hovered_tag_attr(app, "div", "data-dcs-value",
+                                           "light", 280, 160);
+    REQUIRE(row.x >= 0);
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = row;
+    app.dispatch(down);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = row;
+    app.dispatch(up);
+
+    CHECK(selected == "light");
+}
+
 TEST_CASE("App dispatch toggles Decius checkboxes on the first click") {
     affineui::View view{affineui::ViewTheme::Decius};
     std::string value;
@@ -2742,8 +2787,12 @@ TEST_CASE("App Decius colorfield picker survives model-backed rebuilds") {
     build_view = [&]() {
         affineui::View view{affineui::ViewTheme::Decius};
         view.begin();
+        // Gesture model: on_commit does the model write + rebuild (once,
+        // at the gesture's end); a live drag streams on_change previews
+        // that must NOT rebuild. So the picker survives the whole drag
+        // (rebuilds stays 0) and rebuilds exactly once on release.
         view.input("Tint", tint, "color", "tint")
-            .on_change([&](std::string_view next) {
+            .on_commit([&](std::string_view next) {
                 tint = std::string(next);
                 ++rebuilds;
                 app.load_view(build_view());

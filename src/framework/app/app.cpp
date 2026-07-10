@@ -299,17 +299,32 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
 
     auto changes = impl.document.take_widget_changes();
     if (result.defer_widget_changes) {
-        if (!changes.empty()) {
+        // Deferral coalesces a gesture's rebuild to its end. But LIVE
+        // changes are previews (on_change is bound to cheap preview work
+        // that must not rebuild) — they have to dispatch every frame or
+        // there is no realtime feedback (the colour picker not recolouring
+        // the material as you drag). So split: live changes fall through
+        // to immediate dispatch below; only committed changes defer.
+        std::vector<Document::WidgetChange> live_now;
+        std::vector<Document::WidgetChange> deferred;
+        for (auto& change : changes) {
+            if (change.live) {
+                live_now.push_back(std::move(change));
+            } else {
+                deferred.push_back(std::move(change));
+            }
+        }
+        if (!deferred.empty()) {
             impl.deferred_widget_changes.insert(
                 impl.deferred_widget_changes.end(),
-                std::make_move_iterator(changes.begin()),
-                std::make_move_iterator(changes.end()));
+                std::make_move_iterator(deferred.begin()),
+                std::make_move_iterator(deferred.end()));
             consumed = true;
             impl.dirty = true;
         }
-        return consumed;
-    }
-    if (!impl.deferred_widget_changes.empty()) {
+        if (live_now.empty()) return consumed;
+        changes = std::move(live_now);  // dispatch these now (on_change only)
+    } else if (!impl.deferred_widget_changes.empty()) {
         impl.deferred_widget_changes.insert(
             impl.deferred_widget_changes.end(),
             std::make_move_iterator(changes.begin()),
