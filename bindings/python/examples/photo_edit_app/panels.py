@@ -95,19 +95,42 @@ def build_toolstrip(app: "PhotoEditApp", v: ui.View) -> None:
     v.container(classes="dcs-grip", key="ps-tools-grip").attr(
         "data-dcs-drag-handle", "")
 
+    # Deterministic layout: group tools into explicit rows of up to two,
+    # breaking at every separator. Each separator is its own full-width row.
+    # This gives the web's clean two-column strip without depending on
+    # flex-wrap orphan behavior or grid-column placement (which the layout
+    # engine doesn't support).
+    def make_tool(g: ui.View, tool) -> None:
+        ref = g.container(classes="ps-tool", key=f"tool-{tool.id}",
+                          build=lambda h, tool=tool: h.html(
+                              tool_icon_html(tool)))
+        ref.attr("role", "button")
+        ref.attr("title", f"{tool.name}  ({tool.key})")
+        ref.attr("aria-pressed", "true" if app.tool == tool.id else "false")
+        ref.attr("data-group", "true" if tool.group else "false")
+        ref.on_click(lambda tool_id=tool.id: app.set_tool(tool_id))
+
+    # Partition TOOLS into segments separated by sep_after boundaries.
+    segments: list[list] = [[]]
+    for tool in TOOLS:
+        segments[-1].append(tool)
+        if tool.sep_after:
+            segments.append([])
+    segments = [s for s in segments if s]
+
     def grid(g: ui.View) -> None:
-        for tool in TOOLS:
-            ref = g.container(classes="ps-tool", key=f"tool-{tool.id}",
-                              build=lambda h, tool=tool: h.html(
-                                  tool_icon_html(tool)))
-            ref.attr("role", "button")
-            ref.attr("title", f"{tool.name}  ({tool.key})")
-            ref.attr("aria-pressed",
-                     "true" if app.tool == tool.id else "false")
-            ref.attr("data-group", "true" if tool.group else "false")
-            ref.on_click(lambda tool_id=tool.id: app.set_tool(tool_id))
-            if tool.sep_after:
-                g.container(classes="ps-toolsep", key=f"sep-{tool.id}")
+        for si, seg in enumerate(segments):
+            if si > 0:
+                g.container(classes="ps-toolsep", key=f"toolsep-{si}")
+            for ri in range(0, len(seg), 2):
+                pair = seg[ri:ri + 2]
+
+                def row(r: ui.View, pair=pair) -> None:
+                    for tool in pair:
+                        make_tool(r, tool)
+
+                g.container(classes="ps-toolrow",
+                            key=f"toolrow-{si}-{ri}", build=row)
 
     v.container(classes="ps-toolgrid", key="ps-tools", build=grid)
     v.container(classes="ps-colorchips", key="ps-colorchips",
@@ -157,8 +180,12 @@ def _navigator_body(app: "PhotoEditApp", v: ui.View) -> None:
                                 build=lambda h: h.html(_di("zoom-out")))
             out.attr("role", "button").attr("title", "Zoom out")
             out.on_click(lambda: app.zoom_step(1 / 1.4))
+            # Keep the slider's own dcs-field wrapper (do NOT .cls() it to
+            # dcs-slider — that collides with the inner slider div and the
+            # empty label shoves the thumb sideways). It grows to fill the
+            # row via the .ps-nav-zoomrow .dcs-field rule in styles.py.
             row.slider("", app.zoom * 100, 5, 800,
-                       key="ps-nav-zoom").cls("dcs-slider ps-grow").on_change(
+                       key="ps-nav-zoom").on_change(
                 lambda text: app.set_zoom_percent_text(text))
             zin = row.container(classes="ps-nav-zbtn", key="ps-nav-zoom-in",
                                 build=lambda h: h.html(_di("zoom-in")))
@@ -485,11 +512,15 @@ def _history_list(app: "PhotoEditApp", v: ui.View) -> None:
 
 def build_floatbar(app: "PhotoEditApp", v: ui.View) -> None:
     def bar(b: ui.View) -> None:
+        # Grip drag-handle first, like the web — this is what lets the bar be
+        # dragged (the container carries data-dcs-drag below).
+        b.container(classes="dcs-grip", key="float-grip").attr(
+            "data-dcs-drag-handle", "")
         _icon_button(b, "float-undo", _di("undo"), "Undo",
                      on_click=app.undo)
         _icon_button(b, "float-redo", _di("redo"), "Redo",
                      on_click=app.redo)
-        b.container(classes="dcs-divider dcs-divider--v", key="float-sep")
+        b.container(classes="dcs-toolbar__sep", key="float-sep")
         _icon_button(b, "float-zoom-out", _di("zoom-out"), "Zoom out",
                      on_click=lambda: app.zoom_step(1 / 1.4))
         _icon_button(b, "float-fit", _di("fit"), "Fit on screen",
@@ -497,5 +528,7 @@ def build_floatbar(app: "PhotoEditApp", v: ui.View) -> None:
         _icon_button(b, "float-zoom-in", _di("zoom-in"), "Zoom in",
                      on_click=lambda: app.zoom_step(1.4))
 
-    v.container(classes="dcs-toolbar dcs-toolbar--floating ps-floatbar",
-                key="ps-floatbar", build=bar)
+    bar_ref = v.container(
+        classes="dcs-toolbar dcs-toolbar--floating ps-floatbar",
+        key="ps-floatbar", build=bar)
+    bar_ref.attr("data-dcs-drag", "")

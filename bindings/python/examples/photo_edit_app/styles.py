@@ -105,16 +105,16 @@ PHOTO_CSS = r"""
 
 /* ── Tool strip ────────────────────────────────────────────────────────── */
 .ps-toolstrip{position:absolute;left:12px;top:12px;display:flex;flex-direction:column;align-items:center;gap:2px;max-height:calc(100% - 24px);overflow:auto;z-index:15}
-/* 2-wide wrapping tool grid. The renderer supports grid TRACKS but not
-   grid-item placement (grid-column:1/-1), so we use flex-wrap and force a
-   full-width break with flex-basis:100% on the separator — it wraps the
-   tools after it onto a new row and draws a full-width rule (web parity). */
-.ps-toolgrid{display:flex;flex-wrap:wrap;width:69px;gap:1px;justify-content:center}
+/* Two-column tool strip built as explicit rows (ps-toolrow) of up to two
+   tools, with each separator as its own full-width row. Deterministic — no
+   reliance on flex-wrap orphan behavior or grid-column placement. */
+.ps-toolgrid{display:flex;flex-direction:column;width:69px;gap:1px;align-items:center}
+.ps-toolrow{display:flex;gap:1px;justify-content:flex-start;width:69px}
 .ps-tool{position:relative;width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:3px;color:var(--dcs-text-dim,#a6adbb);cursor:pointer;border:1px solid transparent;font-size:17px}
 .ps-tool:hover{background:var(--dcs-surface-2,#303642);color:var(--dcs-text,#e7e9ee)}
 .ps-tool[aria-pressed=true]{background:var(--dcs-accent-dim,#263f64);color:var(--dcs-accent-hi,#b9d5ff);border-color:var(--dcs-accent-lo,#3b6ba8)}
 .ps-tool[data-group=true]::after{content:"";position:absolute;right:3px;bottom:3px;border-left:4px solid transparent;border-bottom:4px solid var(--dcs-text-mute,#8c93a3)}
-.ps-toolsep{flex:0 0 100%;width:100%;height:1px;background:var(--dcs-line-soft,#3a3f4c);margin:5px 0}
+.ps-toolsep{width:28px;height:1px;background:var(--dcs-line-soft,#3a3f4c);margin:5px 0}
 .ps-colorchips{position:relative;width:38px;height:38px;margin:8px 0 2px}
 .ps-colorchip{position:absolute;width:24px;height:24px;border:1px solid var(--dcs-line-strong,#4b5262);border-radius:3px;box-shadow:0 3px 8px rgba(0,0,0,.32);cursor:pointer}
 .ps-colorchip--bg{right:0;bottom:0;z-index:1}
@@ -135,7 +135,11 @@ PHOTO_CSS = r"""
 .ps-nav-thumb{position:relative;height:116px;border:1px solid var(--dcs-line,#343946);border-radius:3px;overflow:hidden;background:var(--dcs-well,#171a21);cursor:move}
 .ps-nav-canvas{position:absolute;inset:0}
 .ps-nav-zoomrow{display:flex;align-items:center;gap:7px;color:var(--dcs-text-dim,#a6adbb);font-size:13px}
-.ps-nav-zoomrow>.dcs-field{flex:1 1 auto;min-width:0;height:22px;min-height:22px}
+.ps-nav-zoomrow>.dcs-field{flex:1 1 auto;min-width:0;height:22px;min-height:22px;display:flex;align-items:center}
+/* The slider's labeled field has an empty label span — collapse it so the
+   track fills the row instead of being shoved right. */
+.ps-nav-zoomrow>.dcs-field>.dcs-field__label{display:none}
+.ps-nav-zoomrow>.dcs-field>.dcs-slider{flex:1 1 auto;min-width:0}
 .ps-nav-zoomrow i{cursor:pointer}
 .ps-nav-zoomrow i:hover{color:var(--dcs-text,#e7e9ee)}
 .ps-nav-pct{font-family:var(--dcs-font-mono,monospace);font-size:11px;min-width:34px;text-align:right}

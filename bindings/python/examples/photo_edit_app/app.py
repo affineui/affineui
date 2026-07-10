@@ -105,9 +105,14 @@ class PhotoEditApp:
         self.visual_style = "flat"
         self.accent = "blue"
         self.tweaks_open = False
-        # Decius framework bundle, read once and cached (reload() loads it).
+        # Decius framework bundle, read once and cached; the stylesheet is
+        # installed once (not re-parsed on every reload — see reload()).
         self._decius_css: str | None = None
         self._decius_base: str = ""
+        self._stylesheet_installed = False
+        # True once set_view() has installed the reconcile builder; reload()
+        # then reconciles (rebuild_view) instead of reparsing (load_view).
+        self._view_installed = False
 
         self.status = TOOL_BY_ID[self.tool].tip
         self.panels = {"navigator": True, "color": True, "layers": True,
@@ -148,8 +153,17 @@ class PhotoEditApp:
     def tool_cursor(self) -> str:
         return _TOOL_CURSORS.get(self.tool, "crosshair")
 
-    def build_view(self) -> ui.View:
-        view = ui.View(ui.ViewTheme.Decius)
+    def _populate_view(self, view: ui.View) -> None:
+        """Configure + build the whole UI into a GIVEN view (begin..end).
+
+        This is the set_view() builder body: the App owns a persistent View
+        and hands it here on every rebuild so only the diff reaches the
+        document (the reconcile fast path). It is also reused by build_view()
+        for the legacy load_view path. Selectors and the dock-layout/placement
+        providers are re-applied each call because the App reuses one View
+        across rebuilds — a stale provider from a prior build would otherwise
+        linger.
+        """
         view.selector(ui.decius.selector.style, self.visual_style)
         view.selector(ui.decius.selector.density, self.density)
         view.selector(ui.decius.selector.accent, self.accent)
@@ -175,19 +189,43 @@ class PhotoEditApp:
                            key="ps-dialog-backdrop",
                            build=lambda v: dialogs.build_dialog(self, v))
         view.end()
+
+    def build_view(self) -> ui.View:
+        # Legacy one-shot path (load_view): build a fresh View. The live app
+        # runs through set_view()/_populate_view() instead.
+        view = ui.View(ui.ViewTheme.Decius)
+        self._populate_view(view)
         return view
 
     def reload(self) -> None:
+        # State changed → re-render. When a set_view() builder is installed
+        # (the live app), reconcile synchronously via rebuild_view(): it
+        # re-runs _populate_view() into the App's persistent View and pushes
+        # only the diff to the document — the cheap paint-only mutation path,
+        # NOT the ~74ms serialize+reparse that load_view() pays. Synchronous
+        # (not just invalidate()) so headless tests, which have no frame loop,
+        # still see a rebuilt DOM immediately after reload(). Interactive
+        # per-frame coalescing rides invalidate() from the drag paths.
         if self.app is None:
             return
         self._needs_reload = False
-        self.app.load_view(self.build_view())
-        # The Decius view theme only emits .dcs-*/.di-* class names; the
-        # framework bundle that styles them (and the di icon font) is a
-        # separate sheet the app must load — without it everything renders
-        # unstyled with missing icons. Prepend the bundle to the app CSS
-        # and hand the app the bundle's directory as the base URL so its
-        # relative url(../fonts/…) resolve like a <link>ed sheet.
+        self._ensure_stylesheet()
+        if self._view_installed:
+            self.app.rebuild_view()
+        else:
+            self.app.load_view(self.build_view())
+
+    def _ensure_stylesheet(self) -> None:
+        # The stylesheet (Decius framework bundle + PHOTO_CSS) never changes
+        # between reloads, so parse and install it ONCE. Doing it on every
+        # reload re-parsed the whole bundle each time — ~70ms — which made
+        # every selection/history click feel laggy. The Decius view theme
+        # only emits .dcs-*/.di-* class names; the bundle that styles them
+        # (and the di icon font) is a separate sheet, handed the bundle's
+        # directory as the base URL so its relative url(../fonts/…) resolve
+        # like a <link>ed sheet.
+        if self._stylesheet_installed:
+            return
         if self._decius_css is None:
             self._decius_css, self._decius_base = read_decius_bundle()
             if not self._decius_css:
@@ -197,6 +235,7 @@ class PhotoEditApp:
         combined = (self._decius_css + "\n" + PHOTO_CSS
                     if self._decius_css else PHOTO_CSS)
         self.app.set_stylesheet(combined, self._decius_base or None)
+        self._stylesheet_installed = True
 
     def launch(self, high_dpi: bool, perf: bool, headless: bool) -> None:
         asset_roots = _framework_asset_roots()
@@ -213,7 +252,13 @@ class PhotoEditApp:
         self.doc.attach(self.app)
         self.app.on_event(self._on_event)
         self.app.on_frame(self._on_frame)
-        self.reload()
+        # Install the stylesheet ONCE before the builder: set_stylesheet
+        # re-bootstraps an already-installed view, so doing it first avoids a
+        # redundant rebuild. Then hand the App the reconcile builder — every
+        # later reload() reconciles the diff instead of reparsing the DOM.
+        self._ensure_stylesheet()
+        self.app.set_view(self._populate_view)
+        self._view_installed = True
         if headless:
             self.app.document().layout(1280, 820)
             size = self.app.document().content_size()

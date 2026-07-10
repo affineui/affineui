@@ -1081,20 +1081,28 @@ void Document::draw(Painter& painter) {
         // The dcs-grip drag handle is a dotted texture — widget chrome the
         // painter draws directly (a peer of the checkbox tick / switch knob
         // below), not a CSS background. Drawn dots, so there is no image
-        // resource to own or free. Dots sit on a 4px grid in the element's
-        // resolved color (the grip's currentColor), inset by 1px.
+        // resource to own or free. Small faint dots on a 4px grid in the
+        // grip's currentColor, centered in the grip so a wide/tall grip
+        // keeps the pattern tight rather than a dense full-bleed block.
         if (detail::block_has_class(b, "dcs-grip") &&
-            eff.w > 0 && eff.h > 0) {
-            const Color dot = detail::unpack_rgba(an.color_rgba);
-            if ((an.color_rgba & 0xFFu) != 0) {
-                const int step = 4;
-                const float r = 0.9f;
-                for (int gy = eff.y + 2; gy <= eff.y + eff.h - 2; gy += step) {
-                    for (int gx = eff.x + 2; gx <= eff.x + eff.w - 2;
-                         gx += step) {
-                        painter.fill_circle(static_cast<float>(gx),
-                                            static_cast<float>(gy), r, dot);
-                    }
+            eff.w > 0 && eff.h > 0 && (an.color_rgba & 0xFFu) != 0) {
+            Color dot = detail::unpack_rgba(an.color_rgba);
+            dot.a = static_cast<std::uint8_t>(dot.a * 70 / 100);  // faint
+            const int step = 4;
+            const float r = 0.7f;
+            // Center the dot lattice within the grip's box on both axes so
+            // the rows/cols are balanced (no lopsided edge row).
+            const int cols = std::max(1, (eff.w - 2) / step);
+            const int rows = std::max(1, (eff.h - 2) / step);
+            const int used_w = cols * step;
+            const int used_h = rows * step;
+            const int x0 = eff.x + (eff.w - used_w) / 2 + step / 2;
+            const int y0 = eff.y + (eff.h - used_h) / 2 + step / 2;
+            for (int ry = 0; ry < rows; ++ry) {
+                for (int cx = 0; cx < cols; ++cx) {
+                    painter.fill_circle(
+                        static_cast<float>(x0 + cx * step),
+                        static_cast<float>(y0 + ry * step), r, dot);
                 }
             }
         }
