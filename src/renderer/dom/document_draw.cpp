@@ -1180,14 +1180,32 @@ void Document::draw(Painter& painter) {
                     // the origin by the element's own scroll offset; clip
                     // everything (selection, text, caret, decorations) to the
                     // padding box so overflowing lines never paint over
-                    // content below.
-                    const Rect text_clip{
+                    // content below. The scissor REPLACES the active clip,
+                    // so intersect with the ancestor clip chain too — a
+                    // textarea hanging past its scrolled pane must not paint
+                    // its value outside the pane (tearoff bottom edge).
+                    Rect text_clip{
                         eff.x + used_border_left,
                         eff.y + used_border_top,
                         std::max(0, eff.w - used_border_left -
                                         used_border_right),
                         std::max(0, eff.h - used_border_top -
                                         used_border_bottom)};
+                    Rect anc_clip;
+                    if (detail::clip_rect_for_block(*impl_,
+                                                    static_cast<int>(i),
+                                                    anc_clip)) {
+                        const auto x0 = std::max(text_clip.x, anc_clip.x);
+                        const auto y0 = std::max(text_clip.y, anc_clip.y);
+                        const auto x1 = std::min(text_clip.x + text_clip.w,
+                                                 anc_clip.x + anc_clip.w);
+                        const auto y1 = std::min(text_clip.y + text_clip.h,
+                                                 anc_clip.y + anc_clip.h);
+                        text_clip.x = x0;
+                        text_clip.y = y0;
+                        text_clip.w = std::max(x1 - x0, decltype(x1){0});
+                        text_clip.h = std::max(y1 - y0, decltype(y1){0});
+                    }
                     painter.push_clip(text_clip);
                     pushed_text_control_clip = true;
                 }

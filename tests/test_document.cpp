@@ -8027,6 +8027,47 @@ TEST_CASE("paint: a self-clipping label is ALSO clipped by its scroll pane "
     CHECK(below->clip.h == 0);
 }
 
+TEST_CASE("paint: a textarea's VALUE clip intersects the ancestor chain "
+          "(tearoff-bottom bleed repro)") {
+    // Field bug: the textarea stanza pushes its OWN padding-box scissor for
+    // value/caret/selection painting — and a scissor REPLACES the active
+    // clip. A textarea hanging past the fold of its scrolled pane (the
+    // bottom of a tearoff) therefore painted its value over whatever lay
+    // below the panel. The self-clip must intersect the ancestor chain.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .pane { position: absolute; left: 20px; top: 10px;
+                width: 220px; height: 100px; overflow: auto; }
+        .row  { height: 80px; }
+        textarea { width: 200px; height: 60px; }
+        </style>
+        <div class="pane">
+          <div class="row">above</div>
+          <textarea>WEATHERED SANDSTONE</textarea>
+        </div>
+    )HTML");
+    doc.layout(400, 300, &painter);
+
+    RecordingPainter paint;
+    doc.draw(paint);
+
+    const RecordingPainter::TextDraw* value = nullptr;
+    for (const auto& t : paint.text_draws) {
+        if (t.text.find("WEATHERED") != std::string::npos) value = &t;
+    }
+    REQUIRE(value != nullptr);
+    REQUIRE(value->clipped);
+    // Pane content box bottom edge is y=110; the textarea starts at y=90
+    // (10 + 80), so only its first 20px are inside the pane. The effective
+    // clip must not extend past the pane's fold.
+    MESSAGE("textarea value clip=(", value->clip.x, ",", value->clip.y, " ",
+            value->clip.w, "x", value->clip.h, ")");
+    CHECK(value->clip.y + value->clip.h <= 110);
+}
+
 TEST_CASE("UiControls: float drag is a pure paint translation mid-gesture â€” "
           "layout stays at the grab position, style commits on release") {
     // Compositor semantics (the interaction budget depends on it): while a
