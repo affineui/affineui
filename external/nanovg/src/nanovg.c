@@ -2622,6 +2622,50 @@ enum NVGcodepointType {
 	NVG_CJK_CHAR,
 };
 
+// affineui: minimal kinsoku shori for CJK line breaking. A line must not
+// BEGIN with closing punctuation, small kana, or the prolonged-sound /
+// iteration marks, and must not END with an opening bracket. These sets
+// are mirrored by the text-control caret table in
+// src/renderer/dom/document_text.cpp — keep both in sync or caret
+// positions drift from the painted glyphs.
+static int nvg__cjkNoBreakBefore(unsigned int cp)
+{
+	switch (cp) {
+	case 0x3001: case 0x3002:               // ideographic comma / full stop
+	case 0x30FB: case 0x30FC:               // middle dot, prolonged sound
+	case 0x3005: case 0x303B:               // iteration marks
+	case 0x3009: case 0x300B: case 0x300D:  // closing brackets...
+	case 0x300F: case 0x3011: case 0x3015:
+	case 0x3017: case 0x3019: case 0x301B:
+	case 0xFF01: case 0xFF09: case 0xFF0C:  // full-width ! ) ,
+	case 0xFF0E: case 0xFF1A: case 0xFF1B:  // full-width . : ;
+	case 0xFF1F: case 0xFF3D: case 0xFF5D:  // full-width ? ] }
+	// small kana (hiragana, then katakana)
+	case 0x3041: case 0x3043: case 0x3045: case 0x3047: case 0x3049:
+	case 0x3063: case 0x3083: case 0x3085: case 0x3087: case 0x308E:
+	case 0x30A1: case 0x30A3: case 0x30A5: case 0x30A7: case 0x30A9:
+	case 0x30C3: case 0x30E3: case 0x30E5: case 0x30E7: case 0x30EE:
+	case 0x30F5: case 0x30F6:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+static int nvg__cjkNoBreakAfter(unsigned int cp)
+{
+	switch (cp) {
+	case 0x0028: case 0x005B: case 0x007B:  // ASCII ( [ {
+	case 0x3008: case 0x300A: case 0x300C:  // opening brackets...
+	case 0x300E: case 0x3010: case 0x3014:
+	case 0x3016: case 0x3018: case 0x301A:
+	case 0xFF08: case 0xFF3B: case 0xFF5B:  // full-width ( [ {
+		return 1;
+	default:
+		return 0;
+	}
+}
+
 int nvgTextBreakLines(NVGcontext* ctx, const char* string, const char* end, float breakRowWidth, NVGtextRow* rows, int maxRows)
 {
 	NVGstate* state = nvg__getState(ctx);
@@ -2687,12 +2731,16 @@ int nvgTextBreakLines(NVGcontext* ctx, const char* string, const char* end, floa
 				type = NVG_NEWLINE;
 				break;
 			default:
-				if ((iter.codepoint >= 0x4E00 && iter.codepoint <= 0x9FFF) ||
-					(iter.codepoint >= 0x3000 && iter.codepoint <= 0x30FF) ||
+				// affineui: widened to the full East Asian set (radicals,
+				// kana, compatibility ideographs, Jamo Extended-B, and the
+				// supplementary ideographic planes). Mirrored by
+				// is_cjk_break_class in document_text.cpp.
+				if ((iter.codepoint >= 0x1100 && iter.codepoint <= 0x11FF) ||
+					(iter.codepoint >= 0x2E80 && iter.codepoint <= 0x9FFF) ||
+					(iter.codepoint >= 0xAC00 && iter.codepoint <= 0xD7FF) ||
+					(iter.codepoint >= 0xF900 && iter.codepoint <= 0xFAFF) ||
 					(iter.codepoint >= 0xFF00 && iter.codepoint <= 0xFFEF) ||
-					(iter.codepoint >= 0x1100 && iter.codepoint <= 0x11FF) ||
-					(iter.codepoint >= 0x3130 && iter.codepoint <= 0x318F) ||
-					(iter.codepoint >= 0xAC00 && iter.codepoint <= 0xD7AF))
+					(iter.codepoint >= 0x20000 && iter.codepoint <= 0x3FFFF))
 					type = NVG_CJK_CHAR;
 				else
 					type = NVG_CHAR;
@@ -2740,6 +2788,12 @@ int nvgTextBreakLines(NVGcontext* ctx, const char* string, const char* end, floa
 				}
 			} else {
 				float nextWidth = iter.nextx - rowStartX;
+				// affineui: a break directly before a CJK char obeys
+				// kinsoku — never before a closer/small kana, never after
+				// an opener.
+				int cjkBreak = type == NVG_CJK_CHAR &&
+					!nvg__cjkNoBreakBefore(iter.codepoint) &&
+					!nvg__cjkNoBreakAfter(pcodepoint);
 
 				// track last non-white space character
 				if (type == NVG_CHAR || type == NVG_CJK_CHAR) {
@@ -2748,13 +2802,13 @@ int nvgTextBreakLines(NVGcontext* ctx, const char* string, const char* end, floa
 					rowMaxX = q.x1 - rowStartX;
 				}
 				// track last end of a word
-				if (((ptype == NVG_CHAR || ptype == NVG_CJK_CHAR) && type == NVG_SPACE) || type == NVG_CJK_CHAR) {
+				if (((ptype == NVG_CHAR || ptype == NVG_CJK_CHAR) && type == NVG_SPACE) || cjkBreak) {
 					breakEnd = iter.str;
 					breakWidth = rowWidth;
 					breakMaxX = rowMaxX;
 				}
 				// track last beginning of a word
-				if ((ptype == NVG_SPACE && (type == NVG_CHAR || type == NVG_CJK_CHAR)) || type == NVG_CJK_CHAR) {
+				if ((ptype == NVG_SPACE && (type == NVG_CHAR || type == NVG_CJK_CHAR)) || cjkBreak) {
 					wordStart = iter.str;
 					wordStartX = iter.x;
 					wordMinX = q.x0;

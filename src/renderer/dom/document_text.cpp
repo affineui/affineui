@@ -422,6 +422,108 @@ std::size_t snap_utf8_boundary(std::string_view s, std::size_t pos) {
     return pos;
 }
 
+// ── CJK line breaking for text controls ─────────────────────────────
+// CJK prose has no inter-word spaces, so the text-control wrap loop —
+// which only knows space/tab break opportunities — would otherwise put
+// every caret on one enormous visual line. The glyphs themselves are
+// wrapped by the painter (nvgTextBreakLines), so the contract here is
+// strict: these classes and kinsoku sets MUST mirror the affineui
+// patches in external/nanovg/src/nanovg.c (nvg__cjkNoBreakBefore /
+// nvg__cjkNoBreakAfter and the NVG_CJK_CHAR ranges), or caret positions
+// drift off the painted text. A break is allowed directly BEFORE a CJK
+// codepoint unless kinsoku prohibits it (no line starting with a
+// closer/small kana, no line ending with an opener).
+
+std::uint32_t utf8_codepoint_at(std::string_view s, std::size_t pos) {
+    if (pos >= s.size()) return 0;
+    const auto b0 = static_cast<unsigned char>(s[pos]);
+    if (b0 < 0x80u) return b0;
+    const auto cont = [&](std::size_t i) -> std::uint32_t {
+        return i < s.size()
+            ? static_cast<std::uint32_t>(
+                  static_cast<unsigned char>(s[i]) & 0x3Fu)
+            : 0u;
+    };
+    if ((b0 & 0xE0u) == 0xC0u) {
+        return (static_cast<std::uint32_t>(b0 & 0x1Fu) << 6) | cont(pos + 1);
+    }
+    if ((b0 & 0xF0u) == 0xE0u) {
+        return (static_cast<std::uint32_t>(b0 & 0x0Fu) << 12) |
+               (cont(pos + 1) << 6) | cont(pos + 2);
+    }
+    if ((b0 & 0xF8u) == 0xF0u) {
+        return (static_cast<std::uint32_t>(b0 & 0x07u) << 18) |
+               (cont(pos + 1) << 12) | (cont(pos + 2) << 6) | cont(pos + 3);
+    }
+    return 0;
+}
+
+// Ideographs, kana, Hangul, CJK punctuation, and full-width forms — the
+// classes that permit breaking between adjacent characters.
+bool is_cjk_break_class(std::uint32_t cp) {
+    return (cp >= 0x1100u && cp <= 0x11FFu) ||
+           (cp >= 0x2E80u && cp <= 0x9FFFu) ||
+           (cp >= 0xAC00u && cp <= 0xD7FFu) ||
+           (cp >= 0xF900u && cp <= 0xFAFFu) ||
+           (cp >= 0xFF00u && cp <= 0xFFEFu) ||
+           (cp >= 0x20000u && cp <= 0x3FFFFu);
+}
+
+// Kinsoku 行頭禁則: characters that must not begin a line — closing
+// punctuation, small kana, the prolonged-sound mark, iteration marks.
+bool kinsoku_no_break_before(std::uint32_t cp) {
+    switch (cp) {
+        case 0x3001: case 0x3002:               // 、 。
+        case 0x30FB: case 0x30FC:               // ・ ー
+        case 0x3005: case 0x303B:               // 々 〻
+        case 0x3009: case 0x300B: case 0x300D:  // 〉 》 」
+        case 0x300F: case 0x3011: case 0x3015:  // 』 】 〕
+        case 0x3017: case 0x3019: case 0x301B:  // 〗 〙 〛
+        case 0xFF01: case 0xFF09: case 0xFF0C:  // ！ ） ，
+        case 0xFF0E: case 0xFF1A: case 0xFF1B:  // ． ： ；
+        case 0xFF1F: case 0xFF3D: case 0xFF5D:  // ？ ］ ｝
+            return true;
+        default: break;
+    }
+    // Small kana: ぁぃぅぇぉっゃゅょゎ and katakana counterparts.
+    switch (cp) {
+        case 0x3041: case 0x3043: case 0x3045: case 0x3047: case 0x3049:
+        case 0x3063: case 0x3083: case 0x3085: case 0x3087: case 0x308E:
+        case 0x30A1: case 0x30A3: case 0x30A5: case 0x30A7: case 0x30A9:
+        case 0x30C3: case 0x30E3: case 0x30E5: case 0x30E7: case 0x30EE:
+        case 0x30F5: case 0x30F6:
+            return true;
+        default: return false;
+    }
+}
+
+// Kinsoku 行末禁則: opening brackets must not end a line.
+bool kinsoku_no_break_after(std::uint32_t cp) {
+    switch (cp) {
+        case 0x0028: case 0x005B: case 0x007B:  // ASCII ( [ {
+        case 0x3008: case 0x300A: case 0x300C:  // 〈 《 「
+        case 0x300E: case 0x3010: case 0x3014:  // 『 【 〔
+        case 0x3016: case 0x3018: case 0x301A:  // 〖 〘 〚
+        case 0xFF08: case 0xFF3B: case 0xFF5B:  // （ ［ ｛
+            return true;
+        default: return false;
+    }
+}
+
+// Is the boundary between the codepoint starting at `pos` and the one
+// starting at `next` a CJK break opportunity? Like nvgTextBreakLines, a
+// break is allowed before any CJK codepoint (even after Latin text),
+// kinsoku permitting.
+bool cjk_break_opportunity(std::string_view s,
+                           std::size_t pos,
+                           std::size_t next) {
+    if (next >= s.size()) return false;
+    const std::uint32_t after = utf8_codepoint_at(s, next);
+    if (!is_cjk_break_class(after)) return false;
+    return !kinsoku_no_break_before(after) &&
+           !kinsoku_no_break_after(utf8_codepoint_at(s, pos));
+}
+
 void reset_composition_state(detail::DocumentImpl& impl) {
     impl.composition_node = nullptr;
     impl.composition_text.clear();
@@ -920,6 +1022,11 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
 
             if (is_soft_break_space(pos)) {
                 last_break_begin = pos;
+                last_break_end = next;
+            } else if (cjk_break_opportunity(value, pos, next)) {
+                // Break BETWEEN CJK codepoints: nothing is consumed, the
+                // next line starts exactly at the boundary.
+                last_break_begin = next;
                 last_break_end = next;
             }
             pos = next;
