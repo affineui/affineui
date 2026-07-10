@@ -1507,6 +1507,13 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
             case DropZone::Bottom: window_edge.x = 0;       window_edge.y = hh - sh; window_edge.w = hw; window_edge.h = sh; break;
             default: break;
         }
+        // The edge band wins UNCONDITIONALLY — even with a dockpane under
+        // the cursor. Cursor-at-the-window-edge is an explicit "span this
+        // whole side" intent; showing the local pane's edge split there
+        // makes the full-span arrangement unreachable near edge panes.
+        // (Deviation from decius.js Ke, which lets a pane edge under the
+        // cursor beat the window band — candidate to back-port.)
+        return window_edge;
     }
 
     // (Ne) the dock pane under the cursor (same dock-kind). Mirror JS

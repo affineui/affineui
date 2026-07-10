@@ -25,6 +25,7 @@ namespace {
 class RecordingPainter final : public affineui::Painter {
 public:
     struct TextDraw {
+        int seq{0};  // global op order (shared counter with FillDraw)
         std::string text;
         affineui::Point pos;
         affineui::Color color;
@@ -35,7 +36,12 @@ public:
         affineui::Rect clip{};
         bool clipped{false};
     };
+    // Global op sequence: monotonically stamps fills and text runs so tests
+    // can assert CROSS-vector paint order (e.g. "the upper float's
+    // background painted after the lower float's text").
+    int op_seq{0};
     struct FillDraw {
+        int seq{0};
         affineui::Rect rect;
         affineui::Color color;
         affineui::Mat2x3 transform;
@@ -130,7 +136,7 @@ public:
     void end_frame() override {}
     void fill_rect(const affineui::Rect& rect, affineui::Color color) override {
         fill_colors.push_back(color);
-        fill_draws.push_back({rect, color, current_transform});
+        fill_draws.push_back({++op_seq, rect, color, current_transform});
     }
     void stroke_rect(const affineui::Rect&, affineui::Color color, float) override {
         stroke_colors.push_back(color);
@@ -246,7 +252,7 @@ public:
     void draw_text(std::uint32_t, const affineui::Point& pos,
                    std::string_view text, affineui::Color color) override {
         text_runs.emplace_back(text);
-        TextDraw d{std::string(text), pos, color, 0.0f,
+        TextDraw d{++op_seq, std::string(text), pos, color, 0.0f,
                    TextAlign::Left, current_alpha};
         if (!active_clip_stack.empty()) {
             d.clip = active_clip_stack.back();
@@ -269,7 +275,7 @@ public:
         const affineui::Point pos{static_cast<int>(std::lround(x)),
                                   static_cast<int>(std::lround(y))};
         text_runs.emplace_back(text);
-        TextDraw d{std::string(text), pos, color, max_width, align,
+        TextDraw d{++op_seq, std::string(text), pos, color, max_width, align,
                    current_alpha};
         if (!active_clip_stack.empty()) {
             d.clip = active_clip_stack.back();
@@ -8027,6 +8033,53 @@ TEST_CASE("paint: a self-clipping label is ALSO clipped by its scroll pane "
     CHECK(below->clip.h == 0);
 }
 
+TEST_CASE("paint: same-z floating panels paint ATOMICALLY - the lower "
+          "float's text goes under the upper float's background") {
+    // Field bug (PhotoEdit palettes, any overlapping same-z floats): the
+    // boxes-then-text phases were grouped per z VALUE, so two floats both
+    // at z-index:60 shared one group — every background painted, then every
+    // text run, and the covered palette's labels bled through the panel
+    // above it. Phases must group per stacking ROOT: each float is atomic.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .host  { position: relative; width: 400px; height: 300px; }
+        .float { position: absolute; z-index: 60; width: 200px;
+                 height: 120px; }
+        .under { left: 20px;  top: 20px; background: #222222; }
+        .over  { left: 120px; top: 60px; background: #123456; }
+        </style>
+        <div class="host">
+          <div class="float under"><div>COVERED LABEL</div></div>
+          <div class="float over"><div>ON TOP</div></div>
+        </div>
+    )HTML");
+    doc.layout(400, 300, &painter);
+
+    RecordingPainter paint;
+    doc.draw(paint);
+
+    const RecordingPainter::TextDraw* covered = nullptr;
+    for (const auto& t : paint.text_draws) {
+        if (t.text.find("COVERED") != std::string::npos) covered = &t;
+    }
+    REQUIRE(covered != nullptr);
+    const RecordingPainter::FillDraw* over_bg = nullptr;
+    for (const auto& f : paint.fill_draws) {
+        // #123456 — the upper float's background fill.
+        if (f.color.r == 0x12 && f.color.g == 0x34 && f.color.b == 0x56) {
+            over_bg = &f;
+        }
+    }
+    REQUIRE(over_bg != nullptr);
+    MESSAGE("covered-text seq=", covered->seq, " upper-bg seq=", over_bg->seq);
+    // The lower float paints atomically (bg THEN text) before the upper
+    // float's background — so the label ends up underneath.
+    CHECK(covered->seq < over_bg->seq);
+}
+
 TEST_CASE("paint: a textarea's VALUE clip intersects the ancestor chain "
           "(tearoff-bottom bleed repro)") {
     // Field bug: the textarea stanza pushes its OWN padding-box scissor for
@@ -8830,7 +8883,8 @@ TEST_CASE("UiControls: dropping a dragged tab on another pane's edge zone "
     CHECK(layout.root.children[1].tabs == std::vector<std::string>{"A"});
 }
 
-TEST_CASE("UiControls: viewport edge docking does not steal a pane edge") {
+TEST_CASE("UiControls: the window-edge band WINS over a pane edge under "
+          "the cursor (edge dock is an explicit full-span intent)") {
     affineui::Document doc;
     RecordingPainter painter;
     doc.set_html(R"HTML(
@@ -8875,10 +8929,16 @@ TEST_CASE("UiControls: viewport edge docking does not steal a pane edge") {
     // as a direct sibling of A in the WORKSPACE dock (root.children order) â€”
     // a window-edge split would instead wrap the workspace dock in a new one
     // (root.children[1] would be a nested split, not the A leaf).
+    //
+    // UPDATED CONTRACT: the WINDOW EDGE wins over the pane edge under the
+    // cursor. Cursor-at-the-edge is an explicit "span this whole side"
+    // intent; the full-span arrangement would otherwise be unreachable
+    // wherever a pane touches the edge. The fresh pane docks against the
+    // whole workspace, wrapping the old root: [fresh(B), wrapped(A)].
     auto tabB = find_hovered_id(doc, "tabB", 600, 400);
     REQUIRE(tabB.x >= 0);
     ev(affineui::EventType::MouseDown, tabB);
-    ev(affineui::EventType::MouseMove, {8, 200});   // pane edge wins under cursor
+    ev(affineui::EventType::MouseMove, {8, 200});   // window-edge band wins
     ev(affineui::EventType::MouseUp, {8, 200});
     const auto layout = doc.dock_layout();
     REQUIRE(layout.present);
@@ -8886,10 +8946,17 @@ TEST_CASE("UiControls: viewport edge docking does not steal a pane edge") {
     REQUIRE(layout.root.split);
     CHECK_FALSE(layout.root.vertical);
     REQUIRE(layout.root.children.size() == 2);
-    CHECK_FALSE(layout.root.children[0].split);  // leaf, not a wrapped dock
-    CHECK_FALSE(layout.root.children[1].split);
+    // First child: B as a full-height leaf pinned to the left edge.
+    CHECK_FALSE(layout.root.children[0].split);
     CHECK(layout.root.children[0].tabs == std::vector<std::string>{"B"});
-    CHECK(layout.root.children[1].tabs == std::vector<std::string>{"A"});
+    // Second child: the WRAPPED old workspace dock holding A.
+    REQUIRE(layout.root.children[1].split);
+    REQUIRE(layout.root.children[1].children.size() == 1);
+    CHECK(layout.root.children[1].children[0].tabs ==
+          std::vector<std::string>{"A"});
+    // B spans the workspace's full height (the edge-dock contract).
+    const auto rb = doc.find_element_rect("pane-B");
+    CHECK(rb.h >= 395);
 }
 
 TEST_CASE("UiControls: dock tab drag shows a transient title ghost") {

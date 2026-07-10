@@ -177,11 +177,38 @@ void Document::draw(Painter& painter) {
         });
 #endif
 
-    // Two paint passes per z level (CSS 2.1 Appendix E): every block's
-    // background/border at this stacking level paints before ANY of the
-    // level's text. Glyph ink that overhangs its box (descenders in
+    // Two paint passes per STACKING CONTEXT (CSS 2.1 Appendix E): every
+    // block's background/border in a context paints before ANY of that
+    // context's text. Glyph ink that overhangs its box (descenders in
     // line-height:1 menu rows) can then never be overpainted by the next
     // sibling's background — matching browser painting order.
+    //
+    // The grouping must be per stacking ROOT, not per z VALUE: two floating
+    // panels both at z-index:60 are separate atomic units — the earlier
+    // panel's TEXT must paint before the later panel's BACKGROUND, or a
+    // covered palette's labels bleed through the panel above it. Blocks are
+    // appended in DFS order, so a root's subtree is contiguous within its z
+    // group and the group boundary is a simple root change.
+    //
+    // stacking_roots[i]: the OUTERMOST ancestor-or-self carrying a positive
+    // z-index (the float section, a menu, a popover), or -1 for base flow.
+    // parent_idx < i (DFS append order), so one forward pass settles it.
+    std::vector<int> stacking_roots(impl_->blocks.size(), -1);
+#if !defined(AFFINEUI_STUB_BUILD)
+    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
+        const auto& blk = impl_->blocks[i];
+        const int parent_root =
+            blk.parent_idx >= 0
+                ? stacking_roots[static_cast<std::size_t>(blk.parent_idx)]
+                : -1;
+        stacking_roots[i] =
+            parent_root != -1
+                ? parent_root
+                : (impl_->style_store.computed(blk.id).z_index_low > 0
+                       ? static_cast<int>(i)
+                       : -1);
+    }
+#endif
     enum class BlockPaintPhase : std::uint8_t { Boxes, Text };
     std::vector<std::pair<int, BlockPaintPhase>> phased_order;
     phased_order.reserve(paint_order.size() * 2);
@@ -192,9 +219,13 @@ void Document::draw(Painter& painter) {
 #if !defined(AFFINEUI_STUB_BUILD)
             const int group_z =
                 detail::effective_z_index(*impl_, paint_order[group_begin]);
+            const int group_root = stacking_roots[static_cast<std::size_t>(
+                paint_order[group_begin])];
             while (group_end < paint_order.size() &&
                    detail::effective_z_index(*impl_, paint_order[group_end]) ==
-                       group_z) {
+                       group_z &&
+                   stacking_roots[static_cast<std::size_t>(
+                       paint_order[group_end])] == group_root) {
                 ++group_end;
             }
 #else
