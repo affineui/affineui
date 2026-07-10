@@ -8039,21 +8039,28 @@ TEST_CASE("paint: same-z floating panels paint ATOMICALLY - the lower "
     // boxes-then-text phases were grouped per z VALUE, so two floats both
     // at z-index:60 shared one group — every background painted, then every
     // text run, and the covered palette's labels bled through the panel
-    // above it. Phases must group per stacking ROOT: each float is atomic.
+    // above it. Phases must group per NEAREST stacking root: each float is
+    // atomic. The layer wrapper below models the View's float LAYER, which
+    // itself carries a z-index — an "outermost root" rule made IT the
+    // shared root of every float and the bleed survived (second repro).
     affineui::Document doc;
     RecordingPainter painter;
     doc.set_html(R"HTML(
         <style>
         html, body { margin: 0; padding: 0; }
         .host  { position: relative; width: 400px; height: 300px; }
+        .layer { position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+                 z-index: 60; }
         .float { position: absolute; z-index: 60; width: 200px;
                  height: 120px; }
         .under { left: 20px;  top: 20px; background: #222222; }
         .over  { left: 120px; top: 60px; background: #123456; }
         </style>
         <div class="host">
-          <div class="float under"><div>COVERED LABEL</div></div>
-          <div class="float over"><div>ON TOP</div></div>
+          <div class="layer">
+            <div class="float under"><div>COVERED LABEL</div></div>
+            <div class="float over"><div>ON TOP</div></div>
+          </div>
         </div>
     )HTML");
     doc.layout(400, 300, &painter);
