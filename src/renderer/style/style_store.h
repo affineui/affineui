@@ -46,6 +46,11 @@ public:
     /// slot doesn't participate in lookup() / element_of().
     ElementId acquire_synthetic();
 
+    /// Release the slot bound to a DOM element. The slot becomes invalid
+    /// immediately and may be recycled by a later acquire(); stale ElementIds
+    /// remain invalid because reuse advances the slot generation.
+    void release(lxb_dom_element_t* element);
+
     /// Release every slot; arrays keep their capacity for reuse.
     /// Called by Document::set_html when the DOM is wholesale
     /// replaced.
@@ -107,6 +112,12 @@ private:
 
     // Reverse map for lookup() — lexbor element → ElementId.
     std::unordered_map<lxb_dom_element_t*, std::uint32_t> by_element_;
+
+    struct FreeSlot {
+        std::uint32_t index{0};
+        std::uint16_t generation{0};
+    };
+    std::vector<FreeSlot> free_slots_;
 
     // Font registry. Index = font_id (1..255), value = family string.
     // Index 0 is reserved for "sans" / default.

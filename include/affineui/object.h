@@ -262,6 +262,89 @@ bool set_property(T& obj, std::string_view prop, const PropertyValue& value) {
     return get_class(obj).set(&obj, prop, value);
 }
 
+// ── Snapshot / diff / apply — change-tracking primitives (STUBS) ─────────────
+//
+// The intended undo/redo architecture is change-tracking by DIFF, not
+// per-field commands: before an edit touches an object it is marked changed,
+// which snapshots a "before" image; at the end of the transaction the object
+// is diffed against its current state and the delta becomes one undo entry
+// (undo applies the old side, redo the new). See the app:: DCC shell's change
+// tracker for the transaction boundary (frame-default, explicit override).
+//
+// These are the three reflection primitives that model needs. They are
+// declared here to reserve the seam and document the contract; NONE is
+// implemented yet — nobody has to. The payloads are deliberately OPAQUE: a
+// snapshot or diff might be a text blob, a packed binary, or something
+// engine-specific. Callers pass them back and forth without interpreting them;
+// only diff()/apply() (once implemented) understand the bytes. Keeping them
+// opaque lets the representation change (text ↔ binary ↔ delta-encoded)
+// without touching any caller.
+
+/// Opaque captured state of one reflected object (the "before" image). The
+/// payload is unspecified — hold it, hand it back to diff(); do not inspect it.
+struct ObjectSnapshot {
+    std::any payload;  // opaque; representation is an implementation detail
+    [[nodiscard]] bool valid() const noexcept { return payload.has_value(); }
+};
+
+/// Opaque delta between two snapshots (or a snapshot and live state): the set
+/// of changed properties, each with an old and a new value. Undo applies the
+/// old side, redo the new. Representation is unspecified.
+struct ObjectDiff {
+    std::any payload;  // opaque
+    /// True when nothing changed (an edit that was a no-op → no undo entry).
+    [[nodiscard]] bool empty() const noexcept { return !payload.has_value(); }
+};
+
+/// Which side of a diff to write back.
+enum class DiffSide { Old, New };
+
+// The primitives below are inline STUBS: the framework provides the base
+// types + these signatures (the skeleton); an app implements the bodies for
+// its own snapshot/diff representation, using type_id()/dynamic_cast for
+// runtime identity. Default bodies are inert so unimplemented callers link and
+// simply record no change.
+
+/// Capture an opaque "before" image of `obj`'s reflected state. STUB — returns
+/// an empty snapshot until an app implements the change-tracking model.
+[[nodiscard]] inline ObjectSnapshot snapshot(const ObjectClass& cls,
+                                             const void* obj) {
+    (void)cls;
+    (void)obj;
+    return ObjectSnapshot{};
+}
+
+/// Diff a captured "before" snapshot against `obj`'s current state → the
+/// changed-property delta. STUB — returns an empty diff for now.
+[[nodiscard]] inline ObjectDiff diff(const ObjectClass& cls,
+                                     const ObjectSnapshot& before,
+                                     const void* obj) {
+    (void)cls;
+    (void)before;
+    (void)obj;
+    return ObjectDiff{};
+}
+
+/// Diff two snapshots directly (before vs. after), without a live object.
+/// STUB.
+[[nodiscard]] inline ObjectDiff diff(const ObjectSnapshot& before,
+                                     const ObjectSnapshot& after) {
+    (void)before;
+    (void)after;
+    return ObjectDiff{};
+}
+
+/// Write one side of a diff back onto `obj` (undo = Old, redo = New). STUB —
+/// no-op returning false until implemented.
+inline bool apply(const ObjectClass& cls, void* obj, const ObjectDiff& delta,
+                  DiffSide side) {
+    (void)cls;
+    (void)obj;
+    (void)delta;
+    (void)side;
+    return false;
+}
+
 /// An optional convenience base for app objects: it is Trackable (so live UI
 /// bindings to it are crash-safe) and carries a virtual class-getter, so a
 /// derived type automatically conforms to the reflection protocol — no separate

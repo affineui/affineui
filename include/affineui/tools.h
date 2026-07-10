@@ -38,6 +38,8 @@
 
 namespace affineui {
 
+class Document;
+
 #if AFFINEUI_TOOLS
 
 /// Start the protocol server (idempotent). `port` 0 binds an ephemeral
@@ -71,6 +73,19 @@ void tools_shutdown();
 /// stderr); repeated calls within a debounce window are ignored.
 bool tools_open_devtools();
 
+/// True when devtools read commands (dom/css/resource domains) are
+/// queued and waiting for tools_pump. One relaxed atomic load.
+[[nodiscard]] bool tools_has_pending() noexcept;
+
+/// Service queued devtools read commands against `doc` — the app-thread
+/// half of the request path (AFFINETOOLS_DESIGN.md §2.1). All reads are
+/// read-only-never-relayout (§2.4): they return last-laid-out values and
+/// never mutate the document. App calls this automatically once per
+/// frame (including on idle-short-circuited frames, so a quiet target
+/// still answers); embedded hosts driving render_to() themselves call it
+/// once per frame on their UI thread.
+void tools_pump(Document& doc);
+
 namespace tools {
 
 /// One relaxed atomic load: is an authenticated client subscribed to
@@ -95,6 +110,8 @@ inline bool tools_listen_from_env() { return false; }
 [[nodiscard]] inline int tools_port() noexcept { return 0; }
 inline void tools_shutdown() {}
 inline bool tools_open_devtools() { return false; }
+[[nodiscard]] inline bool tools_has_pending() noexcept { return false; }
+inline void tools_pump(Document&) {}
 
 namespace tools {
 [[nodiscard]] inline bool wants_telemetry() noexcept { return false; }

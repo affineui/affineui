@@ -121,6 +121,12 @@ public:
     /// meters): no restyle, no layout, no reconcile.
     void request_custom_repaint(std::string_view name);
 
+    /// Programmatically set the value a named widget displays, in place
+    /// (no view rebuild) and without echoing an on_change — the
+    /// write-back half of a data binding, e.g. an inspector tracking a
+    /// 3D gizmo drag. See Document::set_widget_value.
+    bool set_widget_value(std::string_view name, std::string_view value);
+
     /// Enable/disable the native performance overlay. The overlay is drawn
     /// outside the document tree so it never affects layout.
     void set_perf_overlay_enabled(bool enabled);

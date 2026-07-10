@@ -500,6 +500,12 @@ public:
     WidgetRef& add_class(std::string_view token);
     WidgetRef& on_click(std::function<void()> cb);
     WidgetRef& on_change(std::function<void(std::string_view)> cb);
+    /// Fires only on COMMITTED changes: the end of a continuous gesture
+    /// (a combo/slider/knob scrub, a colour-picker drag) or a discrete
+    /// edit. on_change streams every change including the live ones —
+    /// bind cheap preview work there and the undoable command here, so
+    /// a scrub previews continuously and commits once.
+    WidgetRef& on_commit(std::function<void(std::string_view)> cb);
     WidgetRef& append(const std::function<void(View&)>& build);
     WidgetRef& replace(const std::function<void(View&)>& build);
 
@@ -860,13 +866,21 @@ public:
     /// A vector field: a labeled row of 2–4 numeric channels (a dcs-vec of
     /// drag-scrub combos). `channels` are the per-channel tags (e.g.
     /// {"X","Y","Z"}); its size (2–4) is the channel count. `values` are the
-    /// initial channel values (missing entries default to 0). Returns the vec
-    /// ref; bind on_change on individual channels via component<>/find if
-    /// needed.
+    /// initial channel values (missing entries default to 0). `step` is the
+    /// per-channel snap/format step: the default 0.01 makes float channels;
+    /// pass 1.0 for an integer vector (values snap to whole numbers and
+    /// render without decimals — same dcs-combo, JS-parity data-step).
+    /// Returns the vec ref; bind on_change on individual channels via
+    /// component<>/find if needed.
+    /// `linear` (default false) forwards to each channel combo — set true
+    /// for a fixed-scale vector like rotation (constant step/pixel scrub,
+    /// no magnitude acceleration).
     WidgetRef vec(std::string_view label,
                   const std::vector<std::string>& channels,
                   const std::vector<double>& values = {},
                   std::string_view key = {},
+                  double step = 0.01,
+                  bool linear = false,
                   std::source_location here = std::source_location::current());
     /// A drag splitter between docked regions. `horizontal` splits top/bottom.
     WidgetRef splitter(bool horizontal = false,
@@ -920,10 +934,16 @@ public:
     /// field/label wrapper — for packing several into a dcs-vec or a custom
     /// row. `label` is the short axis tag shown inside the combo (e.g. "X").
     /// Returns the combo ref (on_change fires with the new value).
+    /// `linear` = drag sensitivity is a constant step/pixel. The default
+    /// (false) accelerates the free scrub with the value's magnitude
+    /// (reach large numbers without a mile-long drag); set true for a
+    /// fixed-scale quantity like rotation degrees, where acceleration
+    /// feels wrong.
     WidgetRef combo(std::string_view label,
                     double value,
                     double step = 0.01,
                     std::string_view key = {},
+                    bool linear = false,
                     std::source_location here = std::source_location::current());
 
     [[nodiscard]] WidgetRef find_widget(std::string_view name);
@@ -958,6 +978,7 @@ public:
 
     [[nodiscard]] std::vector<WidgetClickBinding> click_bindings() const;
     [[nodiscard]] std::vector<WidgetChangeBinding> change_bindings() const;
+    [[nodiscard]] std::vector<WidgetChangeBinding> commit_bindings() const;
     [[nodiscard]] const WidgetNode* find_remote(std::string_view remote_id) const;
     [[nodiscard]] std::string to_html_fragment() const;
     [[nodiscard]] std::string to_html_document() const;
@@ -997,6 +1018,8 @@ private:
     void set_click_handler(WidgetNode& node, std::function<void()> cb);
     void set_change_handler(WidgetNode& node,
                             std::function<void(std::string_view)> cb);
+    void set_commit_handler(WidgetNode& node,
+                            std::function<void(std::string_view)> cb);
     void clear_children(WidgetNode& node);
     void set_widget_name(WidgetNode& node, std::string_view name);
     void unregister_tree(const WidgetNode& node);
@@ -1032,6 +1055,8 @@ private:
     std::vector<std::pair<StableId, std::function<void()>>> click_handlers_;
     std::vector<std::pair<StableId, std::function<void(std::string_view)>>>
         change_handlers_;
+    std::vector<std::pair<StableId, std::function<void(std::string_view)>>>
+        commit_handlers_;
     std::vector<std::string> diagnostics_;
     ViewSink* sink_{nullptr};
     ViewSink* mutation_sink_{nullptr};

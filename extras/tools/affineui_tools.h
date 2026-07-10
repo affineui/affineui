@@ -15,9 +15,11 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "affineui/telemetry.h"
+#include "affineui/types.h"
 
 namespace affineui::tools {
 
@@ -42,6 +44,52 @@ struct LogEntry {
     std::uint64_t frame{0};
     double        t_ms{0.0};
     std::string   text;
+};
+
+/// One node of the target's DOM tree (dom.document / dom.children).
+/// `nid` is the wire node id — a versioned weak handle; a mutation that
+/// removes the node makes it stale and further requests answer an error
+/// (refetch from the root). Text nodes carry tag "#text" and `text`.
+struct DomNodeInfo {
+    DomHandle   nid{};
+    std::string tag;
+    std::string text;         // #text preview (elements: empty)
+    std::vector<std::pair<std::string, std::string>> attrs;
+    int         child_count{0};
+    Rect        rect{};       // last-laid-out border box, visual space
+    [[nodiscard]] bool is_text() const noexcept { return tag == "#text"; }
+    /// Convenience: the value of `name`, or "" when absent.
+    [[nodiscard]] std::string_view attr(std::string_view name) const noexcept {
+        for (const auto& [k, v] : attrs) {
+            if (k == name) return v;
+        }
+        return {};
+    }
+};
+
+/// css.box_model — last-laid-out box numbers for one element.
+/// `laid_out` false means the element has no box (display:none subtree,
+/// <head> content, …); the other fields are then zeroed.
+struct BoxModel {
+    bool laid_out{false};
+    Rect rect{};      // border box, document space
+    Rect visual{};    // border box, visual space (scroll/transform applied)
+    int  margin[4]{};  // top, right, bottom, left
+    int  border[4]{};
+    int  padding[4]{};
+    int  scroll_y{0};
+    int  content_h{0};
+};
+
+/// resource.stylesheets — one enumerable stylesheet source, in cascade
+/// order (author <style>/<link> sheets in document order, then the user
+/// stylesheet last). `bytes` is -1 for a <link> until its text is
+/// fetched.
+struct StylesheetInfo {
+    int         index{0};
+    std::string origin;  // "style" | "link" | "user"
+    std::string label;   // href or a positional label
+    long long   bytes{0};
 };
 
 /// Thread-safe snapshot of everything the client knows about its target.
@@ -96,6 +144,27 @@ public:
     /// and the "N lines" readout), and lines dropped to the budget.
     [[nodiscard]] std::size_t   log_count() const noexcept;
     [[nodiscard]] std::uint64_t log_dropped() const noexcept;
+
+    // ── read requests (dom / css / resource domains) ──────────────────
+    // Synchronous request/response over the wire: the target answers at
+    // its next frame boundary (or idle tick), typically single-digit ms
+    // on loopback. Each call blocks the calling thread up to ~2 s and
+    // returns false on timeout, disconnect, or a wire error (e.g. a
+    // stale nid after the target mutated — refetch from the root).
+    // Call from the UI thread on user interaction, not per frame.
+
+    /// Fetch the document root (shallow — children via dom_children).
+    bool dom_document(DomNodeInfo& out_root);
+    /// Fetch `nid`'s tree children (elements + non-whitespace text).
+    bool dom_children(const DomHandle& nid, std::vector<DomNodeInfo>& out);
+    /// Serialized outer HTML of `nid` (empty handle = whole document).
+    bool dom_html(const DomHandle& nid, std::string& out_html);
+    /// Last-laid-out box numbers for `nid`.
+    bool css_box_model(const DomHandle& nid, BoxModel& out);
+    /// Enumerate the target's stylesheet sources.
+    bool stylesheets(std::vector<StylesheetInfo>& out);
+    /// Fetch one stylesheet's text by enumeration index.
+    bool stylesheet_text(int index, std::string& out_text);
 
 private:
     struct Impl;

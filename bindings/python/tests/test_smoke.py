@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 import affineui as ui
+import photo_core
 
 
 def test_version_is_available():
@@ -367,33 +368,31 @@ def test_append_is_illegal_during_generation():
 
 
 def test_photo_document_core_layer_history_operations():
-    doc = ui.PhotoDocument(640, 480)
+    doc = photo_core.PhotoDocument(640, 480)
 
     assert doc.width() == 640
     assert doc.height() == 480
-    assert doc.active_layer_id() == "retouch"
-    assert doc.active_layer().name == "Hero retouch"
-    assert doc.history()[doc.history_index()] == "Layer Opacity"
+    assert doc.active_layer().name == "Background"
 
     new_id = doc.add_layer("Paint test")
-    assert doc.active_layer_id() == new_id
+    assert doc.active_id() == new_id
     assert doc.active_layer().name == "Paint test"
-    assert doc.history()[doc.history_index()] == "New Layer"
+    entries = doc.history_entries()
+    assert entries[doc.history_index()].name == "New Layer"
 
-    assert doc.set_active_opacity(42)
-    assert doc.active_layer().opacity == 42
-    assert doc.set_active_blend("Multiply")
-    assert doc.active_layer().blend == "Multiply"
+    assert doc.set_active_opacity(0.42)
+    assert abs(doc.active_layer().opacity - 0.42) < 1e-9
+    assert doc.set_active_blend("multiply")
+    assert doc.active_layer().blend == "multiply"
 
-    assert doc.toggle_layer_visible(new_id)
+    assert doc.toggle_visible(new_id)
     assert doc.active_layer().visible is False
 
-    copy_id = doc.duplicate_active_layer()
-    assert copy_id
+    assert doc.duplicate_active()
     assert doc.active_layer().name.endswith(" copy")
 
-    assert doc.delete_active_layer()
-    assert doc.active_layer_id() == new_id
+    assert doc.delete_active()
+    assert doc.active_id() == new_id
     assert doc.undo() == "Duplicate Layer"
     assert doc.redo() == "Delete Layer"
 
@@ -407,7 +406,7 @@ def test_photo_edit_sample_uses_cpp_core_and_is_clickable():
         sys.path.remove(str(examples))
 
     sample = PhotoEditApp()
-    assert isinstance(sample.doc, ui.PhotoDocument)
+    assert isinstance(sample.doc, photo_core.PhotoDocument)
     app = ui.App(
         title="Photo Edit Smoke",
         width=1280,
@@ -431,4 +430,5 @@ def test_photo_edit_sample_uses_cpp_core_and_is_clickable():
 
     sample.menu_action("lnew")
     assert sample.current_layer().name.startswith("Layer")
-    assert sample.doc.history()[sample.doc.history_index()] == "New Layer"
+    entries = sample.doc.history_entries()
+    assert entries[sample.doc.history_index()].name == "New Layer"

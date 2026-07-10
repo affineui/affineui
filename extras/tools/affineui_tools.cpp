@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -21,6 +22,7 @@
 #include <fstream>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -168,6 +170,50 @@ void frame_from_json(const json::Value& params, FrameTelemetry& t) {
     }
 }
 
+/// Decode a wire `"nid":[doc,slot,gen]` array.
+DomHandle nid_from_json(const json::Value* arr) {
+    DomHandle out{};
+    if (arr == nullptr || arr->array.size() != 3) return out;
+    out.document_id = static_cast<std::uint32_t>(arr->array[0].number);
+    out.node_slot = static_cast<std::uint32_t>(arr->array[1].number);
+    out.generation = static_cast<std::uint32_t>(arr->array[2].number);
+    return out;
+}
+
+Rect rect_from_json(const json::Value* arr) {
+    Rect out{};
+    if (arr == nullptr || arr->array.size() != 4) return out;
+    out.x = static_cast<int>(arr->array[0].number);
+    out.y = static_cast<int>(arr->array[1].number);
+    out.w = static_cast<int>(arr->array[2].number);
+    out.h = static_cast<int>(arr->array[3].number);
+    return out;
+}
+
+void node_from_json(const json::Value& v, DomNodeInfo& out) {
+    out = DomNodeInfo{};
+    out.nid = nid_from_json(v.get("nid"));
+    out.tag = std::string(v.get_string("tag"));
+    out.text = std::string(v.get_string("text"));
+    out.child_count = static_cast<int>(v.get_number("children"));
+    out.rect = rect_from_json(v.get("rect"));
+    if (const json::Value* attrs = v.get("attrs")) {
+        out.attrs.reserve(attrs->array.size());
+        for (const json::Value& pair : attrs->array) {
+            if (pair.array.size() != 2) continue;
+            out.attrs.emplace_back(pair.array[0].string,
+                                   pair.array[1].string);
+        }
+    }
+}
+
+void nid_params(std::string& out, const DomHandle& nid) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "{\"nid\":[%u,%u,%u]}", nid.document_id,
+                  nid.node_slot, nid.generation);
+    out = buf;
+}
+
 }  // namespace
 
 std::vector<TargetInfo> discover_targets() {
@@ -212,6 +258,19 @@ struct Client::Impl {
     std::size_t   log_total{0};           // lines received this session
     std::uint64_t log_dropped_total{0};   // budget/ring drops (target + client)
     int next_id{1};
+
+    // Post-attach request/response: the caller registers a pending slot
+    // keyed by request id, the reader thread fulfills it (responses
+    // interleave with events on the one socket), and the caller waits on
+    // the condvar with a timeout.
+    struct PendingRequest {
+        bool        done{false};
+        bool        ok{false};
+        json::Value result;
+    };
+    std::mutex                                 req_mutex;
+    std::condition_variable                    req_cv;
+    std::unordered_map<int, PendingRequest*>   pending;
 
     bool request(const std::string& method, const std::string& params_json,
                  json::Value* out_result) {
@@ -288,6 +347,77 @@ struct Client::Impl {
         }
     }
 
+    /// Fulfill a pending wire request from a response message (reader
+    /// thread). Unmatched ids (a request that already timed out) are
+    /// dropped silently.
+    void handle_response(json::Value& v) {
+        const int id = static_cast<int>(v.get_number("id", -1));
+        const std::lock_guard<std::mutex> lock(req_mutex);
+        const auto it = pending.find(id);
+        if (it == pending.end()) return;
+        PendingRequest& slot = *it->second;
+        slot.ok = v.get("error") == nullptr;
+        if (slot.ok) {
+            if (json::Value* r = const_cast<json::Value*>(v.get("result"))) {
+                slot.result = std::move(*r);
+            }
+        }
+        slot.done = true;
+        req_cv.notify_all();
+    }
+
+    /// Send a request and wait for its response (post-attach path; the
+    /// reader thread owns the socket reads). Returns false on timeout,
+    /// disconnect, or a wire error.
+    bool wire_request(const char* method, const std::string& params_json,
+                      json::Value* out_result, int timeout_ms = 2000) {
+        if (sock == kInvalidSocket ||
+            !running.load(std::memory_order_acquire)) {
+            return false;
+        }
+        PendingRequest slot;
+        int id = 0;
+        {
+            const std::lock_guard<std::mutex> lock(req_mutex);
+            id = next_id++;
+            pending.emplace(id, &slot);
+        }
+        char head[96];
+        std::string msg;
+        if (params_json.empty()) {
+            std::snprintf(head, sizeof(head), "{\"id\":%d,\"method\":\"%s\"}",
+                          id, method);
+            msg = head;
+        } else {
+            std::snprintf(head, sizeof(head),
+                          "{\"id\":%d,\"method\":\"%s\",\"params\":", id,
+                          method);
+            msg = head;
+            msg += params_json;
+            msg += '}';
+        }
+        const bool sent = send_framed(sock, msg);
+        std::unique_lock<std::mutex> lock(req_mutex);
+        if (sent) {
+            req_cv.wait_for(lock, std::chrono::milliseconds(timeout_ms),
+                            [&slot] { return slot.done; });
+        }
+        pending.erase(id);
+        if (!slot.done || !slot.ok) return false;
+        if (out_result != nullptr) *out_result = std::move(slot.result);
+        return true;
+    }
+
+    /// Wake every waiter with a failure (detach / connection loss).
+    void fail_pending() {
+        const std::lock_guard<std::mutex> lock(req_mutex);
+        for (auto& [id, slot] : pending) {
+            slot->done = true;
+            slot->ok = false;
+        }
+        req_cv.notify_all();
+    }
+
     void reader_loop() {
         while (running.load(std::memory_order_acquire)) {
             const std::string msg = recv_framed(sock);
@@ -307,8 +437,11 @@ struct Client::Impl {
             if (v.get("method") != nullptr) {
                 handle_event(v);
                 revision.fetch_add(1, std::memory_order_release);
+            } else if (v.get("id") != nullptr) {
+                handle_response(v);
             }
         }
+        fail_pending();
     }
 };
 
@@ -372,7 +505,17 @@ bool Client::attach_pid(int pid) {
 }
 
 bool Client::attach_newest() {
+#if defined(_WIN32)
+    const int self = static_cast<int>(GetCurrentProcessId());
+#else
+    const int self = static_cast<int>(getpid());
+#endif
     for (const TargetInfo& t : discover_targets()) {
+        // Never auto-attach to our own process (a viewer that also has a
+        // tools server advertises itself; self-reads would stall the UI
+        // thread waiting on its own frame pump). Explicit attach_pid can
+        // still target anything.
+        if (t.pid == self) continue;
         if (attach(t)) return true;
     }
     return false;
@@ -434,6 +577,101 @@ std::size_t Client::log_count() const noexcept {
 std::uint64_t Client::log_dropped() const noexcept {
     const std::lock_guard<std::mutex> lock(impl_->mutex);
     return impl_->log_dropped_total;
+}
+
+bool Client::dom_document(DomNodeInfo& out_root) {
+    json::Value result;
+    if (!impl_->wire_request("dom.document", {}, &result)) return false;
+    const json::Value* root = result.get("root");
+    if (root == nullptr || !root->is_object()) return false;
+    node_from_json(*root, out_root);
+    return true;
+}
+
+bool Client::dom_children(const DomHandle& nid,
+                          std::vector<DomNodeInfo>& out) {
+    out.clear();
+    std::string params;
+    nid_params(params, nid);
+    json::Value result;
+    if (!impl_->wire_request("dom.children", params, &result)) return false;
+    const json::Value* nodes = result.get("nodes");
+    if (nodes == nullptr) return false;
+    out.reserve(nodes->array.size());
+    for (const json::Value& n : nodes->array) {
+        if (!n.is_object()) continue;
+        out.emplace_back();
+        node_from_json(n, out.back());
+    }
+    return true;
+}
+
+bool Client::dom_html(const DomHandle& nid, std::string& out_html) {
+    std::string params;
+    if (nid.node_slot != 0) nid_params(params, nid);
+    json::Value result;
+    if (!impl_->wire_request("dom.html", params, &result)) return false;
+    out_html = std::string(result.get_string("html"));
+    return true;
+}
+
+bool Client::css_box_model(const DomHandle& nid, BoxModel& out) {
+    out = BoxModel{};
+    std::string params;
+    nid_params(params, nid);
+    json::Value result;
+    if (!impl_->wire_request("css.box_model", params, &result)) return false;
+    const json::Value* laid = result.get("laid_out");
+    out.laid_out = laid != nullptr && laid->kind == json::Value::Kind::Bool &&
+                   laid->boolean;
+    if (!out.laid_out) return true;
+    out.rect = rect_from_json(result.get("rect"));
+    out.visual = rect_from_json(result.get("visual"));
+    const json::Value* sides[3] = {result.get("margin"), result.get("border"),
+                                   result.get("padding")};
+    int* dests[3] = {out.margin, out.border, out.padding};
+    for (int s = 0; s < 3; ++s) {
+        if (sides[s] == nullptr || sides[s]->array.size() != 4) continue;
+        for (int i = 0; i < 4; ++i) {
+            dests[s][i] = static_cast<int>(sides[s]->array[
+                static_cast<std::size_t>(i)].number);
+        }
+    }
+    out.scroll_y = static_cast<int>(result.get_number("scroll_y"));
+    out.content_h = static_cast<int>(result.get_number("content_h"));
+    return true;
+}
+
+bool Client::stylesheets(std::vector<StylesheetInfo>& out) {
+    out.clear();
+    json::Value result;
+    if (!impl_->wire_request("resource.stylesheets", {}, &result)) {
+        return false;
+    }
+    const json::Value* sheets = result.get("sheets");
+    if (sheets == nullptr) return false;
+    out.reserve(sheets->array.size());
+    for (const json::Value& s : sheets->array) {
+        if (!s.is_object()) continue;
+        StylesheetInfo info;
+        info.index = static_cast<int>(s.get_number("index"));
+        info.origin = std::string(s.get_string("origin"));
+        info.label = std::string(s.get_string("label"));
+        info.bytes = static_cast<long long>(s.get_number("bytes"));
+        out.push_back(std::move(info));
+    }
+    return true;
+}
+
+bool Client::stylesheet_text(int index, std::string& out_text) {
+    char params[48];
+    std::snprintf(params, sizeof(params), "{\"index\":%d}", index);
+    json::Value result;
+    if (!impl_->wire_request("resource.stylesheet_text", params, &result)) {
+        return false;
+    }
+    out_text = std::string(result.get_string("text"));
+    return true;
 }
 
 RangeStats compute_range_stats(const std::vector<FrameTelemetry>& frames,
