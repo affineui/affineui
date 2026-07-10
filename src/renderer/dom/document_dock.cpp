@@ -441,23 +441,62 @@ bool dock_move_tab_to(detail::DocumentImpl& impl, lxb_dom_element_t* tab,
 namespace {
 
 // unsplitFromLayout: remove a pane (or emptied inner dock) + its adjacent
-// splitter; collapse empty .dcs-dock wrappers; rebalance survivors to
-// `flex:1 1 0` so the freed slice is reclaimed (not left as dead space).
+// Flex-grow of an element's inline `flex:` (0 when unset). A dock child with
+// grow > 0 is FLEXIBLE (the document center's `1 1 0`); grow == 0 is a fixed
+// column/row (`0 0 260px`) whose size the user expects to be stable.
+double dock_flex_grow_of(lxb_dom_element_t* e) {
+    const std::string v =
+        detail::find_decl_value(detail::attr_string(e, "style"), "flex");
+    if (v.empty()) return 0.0;
+    return std::strtod(v.c_str(), nullptr);
+}
+
+// splitter; collapse empty .dcs-dock wrappers; hand the freed slice back so
+// it never shows as dead space — WITHOUT scrambling sibling widths.
+//
+// NOTE: deliberately NOT the decius.js unsplitFromLayout rebalance (which
+// resets every survivor to `flex:1 1 0`, collapsing the fixed-column vs
+// flexible-center distinction — after one undock a 260px Outliner column
+// became an equal share of the row and grew into the document). Instead:
+//   • the removed slot's NEIGHBOUR is fixed  → grow it back by exactly the
+//     freed px (un-splitting restores the width the split carved up), or
+//   • the neighbour is flexible (the center) → touch nothing; it absorbs.
+// Fixed columns keep their width through every dock/undock cycle either way.
+// (Upstream decius.js has the same rebalance bug — candidate to back-port.)
 void dock_unsplit_from_layout(detail::DocumentImpl& impl,
                               lxb_dom_element_t* node) {
     if (!node) return;
     auto* parent_node = lxb_dom_node_parent(lxb_dom_interface_node(node));
+    lxb_dom_element_t* parent =
+        parent_node && parent_node->type == LXB_DOM_NODE_TYPE_ELEMENT
+            ? lxb_dom_interface_element(parent_node)
+            : nullptr;
+    const bool vertical =
+        parent && detail::class_list_contains(parent, "dcs-dock--v");
+    auto axis_px = [&](lxb_dom_element_t* e) -> int {
+        const int bi = detail::block_index_for_exact_element(impl, e);
+        if (bi < 0) return 0;
+        const Rect& b = impl.blocks[static_cast<std::size_t>(bi)].bounds;
+        return vertical ? b.h : b.w;
+    };
     auto* prev = detail::previous_element_sibling(lxb_dom_interface_node(node));
     auto* next = detail::next_element_sibling(lxb_dom_interface_node(node));
+    lxb_dom_element_t* splitter = nullptr;
+    lxb_dom_element_t* adjacent = nullptr;
     if (prev && detail::class_list_contains(prev, "dcs-splitter")) {
-        lxb_dom_node_remove(lxb_dom_interface_node(prev));
+        splitter = prev;
+        adjacent = detail::previous_element_sibling(
+            lxb_dom_interface_node(prev));
     } else if (next && detail::class_list_contains(next, "dcs-splitter")) {
-        lxb_dom_node_remove(lxb_dom_interface_node(next));
+        splitter = next;
+        adjacent = detail::next_element_sibling(lxb_dom_interface_node(next));
     }
+    // Measure BEFORE the removal while the blocks still resolve.
+    const int freed = axis_px(node) + (splitter ? axis_px(splitter) : 0);
+    const int adjacent_px = adjacent ? axis_px(adjacent) : 0;
+    if (splitter) lxb_dom_node_remove(lxb_dom_interface_node(splitter));
     lxb_dom_node_remove(lxb_dom_interface_node(node));
-    if (!parent_node || parent_node->type != LXB_DOM_NODE_TYPE_ELEMENT) return;
-    auto* parent = lxb_dom_interface_element(parent_node);
-    if (!detail::class_list_contains(parent, "dcs-dock")) return;
+    if (!parent || !detail::class_list_contains(parent, "dcs-dock")) return;
     std::vector<lxb_dom_element_t*> live;
     for (auto* c = lxb_dom_node_first_child(parent_node); c;
          c = lxb_dom_node_next(c)) {
@@ -466,26 +505,22 @@ void dock_unsplit_from_layout(detail::DocumentImpl& impl,
         if (!detail::class_list_contains(e, "dcs-splitter")) live.push_back(e);
     }
     if (live.empty()) {
-        // Never collapse the workspace root itself.
+        // Never collapse the workspace root itself. (decius.js leaves
+        // single-child docks AS-IS otherwise — a one-pane dock is the normal
+        // one-panel state, not a wrapper to unwrap.)
         if (!detail::class_list_contains(parent, "dcs-dock--floathost")) {
             dock_unsplit_from_layout(impl, parent);
         }
         return;
     }
-    // decius.js leaves single-child docks AS-IS: a dock holding one pane is the
-    // normal one-panel state, not a degenerate wrapper to unwrap. We only
-    // reclaim the freed slice by rebalancing the survivors to `flex:1 1 0`
-    // (verbatim unsplitFromLayout), never by removing a nesting level.
-    //
-    // (An earlier build collapsed single-child wrappers to satisfy a "no
-    // single-child split" invariant that decius does NOT have — and that
-    // collapse ate the workspace-root dock after a tearoff-to-one-pane, leaving
-    // floathost > pane, read back as "no dock present". The invariant, the
-    // collapse, and the replay/validator special-cases it forced are all gone;
-    // single-child docks are valid here exactly as in the JS.)
-    for (auto* c : live) {
-        dock_set_attr(c, "style", "flex:1 1 0;min-width:0;min-height:0");
+    if (adjacent && dock_flex_grow_of(adjacent) <= 0.0 && freed > 0 &&
+        adjacent_px > 0) {
+        dock_set_attr(adjacent, "style",
+                      "flex:0 0 " + std::to_string(adjacent_px + freed) +
+                          "px;min-width:0;min-height:0");
     }
+    // else: a flexible neighbour (or one of the survivors) absorbs the freed
+    // slice via normal flex layout; every fixed survivor keeps its px.
 }
 
 }  // namespace
@@ -560,33 +595,39 @@ void dock_split(detail::DocumentImpl& impl, lxb_dom_element_t* target,
     const int t_size = horizontal ? tb.w : tb.h;
     const int default_new = horizontal ? kDockNewPxH : kDockNewPxV;
     const int cap = std::max(96, t_size * 20 / 100);
+    // Budget the inserted splitter's slice too, so target + splitter + fresh
+    // sum to the target's old size exactly — otherwise every dock/undock
+    // cycle leaks a splitter's width into (or out of) the fixed column.
+    constexpr int kSplitterPx = 6;
     const int new_px =
-        window_edge ? std::min(default_new, cap) : std::max(20, (t_size - 1) / 2);
+        window_edge ? std::min(default_new, cap)
+                    : std::max(20, (t_size - kSplitterPx) / 2);
     const int target_px =
-        window_edge ? std::max(120, t_size - new_px - 1) : new_px;
+        window_edge ? std::max(120, t_size - new_px - kSplitterPx)
+                    : std::max(20, t_size - kSplitterPx - new_px);
     const std::string flex_min = ";min-width:0;min-height:0";
-    auto flex_basis = [&](int px) {
-        return "flex:1 1 " + std::to_string(px) + "px" + flex_min;
+    // The fresh pane is always a FIXED slice (`flex:0 0 px`, no grow), and a
+    // fixed target carves into fixed halves that sum to its old size — a
+    // docked side column never gains a grow factor, so its width is stable
+    // through every later layout change (the user-visible invariant). A
+    // FLEXIBLE target (the document center, `flex:1 1 0`) keeps its style
+    // and simply yields the fresh pane's slice. Deliberately not decius.js's
+    // `flex:1 1 basis` + lock-all-siblings scheme, which let fixed columns
+    // creep whenever free space moved. (Candidate to back-port upstream.)
+    auto flex_fixed = [&](int px) {
+        return "flex:0 0 " + std::to_string(px) + "px" + flex_min;
     };
+    const bool target_flexible = dock_flex_grow_of(target) > 0.0;
 
     auto* splitter = dock_create_el(impl, "div", splitter_cls);
     dock_set_attr(splitter, "data-dcs-splitter", horizontal ? "" : "h");
     if (parent_is_dock && parent_vertical == need_vertical) {
-        // Same-direction parent: lock the OTHER siblings to their current px so
-        // the redistribution only carves the target's slice.
-        for (auto* c = lxb_dom_node_first_child(parent_node); c;
-             c = lxb_dom_node_next(c)) {
-            if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
-            auto* e = lxb_dom_interface_element(c);
-            if (e == target || detail::class_list_contains(e, "dcs-splitter")) continue;
-            const int bi = detail::block_index_for_exact_element(impl, e);
-            if (bi < 0) continue;
-            const auto& bb = impl.blocks[static_cast<std::size_t>(bi)].bounds;
-            const int sz = horizontal ? bb.w : bb.h;
-            if (sz > 0) dock_set_attr(e, "style", flex_basis(sz));
+        // Same-direction parent: only the target's slice is carved; siblings
+        // keep their styles (fixed stay fixed, the center stays flexible).
+        if (!target_flexible) {
+            dock_set_attr(target, "style", flex_fixed(target_px));
         }
-        dock_set_attr(target, "style", flex_basis(target_px));
-        dock_set_attr(fresh, "style", flex_basis(new_px));
+        dock_set_attr(fresh, "style", flex_fixed(new_px));
         if (edge == DropZone::Left || edge == DropZone::Top) {
             lxb_dom_node_insert_before(lxb_dom_interface_node(target),
                                        lxb_dom_interface_node(fresh));
@@ -600,7 +641,10 @@ void dock_split(detail::DocumentImpl& impl, lxb_dom_element_t* target,
         }
     } else {
         // Different-direction (or no) parent: wrap target+fresh in a new dock
-        // of the matching direction; the wrapper INHERITS the target's slot.
+        // of the matching direction; the wrapper INHERITS the target's slot
+        // (so a fixed column stays a fixed column no matter how its interior
+        // splits). Inside, the target flexes to fill the wrapper's remainder
+        // and the fresh pane is the fixed slice.
         auto* wrap = dock_create_el(impl, "div", dock_cls);
         std::string target_flex = detail::find_decl_value(detail::attr_string(target, "style"),
                                                   "flex");
@@ -613,8 +657,8 @@ void dock_split(detail::DocumentImpl& impl, lxb_dom_element_t* target,
         lxb_dom_node_insert_before(lxb_dom_interface_node(target),
                                    lxb_dom_interface_node(wrap));
         dock_detach_for_move(target);  // re-parents into the wrapper below
-        dock_set_attr(target, "style", flex_basis(target_px));
-        dock_set_attr(fresh, "style", flex_basis(new_px));
+        dock_set_attr(target, "style", "flex:1 1 0" + flex_min);
+        dock_set_attr(fresh, "style", flex_fixed(new_px));
         auto append = [&](lxb_dom_element_t* e) {
             lxb_dom_node_insert_child(lxb_dom_interface_node(wrap),
                                       lxb_dom_interface_node(e));
@@ -1429,7 +1473,32 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
         window_edge.parent = "__document__";
         window_edge.valid = true;
         window_edge.window_edge = true;
-        window_edge.pane = edge_owner_dock(impl, window_edge.zone);
+        // Window-edge drops target the WORKSPACE ROOT dock, never an inner
+        // dock: dock_split's wrapper branch then wraps the ENTIRE workspace,
+        // so the new pane spans the full orthogonal axis of that window side
+        // (a right-edge drop = a full-height column from the workarea's top
+        // to its bottom, crossing every inner row). That span cannot be
+        // built by splitting inner panes — this gesture is the only way.
+        lxb_dom_element_t* workroot = nullptr;
+        if (auto* host = find_first_descendant_with_class(
+                detail::document_dom_root(impl), "dcs-dock--floathost")) {
+            if (detail::class_list_contains(host, "dcs-dock")) {
+                workroot = host;
+            } else {
+                for (auto* c = lxb_dom_node_first_child(
+                         lxb_dom_interface_node(host));
+                     c; c = lxb_dom_node_next(c)) {
+                    if (c->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+                    auto* ce = lxb_dom_interface_element(c);
+                    if (detail::class_list_contains(ce, "dcs-dock")) {
+                        workroot = ce;
+                        break;
+                    }
+                }
+            }
+        }
+        window_edge.pane =
+            workroot ? workroot : edge_owner_dock(impl, window_edge.zone);
         const int sw = hw * 30 / 100, sh = hh * 30 / 100;
         switch (window_edge.zone) {
             case DropZone::Left:   window_edge.x = 0;       window_edge.y = 0;       window_edge.w = sw; window_edge.h = hh; break;

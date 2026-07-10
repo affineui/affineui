@@ -8261,6 +8261,156 @@ std::string dock_drag_workspace_html(bool with_second_panel) {
 
 }  // namespace
 
+TEST_CASE("UiControls: a FIXED side column keeps its width through a "
+          "dock/undock cycle on its edge (no flex scramble)") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(dock_drag_workspace_html(true));
+    doc.layout(600, 400, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto down = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseDown;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+    auto move = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseMove; e.pos = p;
+        doc.dispatch(e);
+    };
+    auto up = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseUp;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+
+    const auto x0 = doc.find_element_rect("pane-X");
+    const auto d0 = doc.find_element_rect("pane-__document__");
+    REQUIRE(x0.w == 200);
+    MESSAGE("before: pane-X w=", x0.w, " doc x=", d0.x);
+
+    // Split Y out of X onto X's RIGHT edge: the 200px column carves into two
+    // fixed halves that (with the splitter) still sum to 200 — the document
+    // must not move.
+    auto tab = find_hovered_id(doc, "tabY", 600, 400);
+    REQUIRE(tab.x >= 0);
+    down(tab);
+    move({static_cast<int>(x0.x + x0.w) - 10,
+          static_cast<int>(x0.y + x0.h / 2)});
+    up({static_cast<int>(x0.x + x0.w) - 10,
+        static_cast<int>(x0.y + x0.h / 2)});
+
+    const auto x1 = doc.find_element_rect("pane-X");
+    const auto y1 = doc.find_element_rect("pane-Y");
+    const auto d1 = doc.find_element_rect("pane-__document__");
+    MESSAGE("split: X=(", x1.x, ",", x1.w, ") Y=(", y1.x, ",", y1.w,
+            ") doc x=", d1.x);
+    REQUIRE(y1.w > 0);
+    CHECK(std::abs((x1.w + y1.w + 6) - 200) <= 4);   // column total preserved
+    CHECK(std::abs(d1.x - d0.x) <= 4);               // document did not move
+
+    // Undock Y to free space: the freed slice grows the FIXED neighbour back
+    // (un-split restores the pre-split width); nothing else is rebalanced.
+    tab = find_hovered_id(doc, "tabY", 600, 400);
+    REQUIRE(tab.x >= 0);
+    down(tab);
+    move({450, 300});
+    up({450, 300});
+
+    const auto layout = doc.dock_layout();
+    CHECK(layout.floats.size() == 1);
+    const auto x2 = doc.find_element_rect("pane-X");
+    const auto d2 = doc.find_element_rect("pane-__document__");
+    MESSAGE("undock: pane-X w=", x2.w, " doc x=", d2.x);
+    CHECK(std::abs(x2.w - x0.w) <= 4);               // 200px column restored
+    CHECK(std::abs(d2.x - d0.x) <= 4);
+}
+
+TEST_CASE("UiControls: a WINDOW-EDGE drop wraps the whole workspace - the "
+          "new pane spans the full orthogonal axis (across inner rows)") {
+    // Vertical root: a row (fixed column + document) above a bottom
+    // timeline row. A right-window-edge drop must produce a FULL-HEIGHT
+    // column crossing the timeline — not a split of the inner row only.
+    static constexpr const char* kHtml = R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost { position: relative; width: 600px; height: 400px; display: flex; }
+        .dcs-dock { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-panel--floating { position: absolute; }
+        [hidden] { display: none; }
+        </style>
+        <div class="dcs-dock--floathost" data-dcs-float-host>
+          <div class="dcs-dock dcs-dock--v">
+            <div class="dcs-dock" style="flex:1 1 0;min-width:0;min-height:0">
+              <section class="dcs-dockpane" data-aui-name="pane-X" style="flex:0 0 200px">
+                <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                  <button id="tabX" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#X-body">X</button>
+                </div></div>
+                <div class="dcs-dockpane__body"><div id="X-body" data-dcs-tabpanel>content</div></div>
+              </section>
+              <div class="dcs-splitter"></div>
+              <section class="dcs-dockpane dcs-dockpane--center" data-aui-name="pane-__document__" style="flex:1 1 0">
+                <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                  <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Doc-body">Doc</button>
+                </div></div>
+                <div class="dcs-dockpane__body"><div id="Doc-body" data-dcs-tabpanel>doc</div></div>
+              </section>
+            </div>
+            <div class="dcs-splitter dcs-splitter--h"></div>
+            <section class="dcs-dockpane" data-aui-name="pane-T" style="flex:0 0 100px">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button id="tabT" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#T-body">T</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="T-body" data-dcs-tabpanel>timeline</div></div>
+            </section>
+          </div>
+          <div id="__dropind" data-aui-name="dropind" hidden></div>
+        </div>
+    )HTML";
+
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(kHtml);
+    doc.layout(600, 400, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto down = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseDown;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+    auto move = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseMove; e.pos = p;
+        doc.dispatch(e);
+    };
+    auto up = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseUp;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+
+    const auto t0 = doc.find_element_rect("pane-T");
+    REQUIRE(t0.h == 100);
+
+    auto tab = find_hovered_id(doc, "tabX", 600, 400);
+    REQUIRE(tab.x >= 0);
+    down(tab);
+    move({590, 200});  // inside the 32px right-window-edge band
+    up({590, 200});
+
+    const auto x1 = doc.find_element_rect("pane-X");
+    const auto t1 = doc.find_element_rect("pane-T");
+    MESSAGE("edge-dock: pane-X=(", x1.x, ",", x1.y, " ", x1.w, "x", x1.h,
+            ") pane-T=(", t1.x, ",", t1.y, " ", t1.w, "x", t1.h, ")");
+    // Full workspace height, pinned to the right edge, crossing the
+    // timeline row (which shrinks to make room).
+    CHECK(x1.h >= 395);
+    CHECK(x1.x + x1.w >= 595);
+    CHECK(x1.w >= 96);
+    CHECK(t1.w < 500);
+}
+
 TEST_CASE("UiControls: a tearout's title tab dragged to free space re-spawns "
           "the tearout at the drop point (single-tab tearout moves)") {
     affineui::Document doc;
