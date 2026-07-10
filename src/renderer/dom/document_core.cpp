@@ -1249,7 +1249,16 @@ void settle_view_batch(detail::DocumentImpl& impl) {
         const auto t0 = std::chrono::steady_clock::now();
         auto roots = std::move(impl.view_batch_structure_roots);
         impl.view_batch_structure_roots.clear();
-        impl.view_batch_attr_roots.clear();  // recollect re-resolves all
+        // Attr mutations recorded this batch are NOT superseded by a scoped
+        // structural settle: the recollect below re-resolves via the WARM
+        // resolver cache, and only the structural roots' subtrees get
+        // invalidated. An attr-mutated element outside those subtrees (a
+        // tab strip's aria-selected flip while the panel body swaps) would
+        // re-resolve to its stale cached style — the "selection highlight
+        // never moves" class of bug. Invalidate each attr root too, and run
+        // the subtree rematch the op deferred to settle.
+        auto attr_roots = std::move(impl.view_batch_attr_roots);
+        impl.view_batch_attr_roots.clear();
         std::sort(roots.begin(), roots.end());
         std::vector<int> kept;
         for (const int r : roots) {
@@ -1269,6 +1278,16 @@ void settle_view_batch(detail::DocumentImpl& impl) {
                 invalidate_resolver_deep(impl, lxb_dom_interface_node(e));
             }
             (void) detail::rematch_stylesheet_matches_for_subtree(impl, r);
+        }
+        for (const auto& a : attr_roots) {
+            if (a.root_idx < 0) continue;
+            if (auto* e = detail::element_for_block(impl, a.root_idx)) {
+                invalidate_resolver_deep(impl, lxb_dom_interface_node(e));
+            }
+            if (a.needs_subtree_rematch) {
+                (void) detail::rematch_stylesheet_matches_for_subtree(
+                    impl, a.root_idx);
+            }
         }
         const auto t2 = std::chrono::steady_clock::now();
         detail::recollect_blocks_from_current_dom(impl);
