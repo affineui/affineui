@@ -2894,6 +2894,65 @@ TEST_CASE("App Decius colorfield picker survives model-backed rebuilds") {
           picker.w);
 }
 
+TEST_CASE("App load_view drops deferred widget changes from the old DOM") {
+    affineui::View first{affineui::ViewTheme::Decius};
+    int old_callbacks = 0;
+    first.begin();
+    first.input("Tint", "#3bb7ff", "color", "tint")
+        .on_change([&](std::string_view) { ++old_callbacks; });
+    first.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    app.load_view(first);
+    app.document().layout(360, 180);
+
+    auto click_at = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        app.dispatch(down);
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        app.dispatch(up);
+    };
+
+    const auto caret = find_hovered_tag_attr(app, "span", "data-dcs-target",
+                                             "#aui-cf-tint-picker", 360, 180);
+    REQUIRE(caret.x >= 0);
+    click_at(caret);
+    app.document().layout(360, 260);
+    const auto sv = app.document().find_element_rect("#aui-cf-tint-picker-sv");
+    REQUIRE(sv.w > 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {sv.x + 1, sv.y + 1};
+    CHECK(app.dispatch(down));
+    CHECK(old_callbacks == 0);
+
+    affineui::View replacement{affineui::ViewTheme::Decius};
+    int replacement_callbacks = 0;
+    replacement.begin();
+    replacement.input("Tint", "#ff0000", "color", "tint")
+        .on_change([&](std::string_view) { ++replacement_callbacks; });
+    replacement.end();
+    app.load_view(replacement);
+    app.document().layout(360, 180);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = {0, 0};
+    app.dispatch(up);
+    CHECK(replacement_callbacks == 0);
+}
+
 TEST_CASE("App Decius colorfield pickers stay anchored in scrolled panels") {
     affineui::View view{affineui::ViewTheme::Decius};
     std::string tint;

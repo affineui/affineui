@@ -300,11 +300,12 @@ void Ui::reset() {
 // ── Input ───────────────────────────────────────────────────────────
 
 bool Ui::dispatch(const Event& e) {
+    const auto event_handlers = impl_->event_handlers;
     if (impl_->pointer_captured && e.type == EventType::MouseMove &&
-        !impl_->event_handlers.empty()) {
+        !event_handlers.empty()) {
         impl_->document.hovered_info_chain(impl_->hover_chain_scratch);
         bool consumed = false;
-        for (const auto& cb : impl_->event_handlers) {
+        for (const auto& cb : event_handlers) {
             consumed = cb(e, impl_->hover_chain_scratch) || consumed;
         }
         if (consumed) return true;
@@ -321,7 +322,7 @@ bool Ui::dispatch(const Event& e) {
     const bool mouse_up_left =
         e.type == EventType::MouseUp && e.button == MouseButton::Left;
     const bool needs_chain =
-        !impl_->event_handlers.empty() || mouse_up_left;
+        !event_handlers.empty() || mouse_up_left;
     if (needs_chain) {
         impl_->document.hovered_info_chain(impl_->hover_chain_scratch);
     } else {
@@ -329,7 +330,7 @@ bool Ui::dispatch(const Event& e) {
     }
     const auto& chain = impl_->hover_chain_scratch;
     bool event_consumed = false;
-    for (const auto& cb : impl_->event_handlers) {
+    for (const auto& cb : event_handlers) {
         event_consumed = cb(e, chain) || event_consumed;
     }
     if (event_consumed) return true;
@@ -341,19 +342,20 @@ bool Ui::dispatch(const Event& e) {
     // retained-mode UI atop an imm-mode island) override.
     if (mouse_up_left) {
         if (!chain.empty()) {
-            bool consumed = false;
-            for (const auto& [selector, cb] : impl_->click_handlers) {
+            std::vector<std::function<void()>> callbacks;
+            const auto click_handlers = impl_->click_handlers;
+            for (const auto& [selector, cb] : click_handlers) {
                 const bool matched = std::any_of(
                     chain.begin(), chain.end(),
                     [&](const Document::HoverInfo& info) {
                         return matches_selector_list(selector, info);
                     });
                 if (matched) {
-                    cb();
-                    consumed = true;
+                    callbacks.push_back(cb);
                 }
             }
-            if (consumed) return true;
+            for (const auto& cb : callbacks) cb();
+            if (!callbacks.empty()) return true;
             // imm-mode handler hit?
             for (const auto& info : chain) {
                 if (impl_->document.invoke_imm_click(info.elem_id)) {
@@ -400,7 +402,8 @@ void Ui::on_frame(std::function<void(double)> cb) {
 }
 
 void Ui::run_frame_callbacks(double dt_seconds) {
-    for (const auto& cb : impl_->frame_callbacks) {
+    const auto callbacks = impl_->frame_callbacks;
+    for (const auto& cb : callbacks) {
         cb(dt_seconds);
     }
 }

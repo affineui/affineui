@@ -101,6 +101,31 @@ TEST_CASE("imm clear-and-rebuild survives repeated css-backed dom replacement") 
     CHECK(rendered_count == 8);
 }
 
+TEST_CASE("imm tail destruction invalidates weak DOM handles") {
+    affineui::Document doc;
+    constexpr ui::CallSite button_site{"imm-weak-handle-test", 3, 1};
+    bool show_button = true;
+
+    doc.set_imm_view([&] {
+        if (show_button) {
+            ui::button("Transient", "", button_site);
+        } else {
+            ui::p("", ui::CallSite{"imm-weak-handle-test", 5, 1})
+                .text("gone");
+        }
+    });
+    doc.tick_imm();
+
+    const auto handle = doc.weak_handle_for_id(imm_id(button_site));
+    REQUIRE(handle);
+    REQUIRE(doc.weak_handle_valid(handle));
+
+    show_button = false;
+    doc.invalidate_imm();
+    doc.tick_imm();
+    CHECK_FALSE(doc.weak_handle_valid(handle));
+}
+
 TEST_CASE("imm counter works through layout hit testing and Ui dispatch") {
     affineui::Ui app;
     TestPainter painter;

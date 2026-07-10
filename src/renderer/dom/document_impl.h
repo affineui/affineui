@@ -779,6 +779,15 @@ int scroll_offset_y_for(const std::vector<Block>& blocks,
                         int idx);
 
 #if !defined(AFFINEUI_STUB_BUILD)
+/// Drop every non-owning reference and pointer-keyed side-table entry for a
+/// node that is leaving the live DOM. Safe to call more than once.
+void invalidate_dom_weak_slot(detail::DocumentImpl& impl,
+                              lxb_dom_node_t* node);
+/// Apply full destroy-time invalidation to a subtree before Lexbor frees it,
+/// including StyleStore slot release for every element.
+void invalidate_dom_subtree_on_destroy(detail::DocumentImpl& impl,
+                                       lxb_dom_node_t* root);
+
 // element / block attribute primitives
 std::string attr_string(lxb_dom_element_t* elem, std::string_view name);
 bool has_attr(lxb_dom_element_t* elem, std::string_view name);

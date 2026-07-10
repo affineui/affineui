@@ -161,6 +161,7 @@ void invalidate_dom_weak_slot(DocumentImpl& impl, lxb_dom_node_t* node) {
     impl.live_text_values.erase(node);
     impl.live_text_carets.erase(node);
     impl.live_text_selections.erase(node);
+    impl.text_layout_signatures.erase(node);
     impl.user_textarea_sizes.erase(node);
     impl.dcs_select_anchors.erase(node);
     for (auto it = impl.dcs_select_anchors.begin();
@@ -171,11 +172,73 @@ void invalidate_dom_weak_slot(DocumentImpl& impl, lxb_dom_node_t* node) {
             ++it;
         }
     }
+
+    if (node->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+        auto* element = lxb_dom_interface_element(node);
+        if (impl.splitter_drag.prev == element ||
+            impl.splitter_drag.next == element) {
+            impl.splitter_drag = {};
+        }
+        if (impl.float_drag.elem == element) impl.float_drag = {};
+        if (impl.float_resize.elem == element) impl.float_resize = {};
+        if (impl.tab_drag.tab == element || impl.tab_drag.pane == element) {
+            impl.tab_drag = {};
+        }
+        if (impl.tab_drag_ghost == element) {
+            impl.tab_drag_ghost = nullptr;
+            impl.tab_drag_ghost_block_idx = -1;
+        }
+        if (impl.pressed_dcs_menu_item == element) {
+            impl.pressed_dcs_menu_item = nullptr;
+            impl.pressed_dcs_menu_item_was_active = false;
+            impl.pressed_dcs_menu_item_bounds = {};
+        }
+        if (impl.pressed_button == element) impl.pressed_button = nullptr;
+        if (impl.colorfield_drag.field == element ||
+            impl.colorfield_drag.part == element) {
+            impl.colorfield_drag = {};
+        }
+        if (impl.tree_drag.tree == element ||
+            impl.tree_drag.row == element ||
+            impl.tree_drag.target == element ||
+            impl.tree_drag.select_box == element ||
+            impl.tree_drag.select_row == element) {
+            impl.tree_drag = {};
+        }
+        if (impl.live_drag.elem == element) impl.live_drag = {};
+    }
+
     for (auto& slot : impl.dom_weak_slots) {
         if (slot.node == node) {
             slot.node = nullptr;
             advance_generation(slot);
         }
+    }
+}
+
+void invalidate_dom_node_on_destroy(DocumentImpl& impl,
+                                    lxb_dom_node_t* node) {
+    invalidate_dom_weak_slot(impl, node);
+    if (node != nullptr && node->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+        impl.style_store.release(lxb_dom_interface_element(node));
+    }
+}
+
+void invalidate_dom_subtree_on_destroy(DocumentImpl& impl,
+                                       lxb_dom_node_t* root) {
+    if (root == nullptr) return;
+    auto* node = root;
+    while (node != nullptr) {
+        invalidate_dom_node_on_destroy(impl, node);
+        if (node->first_child != nullptr) {
+            node = node->first_child;
+            continue;
+        }
+        while (node != root && node->next == nullptr) {
+            node = node->parent;
+        }
+        if (node == root) break;
+        node = node->next;
     }
 }
 
@@ -198,7 +261,7 @@ lxb_status_t affineui_dom_event_remove(lxb_dom_node_t* node) {
 lxb_status_t affineui_dom_event_destroy(lxb_dom_node_t* node) {
     auto* impl = document_impl_from_node(node);
     if (impl != nullptr) {
-        invalidate_dom_weak_slot(*impl, node);
+        invalidate_dom_node_on_destroy(*impl, node);
         if (impl->lexbor_ev_destroy != nullptr) {
             return impl->lexbor_ev_destroy(node);
         }
@@ -1011,6 +1074,7 @@ public:
                 detail::parse_inline_styles_deep(child);
                 group.push_back(child);
             }
+            lxb_dom_node_destroy(frag);
         }
         // Paint-only lane: raw html swapped INSIDE an <svg> subtree changes
         // vector content only — svg children carry no blocks, so restyle/
