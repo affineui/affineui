@@ -1284,14 +1284,45 @@ void settle_view_batch(detail::DocumentImpl& impl) {
             }
             (void) detail::rematch_stylesheet_matches_for_subtree(impl, r);
         }
+        // Same cover-dedup as the structural roots: an attr root inside a
+        // kept structural subtree already got the deep invalidate + full
+        // rematch above, and repeated flips of the same root (a hover chain
+        // toggling one row's attrs several times per batch) need one pass,
+        // not one per mutation. Duplicates merge their rematch flags — a
+        // later flip's deferred rematch must not be lost to an earlier
+        // flip that needed none.
+        std::vector<std::pair<int, bool>> attr_kept;  // {root_idx, rematch}
         for (const auto& a : attr_roots) {
             if (a.root_idx < 0) continue;
-            if (auto* e = detail::element_for_block(impl, a.root_idx)) {
+            bool covered = false;
+            for (const int k : kept) {
+                if (k == a.root_idx ||
+                    detail::is_descendant_of_or_self(impl.blocks, a.root_idx,
+                                                     k)) {
+                    covered = true;
+                    break;
+                }
+            }
+            if (covered) continue;
+            bool merged = false;
+            for (auto& [idx, rematch] : attr_kept) {
+                if (idx == a.root_idx) {
+                    rematch = rematch || a.needs_subtree_rematch;
+                    merged = true;
+                    break;
+                }
+            }
+            if (!merged) {
+                attr_kept.emplace_back(a.root_idx, a.needs_subtree_rematch);
+            }
+        }
+        for (const auto& [root_idx, needs_rematch] : attr_kept) {
+            if (auto* e = detail::element_for_block(impl, root_idx)) {
                 invalidate_resolver_deep(impl, lxb_dom_interface_node(e));
             }
-            if (a.needs_subtree_rematch) {
+            if (needs_rematch) {
                 (void) detail::rematch_stylesheet_matches_for_subtree(
-                    impl, a.root_idx);
+                    impl, root_idx);
             }
         }
         const auto t2 = std::chrono::steady_clock::now();

@@ -42,6 +42,7 @@ extern "C" {
 #include <random>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #if defined(_WIN32)
@@ -259,7 +260,15 @@ struct ServerState {
     std::deque<detail::ToolsCommand>       cmd_queue;
     std::atomic<int>                       cmd_pending{0};
     std::mutex                             resp_mutex;
-    std::deque<std::string>                resp_queue;
+    std::deque<std::pair<std::uint64_t, std::string>> resp_queue;  // {epoch, json}
+    // Connection epoch: advanced by drop_connection (server thread only).
+    // Commands are stamped with it at enqueue; a response whose epoch no
+    // longer matches belongs to a client that is gone and is discarded.
+    // Closes the race where the app thread holds taken commands across a
+    // disconnect and pushes their responses after the queues were cleared
+    // — without the stamp those would leak into the NEXT client's stream,
+    // whose request ids start over and would collide.
+    std::atomic<std::uint64_t>             conn_epoch{0};
 };
 constexpr std::size_t kCommandQueueCapacity = 32;
 
@@ -463,6 +472,7 @@ bool handle_message(ServerState& st, Connection& c, std::string_view text) {
         is_read_command = false;
     }
     if (is_read_command) {
+        cmd.epoch = st.conn_epoch.load(std::memory_order_relaxed);
         bool queued = false;
         {
             const std::lock_guard<std::mutex> lock(st.cmd_mutex);
@@ -638,14 +648,17 @@ void flush_log_ring(ServerState& st, Connection& c) {
 /// and the one-client policy means the next client must never receive
 /// them.
 void flush_responses(ServerState& st, Connection& c) {
-    std::deque<std::string> batch;
+    std::deque<std::pair<std::uint64_t, std::string>> batch;
     {
         const std::lock_guard<std::mutex> lock(st.resp_mutex);
         batch.swap(st.resp_queue);
     }
     if (batch.empty()) return;
     if (c.sock == kInvalidSocket || !c.authed) return;  // discard
-    for (const std::string& msg : batch) {
+    const std::uint64_t epoch =
+        st.conn_epoch.load(std::memory_order_relaxed);
+    for (const auto& [resp_epoch, msg] : batch) {
+        if (resp_epoch != epoch) continue;  // a gone client's response
         if (!send_framed(c.sock, msg)) {
             drop_connection(st, c);
             return;
@@ -662,8 +675,11 @@ void drop_connection(ServerState& st, Connection& c) {
     c.inbuf.clear();
     st.subscribed.store(false, std::memory_order_release);
     st.log_subscribed.store(false, std::memory_order_release);
-    // Commands not yet serviced belong to the dropped client; clear them
-    // (and any responses in flight) so the next client never sees them.
+    // Commands not yet serviced belong to the dropped client; advance the
+    // epoch FIRST so a response the app thread pushes concurrently (from
+    // commands it already took) is stamped stale, then clear both queues
+    // so the next client never sees them.
+    st.conn_epoch.fetch_add(1, std::memory_order_relaxed);
     {
         const std::lock_guard<std::mutex> lock(st.cmd_mutex);
         if (!st.cmd_queue.empty()) {
@@ -1010,12 +1026,14 @@ bool tools_take_commands(std::vector<ToolsCommand>& out) {
     return true;
 }
 
-void tools_push_response(std::string json) {
+void tools_push_response(std::uint64_t epoch, std::string json) {
     ServerState& st = state();
     const std::lock_guard<std::mutex> lock(st.resp_mutex);
     // Bounded by the command queue: responses only exist for commands
-    // that were accepted (≤ kCommandQueueCapacity in flight).
-    st.resp_queue.push_back(std::move(json));
+    // that were accepted (≤ kCommandQueueCapacity in flight). The epoch
+    // travels with the response; flush_responses discards it when the
+    // originating connection is gone.
+    st.resp_queue.emplace_back(epoch, std::move(json));
 }
 
 bool tools_has_pending_commands() noexcept {

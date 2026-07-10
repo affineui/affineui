@@ -35,6 +35,11 @@ struct ToolsCommand {
     Kind      kind{Kind::DomDocument};
     DomHandle nid{};    // DomDocument/DomHtml accept an empty handle
     int       index{0}; // ResourceStylesheetText
+    // Connection epoch at enqueue time. drop_connection() advances the
+    // epoch, so a response produced after its client disconnected is
+    // recognizably stale and discarded instead of leaking into the next
+    // client's stream (whose request ids start over and would collide).
+    std::uint64_t epoch{0};
 };
 
 // ── implemented in tools_server.cpp ──────────────────────────────────────
@@ -45,8 +50,9 @@ bool tools_take_commands(std::vector<ToolsCommand>& out);
 
 /// App thread: queue one complete response document
 /// (`{"id":N,"result":…}` or `{"id":N,"error":…}`) for the server thread
-/// to frame and send. Dropped if the client is gone.
-void tools_push_response(std::string json);
+/// to frame and send. `epoch` is the originating command's epoch; the
+/// response is dropped when the client it belongs to is gone.
+void tools_push_response(std::uint64_t epoch, std::string json);
 
 /// Any thread: cheap "are commands waiting" check (one relaxed atomic
 /// load) — lets the idle path skip the queue mutex entirely.

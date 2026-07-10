@@ -298,8 +298,7 @@ struct SheetSource {
     bool        text_known{true};
 };
 
-std::vector<SheetSource> enumerate_sheets(DocumentImpl& impl,
-                                          bool fetch_link_text) {
+std::vector<SheetSource> enumerate_sheets(DocumentImpl& impl) {
     std::vector<SheetSource> out;
     lxb_dom_node_t* root =
         impl.doc ? lxb_dom_interface_node(impl.doc) : nullptr;
@@ -322,13 +321,7 @@ std::vector<SheetSource> enumerate_sheets(DocumentImpl& impl,
                 SheetSource s;
                 s.origin = "link";
                 s.label = detail::attr_string(elem, "href");
-                if (fetch_link_text) {
-                    s.text = impl.resource_loader && !s.label.empty()
-                                 ? impl.resource_loader(s.label)
-                                 : std::string{};
-                } else {
-                    s.text_known = false;
-                }
+                s.text_known = false;  // resolved on demand, one at a time
                 out.push_back(std::move(s));
             }
         };
@@ -347,8 +340,7 @@ std::vector<SheetSource> enumerate_sheets(DocumentImpl& impl,
 }
 
 std::string serve_resource_stylesheets(DocumentImpl& impl, long long id) {
-    const std::vector<SheetSource> sheets =
-        enumerate_sheets(impl, /*fetch_link_text=*/false);
+    const std::vector<SheetSource> sheets = enumerate_sheets(impl);
     std::string result = "{\"sheets\":[";
     for (std::size_t i = 0; i < sheets.size(); ++i) {
         if (i > 0) result += ',';
@@ -371,12 +363,24 @@ std::string serve_resource_stylesheets(DocumentImpl& impl, long long id) {
 
 std::string serve_resource_stylesheet_text(DocumentImpl& impl, long long id,
                                            int index) {
-    std::vector<SheetSource> sheets =
-        enumerate_sheets(impl, /*fetch_link_text=*/true);
+    std::vector<SheetSource> sheets = enumerate_sheets(impl);
     if (index < 0 || static_cast<std::size_t>(index) >= sheets.size()) {
         return error_response(id, -32012, "no such stylesheet");
     }
     SheetSource& sheet = sheets[static_cast<std::size_t>(index)];
+    if (!sheet.text_known) {
+        // Resolve just the requested <link> sheet. resource_loader is an
+        // app-thread callback (same contract as the renderer's own asset
+        // loading), so it runs here in the pump — one sheet, on demand,
+        // never the whole list. Loaders are expected to be local-disk
+        // fast; a network-backed loader would need an async resource
+        // domain (tracked with the R3 registries), not a thread hop that
+        // the callback's contract doesn't allow.
+        sheet.text = impl.resource_loader && !sheet.label.empty()
+                         ? impl.resource_loader(sheet.label)
+                         : std::string{};
+        sheet.text_known = true;
+    }
     bool truncated = false;
     if (sheet.text.size() > kMaxSheetBytes) {
         truncate_utf8(sheet.text, kMaxSheetBytes);
@@ -418,7 +422,7 @@ void tools_pump(Document& doc) {
     if (!detail::tools_take_commands(cmds)) return;
     detail::DocumentImpl& impl = *doc.impl_;
     for (const detail::ToolsCommand& cmd : cmds) {
-        detail::tools_push_response(service_command(impl, cmd));
+        detail::tools_push_response(cmd.epoch, service_command(impl, cmd));
     }
 }
 
@@ -434,7 +438,7 @@ void tools_pump(Document&) {
                       "{\"id\":%lld,\"error\":{\"code\":-32011,"
                       "\"message\":\"no dom in this build\"}}",
                       cmd.id);
-        detail::tools_push_response(buf);
+        detail::tools_push_response(cmd.epoch, buf);
     }
 }
 
