@@ -221,15 +221,16 @@ void GeViewport::sync_document() {
 void GeViewport::sync_selection() {
     if (ctx_ == nullptr) return;
     ObjectPtr target;
-    if (!ctx_->selection().empty()) {
-        // Box + gizmo follow the primary (first) selected object.
-        for (const auto& obj : ctx_->document().objects()) {
-            if (ctx_->selection().contains(obj.id)) {
-                const auto it = nodes_.find(obj.id);
-                if (it != nodes_.end()) target = it->second;
-                break;
-            }
-        }
+    // The box + gizmo follow the ACTIVE object — the one the user last
+    // clicked, in the 3D view or the hierarchy. This is the same
+    // "current object" the inspector and the hierarchy highlight key
+    // off (Selection::active), so all three views stay consistent (a
+    // document-order "first selected" would drift from them under
+    // multi-select).
+    const std::string_view active = ctx_->selection().active();
+    if (!active.empty()) {
+        const auto it = nodes_.find(std::string(active));
+        if (it != nodes_.end()) target = it->second;
     }
     selected_node_ = target;
     if (target && tool_ != "select") {
