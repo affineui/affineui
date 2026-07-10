@@ -1,9 +1,11 @@
 #include "dender_view.h"
 
 #include "dender_components.h"
+#include "dender_scene.h"
+#include "dender_stats.h"
 #include "dender_styles.h"
-#include "dender_viewport.h"
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -16,10 +18,6 @@ using affineui::TreeRowOptions;
 using affineui::View;
 
 namespace {
-
-constexpr double kPi = 3.14159265358979323846;
-
-double to_degrees(double radians) { return radians * 180.0 / kPi; }
 
 // Lowercased, dash-separated widget key from a display name ("UV Sphere" ->
 // "uv-sphere").
@@ -56,7 +54,7 @@ affineui::WidgetRef combo_field(View& v, std::string_view label, double value,
 }  // namespace
 
 DenderView::DenderView(DenderApp& app)
-    : app_(app), doc_(app.document()), ui_(app.ui()) {}
+    : app_(app), doc_(app.ctx().document()), ui_(app.ui()) {}
 
 View DenderView::build() const {
     View v{affineui::ViewTheme::Decius};
@@ -69,12 +67,11 @@ View DenderView::build() const {
 void DenderView::build_into(View& v) const {
     v.set_theme(affineui::ViewTheme::Decius);
     v.set_framework_version(kDeciusVersion);
-    const ThemeState& theme = doc_.theme();
     v.selector(affineui::decius::selector::style,
-               theme.style == "3d" ? affineui::decius::style::three_d
-                                   : affineui::decius::style::flat);
-    v.selector(affineui::decius::selector::density, theme.density);
-    v.selector(affineui::decius::selector::accent, theme.accent);
+               app_.style() == "3d" ? affineui::decius::style::three_d
+                                     : affineui::decius::style::flat);
+    v.selector(affineui::decius::selector::density, app_.density());
+    v.selector(affineui::decius::selector::accent, app_.accent());
 
     // Saved sizes / live arrangement win over the declared dock seed
     // (game_editor pattern: the declared layout only seeds the first run).
@@ -224,7 +221,7 @@ void DenderView::build_workarea(View& v) const {
             "Item",
             DockLocation::floating(affineui::DockCorner::TopRight, {356, 76},
                                    {220, 520}),
-            [&](View& p) { ui::npanel_item_body(p); }, "cube", "npanel-item");
+            [&](View& p) { build_npanel_item_body(p); }, "cube", "npanel-item");
         dv.dockpanel("Tool", DockLocation::tab().in(npitem),
                      [&](View& p) { ui::npanel_tool_body(p); }, "axes",
                      "npanel-tool");
@@ -264,7 +261,7 @@ void DenderView::build_viewport_toolbar(View& v) const {
     v.menu_button("Add", [&](View& m) {
         std::string_view section;
         int index = 0;
-        for (const Primitive& p : DenderDocument::catalog()) {
+        for (const Primitive& p : catalog()) {
             if (p.section != section) {
                 if (index > 0) {
                     m.menu_separator("mi-add-sep-" + std::to_string(index));
@@ -275,9 +272,9 @@ void DenderView::build_viewport_toolbar(View& v) const {
                 section = p.section;
             }
             const std::string type(p.type);
-            m.menu_item(type, DenderDocument::icon_for(p.type), {},
+            m.menu_item(type, icon_for(p.type), {},
                         "mi-add-" + slug(p.type))
-                .on_click([app, type] { app->add_object(type); });
+                .on_click(bind(&app_, &DenderApp::add_object, type));
             ++index;
         }
     }, "vp-add");
@@ -302,20 +299,21 @@ void DenderView::build_viewport_toolbar(View& v) const {
         .attr("data-dcs-target", "#menu-pivot")
         .attr("data-dcs-tip", "Transform Pivot Point");
     ui::icon_toggle(v, "magnet", ui_.snapping, "Snapping", "vp-snap")
-        .on_click([app] { app->toggle_flag("snapping"); });
+        .on_click(bind(&app_, &DenderApp::toggle_flag, std::string("snapping")));
     ui::icon_toggle(v, "cross-target", ui_.proportional, "Proportional Editing",
                     "vp-proportional")
-        .on_click([app] { app->toggle_flag("proportional"); });
+        .on_click(
+            bind(&app_, &DenderApp::toggle_flag, std::string("proportional")));
 
     v.element_ref("span", "dcs-toolbar__spacer", "vp-spacer");
 
     ui::icon_toggle(v, "gizmo", ui_.show_gizmo, "Show Gizmo", "vp-gizmo-toggle")
-        .on_click([app] { app->toggle_flag("gizmo"); });
+        .on_click(bind(&app_, &DenderApp::toggle_flag, std::string("gizmo")));
     ui::icon_toggle(v, "view-bbox", ui_.show_overlays, "Show Overlays",
                     "vp-overlays-toggle")
-        .on_click([app] { app->toggle_flag("overlays"); });
+        .on_click(bind(&app_, &DenderApp::toggle_flag, std::string("overlays")));
     ui::icon_toggle(v, "eye", ui_.xray, "Toggle X-Ray", "vp-xray")
-        .on_click([app] { app->toggle_flag("xray"); });
+        .on_click(bind(&app_, &DenderApp::toggle_flag, std::string("xray")));
 
     {
         auto group = v.container("dcs-btn-group dn-shademodes", "vp-shademodes");
@@ -333,8 +331,8 @@ void DenderView::build_viewport_toolbar(View& v) const {
             btn.cls("dcs-btn dcs-btn--icon")
                 .attr("data-dcs-radio", "shade")
                 .attr("aria-pressed",
-                      doc_.shading() == s.mode ? "true" : "false");
-            btn.on_click([app, id] { app->set_shading(id); });
+                      app_.shading() == s.mode ? "true" : "false");
+            btn.on_click(bind(&app_, &DenderApp::set_shading, id));
         }
     }
     v.icon_button("chevron-down", "vp-shadeopts")
@@ -350,35 +348,56 @@ void DenderView::build_viewport_toolbar(View& v) const {
 
 void DenderView::build_viewport_body(View& v) const {
     DenderApp* app = &app_;
-    DenderViewport* vp = &app_.viewport();
+    viewport3d::Viewport3D* vp = &app_.viewport();
 
     auto canvas = v.container("dn-vp-canvas", "vp-canvas");
     canvas.attr("data-dcs-float-host", "");
     canvas.attr("data-screen-label", "3D Viewport");
 
-    // The scene's custom-paint canvas goes in first; the DOM overlays
-    // stack above it.
-    vp->scene_layer(v);
-    ui::viewport_stats(v, doc_);
-    ui::viewport_corner(v, doc_);
+    // The shared viewport's scene canvas goes in first (inside a positioned
+    // scene-layer wrapper so the DOM overlays stack above it); it is painted
+    // by the "dender.scene" custom-paint handler (Viewport3D::attach).
+    {
+        auto layer = v.element("div", "dn-vp-scenelayer", "vp-scene-layer");
+        layer.attr("id", "vp-scene");
+        layer.attr("data-aui-name", "dn-vp-scenelayer");
+        v.canvas("dender.scene", "dn-vp-3dcanvas", "dn-vp-3d")
+            .attr("style", "position:absolute;inset:0");
+    }
+
+    const app::Object* active =
+        app_.ctx().selection().active().empty()
+            ? nullptr
+            : doc_.find(app_.ctx().selection().active());
+    ui::viewport_stats(v, active != nullptr ? std::string_view{active->name}
+                                            : std::string_view{});
+    ui::viewport_corner(v, scene_stats(doc_, app_.ctx().selection().active(),
+                                       [this](std::string_view id) {
+                                           return app_.ctx().selection().contains(
+                                               id);
+                                       }));
 
     ui::tool_rail(v, ui_.active_tool);
     for (const char* tool : {"tweak", "cursor", "move", "rotate", "scale",
                              "transform", "annotate", "measure"}) {
         const std::string id(tool);
-        v.find_widget("rail-" + id).on_click([app, id] { app->set_tool(id); });
+        v.find_widget("rail-" + id).on_click(
+            bind(&app_, &DenderApp::set_tool, id));
     }
     v.find_widget("rail-add-cube")
         .on_click(bind(&app_, &DenderApp::add_object, std::string("Cube")));
 
     ui::nav_cluster(v, vp->pan_mode());
-    // Web nav wiring: Zoom dollies (shift = out), Move View toggles the LMB
-    // between orbit and pan, Camera View frames the selection; the
-    // Perspective/Ortho toggle stays cosmetic like the web.
+    // Nav wiring: Zoom dollies in, Move View toggles the LMB between orbit and
+    // pan, Camera View frames the selection; the Perspective/Ortho toggle
+    // stays cosmetic like the web. Bound through the viewport's weak ref
+    // (Viewport3D is Trackable) so these no-op if it's gone.
     v.find_widget("nav-zoom").on_click(
-        [vp] { vp->dolly(vp->shift_down() ? 1.25 : 0.8); });
-    v.find_widget("nav-move").on_click([vp] { vp->toggle_pan_mode(); });
-    v.find_widget("nav-camera").on_click([vp] { vp->frame_selected(); });
+        bind(vp, &viewport3d::Viewport3D::dolly, 0.8));
+    v.find_widget("nav-move").on_click(
+        bind(vp, &viewport3d::Viewport3D::toggle_pan_mode));
+    v.find_widget("nav-camera").on_click(
+        bind(vp, &viewport3d::Viewport3D::frame_selected));
 
     // The N-panel is a declared floating dock group — see build_workarea.
 }
@@ -401,8 +420,18 @@ void DenderView::build_outliner_toolbar(View& v) const {
 }
 
 void DenderView::build_outliner_body(View& v) const {
+    // The tree is a data-dcs-select box: clicking a row emits a widget CHANGE
+    // on the tree carrying the selected row's data-dcs-value, NOT a per-row
+    // button click. So bind the tree's on_change (a per-row on_click never
+    // fires here) and carry the object id as each row's value.
     auto tree = v.tree("outliner-tree");
     tree.attr("data-dcs-select", "multi");
+    // Bind through the weak-ref path (like every other handler here): this
+    // change handler outlives the transient DenderView it's built in, so a
+    // raw `this` capture would dangle. app_ is a Trackable DenderApp, so
+    // bind() holds a weak handle that no-ops if it's gone. select_object
+    // ignores an empty id, so the "cleared selection" change is harmless.
+    tree.ref().on_change(bind(&app_, &DenderApp::select_object));
 
     {
         TreeRowOptions opts;
@@ -423,14 +452,14 @@ void DenderView::build_outliner_body(View& v) const {
         opts.meta_icon = "eye";
         v.tree_row("Collection", opts, "row-collection");
     }
-    for (const auto& entry : doc_.ordered_objects()) {
-        const SceneObject& obj = *entry.object;
+    for (const auto& entry : ordered_objects(doc_)) {
+        const app::Object& obj = *entry.object;
         TreeRowOptions opts;
         opts.depth = 2 + entry.depth;
-        opts.selected = doc_.is_selected(obj.id);
-        opts.icon = DenderDocument::icon_for(obj.type);
+        opts.selected = app_.ctx().selection().contains(obj.id);
+        opts.icon = icon_for(obj.type);
         v.tree_row(obj.name, opts, "row-" + obj.id)
-            .on_click(bind(&app_, &DenderApp::select_object, obj.id));
+            .attr("data-dcs-value", obj.id);
     }
     {
         TreeRowOptions opts;
@@ -512,41 +541,41 @@ void DenderView::build_inspector_body(View& v) const {
             const std::string id(tab.id);
             auto btn = v.element("button", "dcs-tab dcs-btn dcs-btn--icon dcs-btn--sm",
                                  "prop-tab-" + id);
+            // The APP owns which tab is active (set_inspector_tab → reload
+            // re-renders exactly one populated panel). So the buttons are
+            // plain — NO data-dcs-target: that would ALSO drive the
+            // renderer's client-side tabpanel toggle, which fights the
+            // rebuild and lands on an empty panel (the blank-inspector bug).
             btn.attr("type", "button")
-                .attr("data-dcs-target", "#prop-" + id)
                 .attr("data-dcs-tip", tab.tip)
                 .attr("aria-selected",
                       ui_.inspector_tab == id ? "true" : "false");
             ui::icon(v, tab.icon, {}, "prop-tab-icon-" + id);
-            btn.ref().on_click([app, id] { app->set_inspector_tab(id); });
+            btn.ref().on_click(
+                bind(&app_, &DenderApp::set_inspector_tab, id));
         }
     }
     {
+        // Only the active tab's sheet is built (populated); the rebuild is
+        // the switch, so there are no hidden client-side tabpanels.
         auto sheet = v.container("dn-props__sheet", "prop-sheet");
-        for (const PropTab& tab : kPropTabs) {
-            const std::string id(tab.id);
-            auto panel = v.container({}, "prop-" + id);
-            panel.attr("id", "prop-" + id).attr("data-dcs-tabpanel", "");
-            if (ui_.inspector_tab != id) {
-                panel.attr("hidden", "");
-                continue;  // inactive sheets stay empty until selected
-            }
-            if (id == "object") build_inspector_object_tab(v);
-            else build_inspector_static_tab(v, id);
-        }
+        const std::string& active = ui_.inspector_tab;
+        auto panel = v.container({}, "prop-" + active);
+        panel.attr("id", "prop-" + active);
+        if (active == "object") build_inspector_object_tab(v);
+        else build_inspector_static_tab(v, active);
     }
 }
 
 void DenderView::build_inspector_object_tab(View& v) const {
-    DenderApp* app = &app_;
-    const SceneObject* obj = doc_.active();
+    const std::string id(app_.ctx().selection().active());
+    const app::Object* obj = id.empty() ? nullptr : doc_.find(id);
 
     {
         auto db = v.container("dcs-row dn-datablock", "insp-datablock");
         const std::string_view type =
             obj != nullptr ? std::string_view{obj->type} : std::string_view{};
-        ui::icon(v, DenderDocument::icon_for(type), "dn-datablock__icon",
-                 "insp-db-icon");
+        ui::icon(v, icon_for(type), "dn-datablock__icon", "insp-db-icon");
         v.element_ref("input", "dcs-input", "insp-name")
             .attr("type", "text")
             .attr("value", obj != nullptr ? obj->name : std::string{})
@@ -559,33 +588,7 @@ void DenderView::build_inspector_object_tab(View& v) const {
     {
         auto fold = v.foldout("Transform", true, "fold-xform");
         auto props = v.container("dcs-props", "xform-props");
-        const Vec3 pos = obj != nullptr ? obj->position : Vec3{};
-        const Vec3 rot = obj != nullptr ? obj->rotation : Vec3{};
-        const Vec3 scl = obj != nullptr ? obj->scale : Vec3{1.0, 1.0, 1.0};
-
-        v.vec("Location", {"X", "Y", "Z"}, {pos.x, pos.y, pos.z}, "loc");
-        v.vec("Rotation", {"X", "Y", "Z"},
-              {to_degrees(rot.x), to_degrees(rot.y), to_degrees(rot.z)}, "rot");
-        v.vec("Scale", {"X", "Y", "Z"}, {scl.x, scl.y, scl.z}, "scl");
-        for (int i = 0; i < 3; ++i) {
-            const std::string axis = std::to_string(i);
-            v.find_widget("loc-" + axis)
-                .attr("data-suffix", " m")
-                .on_change([app, i](std::string_view value) {
-                    app->set_location(i, value);
-                });
-            v.find_widget("rot-" + axis)
-                .attr("data-step", "1")
-                .attr("data-dec", "1")
-                .attr("data-suffix", "\xC2\xB0")
-                .on_change([app, i](std::string_view value) {
-                    app->set_rotation_deg(i, value);
-                });
-            v.find_widget("scl-" + axis)
-                .on_change([app, i](std::string_view value) {
-                    app->set_scale(i, value);
-                });
-        }
+        build_transform_vecs(v, id, "insp");
     }
 
     { auto fold = v.foldout("Delta Transform", false, "fold-delta"); }
@@ -596,7 +599,7 @@ void DenderView::build_inspector_object_tab(View& v) const {
         {
             auto field = v.container("dcs-field", "rel-parent");
             ui::text_span(v, "Parent", "dcs-field__label", "rel-parent-label");
-            const SceneObject* parent =
+            const app::Object* parent =
                 obj != nullptr && !obj->parent.empty() ? doc_.find(obj->parent)
                                                        : nullptr;
             v.element_ref("input", "dcs-input", "rel-parent-input")
@@ -620,6 +623,162 @@ void DenderView::build_inspector_object_tab(View& v) const {
     }
 
     { auto fold = v.foldout("Viewport Display", false, "fold-vpdisplay"); }
+}
+
+void DenderView::build_transform_vecs(View& v, std::string_view id,
+                                      std::string_view key_prefix) const {
+    // Live Location / Rotation / Scale vec fields over the object's e3d node
+    // reflection (game-editor pattern): "<prefix>.x/.y/.z" doubles, rotation
+    // in degrees. Edits preview on the node during a scrub and commit one undo
+    // entry on gesture end. `key_prefix` disambiguates widget names so the
+    // same builder can serve the main inspector AND the Item N-panel without
+    // two widgets sharing a key.
+    viewport3d::Viewport3D* vp = &app_.viewport();
+    e3d::Object3D* node = id.empty() ? nullptr : vp->node_of(id);
+
+    struct VecRow {
+        const char* prefix;  // reflection property prefix
+        const char* key;     // widget key stem
+        const char* label;
+        const char* suffix;
+        double fallback;
+        double step;
+        bool linear;  // constant step/pixel scrub (rotation degrees)
+    };
+    static constexpr VecRow kRows[] = {
+        {"position", "loc", "Location", " m", 0.0, 0.01, false},
+        {"rotation", "rot", "Rotation", "\xC2\xB0", 0.0, 0.5, true},
+        {"scale", "scl", "Scale", "", 1.0, 0.01, false},
+    };
+    static constexpr const char* kAxis[3] = {".x", ".y", ".z"};
+    const std::string owner_id(id);
+    for (const VecRow& row : kRows) {
+        std::array<double, 3> ch{row.fallback, row.fallback, row.fallback};
+        if (node != nullptr) {
+            const affineui::ObjectClass& cls = get_class(*node);
+            for (int i = 0; i < 3; ++i) {
+                const auto value =
+                    cls.get(node, std::string(row.prefix) + kAxis[i]);
+                if (const double* d = std::get_if<double>(&value)) {
+                    ch[static_cast<std::size_t>(i)] = *d;
+                }
+            }
+        }
+        const std::string key =
+            std::string(key_prefix) + "-" + row.key;  // e.g. "insp-loc"
+        v.vec(row.label, {"X", "Y", "Z"}, {ch[0], ch[1], ch[2]}, key, row.step,
+              row.linear);
+        for (int i = 0; i < 3; ++i) {
+            auto field = v.find_widget(key + "-" + std::to_string(i));
+            if (*row.suffix != '\0') field.attr("data-suffix", row.suffix);
+            const std::string prop = std::string(row.prefix) + kAxis[i];
+            const double fallback = row.fallback;
+            // Bound (id, prop) PLUS the widget's runtime value, which bind()'s
+            // bound-args form can't express (it yields a zero-arg callback).
+            // So capture a WEAK ref to the viewport and lock() it: the handler
+            // no-ops after the viewport dies — the crash-safety bind() gives.
+            const auto vp_ref = affineui::to_weak_ref(vp);
+            field.on_change(
+                [vp_ref, owner_id, prop, fallback](std::string_view value) {
+                    if (auto* v3 = vp_ref.lock()) {
+                        v3->preview_node_property(
+                            owner_id, prop,
+                            affineui::PropertyValue{
+                                parse_double_or(value, fallback)});
+                    }
+                });
+            field.on_commit(
+                [vp_ref, owner_id, prop, fallback](std::string_view value) {
+                    if (auto* v3 = vp_ref.lock()) {
+                        v3->commit_node_property(
+                            owner_id, prop,
+                            affineui::PropertyValue{
+                                parse_double_or(value, fallback)});
+                    }
+                });
+        }
+    }
+}
+
+void DenderView::build_npanel_item_body(View& v) const {
+    // The Item N-panel shows the object's CORE properties — not a second
+    // transform. Two fields, per the web reference:
+    //   Location   — mirrors the object's world position (live, editable;
+    //                the same node position the inspector's Location edits).
+    //   Dimensions — the object's BASE CREATION size: the mesh geometry's
+    //                bounding-box extents at scale 1. Editing Dimensions is a
+    //                mesh REGENERATION (rebuild the geometry at the new size),
+    //                not a scale — preview swaps geometry live during a scrub,
+    //                commit pushes one undoable resize at the gesture's end.
+    const std::string id(app_.ctx().selection().active());
+    e3d::Object3D* node = id.empty() ? nullptr : app_.viewport().node_of(id);
+
+    auto fold = v.foldout("Item", true, "np-item");
+    auto props = v.container("dcs-props", "np-item-props");
+
+    // Location — live, over the node's position reflection.
+    std::array<double, 3> loc{0.0, 0.0, 0.0};
+    if (node != nullptr) {
+        const affineui::ObjectClass& cls = get_class(*node);
+        static constexpr const char* kAxis[3] = {"position.x", "position.y",
+                                                  "position.z"};
+        for (int i = 0; i < 3; ++i) {
+            const affineui::PropertyValue value = cls.get(node, kAxis[i]);
+            if (const double* d = std::get_if<double>(&value)) {
+                loc[static_cast<std::size_t>(i)] = *d;
+            }
+        }
+    }
+    v.vec("Location", {"X", "Y", "Z"}, {loc[0], loc[1], loc[2]}, "np-loc",
+          0.01, false);
+    {
+        viewport3d::Viewport3D* vp = &app_.viewport();
+        const std::string owner_id(id);
+        for (int i = 0; i < 3; ++i) {
+            auto field = v.find_widget("np-loc-" + std::to_string(i));
+            field.attr("data-suffix", " m");
+            const std::string prop = std::string("position.") +
+                                     static_cast<char>('x' + i);
+            const auto vp_ref = affineui::to_weak_ref(vp);
+            field.on_change([vp_ref, owner_id, prop](std::string_view value) {
+                if (auto* v3 = vp_ref.lock()) {
+                    v3->preview_node_property(
+                        owner_id, prop,
+                        affineui::PropertyValue{parse_double_or(value, 0.0)});
+                }
+            });
+            field.on_commit([vp_ref, owner_id, prop](std::string_view value) {
+                if (auto* v3 = vp_ref.lock()) {
+                    v3->commit_node_property(
+                        owner_id, prop,
+                        affineui::PropertyValue{parse_double_or(value, 0.0)});
+                }
+            });
+        }
+    }
+
+    // Dimensions — the base creation size. Editing rebuilds the mesh at the
+    // new size (a REGENERATION, not a scale): preview swaps geometry live
+    // during a scrub, commit pushes one undoable resize at the gesture's end.
+    const e3d::Vec3 dim =
+        id.empty() ? e3d::Vec3{} : app_.viewport().base_dimensions(id);
+    v.vec("Dimensions", {"X", "Y", "Z"}, {dim.x, dim.y, dim.z}, "np-dim");
+    {
+        // preview/commit carry a bound axis AND the widget's value, which
+        // bind()'s bound-args form can't express — so a weak ref to the app,
+        // lock()ed before use (no-op after teardown, like bind()).
+        const auto app_ref = affineui::to_weak_ref(&app_);
+        for (int i = 0; i < 3; ++i) {
+            auto field = v.find_widget("np-dim-" + std::to_string(i));
+            field.attr("data-suffix", " m");
+            field.on_change([app_ref, i](std::string_view value) {
+                if (auto* a = app_ref.lock()) a->preview_dimension(i, value);
+            });
+            field.on_commit([app_ref, i](std::string_view value) {
+                if (auto* a = app_ref.lock()) a->commit_dimension(i, value);
+            });
+        }
+    }
 }
 
 void DenderView::build_inspector_static_tab(View& v, std::string_view id) const {
@@ -747,7 +906,7 @@ void DenderView::build_inspector_static_tab(View& v, std::string_view id) const 
 
 void DenderView::build_timeline_toolbar(View& v) const {
     DenderApp* app = &app_;
-    const Timeline& tl = doc_.timeline();
+    const Timeline& tl = app_.timeline();
 
     ui::select_button(v, {}, "keyframe", "menu-editortype", "tl-editortype",
                       "Editor Type");
@@ -777,7 +936,7 @@ void DenderView::build_timeline_toolbar(View& v) const {
         tbtn("skip-back", "Jump to Start", "tl-jump-start");
         tbtn("keyframe", "Previous Keyframe", "tl-prev-key");
         tbtn("rewind", "Play Reverse", "tl-play-rev");
-        tbtn(doc_.playing() ? "pause" : "play", "Play Animation", "tl-play")
+        tbtn(app_.playing() ? "pause" : "play", "Play Animation", "tl-play")
             .attr("aria-pressed", "true")
             .on_click(bind(&app_, &DenderApp::toggle_play));
         tbtn("keyframe", "Next Keyframe", "tl-next-key");
@@ -790,7 +949,7 @@ void DenderView::build_timeline_toolbar(View& v) const {
         .attr("data-dec", "0")
         .attr("style", "width:72px")
         .attr("data-dcs-tip", "Current Frame")
-        .on_change([app](std::string_view value) { app->set_frame(value); });
+        .on_change(bind(&app_, &DenderApp::set_frame));
 
     v.toolbar_separator("tl-sep2");
 
@@ -804,7 +963,7 @@ void DenderView::build_timeline_toolbar(View& v) const {
         ui::text_span(v, " Keying", {}, "tl-keying-label");
     }
     ui::icon_toggle(v, "record", ui_.auto_key, "Auto Keying", "tl-autokey")
-        .on_click([app] { app->toggle_flag("autokey"); });
+        .on_click(bind(&app_, &DenderApp::toggle_flag, std::string("autokey")));
 
     v.element_ref("span", "dcs-toolbar__spacer", "tl-spacer");
 
@@ -816,7 +975,7 @@ void DenderView::build_timeline_toolbar(View& v) const {
             .attr("data-max", "9999")
             .attr("data-dec", "0")
             .attr("style", "width:72px")
-            .on_change([app](std::string_view value) { app->set_start(value); });
+            .on_change(bind(&app_, &DenderApp::set_start));
     }
     {
         auto field = v.container("dcs-field", "tl-end-field");
@@ -826,32 +985,44 @@ void DenderView::build_timeline_toolbar(View& v) const {
             .attr("data-max", "9999")
             .attr("data-dec", "0")
             .attr("style", "width:72px")
-            .on_change([app](std::string_view value) { app->set_end(value); });
+            .on_change(bind(&app_, &DenderApp::set_end));
     }
 }
 
 void DenderView::build_timeline_body(View& v) const {
-    ui::timeline_body(v, doc_, app_.view_width());
+    const app::Object* active =
+        app_.ctx().selection().active().empty()
+            ? nullptr
+            : doc_.find(app_.ctx().selection().active());
+    ui::timeline_body(v, app_.timeline(),
+                      active != nullptr ? std::string_view{active->name}
+                                        : std::string_view{},
+                      app_.view_width());
 }
 
 // ── Statusbar ───────────────────────────────────────────────────────────────
 
 void DenderView::build_statusbar(View& v) const {
     auto bar = v.status_bar("statusbar");
+    const std::string active_id(app_.ctx().selection().active());
     {
         auto item = v.element("span", "dcs-statusbar__item", "st-active");
-        const SceneObject* active = doc_.active();
+        const app::Object* active =
+            active_id.empty() ? nullptr : doc_.find(active_id);
         const std::string_view type =
             active != nullptr ? std::string_view{active->type}
                               : std::string_view{};
-        ui::icon(v, DenderDocument::icon_for(type), {}, "st-active-icon");
+        ui::icon(v, icon_for(type), {}, "st-active-icon");
         v.text(" " + (active != nullptr ? active->name
                                         : std::string{"\xE2\x80\x94"}),
                "st-active-name");
     }
     v.element_ref("span", "dcs-statusbar__spacer", "st-spacer");
     // Live topology readout from the mesh tables (active mesh, else totals).
-    const SceneStats stats = scene_stats(doc_);
+    const SceneStats stats =
+        scene_stats(doc_, active_id, [this](std::string_view id) {
+            return app_.ctx().selection().contains(id);
+        });
     stat_item(v, "Verts", std::to_string(stats.verts), "st-verts");
     stat_item(v, "Faces", std::to_string(stats.faces), "st-faces");
     stat_item(v, "Tris", std::to_string(stats.tris), "st-tris");
@@ -994,7 +1165,9 @@ void DenderView::build_shared_menus(View& v) const {
 
 void DenderView::build_tweaks_popover(View& v) const {
     DenderApp* app = &app_;
-    const ThemeState& theme = doc_.theme();
+    const std::string_view accent = app_.accent();
+    const std::string_view density = app_.density();
+    const std::string_view style = app_.style();
 
     auto pop = v.container("dcs-popover dn-tweaks-popover", "dn-tweaks");
     pop.attr("id", "dn-tweaks").attr("hidden", "");
@@ -1018,9 +1191,9 @@ void DenderView::build_tweaks_popover(View& v) const {
             auto btn = v.element("button", "dcs-btn",
                                  "tweaks-density-" + value);
             btn.attr("type", "button")
-                .attr("aria-pressed", theme.density == value ? "true" : "false")
+                .attr("aria-pressed", density == value ? "true" : "false")
                 .text(d.label);
-            btn.ref().on_click([app, value] { app->set_density(value); });
+            btn.ref().on_click(bind(&app_, &DenderApp::set_density, value));
         }
     }
     {
@@ -1033,9 +1206,9 @@ void DenderView::build_tweaks_popover(View& v) const {
             const std::string value(s.value);
             auto btn = v.element("button", "dcs-btn", "tweaks-style-" + value);
             btn.attr("type", "button")
-                .attr("aria-pressed", theme.style == value ? "true" : "false")
+                .attr("aria-pressed", style == value ? "true" : "false")
                 .text(s.label);
-            btn.ref().on_click([app, value] { app->set_style(value); });
+            btn.ref().on_click(bind(&app_, &DenderApp::set_style, value));
         }
     }
     {
@@ -1052,11 +1225,11 @@ void DenderView::build_tweaks_popover(View& v) const {
             auto dot = v.element("button", "dn-accent-dot",
                                  "tweaks-accent-" + name);
             dot.attr("type", "button")
-                .attr("aria-pressed", theme.accent == name ? "true" : "false")
+                .attr("aria-pressed", accent == name ? "true" : "false")
                 .attr("data-dcs-tip", name)
                 .attr("style", std::string("background:") + a.color +
                                    ";color:" + a.color);
-            dot.ref().on_click([app, name] { app->set_accent(name); });
+            dot.ref().on_click(bind(&app_, &DenderApp::set_accent, name));
         }
     }
 }

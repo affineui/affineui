@@ -2390,11 +2390,23 @@ namespace {
 
 
 std::string widget_event_name(lxb_dom_element_t* elem) {
-    if (!elem) return {};
-    if (auto name = detail::attr_string(elem, "data-aui-name"); !name.empty()) {
-        return name;
+    // The value-bearing element is often an inner, deliberately unnamed
+    // part of a compound widget — a dcs-combo's <input>, say — while the
+    // app bound on_change to the NAMED widget node. Resolve like a
+    // bubbling DOM change event: the nearest self-or-ancestor carrying a
+    // widget name (before this walk an inner-element change was silently
+    // dropped, so bubbling only turns "lost" into "delivered").
+    for (auto* cur = elem; cur != nullptr;
+         cur = detail::parent_element(cur)) {
+        if (auto name = detail::attr_string(cur, "data-aui-name");
+            !name.empty()) {
+            return name;
+        }
+        if (auto id = detail::attr_string(cur, "id"); !id.empty()) {
+            return id;
+        }
     }
-    return detail::attr_string(elem, "id");
+    return {};
 }
 
 }  // namespace
@@ -2403,10 +2415,11 @@ std::string widget_event_name(lxb_dom_element_t* elem) {
 namespace detail {
 void emit_widget_change(detail::DocumentImpl& impl,
                         lxb_dom_element_t* elem,
-                        std::string_view value) {
+                        std::string_view value,
+                        bool live) {
     auto name = widget_event_name(elem);
     if (name.empty()) return;
-    impl.changed_widgets.push_back({std::move(name), std::string(value)});
+    impl.changed_widgets.push_back({std::move(name), std::string(value), live});
 }
 }  // namespace detail
 
@@ -2611,11 +2624,40 @@ bool update_live_control_value(detail::DocumentImpl& impl,
                                double min,
                                double max,
                                double value,
-                               bool bipolar) {
+                               bool bipolar,
+                               bool emit_live_change) {
     if (!elem) return false;
     if (max <= min) max = min + 1.0;
-    const double clamped = std::clamp(value, min, max);
-    const std::string value_text = detail::compact_number(clamped);
+    double clamped = std::clamp(value, min, max);
+    // Step snapping (three.js/decius.js parity: value = round(v/step)*step).
+    // This is what makes a numeric field an INTEGER editor vs a FLOAT
+    // one — the single dcs-combo primitive, parameterised by data-step:
+    // step 1 snaps to whole numbers, 0.01 (the default) keeps two
+    // decimals. A zero/absent step means "no snapping" (free float).
+    auto* combo = detail::nearest_ancestor_with_class(elem, "dcs-combo");
+    if (!combo && detail::has_attr(elem, "data-dcs-combo")) combo = elem;
+    const double step = detail::element_attr_double(
+        elem, "step",
+        detail::element_attr_double(
+            elem, "data-step",
+            detail::element_attr_double(combo, "data-step", 0.0)));
+    int decimals = 2;
+    if (step > 0.0) {
+        clamped = std::clamp(std::round(clamped / step) * step, min, max);
+        // Decimal places to show = those the step itself needs (step 1 →
+        // 0, 0.1 → 1, 0.01 → 2), so an integer editor prints integers. The
+        // cap of 9 matches float32 significant-digit precision — a step
+        // finer than a nanounit can't be rendered distinctly anyway, so we
+        // stop rather than print noise digits.
+        decimals = 0;
+        double frac = step;
+        while (decimals < 9 &&
+               std::abs(frac - std::round(frac)) > 1e-12) {
+            frac *= 10.0;
+            ++decimals;
+        }
+    }
+    const std::string value_text = detail::compact_number(clamped, decimals);
 
     bool changed = false;
     const bool value_changed =
@@ -2657,7 +2699,11 @@ bool update_live_control_value(detail::DocumentImpl& impl,
             detail::set_attribute_on_element(impl, elem, "data-value", value_text) ||
             changed;
     }
-    if (value_changed) detail::emit_widget_change(impl, elem, value_text);
+    // A scrub in flight is a LIVE change; the gesture's end (mouse up in
+    // the dispatch layer) emits the single committed change.
+    if (value_changed && emit_live_change) {
+        detail::emit_widget_change(impl, elem, value_text, /*live=*/true);
+    }
 
     if (kind == LiveControlKind::DeciusSlider) {
         if (auto* fill = detail::first_descendant_with_class(elem, "dcs-slider__fill")) {

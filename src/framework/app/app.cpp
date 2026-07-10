@@ -85,6 +85,7 @@ struct AppImpl {
     std::function<void()> view_fn;
     std::vector<WidgetClickBinding> view_click_bindings;
     std::vector<WidgetChangeBinding> view_change_bindings;
+    std::vector<WidgetChangeBinding> view_commit_bindings;
     std::vector<Document::WidgetChange> deferred_widget_changes;
     std::vector<App::EventHandler> event_handlers;
     std::vector<std::function<void(double)>> frame_callbacks;
@@ -300,17 +301,32 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
 
     auto changes = impl.document.take_widget_changes();
     if (result.defer_widget_changes) {
-        if (!changes.empty()) {
+        // Deferral coalesces a gesture's rebuild to its end. But LIVE
+        // changes are previews (on_change is bound to cheap preview work
+        // that must not rebuild) — they have to dispatch every frame or
+        // there is no realtime feedback (the colour picker not recolouring
+        // the material as you drag). So split: live changes fall through
+        // to immediate dispatch below; only committed changes defer.
+        std::vector<Document::WidgetChange> live_now;
+        std::vector<Document::WidgetChange> deferred;
+        for (auto& change : changes) {
+            if (change.live) {
+                live_now.push_back(std::move(change));
+            } else {
+                deferred.push_back(std::move(change));
+            }
+        }
+        if (!deferred.empty()) {
             impl.deferred_widget_changes.insert(
                 impl.deferred_widget_changes.end(),
-                std::make_move_iterator(changes.begin()),
-                std::make_move_iterator(changes.end()));
+                std::make_move_iterator(deferred.begin()),
+                std::make_move_iterator(deferred.end()));
             consumed = true;
             impl.dirty = true;
         }
-        return consumed;
-    }
-    if (!impl.deferred_widget_changes.empty()) {
+        if (live_now.empty()) return consumed;
+        changes = std::move(live_now);  // dispatch these now (on_change only)
+    } else if (!impl.deferred_widget_changes.empty()) {
         impl.deferred_widget_changes.insert(
             impl.deferred_widget_changes.end(),
             std::make_move_iterator(changes.begin()),
@@ -329,7 +345,12 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
             if (it == coalesced.end()) {
                 coalesced.push_back(std::move(change));
             } else {
+                // Per widget, the newest value wins; a committed change
+                // absorbs the live previews before it (the gesture is
+                // over by the time deferred changes flush), so apps see
+                // one change AND one commit — never a stale preview.
                 it->value = std::move(change.value);
+                it->live = it->live && change.live;
             }
         }
         changes = std::move(coalesced);
@@ -344,6 +365,15 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
             for (const auto& binding : impl.view_change_bindings) {
                 if (binding.name == change.name && binding.handler) {
                     callbacks.push_back({binding.handler, change.value});
+                }
+            }
+            // Committed changes additionally fire the commit bindings
+            // (the end of a gesture / a discrete edit).
+            if (!change.live) {
+                for (const auto& binding : impl.view_commit_bindings) {
+                    if (binding.name == change.name && binding.handler) {
+                        callbacks.push_back({binding.handler, change.value});
+                    }
                 }
             }
         }
@@ -471,6 +501,7 @@ void App::load_html(std::string_view html) {
     impl_->deferred_widget_changes.clear();
     impl_->view_click_bindings.clear();
     impl_->view_change_bindings.clear();
+    impl_->view_commit_bindings.clear();
     impl_->document.clear_scripts();
     impl_->document.set_html(html);
     impl_->document.restore_transient_state(transient);
@@ -485,6 +516,7 @@ void App::load_view(const View& view) {
     impl_->document.attach_script(DocumentScript::UiControls);
     impl_->view_click_bindings = view.click_bindings();
     impl_->view_change_bindings = view.change_bindings();
+    impl_->view_commit_bindings = view.commit_bindings();
 }
 
 namespace detail {
@@ -618,6 +650,7 @@ void App::rebuild_view() {
 
     impl_->view_click_bindings = view.click_bindings();
     impl_->view_change_bindings = view.change_bindings();
+    impl_->view_commit_bindings = view.commit_bindings();
     impl_->dirty = true;
     impl_->animations_active = false;
 }
@@ -649,6 +682,12 @@ void App::request_custom_repaint(std::string_view name) {
     if (impl_->document.request_custom_repaint(name)) {
         impl_->dirty = true;
     }
+}
+
+bool App::set_widget_value(std::string_view name, std::string_view value) {
+    const bool changed = impl_->document.set_widget_value(name, value);
+    if (changed) impl_->dirty = true;
+    return changed;
 }
 
 void App::set_min_frame_time(double ms) {

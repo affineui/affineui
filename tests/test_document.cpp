@@ -1,4 +1,4 @@
-﻿#include <doctest/doctest.h>
+#include <doctest/doctest.h>
 
 #include "affineui/automation.h"
 #include "affineui/document.h"
@@ -1103,6 +1103,71 @@ TEST_CASE("UiControls script selects Decius menus on down and activates on up") 
     CHECK(find_hovered_chain_id(doc, "open-item", 260, 120).x < 0);
 }
 
+TEST_CASE("UiControls combo drag emits the change under the NAMED widget") {
+    // The value-bearing element of a dcs-combo is its inner (unnamed)
+    // <input>; the app's on_change is bound to the named combo node. A
+    // drag-scrub must bubble the change to that name — this was the
+    // "inspector vec fields do nothing" bug.
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-combo { display: block; width: 120px; height: 24px; }
+        .dcs-combo__value { display: block; width: 120px; height: 24px; }
+        </style>
+        <div id="cx" class="dcs-combo" role="spinbutton" data-aui-name="position-0"
+             data-dcs-combo="" data-value="1" data-step="0.01">
+            <input class="dcs-combo__value" type="number" value="1">
+        </div>
+    )HTML");
+    doc.layout(260, 120, &painter);
+
+    auto send = [&](affineui::EventType type, int x, int y) {
+        affineui::Event e{};
+        e.type = type;
+        e.button = affineui::MouseButton::Left;
+        e.pos = {x, y};
+        return doc.dispatch(e);
+    };
+
+    // Horizontal drag-scrub across the combo.
+    send(affineui::EventType::MouseDown, 20, 12);
+    send(affineui::EventType::MouseMove, 80, 12);
+    send(affineui::EventType::MouseUp, 80, 12);
+
+    const auto changes = doc.take_widget_changes();
+    REQUIRE(!changes.empty());
+    // The scrub streams LIVE changes; the release emits exactly one
+    // committed change carrying the final value.
+    for (std::size_t i = 0; i + 1 < changes.size(); ++i) {
+        CHECK(changes[i].live);
+    }
+    CHECK(changes.back().name == "position-0");
+    CHECK_FALSE(changes.back().live);
+    CHECK(changes.back().value != "1");  // the value actually moved
+
+    // Programmatic write-back: updates the widget silently (the
+    // data-binding echo guard) — no change events.
+    CHECK(doc.set_widget_value("position-0", "7.25"));
+    CHECK(doc.take_widget_changes().empty());
+    doc.layout(260, 120, &painter);
+    // The inner input owns the hover; read the combo's attrs off the
+    // hover chain entry.
+    const auto pos = find_hovered_chain_id(doc, "cx", 260, 120);
+    REQUIRE(pos.x >= 0);
+    std::string data_value;
+    for (const auto& info : doc.hovered_info_chain()) {
+        if (info.elem_id != "cx") continue;
+        for (const auto& [attr, attr_value] : info.attrs) {
+            if (attr == "data-value") data_value = attr_value;
+        }
+    }
+    CHECK(data_value == "7.25");
+}
+
 TEST_CASE("UiControls script keeps one Decius popup layer open and closes outside") {
     affineui::Document doc;
     RecordingPainter painter;
@@ -2102,6 +2167,70 @@ TEST_CASE("UiControls script maps bounded Decius combo value to bar position") {
     CHECK(value >= 49.0);
     CHECK(value <= 51.0);
     CHECK(hovered_attr_for_id(doc, "combo", "style") == "--fill:50%");
+}
+
+TEST_CASE("Numeric combo step: integer editor snaps to whole numbers") {
+    // The single dcs-combo primitive is an INTEGER editor when data-step
+    // is 1 (value snaps to whole numbers, renders without decimals) and a
+    // FLOAT editor for a fractional step — three.js/decius.js parity, no
+    // separate component. A programmatic set through both proves it.
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>body{margin:0;padding:0}
+        .dcs-combo{display:block;width:120px;height:24px}
+        .dcs-combo__value{display:block;width:120px;height:24px}</style>
+        <div class="dcs-combo" data-aui-name="ints" data-dcs-combo=""
+             data-min="0" data-max="100" data-value="3" data-step="1">
+            <input class="dcs-combo__value" type="number" value="3">
+        </div>
+        <div class="dcs-combo" data-aui-name="floats" data-dcs-combo=""
+             data-min="0" data-max="100" data-value="3" data-step="0.25">
+            <input class="dcs-combo__value" type="number" value="3">
+        </div>
+    )HTML");
+    doc.layout(200, 120, &painter);
+
+    auto value_of = [&](std::string_view name) {
+        doc.layout(200, 120, &painter);
+        for (const auto& info : doc.hovered_info_chain()) { (void)info; }
+        std::string out;
+        // Scan blocks via the hover chain: hover the field, read its value.
+        for (int y = 0; y < 120 && out.empty(); y += 4) {
+            for (int x = 0; x < 200; x += 4) {
+                affineui::Event mv{};
+                mv.type = affineui::EventType::MouseMove;
+                mv.pos = {x, y};
+                doc.dispatch(mv);
+                for (const auto& info : doc.hovered_info_chain()) {
+                    bool match = false;
+                    for (const auto& [a, v] : info.attrs) {
+                        if (a == "data-aui-name" && v == name) match = true;
+                    }
+                    if (!match) continue;
+                    for (const auto& [a, v] : info.attrs) {
+                        if (a == "data-value") out = v;
+                    }
+                }
+                if (!out.empty()) break;
+            }
+        }
+        return out;
+    };
+
+    // Integer field: a fractional target snaps to the nearest whole
+    // number and prints without a decimal point.
+    CHECK(doc.set_widget_value("ints", "42.7"));
+    CHECK(value_of("ints") == "43");
+    CHECK(doc.set_widget_value("ints", "42.2"));
+    CHECK(value_of("ints") == "42");
+
+    // Float field (step 0.25): snaps to the quarter grid, keeps decimals.
+    CHECK(doc.set_widget_value("floats", "42.7"));
+    CHECK(value_of("floats") == "42.75");
+    CHECK(doc.set_widget_value("floats", "42.1"));
+    CHECK(value_of("floats") == "42");
 }
 
 TEST_CASE("UiControls script maps generated Decius combo fill range to mouse position") {
@@ -6620,6 +6749,58 @@ TEST_CASE("focused input edits at caret and preserves caret across relayout") {
     doc.draw(painter);
     REQUIRE_FALSE(painter.text_runs.empty());
     CHECK(painter.text_runs.back() == "Xa!cd");
+}
+
+TEST_CASE("focused input never shows caret and selection at the same time") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>body{margin:0;padding:0}
+        input{display:block;width:160px;padding:4px 8px;border:0}</style>
+        <input value="abcd">
+    )HTML");
+    doc.layout(320, 0, &painter);
+
+    const auto input_pos = find_hovered_tag(doc, "input");
+    REQUIRE(input_pos.x >= 0);
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = input_pos;
+    doc.dispatch(down);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = input_pos;
+    doc.dispatch(up);
+
+    // A short near-vertical stroke inside the field is the caret.
+    auto has_caret = [&] {
+        painter.stroke_line_draws.clear();
+        doc.draw(painter);
+        for (const auto& sl : painter.stroke_line_draws) {
+            const bool vertical = std::abs(sl.x0 - sl.x1) < 0.5f;
+            const float h = std::abs(sl.y1 - sl.y0);
+            if (vertical && h >= 6.0f && h <= 24.0f) return true;
+        }
+        return false;
+    };
+
+    // Select all (Ctrl+A) → a selection is active → NO caret painted.
+    affineui::Event sel{};
+    sel.type = affineui::EventType::KeyDown;
+    sel.key = affineui::Key::A;
+    sel.ctrl = true;
+    doc.dispatch(sel);
+    CHECK_FALSE(has_caret());
+
+    // Collapse the selection (ArrowRight) → caret returns.
+    affineui::Event right{};
+    right.type = affineui::EventType::KeyDown;
+    right.key = affineui::Key::ArrowRight;
+    doc.dispatch(right);
+    CHECK(has_caret());
 }
 
 TEST_CASE("text input click placement uses measured glyph advances") {

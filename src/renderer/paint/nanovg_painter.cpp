@@ -22,6 +22,12 @@
 #if !defined(AFFINEUI_STUB_BUILD)
 #    include "nanovg.h"
 #    include "stb_image.h"
+#    if !defined(AFFINEUI_HOST_PROVIDES_NANOVG)
+// adopt_native_image wraps an existing sg_image via the NanoVG-on-sokol
+// backend (declarations only; the backend TU is nanovg_sokol.c).
+#        include "sokol_gfx.h"
+#        include "nanovg_sokol.h"
+#    endif
 #    if defined(AFFINEUI_HAVE_EMBEDDED_FONTS)
 // Byte arrays generated at build time from assets/fonts/*.ttf by bin2c.
 #        include "roboto_regular.h"
@@ -1824,6 +1830,31 @@ public:
                 static_cast<float>(dst.w), static_cast<float>(dst.h));
         nvgFillPaint(vg_, p);
         nvgFill(vg_);
+    }
+
+    std::uint32_t adopt_native_image(std::uint64_t native_handle, int w,
+                                     int h, bool flip_y) override {
+#if !defined(AFFINEUI_HOST_PROVIDES_NANOVG)
+        // The texture stays owned by the caller (NVG_IMAGE_NODELETE);
+        // the {0} sampler falls back to the backend's default.
+        sg_image img;
+        img.id = static_cast<std::uint32_t>(native_handle);
+        sg_sampler smp;
+        smp.id = 0;
+        const int flags =
+            NVG_IMAGE_NODELETE | (flip_y ? NVG_IMAGE_FLIPY : 0);
+        const int id =
+            nvsgCreateImageFromHandle(vg_, img, smp, w, h, flags);
+        return id > 0 ? static_cast<std::uint32_t>(id) : 0u;
+#else
+        // Host-provided NanoVG backend: no sokol texture injection.
+        (void)native_handle; (void)w; (void)h; (void)flip_y;
+        return 0u;
+#endif
+    }
+
+    void release_native_image(std::uint32_t image) override {
+        if (image != 0) nvgDeleteImage(vg_, static_cast<int>(image));
     }
 
     void push_clip(const Rect& r) override {

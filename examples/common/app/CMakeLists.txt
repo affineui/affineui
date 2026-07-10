@@ -9,6 +9,7 @@ add_library(affineui_app STATIC
     context.cpp
     document.cpp
     selection.cpp
+    change_tracker.cpp
     gesture.cpp
     localization.cpp
     standard_commands.cpp
