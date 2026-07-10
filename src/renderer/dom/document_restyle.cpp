@@ -2298,10 +2298,11 @@ std::string widget_event_name(lxb_dom_element_t* elem) {
 namespace detail {
 void emit_widget_change(detail::DocumentImpl& impl,
                         lxb_dom_element_t* elem,
-                        std::string_view value) {
+                        std::string_view value,
+                        bool live) {
     auto name = widget_event_name(elem);
     if (name.empty()) return;
-    impl.changed_widgets.push_back({std::move(name), std::string(value)});
+    impl.changed_widgets.push_back({std::move(name), std::string(value), live});
 }
 }  // namespace detail
 
@@ -2506,7 +2507,8 @@ bool update_live_control_value(detail::DocumentImpl& impl,
                                double min,
                                double max,
                                double value,
-                               bool bipolar) {
+                               bool bipolar,
+                               bool emit_live_change) {
     if (!elem) return false;
     if (max <= min) max = min + 1.0;
     const double clamped = std::clamp(value, min, max);
@@ -2552,7 +2554,11 @@ bool update_live_control_value(detail::DocumentImpl& impl,
             detail::set_attribute_on_element(impl, elem, "data-value", value_text) ||
             changed;
     }
-    if (value_changed) detail::emit_widget_change(impl, elem, value_text);
+    // A scrub in flight is a LIVE change; the gesture's end (mouse up in
+    // the dispatch layer) emits the single committed change.
+    if (value_changed && emit_live_change) {
+        detail::emit_widget_change(impl, elem, value_text, /*live=*/true);
+    }
 
     if (kind == LiveControlKind::DeciusSlider) {
         if (auto* fill = detail::first_descendant_with_class(elem, "dcs-slider__fill")) {

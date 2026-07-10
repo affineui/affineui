@@ -1339,6 +1339,15 @@ WidgetRef& WidgetRef::on_change(std::function<void(std::string_view)> cb) {
     return *this;
 }
 
+WidgetRef& WidgetRef::on_commit(std::function<void(std::string_view)> cb) {
+    if (owner_) {
+        if (auto* n = owner_->resolve_widget_ref(*this)) {
+            owner_->set_commit_handler(*n, std::move(cb));
+        }
+    }
+    return *this;
+}
+
 WidgetRef& WidgetRef::append(const std::function<void(View&)>& build) {
     if (owner_ && owner_->can_mutate_children("append")) {
         if (auto* n = owner_->resolve_widget_ref(*this)) {
@@ -1454,6 +1463,7 @@ void View::clear() {
     widget_names_.clear();
     click_handlers_.clear();
     change_handlers_.clear();
+    commit_handlers_.clear();
 }
 
 View& View::selector(std::string_view name, std::string_view value) {
@@ -3899,6 +3909,17 @@ std::vector<WidgetChangeBinding> View::change_bindings() const {
     return out;
 }
 
+std::vector<WidgetChangeBinding> View::commit_bindings() const {
+    std::vector<WidgetChangeBinding> out;
+    out.reserve(commit_handlers_.size());
+    for (const auto& [id, handler] : commit_handlers_) {
+        const auto* node = find_id(id);
+        if (!node || node->widget_name.empty() || !handler) continue;
+        out.push_back({node->widget_name, handler});
+    }
+    return out;
+}
+
 const WidgetNode* View::find_remote(std::string_view id) const {
     return find_remote_impl(root_, id);
 }
@@ -4231,6 +4252,17 @@ void View::set_change_handler(WidgetNode& node,
         it->second = std::move(cb);
     } else {
         change_handlers_.push_back({node.id, std::move(cb)});
+    }
+}
+
+void View::set_commit_handler(WidgetNode& node,
+                              std::function<void(std::string_view)> cb) {
+    auto it = std::find_if(commit_handlers_.begin(), commit_handlers_.end(),
+        [&](const auto& entry) { return entry.first == node.id; });
+    if (it != commit_handlers_.end()) {
+        it->second = std::move(cb);
+    } else {
+        commit_handlers_.push_back({node.id, std::move(cb)});
     }
 }
 

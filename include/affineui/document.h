@@ -36,6 +36,12 @@ public:
     struct WidgetChange {
         std::string name;
         std::string value;
+        /// True while a continuous gesture (drag-scrub of a combo,
+        /// slider, fader, knob, colour picker) is still in flight; the
+        /// gesture's end emits one final change with live == false.
+        /// Discrete controls (checkbox, menu, typed commit) only emit
+        /// committed (live == false) changes.
+        bool        live{false};
     };
 
     /// A runtime override of a dockable panel's placement, produced by
@@ -225,6 +231,16 @@ public:
 
     /// Replace textContent for a leaf element with `id`.
     bool set_text_by_id(std::string_view elem_id, std::string_view text);
+
+    /// Programmatically set the VALUE a named widget displays (the
+    /// element whose data-aui-name is `name`): a dcs-combo / slider /
+    /// fader / knob updates its input text, fill and value attributes
+    /// through the same path an interactive scrub uses, other controls
+    /// get their value attribute set. Emits NO widget-change event —
+    /// this is the write-back half of a data binding (e.g. an inspector
+    /// tracking a 3D gizmo drag), not user input. Returns true if a
+    /// widget matched and changed.
+    bool set_widget_value(std::string_view name, std::string_view value);
 
     // ── View reconciliation (App fast path) ─────────────────────────
     /// Begin a batched View-reconcile mutation pass and return the

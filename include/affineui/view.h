@@ -500,6 +500,12 @@ public:
     WidgetRef& add_class(std::string_view token);
     WidgetRef& on_click(std::function<void()> cb);
     WidgetRef& on_change(std::function<void(std::string_view)> cb);
+    /// Fires only on COMMITTED changes: the end of a continuous gesture
+    /// (a combo/slider/knob scrub, a colour-picker drag) or a discrete
+    /// edit. on_change streams every change including the live ones —
+    /// bind cheap preview work there and the undoable command here, so
+    /// a scrub previews continuously and commits once.
+    WidgetRef& on_commit(std::function<void(std::string_view)> cb);
     WidgetRef& append(const std::function<void(View&)>& build);
     WidgetRef& replace(const std::function<void(View&)>& build);
 
@@ -958,6 +964,7 @@ public:
 
     [[nodiscard]] std::vector<WidgetClickBinding> click_bindings() const;
     [[nodiscard]] std::vector<WidgetChangeBinding> change_bindings() const;
+    [[nodiscard]] std::vector<WidgetChangeBinding> commit_bindings() const;
     [[nodiscard]] const WidgetNode* find_remote(std::string_view remote_id) const;
     [[nodiscard]] std::string to_html_fragment() const;
     [[nodiscard]] std::string to_html_document() const;
@@ -997,6 +1004,8 @@ private:
     void set_click_handler(WidgetNode& node, std::function<void()> cb);
     void set_change_handler(WidgetNode& node,
                             std::function<void(std::string_view)> cb);
+    void set_commit_handler(WidgetNode& node,
+                            std::function<void(std::string_view)> cb);
     void clear_children(WidgetNode& node);
     void set_widget_name(WidgetNode& node, std::string_view name);
     void unregister_tree(const WidgetNode& node);
@@ -1032,6 +1041,8 @@ private:
     std::vector<std::pair<StableId, std::function<void()>>> click_handlers_;
     std::vector<std::pair<StableId, std::function<void(std::string_view)>>>
         change_handlers_;
+    std::vector<std::pair<StableId, std::function<void(std::string_view)>>>
+        commit_handlers_;
     std::vector<std::string> diagnostics_;
     ViewSink* sink_{nullptr};
     ViewSink* mutation_sink_{nullptr};

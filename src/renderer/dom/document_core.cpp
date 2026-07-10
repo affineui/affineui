@@ -1,4 +1,4 @@
-// document_core.cpp — affineui::Document lifecycle + public surface.
+﻿// document_core.cpp â€” affineui::Document lifecycle + public surface.
 //
 // The document implementation is split across focused TUs (see
 // dom/document_impl.h for the shared types and cross-file helpers):
@@ -93,7 +93,7 @@ std::function<void(const std::string&)>& dock_trace_capture_slot() {
 
 }  // namespace
 
-// Cross-file document helpers — declared in internal/document_impl.h.
+// Cross-file document helpers â€” declared in internal/document_impl.h.
 namespace detail {
 bool dock_trace_enabled() {
     if (dock_trace_capture_slot()) return true;
@@ -106,7 +106,7 @@ namespace {
 
 }  // namespace
 
-// Cross-file document helpers — declared in internal/document_impl.h.
+// Cross-file document helpers â€” declared in internal/document_impl.h.
 namespace detail {
 void dock_trace(std::string msg) {
     if (!detail::dock_trace_enabled()) return;
@@ -229,7 +229,7 @@ Document& Document::operator=(Document&&) noexcept = default;
 void Document::set_html(std::string_view html) {
     const auto previous_scroll =
         detail::snapshot_scroll_state(*impl_, /*include_elements=*/false);
-    // The whole DOM is being replaced — any view-reconcile node mapping
+    // The whole DOM is being replaced â€” any view-reconcile node mapping
     // is now stale.
     if (impl_->view_sink_reset) impl_->view_sink_reset();
     impl_->html.assign(html);
@@ -299,8 +299,8 @@ void Document::set_html(std::string_view html) {
     }
 
     // Route lexbor's global allocator through affineui::mem before its first
-    // allocation (idempotent). Captures the DOM + CSS arenas — the bulk of our
-    // heap traffic — for host-allocator routing and leak/UAF tracking.
+    // allocation (idempotent). Captures the DOM + CSS arenas â€” the bulk of our
+    // heap traffic â€” for host-allocator routing and leak/UAF tracking.
     mem::install_lexbor_hooks();
 
     impl_->doc = lxb_html_document_create();
@@ -320,7 +320,7 @@ void Document::set_html(std::string_view html) {
         return;
     }
 
-    // Cascade order (lower â†’ higher specificity, ties to last):
+    // Cascade order (lower Ã¢â€ â€™ higher specificity, ties to last):
     //   1. User-agent baseline
     //   2. Author <style> blocks from the page
     //   3. User stylesheet (App-supplied, often a framework/theme)
@@ -343,7 +343,7 @@ void Document::set_html(std::string_view html) {
         detail::media_match_signature(*impl_, impl_->media_viewport_width_px);
 
     // Establish a root inheritance baseline. Reasonable initial values
-    // for the implicit document root â€” anything not overridden by CSS
+    // for the implicit document root Ã¢â‚¬â€ anything not overridden by CSS
     // gets these. AnimatedStyle's foreground defaults to near-white
     // (#dcdce6) so unstyled docs are readable on the dark clear color.
     impl_->root_style                       = detail::ResolvedStyle{};
@@ -500,7 +500,7 @@ void Document::reload_stylesheets() {
     if (!impl_->html.empty()) set_html(impl_->html);
 }
 
-// Cross-file document helpers — declared in internal/document_impl.h.
+// Cross-file document helpers â€” declared in internal/document_impl.h.
 namespace detail {
 void attach_matching_media_blocks_for_viewport(detail::DocumentImpl& impl) {
     if (!impl.doc || impl.media_viewport_width_px <= 0) return;
@@ -519,7 +519,7 @@ void attach_matching_media_blocks_for_viewport(detail::DocumentImpl& impl) {
 }
 }  // namespace detail
 
-// Cross-file document helpers — declared in internal/document_impl.h.
+// Cross-file document helpers â€” declared in internal/document_impl.h.
 namespace detail {
 // Numeric data-* attribute straight off the element (paint-time read;
 // block.attrs can lag live-control writes within a frame).
@@ -544,14 +544,14 @@ namespace {
 
 }  // namespace
 
-// Cross-file document helpers — declared in internal/document_impl.h.
+// Cross-file document helpers â€” declared in internal/document_impl.h.
 namespace detail {
 }  // namespace detail
 namespace {
 
 }  // namespace
 
-// Cross-file document helpers — declared in internal/document_impl.h.
+// Cross-file document helpers â€” declared in internal/document_impl.h.
 namespace detail {
 // Sum of scroll offsets contributed by scrollable ancestors of
 // `idx`. Used by hit-test and paint to convert document-space block
@@ -592,7 +592,7 @@ namespace {
 #if !defined(AFFINEUI_STUB_BUILD)
 }  // namespace
 
-// Cross-file document helpers — declared in internal/document_impl.h.
+// Cross-file document helpers â€” declared in internal/document_impl.h.
 namespace detail {
 int effective_z_index(const detail::DocumentImpl& impl, int idx) {
     int z = 0;
@@ -609,7 +609,7 @@ namespace {
 
 }  // namespace
 
-// Cross-file document helpers — declared in internal/document_impl.h.
+// Cross-file document helpers â€” declared in internal/document_impl.h.
 namespace detail {
 const KeyframeBlock* find_keyframes(const detail::DocumentImpl& impl,
                                     std::uint32_t name_hash) {
@@ -652,7 +652,7 @@ bool hit_test_skip_for_pointer(const Block& block) {
         detail::block_has_class(block, "dcs-panel__resize")) {
         return true;
     }
-    // Honor inline `pointer-events:none` — overlay layers (patch-cable
+    // Honor inline `pointer-events:none` â€” overlay layers (patch-cable
     // SVG, ghosts, HUDs) opt out of hit-testing the standard CSS way.
     if (const auto* style = detail::block_attr_value(block, "style")) {
         if (style->find("pointer-events:none") != std::string::npos ||
@@ -721,7 +721,7 @@ int hit_test_blocks_impl(const detail::DocumentImpl& impl,
 
 }  // namespace
 
-// Cross-file document helpers — declared in internal/document_impl.h.
+// Cross-file document helpers â€” declared in internal/document_impl.h.
 namespace detail {
 // Deepest block whose effective border-box (after applying ancestor scroll
 // offsets and CSS transforms) contains (x, y), or -1 if none. z-index buckets
@@ -734,7 +734,7 @@ namespace {
 
 }  // namespace
 
-// Cross-file document helpers — declared in internal/document_impl.h.
+// Cross-file document helpers â€” declared in internal/document_impl.h.
 namespace detail {
 int hit_test_blocks_for_dock_target(const detail::DocumentImpl& impl,
                                     int x,
@@ -769,7 +769,7 @@ std::string block_trace_name(const Block& b) {
 
 }  // namespace
 
-// Cross-file document helpers — declared in internal/document_impl.h.
+// Cross-file document helpers â€” declared in internal/document_impl.h.
 namespace detail {
 std::string hit_chain_summary(const detail::DocumentImpl& impl, int idx) {
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return "none";
@@ -854,8 +854,8 @@ bool Document::weak_handle_valid(DomHandle handle) const {
 #endif
 }
 
-// ── View reconciliation sink ────────────────────────────────────────
-// Applies View builder mutations directly to the retained DOM — the
+// â”€â”€ View reconciliation sink â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Applies View builder mutations directly to the retained DOM â€” the
 // App fast path that replaces to_html + reparse per rebuild. Attribute
 // and text writes ride the same live-mutation classification as
 // set_attribute_by_id (svg-child geometry stays paint-only, class /
@@ -873,7 +873,7 @@ bool Document::weak_handle_valid(DomHandle handle) const {
 // ACQUIRES a `style` attribute inside the batch would never get the
 // declarations parsed into its style list (ev_set_value still covers value
 // changes on an existing attribute), and styles_rematch only re-attaches the
-// CACHED inline list — it never re-parses. Re-run the parse explicitly —
+// CACHED inline list â€” it never re-parses. Re-run the parse explicitly â€”
 // mirrors lxb_html_document_event_insert_attribute for the fresh-attr case.
 // Skipping it collapses any surgery-created box whose geometry lives in its
 // inline style (a spawned tearout laid out at (0,0) intrinsic size).
@@ -1008,7 +1008,7 @@ public:
             }
         }
         // Paint-only lane: raw html swapped INSIDE an <svg> subtree changes
-        // vector content only — svg children carry no blocks, so restyle/
+        // vector content only â€” svg children carry no blocks, so restyle/
         // recollect/layout cannot be affected. Repaint the host block
         // instead of declaring structural dirt (the structural settle made
         // every viewport camera move a full-document event).
@@ -1070,8 +1070,8 @@ public:
             if (auto it = texts_.find(node.remote_id); it != texts_.end()) {
                 lxb_dom_node_t* text_node = it->second;
                 lxb_dom_node_t* parent = text_node->parent;
-                // The common shape — a lone text child under a live
-                // element block (labels, inspector values) — is a LOCAL
+                // The common shape â€” a lone text child under a live
+                // element block (labels, inspector values) â€” is a LOCAL
                 // change: set_text_on_element refreshes that block's text
                 // and marks a scoped remeasure. Only mixed-content parents
                 // fall back to the structural settle. NOTE: the element
@@ -1150,9 +1150,9 @@ private:
         return parent ? elem_node(parent->remote_id) : root_dom();
     }
     // Record a structural change scoped to the nearest BLOCK ancestor of
-    // `scope` (the mutation's parent). No block scope → global settle
+    // `scope` (the mutation's parent). No block scope â†’ global settle
     // fallback (bootstrap into the empty shell, orphan splices).
-    // AFFINEUI_SETTLE_GLOBAL=1 forces the global path — the bisect lever
+    // AFFINEUI_SETTLE_GLOBAL=1 forces the global path â€” the bisect lever
     // for "is a missing scoped rematch causing this style bug?".
     void note_structure_change(lxb_dom_node_t* scope) {
         static const bool force_global =
@@ -1173,7 +1173,7 @@ private:
         impl_.view_structure_dirty = true;
     }
 
-    // Map-entry eviction only — DOM destruction of descendants is
+    // Map-entry eviction only â€” DOM destruction of descendants is
     // implicit in the ancestor's destroy_deep.
     void evict(const WidgetNode& n) {
         elems_.erase(n.remote_id);
@@ -1209,12 +1209,12 @@ void invalidate_resolver_deep(detail::DocumentImpl& impl, lxb_dom_node_t* n) {
 
 }  // namespace
 
-// Cross-file document helpers — declared in internal/document_impl.h.
+// Cross-file document helpers â€” declared in internal/document_impl.h.
 namespace detail {
-// Apply everything the current view batch has recorded — the structural
-// settle (global fallback, or SCOPED to the recorded roots), or the §8.2
-// scoped attr settle (dedupe root cover → one rematch pass → one resolver
-// clear → restyle + reveal per root). Called from end_view_mutations, and
+// Apply everything the current view batch has recorded â€” the structural
+// settle (global fallback, or SCOPED to the recorded roots), or the Â§8.2
+// scoped attr settle (dedupe root cover â†’ one rematch pass â†’ one resolver
+// clear â†’ restyle + reveal per root). Called from end_view_mutations, and
 // EARLY from Document::layout when a geometry consumer (the P4
 // find_element_rect hidden relayout, a builder measuring mid-build) needs
 // fresh boxes while the batch is still open: layout over the un-settled
@@ -1225,7 +1225,7 @@ void settle_view_batch(detail::DocumentImpl& impl) {
         detail::TraceSpan span("settle.global");
         impl.view_structure_dirty = false;
         // The full structural settle re-matches/restyles/recollects the
-        // whole document — recorded roots are superseded by it.
+        // whole document â€” recorded roots are superseded by it.
         impl.view_batch_attr_roots.clear();
         impl.view_batch_structure_roots.clear();
         const auto t0 = std::chrono::steady_clock::now();
@@ -1241,7 +1241,7 @@ void settle_view_batch(detail::DocumentImpl& impl) {
     } else if (!impl.view_batch_structure_roots.empty()) {
         detail::TraceSpan span("settle.scoped");
         // Scoped structural settle: selector rematch ONLY over the changed
-        // subtrees (the resolver cache stays warm — removed/inserted
+        // subtrees (the resolver cache stays warm â€” removed/inserted
         // elements were invalidated at op time, and each root's live
         // subtree is invalidated here because its match sets may have
         // changed). The recollect still rebuilds the flat block tree, but
@@ -1273,7 +1273,7 @@ void settle_view_batch(detail::DocumentImpl& impl) {
         const auto t2 = std::chrono::steady_clock::now();
         detail::recollect_blocks_from_current_dom(impl);
         const auto t3 = std::chrono::steady_clock::now();
-        // Block indices shifted — stale interaction indices are the
+        // Block indices shifted â€” stale interaction indices are the
         // dangling-pointer class of bug (same contract as
         // dock_structure_changed).
         impl.hovered_idx = -1;
@@ -1295,7 +1295,7 @@ void settle_view_batch(detail::DocumentImpl& impl) {
         }
     } else if (!impl.view_batch_attr_roots.empty()) {
         detail::TraceSpan span("settle.attr");
-        // §8.2 batch settle: at most one of each — subtree rematch over the
+        // Â§8.2 batch settle: at most one of each â€” subtree rematch over the
         // deduped root cover, resolver clear, restyle per root, reveal check
         // per root (against the now-warm resolver cache), dirty rects.
         const auto t0 = std::chrono::steady_clock::now();
@@ -1379,7 +1379,7 @@ ViewSink* Document::begin_view_mutations() {
         impl_->view_batch_attr_roots.clear();
         impl_->view_batch_structure_roots.clear();
         // Suppress lexbor's eager per-insert selector matching for the
-        // batch — end_view_mutations rebuilds style state once (same
+        // batch â€” end_view_mutations rebuilds style state once (same
         // contract as the dock-gesture surgery).
         impl_->view_saved_ev_insert = impl_->doc->dom_document.ev_insert;
         impl_->doc->dom_document.ev_insert = nullptr;
@@ -1423,7 +1423,7 @@ bool Document::request_custom_repaint(std::string_view name) {
 #if !defined(AFFINEUI_STUB_BUILD)
     if (name.empty()) return false;
     bool any = false;
-    // Match against the block's CACHED attrs — element_of() is a linear
+    // Match against the block's CACHED attrs â€” element_of() is a linear
     // reverse lookup, so touching the element here made this scan
     // quadratic in document size (12 ms per camera move on DENDER).
     for (const auto& block : impl_->blocks) {
@@ -1442,6 +1442,84 @@ bool Document::request_custom_repaint(std::string_view name) {
     return any;
 #else
     (void)name;
+    return false;
+#endif
+}
+
+bool Document::set_widget_value(std::string_view name,
+                                std::string_view value) {
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (!impl_->doc || name.empty()) return false;
+    // The named widget node (data-aui-name is what View keys stamp).
+    lxb_dom_element_t* widget = nullptr;
+    auto find_named = [&](lxb_dom_element_t* elem) {
+        if (widget == nullptr &&
+            detail::attr_string(elem, "data-aui-name") == name) {
+            widget = elem;
+        }
+    };
+    detail::walk_dom_elements(detail::document_dom_root(*impl_), find_named);
+    if (widget == nullptr) return false;
+
+    // Colour field: route through the same sync an interactive pick
+    // uses (chip, hex input, picker cursors), with the echo suppressed.
+    if (detail::class_list_contains(widget, "dcs-colorfield") ||
+        detail::attr_string(widget, "data-aui-widget") == "colorfield") {
+        return detail::sync_dcs_colorfield(*impl_, widget, value,
+                                           /*emit=*/false);
+    }
+
+    // Value controls (combo / slider / fader / knob): the same visual
+    // update path an interactive scrub uses â€” input text, fill style,
+    // value attributes â€” with the change event suppressed.
+    lxb_dom_element_t* control = widget;
+    auto kind = LiveControlKind::None;
+    if (detail::class_list_contains(widget, "dcs-combo") ||
+        detail::has_attr(widget, "data-dcs-combo")) {
+        kind = LiveControlKind::NumericInput;
+        if (auto* input = detail::first_descendant_with_class(
+                widget, "dcs-combo__value")) {
+            control = input;
+        }
+    } else if (detail::class_list_contains(widget, "dcs-slider")) {
+        kind = LiveControlKind::DeciusSlider;
+    } else if (detail::class_list_contains(widget, "dcs-fader")) {
+        kind = LiveControlKind::DeciusFader;
+    } else if (detail::class_list_contains(widget, "dcs-knob")) {
+        kind = LiveControlKind::DeciusKnob;
+    }
+    if (kind != LiveControlKind::None) {
+        char* end = nullptr;
+        const std::string text(value);
+        const double v = std::strtod(text.c_str(), &end);
+        if (end == text.c_str()) return false;  // not a number
+        const double vmin = detail::element_attr_double(
+            widget, "data-min",
+            detail::element_attr_double(control, "min", v - 1.0e9));
+        const double vmax = detail::element_attr_double(
+            widget, "data-max",
+            detail::element_attr_double(control, "max", v + 1.0e9));
+        return detail::update_live_control_value(
+            *impl_, control, kind, vmin, vmax, v, /*bipolar=*/false,
+            /*emit_live_change=*/false);
+    }
+
+    // Anything else: set the value attribute (and live text for text
+    // controls) in place.
+    bool changed =
+        detail::set_attribute_on_element(*impl_, widget, "value", value);
+    const int idx = detail::block_index_for_exact_element(*impl_, widget);
+    if (idx >= 0) {
+        auto& block = impl_->blocks[static_cast<std::size_t>(idx)];
+        if (block.text_control) {
+            detail::set_live_text_value(*impl_, idx, block,
+                                        std::string(value));
+            changed = true;
+        }
+    }
+    return changed;
+#else
+    (void)name; (void)value;
     return false;
 #endif
 }
@@ -1592,13 +1670,13 @@ void Document::set_animation_time_for_testing(double seconds) {
 #endif
 }
 
-// â”€â”€ Immediate mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬ Immediate mode Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 void Document::set_imm_view(std::function<void()> view_fn) {
     if (!impl_->imm) impl_->imm = std::make_unique<detail::ImmRuntime>();
 #if !defined(AFFINEUI_STUB_BUILD)
     if (!impl_->doc) {
-        // No DOM yet â€” establish a minimal empty document so the
+        // No DOM yet Ã¢â‚¬â€ establish a minimal empty document so the
         // runtime has a body to mutate. set_html("") goes through the
         // normal parse path and ends with an empty <body>.
         set_html("");
@@ -1621,12 +1699,12 @@ void Document::tick_imm() {
     if (!impl_->imm->dirty()) return;
 
 #if !defined(AFFINEUI_STUB_BUILD)
-    // 1. Run the view fn â€” it mutates lexbor's DOM directly via the
+    // 1. Run the view fn Ã¢â‚¬â€ it mutates lexbor's DOM directly via the
     //    runtime, replacing the body's children.
     impl_->imm->run_view_fn();
 
     // 2. Re-cascade + re-collect. This is the same tail as set_html
-    //    after parsing â€” minus the stylesheet re-attach (those are
+    //    after parsing Ã¢â‚¬â€ minus the stylesheet re-attach (those are
     //    still bound to impl_->doc from the original set_html).
     detail::recollect_blocks_from_current_dom(*impl_);
 #endif

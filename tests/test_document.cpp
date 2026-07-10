@@ -1132,8 +1132,32 @@ TEST_CASE("UiControls combo drag emits the change under the NAMED widget") {
 
     const auto changes = doc.take_widget_changes();
     REQUIRE(!changes.empty());
+    // The scrub streams LIVE changes; the release emits exactly one
+    // committed change carrying the final value.
+    for (std::size_t i = 0; i + 1 < changes.size(); ++i) {
+        CHECK(changes[i].live);
+    }
     CHECK(changes.back().name == "position-0");
+    CHECK_FALSE(changes.back().live);
     CHECK(changes.back().value != "1");  // the value actually moved
+
+    // Programmatic write-back: updates the widget silently (the
+    // data-binding echo guard) — no change events.
+    CHECK(doc.set_widget_value("position-0", "7.25"));
+    CHECK(doc.take_widget_changes().empty());
+    doc.layout(260, 120, &painter);
+    // The inner input owns the hover; read the combo's attrs off the
+    // hover chain entry.
+    const auto pos = find_hovered_chain_id(doc, "cx", 260, 120);
+    REQUIRE(pos.x >= 0);
+    std::string data_value;
+    for (const auto& info : doc.hovered_info_chain()) {
+        if (info.elem_id != "cx") continue;
+        for (const auto& [attr, attr_value] : info.attrs) {
+            if (attr == "data-value") data_value = attr_value;
+        }
+    }
+    CHECK(data_value == "7.25");
 }
 
 TEST_CASE("UiControls script keeps one Decius popup layer open and closes outside") {

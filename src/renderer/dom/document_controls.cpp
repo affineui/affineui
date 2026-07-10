@@ -979,7 +979,8 @@ HsvColor current_dcs_colorfield_hsv(lxb_dom_element_t* field) {
 bool sync_dcs_colorfield(detail::DocumentImpl& impl,
                          lxb_dom_element_t* field,
                          HsvColor hsv,
-                         bool emit) {
+                         bool emit,
+                         bool live) {
     if (!field) return false;
     hsv.s = std::clamp(hsv.s, 0.0, 1.0);
     hsv.v = std::clamp(hsv.v, 0.0, 1.0);
@@ -1077,7 +1078,7 @@ bool sync_dcs_colorfield(detail::DocumentImpl& impl,
     }
 
     if (emit && hex != previous) {
-        detail::emit_widget_change(impl, owner ? owner : field, hex);
+        detail::emit_widget_change(impl, owner ? owner : field, hex, live);
     }
     return changed;
 }
@@ -1085,11 +1086,12 @@ bool sync_dcs_colorfield(detail::DocumentImpl& impl,
 bool sync_dcs_colorfield(detail::DocumentImpl& impl,
                          lxb_dom_element_t* field,
                          std::string_view raw_hex,
-                         bool emit) {
+                         bool emit,
+                         bool live) {
     const std::string hex = normalize_hex_color(raw_hex);
     if (hex.empty()) return false;
     return detail::sync_dcs_colorfield(impl, field,
-                               hsv_from_hex(hex, HsvColor{}), emit);
+                               hsv_from_hex(hex, HsvColor{}), emit, live);
 }
 }  // namespace detail
 namespace {
@@ -1236,7 +1238,30 @@ bool update_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev) {
                   360.0
             : 0.0;
     }
-    return detail::sync_dcs_colorfield(impl, drag.field, next, /*emit=*/true);
+    // Scrub in flight — live changes; finish_dcs_colorfield_drag emits
+    // the committed change when the gesture ends.
+    return detail::sync_dcs_colorfield(impl, drag.field, next, /*emit=*/true,
+                                       /*live=*/true);
+}
+
+bool finish_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev) {
+    auto& drag = impl.colorfield_drag;
+    using Kind = detail::DocumentImpl::ColorfieldDrag::Kind;
+    if (drag.kind == Kind::None || !drag.field) return false;
+    const std::string start_hex = hex_from_hsv({drag.h, drag.s, drag.v});
+    const bool changed = update_dcs_colorfield_drag(impl, ev);
+    // One committed change per gesture, with the final colour (the
+    // moves emitted live changes only). A press with no colour change
+    // (a plain chip click) commits nothing.
+    auto* owner = colorfield_owner(drag.field);
+    const std::string hex = normalize_hex_color(
+        owner ? detail::attr_string(owner, "data-value")
+              : detail::attr_string(drag.field, "data-value"));
+    if (!hex.empty() && hex != start_hex) {
+        detail::emit_widget_change(impl, owner ? owner : drag.field, hex,
+                                   /*live=*/false);
+    }
+    return changed;
 }
 }  // namespace detail
 namespace {

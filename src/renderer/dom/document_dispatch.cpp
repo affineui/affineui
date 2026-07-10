@@ -877,7 +877,7 @@ DispatchResult Document::dispatch(const Event& ev) {
             if (impl_->ui_control_script_attached &&
                 impl_->colorfield_drag.kind !=
                     detail::DocumentImpl::ColorfieldDrag::Kind::None) {
-                if (detail::update_dcs_colorfield_drag(*impl_, ev)) {
+                if (detail::finish_dcs_colorfield_drag(*impl_, ev)) {
                     result.redraw_requested = true;
                 }
                 impl_->colorfield_drag = {};
@@ -928,6 +928,21 @@ DispatchResult Document::dispatch(const Event& ev) {
                     !impl_->live_drag.moved &&
                     detail::apply_deferred_text_focus(*impl_, released_drag, ev.pos)) {
                     result.redraw_requested = true;
+                }
+                // A value scrub emitted only LIVE changes while it was in
+                // flight; ending the gesture emits the one committed
+                // change apps hang undo/persistence on.
+                if (impl_->live_drag.moved &&
+                    released_drag.kind != LiveControlKind::TextAreaResize &&
+                    released_drag.elem != nullptr) {
+                    const double final_value = detail::element_attr_double(
+                        released_drag.elem, "value",
+                        detail::element_attr_double(released_drag.elem,
+                                                    "data-value", 0.0));
+                    detail::emit_widget_change(
+                        *impl_, released_drag.elem,
+                        detail::compact_number(final_value),
+                        /*live=*/false);
                 }
                 released_live_control = true;
                 impl_->live_drag = {};
