@@ -515,7 +515,17 @@ std::string_view type_icon(std::string_view type) {
 
 void GameEditor::build_outliner(View& v) {
     // Fills the Hierarchy pane body (the dock engine emits the pane itself).
+    // The tree is a data-dcs-select="single" box: clicking a row is a
+    // SELECTION interaction that emits a widget CHANGE on the tree with the
+    // selected row's data-dcs-value — not a button click. So bind the
+    // tree's on_change (a per-row on_click never fires here) and carry the
+    // object id as each row's value.
     auto tree = v.tree("scene-tree");
+    tree.ref().on_change([this](std::string_view value) {
+        // data-dcs-select="single" emits exactly one id (empty if the
+        // click cleared the selection).
+        if (!value.empty()) select_object(value);
+    });
     for (const auto& obj : ctx_.document().objects()) {
         affineui::TreeRowOptions opts;
         opts.depth = obj.depth;
@@ -524,9 +534,8 @@ void GameEditor::build_outliner(View& v) {
         opts.expandable = obj.type == "group";  // groups can hold children
         opts.expanded = true;
         opts.meta_icon = obj.type == "mesh" ? "eye" : std::string_view{};
-        // Bind the row's id into a zero-arg click handler — safe after destroy.
         v.tree_row(obj.name, opts, "row-" + obj.id)
-            .on_click(bind(this, &GameEditor::select_object, obj.id));
+            .attr("data-dcs-value", obj.id);
     }
 }
 
@@ -698,11 +707,16 @@ void GameEditor::build_inspector(View& v) {
                     const char* label;   // Blender-style display name
                     const char* suffix;  // channel unit suffix
                     double      fallback;
+                    double      step;
+                    bool        linear;  // constant step/pixel scrub
                 };
                 static constexpr VecRow kRows[] = {
-                    {"position", "Location", " m", 0.0},
-                    {"rotation", "Rotation", "\xC2\xB0", 0.0},
-                    {"scale", "Scale", "", 1.0},
+                    {"position", "Location", " m", 0.0, 0.01, false},
+                    // Degrees are a fixed-scale quantity — a constant
+                    // step/pixel feels right; magnitude acceleration does
+                    // not (180° would scrub 10× faster than 18°).
+                    {"rotation", "Rotation", "\xC2\xB0", 0.0, 0.5, true},
+                    {"scale", "Scale", "", 1.0, 0.01, false},
                 };
                 static constexpr const char* kAxis[3] = {".x", ".y", ".z"};
                 for (const VecRow& row : kRows) {
@@ -712,7 +726,7 @@ void GameEditor::build_inspector(View& v) {
                             cls.get(node, std::string(row.prefix) + kAxis[i]));
                     }
                     v.vec(row.label, {"X", "Y", "Z"}, {ch[0], ch[1], ch[2]},
-                          row.prefix);
+                          row.prefix, row.step, row.linear);
                     for (int i = 0; i < 3; ++i) {
                         auto field = v.find_widget(std::string(row.prefix) +
                                                    "-" + std::to_string(i));
