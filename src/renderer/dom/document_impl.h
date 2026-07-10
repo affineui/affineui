@@ -988,7 +988,8 @@ bool toggle_dcs_menu(detail::DocumentImpl& impl,
 bool toggle_dcs_tree_chevron_control(detail::DocumentImpl& impl, int from_idx);
 bool toggle_decius_collapse_control(detail::DocumentImpl& impl, int from_idx);
 bool update_active_live_control(detail::DocumentImpl& impl, const Event& ev);
-bool update_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev);
+bool update_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev,
+                                bool emit = true);
 bool finish_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev);
 bool update_dcs_select_control(detail::DocumentImpl& impl,
                                lxb_dom_element_t* box,

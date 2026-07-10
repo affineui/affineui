@@ -1216,7 +1216,8 @@ bool begin_dcs_colorfield_drag(detail::DocumentImpl& impl,
     return true;
 }
 
-bool update_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev) {
+bool update_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev,
+                                bool emit) {
     using Kind = detail::DocumentImpl::ColorfieldDrag::Kind;
     auto& drag = impl.colorfield_drag;
     if (drag.kind == Kind::None || !drag.field) return false;
@@ -1253,8 +1254,11 @@ bool update_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev) {
             : 0.0;
     }
     // Scrub in flight — live changes; finish_dcs_colorfield_drag emits
-    // the committed change when the gesture ends.
-    return detail::sync_dcs_colorfield(impl, drag.field, next, /*emit=*/true,
+    // the committed change when the gesture ends. The initial press positions
+    // the picker cursor with emit=false: no change stream begins until the
+    // pointer actually moves (a bare click-in-square is not yet an edit — it
+    // also must not fire on_change on a view about to be replaced, #44).
+    return detail::sync_dcs_colorfield(impl, drag.field, next, /*emit=*/emit,
                                        /*live=*/true);
 }
 

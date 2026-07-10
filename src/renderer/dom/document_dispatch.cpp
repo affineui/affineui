@@ -403,7 +403,12 @@ DispatchResult Document::dispatch(const Event& ev) {
                             detail::DocumentImpl::ColorfieldDrag::Kind::Square ||
                         kind ==
                             detail::DocumentImpl::ColorfieldDrag::Kind::Hue) {
-                        detail::update_dcs_colorfield_drag(*impl_, ev);
+                        // Position the picker to the press point WITHOUT
+                        // emitting: the change stream begins on the first move
+                        // (a bare click must not fire on_change, esp. on a view
+                        // about to be replaced — #44 lifecycle test).
+                        detail::update_dcs_colorfield_drag(*impl_, ev,
+                                                           /*emit=*/false);
                     }
                     result.redraw_requested = true;
                     break;
