@@ -69,28 +69,12 @@ def _ruler_ticks(app: "PhotoEditApp", length: int) -> str:
     return f'<div class="ps-ruler-ticks">{spans}</div>'
 
 
-def build_document_dock(app: "PhotoEditApp", v: ui.View) -> None:
-    def pane(p: ui.View) -> None:
-        def tabbar(t: ui.View) -> None:
-            t.container(classes="dcs-dockpane__tabs", key="ps-doc-tabs",
-                        build=lambda tabs: tabs.html(
-                            '<div class="dcs-dockpane__tab" '
-                            'aria-selected="true"><i class="di di-image">'
-                            f"</i> {escape(app.title_text())} "
-                            '<span class="dcs-dockpane__tab-close">×</span>'
-                            "</div>"))
-            t.container(classes="dcs-dockpane__toolbars",
-                        key="ps-doc-toolbars")
-
-        p.container(classes="dcs-dockpane__tabbar", key="ps-doc-tabbar",
-                    build=tabbar)
-        p.container(classes="dcs-dockpane__body", key="ps-doc-pane-body",
-                    build=lambda b: b.container(
-                        classes="ps-stagewrap", key="ps-stagewrap",
-                        build=lambda s: _build_stage(app, s)))
-
-    v.container(classes="dcs-dockpane dcs-dockpane--center",
-                key="ps-doc-center", build=pane)
+def build_document_body(app: "PhotoEditApp", v: ui.View) -> None:
+    """The document pane's CONTENT. The pane/tab chrome itself is declared
+    via View.document() inside the workarea's document_view — that is what
+    makes the stage the dock tree's center that palettes can dock around."""
+    v.container(classes="ps-stagewrap", key="ps-stagewrap",
+                build=lambda s: _build_stage(app, s))
 
 
 def _build_stage(app: "PhotoEditApp", v: ui.View) -> None:
