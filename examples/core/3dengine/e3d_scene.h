@@ -14,6 +14,8 @@
 #include <string>
 #include <vector>
 
+#include "affineui/object.h"
+
 #include "e3d_geometry.h"
 #include "e3d_material.h"
 #include "e3d_math.h"
@@ -270,6 +272,16 @@ public:
     float penumbra;  // 0..1 soft edge fraction
     float decay;
 };
+
+// ── Reflection ──────────────────────────────────────────────────────
+
+/// The AffineUI reflection mediator for scene nodes: name (read-only),
+/// position/rotation/scale as per-axis doubles ("position.x" …,
+/// rotation in degrees), and the visibility/shadow booleans. Makes any
+/// Object3D drivable by a generic property inspector without the node
+/// knowing about UI. Found by ADL, so `affineui::Reflectable<Object3D>`
+/// holds.
+const affineui::ObjectClass& get_class(const Object3D& obj);
 
 // ── Helpers ─────────────────────────────────────────────────────────
 

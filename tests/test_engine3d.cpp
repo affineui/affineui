@@ -1,4 +1,4 @@
-// Tests for the example 3D engine (examples/core/3dengine) — math
+﻿// Tests for the example 3D engine (examples/core/3dengine) â€” math
 // invariants and geometry generators. Pure CPU; no GPU context needed.
 #include <doctest/doctest.h>
 
@@ -22,12 +22,12 @@ bool approx(const Vec3& a, const Vec3& b, float eps = 1e-4f) {
 
 }  // namespace
 
-// ── Math ────────────────────────────────────────────────────────────
+// â”€â”€ Math â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 TEST_CASE("e3d quaternion: axis-angle rotation matches expectation") {
     Quat q;
     q.set_from_axis_angle(Vec3::unit_y(), kPi / 2.0f);
-    // +X rotated 90° about Y lands on -Z.
+    // +X rotated 90Â° about Y lands on -Z.
     CHECK(approx(Vec3::unit_x().applied(q), {0.0f, 0.0f, -1.0f}));
 }
 
@@ -90,7 +90,7 @@ TEST_CASE("e3d matrix: look_at orients -Z at the target") {
 
 TEST_CASE("e3d matrix: normal matrix handles non-uniform scale") {
     const Mat4 m = Mat4::scaling({2.0f, 1.0f, 1.0f});
-    // A normal of a plane tilted 45° in XY: under x2 scale in X the
+    // A normal of a plane tilted 45Â° in XY: under x2 scale in X the
     // *surface* flattens, so the normal must steepen, not flatten.
     const Vec3 n = Vec3{1.0f, 1.0f, 0.0f}.normalized();
     const Vec3 out = n.transformed_direction(m.normal_matrix());
@@ -106,7 +106,7 @@ TEST_CASE("e3d ray: plane intersection") {
     CHECK(approx(r.intersect_plane(ground), 5.0f));
     CHECK(approx(r.at(5.0f), {0.0f, 0.0f, 0.0f}));
 
-    // Pointing away → miss.
+    // Pointing away â†’ miss.
     r.direction = {0.0f, 1.0f, 0.0f};
     CHECK(r.intersect_plane(ground) < 0.0f);
 }
@@ -163,14 +163,14 @@ TEST_CASE("e3d box3: transform refits corners") {
 
 TEST_CASE("e3d color: hex converts sRGB to linear") {
     const Color mid(0x808080);
-    CHECK(mid.r > 0.2f);  // ~0.5 sRGB ≈ 0.216 linear
+    CHECK(mid.r > 0.2f);  // ~0.5 sRGB â‰ˆ 0.216 linear
     CHECK(mid.r < 0.23f);
     const Color white(0xffffff);
     CHECK(approx(white.r, 1.0f));
     CHECK(approx(Color(0x000000).g, 0.0f));
 }
 
-// ── Geometry ────────────────────────────────────────────────────────
+// â”€â”€ Geometry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 TEST_CASE("e3d geometry: box has 24 verts, 36 indices, unit-length normals") {
     auto g = make_box(1.6f, 1.6f, 1.6f);
@@ -258,10 +258,10 @@ TEST_CASE("e3d geometry: plane faces +Z") {
 TEST_CASE("e3d geometry: edges of a cube are its 12 hard edges") {
     auto box = make_box(1.0f, 1.0f, 1.0f);
     auto edges = make_edges(*box, 1.0f);
-    // 12 edges → 24 vertices, positions only.
+    // 12 edges â†’ 24 vertices, positions only.
     CHECK(edges->vertex_count() == 24);
     CHECK(edges->normals.empty());
-    // A sphere at high tessellation has no edges above 40°.
+    // A sphere at high tessellation has no edges above 40Â°.
     auto sphere = make_sphere(1.0f, 32, 24);
     auto sphere_edges = make_edges(*sphere, 40.0f);
     CHECK(sphere_edges->vertex_count() == 0);
@@ -273,7 +273,7 @@ TEST_CASE("e3d geometry: wireframe indices are unique edges") {
     CHECK(box->wireframe_indices().size() == 60);
 }
 
-// ── Scene graph ─────────────────────────────────────────────────────
+// â”€â”€ Scene graph â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 TEST_CASE("e3d scene: add/remove keep parent pointers consistent") {
     auto root = std::make_shared<Group>();
@@ -308,7 +308,7 @@ TEST_CASE("e3d scene: world matrices compose down the hierarchy") {
     CHECK(approx(child->world_position(), {10.0f, 5.0f, 0.0f}));
     child->position = {1.0f, 0.0f, 0.0f};
     root->update_matrix_world();
-    // +X in root space rotated 90° about Y → -Z in world.
+    // +X in root space rotated 90Â° about Y â†’ -Z in world.
     CHECK(approx(child->world_position(), {10.0f, 0.0f, -1.0f}));
 }
 
@@ -375,7 +375,7 @@ TEST_CASE("e3d scene: grid helper splits center and grid lines") {
     CHECK(rest.geometry->vertex_count() == 20 * 4);     // 20 others
 }
 
-// ── Raycaster ───────────────────────────────────────────────────────
+// â”€â”€ Raycaster â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 namespace {
 
@@ -464,7 +464,7 @@ TEST_CASE("e3d raycast: line segments pick within threshold") {
     REQUIRE(!hits.empty());
     CHECK(approx(hits[0].distance, 5.0f, 1e-2f));
 
-    rc.line_threshold = 0.01f;  // tighter than the 0.05 offset → miss
+    rc.line_threshold = 0.01f;  // tighter than the 0.05 offset â†’ miss
     hits = rc.intersect_object_sorted(*line);
     CHECK(hits.empty());
 }
@@ -496,7 +496,7 @@ TEST_CASE("e3d geometry: octahedron and apply_transform") {
     CHECK(approx(g->bounding_box().center(), {0.0f, 2.0f, 0.0f}, 1e-3f));
 }
 
-// ── OrbitControls ───────────────────────────────────────────────────
+// â”€â”€ OrbitControls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 TEST_CASE("e3d orbit: rotate drag orbits camera around target") {
     auto cam = std::make_shared<PerspectiveCamera>(38.0f, 1.5f, 0.1f, 200.0f);
@@ -574,7 +574,7 @@ TEST_CASE("e3d orbit: pan moves the target") {
     CHECK(approx(orbit.distance(), 10.0f, 1e-2f));
 }
 
-// ── TransformControls ───────────────────────────────────────────────
+// â”€â”€ TransformControls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 namespace {
 
@@ -615,8 +615,8 @@ TEST_CASE("e3d gizmo: helper visibility follows attach/detach") {
 TEST_CASE("e3d gizmo: hover finds the +X arrow picker") {
     GizmoRig rig;
     // The X axis extends to +X in screen space; hover a point to the
-    // right of center. Gizmo scale at distance 8, fov 45 ≈ 1.5 world
-    // units for the whole handle, so probe ~0.35 world units out —
+    // right of center. Gizmo scale at distance 8, fov 45 â‰ˆ 1.5 world
+    // units for the whole handle, so probe ~0.35 world units out â€”
     // project (0.75, 0, 0) into NDC.
     const Vec3 probe =
         Vec3{0.75f, 0.0f, 0.0f}
@@ -693,8 +693,8 @@ TEST_CASE("e3d gizmo: Z-ring drag rotates about Z") {
                          std::min(1.9f * std::tan(kPi * 45.0f / 360.0f),
                                   7.0f) /
                          4.0f;
-    // Probe the ring's diagonal — the +X pole is shared with the
-    // Y-ring, but (r/√2, r/√2, 0) lies on the Z-ring alone.
+    // Probe the ring's diagonal â€” the +X pole is shared with the
+    // Y-ring, but (r/âˆš2, r/âˆš2, 0) lies on the Z-ring alone.
     const float d = ring_r / std::sqrt(2.0f);
     REQUIRE(rig.tc->pointer_hover(to_ndc({d, d, 0.0f})));
     REQUIRE(rig.tc->axis() == "Z");
@@ -740,4 +740,75 @@ TEST_CASE("e3d gizmo: mode switch changes visible gizmo group") {
         if (c->visible) ++visible_groups;
     }
     CHECK(visible_groups == 1);
+}
+
+// â”€â”€ Reflection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+TEST_CASE("e3d reflection: Object3D property get/set round-trips") {
+    static_assert(affineui::Reflectable<Object3D>);
+    Object3D node;
+    node.name = "hero";
+    node.position = {1.0f, 2.0f, 3.0f};
+    node.set_rotation({0.0f, deg_to_rad(90.0f), 0.0f});
+    const affineui::ObjectClass& cls = get_class(node);
+    CHECK(std::string(cls.name()) == "Object3D");
+
+    // Reads: name string, per-axis doubles, rotation in degrees.
+    CHECK(std::get<std::string>(cls.get(&node, "name")) == "hero");
+    CHECK(approx(static_cast<float>(
+                     std::get<double>(cls.get(&node, "position.y"))),
+                 2.0f, 1e-6f));
+    CHECK(approx(static_cast<float>(
+                     std::get<double>(cls.get(&node, "rotation.y"))),
+                 90.0f, 1e-3f));
+
+    // Writes go through the same mediator; rotation converts back to
+    // radians and re-syncs the quaternion.
+    CHECK(cls.set(&node, "position.x", affineui::PropertyValue{5.5}));
+    CHECK(approx(node.position.x, 5.5f, 1e-6f));
+    CHECK(cls.set(&node, "rotation.z", affineui::PropertyValue{45.0}));
+    CHECK(approx(node.rotation().z, deg_to_rad(45.0f), 1e-4f));
+    CHECK(cls.set(&node, "visible", affineui::PropertyValue{false}));
+    CHECK_FALSE(node.visible);
+
+    // name is read-only; unknown properties are refused.
+    CHECK_FALSE(cls.set(&node, "name", affineui::PropertyValue{std::string{"x"}}));
+    CHECK_FALSE(cls.set(&node, "nope", affineui::PropertyValue{1.0}));
+}
+
+TEST_CASE("e3d gizmo: attached helper exposes visible drawable geometry") {
+    // "Gizmo missing" regression guard at the scene layer: after attach +
+    // update the helper subtree must contain visible meshes/lines with
+    // real geometry and sane world matrices — exactly what the renderer
+    // collects and draws.
+    GizmoRig rig;
+    rig.tc->attach(rig.cube);
+    rig.tc->set_mode(TransformControls::Mode::Translate);
+    rig.tc->update();
+    rig.scene->update_matrix_world();
+
+    int drawable = 0;
+    rig.tc->helper()->traverse([&](Object3D& node) {
+        if (!node.visible) return;
+        for (Object3D* a = node.parent; a != nullptr; a = a->parent) {
+            if (!a->visible) return;
+        }
+        const BufferGeometry* g = nullptr;
+        if (node.kind() == ObjectKind::Mesh) {
+            g = static_cast<Mesh&>(node).geometry.get();
+        } else if (node.is_line()) {
+            g = static_cast<Line&>(node).geometry.get();
+        }
+        if (g == nullptr || g->positions.empty()) return;
+        const float sc = node.matrix_world.max_scale_on_axis();
+        if (sc > 1e-5f) ++drawable;
+    });
+    // The translate gizmo has arrow shafts/heads and plane quads on
+    // multiple axes — a healthy pose exposes a good handful.
+    CHECK(drawable >= 6);
+
+    // Detached again: the helper hides (nothing for the renderer).
+    rig.tc->detach();
+    rig.tc->update();
+    CHECK_FALSE(rig.tc->helper()->visible);
 }

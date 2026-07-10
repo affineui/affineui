@@ -176,4 +176,82 @@ void SelectionBox::update_from(Object3D* target) {
     update_matrix_world();
 }
 
+// ── Reflection ──────────────────────────────────────────────────────
+
+namespace {
+
+using affineui::PropertyValue;
+
+float vec_channel(const Vec3& v, int i) {
+    return i == 0 ? v.x : (i == 1 ? v.y : v.z);
+}
+void set_vec_channel(Vec3& v, int i, float f) {
+    (i == 0 ? v.x : (i == 1 ? v.y : v.z)) = f;
+}
+
+/// Register "<prefix>.x/.y/.z" double properties over a Vec3 exposed
+/// through channel accessors (so rotation can convert degrees↔radians
+/// without the property layer knowing).
+template <class Get, class Set>
+void add_vec_properties(affineui::ObjectClassBuilder<Object3D>& b,
+                        const char* prefix, Get get, Set set) {
+    static constexpr const char* kSuffix[3] = {".x", ".y", ".z"};
+    for (int i = 0; i < 3; ++i) {
+        b.computed(
+            std::string(prefix) + kSuffix[i],
+            [get, i](const Object3D& o) {
+                return PropertyValue{static_cast<double>(get(o, i))};
+            },
+            [set, i](Object3D& o, const PropertyValue& v) {
+                if (const double* d = std::get_if<double>(&v)) {
+                    set(o, i, static_cast<float>(*d));
+                }
+            });
+    }
+}
+
+}  // namespace
+
+const affineui::ObjectClass& get_class(const Object3D& /*obj*/) {
+    static const affineui::ObjectClass k = [] {
+        namespace attr = affineui::attr;
+        affineui::ObjectClassBuilder<Object3D> b("Object3D");
+        b.computed(
+            "name",
+            [](const Object3D& o) { return PropertyValue{o.name}; },
+            {}, attr::ReadOnly{});
+        add_vec_properties(
+            b, "position",
+            [](const Object3D& o, int i) { return vec_channel(o.position, i); },
+            [](Object3D& o, int i, float f) {
+                set_vec_channel(o.position, i, f);
+            });
+        // Rotation is exposed in DEGREES (what an inspector edits);
+        // storage stays the radian XYZ Euler.
+        add_vec_properties(
+            b, "rotation",
+            [](const Object3D& o, int i) {
+                const Euler e = o.rotation();
+                return rad_to_deg(vec_channel({e.x, e.y, e.z}, i));
+            },
+            [](Object3D& o, int i, float f) {
+                Euler e = o.rotation();
+                float* const ch[3] = {&e.x, &e.y, &e.z};
+                *ch[i] = deg_to_rad(f);
+                o.set_rotation(e);
+            });
+        add_vec_properties(
+            b, "scale",
+            [](const Object3D& o, int i) { return vec_channel(o.scale, i); },
+            [](Object3D& o, int i, float f) { set_vec_channel(o.scale, i, f); });
+        b.property("visible", &Object3D::visible, attr::Label{"Visible"});
+        b.property("cast_shadow", &Object3D::cast_shadow,
+                   attr::Label{"Cast Shadow"});
+        b.property("receive_shadow", &Object3D::receive_shadow,
+                   attr::Label{"Receive Shadow"});
+        return b.build();
+    }();
+    return k;
+}
+
 }  // namespace e3d
