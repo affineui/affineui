@@ -417,9 +417,10 @@ struct Mat4 {
 
     // Right-handed perspective projection with a [-1, 1] clip-space Z
     // (three.js WebGL convention; the renderer remaps for the backend).
-    static Mat4 perspective(float fov_y_rad, float aspect, float near,
-                            float far) {
-        const float top = near * std::tan(fov_y_rad / 2.0f);
+    // "near_plane"/"far_plane" because windows.h #defines near and far.
+    static Mat4 perspective(float fov_y_rad, float aspect, float near_plane,
+                            float far_plane) {
+        const float top = near_plane * std::tan(fov_y_rad / 2.0f);
         const float height = 2.0f * top;
         const float width = aspect * height;
         const float left = -width / 2.0f;
@@ -427,29 +428,29 @@ struct Mat4 {
         const float bottom = top - height;
 
         Mat4 m;
-        m.e[0] = 2.0f * near / (right - left);
-        m.e[5] = 2.0f * near / (top - bottom);
+        m.e[0] = 2.0f * near_plane / (right - left);
+        m.e[5] = 2.0f * near_plane / (top - bottom);
         m.e[8] = (right + left) / (right - left);
         m.e[9] = (top + bottom) / (top - bottom);
-        m.e[10] = -(far + near) / (far - near);
+        m.e[10] = -(far_plane + near_plane) / (far_plane - near_plane);
         m.e[11] = -1.0f;
-        m.e[14] = -2.0f * far * near / (far - near);
+        m.e[14] = -2.0f * far_plane * near_plane / (far_plane - near_plane);
         m.e[15] = 0.0f;
         return m;
     }
 
     static Mat4 orthographic(float left, float right, float top, float bottom,
-                             float near, float far) {
+                             float near_plane, float far_plane) {
         const float w = 1.0f / (right - left);
         const float h = 1.0f / (top - bottom);
-        const float p = 1.0f / (far - near);
+        const float p = 1.0f / (far_plane - near_plane);
         Mat4 m;
         m.e[0] = 2.0f * w;
         m.e[5] = 2.0f * h;
         m.e[10] = -2.0f * p;
         m.e[12] = -(right + left) * w;
         m.e[13] = -(top + bottom) * h;
-        m.e[14] = -(far + near) * p;
+        m.e[14] = -(far_plane + near_plane) * p;
         return m;
     }
 };

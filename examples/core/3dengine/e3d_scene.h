@@ -180,25 +180,26 @@ public:
 
 class PerspectiveCamera : public Object3D {
 public:
+    // "near_plane"/"far_plane" because windows.h #defines near and far.
     PerspectiveCamera(float fov_deg = 50.0f, float aspect = 1.0f,
-                      float near = 0.1f, float far = 2000.0f)
+                      float near_plane = 0.1f, float far_plane = 2000.0f)
         : Object3D(ObjectKind::PerspectiveCamera),
           fov(fov_deg),
           aspect(aspect),
-          near(near),
-          far(far) {
+          near_plane(near_plane),
+          far_plane(far_plane) {
         update_projection_matrix();
     }
 
     float fov;     // vertical, degrees (three.js convention)
     float aspect;
-    float near;
-    float far;
+    float near_plane;
+    float far_plane;
 
-    /// Call after changing fov/aspect/near/far.
+    /// Call after changing fov/aspect/near_plane/far_plane.
     void update_projection_matrix() {
-        projection_matrix =
-            Mat4::perspective(deg_to_rad(fov), aspect, near, far);
+        projection_matrix = Mat4::perspective(deg_to_rad(fov), aspect,
+                                              near_plane, far_plane);
     }
     Mat4 projection_matrix;
 };
@@ -280,5 +281,19 @@ std::shared_ptr<Group> make_grid_helper(float size = 10.0f,
                                         std::uint32_t center_hex = 0x444444,
                                         std::uint32_t grid_hex = 0x888888,
                                         float opacity = 1.0f);
+
+/// Object-aligned selection outline, the box the web samples draw
+/// around the selection: a unit-cube edge wireframe whose matrix is
+/// composed from the union of the target subtree's geometry bounds in
+/// the target's LOCAL frame — so unlike an axis-aligned Box3 helper it
+/// rotates and scales with the object. Add it at the scene root and
+/// call update_from() whenever the selection or its transform changes.
+class SelectionBox : public LineSegments {
+public:
+    explicit SelectionBox(std::uint32_t hex = 0xe8943c);
+    /// Refit to `target` (world matrices must be current); hides itself
+    /// for null targets or geometry-less subtrees.
+    void update_from(Object3D* target);
+};
 
 }  // namespace e3d

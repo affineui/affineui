@@ -9,6 +9,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <unordered_map>
 #include <vector>
@@ -53,6 +55,22 @@ struct LightsUB {
     float spot[kMaxSpot * 4][4];
 };
 static_assert(sizeof(LightsUB) == (6 + 8 + 16 + 16) * 16);
+
+// AFFINEUI_E3D_TRACE: dump resource states + draw counts for the first
+// frames (cheap frame-debugging without a GPU tool). "1"/"stderr" logs
+// to stderr; any other value is treated as a file path — useful for
+// WIN32-subsystem apps whose stderr goes nowhere.
+std::FILE* trace_out() {
+    static std::FILE* out = []() -> std::FILE* {
+        const char* v = std::getenv("AFFINEUI_E3D_TRACE");
+        if (v == nullptr || v[0] == '\0' || v[0] == '0') return nullptr;
+        const std::string val(v);  // copy immediately (getenv convention)
+        if (val == "1" || val == "stderr") return stderr;
+        return std::fopen(val.c_str(), "w");
+    }();
+    return out;
+}
+bool trace_enabled() { return trace_out() != nullptr; }
 
 // On D3D11/Metal clip-space Z is [0, 1]; our matrices are GL-style
 // [-1, 1]. Remap by pre-multiplying row 2 with 0.5*z + 0.5*w.
@@ -882,6 +900,15 @@ void Renderer::render(Scene& scene, PerspectiveCamera& camera) {
         // The shader declares the shadow texture unconditionally; keep
         // a small placeholder map until a shadow light appears.
         ensure_shadow_map(im, 16);
+        if (trace_enabled()) {
+            std::fprintf(trace_out(),
+                         "[e3d] shaders mesh=%d line=%d depth=%d "
+                         "(2=VALID 3=FAILED)\n",
+                         sg_query_shader_state(im.mesh_shader),
+                         sg_query_shader_state(im.line_shader),
+                         sg_query_shader_state(im.depth_shader));
+            std::fflush(trace_out());
+        }
     }
 
     const float aspect =
@@ -986,6 +1013,30 @@ void Renderer::render(Scene& scene, PerspectiveCamera& camera) {
         draw_items(im, im.opaque, view_proj);
         draw_items(im, im.transparent, view_proj);
         sg_end_pass();
+    }
+
+    if (trace_enabled()) {
+        static int frames = 0;
+        if (frames < 3) {
+            ++frames;
+            std::fprintf(
+                trace_out(),
+                "[e3d] frame %d: %dx%d opaque=%zu transparent=%zu "
+                "casters=%zu lights(d/p/s)=%g/%g/%g shadow=%g cam=(%g,%g,%g) "
+                "pipes=%zu color_img=%u\n",
+                frames, im.width, im.height, im.opaque.size(),
+                im.transparent.size(), im.shadow_casters.size(),
+                im.lights.counts[0], im.lights.counts[1],
+                im.lights.counts[2], im.lights.counts[3], cam_pos.x,
+                cam_pos.y, cam_pos.z, im.pipelines.size(),
+                color_image_id());
+            for (const auto& [key, pip] : im.pipelines) {
+                std::fprintf(trace_out(),
+                             "[e3d]   pipeline key=%x state=%d\n", key,
+                             sg_query_pipeline_state(pip));
+            }
+            std::fflush(trace_out());
+        }
     }
 }
 

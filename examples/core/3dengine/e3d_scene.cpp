@@ -132,4 +132,48 @@ std::shared_ptr<Group> make_grid_helper(float size, int divisions,
     return group;
 }
 
+// ── SelectionBox ────────────────────────────────────────────────────
+
+SelectionBox::SelectionBox(std::uint32_t hex)
+    : LineSegments(make_edges(*make_box(1.0f, 1.0f, 1.0f)),
+                   Material::line(hex)) {
+    name = "SelectionBox";
+    material->depth_test = false;
+    material->transparent = true;
+    render_order = 900000;  // above the scene, below the gizmo
+    matrix_auto_update = false;
+    visible = false;
+}
+
+void SelectionBox::update_from(Object3D* target) {
+    if (target == nullptr) {
+        visible = false;
+        return;
+    }
+    // Union every descendant geometry's bounds, mapped into the
+    // target's local frame, then drive the unit cube with one composed
+    // matrix (ports the web samples' updateSelectionBox).
+    Box3 box;
+    const Mat4 root_inv = target->matrix_world.inverted();
+    target->traverse([&](Object3D& node) {
+        const BufferGeometry* g = nullptr;
+        if (node.kind() == ObjectKind::Mesh) {
+            g = static_cast<Mesh&>(node).geometry.get();
+        } else if (node.is_line()) {
+            g = static_cast<Line&>(node).geometry.get();
+        }
+        if (g == nullptr || g->positions.empty()) return;
+        box.union_with(
+            g->bounding_box().transformed(root_inv * node.matrix_world));
+    });
+    if (box.empty()) {
+        visible = false;
+        return;
+    }
+    visible = true;
+    matrix = target->matrix_world *
+             Mat4::compose(box.center(), Quat{}, box.size());
+    update_matrix_world();
+}
+
 }  // namespace e3d

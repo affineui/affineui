@@ -102,6 +102,18 @@ GameEditor::GameEditor() : app_(config()) {
     // Restore durable preferences + last workspace state.
     load_settings();
 
+    // The real 3D viewport: an e3d scene mirrored from the document,
+    // orbit camera, click picking and the transform gizmo (driven by
+    // the tool rail).
+    viewport_ = std::make_unique<GeViewport>();
+    viewport_->attach(app_, ctx_);
+    viewport_->set_tool(tool_);
+    app_.on_event([this](const affineui::Event& ev,
+                         const std::vector<affineui::Document::HoverInfo>&
+                             chain) {
+        return viewport_->handle_event(ev, chain);
+    });
+
     // Refresh the UI whenever the document or selection changes.
     doc.set_changed_handler(bind(this, &GameEditor::reload));
     ctx_.selection().set_changed_handler(bind(this, &GameEditor::reload));
@@ -191,6 +203,13 @@ int GameEditor::run() {
 }
 
 void GameEditor::reload() {
+    // Mirror document/selection changes into the 3D scene before the
+    // rebuilt view paints (selection box, gizmo target, added/removed
+    // objects all follow the app state).
+    if (viewport_) {
+        viewport_->sync_document();
+        viewport_->sync_selection();
+    }
     app_.load_view(build());
 }
 
@@ -215,6 +234,7 @@ void GameEditor::toggle_play() {
 
 void GameEditor::set_tool(std::string_view tool) {
     tool_ = std::string(tool);
+    if (viewport_) viewport_->set_tool(tool_);
     save_settings();  // remember the active tool across runs
     reload();
 }
@@ -477,11 +497,12 @@ void GameEditor::build_outliner(View& v) {
 
 void GameEditor::build_viewport(View& v) {
     // Fills the center document pane body (the dock engine emits the pane and
-    // marks it a data-dcs-float-host). The faux-3D canvas is app-custom content.
+    // marks it a data-dcs-float-host). The scene itself is a real 3D render:
+    // the e3d engine draws into an offscreen GPU target that the custom-paint
+    // canvas below composites (orbit camera, picking, gizmo — see GeViewport).
     auto canvas = v.container("ge-vp-canvas", "vp-canvas");
     canvas.attr("data-dcs-float-host", "");
-    v.container_ref("ge-vp-grid", "vp-grid");
-    v.container_ref("ge-cube", "vp-cube");
+    if (viewport_) viewport_->build(v);
     {
         auto stats = v.container("ge-vp-stats", "vp-stats");
         v.element("b", {}, "vp-persp").text("User Perspective");
@@ -612,11 +633,43 @@ void GameEditor::build_inspector(View& v) {
             .on_change(bind(this, &GameEditor::set_cast_shadows));
     }
 
-    // ── Transform — a 3-channel vector field ────────────────────────────
-    {
-        auto fold = v.foldout("Transform", true, "fold-xform");
-        auto props = v.container("dcs-props", "xform-props");
-        v.vec("Location", {"X", "Y", "Z"}, {12.0, 4.2, -8.5}, "loc");
+    // ── Transform — live 3-channel vector fields bound to the 3D node ───
+    if (viewport_) {
+        if (const auto t = viewport_->transform_of(id)) {
+            auto fold = v.foldout("Transform", true, "fold-xform");
+            auto props = v.container("dcs-props", "xform-props");
+            v.vec("Location", {"X", "Y", "Z"},
+                  {t->location.x, t->location.y, t->location.z}, "loc");
+            v.vec("Rotation", {"X", "Y", "Z"},
+                  {t->rotation_deg.x, t->rotation_deg.y, t->rotation_deg.z},
+                  "rot");
+            v.vec("Scale", {"X", "Y", "Z"},
+                  {t->scale.x, t->scale.y, t->scale.z}, "scl");
+            for (int i = 0; i < 3; ++i) {
+                const std::string axis = std::to_string(i);
+                // Channel edits route through the viewport, which pushes
+                // an undoable transform command; the stack-changed
+                // handler then reloads the UI with the fresh values.
+                v.find_widget("loc-" + axis)
+                    .attr("data-suffix", " m")
+                    .on_change([this, id, i](std::string_view value) {
+                        viewport_->set_location(id, i,
+                                                parse_double(value, 0.0));
+                    });
+                v.find_widget("rot-" + axis)
+                    .attr("data-step", "1")
+                    .attr("data-suffix", "\xC2\xB0")
+                    .on_change([this, id, i](std::string_view value) {
+                        viewport_->set_rotation_deg(id, i,
+                                                    parse_double(value, 0.0));
+                    });
+                v.find_widget("scl-" + axis)
+                    .on_change([this, id, i](std::string_view value) {
+                        viewport_->set_scale(id, i,
+                                             parse_double(value, 1.0));
+                    });
+            }
+        }
     }
 
     // ── Display — showcases the remaining channel controls: a multi-button
