@@ -46,6 +46,7 @@ docker run --rm \
         apt-get update -qq
         apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build git ca-certificates \
+            python3 \
             libx11-dev libxi-dev libxcursor-dev \
             libgl1-mesa-dev libasound2-dev \
             xvfb >/dev/null
