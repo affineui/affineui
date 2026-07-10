@@ -194,13 +194,18 @@ typedef lxb_css_property_border_radius_corner_t
 lxb_css_property_border_bottom_left_radius_t;
 
 /*
- * 2-stop gradient descriptor for `background`.
- * NanoVG is natively 2-stop; N-stop is a future extension.
+ * N-stop gradient descriptor for `background`.
  * kind: 0=none, 1=linear-gradient, 2=radial-gradient.
  * angle_deg: CSS angle in degrees (0=upward, clockwise).
  *   `to right` => 90 deg.  Unused for radial (set 0).
  * center_*_pct: radial-gradient position in percentages. Defaults to
  *   50/50 (`center`) and is ignored for linear gradients.
+ *
+ * All parsed color stops are preserved in `stops[0..stop_count-1]`
+ * (capped at LXB_CSS_GRADIENT_MAX_STOPS). `stop0`/`stop1` alias the
+ * FIRST and LAST stop respectively — they are retained so existing
+ * 2-stop consumers (and the LinearStripes detection heuristic) keep
+ * working without touching the new array.
  */
 typedef enum {
     LXB_CSS_GRADIENT_NONE   = 0,
@@ -208,6 +213,16 @@ typedef enum {
     LXB_CSS_GRADIENT_RADIAL = 2,
     LXB_CSS_GRADIENT_LINEAR_STRIPES = 3
 } lxb_css_gradient_kind_t;
+
+/* Matches AffineUI PathPaint::kMaxStops so the paint layer never has to
+ * drop stops the parser kept. */
+#define LXB_CSS_GRADIENT_MAX_STOPS 8
+
+typedef struct {
+    lxb_css_value_color_t color;
+    double                pos_pct;
+    bool                  has_pos_pct;
+} lxb_css_gradient_stop_t;
 
 typedef struct {
     lxb_css_gradient_kind_t kind;
@@ -218,8 +233,12 @@ typedef struct {
     double                  stop1_pos_pct;
     bool                    has_stop0_pos_pct;
     bool                    has_stop1_pos_pct;
-    lxb_css_value_color_t   stop0;
-    lxb_css_value_color_t   stop1;
+    lxb_css_value_color_t   stop0;  /* first stop */
+    lxb_css_value_color_t   stop1;  /* last stop  */
+    /* Full ordered stop list (N-stop gradients). stop_count >= 2 when
+     * kind != NONE. */
+    lxb_css_gradient_stop_t stops[LXB_CSS_GRADIENT_MAX_STOPS];
+    unsigned int            stop_count;
 } lxb_css_property_gradient_t;
 
 typedef struct {

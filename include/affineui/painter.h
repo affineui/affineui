@@ -3,9 +3,12 @@
 #include "affineui/geom.h"
 #include "affineui/types.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
+#include <vector>
 
 namespace affineui {
 
@@ -178,6 +181,39 @@ public:
                                            float center_x_pct = 50,
                                            float center_y_pct = 50,
                                            float stop1_pos_pct = 100) = 0;
+
+    /// One color stop of an N-stop gradient rect fill: `offset` is the
+    /// normalised ramp position (0–1, ascending), `color` the stop color.
+    struct GradientStop {
+        float offset{0.0f};
+        Color color{};
+    };
+
+    /// N-stop (>2) linear/radial gradient rect fills. These are the CSS
+    /// multi-stop path (e.g. a rainbow hue bar). `stops`/`stop_count`
+    /// carry the full ordered ramp — up to PathPaint::kMaxStops; extra
+    /// stops are dropped. The default implementations lower the fill to a
+    /// rounded-rect vector `fill_path` carrying a PathPaint, so every
+    /// painter (device + display-list recorder) reuses the existing
+    /// N-stop PathPaint machinery — the cached gradient-LUT texture in
+    /// the device painter and the path-blob serialization in the
+    /// recorder — without any new primitive or texture-lifetime surface.
+    /// A backend can override for a more direct route, but is not
+    /// required to.
+    virtual void fill_linear_gradient_rect_n(const Rect& r,
+                                             float angle_deg,
+                                             const GradientStop* stops,
+                                             std::size_t stop_count,
+                                             float tl = 0, float tr = 0,
+                                             float br = 0, float bl = 0);
+    virtual void fill_radial_gradient_rect_n(const Rect& r,
+                                             const GradientStop* stops,
+                                             std::size_t stop_count,
+                                             float tl = 0, float tr = 0,
+                                             float br = 0, float bl = 0,
+                                             float center_x_pct = 50,
+                                             float center_y_pct = 50,
+                                             float stop1_pos_pct = 100);
     virtual void fill_linear_stripes_rect(const Rect& r,
                                           float angle_deg,
                                           Color stripe,
@@ -399,6 +435,161 @@ public:
     virtual void push_transform(const Mat2x3& m) { (void)m; }
     virtual void pop_transform() {}
 };
+
+// ── N-stop gradient rect defaults ───────────────────────────────────
+// These lower an N-stop rect fill to a rounded-rect vector path plus a
+// PathPaint carrying the full stop ramp, then dispatch through
+// fill_path(). Doing it here means the whole N-stop pipeline —
+// the device painter's cached gradient-LUT texture and the display-list
+// recorder's path-blob serialization — is reused unchanged, with no new
+// paint primitive and no additional texture-lifetime surface.
+namespace detail {
+
+// Append a rounded-rect outline (TL→TR→BR→BL, clockwise) as a flat
+// kPath* command stream. Corners use the 4-cubic circle approximation.
+inline void append_rounded_rect_path(std::vector<float>& cmds,
+                                     float x, float y, float w, float h,
+                                     float tl, float tr, float br, float bl) {
+    const float max_r = std::min(w, h) * 0.5f;
+    tl = std::clamp(tl, 0.0f, max_r);
+    tr = std::clamp(tr, 0.0f, max_r);
+    br = std::clamp(br, 0.0f, max_r);
+    bl = std::clamp(bl, 0.0f, max_r);
+    constexpr float k = 0.5522847498307936f;  // 4/3*(sqrt(2)-1)
+    const float x1 = x + w, y1 = y + h;
+    // Start after the top-left corner arc.
+    cmds.push_back(kPathMove); cmds.push_back(x + tl); cmds.push_back(y);
+    // Top edge → top-right corner.
+    cmds.push_back(kPathLine); cmds.push_back(x1 - tr); cmds.push_back(y);
+    if (tr > 0.0f) {
+        cmds.push_back(kPathCubic);
+        cmds.push_back(x1 - tr + tr * k); cmds.push_back(y);
+        cmds.push_back(x1);               cmds.push_back(y + tr - tr * k);
+        cmds.push_back(x1);               cmds.push_back(y + tr);
+    }
+    // Right edge → bottom-right corner.
+    cmds.push_back(kPathLine); cmds.push_back(x1); cmds.push_back(y1 - br);
+    if (br > 0.0f) {
+        cmds.push_back(kPathCubic);
+        cmds.push_back(x1);               cmds.push_back(y1 - br + br * k);
+        cmds.push_back(x1 - br + br * k);  cmds.push_back(y1);
+        cmds.push_back(x1 - br);          cmds.push_back(y1);
+    }
+    // Bottom edge → bottom-left corner.
+    cmds.push_back(kPathLine); cmds.push_back(x + bl); cmds.push_back(y1);
+    if (bl > 0.0f) {
+        cmds.push_back(kPathCubic);
+        cmds.push_back(x + bl - bl * k);  cmds.push_back(y1);
+        cmds.push_back(x);                cmds.push_back(y1 - bl + bl * k);
+        cmds.push_back(x);                cmds.push_back(y1 - bl);
+    }
+    // Left edge → top-left corner.
+    cmds.push_back(kPathLine); cmds.push_back(x); cmds.push_back(y + tl);
+    if (tl > 0.0f) {
+        cmds.push_back(kPathCubic);
+        cmds.push_back(x);                cmds.push_back(y + tl - tl * k);
+        cmds.push_back(x + tl - tl * k);  cmds.push_back(y);
+        cmds.push_back(x + tl);           cmds.push_back(y);
+    }
+    cmds.push_back(kPathClose);
+}
+
+// Copy up to kMaxStops stops into a PathPaint's ramp arrays.
+inline void fill_pathpaint_stops(PathPaint& p,
+                                 const Painter::GradientStop* stops,
+                                 std::size_t stop_count) {
+    const std::size_t n = std::min<std::size_t>(stop_count,
+                                                PathPaint::kMaxStops);
+    p.stop_count = static_cast<std::uint8_t>(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        p.offsets[i] = std::clamp(stops[i].offset, 0.0f, 1.0f);
+        p.colors[i]  = stops[i].color;
+    }
+}
+
+}  // namespace detail
+
+inline void Painter::fill_linear_gradient_rect_n(const Rect& r,
+                                                 float angle_deg,
+                                                 const GradientStop* stops,
+                                                 std::size_t stop_count,
+                                                 float tl, float tr,
+                                                 float br, float bl) {
+    if (r.w <= 0 || r.h <= 0 || stops == nullptr || stop_count == 0) return;
+    if (stop_count == 1) {
+        fill_linear_gradient_rect(r, angle_deg, stops[0].color, stops[0].color,
+                                  tl, tr, br, bl);
+        return;
+    }
+    if (stop_count == 2) {
+        // Native 2-stop fast path (no LUT).
+        fill_linear_gradient_rect(r, angle_deg, stops[0].color, stops[1].color,
+                                  tl, tr, br, bl);
+        return;
+    }
+
+    const float fx = static_cast<float>(r.x);
+    const float fy = static_cast<float>(r.y);
+    const float fw = static_cast<float>(r.w);
+    const float fh = static_cast<float>(r.h);
+    const float cx = fx + fw * 0.5f;
+    const float cy = fy + fh * 0.5f;
+    // CSS angle → gradient axis (matches fill_linear_gradient_rect).
+    const float rad = angle_deg * (3.14159265358979323846f / 180.0f);
+    const float dx = std::sin(rad);
+    const float dy = -std::cos(rad);
+    const float ext = std::abs(dx) * (fw * 0.5f) + std::abs(dy) * (fh * 0.5f);
+
+    PathPaint p;
+    p.kind = PathPaint::Kind::Linear;
+    p.x0 = cx - dx * ext; p.y0 = cy - dy * ext;
+    p.x1 = cx + dx * ext; p.y1 = cy + dy * ext;
+    detail::fill_pathpaint_stops(p, stops, stop_count);
+
+    std::vector<float> cmds;
+    detail::append_rounded_rect_path(cmds, fx, fy, fw, fh, tl, tr, br, bl);
+    fill_path(cmds.data(), cmds.size(), p);
+}
+
+inline void Painter::fill_radial_gradient_rect_n(const Rect& r,
+                                                 const GradientStop* stops,
+                                                 std::size_t stop_count,
+                                                 float tl, float tr,
+                                                 float br, float bl,
+                                                 float center_x_pct,
+                                                 float center_y_pct,
+                                                 float stop1_pos_pct) {
+    if (r.w <= 0 || r.h <= 0 || stops == nullptr || stop_count == 0) return;
+    if (stop_count <= 2) {
+        const Color c0 = stops[0].color;
+        const Color c1 = stops[stop_count - 1].color;
+        fill_radial_gradient_rect(r, c0, c1, tl, tr, br, bl,
+                                  center_x_pct, center_y_pct, stop1_pos_pct);
+        return;
+    }
+
+    const float fx = static_cast<float>(r.x);
+    const float fy = static_cast<float>(r.y);
+    const float fw = static_cast<float>(r.w);
+    const float fh = static_cast<float>(r.h);
+    const float cx = fx + fw * (std::clamp(center_x_pct, 0.0f, 100.0f) / 100.0f);
+    const float cy = fy + fh * (std::clamp(center_y_pct, 0.0f, 100.0f) / 100.0f);
+    const float ddx = std::max(cx - fx, fx + fw - cx);
+    const float ddy = std::max(cy - fy, fy + fh - cy);
+    const float farthest_r = std::sqrt(ddx * ddx + ddy * ddy);
+    const float outer_r = farthest_r *
+        (std::clamp(stop1_pos_pct, 1.0f, 100.0f) / 100.0f);
+
+    PathPaint p;
+    p.kind = PathPaint::Kind::Radial;
+    p.x0 = cx; p.y0 = cy;
+    p.r0 = 0.0f; p.r1 = outer_r;
+    detail::fill_pathpaint_stops(p, stops, stop_count);
+
+    std::vector<float> cmds;
+    detail::append_rounded_rect_path(cmds, fx, fy, fw, fh, tl, tr, br, bl);
+    fill_path(cmds.data(), cmds.size(), p);
+}
 
 /// Raw bytes of the library's embedded default UI font (Roboto Regular
 /// or Bold), for apps that rasterize text themselves (e.g. a raster

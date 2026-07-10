@@ -1606,6 +1606,16 @@ TEST_CASE("UiControls script opens Decius colorfield picker at declared width") 
                              gap: 8px; padding: 8px; }
         #sv { display: block; width: 100%; height: 120px; flex-shrink: 0; }
         #hue { display: block; width: 100%; height: 12px; flex-shrink: 0; }
+        /* Real decius color-picker backgrounds (previously faked by a
+           native class-name bodge; now rendered through the CSS path). */
+        .dcs-color-square {
+            background: linear-gradient(to top, #000, transparent),
+                        linear-gradient(to right, #fff, var(--hue, red));
+        }
+        .dcs-hue-bar {
+            background: linear-gradient(90deg,
+                red, #ff0, #0f0, #0ff, #00f, #f0f, red);
+        }
         </style>
         <div id="field" class="dcs-colorfield" data-aui-name="tint"
              data-value="#4d9fff">
@@ -1656,10 +1666,14 @@ TEST_CASE("UiControls script opens Decius colorfield picker at declared width") 
     REQUIRE(hue_rect.h == 12);
 
     painter.linear_gradient_draws.clear();
+    painter.path_draws.clear();
     doc.draw(painter);
 
+    // The SV square renders as its two CSS background layers: the bottom
+    // white->hue saturation ramp and the top black->transparent value
+    // shade. Both are 2-stop, so both come through the native
+    // fill_linear_gradient_rect fast path.
     int sv_layers = 0;
-    int hue_segments = 0;
     bool saw_sv_hue = false;
     bool saw_sv_value = false;
     for (const auto& draw : painter.linear_gradient_draws) {
@@ -1675,16 +1689,28 @@ TEST_CASE("UiControls script opens Decius colorfield picker at declared width") 
                            (same_color(draw.stop0, affineui::Color::rgb(0, 0, 0)) &&
                             same_color(draw.stop1, affineui::Color::rgba(0, 0, 0, 0)));
         }
-        if (draw.rect.y == hue_rect.y && draw.rect.h == hue_rect.h &&
-            draw.rect.x >= hue_rect.x &&
-            draw.rect.x + draw.rect.w <= hue_rect.x + hue_rect.w) {
-            ++hue_segments;
-        }
     }
     CHECK(sv_layers == 2);
     CHECK(saw_sv_hue);
     CHECK(saw_sv_value);
-    CHECK(hue_segments == 6);
+
+    // The hue bar is a single 7-stop CSS gradient. N-stop (>2) ramps are
+    // lowered to one vector fill_path carrying the full PathPaint ramp
+    // (rendered through the gradient-LUT), not the old six 2-stop
+    // segments. Verify one linear N-stop path fill covering the bar with
+    // the full rainbow ramp preserved.
+    int hue_ramp_fills = 0;
+    for (const auto& d : painter.path_draws) {
+        if (d.stroked) continue;
+        if (d.paint.kind != affineui::PathPaint::Kind::Linear) continue;
+        if (d.paint.stop_count < 7) continue;
+        ++hue_ramp_fills;
+        // Rainbow endpoints + a green middle stop survive.
+        CHECK(same_color(d.paint.colors[0], affineui::Color::rgb(255, 0, 0)));
+        CHECK(same_color(d.paint.colors[2], affineui::Color::rgb(0, 255, 0)));
+        CHECK(same_color(d.paint.colors[6], affineui::Color::rgb(255, 0, 0)));
+    }
+    CHECK(hue_ramp_fills == 1);
 
     const auto picker = find_hovered_chain_id(doc, "picker", 360, 220);
     REQUIRE(picker.x >= 0);

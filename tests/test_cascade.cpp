@@ -815,6 +815,131 @@ TEST_CASE("layered background grid keeps tiled lines over base gradient") {
     CHECK(rs.animated.background_grid_size_px == 24);
 }
 
+TEST_CASE("N-stop linear gradient preserves every middle color stop") {
+    // The color-picker hue bar: a 7-stop rainbow. Pre-N-stop the parser
+    // overwrote a single stop1 field per extra color, collapsing this to
+    // solid red -> red. Now every stop must survive out-of-line.
+    CssEnv env("<div></div>");
+    env.attach(
+        "div {"
+        "  background: linear-gradient(90deg,"
+        "    red, #ff0, #0f0, #0ff, #00f, #f0f, red);"
+        "}");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+
+    CHECK(rs.animated.gradient_kind ==
+          affineui::detail::AnimatedStyle::GradientKind::Linear);
+    CHECK(rs.animated.gradient_angle_deg == 90);
+    // Inline fast-path fields still carry first + last (both red).
+    CHECK(rs.animated.gradient_stop0_rgba == rgba(0xFF, 0x00, 0x00));
+    CHECK(rs.animated.gradient_stop1_rgba == rgba(0xFF, 0x00, 0x00));
+
+    // The full 7-stop ramp is preserved out-of-line, ordered.
+    REQUIRE(rs.gradient_stops != nullptr);
+    REQUIRE(rs.gradient_stops->size() == 7);
+    const auto& g = *rs.gradient_stops;
+    CHECK(g[0].rgba == rgba(0xFF, 0x00, 0x00));  // red
+    CHECK(g[1].rgba == rgba(0xFF, 0xFF, 0x00));  // #ff0 yellow
+    CHECK(g[2].rgba == rgba(0x00, 0xFF, 0x00));  // #0f0 green
+    CHECK(g[3].rgba == rgba(0x00, 0xFF, 0xFF));  // #0ff cyan
+    CHECK(g[4].rgba == rgba(0x00, 0x00, 0xFF));  // #00f blue
+    CHECK(g[5].rgba == rgba(0xFF, 0x00, 0xFF));  // #f0f magenta
+    CHECK(g[6].rgba == rgba(0xFF, 0x00, 0x00));  // red
+    // No explicit positions -> evenly distributed 0..1.
+    CHECK(g[0].offset == doctest::Approx(0.0f));
+    CHECK(g[3].offset == doctest::Approx(0.5f));
+    CHECK(g[6].offset == doctest::Approx(1.0f));
+    // Strictly ascending.
+    for (std::size_t i = 1; i < g.size(); ++i) {
+        CHECK(g[i].offset >= g[i - 1].offset);
+    }
+}
+
+TEST_CASE("N-stop gradient resolves explicit stop percentages") {
+    CssEnv env("<div></div>");
+    env.attach(
+        "div {"
+        "  background: linear-gradient(90deg,"
+        "    #000 0%, #f00 25%, #0f0 60%, #fff 100%);"
+        "}");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+
+    REQUIRE(rs.gradient_stops != nullptr);
+    REQUIRE(rs.gradient_stops->size() == 4);
+    const auto& g = *rs.gradient_stops;
+    CHECK(g[0].rgba == rgba(0x00, 0x00, 0x00));
+    CHECK(g[1].rgba == rgba(0xFF, 0x00, 0x00));
+    CHECK(g[2].rgba == rgba(0x00, 0xFF, 0x00));
+    CHECK(g[3].rgba == rgba(0xFF, 0xFF, 0xFF));
+    CHECK(g[0].offset == doctest::Approx(0.00f));
+    CHECK(g[1].offset == doctest::Approx(0.25f));
+    CHECK(g[2].offset == doctest::Approx(0.60f));
+    CHECK(g[3].offset == doctest::Approx(1.00f));
+}
+
+TEST_CASE("two-stop gradient stays on the inline fast path (no side list)") {
+    CssEnv env("<div></div>");
+    env.attach("div { background: linear-gradient(90deg, red, blue); }");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+
+    CHECK(rs.animated.gradient_kind ==
+          affineui::detail::AnimatedStyle::GradientKind::Linear);
+    CHECK(rs.animated.gradient_stop0_rgba == rgba(0xFF, 0x00, 0x00));
+    CHECK(rs.animated.gradient_stop1_rgba == rgba(0x00, 0x00, 0xFF));
+    // No out-of-line allocation for the common 2-stop case.
+    CHECK(rs.gradient_stops == nullptr);
+}
+
+TEST_CASE("color-picker square: --hue bottom ramp + black->transparent overlay") {
+    // .dcs-color-square uses a two-layer background stack:
+    //   background: linear-gradient(to top,   #000, transparent),
+    //               linear-gradient(to right, #fff, var(--hue, red));
+    // The bottom (last) layer is the saturation ramp with --hue
+    // substituted; the top (first) layer is the value shade overlay.
+    CssEnv env("<div style=\"--hue:#00ff00\"></div>");
+    env.attach(
+        "div {"
+        "  background: linear-gradient(to top, #000, transparent),"
+        "              linear-gradient(to right, #fff, var(--hue, red));"
+        "}");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+
+    // Bottom ramp: white -> resolved --hue (#00ff00). `to right` = 90deg.
+    CHECK(rs.animated.gradient_kind ==
+          affineui::detail::AnimatedStyle::GradientKind::Linear);
+    CHECK(rs.animated.gradient_angle_deg == 90);
+    CHECK(rs.animated.gradient_stop0_rgba == rgba(0xFF, 0xFF, 0xFF));
+    CHECK(rs.animated.gradient_stop1_rgba == rgba(0x00, 0xFF, 0x00));
+
+    // Overlay: black -> transparent, `to top` = 0deg.
+    REQUIRE(rs.overlay_gradient != nullptr);
+    CHECK(rs.overlay_gradient->kind == 1);  // linear
+    CHECK(rs.overlay_gradient->angle_deg == 0);
+    CHECK(rs.overlay_gradient->stop0_rgba == rgba(0x00, 0x00, 0x00));
+    CHECK((rs.overlay_gradient->stop1_rgba & 0xFFu) == 0x00);  // transparent
+}
+
 TEST_CASE("a longhand reset overrides an equal-specificity shorthand") {
     // The Bootstrap-Reboot pattern: the UA sheet sets a heading's box
     // with the `margin` shorthand, then a later author rule of EQUAL
