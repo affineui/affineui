@@ -1789,23 +1789,40 @@ Mat2x3 effective_transform_for(const detail::DocumentImpl& impl, int idx) {
         ghost_dy = static_cast<float>(impl.tab_drag_ghost_cur_y -
                                       impl.tab_drag_ghost_spawn_y);
     }
-    std::vector<int> chain;
-    for (int cur = idx; cur >= 0; ) {
-        chain.push_back(cur);
-        cur = impl.blocks[static_cast<std::size_t>(cur)].parent_idx;
+    // Allocation-free ancestor chain: this runs per block inside the
+    // subtree_visual_rect dirty-rect walks (every mutation snapshots one),
+    // and a heap vector here was a sampled hot spot during drags. Real
+    // block-tree depth is far below the fixed cap; deeper chains fall back
+    // to the heap cleanly.
+    int chain_fixed[128];
+    std::size_t depth = 0;
+    std::vector<int> chain_heap;
+    for (int cur = idx; cur >= 0;
+         cur = impl.blocks[static_cast<std::size_t>(cur)].parent_idx) {
+        if (depth < std::size(chain_fixed)) {
+            chain_fixed[depth] = cur;
+        } else {
+            if (chain_heap.empty()) {
+                chain_heap.assign(chain_fixed, chain_fixed + depth);
+            }
+            chain_heap.push_back(cur);
+        }
+        ++depth;
     }
+    const int* chain = chain_heap.empty() ? chain_fixed : chain_heap.data();
     Mat2x3 combined = Mat2x3::identity();
-    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-        const auto& b = impl.blocks[static_cast<std::size_t>(*it)];
-        if (*it == drag_idx) {
+    for (std::size_t i = depth; i-- > 0; ) {
+        const int cur = chain[i];
+        const auto& b = impl.blocks[static_cast<std::size_t>(cur)];
+        if (cur == drag_idx) {
             // Doc-space translation applied outside the block's own
             // transform, inside its ancestors'.
             combined = Mat2x3::translate(drag_dx, drag_dy).then(combined);
         }
-        if (*it == ghost_idx) {
+        if (cur == ghost_idx) {
             combined = Mat2x3::translate(ghost_dx, ghost_dy).then(combined);
         }
-        const int dy = detail::scroll_offset_y_for(impl.blocks, impl.style_store, *it);
+        const int dy = detail::scroll_offset_y_for(impl.blocks, impl.style_store, cur);
         const RectF eff{
             b.bounds_f.x,
             b.bounds_f.y - static_cast<float>(dy),

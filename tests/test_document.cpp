@@ -11329,3 +11329,64 @@ TEST_CASE("UiControls: splitter is inert without the script attached") {
     REQUIRE(left_after.x >= 0);
     CHECK(doc.hovered_info().bounds.w == 200);
 }
+
+TEST_CASE("Inline style: a descendant-inert write restyles only the target "
+          "block yet stays layout-live; an inherited-prop write still "
+          "reaches descendants") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .row { display: flex; width: 400px; height: 60px; }
+        .pane { display: flex; min-width: 0; }
+        </style>
+        <div class="row">
+          <div id="a" class="pane" style="flex:0 0 100px"><span id="t">label</span></div>
+          <div id="b" class="pane" style="flex:1 1 0">rest</div>
+        </div>
+    )HTML");
+    doc.layout(400, 60, &painter);
+    REQUIRE(doc.find_element_rect("#a").w == 100);
+
+    // The splitter-drag shape: flex + min-* only. Takes the block-local
+    // restyle fast path — the new basis must still drive layout.
+    REQUIRE(doc.set_attribute_by_id(
+        "a", "style", "flex:0 0 220px;min-width:0;min-height:0"));
+    doc.layout(400, 60, &painter);
+    CHECK(doc.find_element_rect("#a").w == 220);
+    CHECK(doc.find_element_rect("#b").w == 180);
+
+    // Adding an INHERITED property (color) fails the inert check on the new
+    // text — the subtree path must run so the descendant text repaints in
+    // the new color.
+    REQUIRE(doc.set_attribute_by_id(
+        "a", "style",
+        "flex:0 0 220px;min-width:0;min-height:0;color:#12fe34"));
+    RecordingPainter repaint;
+    doc.layout(400, 60, &repaint);
+    doc.draw(repaint);
+    const auto want = affineui::Color::rgb(0x12, 0xfe, 0x34);
+    bool label_recolored = false;
+    for (const auto& d : repaint.text_draws) {
+        if (d.text == "label" && same_color(d.color, want)) {
+            label_recolored = true;
+        }
+    }
+    CHECK(label_recolored);
+
+    // And REMOVING the inherited property must also take the subtree path
+    // (the OLD text is not inert): the label returns to the default color.
+    REQUIRE(doc.set_attribute_by_id(
+        "a", "style", "flex:0 0 220px;min-width:0;min-height:0"));
+    RecordingPainter repaint2;
+    doc.layout(400, 60, &repaint2);
+    doc.draw(repaint2);
+    bool label_still_green = false;
+    for (const auto& d : repaint2.text_draws) {
+        if (d.text == "label" && same_color(d.color, want)) {
+            label_still_green = true;
+        }
+    }
+    CHECK_FALSE(label_still_green);
+}

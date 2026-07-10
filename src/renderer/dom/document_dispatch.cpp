@@ -98,13 +98,13 @@ DispatchResult Document::dispatch(const Event& ev) {
     switch (ev.type) {
         case EventType::MouseMove: {
             impl_->last_mouse_pos = ev.pos;
-            // A prior dispatch may have mutated the DOM (drop-highlight class,
-            // transient-layer close, ...) and dirtied layout without a frame
-            // running since. Every pointer event starts by ensuring the block
-            // tree is current — hit tests and geometric row/target lookups on a
-            // stale tree miss, which reads as flickering drop cursors and
-            // swallowed clicks. No-op when the tree is clean.
-            ensure_interaction_layout();
+            // CAPTURED gestures run before the ensure_interaction_layout
+            // below: they use only state cached at mousedown (drag block idx,
+            // start sizes, budget) and never hit-test, so they must not pay
+            // for a synchronous relayout. This matters at mouse-poll rate — a
+            // splitter move dirties layout, and re-laying-out on the NEXT
+            // move ran a full Yoga pass per event (up to 1kHz on gaming
+            // mice) instead of once per rendered frame.
             if (impl_->scrollbar_drag.block_idx >= 0) {
                 if (detail::scrollbar_scroll_from_thumb_y(
                         *impl_,
@@ -134,6 +134,14 @@ DispatchResult Document::dispatch(const Event& ev) {
                 }
                 break;
             }
+            // A prior dispatch may have mutated the DOM (drop-highlight class,
+            // transient-layer close, ...) and dirtied layout without a frame
+            // running since. Every pointer event below this line starts by
+            // ensuring the block tree is current — hit tests and geometric
+            // row/target lookups on a stale tree miss, which reads as
+            // flickering drop cursors and swallowed clicks. No-op when the
+            // tree is clean.
+            ensure_interaction_layout();
             // A pressed tab becomes a drag once it moves past a small threshold;
             // while dragging, show the drop indicator for the hovered zone.
             if (!impl_->tab_drag.tab &&
