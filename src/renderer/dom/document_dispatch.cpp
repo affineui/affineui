@@ -692,7 +692,9 @@ DispatchResult Document::dispatch(const Event& ev) {
                 break;
             }
             if (impl_->float_drag.elem) {
-                if (detail::update_float_drag(*impl_, ev)) {
+                // The gesture's moves were pure visual translations; land the
+                // final position in the document with a single style write.
+                if (detail::commit_float_drag(*impl_, ev)) {
                     result.redraw_requested = true;
                 }
                 const auto fd = impl_->float_drag;
@@ -742,9 +744,10 @@ DispatchResult Document::dispatch(const Event& ev) {
             }
             // Dock-pane tab release: the tab was already selected on press; here
             // we only complete a DRAG. decius.js drop semantics, applied as DOM
-            // surgery: center → join the target's tab row; edge → split the
-            // target; anywhere else (free space, wrong-kind pane, or the source
-            // pane itself) → tear off into a floating panel.
+            // surgery: center → join the target's tab row; the source pane
+            // itself → visualized no-op ("drop back where it was"); edge →
+            // split the target; anywhere else (free space or a wrong-kind
+            // pane) → tear off into a floating panel.
             if (impl_->tab_drag.tab) {
                 const auto td = impl_->tab_drag;
                 impl_->tab_drag = {};
@@ -761,8 +764,16 @@ DispatchResult Document::dispatch(const Event& ev) {
                     // the drag invalidates the captured pointers).
                     auto* tab = detail::find_dockpane_tab_for_panel_id(*impl_,
                                                                td.panel_id);
-                    auto* panel = detail::find_dom_element_by_id(
-                        *impl_, td.panel_id + "-body");
+                    // The tab's data-dcs-target IS the panel reference
+                    // (decius.js semantics) — raw-HTML tabs target "#<id>"
+                    // directly; View-emitted tabs target "#<id>-body". The
+                    // id-convention lookup remains as a fallback for tabs
+                    // that lost their target attribute.
+                    auto* panel = detail::dcs_target_for_trigger(*impl_, tab);
+                    if (!panel) {
+                        panel = detail::find_dom_element_by_id(
+                            *impl_, td.panel_id + "-body");
+                    }
                     auto* source =
                         tab ? detail::ancestor_with_class(tab, "dcs-dockpane") : nullptr;
                     // Suppress lexbor's eager insert-time style attach for the
@@ -775,13 +786,10 @@ DispatchResult Document::dispatch(const Event& ev) {
                     if (tab && panel && source) {
                         const auto t = detail::compute_drop_target(
                             *impl_, ev.pos, td.drag_kind, source);
-                        auto* floater =
-                            detail::ancestor_with_class(source, "dcs-panel--floating");
-                        const bool only_floater_tab =
-                            floater && detail::dock_tabs(source).size() == 1;
                         if (t.self_noop) {
-                            // Released back on the center of its own multi-tab
-                            // pane: the tab is already here — do nothing.
+                            // Released back on its own pane (any pane, docked
+                            // or floating): the hover showed "drop back where
+                            // it was" feedback; the release does nothing.
                             detail::dock_trace("dock-noop-self panel=" + td.panel_id);
                         } else if (t.valid && t.pane &&
                                    t.zone == DropZone::Tab) {
@@ -809,13 +817,21 @@ DispatchResult Document::dispatch(const Event& ev) {
                                     (t.window_edge ? " window-edge" : "") +
                                     " target=" + t.parent);
                             }
-                        } else if (only_floater_tab) {
-                            // A single-tab floater repositions via its chrome;
-                            // its title tab dropping in free space is a no-op.
-                            detail::dock_trace("tab-drag-cancel panel=" + td.panel_id);
+                        } else if (detail::document_float_host_bounds(*impl_)
+                                       .w <= 0) {
+                            // No float host in this document — a standalone
+                            // dockpane's tabs switch panels but there is
+                            // nowhere to float a tearoff. Dock gestures are
+                            // inert.
+                            detail::dock_trace("tab-drag-cancel (no float host) panel=" +
+                                       td.panel_id);
                         } else {
-                            // Free space → tear off (JS spawns even over the
-                            // source pane — the Photoshop gesture).
+                            // Free space → tear off into a (new) floating
+                            // panel. This includes a tab dragged out of an
+                            // existing tearout: it spawns its own floater at
+                            // the drop point (for a single-tab floater that
+                            // reads as moving the tearout; the emptied source
+                            // dissolves in dock_cleanup_source).
                             const int si =
                                 detail::block_index_for_exact_element(*impl_, source);
                             const Rect sb =
@@ -840,6 +856,12 @@ DispatchResult Document::dispatch(const Event& ev) {
                         }
                     }
                     if (changed_dock) {
+                        // Gesture surgery restructured dock DOM the retained
+                        // View doesn't know about; a later incremental
+                        // reconcile over it would leave the surgery wrappers
+                        // behind as duplicate panels. The app consumes this
+                        // (take_dock_structure_changed) and re-bootstraps.
+                        impl_->dock_structure_dirty = true;
                         detail::dock_structure_changed(*impl_);
                         detail::dock_trace_state(*impl_, "after-dock-surgery");
                         result.layout_changed = true;  // app persists + re-emits

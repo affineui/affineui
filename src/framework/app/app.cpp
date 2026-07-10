@@ -38,6 +38,7 @@
 #include <functional>
 #include <iterator>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -92,6 +93,8 @@ struct AppImpl {
     std::function<void(View&)> view_builder;
     std::unique_ptr<View>      retained_view;
     bool                       view_bootstrapped{false};
+    // View diagnostics already printed to stderr (each distinct message once).
+    std::set<std::string>      reported_view_diagnostics;
     bool                  pointer_captured{false};
     bool                  quit_requested{false};
     int                   exit_code{0};
@@ -516,6 +519,15 @@ void App::rebuild_view() {
     if (!impl_->retained_view) {
         impl_->retained_view = std::make_unique<View>();
     }
+    // Dock surgery (tearoff / drag-to-dock) restructured the DOM outside the
+    // retained view. Incremental reconcile on top of that leaves the
+    // surgery's wrapper elements behind as duplicate panels — resync by
+    // re-bootstrapping. The arrangement itself is not lost: the builder's
+    // dock_layout provider replays it (the harvest ran on the surgical DOM).
+    if (impl_->view_bootstrapped &&
+        impl_->document.take_dock_structure_changed()) {
+        impl_->view_bootstrapped = false;
+    }
     View& view = *impl_->retained_view;
 
     if (!impl_->view_bootstrapped) {
@@ -567,6 +579,16 @@ void App::rebuild_view() {
         }
         impl_->document.end_view_mutations();
     }
+
+    // Builder-misuse diagnostics (undeclared dock panels, bad selectors, …)
+    // are collected quietly during the build; a silent vector helps nobody,
+    // so print each distinct message once per process.
+    for (const auto& d : view.diagnostics()) {
+        if (impl_->reported_view_diagnostics.insert(d).second) {
+            std::fprintf(stderr, "AffineUI view diagnostic: %s\n", d.c_str());
+        }
+    }
+    view.clear_diagnostics();
 
     impl_->view_click_bindings = view.click_bindings();
     impl_->view_change_bindings = view.change_bindings();

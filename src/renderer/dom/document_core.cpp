@@ -868,14 +868,16 @@ bool Document::weak_handle_valid(DomHandle handle) const {
 // so by the time create_* fires, the DOM parent's children exactly
 // match the widget indices below `index`.
 #if !defined(AFFINEUI_STUB_BUILD)
-namespace {
-
-// Batched view mutations run with lexbor's ev_insert suppressed, which
-// also silences its inline-style hook: an element that ACQUIRES a
-// `style` attribute inside the batch would never get the declarations
-// parsed into its style list (ev_set_value still covers value changes
-// on an existing attribute). Re-run the parse explicitly — mirrors
-// lxb_html_document_event_insert_attribute for the fresh-attr case.
+// Mutations batched with lexbor's ev_insert suppressed (View batches, dock
+// gesture surgery) also silence its inline-style hook: an element that
+// ACQUIRES a `style` attribute inside the batch would never get the
+// declarations parsed into its style list (ev_set_value still covers value
+// changes on an existing attribute), and styles_rematch only re-attaches the
+// CACHED inline list — it never re-parses. Re-run the parse explicitly —
+// mirrors lxb_html_document_event_insert_attribute for the fresh-attr case.
+// Skipping it collapses any surgery-created box whose geometry lives in its
+// inline style (a spawned tearout laid out at (0,0) intrinsic size).
+namespace detail {
 void parse_inline_style_attr(lxb_dom_element_t* e) {
     if (!e) return;
     auto* node = lxb_dom_interface_node(e);
@@ -896,6 +898,8 @@ void parse_inline_styles_deep(lxb_dom_node_t* n) {
         parse_inline_styles_deep(child);
     }
 }
+}  // namespace detail
+namespace {
 
 void invalidate_resolver_deep(detail::DocumentImpl& impl, lxb_dom_node_t* n);
 
@@ -933,7 +937,7 @@ public:
                 reinterpret_cast<const lxb_char_t*>(node.text.c_str()),
                 node.text.size());
         }
-        parse_inline_style_attr(e);
+        detail::parse_inline_style_attr(e);
         lxb_dom_node_insert_child(p, lxb_dom_interface_node(e));
         elems_[node.remote_id] = e;
         // Recycled-pointer insurance: a freed element's address can be
@@ -999,7 +1003,7 @@ public:
                 } else {
                     lxb_dom_node_insert_child(parent, child);
                 }
-                parse_inline_styles_deep(child);
+                detail::parse_inline_styles_deep(child);
                 group.push_back(child);
             }
         }
@@ -1118,7 +1122,7 @@ public:
             detail::set_attribute_on_element(impl_, e, name, value);
             // ev_set_value keeps an EXISTING style attribute parsed; a
             // fresh one arrives through the suppressed ev_insert hook.
-            if (fresh_style) parse_inline_style_attr(e);
+            if (fresh_style) detail::parse_inline_style_attr(e);
         }
     }
 

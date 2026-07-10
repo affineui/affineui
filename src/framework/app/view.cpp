@@ -2562,17 +2562,22 @@ struct EffPlacement {
     bool               floating{false};
     bool               override_has_size{false};
     std::optional<int> size;
+    // Anchor corner for a DECLARED floating seed (offset counts inward from
+    // it). Cleared whenever a runtime override supplies concrete x/y.
+    std::optional<DockCorner> anchor;
     int x{0}, y{0}, w{0}, h{0};
 };
 EffPlacement effective_placement(
     std::string_view id, std::string parent, Dock side, DockState state,
-    std::optional<int> size, std::optional<std::pair<int, int>> offset,
+    std::optional<int> size, std::optional<DockCorner> anchor,
+    std::optional<std::pair<int, int>> offset,
     std::optional<std::pair<int, int>> float_size,
     const std::function<Document::DockPlacement(std::string_view)>& provider) {
     EffPlacement e;
     e.parent = std::move(parent);
     e.side = side;
     e.size = size;
+    e.anchor = anchor;
     e.floating =
         (state == DockState::Detached || state == DockState::Tearoff);
     if (offset) { e.x = offset->first; e.y = offset->second; }
@@ -2582,6 +2587,7 @@ EffPlacement effective_placement(
         if (ov.present) {
             e.floating = ov.floating;
             if (ov.floating) {
+                e.anchor.reset();
                 e.x = ov.x;
                 e.y = ov.y;
                 if (ov.w > 0) e.w = ov.w;
@@ -2617,7 +2623,7 @@ View::DockNode View::resolve_dock(const DockRecorder& rec,
     // DockLocation), used for every structural decision below.
     auto eff = [&](const DockRecorder::Spec& s) {
         return effective_placement(s.id, s.parent, s.side, s.state, s.size,
-                                   s.offset, s.float_size,
+                                   s.anchor, s.offset, s.float_size,
                                    dock_placement_provider_);
     };
     int slot = 0;  // this node's slot size in px (0 = flexible: the center, or a
@@ -2740,6 +2746,11 @@ View::DockNode View::dock_node_from_layout(
         if (id == "__document__" || rec.find(id)) known.push_back(id);
     }
     if (known.empty()) return out;  // dropped (id stays empty)
+    // Round-trip the dock-graph placement the live pane carried; without it
+    // every replayed pane re-emits as document:left and the graph that
+    // gestures reason about is corrupted after the first rebuild.
+    if (!n.dock_parent.empty()) out.placement_parent = n.dock_parent;
+    if (n.dock_side >= 0) out.placement_side = static_cast<Dock>(n.dock_side);
     const std::string& primary = known.front();
     out.id = primary;
     if (primary == "__document__") {
@@ -2953,6 +2964,7 @@ void View::emit_one_floating_panel(const DockRecorder& rec,
                                    const std::vector<std::string>& co_tab_ids,
                                    int x, int y, int w, int h,
                                    const std::string& active_tab,
+                                   std::optional<DockCorner> anchor,
                                    std::source_location here) {
     const auto* s = rec.find(primary_id);
     if (!s) return;
@@ -2972,11 +2984,24 @@ void View::emit_one_floating_panel(const DockRecorder& rec,
     if (w <= 0) w = 320;
     if (h <= 0) h = 240;
 
+    // A declared anchor places the seed inward from that corner (right:/
+    // bottom: CSS), so a "hug the top-right" float stays put as the window
+    // resizes. Replay and drag surgery always use concrete left/top — the
+    // first drag commit rewrites the style with left/top and drops
+    // right/bottom (with_float_position), so the anchor is seed-only.
+    const bool from_right =
+        anchor && (*anchor == DockCorner::TopRight ||
+                   *anchor == DockCorner::BottomRight);
+    const bool from_bottom =
+        anchor && (*anchor == DockCorner::BottomLeft ||
+                   *anchor == DockCorner::BottomRight);
     auto& panel = open_node(WidgetKind::Container, "section",
                             "dcs-panel dcs-panel--floating",
                             "float-" + s->id, here, true);
     set_attr(panel, "style",
-             "position:absolute;left:" + std::to_string(x) + "px;top:" +
+             std::string("position:absolute;") +
+                 (from_right ? "right:" : "left:") + std::to_string(x) +
+                 "px;" + (from_bottom ? "bottom:" : "top:") +
                  std::to_string(y) + "px;width:" + std::to_string(w) +
                  "px;height:" + std::to_string(h) +
                  "px;z-index:60;display:flex;flex-direction:column;"
@@ -2994,8 +3019,10 @@ void View::emit_one_floating_panel(const DockRecorder& rec,
                            "pane-" + s->id, here, true);
     set_attr(dock, "style", "flex:1;min-width:0;min-height:0");
     set_attr(dock, "data-aui-dock-floating", "true");
-    set_attr(dock, "data-aui-dock-x", std::to_string(x));
-    set_attr(dock, "data-aui-dock-y", std::to_string(y));
+    // Anchored seeds don't know their left/top until layout — leave the x/y
+    // hints off so readers fall back to the live rect (the truth).
+    if (!from_right) set_attr(dock, "data-aui-dock-x", std::to_string(x));
+    if (!from_bottom) set_attr(dock, "data-aui-dock-y", std::to_string(y));
     set_attr(dock, "data-aui-dock-w", std::to_string(w));
     set_attr(dock, "data-aui-dock-h", std::to_string(h));
 
@@ -3146,14 +3173,15 @@ void View::emit_floating_dock_panels(const DockRecorder& rec,
     // (declared DockState::Tearoff, or a runtime placement override).
     for (const auto& s : rec.panels) {
         const auto e = effective_placement(s.id, s.parent, s.side, s.state,
-                                           s.size, s.offset, s.float_size,
+                                           s.size, s.anchor, s.offset,
+                                           s.float_size,
                                            dock_placement_provider_);
         if (!e.floating) continue;
         std::vector<std::string> co_tab_ids;
         for (const auto& t : rec.panels) {
             if (&t == &s) continue;
             const auto te = effective_placement(
-                t.id, t.parent, t.side, t.state, t.size, t.offset,
+                t.id, t.parent, t.side, t.state, t.size, t.anchor, t.offset,
                 t.float_size, dock_placement_provider_);
             if (!te.floating && te.parent == s.id && te.side == Dock::Tab)
                 co_tab_ids.push_back(t.id);
@@ -3170,7 +3198,7 @@ void View::emit_floating_dock_panels(const DockRecorder& rec,
         }
         emit_one_floating_panel(rec, s.id, co_tab_ids, e.x, e.y,
                                 e.w > 0 ? e.w : 320, e.h > 0 ? e.h : 240,
-                                active_tab, here);
+                                active_tab, e.anchor, here);
     }
 }
 
@@ -3190,8 +3218,15 @@ void View::emit_layout_floats(const Document::DockLayout& layout,
             (!f.pane.active.empty() && f.pane.active != primary)
                 ? f.pane.active
                 : std::string();
+        // Keep the position in the form the float's style used: a
+        // corner-anchored float replays as right:/bottom: (still glued to its
+        // corner), a dragged float as concrete left/top.
+        std::optional<DockCorner> anchor;
+        if (f.from_right && f.from_bottom) anchor = DockCorner::BottomRight;
+        else if (f.from_right) anchor = DockCorner::TopRight;
+        else if (f.from_bottom) anchor = DockCorner::BottomLeft;
         emit_one_floating_panel(rec, primary, known, f.x, f.y, f.w, f.h,
-                                active, here);
+                                active, anchor, here);
     }
 }
 
@@ -3226,6 +3261,19 @@ WidgetRef View::document_view(std::string_view key,
             };
         collect_ids(saved.root);
         for (const auto& f : saved.floats) collect_ids(f.pane);
+        // Misuse guard: a panel in the LIVE dock layout that was never
+        // declared via dockpanel() cannot be replayed — its content isn't
+        // ours to rebuild, so the tab would be silently dropped and the
+        // user's arrangement scrambled on the next rebuild. Surface it.
+        for (const auto& id : in_layout) {
+            if (id == "__document__" || recorder.find(id)) continue;
+            diagnostics_.push_back(
+                "dock layout contains panel '" + id +
+                "' that was never declared via dockpanel(); its placement "
+                "cannot survive a rebuild. Declare it (e.g. "
+                "DockLocation::floating()/tab().in(...)) instead of emitting "
+                "raw dockpane markup.");
+        }
         auto found = [&](std::string_view id) {
             return std::find(in_layout.begin(), in_layout.end(), id) !=
                    in_layout.end();
@@ -3273,8 +3321,11 @@ WidgetRef View::document_view(std::string_view key,
                                       "dcs-dock__float-layer",
                                       "dock-float-layer", here, true);
         (void) float_layer;
+        // Spans the host (not 0x0) so corner-anchored floats can resolve
+        // right:/bottom: against the workspace size; pointer-events:none
+        // keeps it hit-transparent like before.
         set_attr(float_layer, "style",
-                 "position:absolute;left:0px;top:0px;width:0px;height:0px;"
+                 "position:absolute;left:0px;top:0px;right:0px;bottom:0px;"
                  "overflow:visible;z-index:60;pointer-events:none");
         if (replay) emit_layout_floats(saved, recorder, here);
         else emit_floating_dock_panels(recorder, here);

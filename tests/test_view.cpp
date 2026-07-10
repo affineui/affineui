@@ -1937,6 +1937,163 @@ TEST_CASE("GE-shaped inspector: command-backed checkbox + colorfield commit "
     }
 }
 
+// DENDER-shaped dock replay: a LEFT-edge drop on the bottom timeline must
+// come back from the app reload as a row (panel BESIDE the timeline), not as
+// a stacked band above it. Field bug: "any placement to the left/right is
+// broken" — the direction-changing wrapper dock_split creates was lost
+// somewhere in the harvest→replay round trip.
+TEST_CASE("dock replay: left-edge split of the bottom timeline survives the "
+          "app reload as a row beside it") {
+    std::ifstream bundle_in(
+        AFFINEUI_TEST_SOURCE_DIR
+        "/examples/frameworks/css/decius-css-0.6.2.bundle.min.css",
+        std::ios::binary);
+    REQUIRE(bundle_in.good());
+    std::string bundle((std::istreambuf_iterator<char>(bundle_in)),
+                       std::istreambuf_iterator<char>());
+    bundle +=
+        "\n.dn-app{position:fixed;inset:0;display:flex;flex-direction:column;"
+        "overflow:hidden}\n";
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    std::function<void()> on_layout_changed;
+    cfg.on_layout_changed = [&] {
+        if (on_layout_changed) on_layout_changed();
+    };
+    affineui::App app{cfg};
+
+    int reloads = 0;
+    std::function<affineui::View()> build = [&] {
+        affineui::View v{affineui::ViewTheme::Decius};
+        v.set_framework_version("0.6.2");
+        v.set_dock_layout_provider(
+            [&] { return app.document().dock_layout(); });
+        v.set_dock_placement_provider([&](std::string_view id) {
+            return app.document().dock_override(id);
+        });
+        v.set_dock_active_tab_provider([&](std::string_view id) {
+            return app.document().dock_active_tab(id);
+        });
+        v.begin();
+        {
+            auto shell = v.container("dn-app", "app");
+            v.document_view("workarea", [&](affineui::View& dv) {
+                dv.document(
+                    [&](affineui::View& doc) {
+                        auto canvas = doc.container({}, "vp-canvas");
+                        canvas.attr("data-dcs-float-host", "");
+                    },
+                    "Viewport", "cube");
+                auto outliner = dv.dockpanel(
+                    "Outliner",
+                    affineui::DockLocation::docked(affineui::Dock::Right, 340),
+                    [&](affineui::View& p) { p.text("outliner body", "ob"); },
+                    "folder-open", "outliner");
+                dv.dockpanel(
+                    "Inspector",
+                    affineui::DockLocation::docked(affineui::Dock::Bottom)
+                        .in(outliner),
+                    [&](affineui::View& p) { p.text("inspector body", "ib"); },
+                    "cog", "props");
+                dv.dockpanel(
+                    "Timeline",
+                    affineui::DockLocation::docked(affineui::Dock::Bottom, 140),
+                    [&](affineui::View& p) { p.text("timeline body", "tb"); },
+                    "keyframe", "timeline");
+            });
+        }
+        v.end();
+        return v;
+    };
+
+    constexpr int W = 1440;
+    constexpr int H = 900;
+    TestPainter painter;
+    auto reload = [&] {
+        ++reloads;
+        app.load_view(build());
+    };
+    on_layout_changed = reload;
+    app.load_view(build());
+    app.set_stylesheet(bundle);
+    app.document().layout(W, H, &painter);
+
+    const auto timeline0 = app.document().find_element_rect("pane-timeline");
+    const auto props0 = app.document().find_element_rect("pane-props");
+    MESSAGE("timeline0=(", timeline0.x, ",", timeline0.y, " ", timeline0.w,
+            "x", timeline0.h, ") props0=(", props0.x, ",", props0.y, " ",
+            props0.w, "x", props0.h, ")");
+    REQUIRE(timeline0.w > 0);
+    REQUIRE(props0.w > 0);
+    // Sanity: the declared seed — timeline spans the bottom, inspector sits
+    // in the right column.
+    CHECK(timeline0.y > props0.y);
+
+    // Grab the Inspector pane's tab and drop it on the LEFT edge zone of the
+    // timeline (well inside the left 22% band, clear of the top/bottom
+    // bands).
+    affineui::Point props_tab{-1, -1};
+    for (int dy = 4; dy <= 44 && props_tab.x < 0; dy += 4) {
+        props_tab = find_in_rect_with_class(
+            app, affineui::Rect{props0.x, props0.y + dy - 20, props0.w, 40},
+            "dcs-dockpane__tab ");  // trailing space: not the __tabbar/__tabs
+    }
+    if (props_tab.x < 0) {
+        // Class-order tolerant fallback: any hover whose chain has the exact
+        // tab class token.
+        affineui::Event probe{};
+        probe.type = affineui::EventType::MouseMove;
+        for (int dy = 2; dy <= 44 && props_tab.x < 0; dy += 3) {
+            for (int dx = 2; dx < props0.w && props_tab.x < 0; dx += 3) {
+                probe.pos = {props0.x + dx, props0.y + dy};
+                app.dispatch(probe);
+                for (const auto& info :
+                     app.document().hovered_info_chain()) {
+                    if (std::find(info.classes.begin(), info.classes.end(),
+                                  "dcs-dockpane__tab") !=
+                        info.classes.end()) {
+                        props_tab = probe.pos;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    REQUIRE(props_tab.x >= 0);
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = props_tab;
+    app.dispatch(down);
+    const affineui::Point drop{timeline0.x + 60,
+                               timeline0.y + timeline0.h * 2 / 3};
+    affineui::Event mv{};
+    mv.type = affineui::EventType::MouseMove;
+    mv.pos = drop;
+    app.dispatch(mv);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = drop;
+    app.dispatch(up);
+    app.document().layout(W, H, &painter);
+
+    CHECK(reloads >= 1);
+    const auto timeline1 = app.document().find_element_rect("pane-timeline");
+    const auto props1 = app.document().find_element_rect("pane-props");
+    REQUIRE(timeline1.w > 0);
+    REQUIRE(props1.w > 0);
+    MESSAGE("timeline1=(", timeline1.x, ",", timeline1.y, " ", timeline1.w,
+            "x", timeline1.h, ") props1=(", props1.x, ",", props1.y, " ",
+            props1.w, "x", props1.h, ")");
+    // The inspector must sit BESIDE the timeline (same bottom band, to its
+    // left), not stacked above it.
+    CHECK(props1.x + props1.w <= timeline1.x);
+    CHECK(std::abs(props1.y - timeline1.y) <= 2);
+    CHECK(std::abs(props1.h - timeline1.h) <= 2);
+}
+
 TEST_CASE("App dispatch invokes command knob change callbacks") {
     for (const auto theme :
          {affineui::ViewTheme::Bootstrap, affineui::ViewTheme::Decius}) {

@@ -1060,11 +1060,15 @@ private:
                             const DockRecorder& rec,
                             std::source_location here);
     // Shared emission for one floating panel (declared-seed and replay paths).
+    // `anchor` set = declared seed anchored to that corner (x/y count inward
+    // from it, emitted as right:/bottom: CSS); nullopt = concrete left/top px
+    // (the replay path and post-drag positions).
     void emit_one_floating_panel(const DockRecorder& rec,
                                  const std::string& primary_id,
                                  const std::vector<std::string>& co_tab_ids,
                                  int x, int y, int w, int h,
                                  const std::string& active_tab,
+                                 std::optional<DockCorner> anchor,
                                  std::source_location here);
     void emit_dock_node(const DockNode& node, bool is_root,
                         const DockRecorder* rec = nullptr,
