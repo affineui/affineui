@@ -24,6 +24,11 @@ target_include_directories(affineui_photoedit PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../external/stb")
 target_link_libraries(affineui_photoedit PUBLIC affineui::affineui)
 target_compile_features(affineui_photoedit PUBLIC cxx_std_20)
+# This static lib is linked into the photo_core SHARED python module, so its
+# objects must be position-independent — otherwise the manylinux GCC link
+# fails with "failed to set dynamic section sizes: bad value".
+set_target_properties(affineui_photoedit PROPERTIES
+    POSITION_INDEPENDENT_CODE ON)
 
 # Absolute path to the pybind sources, captured now: a function body sees the
 # CALLER's CMAKE_CURRENT_SOURCE_DIR, so we cannot rely on it at call time.
