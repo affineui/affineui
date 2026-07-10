@@ -8263,7 +8263,7 @@ TEST_CASE("UiControls: dragging a dock tab OUT of its pane tears it off into a "
         .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
         [data-dcs-tabpanel][hidden] { display: none; }
@@ -8352,7 +8352,7 @@ std::string dock_drag_workspace_html(bool with_second_panel) {
         .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
         [data-dcs-tabpanel][hidden] { display: none; }
@@ -8428,7 +8428,7 @@ TEST_CASE("UiControls: a FIXED side column keeps its width through a "
     MESSAGE("split: X=(", x1.x, ",", x1.w, ") Y=(", y1.x, ",", y1.w,
             ") doc x=", d1.x);
     REQUIRE(y1.w > 0);
-    CHECK(std::abs((x1.w + y1.w + 6) - 200) <= 4);   // column total preserved
+    CHECK(std::abs((x1.w + y1.w + 1) - 200) <= 4);   // column total preserved
     CHECK(std::abs(d1.x - d0.x) <= 4);               // document did not move
 
     // Undock Y to free space: the freed slice grows the FIXED neighbour back
@@ -8462,7 +8462,7 @@ TEST_CASE("UiControls: a WINDOW-EDGE drop wraps the whole workspace - the "
         .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
         </style>
@@ -8854,7 +8854,7 @@ TEST_CASE("UiControls: dropping a dragged tab on another pane's edge zone "
         .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
         [data-dcs-tabpanel][hidden] { display: none; }
@@ -8926,7 +8926,7 @@ TEST_CASE("UiControls: the window-edge band WINS over a pane edge under "
         .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
         [data-dcs-tabpanel][hidden] { display: none; }
@@ -9326,7 +9326,7 @@ TEST_CASE("UiControls: co-tab dropped on a pane bottom preview splits out of "
         .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
         [data-dcs-tabpanel][hidden] { display: none; }
@@ -9425,7 +9425,7 @@ TEST_CASE("UiControls: dock preview target clears after leaving a valid pane") {
         .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
         [data-dcs-tabpanel][hidden] { display: none; }
@@ -9557,7 +9557,7 @@ TEST_CASE("UiControls: self-pane docking â€” center is a no-op preview, edg
         .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
         [data-dcs-tabpanel][hidden] { display: none; }
@@ -10460,7 +10460,7 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
         .dcs-dockpane__tabs { display: flex; min-width: 0; }
         .dcs-dockpane__tab { display: inline-flex; padding: 0 12px; white-space: nowrap; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
     )CSS");
@@ -11076,7 +11076,7 @@ TEST_CASE("UiControls: a 'panels' tab dropped on the document body does NOT dock
         .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
         [data-dcs-tabpanel][hidden] { display: none; }

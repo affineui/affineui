@@ -2308,20 +2308,51 @@ bool update_tab_drag_ghost(detail::DocumentImpl& impl,
                            Point p) {
     if (!impl.doc) return false;
     const std::string style = tab_drag_ghost_style(p);
-    if (impl.tab_drag_ghost) {
-        bool changed = detail::set_attribute_on_element(
-            impl, impl.tab_drag_ghost, "style", style);
-        changed = detail::remove_attribute_on_element(impl, impl.tab_drag_ghost,
-                                              "hidden") || changed;
+    // Anchor the ghost's STYLE once per drag (spawn point); after that,
+    // moves are pure compositor state — the translation is injected in
+    // effective_transform_for, and no per-move attr write/restyle happens.
+    auto anchor_ghost = [&](lxb_dom_element_t* ghost) {
+        bool changed =
+            detail::set_attribute_on_element(impl, ghost, "style", style);
+        changed = detail::remove_attribute_on_element(impl, ghost, "hidden") ||
+                  changed;
+        std::string label = std::string(detail::trim_css_ws(label_text));
+        if (label.empty()) label = "Panel";
+        if (!detail::set_text_on_element(impl, ghost, label)) {
+            lxb_dom_node_text_content_set(lxb_dom_interface_node(ghost),
+                                          detail::as_lxb(label), label.size());
+        }
+        impl.tab_drag_ghost_spawn_x = p.x;
+        impl.tab_drag_ghost_spawn_y = p.y;
+        impl.tab_drag_ghost_cur_x = p.x;
+        impl.tab_drag_ghost_cur_y = p.y;
+        impl.tab_drag_ghost_block_idx =
+            detail::block_index_for_exact_element(impl, ghost);
         return changed;
+    };
+    if (impl.tab_drag_ghost) {
+        auto* ghost = impl.tab_drag_ghost;
+        if (detail::has_attr(ghost, "hidden")) {
+            return anchor_ghost(ghost);  // a NEW drag re-using the element
+        }
+        if (impl.tab_drag_ghost_block_idx < 0 ||
+            detail::element_for_block(impl, impl.tab_drag_ghost_block_idx) !=
+                ghost) {
+            impl.tab_drag_ghost_block_idx =
+                detail::block_index_for_exact_element(impl, ghost);
+        }
+        if (impl.tab_drag_ghost_cur_x == p.x &&
+            impl.tab_drag_ghost_cur_y == p.y) {
+            return false;
+        }
+        impl.tab_drag_ghost_cur_x = p.x;
+        impl.tab_drag_ghost_cur_y = p.y;
+        impl.paint_dirty = true;
+        return true;
     }
     if (auto* existing = detail::find_dom_element_by_id(impl, "__dockghost")) {
         impl.tab_drag_ghost = existing;
-        bool changed = detail::set_attribute_on_element(impl, existing, "style",
-                                                style);
-        changed = detail::remove_attribute_on_element(impl, existing, "hidden") ||
-                  changed;
-        return changed;
+        return anchor_ghost(existing);
     }
 
     auto* body = lxb_html_document_body_element(impl.doc);
@@ -2346,6 +2377,12 @@ bool update_tab_drag_ghost(detail::DocumentImpl& impl,
                               lxb_dom_interface_node(ghost));
     impl.tab_drag_ghost = ghost;
     detail::recollect_blocks_from_current_dom(impl);
+    impl.tab_drag_ghost_spawn_x = p.x;
+    impl.tab_drag_ghost_spawn_y = p.y;
+    impl.tab_drag_ghost_cur_x = p.x;
+    impl.tab_drag_ghost_cur_y = p.y;
+    impl.tab_drag_ghost_block_idx =
+        detail::block_index_for_exact_element(impl, ghost);
     impl.paint_dirty = true;
     return true;
 }
@@ -2368,6 +2405,11 @@ bool remove_tab_drag_ghost(detail::DocumentImpl& impl) {
                   "position:fixed;z-index:1000;pointer-events:none;"
                   "display:none;left:0px;top:0px") ||
               changed;
+    // Neutralize the compositor offset so effective_transform_for goes
+    // inert until the next drag re-anchors.
+    impl.tab_drag_ghost_block_idx = -1;
+    impl.tab_drag_ghost_cur_x = impl.tab_drag_ghost_spawn_x;
+    impl.tab_drag_ghost_cur_y = impl.tab_drag_ghost_spawn_y;
     impl.paint_dirty = impl.paint_dirty || changed;
     return changed;
 }

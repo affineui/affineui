@@ -476,6 +476,11 @@ Document::dock_overrides() const {
     return out;
 }
 
+void Document::reset_dock_state() {
+    impl_->dock_overrides.clear();
+    impl_->dock_active_tabs.clear();
+}
+
 std::string Document::dock_active_tab(std::string_view pane_id) const {
     const auto it = impl_->dock_active_tabs.find(std::string(pane_id));
     return it == impl_->dock_active_tabs.end() ? std::string{} : it->second;
@@ -1367,6 +1372,10 @@ namespace {
 ViewSink* Document::begin_view_mutations() {
 #if !defined(AFFINEUI_STUB_BUILD)
     if (!impl_->doc) return nullptr;
+    // A sink has driven this document at least once: its View owner rebuilds
+    // it after dock surgery (take_dock_structure_changed → bootstrap), which
+    // lets the surgery settle skip work the rebuild redoes anyway.
+    impl_->view_managed = true;
     detail::debug_validate_attr_lists(*impl_, "begin-view-mutations");
     if (!impl_->view_sink) {
         auto sink = std::make_unique<DocumentViewSink>(*impl_);

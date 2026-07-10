@@ -598,7 +598,9 @@ void dock_split(detail::DocumentImpl& impl, lxb_dom_element_t* target,
     // Budget the inserted splitter's slice too, so target + splitter + fresh
     // sum to the target's old size exactly — otherwise every dock/undock
     // cycle leaks a splitter's width into (or out of) the fixed column.
-    constexpr int kSplitterPx = 6;
+    // .dcs-splitter lays out at flex:0 0 1px (its ±3px grab halo is a
+    // ::before overlay with no layout width).
+    constexpr int kSplitterPx = 1;
     const int new_px =
         window_edge ? std::min(default_new, cap)
                     : std::max(20, (t_size - kSplitterPx) / 2);
@@ -786,21 +788,34 @@ lxb_dom_element_t* dock_spawn_floating_panel(
 void dock_structure_changed(detail::DocumentImpl& impl) {
     const Rect old_rect = detail::document_visual_rect(impl);
     const auto st0 = std::chrono::steady_clock::now();
+    // View-managed documents are re-BOOTSTRAPPED by their owner right after
+    // a dock gesture (dock_structure_dirty → take_dock_structure_changed →
+    // App::rebuild_view): the full inline re-parse + stylesheet rematch
+    // below would style a DOM the rebuild replaces before it ever renders —
+    // measured at ~65ms of the ~100ms per-drop settle, pure waste. Only the
+    // block recollect stays mandatory here: surgery removed/re-parented
+    // elements, and stale blocks would dangle into freed nodes the moment
+    // anything hit-tests or draws. Raw-HTML documents (no sink owner) keep
+    // the full settle — nothing else will restyle them.
+    const bool bootstrap_imminent =
+        impl.view_managed && impl.dock_structure_dirty;
     if (impl.resolver) impl.resolver->clear();
-    // Elements created or re-parented by the surgery have no (or stale)
-    // lexbor stylesheet attachments; rebuild the match lists before the
-    // resolver walks them (same contract as set_attribute_on_element).
-    // Inline styles FIRST: elements that acquired style="" during the
-    // suppressed gesture have an empty cached inline list, and the rematch
-    // below re-attaches that cache verbatim — without the re-parse a spawned
-    // floater's position/size style is inert and the panel collapses to an
-    // intrinsic box at the origin.
-    if (impl.doc) {
-        if (auto* body = lxb_html_document_body_element(impl.doc)) {
-            detail::parse_inline_styles_deep(lxb_dom_interface_node(body));
+    if (!bootstrap_imminent) {
+        // Elements created or re-parented by the surgery have no (or stale)
+        // lexbor stylesheet attachments; rebuild the match lists before the
+        // resolver walks them (same contract as set_attribute_on_element).
+        // Inline styles FIRST: elements that acquired style="" during the
+        // suppressed gesture have an empty cached inline list, and the
+        // rematch below re-attaches that cache verbatim — without the
+        // re-parse a spawned floater's position/size style is inert and the
+        // panel collapses to an intrinsic box at the origin.
+        if (impl.doc) {
+            if (auto* body = lxb_html_document_body_element(impl.doc)) {
+                detail::parse_inline_styles_deep(lxb_dom_interface_node(body));
+            }
         }
+        detail::rematch_stylesheet_matches_for_subtree(impl, -1);
     }
-    detail::rematch_stylesheet_matches_for_subtree(impl, -1);
     const auto st1 = std::chrono::steady_clock::now();
     detail::recollect_blocks_from_current_dom(impl);
     const auto st2 = std::chrono::steady_clock::now();
@@ -809,8 +824,10 @@ void dock_structure_changed(detail::DocumentImpl& impl) {
             return std::chrono::duration<double, std::milli>(b - a).count();
         };
         std::fprintf(stderr,
-                     "[settle]   rematch(all)=%.1f ms  recollect=%.1f ms\n",
-                     ms(st0, st1), ms(st1, st2));
+                     "[settle]   rematch(all)=%.1f ms  recollect=%.1f ms%s\n",
+                     ms(st0, st1), ms(st1, st2),
+                     bootstrap_imminent ? "  (rematch skipped: bootstrap)"
+                                        : "");
         std::fflush(stderr);
     }
     detail::debug_validate_attr_lists(impl, "dock-structure-changed");

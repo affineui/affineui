@@ -65,7 +65,7 @@ def declare_float_panels(app: "PhotoEditApp", dv: ui.View) -> None:
                      key="swatches")
     if app.panels["layers"]:
         layers = dv.dockpanel(
-            "Layers", Loc.floating(Corner.TopRight, (12, 486), (300, 310)),
+            "Layers", Loc.floating(Corner.TopRight, (12, 486), (300, 230)),
             lambda p: _layers_tab(app, p), icon="layers", key="layers")
         dv.dockpanel("Channels", Loc.tab().in_(layers),
                      lambda p: _channels_tab(app, p), icon="eq",

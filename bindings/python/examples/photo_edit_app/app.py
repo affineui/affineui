@@ -108,6 +108,7 @@ class PhotoEditApp:
         self.status = TOOL_BY_ID[self.tool].tip
         self.panels = {"navigator": True, "color": True, "layers": True,
                        "adjust": True, "history": True}
+        self._dock_reset_pending = False
         self.lock_flags = {"transparency": False, "image": False,
                            "position": False}
         self.layer_filtering = False
@@ -138,7 +139,11 @@ class PhotoEditApp:
         # overrides cover panels the user re-placed while their group was
         # hidden. Without these providers each reload would snap every
         # palette back to its seed position.
-        if self.app is not None:
+        # After Reset Workspace, skip the providers for ONE rebuild so the
+        # declared seed layout wins over the live arrangement.
+        if self._dock_reset_pending:
+            self._dock_reset_pending = False
+        elif self.app is not None:
             doc = self.app.document()
             view.set_dock_layout_provider(doc.dock_layout)
             overrides = dict(doc.dock_overrides())
@@ -983,4 +988,9 @@ class PhotoEditApp:
     def _reset_workspace(self) -> None:
         for key in self.panels:
             self.panels[key] = True
+        # Drop the live dock state (tearoffs, drag-to-dock overrides,
+        # remembered tabs) and rebuild once from the declared seed.
+        if self.app is not None:
+            self.app.document().reset_dock_state()
+        self._dock_reset_pending = True
         self.fit_to_screen()

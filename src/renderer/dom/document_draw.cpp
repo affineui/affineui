@@ -190,6 +190,14 @@ void Document::draw(Painter& painter) {
     // appended in DFS order, so a root's subtree is contiguous within its z
     // group and the group boundary is a simple root change.
     //
+    // KNOWN LIMIT: effective_z_index is max-along-the-ancestor-chain, so a
+    // HIGHER-z descendant (z:100 popover inside a z:60 float) sorts into its
+    // own z band and escapes its parent's atomic group — it paints above a
+    // LATER sibling float, where CSS keeps the whole subtree below it. Full
+    // fidelity needs hierarchical (lexicographic z-path) paint ordering.
+    // Today that divergence only shows for open popovers inside floats,
+    // where painting above neighbouring panels is the desirable UX anyway.
+    //
     // stacking_roots[i]: the NEAREST ancestor-or-self carrying a positive
     // z-index (the float section, a menu, a popover), or -1 for base flow.
     // NEAREST, not outermost: the View's float LAYER div also carries a
@@ -248,6 +256,7 @@ void Document::draw(Painter& painter) {
                 phased_order.emplace_back(paint_order[k],
                                           BlockPaintPhase::Text);
             }
+#if !defined(AFFINEUI_STUB_BUILD)
             for (std::size_t k = group_begin; k < group_end; ++k) {
                 ScrollbarGeometry sb{};
                 if (detail::vertical_scrollbar_geometry(*impl_,
@@ -256,6 +265,7 @@ void Document::draw(Painter& painter) {
                                               BlockPaintPhase::Overlay);
                 }
             }
+#endif
             group_begin = group_end;
         }
     }
@@ -1864,21 +1874,19 @@ void Document::draw(Painter& painter) {
         // so it must draw with the block's transform popped — drawing it
         // transformed applied the drag translation twice and the thumb
         // diverged from its pane as a float moved.
+#if !defined(AFFINEUI_STUB_BUILD)
         if (phase == BlockPaintPhase::Overlay) {
             ScrollbarGeometry scrollbar{};
             if (detail::vertical_scrollbar_geometry(
                     *impl_, static_cast<int>(i), scrollbar)) {
-#if !defined(AFFINEUI_STUB_BUILD)
                 if (has_transform) painter.pop_transform();
-#endif
                 // Catppuccin overlay0-ish, semi-transparent.
                 painter.fill_rounded_rect(
                     scrollbar.thumb, 3.0f, Color{0x9c, 0xa0, 0xb0, 0xC0});
-#if !defined(AFFINEUI_STUB_BUILD)
                 if (has_transform) painter.push_transform(paint_transform);
-#endif
             }
         }
+#endif
 
         if (has_opacity) painter.pop_alpha();
         if (clipped) painter.pop_clip();

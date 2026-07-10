@@ -1871,15 +1871,33 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
     if (already_present && old_value == value) return false;
     detail::MutationTraceTimer trace_timer{"set", name};
 
+    // Sub-phase lap clock for the PRE-branch section (block lookups,
+    // predicates, dirty-rect snapshot, generated-content scan): the branch
+    // phases below are already traced, so an expensive write with NO
+    // breakdown line means the time hides up here.
+    const bool mt_on = detail::MutationTraceTimer::enabled();
+    auto mt_last = mt_on ? std::chrono::steady_clock::now()
+                         : std::chrono::steady_clock::time_point{};
+    auto mt_lap = [&]() -> double {
+        if (!mt_on) return 0.0;
+        const auto now = std::chrono::steady_clock::now();
+        const double ms =
+            std::chrono::duration<double, std::milli>(now - mt_last).count();
+        mt_last = now;
+        return ms;
+    };
+
     const int target_idx = detail::block_index_for_exact_element(impl, elem);
     const int dirty_root_idx =
         target_idx >= 0 ? target_idx
                         : detail::block_index_for_element_or_ancestor(impl, elem);
+    const double mt_idx_ms = mt_lap();
     const bool selector_affecting =
         attribute_can_affect_selector_matching(name);
     const bool subtree_local_selectors =
         !selector_affecting ||
         stylesheet_dependencies_stay_in_mutated_subtree(impl, name);
+    const double mt_pred_ms = mt_lap();
     const int mutation_dirty_root_idx =
         selector_affecting && !subtree_local_selectors && target_idx >= 0 &&
                 impl.blocks[static_cast<std::size_t>(target_idx)].parent_idx >= 0
@@ -1888,14 +1906,28 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
     const Rect old_rect = mutation_dirty_root_idx >= 0
                               ? detail::subtree_visual_rect(impl, mutation_dirty_root_idx)
                               : detail::document_visual_rect(impl);
+    const double mt_rect_ms = mt_lap();
     const bool recollect_generated_subtree =
         selector_affecting &&
         generated_content_depends_on_attribute(impl, name, elem, old_value,
                                                value);
+    const double mt_gen_ms = mt_lap();
+    if (mt_on && mt_idx_ms + mt_pred_ms + mt_rect_ms + mt_gen_ms >= 2.0) {
+        std::fprintf(stderr,
+                     "[attr]   set '%s' PRE idx=%.2f pred=%.2f rect=%.2f "
+                     "gen=%.2f ms\n",
+                     std::string(name).c_str(), mt_idx_ms, mt_pred_ms,
+                     mt_rect_ms, mt_gen_ms);
+    }
 
     if (!lxb_dom_element_set_attribute(elem, detail::as_lxb(name), name.size(),
                                        detail::as_lxb(value), value.size())) {
         return false;
+    }
+    const double mt_lxb_ms = mt_lap();
+    if (mt_on && mt_lxb_ms >= 2.0) {
+        std::fprintf(stderr, "[attr]   set '%s' LXB set_attribute=%.2f ms\n",
+                     std::string(name).c_str(), mt_lxb_ms);
     }
 
     // Batched contract: inside a view batch EVERY attr write does only the
@@ -1917,8 +1949,16 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
                 // Element-local rematch is cheap — run it now so batch end
                 // only re-matches subtrees for attrs whose rules escape the
                 // subject.
+                (void) mt_lap();
                 (void) lxb_html_document_element_styles_rematch(
                     lxb_html_interface_element(lxb_dom_interface_node(elem)));
+                const double mt_el_rematch_ms = mt_lap();
+                if (mt_on && mt_el_rematch_ms >= 2.0) {
+                    std::fprintf(stderr,
+                                 "[attr]   set '%s' BATCH element-rematch"
+                                 "=%.2f ms\n",
+                                 std::string(name).c_str(), mt_el_rematch_ms);
+                }
                 needs_subtree_rematch = false;
             }
         }
@@ -1982,7 +2022,7 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
             return true;
         }
 
-        phase();
+        const double clear_ms = phase();
         needs_layout = mutation_dirty_root_idx >= 0
                            ? detail::restyle_subtree(impl, mutation_dirty_root_idx)
                            : detail::restyle_all_blocks(impl);
@@ -2005,12 +2045,12 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
         }
         const double reveal_ms = phase();
         if (detail::MutationTraceTimer::enabled() &&
-            rematch_ms + restyle_ms + reveal_ms >= 1.0) {
+            rematch_ms + clear_ms + restyle_ms + reveal_ms >= 1.0) {
             std::fprintf(stderr,
-                         "[attr]   set '%s' root=%d rematch=%.2f "
+                         "[attr]   set '%s' root=%d rematch=%.2f clear=%.2f "
                          "restyle=%.2f reveal=%.2f\n",
                          std::string(name).c_str(), mutation_dirty_root_idx,
-                         rematch_ms, restyle_ms, reveal_ms);
+                         rematch_ms, clear_ms, restyle_ms, reveal_ms);
         }
         detail::mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
                                  needs_layout);
@@ -2021,7 +2061,15 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
         if (impl.resolver) impl.resolver->invalidate(elem);
         auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
         detail::refresh_block_metadata_from_element(block, elem);
+        (void) mt_lap();  // reset the lap so the print isolates the restyle
         needs_layout = detail::restyle_subtree(impl, target_idx);
+        const double tail_restyle_ms = mt_lap();
+        if (mt_on && tail_restyle_ms >= 1.0) {
+            std::fprintf(stderr,
+                         "[attr]   set '%s' TAIL restyle_subtree(%d)=%.2f ms\n",
+                         std::string(name).c_str(), target_idx,
+                         tail_restyle_ms);
+        }
         if (block.tag == "img" && name == "src") needs_layout = true;
     }
     detail::mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
