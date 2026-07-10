@@ -3491,6 +3491,7 @@ View::Scope View::foldout(std::string_view title, bool expanded,
 WidgetRef View::vec(std::string_view label,
                     const std::vector<std::string>& channels,
                     const std::vector<double>& values, std::string_view key,
+                    double step,
                     std::source_location here) {
     if (channels.size() < 2 || channels.size() > 4) {
         diagnostics_.push_back(
@@ -3523,7 +3524,7 @@ WidgetRef View::vec(std::string_view label,
     (void) vec_node;
     for (std::size_t i = 0; i < channels.size(); ++i) {
         const double value = i < values.size() ? values[i] : 0.0;
-        combo(channels[i], value, 0.01,
+        combo(channels[i], value, step,
               std::string(key.empty() ? "vec" : key) + "-" +
                   std::to_string(i),
               here);

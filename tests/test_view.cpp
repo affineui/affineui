@@ -2197,7 +2197,13 @@ TEST_CASE("App dispatch supports numeric input horizontal drag") {
         const auto input = find_hovered_tag_attr(app, "input", "data-aui-name",
                                                  "gain", 320, 160);
         REQUIRE(input.x >= 0);
-        CHECK(app.document().hovered_cursor() == 6);
+        // Hover cursor depends on whether a range fill bar shows: the
+        // Decius standalone number combo paints one (reads as a slider →
+        // ↔), the bare Bootstrap number input has none (reads as a value
+        // → pointer). Either way the ↔ only-on-scrub rule is checked
+        // after the drag engages below.
+        CHECK(app.document().hovered_cursor() ==
+              (theme == affineui::ViewTheme::Decius ? 6 : 1));
 
         affineui::Event down{};
         down.type = affineui::EventType::MouseDown;
@@ -2215,6 +2221,8 @@ TEST_CASE("App dispatch supports numeric input horizontal drag") {
             drag.pos = {input.x + 40, input.y};
         }
         CHECK(app.dispatch(drag));
+        // Scrub engaged (moved past threshold): now the ↔ cursor.
+        CHECK(app.document().hovered_cursor() == 6);
 
         affineui::Event up{};
         up.type = affineui::EventType::MouseUp;
@@ -2225,6 +2233,60 @@ TEST_CASE("App dispatch supports numeric input horizontal drag") {
         REQUIRE_FALSE(value.empty());
         CHECK(std::stod(value) > 1.0);
     }
+}
+
+TEST_CASE("Rangeless numeric field: pointer→scrub→place-caret cursor states") {
+    // A vec channel (.dcs-vec hides the combo fill) has no visible range,
+    // so it reads as a plain value field, and its cursor tracks the
+    // edit state machine the user asked for:
+    //   unfocused hover      → pointer  (looks clickable, not a slider)
+    //   drag left/right      → ↔ scrub  (slider mode engaged)
+    //   focused (post-click) → text     (placing a caret to edit)
+    affineui::View view{affineui::ViewTheme::Decius};
+
+    view.begin();
+    view.vec("Location", {"X", "Y", "Z"}, {1.0, 2.0, 3.0}, "loc");
+    view.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    app.load_view(view);
+    app.document().layout(360, 160);
+
+    // The channel name lands on the combo container div; click at its
+    // center so the press lands on the inner input.
+    const auto combo = app.document().find_element_rect("loc-0");
+    REQUIRE(combo.w > 0);
+    const affineui::Point center{combo.x + combo.w / 2,
+                                 combo.y + combo.h / 2};
+
+    // Unfocused hover over a rangeless field: plain pointer.
+    affineui::Event pre{};
+    pre.type = affineui::EventType::MouseMove;
+    pre.pos = center;
+    app.dispatch(pre);
+    CHECK(app.document().hovered_cursor() == 1);
+
+    // Click without moving → select-all + focus (two-stage caret).
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = center;
+    app.dispatch(down);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = center;
+    app.dispatch(up);
+
+    // Re-hover the now-focused field: place-caret (text) cursor, since
+    // the user is positioning a caret to edit rather than scrubbing.
+    affineui::Event hover{};
+    hover.type = affineui::EventType::MouseMove;
+    hover.pos = center;
+    app.dispatch(hover);
+    CHECK(app.document().hovered_cursor() == 2);
 }
 
 TEST_CASE("App dispatch edits and resizes command textareas") {

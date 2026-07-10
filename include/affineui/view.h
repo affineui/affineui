@@ -866,13 +866,17 @@ public:
     /// A vector field: a labeled row of 2–4 numeric channels (a dcs-vec of
     /// drag-scrub combos). `channels` are the per-channel tags (e.g.
     /// {"X","Y","Z"}); its size (2–4) is the channel count. `values` are the
-    /// initial channel values (missing entries default to 0). Returns the vec
-    /// ref; bind on_change on individual channels via component<>/find if
-    /// needed.
+    /// initial channel values (missing entries default to 0). `step` is the
+    /// per-channel snap/format step: the default 0.01 makes float channels;
+    /// pass 1.0 for an integer vector (values snap to whole numbers and
+    /// render without decimals — same dcs-combo, JS-parity data-step).
+    /// Returns the vec ref; bind on_change on individual channels via
+    /// component<>/find if needed.
     WidgetRef vec(std::string_view label,
                   const std::vector<std::string>& channels,
                   const std::vector<double>& values = {},
                   std::string_view key = {},
+                  double step = 0.01,
                   std::source_location here = std::source_location::current());
     /// A drag splitter between docked regions. `horizontal` splits top/bottom.
     WidgetRef splitter(bool horizontal = false,

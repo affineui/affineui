@@ -1294,6 +1294,65 @@ detail::ComputedStyle::Cursor effective_cursor(
     return C::Default;
 }
 
+// Resolve the combo container (the dcs-combo element carrying the fill
+// child + the focus target), starting from a hovered descendant. Falls
+// back to the start index for a bare data-dcs-combo input.
+int numeric_combo_container(const detail::DocumentImpl& impl, int start) {
+    const auto& blocks = impl.blocks;
+    for (int idx = start; idx >= 0;
+         idx = blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        if (detail::block_has_class(blocks[static_cast<std::size_t>(idx)],
+                                    "dcs-combo")) {
+            return idx;
+        }
+    }
+    return start;
+}
+
+// The numeric field is FOCUSED (in text-edit mode) when the document's
+// focused block is the combo container or a descendant of it.
+bool numeric_field_focused(const detail::DocumentImpl& impl, int combo_idx) {
+    if (impl.focused_idx < 0 ||
+        impl.focused_idx >= static_cast<int>(impl.blocks.size())) {
+        return false;
+    }
+    const int container = numeric_combo_container(impl, combo_idx);
+    for (int a = impl.focused_idx; a >= 0;
+         a = impl.blocks[static_cast<std::size_t>(a)].parent_idx) {
+        if (a == container) return true;
+    }
+    return false;
+}
+
+// A numeric combo "shows a range" when its dcs-combo__fill child is
+// rendered (not display:none) — that visible accent bar is what reads
+// as a slider track. The combo may BE `combo_idx` (data-dcs-combo on
+// the element) or its nearest ancestor with the class, so find the
+// combo container first, then look for a displayed fill descendant.
+bool numeric_combo_shows_range(const detail::DocumentImpl& impl, int combo_idx) {
+    const auto& blocks = impl.blocks;
+    if (combo_idx < 0 || combo_idx >= static_cast<int>(blocks.size())) {
+        return false;
+    }
+    const int container = numeric_combo_container(impl, combo_idx);
+    // Any dcs-combo__fill in the container's subtree whose computed
+    // display isn't None means the range bar is visible.
+    for (std::size_t i = 0; i < blocks.size(); ++i) {
+        if (!detail::block_has_class(blocks[i], "dcs-combo__fill")) continue;
+        bool in_subtree = false;
+        for (int a = static_cast<int>(i); a >= 0;
+             a = blocks[static_cast<std::size_t>(a)].parent_idx) {
+            if (a == container) { in_subtree = true; break; }
+        }
+        if (!in_subtree) continue;
+        if (impl.style_store.computed(blocks[i].id).display !=
+            detail::ComputedStyle::Display::None) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Translate the internal Cursor enum to the stable integer protocol that
 // App's map_cursor() consumes: 0 default, 1 pointer, 2 text, 3 crosshair,
 // 4 move/all, 5 not-allowed, 6 ew-resize, 7 ns-resize, 8 nwse-resize,
@@ -1320,12 +1379,31 @@ int cursor_protocol_code(detail::ComputedStyle::Cursor c) {
 /// frame without taking a Painter-style dependency.
 int Document::hovered_cursor() const {
 #if !defined(AFFINEUI_STUB_BUILD)
+    // While a numeric scrub is actively engaged (drag armed AND past the
+    // move threshold) the ↔ ew-resize cursor signals slider mode,
+    // wherever the pointer has wandered.
+    const bool numeric_scrub_engaged =
+        impl_->live_drag.kind == LiveControlKind::NumericInput &&
+        impl_->live_drag.moved;
+    if (numeric_scrub_engaged) return 6;
     for (int idx = impl_->hovered_idx;
          idx >= 0 && idx < static_cast<int>(impl_->blocks.size());
          idx = impl_->blocks[static_cast<std::size_t>(idx)].parent_idx) {
         const auto& block = impl_->blocks[static_cast<std::size_t>(idx)];
         if (detail::live_control_kind_for_block(block) == LiveControlKind::NumericInput) {
-            return 6;
+            // Numeric-field cursor state machine:
+            //   focused → the field is in text-edit mode (first click
+            //     selected-all); the user is placing a caret, so show the
+            //     text/place-caret cursor. This wins over the range look —
+            //     once you're editing, it's a text field.
+            //   unfocused + shows a range fill bar → reads as a slider →
+            //     the ↔ scrub cursor invites a drag.
+            //   unfocused + no range (vec channels; .dcs-vec hides the
+            //     fill) → a plain clickable value → the pointer cursor;
+            //     the ↔ only appears once a horizontal scrub engages
+            //     (handled above).
+            if (numeric_field_focused(*impl_, idx)) return 2;
+            return numeric_combo_shows_range(*impl_, idx) ? 6 : 1;
         }
         bool resize_x = false;
         bool resize_y = false;

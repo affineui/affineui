@@ -2511,8 +2511,33 @@ bool update_live_control_value(detail::DocumentImpl& impl,
                                bool emit_live_change) {
     if (!elem) return false;
     if (max <= min) max = min + 1.0;
-    const double clamped = std::clamp(value, min, max);
-    const std::string value_text = detail::compact_number(clamped);
+    double clamped = std::clamp(value, min, max);
+    // Step snapping (three.js/decius.js parity: value = round(v/step)*step).
+    // This is what makes a numeric field an INTEGER editor vs a FLOAT
+    // one — the single dcs-combo primitive, parameterised by data-step:
+    // step 1 snaps to whole numbers, 0.01 (the default) keeps two
+    // decimals. A zero/absent step means "no snapping" (free float).
+    auto* combo = detail::nearest_ancestor_with_class(elem, "dcs-combo");
+    if (!combo && detail::has_attr(elem, "data-dcs-combo")) combo = elem;
+    const double step = detail::element_attr_double(
+        elem, "step",
+        detail::element_attr_double(
+            elem, "data-step",
+            detail::element_attr_double(combo, "data-step", 0.0)));
+    int decimals = 2;
+    if (step > 0.0) {
+        clamped = std::clamp(std::round(clamped / step) * step, min, max);
+        // Decimal places to show = those the step itself needs (step 1 →
+        // 0, 0.1 → 1, 0.01 → 2), so an integer editor prints integers.
+        decimals = 0;
+        double frac = step;
+        while (decimals < 6 &&
+               std::abs(frac - std::round(frac)) > 1e-9) {
+            frac *= 10.0;
+            ++decimals;
+        }
+    }
+    const std::string value_text = detail::compact_number(clamped, decimals);
 
     bool changed = false;
     const bool value_changed =

@@ -1111,7 +1111,7 @@ TEST_CASE("UiControls combo drag emits the change under the NAMED widget") {
         .dcs-combo__value { display: block; width: 120px; height: 24px; }
         </style>
         <div id="cx" class="dcs-combo" role="spinbutton" data-aui-name="position-0"
-             data-dcs-combo="" data-value="1" data-step="0.5">
+             data-dcs-combo="" data-value="1" data-step="0.01">
             <input class="dcs-combo__value" type="number" value="1">
         </div>
     )HTML");
@@ -2159,6 +2159,70 @@ TEST_CASE("UiControls script maps bounded Decius combo value to bar position") {
     CHECK(value >= 49.0);
     CHECK(value <= 51.0);
     CHECK(hovered_attr_for_id(doc, "combo", "style") == "--fill:50%");
+}
+
+TEST_CASE("Numeric combo step: integer editor snaps to whole numbers") {
+    // The single dcs-combo primitive is an INTEGER editor when data-step
+    // is 1 (value snaps to whole numbers, renders without decimals) and a
+    // FLOAT editor for a fractional step — three.js/decius.js parity, no
+    // separate component. A programmatic set through both proves it.
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>body{margin:0;padding:0}
+        .dcs-combo{display:block;width:120px;height:24px}
+        .dcs-combo__value{display:block;width:120px;height:24px}</style>
+        <div class="dcs-combo" data-aui-name="ints" data-dcs-combo=""
+             data-min="0" data-max="100" data-value="3" data-step="1">
+            <input class="dcs-combo__value" type="number" value="3">
+        </div>
+        <div class="dcs-combo" data-aui-name="floats" data-dcs-combo=""
+             data-min="0" data-max="100" data-value="3" data-step="0.25">
+            <input class="dcs-combo__value" type="number" value="3">
+        </div>
+    )HTML");
+    doc.layout(200, 120, &painter);
+
+    auto value_of = [&](std::string_view name) {
+        doc.layout(200, 120, &painter);
+        for (const auto& info : doc.hovered_info_chain()) { (void)info; }
+        std::string out;
+        // Scan blocks via the hover chain: hover the field, read its value.
+        for (int y = 0; y < 120 && out.empty(); y += 4) {
+            for (int x = 0; x < 200; x += 4) {
+                affineui::Event mv{};
+                mv.type = affineui::EventType::MouseMove;
+                mv.pos = {x, y};
+                doc.dispatch(mv);
+                for (const auto& info : doc.hovered_info_chain()) {
+                    bool match = false;
+                    for (const auto& [a, v] : info.attrs) {
+                        if (a == "data-aui-name" && v == name) match = true;
+                    }
+                    if (!match) continue;
+                    for (const auto& [a, v] : info.attrs) {
+                        if (a == "data-value") out = v;
+                    }
+                }
+                if (!out.empty()) break;
+            }
+        }
+        return out;
+    };
+
+    // Integer field: a fractional target snaps to the nearest whole
+    // number and prints without a decimal point.
+    CHECK(doc.set_widget_value("ints", "42.7"));
+    CHECK(value_of("ints") == "43");
+    CHECK(doc.set_widget_value("ints", "42.2"));
+    CHECK(value_of("ints") == "42");
+
+    // Float field (step 0.25): snaps to the quarter grid, keeps decimals.
+    CHECK(doc.set_widget_value("floats", "42.7"));
+    CHECK(value_of("floats") == "42.75");
+    CHECK(doc.set_widget_value("floats", "42.1"));
+    CHECK(value_of("floats") == "42");
 }
 
 TEST_CASE("UiControls script maps generated Decius combo fill range to mouse position") {
