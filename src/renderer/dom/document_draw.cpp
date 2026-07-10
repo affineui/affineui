@@ -1859,15 +1859,24 @@ void Document::draw(Painter& painter) {
         // Scrollbar thumb, on top of this stacking context's own content
         // (boxes + text painted above) but under later/higher contexts —
         // the old global draw-last pass put every pane's thumb over
-        // overlapping floating panels. Shares the block's transform/clip
-        // pushes so a dragged float's thumb rides its paint translation.
+        // overlapping floating panels. The geometry is already in VISUAL
+        // space (block_border_visual_rect applies effective_transform_for),
+        // so it must draw with the block's transform popped — drawing it
+        // transformed applied the drag translation twice and the thumb
+        // diverged from its pane as a float moved.
         if (phase == BlockPaintPhase::Overlay) {
             ScrollbarGeometry scrollbar{};
             if (detail::vertical_scrollbar_geometry(
                     *impl_, static_cast<int>(i), scrollbar)) {
+#if !defined(AFFINEUI_STUB_BUILD)
+                if (has_transform) painter.pop_transform();
+#endif
                 // Catppuccin overlay0-ish, semi-transparent.
                 painter.fill_rounded_rect(
                     scrollbar.thumb, 3.0f, Color{0x9c, 0xa0, 0xb0, 0xC0});
+#if !defined(AFFINEUI_STUB_BUILD)
+                if (has_transform) painter.push_transform(paint_transform);
+#endif
             }
         }
 
