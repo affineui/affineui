@@ -45,15 +45,15 @@ typedef lxb_css_value_length_type_t lxb_css_property_border_{top,right,bottom,le
 
 Wired in AffineUI's `cascade.cpp` via `BORDER_STYLE` (→ `ComputedStyle::border_style`) and `BORDER_WIDTH` / per-side longhands (→ `ComputedStyle::border_{top,right,bottom,left}`). Both new shorthands rank at 0 (broad shorthands, applied before per-side overrides).
 
-### css: 2-stop gradient parsing in background property
+### css: N-stop gradient parsing in background property
 
 Extends `lxb_css_property_background_t` with a `lxb_css_property_gradient_t`
-member (kind + angle_deg + two color stops). The `lxb_css_property_state_background`
-handler now detects `linear-gradient()` and `radial-gradient()` FUNCTION tokens
-and dispatches to a new `lxb_css_property_state_gradient_args()` parser that
-handles:
-  - `linear-gradient([ <angle> | to <side> ]?, <color>, <color>)`
-  - `radial-gradient([ circle ]? [ at <position> ]?, <color>, <color>[, ...])`
+member (kind + angle_deg + full color-stop list). The
+`lxb_css_property_state_background` handler detects `linear-gradient()` and
+`radial-gradient()` FUNCTION tokens and dispatches to
+`lxb_css_property_state_gradient_args()`, which handles:
+  - `linear-gradient([ <angle> | to <side> ]?, <color>, <color>[, <color>…])`
+  - `radial-gradient([ circle ]? [ at <position> ]?, <color>, <color>[, …])`
 The `to` and `circle` keywords are matched by direct string comparison (they
 are not in the CSS value enum table). Angle units (deg, rad, turn, grad) are
 converted to CSS degrees using `lxb_css_unit_angel_by_name` against the correct
@@ -61,9 +61,20 @@ converted to CSS degrees using `lxb_css_unit_angel_by_name` against the correct
 enum values. `background` values that contain `var()` are preserved as typed
 undefined declarations instead of being silently consumed, so AffineUI can
 substitute custom properties per element and re-parse the resolved shorthand.
-Radial gradients preserve percentage centers for CSS `at <position>` and keep
-the first and last parsed color stops for AffineUI's current 2-stop paint
-primitive.
+Radial gradients preserve percentage centers for CSS `at <position>`.
+
+**N-stop support.** Every parsed color stop (with its optional `<percentage>`
+position) is retained in a fixed
+`lxb_css_gradient_stop_t stops[LXB_CSS_GRADIENT_MAX_STOPS]` array plus a
+`stop_count` (cap = 8, matching AffineUI's `PathPaint::kMaxStops`). Previously
+the parser overwrote a single `stop1` field on each extra `,<color>`, so
+multi-stop ramps such as a hue bar
+(`linear-gradient(90deg,red,#ff0,#0f0,#0ff,#00f,#f0f,red)`) collapsed to their
+first + last color. The legacy `stop0`/`stop1` fields are kept as aliases of the
+FIRST and LAST stop, so the existing 2-stop consumers and the
+`LINEAR_STRIPES` two-coincident-stop heuristic are unchanged. When more than
+`LXB_CSS_GRADIENT_MAX_STOPS` stops are supplied the final slot always holds the
+author's last color so the ramp still terminates correctly.
 
 ### css: content property for generated pseudo-elements
 

@@ -447,13 +447,8 @@ void Document::draw(Painter& painter) {
         // the guard is the change, the stanzas are not.)
         if (phase == BlockPaintPhase::Boxes) {
         // Background color paints first; background images/gradients layer over it.
-        const bool native_color_square = detail::block_has_class(b, "dcs-color-square");
-        const bool native_hue_bar = detail::block_has_class(b, "dcs-hue-bar");
-        const bool native_color_picker_paint =
-            native_color_square || native_hue_bar;
         const bool has_gradient =
-            !native_color_picker_paint &&
-            (an.gradient_kind != detail::AnimatedStyle::GradientKind::None);
+            an.gradient_kind != detail::AnimatedStyle::GradientKind::None;
         const bool has_grid =
             ((an.background_grid_rgba & 0xFFu) != 0 &&
              an.background_grid_size_px != 0);
@@ -614,16 +609,51 @@ void Document::draw(Painter& painter) {
         if (has_gradient && bg_rect.w > 0 && bg_rect.h > 0) {
             const Color s0 = detail::unpack_rgba(an.gradient_stop0_rgba);
             const Color s1 = detail::unpack_rgba(an.gradient_stop1_rgba);
+            // N-stop (>2) ramps carry a full out-of-line stop list; 2-stop
+            // and stripe fills use the compact inline stop0/stop1 fast path.
+            const bool multi_stop =
+                b.gradient_stops && b.gradient_stops->size() > 2 &&
+                an.gradient_kind != detail::AnimatedStyle::GradientKind::LinearStripes;
             if (an.gradient_kind == detail::AnimatedStyle::GradientKind::Linear) {
-                painter.fill_linear_gradient_rect(
-                    bg_rect, static_cast<float>(an.gradient_angle_deg),
-                    s0, s1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
+                if (multi_stop) {
+                    std::array<Painter::GradientStop, PathPaint::kMaxStops> gs{};
+                    const std::size_t n = std::min<std::size_t>(
+                        b.gradient_stops->size(), PathPaint::kMaxStops);
+                    for (std::size_t i = 0; i < n; ++i) {
+                        gs[i].offset = (*b.gradient_stops)[i].offset;
+                        gs[i].color  = detail::unpack_rgba((*b.gradient_stops)[i].rgba);
+                    }
+                    painter.fill_linear_gradient_rect_n(
+                        bg_rect, static_cast<float>(an.gradient_angle_deg),
+                        gs.data(), n,
+                        clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
+                } else {
+                    painter.fill_linear_gradient_rect(
+                        bg_rect, static_cast<float>(an.gradient_angle_deg),
+                        s0, s1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
+                }
             } else if (an.gradient_kind == detail::AnimatedStyle::GradientKind::Radial) {
-                painter.fill_radial_gradient_rect(
-                    bg_rect, s0, s1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
-                    static_cast<float>(an.gradient_center_x_pct),
-                    static_cast<float>(an.gradient_center_y_pct),
-                    static_cast<float>(an.gradient_stop1_pos_pct));
+                if (multi_stop) {
+                    std::array<Painter::GradientStop, PathPaint::kMaxStops> gs{};
+                    const std::size_t n = std::min<std::size_t>(
+                        b.gradient_stops->size(), PathPaint::kMaxStops);
+                    for (std::size_t i = 0; i < n; ++i) {
+                        gs[i].offset = (*b.gradient_stops)[i].offset;
+                        gs[i].color  = detail::unpack_rgba((*b.gradient_stops)[i].rgba);
+                    }
+                    painter.fill_radial_gradient_rect_n(
+                        bg_rect, gs.data(), n,
+                        clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
+                        static_cast<float>(an.gradient_center_x_pct),
+                        static_cast<float>(an.gradient_center_y_pct),
+                        static_cast<float>(an.gradient_stop1_pos_pct));
+                } else {
+                    painter.fill_radial_gradient_rect(
+                        bg_rect, s0, s1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
+                        static_cast<float>(an.gradient_center_x_pct),
+                        static_cast<float>(an.gradient_center_y_pct),
+                        static_cast<float>(an.gradient_stop1_pos_pct));
+                }
             } else if (an.gradient_kind == detail::AnimatedStyle::GradientKind::LinearStripes) {
                 painter.fill_linear_stripes_rect(
                     bg_rect, static_cast<float>(an.gradient_angle_deg),
@@ -641,44 +671,24 @@ void Document::draw(Painter& painter) {
                 clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
         }
 
-        if (native_color_square && eff.w > 0 && eff.h > 0) {
-            Color hue = Color::rgb(255, 0, 0);
-            if (b.custom_props) {
-                const auto it = b.custom_props->find("--hue");
-                if (it != b.custom_props->end()) {
-                    const std::string value(detail::trim_css_ws(it->second));
-                    std::uint32_t rgba = 0;
-                    if (detail::parse_hex_color(value, rgba)) {
-                        hue = detail::unpack_rgba(rgba);
-                    }
-                }
-            }
-            painter.fill_linear_gradient_rect(
-                eff, 90.0f, Color::rgb(255, 255, 255), hue,
-                bg_r_tl, bg_r_tr, bg_r_br, bg_r_bl);
-            painter.fill_linear_gradient_rect(
-                eff, 0.0f, Color::rgb(0, 0, 0),
-                Color::rgba(0, 0, 0, 0),
-                bg_r_tl, bg_r_tr, bg_r_br, bg_r_bl);
-        } else if (native_hue_bar && eff.w > 0 && eff.h > 0) {
-            const std::array<Color, 7> stops{
-                Color::rgb(255, 0, 0),   Color::rgb(255, 255, 0),
-                Color::rgb(0, 255, 0),   Color::rgb(0, 255, 255),
-                Color::rgb(0, 0, 255),   Color::rgb(255, 0, 255),
-                Color::rgb(255, 0, 0),
-            };
-            for (int segment = 0; segment < 6; ++segment) {
-                const int x0 = eff.x + (eff.w * segment) / 6;
-                const int x1 = eff.x + (eff.w * (segment + 1)) / 6;
-                const Rect seg{x0, eff.y, std::max(0, x1 - x0), eff.h};
-                if (seg.w <= 0) continue;
+        // Overlay gradient layer (CSS `background` top layer) — painted
+        // over the bottom gradient. The color-picker square's black->
+        // transparent value shade rides on top of the white->hue ramp.
+        if (b.overlay_gradient && b.overlay_gradient->kind != 0 &&
+            bg_rect.w > 0 && bg_rect.h > 0) {
+            const auto& ov = *b.overlay_gradient;
+            const Color o0 = detail::unpack_rgba(ov.stop0_rgba);
+            const Color o1 = detail::unpack_rgba(ov.stop1_rgba);
+            if (ov.kind == 1) {  // linear
                 painter.fill_linear_gradient_rect(
-                    seg, 90.0f, stops[static_cast<std::size_t>(segment)],
-                    stops[static_cast<std::size_t>(segment + 1)],
-                    segment == 0 ? bg_r_tl : 0.0f,
-                    segment == 5 ? bg_r_tr : 0.0f,
-                    segment == 5 ? bg_r_br : 0.0f,
-                    segment == 0 ? bg_r_bl : 0.0f);
+                    bg_rect, static_cast<float>(ov.angle_deg),
+                    o0, o1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
+            } else {  // radial
+                painter.fill_radial_gradient_rect(
+                    bg_rect, o0, o1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
+                    static_cast<float>(ov.center_x_pct),
+                    static_cast<float>(ov.center_y_pct),
+                    static_cast<float>(ov.stop1_pos_pct));
             }
         }
 
@@ -1068,6 +1078,34 @@ void Document::draw(Painter& painter) {
 
         // ── PHASE: text + widget chrome ──────────────────────────────
         if (phase == BlockPaintPhase::Text) {
+        // The dcs-grip drag handle is a dotted texture — widget chrome the
+        // painter draws directly (a peer of the checkbox tick / switch knob
+        // below), not a CSS background. Drawn dots, so there is no image
+        // resource to own or free. Small faint dots on a 4px grid in the
+        // grip's currentColor, centered in the grip so a wide/tall grip
+        // keeps the pattern tight rather than a dense full-bleed block.
+        if (detail::block_has_class(b, "dcs-grip") &&
+            eff.w > 0 && eff.h > 0 && (an.color_rgba & 0xFFu) != 0) {
+            Color dot = detail::unpack_rgba(an.color_rgba);
+            dot.a = static_cast<std::uint8_t>(dot.a * 70 / 100);  // faint
+            const int step = 4;
+            const float r = 0.7f;
+            // Center the dot lattice within the grip's box on both axes so
+            // the rows/cols are balanced (no lopsided edge row).
+            const int cols = std::max(1, (eff.w - 2) / step);
+            const int rows = std::max(1, (eff.h - 2) / step);
+            const int used_w = cols * step;
+            const int used_h = rows * step;
+            const int x0 = eff.x + (eff.w - used_w) / 2 + step / 2;
+            const int y0 = eff.y + (eff.h - used_h) / 2 + step / 2;
+            for (int ry = 0; ry < rows; ++ry) {
+                for (int cx = 0; cx < cols; ++cx) {
+                    painter.fill_circle(
+                        static_cast<float>(x0 + cx * step),
+                        static_cast<float>(y0 + ry * step), r, dot);
+                }
+            }
+        }
         if (!b.text.empty()) {
             const auto font = painter.resolve_font(
                 impl_->style_store.font_family_of(cs.font_id), cs.font_size_px, cs.font_weight, cs.font_style != 0);

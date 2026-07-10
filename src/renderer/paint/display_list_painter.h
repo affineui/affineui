@@ -74,17 +74,17 @@ inline bool path_blob_decode(std::string_view blob, PathPaint& paint,
 ///     time through NanoVG).
 ///   - Font loading. `resolve_font` returns a stable opaque handle
 ///     that the replay-side painter resolves to a real face. We
-///     forward to the wrapped font-resolver painter so resolve_font
+///     forward to the wrapped device painter so resolve_font
 ///     / measure_text / image_size hit the actual NanoVG context.
 class DisplayListBuilder final : public Painter {
 public:
-    /// `font_resolver` is a real Painter whose `resolve_font`,
+    /// `device_painter` is a real Painter whose `resolve_font`,
     /// `measure_text`, `load_image`, and `image_size` are forwarded.
     /// Builder doesn't itself touch GL — but `Document::draw` legitimately
     /// asks for font handles and text widths, so we still need those
     /// to resolve through a live NanoVG context.
-    explicit DisplayListBuilder(Painter* font_resolver)
-        : font_resolver_(font_resolver) {}
+    explicit DisplayListBuilder(Painter* device_painter)
+        : device_painter_(device_painter) {}
 
     DisplayList& list()             { return list_; }
     const DisplayList& list() const { return list_; }
@@ -364,25 +364,25 @@ public:
 
     std::uint32_t resolve_font(std::string_view family, int size_px,
                                int weight, bool italic) override {
-        return font_resolver_
-                 ? font_resolver_->resolve_font(family, size_px, weight, italic)
+        return device_painter_
+                 ? device_painter_->resolve_font(family, size_px, weight, italic)
                  : 0u;
     }
 
     bool register_font_face(std::string_view family, int weight, bool italic,
                             std::string_view bytes) override {
-        return font_resolver_
-                 ? font_resolver_->register_font_face(family, weight, italic,
+        return device_painter_
+                 ? device_painter_->register_font_face(family, weight, italic,
                                                       bytes)
                  : false;
     }
 
     int measure_text(std::uint32_t font, std::string_view text) override {
-        return font_resolver_ ? font_resolver_->measure_text(font, text) : 0;
+        return device_painter_ ? device_painter_->measure_text(font, text) : 0;
     }
 
     TextMetrics text_metrics(std::uint32_t font) override {
-        return font_resolver_ ? font_resolver_->text_metrics(font) : TextMetrics{};
+        return device_painter_ ? device_painter_->text_metrics(font) : TextMetrics{};
     }
 
     void draw_text(std::uint32_t font, const Point& pos,
@@ -415,8 +415,8 @@ public:
     Size measure_text_box(std::uint32_t font, std::string_view text, float max_w,
                           float line_height_mult = 1.0f,
                           float letter_spacing_px = 0.0f) override {
-        return font_resolver_
-                 ? font_resolver_->measure_text_box(font, text, max_w, line_height_mult,
+        return device_painter_
+                 ? device_painter_->measure_text_box(font, text, max_w, line_height_mult,
                                                     letter_spacing_px)
                  : Size{};
     }
@@ -479,23 +479,38 @@ public:
     }
 
     std::uint32_t load_image(std::string_view url) override {
-        return font_resolver_ ? font_resolver_->load_image(url) : 0u;
+        return device_painter_ ? device_painter_->load_image(url) : 0u;
     }
     Size image_size(std::uint32_t image) override {
-        return font_resolver_ ? font_resolver_->image_size(image) : Size{};
+        return device_painter_ ? device_painter_->image_size(image) : Size{};
+    }
+    // Dynamic-image RESOURCE ops go straight to the device painter (the
+    // handle they mint/refresh is what recorded DrawImage ops replay).
+    std::uint32_t create_image_rgba(int w, int h,
+                                    const std::uint8_t* pixels) override {
+        return device_painter_
+                   ? device_painter_->create_image_rgba(w, h, pixels)
+                   : 0u;
+    }
+    void update_image_rgba(std::uint32_t image,
+                           const std::uint8_t* pixels) override {
+        if (device_painter_) device_painter_->update_image_rgba(image, pixels);
+    }
+    void delete_image(std::uint32_t image) override {
+        if (device_painter_) device_painter_->delete_image(image);
     }
     // Resource ops (not draw ops): forwarded straight to the device
     // painter so the returned handle is usable in recorded draw_image
     // ops replayed later.
     std::uint32_t adopt_native_image(std::uint64_t native_handle, int w,
                                      int h, bool flip_y) override {
-        return font_resolver_
-                   ? font_resolver_->adopt_native_image(native_handle, w, h,
-                                                        flip_y)
+        return device_painter_
+                   ? device_painter_->adopt_native_image(native_handle, w, h,
+                                                         flip_y)
                    : 0u;
     }
     void release_native_image(std::uint32_t image) override {
-        if (font_resolver_) font_resolver_->release_native_image(image);
+        if (device_painter_) device_painter_->release_native_image(image);
     }
     void draw_image(std::uint32_t image, const Rect& dst, const Rect& src) override {
         PaintOp op{};
@@ -642,7 +657,7 @@ private:
         list_.ops.push_back(op);
     }
 
-    Painter*    font_resolver_;
+    Painter*    device_painter_;
     DisplayList list_;
 };
 

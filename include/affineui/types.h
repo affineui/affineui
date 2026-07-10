@@ -68,6 +68,9 @@ enum class Key : std::uint16_t {
     // Top-row digits 0–9.
     Digit0, Digit1, Digit2, Digit3, Digit4,
     Digit5, Digit6, Digit7, Digit8, Digit9,
+    // Editing / navigation punctuation DCC tools bind (space-pan, layer
+    // reorder brackets, zoom +/-). Appended so existing values are stable.
+    Space, Minus, Equal, BracketLeft, BracketRight,
 };
 
 enum class EventType : std::uint8_t {

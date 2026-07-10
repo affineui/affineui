@@ -79,6 +79,11 @@ std::pair<std::uint64_t, double> app_log_frame_source() {
 constexpr int kSwapchainSettleFrames = 3;
 
 struct AppImpl {
+    // Owning App, so the free-function frame loop (which holds only an
+    // AppImpl*) can drive App::rebuild_view() — a member with the friend
+    // access load_html()/reconcile need. Repointed on App move (see the
+    // move ctor/assignment, which are NOT =default for this reason).
+    App*                  owner{nullptr};
     App::Config           config;
     Document              document;
     Renderer              renderer;
@@ -102,6 +107,13 @@ struct AppImpl {
     int                   exit_code{0};
     int                   last_cursor{-1};  // last sapp cursor we set
     bool                  dirty{true};
+    // View reconcile pending: set by invalidate() when a set_view() builder
+    // is installed, so the frame loop re-runs the builder and reconciles the
+    // diff into the live document BEFORE painting. Distinct from `dirty`
+    // (needs paint): rebuild_view() itself sets `dirty`, so keying the
+    // rebuild off `dirty` would loop forever, and animation frames set
+    // `dirty` every frame without any state change to reconcile.
+    bool                  view_dirty{false};
     bool                  animations_active{false};
     int                   last_w{-1};
     int                   last_h{-1};
@@ -490,11 +502,21 @@ App::App(Config cfg) : impl_{std::make_unique<detail::AppImpl>()} {
             affineui::decius::css_bundle(), "frameworks/css/");
     }
 #endif
+    // Back-pointer for the free-function frame loop (see AppImpl::owner).
+    impl_->owner = this;
 }
 
 App::~App() = default;
-App::App(App&&) noexcept            = default;
-App& App::operator=(App&&) noexcept = default;
+App::App(App&& other) noexcept : impl_{std::move(other.impl_)} {
+    // The moved-in impl still carries the source App's owner pointer; repoint
+    // it at this App so the frame loop drives the right instance.
+    if (impl_) impl_->owner = this;
+}
+App& App::operator=(App&& other) noexcept {
+    impl_ = std::move(other.impl_);
+    if (impl_) impl_->owner = this;
+    return *this;
+}
 
 void App::load_html(std::string_view html) {
     const auto transient = impl_->document.capture_transient_state();
@@ -653,6 +675,10 @@ void App::rebuild_view() {
     impl_->view_commit_bindings = view.commit_bindings();
     impl_->dirty = true;
     impl_->animations_active = false;
+    // The reconcile has landed; nothing further to rebuild until the next
+    // invalidate(). Clearing here also covers the direct App::rebuild_view()
+    // and set_view() entry points, so a subsequent frame won't rebuild again.
+    impl_->view_dirty = false;
 }
 bool App::load_html_file(std::string_view)     { return false; }
 void App::set_stylesheet(std::string_view css) {
@@ -671,7 +697,16 @@ void App::set_stylesheet(std::string_view css, std::string_view base_url) {
     }
 }
 void App::mount(std::function<void()> view_fn) { impl_->view_fn = std::move(view_fn); impl_->dirty = true; impl_->animations_active = false; }
-void App::invalidate() { impl_->dirty = true; impl_->animations_active = false; }
+void App::invalidate() {
+    impl_->dirty = true;
+    impl_->animations_active = false;
+    // When the app is driven by a set_view() builder, an invalidate() means
+    // "state changed, re-run the builder and reconcile" — flag it so the
+    // frame loop rebuilds before the next paint. Many invalidate() calls in
+    // one frame coalesce into a single reconcile. No builder installed =>
+    // legacy load_view/load_html path, nothing to rebuild.
+    if (impl_->view_builder) impl_->view_dirty = true;
+}
 
 void App::set_custom_paint(std::string_view name,
                            Document::CustomPaintFn fn) {
@@ -1099,6 +1134,29 @@ void cb_frame(void* user) {
             if (tools_has_pending()) tools_pump(impl->document);
             if (impl->quit_requested) sapp_request_quit();
             return;
+        }
+        // Reconcile pending view work BEFORE painting. invalidate() (from a
+        // widget callback, the on_frame tick, or host code) sets view_dirty
+        // when a set_view() builder is installed; re-run the builder here so
+        // only the diff reaches the document (the cheap paint-only mutation
+        // path) instead of the full serialize+reparse load_view() pays. Many
+        // invalidate()s in one frame coalesce into a single reconcile. Guard
+        // re-entrancy: rebuild_view() sets dirty (schedules this paint) but
+        // must not re-arm view_dirty, so clear the flag first. A builder
+        // exception is reported and swallowed here — the frame must still
+        // present so the app stays responsive rather than tearing down.
+        if (impl->view_dirty && impl->view_builder && impl->owner) {
+            impl->view_dirty = false;
+            try {
+                impl->owner->rebuild_view();
+            } catch (const std::exception& e) {
+                std::fprintf(stderr,
+                             "AffineUI frame-loop rebuild_view failed: %s\n",
+                             e.what());
+            } catch (...) {
+                std::fprintf(stderr,
+                             "AffineUI frame-loop rebuild_view failed\n");
+            }
         }
         // Min-frame-time gate (App::set_min_frame_time). Distinct from the
         // idle short-circuit above: here the app IS dirty (there IS work to

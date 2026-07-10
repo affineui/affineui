@@ -2952,6 +2952,25 @@ void View::emit_dock_node(const DockNode& node, bool is_root,
                                     std::source_location::current(), true);
             set_attr(panel, "id", panel_body_id);
             set_attr(panel, "data-dcs-tabpanel", "");
+            // A document pane hosts float content whose containing block must
+            // be the sized float-host. The tabpanel sits between them, and a
+            // static tabpanel is content-sized — so an absolutely-positioned
+            // child (e.g. a stage filling `inset:0`) resolves its insets
+            // against a zero-height box and collapses. Fill the host: the
+            // tabpanel becomes a definite-size positioned containing block,
+            // and stacked tabpanels overlay correctly (only the selected one
+            // is visible). Non-document panes keep normal flow.
+            //
+            // `pointer-events:none` keeps the sizing shim transparent to hit
+            // testing: the float-host underneath stays the dock-drop target,
+            // and the tabpanel's own content (the stage, which sets its own
+            // pointer-events) still hit-tests. Without this the full-bleed
+            // tabpanel would steal every hit from the host.
+            if (node.is_document) {
+                set_attr(panel, "style",
+                         "position:absolute;inset:0;overflow:hidden;"
+                         "pointer-events:none");
+            }
             if (!selected) set_attr(panel, "hidden", "");
             else remove_attr(panel, "hidden");
             if (selected && content) content(*this);

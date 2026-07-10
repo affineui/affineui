@@ -97,6 +97,8 @@ struct Block {
     bool              is_disabled{false};
     std::shared_ptr<const detail::CustomPropMap> custom_props;
     std::shared_ptr<const detail::BoxShadowList> box_shadows;
+    std::shared_ptr<const detail::GradientStopList> gradient_stops;
+    std::shared_ptr<const detail::OverlayGradient> overlay_gradient;
     std::array<detail::GridTrackHint, detail::kMaxGridTrackHints> grid_columns{};
     std::uint8_t grid_column_count{0};
     detail::AnimatedStyle base_animated{};

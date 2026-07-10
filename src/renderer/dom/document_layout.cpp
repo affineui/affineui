@@ -630,6 +630,8 @@ void collect_blocks(detail::DocumentImpl& impl,
         b.attrs      = elem_attrs;
         b.custom_props = rs.custom_props;
         b.box_shadows = rs.box_shadows;
+        b.gradient_stops = rs.gradient_stops;
+        b.overlay_gradient = rs.overlay_gradient;
         if (b.tag == "img") {
             b.image_src = detail::attr_string(elem, "src");
         }

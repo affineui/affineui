@@ -326,6 +326,11 @@ public:
     std::vector<HoverInfo> hovered_info_chain() const;
     void hovered_info_chain(std::vector<HoverInfo>& out) const;
 
+    /// True while a text control (input/textarea) has keyboard focus —
+    /// the signal app-level keyboard shortcuts use to stand down so
+    /// typing "b" into a field doesn't also switch tools.
+    bool text_editing_active() const;
+
     // ── Immediate-mode view (Phase 2D — "clear and rebuild") ────────
 
     /// Install an imm-mode view function. The function will be called

@@ -39,6 +39,41 @@ struct BoxShadowLayer {
 
 using BoxShadowList = std::vector<BoxShadowLayer>;
 
+/// One color stop of a CSS gradient. `offset` is the normalised position
+/// along the ramp (0–1). Positions are resolved from CSS percentages at
+/// cascade time; stops without an explicit position are distributed
+/// evenly between their neighbours (CSS gradient stop-placement rules).
+struct GradientStop {
+    float         offset{0.0f};
+    std::uint32_t rgba{0x00000000u};
+};
+
+/// Full ordered stop list for a gradient with more than two stops. Two-
+/// stop gradients stay entirely inside AnimatedStyle's inline
+/// stop0/stop1 fields (zero side-table lookup for the common case); only
+/// gradients with 3+ stops allocate this list at cascade time and carry
+/// it out-of-line, exactly like `BoxShadowList`.
+using GradientStopList = std::vector<GradientStop>;
+
+/// A second gradient background layer painted OVER the bottom gradient.
+/// CSS `background` is a back-to-front stack of image layers; the bottom
+/// layer lives in AnimatedStyle's inline gradient fields, and this
+/// carries a single 2-stop overlay layer for the few widgets that need
+/// one (the color-picker square: a `to top, #000, transparent` value
+/// shade over the `to right, #fff, hue` saturation ramp). Kept out-of-
+/// line (like box_shadows) because almost no element has an overlay, so
+/// AnimatedStyle stays compact. kind: 1 = linear, 2 = radial.
+struct OverlayGradient {
+    std::uint8_t  kind{0};
+    std::uint8_t  center_x_pct{50};
+    std::uint8_t  center_y_pct{50};
+    std::uint8_t  stop1_pos_pct{100};
+    std::int16_t  angle_deg{0};
+    std::uint16_t pad{0};
+    std::uint32_t stop0_rgba{0};
+    std::uint32_t stop1_rgba{0};
+};
+
 /// The two-struct bundle the cascade resolves into. Splitting them
 /// pays off downstream: layout reads ComputedStyle only, paint reads
 /// AnimatedStyle only, composite reads only the transform/opacity
@@ -77,6 +112,15 @@ struct ResolvedStyle {
     /// shadow, and single-layer shadows stay in AnimatedStyle's compact
     /// legacy fields; only stacked shadows allocate this list at resolve time.
     std::shared_ptr<const BoxShadowList> box_shadows;
+    /// Optional N-stop (>2) gradient stop list for the element's bottom
+    /// background layer. Null for the common 2-stop / no-gradient case,
+    /// which is served entirely by AnimatedStyle's inline stop0/stop1.
+    /// Ordered by ascending offset; the offsets have already had CSS
+    /// stop-placement (even distribution / monotonic clamping) applied.
+    std::shared_ptr<const GradientStopList> gradient_stops;
+    /// Optional second (overlay) gradient background layer. Null for the
+    /// common single-layer case.
+    std::shared_ptr<const OverlayGradient> overlay_gradient;
 };
 
 struct ViewportDependency {
