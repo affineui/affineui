@@ -293,10 +293,15 @@ public sealed class View : IDisposable
         return w;
     }
 
-    /// <summary>Bare drag-scrub numeric combo (no field/label wrapper).</summary>
-    public Widget Combo(string label, double value, double step = 1.0, string key = "")
+    /// <summary>Bare drag-scrub numeric combo (no field/label wrapper).
+    /// <paramref name="linear"/> scrubs at a constant step/pixel (rotation
+    /// degrees etc.); the default accelerates with the value's magnitude.
+    /// </summary>
+    public Widget Combo(string label, double value, double step = 1.0, string key = "",
+                        bool linear = false)
     {
-        var w = Wrap(NativeMethods.affineui_view_combo(Handle, label, value, step, key));
+        var w = Wrap(NativeMethods.affineui_view_combo(Handle, label, value, step, key,
+                                                       linear ? 1 : 0));
         GC.KeepAlive(this);
         return w;
     }

@@ -97,6 +97,8 @@ struct Block {
     bool              is_disabled{false};
     std::shared_ptr<const detail::CustomPropMap> custom_props;
     std::shared_ptr<const detail::BoxShadowList> box_shadows;
+    std::shared_ptr<const detail::GradientStopList> gradient_stops;
+    std::shared_ptr<const detail::OverlayGradient> overlay_gradient;
     std::array<detail::GridTrackHint, detail::kMaxGridTrackHints> grid_columns{};
     std::uint8_t grid_column_count{0};
     detail::AnimatedStyle base_animated{};
@@ -380,6 +382,11 @@ struct DocumentImpl {
     // the app layer re-bootstraps its retained view instead of incrementally
     // reconciling on top of foreign wrapper elements.
     bool                      dock_structure_dirty{false};
+    // A ViewSink has driven this document at least once (set_view apps).
+    // While dock_structure_dirty is ALSO set, the surgery settle can skip
+    // the full stylesheet rematch: the owner's bootstrap replaces the DOM
+    // before the surgically-styled frame would ever render.
+    bool                      view_managed{false};
     std::vector<Rect>         dirty_rects;
     std::vector<int>          pending_dirty_roots;
 
@@ -562,6 +569,16 @@ struct DocumentImpl {
         bool               switched_on_down{false};
     } tab_drag;
     lxb_dom_element_t* tab_drag_ghost{nullptr};
+    // Ghost compositor state (same pattern as FloatDrag): the ghost's style
+    // anchors it ONCE at the drag's spawn point; per-move updates write only
+    // cur_x/cur_y and the translation is injected in effective_transform_for.
+    // The old per-move style writes cost ~2.8ms each at mouse-poll rate —
+    // most of the drag-time dock jank.
+    int tab_drag_ghost_block_idx{-1};
+    int tab_drag_ghost_spawn_x{0};
+    int tab_drag_ghost_spawn_y{0};
+    int tab_drag_ghost_cur_x{0};
+    int tab_drag_ghost_cur_y{0};
 
     struct PendingTabPress {
         std::string panel_id;
@@ -624,6 +641,11 @@ struct DocumentImpl {
         int              last_x{0};
         bool             bipolar{false};
         bool             bounded{false};
+        // Linear scrub: a constant `step` per pixel, no value-proportional
+        // acceleration. For fields whose magnitude is not "how big is the
+        // number" but a fixed-scale quantity — rotation degrees, above
+        // all — where |value|/100 acceleration feels wrong.
+        bool             linear{false};
         bool             moved{false};
         bool             resize_x{false};
         bool             resize_y{false};
@@ -775,6 +797,15 @@ int scroll_offset_y_for(const std::vector<Block>& blocks,
                         int idx);
 
 #if !defined(AFFINEUI_STUB_BUILD)
+/// Drop every non-owning reference and pointer-keyed side-table entry for a
+/// node that is leaving the live DOM. Safe to call more than once.
+void invalidate_dom_weak_slot(detail::DocumentImpl& impl,
+                              lxb_dom_node_t* node);
+/// Apply full destroy-time invalidation to a subtree before Lexbor frees it,
+/// including StyleStore slot release for every element.
+void invalidate_dom_subtree_on_destroy(detail::DocumentImpl& impl,
+                                       lxb_dom_node_t* root);
+
 // element / block attribute primitives
 std::string attr_string(lxb_dom_element_t* elem, std::string_view name);
 bool has_attr(lxb_dom_element_t* elem, std::string_view name);
@@ -970,7 +1001,9 @@ bool toggle_dcs_menu(detail::DocumentImpl& impl,
 bool toggle_dcs_tree_chevron_control(detail::DocumentImpl& impl, int from_idx);
 bool toggle_decius_collapse_control(detail::DocumentImpl& impl, int from_idx);
 bool update_active_live_control(detail::DocumentImpl& impl, const Event& ev);
-bool update_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev);
+bool update_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev,
+                                bool emit = true);
+bool finish_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev);
 bool update_dcs_select_control(detail::DocumentImpl& impl,
                                lxb_dom_element_t* box,
                                lxb_dom_element_t* row,
@@ -1301,7 +1334,8 @@ HsvColor current_dcs_colorfield_hsv(lxb_dom_element_t* field);
 lxb_dom_node_t* document_dom_root(detail::DocumentImpl& impl);
 void emit_widget_change(detail::DocumentImpl& impl,
                         lxb_dom_element_t* elem,
-                        std::string_view value);
+                        std::string_view value,
+                        bool live = false);
 lxb_dom_element_t* find_trigger_for_target(detail::DocumentImpl& impl,
                                            std::string_view target_selector);
 bool is_descendant_of_or_self(const std::vector<Block>& blocks,
@@ -1336,11 +1370,13 @@ void set_live_text_value(detail::DocumentImpl& impl,
 bool sync_dcs_colorfield(detail::DocumentImpl& impl,
                          lxb_dom_element_t* field,
                          HsvColor hsv,
-                         bool emit);
+                         bool emit,
+                         bool live = false);
 bool sync_dcs_colorfield(detail::DocumentImpl& impl,
                          lxb_dom_element_t* field,
                          std::string_view raw_hex,
-                         bool emit);
+                         bool emit,
+                         bool live = false);
 
 // restyle / mutation / interaction boundary helpers
 struct MutationTraceTimer {
@@ -1415,13 +1451,17 @@ bool selector_mutation_reveals_hidden_subtree(detail::DocumentImpl& impl,
 bool set_text_on_element(detail::DocumentImpl& impl,
                          lxb_dom_element_t* elem,
                          std::string_view text);
+// `emit_live_change`: false for programmatic write-back
+// (Document::set_widget_value) — the visual update happens but no
+// widget-change event is echoed.
 bool update_live_control_value(detail::DocumentImpl& impl,
                                lxb_dom_element_t* elem,
                                LiveControlKind kind,
                                double min,
                                double max,
                                double value,
-                               bool bipolar);
+                               bool bipolar,
+                               bool emit_live_change = true);
 double value_from_x(const Rect& bounds, int x, double min, double max);
 double value_from_y(const Rect& bounds, int y, double min, double max);
 int viewport_height_for_overlay(const detail::DocumentImpl& impl);

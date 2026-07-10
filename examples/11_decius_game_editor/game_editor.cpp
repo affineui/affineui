@@ -3,6 +3,7 @@
 #include "game_editor_styles.h"
 
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -32,6 +33,17 @@ double parse_double(std::string_view s, double fallback) {
     errno = 0;
     double out = std::strtod(tmp.c_str(), &end);
     return (end != tmp.c_str() && errno != ERANGE) ? out : fallback;
+}
+
+// Channel display text for live widget write-back: two decimals,
+// trailing zeros trimmed (what the combos themselves show).
+std::string format_channel(double v) {
+    char buf[32];
+    std::snprintf(buf, sizeof buf, "%.2f", v);
+    std::string s(buf);
+    while (!s.empty() && s.back() == '0') s.pop_back();
+    if (!s.empty() && s.back() == '.') s.pop_back();
+    return s.empty() ? "0" : s;
 }
 
 // A memento command for a single string/number property edit, with drag
@@ -101,6 +113,44 @@ GameEditor::GameEditor() : app_(config()) {
 
     // Restore durable preferences + last workspace state.
     load_settings();
+
+    // The real 3D viewport: an e3d scene mirrored from the document,
+    // orbit camera, click picking and the transform gizmo (driven by
+    // the tool rail).
+    // The Config defaults reproduce this app's paint names, canvas/stats
+    // classes and the 3-type (mesh/light/spline) node mapping exactly, so
+    // an empty Config keeps game-editor output identical.
+    viewport_ = std::make_unique<viewport3d::Viewport3D>();
+    viewport_->attach(app_, ctx_);
+    viewport_->set_tool(tool_);
+    app_.on_event([this](const affineui::Event& ev,
+                         const std::vector<affineui::Document::HoverInfo>&
+                             chain) {
+        return viewport_->handle_event(ev, chain);
+    });
+    // Track gizmo drags live: write the moving transform straight into
+    // the inspector's channel widgets (in place, no view rebuild, no
+    // change echo). The drag's end pushes the undo command, whose
+    // stack-changed reload settles the final values.
+    viewport_->on_node_changed = [this](const std::string& id) {
+        if (!viewport_ || selected_id() != id) return;
+        e3d::Object3D* node = viewport_->node_of(id);
+        if (node == nullptr) return;
+        const affineui::ObjectClass& cls = get_class(*node);
+        static constexpr const char* kPrefix[3] = {"position", "rotation",
+                                                   "scale"};
+        static constexpr const char* kAxis[3] = {".x", ".y", ".z"};
+        for (const char* prefix : kPrefix) {
+            for (int i = 0; i < 3; ++i) {
+                const auto value = cls.get(node, std::string(prefix) + kAxis[i]);
+                if (const double* d = std::get_if<double>(&value)) {
+                    app_.set_widget_value(
+                        std::string(prefix) + "-" + std::to_string(i),
+                        format_channel(*d));
+                }
+            }
+        }
+    };
 
     // Refresh the UI whenever the document or selection changes.
     doc.set_changed_handler(bind(this, &GameEditor::reload));
@@ -191,6 +241,13 @@ int GameEditor::run() {
 }
 
 void GameEditor::reload() {
+    // Mirror document/selection changes into the 3D scene before the
+    // rebuilt view paints (selection box, gizmo target, added/removed
+    // objects all follow the app state).
+    if (viewport_) {
+        viewport_->sync_document();
+        viewport_->sync_selection();
+    }
     app_.load_view(build());
 }
 
@@ -215,6 +272,7 @@ void GameEditor::toggle_play() {
 
 void GameEditor::set_tool(std::string_view tool) {
     tool_ = std::string(tool);
+    if (viewport_) viewport_->set_tool(tool_);
     save_settings();  // remember the active tool across runs
     reload();
 }
@@ -460,7 +518,17 @@ std::string_view type_icon(std::string_view type) {
 
 void GameEditor::build_outliner(View& v) {
     // Fills the Hierarchy pane body (the dock engine emits the pane itself).
+    // The tree is a data-dcs-select="single" box: clicking a row is a
+    // SELECTION interaction that emits a widget CHANGE on the tree with the
+    // selected row's data-dcs-value — not a button click. So bind the
+    // tree's on_change (a per-row on_click never fires here) and carry the
+    // object id as each row's value.
     auto tree = v.tree("scene-tree");
+    tree.ref().on_change([this](std::string_view value) {
+        // data-dcs-select="single" emits exactly one id (empty if the
+        // click cleared the selection).
+        if (!value.empty()) select_object(value);
+    });
     for (const auto& obj : ctx_.document().objects()) {
         affineui::TreeRowOptions opts;
         opts.depth = obj.depth;
@@ -469,19 +537,20 @@ void GameEditor::build_outliner(View& v) {
         opts.expandable = obj.type == "group";  // groups can hold children
         opts.expanded = true;
         opts.meta_icon = obj.type == "mesh" ? "eye" : std::string_view{};
-        // Bind the row's id into a zero-arg click handler — safe after destroy.
         v.tree_row(obj.name, opts, "row-" + obj.id)
-            .on_click(bind(this, &GameEditor::select_object, obj.id));
+            .attr("data-dcs-value", obj.id);
     }
 }
 
 void GameEditor::build_viewport(View& v) {
     // Fills the center document pane body (the dock engine emits the pane and
-    // marks it a data-dcs-float-host). The faux-3D canvas is app-custom content.
+    // marks it a data-dcs-float-host). The scene itself is a real 3D render:
+    // the e3d engine draws into an offscreen GPU target that the custom-paint
+    // canvas below composites (orbit camera, picking, gizmo — see
+    // viewport3d::Viewport3D).
     auto canvas = v.container("ge-vp-canvas", "vp-canvas");
     canvas.attr("data-dcs-float-host", "");
-    v.container_ref("ge-vp-grid", "vp-grid");
-    v.container_ref("ge-cube", "vp-cube");
+    if (viewport_) viewport_->build(v);
     {
         auto stats = v.container("ge-vp-stats", "vp-stats");
         v.element("b", {}, "vp-persp").text("User Perspective");
@@ -596,15 +665,27 @@ void GameEditor::build_inspector(View& v) {
         auto fold = v.foldout("Material", true, "fold-material");
         auto props = v.container("dcs-props", "material-props");
 
+        // Continuous controls split preview from commit: the live
+        // stream (on_change) drives the 3D material directly — no doc
+        // command, no view rebuild, so the drag survives — and the
+        // gesture end (on_commit) pushes the one undoable property
+        // command, whose reload settles everything.
         const double roughness =
             std::get<double>(doc.property(id, "roughness", app::PropValue{0.62}));
         v.slider("Roughness", roughness, 0.0, 1.0, "rough")
-            .on_change(bind(this, &GameEditor::set_roughness));
+            .on_change([this, id](std::string_view value) {
+                viewport_->set_material_roughness(
+                    id, parse_double(value, 0.62));
+            })
+            .on_commit(bind(this, &GameEditor::set_roughness));
 
         const std::string tint = std::get<std::string>(
             doc.property(id, "tint", app::PropValue{std::string{"#4d9fff"}}));
         v.colorfield("Tint", tint, "tint")
-            .on_change(bind(this, &GameEditor::set_tint));
+            .on_change([this, id](std::string_view value) {
+                viewport_->set_material_tint(id, value);
+            })
+            .on_commit(bind(this, &GameEditor::set_tint));
 
         const bool shadows =
             std::get<bool>(doc.property(id, "castShadows", app::PropValue{true}));
@@ -612,11 +693,98 @@ void GameEditor::build_inspector(View& v) {
             .on_change(bind(this, &GameEditor::set_cast_shadows));
     }
 
-    // ── Transform — a 3-channel vector field ────────────────────────────
-    {
-        auto fold = v.foldout("Transform", true, "fold-xform");
-        auto props = v.container("dcs-props", "xform-props");
-        v.vec("Location", {"X", "Y", "Z"}, {12.0, 4.2, -8.5}, "loc");
+    // ── Transform / Object — reflection-driven fields ───────────────────
+    // The selected object's 3D node is inspected through its ObjectClass
+    // (e3d get_class): "<prefix>.x/.y/.z" double triples render as
+    // 3-channel vec fields in the Transform foldout, standalone bools as
+    // checkboxes in an Object foldout. Edits write back through the same
+    // reflection mediator via the viewport's undoable property setter;
+    // the stack-changed handler then reloads the UI with fresh values.
+    if (viewport_) {
+        if (e3d::Object3D* node = viewport_->node_of(id)) {
+            const affineui::ObjectClass& cls = get_class(*node);
+            {
+                auto fold = v.foldout("Transform", true, "fold-xform");
+                auto props = v.container("dcs-props", "xform-props");
+                struct VecRow {
+                    const char* prefix;
+                    const char* label;   // Blender-style display name
+                    const char* suffix;  // channel unit suffix
+                    double      fallback;
+                    double      step;
+                    bool        linear;  // constant step/pixel scrub
+                };
+                static constexpr VecRow kRows[] = {
+                    {"position", "Location", " m", 0.0, 0.01, false},
+                    // Degrees are a fixed-scale quantity — a constant
+                    // step/pixel feels right; magnitude acceleration does
+                    // not (180° would scrub 10× faster than 18°).
+                    {"rotation", "Rotation", "\xC2\xB0", 0.0, 0.5, true},
+                    {"scale", "Scale", "", 1.0, 0.01, false},
+                };
+                static constexpr const char* kAxis[3] = {".x", ".y", ".z"};
+                for (const VecRow& row : kRows) {
+                    std::array<double, 3> ch{};
+                    for (int i = 0; i < 3; ++i) {
+                        ch[static_cast<std::size_t>(i)] = std::get<double>(
+                            cls.get(node, std::string(row.prefix) + kAxis[i]));
+                    }
+                    v.vec(row.label, {"X", "Y", "Z"}, {ch[0], ch[1], ch[2]},
+                          row.prefix, row.step, row.linear);
+                    for (int i = 0; i < 3; ++i) {
+                        auto field = v.find_widget(std::string(row.prefix) +
+                                                   "-" + std::to_string(i));
+                        if (*row.suffix != '\0') {
+                            field.attr("data-suffix", row.suffix);
+                        }
+                        const std::string prop =
+                            std::string(row.prefix) + kAxis[i];
+                        const double fallback = row.fallback;
+                        // Scrub = live preview on the node; gesture end
+                        // (or a typed edit) commits one undo entry.
+                        field.on_change(
+                            [this, id, prop, fallback](std::string_view value) {
+                                viewport_->preview_node_property(
+                                    id, prop,
+                                    affineui::PropertyValue{
+                                        parse_double(value, fallback)});
+                            });
+                        field.on_commit(
+                            [this, id, prop, fallback](std::string_view value) {
+                                viewport_->commit_node_property(
+                                    id, prop,
+                                    affineui::PropertyValue{
+                                        parse_double(value, fallback)});
+                            });
+                    }
+                }
+            }
+            {
+                // Every remaining writable bool property, rendered
+                // generically (attr::Label supplies the display name).
+                auto fold = v.foldout("Object", true, "fold-object");
+                auto props = v.container("dcs-props", "object-props");
+                for (std::size_t i = 0; i < cls.property_count(); ++i) {
+                    const auto prop = cls.property_at(i);
+                    if (!prop.valid() || !prop.set ||
+                        prop.has<affineui::attr::ReadOnly>()) {
+                        continue;
+                    }
+                    const auto value = prop.get(node);
+                    if (!std::holds_alternative<bool>(value)) continue;
+                    const std::string key = "obj-" + prop.name;
+                    v.checkbox(std::string(prop.display_label()),
+                               std::get<bool>(value), key)
+                        .on_commit([this, id, name = prop.name](
+                                       std::string_view value) {
+                            const bool on = value == "true" ||
+                                            value == "1" || value == "on";
+                            viewport_->commit_node_property(
+                                id, name, affineui::PropertyValue{on});
+                        });
+                }
+            }
+        }
     }
 
     // ── Display — showcases the remaining channel controls: a multi-button

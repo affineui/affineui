@@ -451,6 +451,7 @@ extern "C" {
         value: f64,
         step: f64,
         key: *const c_char,
+        linear: c_int,
     ) -> *mut affineui_widget;
     pub fn affineui_view_color_field(
         view: *mut affineui_view,

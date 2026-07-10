@@ -118,6 +118,11 @@ inline Key key_to_affine(int sapp_keycode) {
         case SAPP_KEYCODE_DOWN:      return Key::ArrowDown;
         case SAPP_KEYCODE_HOME:      return Key::Home;
         case SAPP_KEYCODE_END:       return Key::End;
+        case SAPP_KEYCODE_SPACE:         return Key::Space;
+        case SAPP_KEYCODE_MINUS:         return Key::Minus;
+        case SAPP_KEYCODE_EQUAL:         return Key::Equal;
+        case SAPP_KEYCODE_LEFT_BRACKET:  return Key::BracketLeft;
+        case SAPP_KEYCODE_RIGHT_BRACKET: return Key::BracketRight;
         default: break;
     }
     // Letters A–Z and digits 0–9 are contiguous in both enums, so map by

@@ -243,6 +243,10 @@ bool find_live_control_at(detail::DocumentImpl& impl,
                     elem, "data-step",
                     detail::element_attr_double(combo, "data-step", 0.01)));
             if (out.step <= 0.0) out.step = 0.01;
+            // data-linear opts a free field out of magnitude-proportional
+            // acceleration (rotation degrees: constant step/pixel).
+            out.linear = detail::has_attr(elem, "data-linear") ||
+                         (combo && detail::has_attr(combo, "data-linear"));
             out.last_x = point.x;
         }
         if (out.max <= out.min) out.max = out.min + 1.0;
@@ -320,11 +324,15 @@ bool update_active_live_control(detail::DocumentImpl& impl, const Event& ev) {
             const double current = detail::element_attr_double(
                 drag.elem, "value",
                 detail::element_attr_double(drag.elem, "data-value", drag.start_value));
-            const double scaled_step =
-                std::max(drag.step, std::abs(current) / 100.0);
+            // Linear fields (rotation) scrub at a constant step/pixel; the
+            // default accelerates with magnitude (|value|/100) so large
+            // free values are reachable without a mile-long drag.
+            const double per_px = drag.linear
+                ? drag.step
+                : std::max(drag.step, std::abs(current) / 100.0);
             value = current +
                     static_cast<double>(ev.pos.x - drag.last_x) *
-                        scaled_step * mult;
+                        per_px * mult;
             drag.last_x = ev.pos.x;
         }
     } else if (drag.kind == LiveControlKind::DeciusFader) {
@@ -537,6 +545,12 @@ bool is_button_like_block(const Block& block) {
     }
     if (const auto* widget = detail::block_attr_value(block, "data-aui-widget");
         widget && *widget == "button") {
+        return true;
+    }
+    // Any View node with a bound click handler (View::set_click_handler
+    // stamps this) — activation must reach plain containers used as
+    // tabs / rows, not only button-shaped widgets.
+    if (detail::block_attr_value(block, "data-aui-clickable") != nullptr) {
         return true;
     }
     return false;
@@ -979,7 +993,8 @@ HsvColor current_dcs_colorfield_hsv(lxb_dom_element_t* field) {
 bool sync_dcs_colorfield(detail::DocumentImpl& impl,
                          lxb_dom_element_t* field,
                          HsvColor hsv,
-                         bool emit) {
+                         bool emit,
+                         bool live) {
     if (!field) return false;
     hsv.s = std::clamp(hsv.s, 0.0, 1.0);
     hsv.v = std::clamp(hsv.v, 0.0, 1.0);
@@ -1077,7 +1092,7 @@ bool sync_dcs_colorfield(detail::DocumentImpl& impl,
     }
 
     if (emit && hex != previous) {
-        detail::emit_widget_change(impl, owner ? owner : field, hex);
+        detail::emit_widget_change(impl, owner ? owner : field, hex, live);
     }
     return changed;
 }
@@ -1085,11 +1100,12 @@ bool sync_dcs_colorfield(detail::DocumentImpl& impl,
 bool sync_dcs_colorfield(detail::DocumentImpl& impl,
                          lxb_dom_element_t* field,
                          std::string_view raw_hex,
-                         bool emit) {
+                         bool emit,
+                         bool live) {
     const std::string hex = normalize_hex_color(raw_hex);
     if (hex.empty()) return false;
     return detail::sync_dcs_colorfield(impl, field,
-                               hsv_from_hex(hex, HsvColor{}), emit);
+                               hsv_from_hex(hex, HsvColor{}), emit, live);
 }
 }  // namespace detail
 namespace {
@@ -1200,7 +1216,8 @@ bool begin_dcs_colorfield_drag(detail::DocumentImpl& impl,
     return true;
 }
 
-bool update_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev) {
+bool update_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev,
+                                bool emit) {
     using Kind = detail::DocumentImpl::ColorfieldDrag::Kind;
     auto& drag = impl.colorfield_drag;
     if (drag.kind == Kind::None || !drag.field) return false;
@@ -1236,7 +1253,36 @@ bool update_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev) {
                   360.0
             : 0.0;
     }
-    return detail::sync_dcs_colorfield(impl, drag.field, next, /*emit=*/true);
+    // Scrub in flight — live changes; finish_dcs_colorfield_drag emits
+    // the committed change when the gesture ends. The initial press positions
+    // the picker cursor with emit=false: no change stream begins until the
+    // pointer actually moves (a bare click-in-square is not yet an edit — it
+    // also must not fire on_change on a view about to be replaced, #44).
+    return detail::sync_dcs_colorfield(impl, drag.field, next, /*emit=*/emit,
+                                       /*live=*/true);
+}
+
+bool finish_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev) {
+    auto& drag = impl.colorfield_drag;
+    using Kind = detail::DocumentImpl::ColorfieldDrag::Kind;
+    if (drag.kind == Kind::None || !drag.field) return false;
+    const std::string start_hex = hex_from_hsv({drag.h, drag.s, drag.v});
+    // Apply the final position WITHOUT emitting a live change — this is the
+    // terminal update, so only the single committed change below should fire
+    // (otherwise a stationary click produced a spurious live change + commit).
+    const bool changed = update_dcs_colorfield_drag(impl, ev, /*emit=*/false);
+    // One committed change per gesture, with the final colour (the
+    // moves emitted live changes only). A press with no colour change
+    // (a plain chip click) commits nothing.
+    auto* owner = colorfield_owner(drag.field);
+    const std::string hex = normalize_hex_color(
+        owner ? detail::attr_string(owner, "data-value")
+              : detail::attr_string(drag.field, "data-value"));
+    if (!hex.empty() && hex != start_hex) {
+        detail::emit_widget_change(impl, owner ? owner : drag.field, hex,
+                                   /*live=*/false);
+    }
+    return changed;
 }
 }  // namespace detail
 namespace {
@@ -2308,20 +2354,51 @@ bool update_tab_drag_ghost(detail::DocumentImpl& impl,
                            Point p) {
     if (!impl.doc) return false;
     const std::string style = tab_drag_ghost_style(p);
-    if (impl.tab_drag_ghost) {
-        bool changed = detail::set_attribute_on_element(
-            impl, impl.tab_drag_ghost, "style", style);
-        changed = detail::remove_attribute_on_element(impl, impl.tab_drag_ghost,
-                                              "hidden") || changed;
+    // Anchor the ghost's STYLE once per drag (spawn point); after that,
+    // moves are pure compositor state — the translation is injected in
+    // effective_transform_for, and no per-move attr write/restyle happens.
+    auto anchor_ghost = [&](lxb_dom_element_t* ghost) {
+        bool changed =
+            detail::set_attribute_on_element(impl, ghost, "style", style);
+        changed = detail::remove_attribute_on_element(impl, ghost, "hidden") ||
+                  changed;
+        std::string label = std::string(detail::trim_css_ws(label_text));
+        if (label.empty()) label = "Panel";
+        if (!detail::set_text_on_element(impl, ghost, label)) {
+            lxb_dom_node_text_content_set(lxb_dom_interface_node(ghost),
+                                          detail::as_lxb(label), label.size());
+        }
+        impl.tab_drag_ghost_spawn_x = p.x;
+        impl.tab_drag_ghost_spawn_y = p.y;
+        impl.tab_drag_ghost_cur_x = p.x;
+        impl.tab_drag_ghost_cur_y = p.y;
+        impl.tab_drag_ghost_block_idx =
+            detail::block_index_for_exact_element(impl, ghost);
         return changed;
+    };
+    if (impl.tab_drag_ghost) {
+        auto* ghost = impl.tab_drag_ghost;
+        if (detail::has_attr(ghost, "hidden")) {
+            return anchor_ghost(ghost);  // a NEW drag re-using the element
+        }
+        if (impl.tab_drag_ghost_block_idx < 0 ||
+            detail::element_for_block(impl, impl.tab_drag_ghost_block_idx) !=
+                ghost) {
+            impl.tab_drag_ghost_block_idx =
+                detail::block_index_for_exact_element(impl, ghost);
+        }
+        if (impl.tab_drag_ghost_cur_x == p.x &&
+            impl.tab_drag_ghost_cur_y == p.y) {
+            return false;
+        }
+        impl.tab_drag_ghost_cur_x = p.x;
+        impl.tab_drag_ghost_cur_y = p.y;
+        impl.paint_dirty = true;
+        return true;
     }
     if (auto* existing = detail::find_dom_element_by_id(impl, "__dockghost")) {
         impl.tab_drag_ghost = existing;
-        bool changed = detail::set_attribute_on_element(impl, existing, "style",
-                                                style);
-        changed = detail::remove_attribute_on_element(impl, existing, "hidden") ||
-                  changed;
-        return changed;
+        return anchor_ghost(existing);
     }
 
     auto* body = lxb_html_document_body_element(impl.doc);
@@ -2346,6 +2423,12 @@ bool update_tab_drag_ghost(detail::DocumentImpl& impl,
                               lxb_dom_interface_node(ghost));
     impl.tab_drag_ghost = ghost;
     detail::recollect_blocks_from_current_dom(impl);
+    impl.tab_drag_ghost_spawn_x = p.x;
+    impl.tab_drag_ghost_spawn_y = p.y;
+    impl.tab_drag_ghost_cur_x = p.x;
+    impl.tab_drag_ghost_cur_y = p.y;
+    impl.tab_drag_ghost_block_idx =
+        detail::block_index_for_exact_element(impl, ghost);
     impl.paint_dirty = true;
     return true;
 }
@@ -2368,6 +2451,11 @@ bool remove_tab_drag_ghost(detail::DocumentImpl& impl) {
                   "position:fixed;z-index:1000;pointer-events:none;"
                   "display:none;left:0px;top:0px") ||
               changed;
+    // Neutralize the compositor offset so effective_transform_for goes
+    // inert until the next drag re-anchors.
+    impl.tab_drag_ghost_block_idx = -1;
+    impl.tab_drag_ghost_cur_x = impl.tab_drag_ghost_spawn_x;
+    impl.tab_drag_ghost_cur_y = impl.tab_drag_ghost_spawn_y;
     impl.paint_dirty = impl.paint_dirty || changed;
     return changed;
 }

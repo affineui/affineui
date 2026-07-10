@@ -26,6 +26,7 @@
 // reverse dependency on this template.)
 #include <affineui/affineui.h>
 
+#include "app/change_tracker.h"
 #include "app/command.h"
 #include "app/command_registry.h"
 #include "app/command_stack.h"
