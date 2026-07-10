@@ -337,6 +337,26 @@ public:
                                      const Rect&   dst,
                                      const Rect&   src) = 0;
 
+    // ── Native GPU images (renderer-owned textures) ─────────────────
+    /// Adopt a GPU texture owned by other rendering code (a 3D engine's
+    /// offscreen render target, a video decoder surface, ...) as a
+    /// drawable image. `native_handle` is rasterizer-specific — for the
+    /// sokol/NanoVG rasterizer it is the sg_image id. The painter does
+    /// NOT take ownership of the texture: release_native_image() frees
+    /// only the wrapper, and the texture must outlive it. `flip_y`
+    /// marks textures whose row 0 is the bottom scanline (GL render
+    /// targets). Resource ops, not draw ops: safe to call from a
+    /// custom-paint handler. Returns 0 when this painter cannot draw
+    /// native textures (headless/stub rasterizers).
+    virtual std::uint32_t adopt_native_image(std::uint64_t native_handle,
+                                             int w, int h, bool flip_y) {
+        (void)native_handle; (void)w; (void)h; (void)flip_y;
+        return 0;
+    }
+    /// Release a wrapper created by adopt_native_image. Handles from
+    /// load_image are cache-owned and must NOT be passed here.
+    virtual void release_native_image(std::uint32_t image) { (void)image; }
+
     // ── Clipping ────────────────────────────────────────────────────
     virtual void push_clip(const Rect& r) = 0;
     virtual void pop_clip()               = 0;

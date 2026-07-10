@@ -484,6 +484,19 @@ public:
     Size image_size(std::uint32_t image) override {
         return font_resolver_ ? font_resolver_->image_size(image) : Size{};
     }
+    // Resource ops (not draw ops): forwarded straight to the device
+    // painter so the returned handle is usable in recorded draw_image
+    // ops replayed later.
+    std::uint32_t adopt_native_image(std::uint64_t native_handle, int w,
+                                     int h, bool flip_y) override {
+        return font_resolver_
+                   ? font_resolver_->adopt_native_image(native_handle, w, h,
+                                                        flip_y)
+                   : 0u;
+    }
+    void release_native_image(std::uint32_t image) override {
+        if (font_resolver_) font_resolver_->release_native_image(image);
+    }
     void draw_image(std::uint32_t image, const Rect& dst, const Rect& src) override {
         PaintOp op{};
         op.kind = PaintOpKind::DrawImage;

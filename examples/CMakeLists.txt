@@ -126,6 +126,10 @@ endfunction()
 # (#include "affineui_app.h"). EXAMPLE code — the library never depends on it.
 add_subdirectory(common/app)
 
+# Small three.js-style 3D engine on sokol_gfx shared by the samples with
+# real GPU viewports (game editor, DENDER).
+add_subdirectory(core/3dengine)
+
 add_subdirectory(00_hello)
 add_subdirectory(01_bootstrap)
 add_subdirectory(02_hello_sdl)
