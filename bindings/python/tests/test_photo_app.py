@@ -240,3 +240,67 @@ def test_adjust_modal_cancel_restores(photo):
     sample.close_dialog()  # cancel
     assert not sample.doc.previewing()
     assert len(sample.doc.history_entries()) == entries_before
+
+
+def test_layer_selection_fires_on_mousedown(photo):
+    sample, app = photo
+    # Add a layer so there is at least one non-active row to click.
+    sample.doc.add_layer("Row Test")
+    active_before = sample.doc.active_id()
+    sample.reload()
+    app.document().layout(1280, 820)
+
+    # Find any layer row whose data-layer-id differs from the active one.
+    ev = ui.Event(); ev.type = ui.EventType.MouseMove
+    hit = target = None
+    for y in range(0, 820, 6):
+        for x in range(0, 1280, 6):
+            ev.pos = ui.Point(x, y); app.dispatch(ev)
+            for info in app.document().hovered_info_chain():
+                if info.valid and "ps-layer" in info.classes:
+                    for name, value in info.attrs:
+                        if name == "data-layer-id" \
+                                and int(value) != active_before:
+                            hit, target = (x, y), int(value)
+            if hit:
+                break
+        if hit:
+            break
+    assert hit is not None, "a non-active layer row was not hit-testable"
+    x, y = hit
+    _move(app, x, y)
+    # MouseDown ALONE must select (snappy) — no MouseUp yet.
+    _button(app, ui.EventType.MouseDown, x, y)
+    assert sample.doc.active_id() == target, "selection did not fire on down"
+
+
+def test_history_jump_fires_on_mousedown(photo):
+    sample, app = photo
+    # Generate a couple of history entries, then jump to an earlier one.
+    sample.doc.add_layer("A")
+    sample.doc.add_layer("B")
+    sample.reload()
+    app.document().layout(1280, 820)
+    before_index = sample.doc.history_index()
+    assert before_index > 0
+
+    ev = ui.Event(); ev.type = ui.EventType.MouseMove
+    hit = target = None
+    for y in range(0, 820, 6):
+        for x in range(0, 1280, 6):
+            ev.pos = ui.Point(x, y); app.dispatch(ev)
+            for info in app.document().hovered_info_chain():
+                if info.valid and "ps-history-item" in info.classes:
+                    for name, value in info.attrs:
+                        if name == "data-history-index" and int(value) == 0:
+                            hit, target = (x, y), 0
+            if hit:
+                break
+        if hit:
+            break
+    assert hit is not None, "history item not hit-testable"
+    x, y = hit
+    _move(app, x, y)
+    _button(app, ui.EventType.MouseDown, x, y)  # no MouseUp
+    assert sample.doc.history_index() == target, \
+        "history jump did not fire on down"

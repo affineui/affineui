@@ -2519,11 +2519,21 @@ void PhotoDoc::detach() {
     for (int id : thumb_names_)
         app_->set_custom_paint(thumb_paint_name(id), nullptr);
     thumb_names_.clear();
-    // GPU handles die with the painter/window; nothing further to free
-    // here (we cannot reach the painter outside a paint callback).
-    stage_img_ = 0;
+    // We can't reach the painter outside a paint callback, so we can't free
+    // GPU handles synchronously here. Instead of dropping them (which would
+    // leak on re-attach — the fresh attach creates NEW textures while the
+    // old handles are orphaned), retire them into dead_images_; the next
+    // paint after a re-attach drains it. In the common teardown path (window
+    // closes → painter destroyed → doc destroyed) the handles die with the
+    // painter and the retired list is simply discarded, which is correct.
+    if (stage_img_ != 0) {
+        dead_images_.push_back(stage_img_);
+        stage_img_ = 0;
+    }
+    for (auto& [id, tex] : thumbs_) {
+        if (tex.img) dead_images_.push_back(tex.img);
+    }
     thumbs_.clear();
-    dead_images_.clear();
     app_ = nullptr;
 }
 

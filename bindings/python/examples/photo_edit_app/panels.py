@@ -148,23 +148,29 @@ def _navigator_body(app: "PhotoEditApp", v: ui.View) -> None:
         p.container(classes="ps-nav-thumb", key="ps-nav-thumb",
                     build=lambda n: _nav_thumb(app, n))
 
+        # Web-parity zoom row: a dcs-row (align-items:center) with a muted
+        # zoom-out icon, a growing dcs-slider, a zoom-in icon, and a
+        # fixed-width percentage readout. The icons are clickable steppers
+        # (an enhancement over the web's static icons).
         def zoom_row(row: ui.View) -> None:
             out = row.container(classes="ps-nav-zbtn", key="ps-nav-zoom-out",
                                 build=lambda h: h.html(_di("zoom-out")))
-            out.attr("role", "button")
+            out.attr("role", "button").attr("title", "Zoom out")
             out.on_click(lambda: app.zoom_step(1 / 1.4))
             row.slider("", app.zoom * 100, 5, 800,
-                       key="ps-nav-zoom").on_change(
+                       key="ps-nav-zoom").cls("dcs-slider ps-grow").on_change(
                 lambda text: app.set_zoom_percent_text(text))
             zin = row.container(classes="ps-nav-zbtn", key="ps-nav-zoom-in",
                                 build=lambda h: h.html(_di("zoom-in")))
-            zin.attr("role", "button")
+            zin.attr("role", "button").attr("title", "Zoom in")
             zin.on_click(lambda: app.zoom_step(1.4))
-            row.container(classes="ps-nav-pct", key="ps-nav-pct",
-                          build=lambda h: h.html(
-                              f"{round(app.zoom * 100)}%"))
+            pct = row.container(classes="ps-nav-pct ps-prop-val",
+                                key="ps-nav-pct",
+                                build=lambda h: h.html(
+                                    f"{round(app.zoom * 100)}%"))
+            pct.attr("id", "ps-nav-pct").attr("style", "width:42px")
 
-        p.container(classes="ps-nav-zoomrow", key="ps-nav-zoomrow",
+        p.container(classes="ps-nav-zoomrow dcs-row", key="ps-nav-zoomrow",
                     build=zoom_row)
 
     v.container(classes="ps-nav-body", key="ps-nav-panel", build=body)
@@ -182,41 +188,53 @@ def _nav_thumb(app: "PhotoEditApp", v: ui.View) -> None:
 def _color_tab(app: "PhotoEditApp", v: ui.View) -> None:
     def body(p: ui.View) -> None:
         h, s, val = app.hsv
-        # SV square + hue bar: pointer-precise picking routes through
-        # App.on_event (web initPicker drag), which updates the dots and
-        # chips live via DOM style mutations.
+        hue_hex = colors.hsv_to_hex(h, 1.0, 1.0)
+        # SV square + hue bar use the framework's own dcs-color-square /
+        # dcs-hue-bar (which carry the correct gradients — the square's
+        # white→hue ramp reads --hue, the bar is the rainbow); we only add
+        # ps-* hooks so App.on_event can hit-test them. Pointer-precise
+        # picking routes through App.on_event (web initPicker drag), which
+        # updates the dots/chips live via DOM style mutations.
         def sv_body(box: ui.View) -> None:
             dot = box.container(classes="ps-sv-dot", key="ps-sv-dot")
             dot.attr("id", "ps-sv-dot")
             dot.attr("style", f"left:{s * 100:.1f}%;"
                               f"top:{(1 - val) * 100:.1f}%")
 
-        sv = p.container(classes="ps-sv", key="ps-sv", build=sv_body)
+        sv = p.container(classes="dcs-color-square ps-sv", key="ps-sv",
+                         build=sv_body)
         sv.attr("id", "ps-sv")
-        sv.attr("style",
-                "background:linear-gradient(to top,#000,transparent),"
-                f"linear-gradient(to right,#fff,hsl({h:.0f},100%,50%))")
+        sv.attr("style", f"--hue:{hue_hex}")
 
         def hue_body(bar: ui.View) -> None:
             dot = bar.container(classes="ps-hue-dot", key="ps-hue-dot")
             dot.attr("id", "ps-hue-dot")
             dot.attr("style", f"left:{h / 360 * 100:.1f}%")
 
-        hue = p.container(classes="ps-hue", key="ps-hue", build=hue_body)
+        hue = p.container(classes="dcs-hue-bar ps-hue", key="ps-hue",
+                          build=hue_body)
         hue.attr("id", "ps-hue")
         hexfield = p.input("Hex", app.fg, key="ps-hex")
         hexfield.cls("ps-hex-field")
         hexfield.on_change(app.set_foreground_hex)
 
+        # R/G/B use the framework's own labeled text field (v.input →
+        # dcs-field > dcs-field__label + dcs-input, the web's structure),
+        # styled as a row with tabular-num digits. A number input would
+        # instead build the heavy dcs-combo spinbutton, which is the wrong
+        # control here.
         def rgb_row(row: ui.View) -> None:
             r, g, b = colors.hex_to_rgb(app.fg)
             for channel, value in (("r", r), ("g", g), ("b", b)):
-                row.input(channel.upper(), str(value), type="number",
-                          key=f"ps-{channel}").on_change(
+                field = row.input(channel.upper(), str(value),
+                                  key=f"ps-{channel}")
+                field.cls("dcs-field dcs-field--row ps-rgb-field")
+                field.on_change(
                     lambda text, channel=channel:
                     app.set_foreground_channel(channel, text))
 
-        p.container(classes="ps-rgb-row", key="ps-rgb-row", build=rgb_row)
+        p.container(classes="ps-rgb-row dcs-row", key="ps-rgb-row",
+                    build=rgb_row)
 
     v.container(classes="ps-colorpanel", key="ps-colorpanel", build=body)
 
@@ -364,7 +382,10 @@ def _layer_row(app: "PhotoEditApp", v: ui.View,
                       key=f"layer-{layer.id}", build=row)
     ref.attr("role", "button")
     ref.attr("aria-selected", "true" if is_active else "false")
-    ref.on_click(lambda: app.set_layer(layer.id))
+    # Selection fires on mousedown via App.on_event (see app._mouse_down);
+    # the id rides in a data attribute the router reads. No on_click — that
+    # would be a redundant mouseup activation.
+    ref.attr("data-layer-id", str(layer.id))
 
 
 def _layer_footer(app: "PhotoEditApp", v: ui.View) -> None:
@@ -456,7 +477,8 @@ def _history_list(app: "PhotoEditApp", v: ui.View) -> None:
             build=lambda h, label=entry.name, icon=entry.icon: h.html(
                 f"{_di(icon)}<span>{escape(label)}</span>"))
         item.attr("role", "button")
-        item.on_click(lambda index=index: app.jump_history(index))
+        # Jump on mousedown via App.on_event (see app._mouse_down) for snap.
+        item.attr("data-history-index", str(index))
 
 
 # ── Quick floatbar ───────────────────────────────────────────────────────────

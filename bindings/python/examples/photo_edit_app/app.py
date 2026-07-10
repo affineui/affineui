@@ -126,6 +126,10 @@ class PhotoEditApp:
         self._space_down = False
         self._needs_reload = False
         self._boot_synced = False
+        # Last stage-canvas screen bounds (x,y,w,h) seen from the hover
+        # chain — a reload-proof fallback for pointer-in-stage gating when
+        # the core's live stage rect isn't available yet.
+        self._last_stage_bounds: tuple[int, int, int, int] | None = None
 
     # ── View assembly ───────────────────────────────────────────────────────
 
@@ -390,11 +394,15 @@ class PhotoEditApp:
             panels.declare_float_panels(self, dv)
 
         v.document_view("ps-workarea", workarea)
-        v.container(
+        # data-dcs-drag makes the floating toolbar movable by its grip
+        # (a [data-dcs-drag-handle] inside); without it the core's float-drag
+        # never arms and the toolbar can't be moved.
+        strip = v.container(
             classes="dcs-toolbar dcs-toolbar--v dcs-toolbar--floating "
                     "ps-toolstrip",
             key="ps-toolstrip",
             build=lambda t: panels.build_toolstrip(self, t))
+        strip.attr("data-dcs-drag", "")
         panels.build_floatbar(self, v)
 
     # ── Derived text ────────────────────────────────────────────────────────
@@ -445,10 +453,11 @@ class PhotoEditApp:
             return False
         return False
 
-    @staticmethod
-    def _over_stage(hover) -> bool:
+    def _over_stage(self, hover) -> bool:
         for info in hover:
             if info.valid and "ps-stage-canvas" in info.classes:
+                b = info.bounds
+                self._last_stage_bounds = (b.x, b.y, b.w, b.h)
                 return True
         return False
 
@@ -457,6 +466,15 @@ class PhotoEditApp:
         for info in hover:
             if info.valid and cls in info.classes:
                 return info.bounds
+        return None
+
+    @staticmethod
+    def _hover_attr(hover, cls: str, attr: str):
+        for info in hover:
+            if info.valid and cls in info.classes:
+                for name, value in info.attrs:
+                    if name == attr:
+                        return value
         return None
 
     def _doc_point(self, ev: ui.Event) -> tuple[float, float]:
@@ -469,6 +487,17 @@ class PhotoEditApp:
     def _mouse_down(self, ev: ui.Event, hover) -> bool:
         if self.dialog is not None:
             return False
+        # Snappy activation: layer selection and history jumps fire on
+        # mousedown, not the framework's mouseup on_click. The row carries
+        # its id/index as a data attribute so the router can act immediately.
+        lid = self._hover_attr(hover, "ps-layer", "data-layer-id")
+        if lid is not None:
+            self.set_layer(int(lid))
+            return True
+        hidx = self._hover_attr(hover, "ps-history-item", "data-history-index")
+        if hidx is not None:
+            self.jump_history(int(hidx))
+            return True
         if self._panel_drag_down(ev, hover):
             return True
         if not self._over_stage(hover):
@@ -755,8 +784,24 @@ class PhotoEditApp:
             return True
         return True
 
+    def _pointer_in_stage(self, ev: ui.Event) -> bool:
+        # Geometry check that survives a DOM reload — unlike the hover chain,
+        # which goes stale right after reload() until the next mouse-move.
+        # A wheel burst reloads between events, so hover-based gating would
+        # drop every wheel after the first (zoom appears to move one step
+        # then stall). Prefer the core's live stage rect; fall back to the
+        # last stage bounds seen from the hover chain.
+        rect = self.doc.stage_rect() or self._last_stage_bounds
+        if rect is None:
+            return False
+        x, y = float(ev.pos.x), float(ev.pos.y)
+        return (rect[0] <= x < rect[0] + rect[2]
+                and rect[1] <= y < rect[1] + rect[3])
+
     def _wheel(self, ev: ui.Event, hover) -> bool:
-        if self.dialog is not None or not self._over_stage(hover):
+        if self.dialog is not None:
+            return False
+        if not (self._over_stage(hover) or self._pointer_in_stage(ev)):
             return False
         if ev.ctrl or ev.super:
             factor = 1.12 if ev.wheel_dy > 0 else 0.89
@@ -765,9 +810,23 @@ class PhotoEditApp:
         else:
             self.doc.set_pan(self.doc.pan_x() + ev.wheel_dx * 32,
                              self.doc.pan_y() + ev.wheel_dy * 32)
+        # Update the zoom readouts in place (statusbar/title/rulers/nav) so a
+        # wheel burst stays snappy without a full DOM reload — reloading
+        # between wheel events staled the hover chain and dropped every wheel
+        # after the first. A final reload still lands via _needs_reload once
+        # wheeling settles.
         self._sync_overlays()
+        self._sync_zoom_readouts()
         self._needs_reload = True
         return True
+
+    def _sync_zoom_readouts(self) -> None:
+        # Live-update the visible zoom % (navigator) during a wheel burst;
+        # the statusbar field and rulers refresh on the settle reload.
+        if self.app is None:
+            return
+        self.app.document().set_text_by_id(
+            "ps-nav-pct", f"{round(self.zoom * 100)}%")
 
     # ── Keyboard (web wireKeys) ─────────────────────────────────────────────
 
