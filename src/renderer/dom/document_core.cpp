@@ -1543,6 +1543,15 @@ void Document::set_custom_paint(std::string_view name, CustomPaintFn fn) {
     }
 }
 
+bool Document::text_editing_active() const {
+#if !defined(AFFINEUI_STUB_BUILD)
+    Block* control = nullptr;
+    return detail::focused_text_control(*impl_, control);
+#else
+    return false;
+#endif
+}
+
 bool Document::request_custom_repaint(std::string_view name) {
 #if !defined(AFFINEUI_STUB_BUILD)
     if (name.empty()) return false;

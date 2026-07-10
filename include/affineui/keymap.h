@@ -104,6 +104,11 @@ public:
             case Key::ArrowDown:  return "Down";
             case Key::Home:       return "Home";
             case Key::End:        return "End";
+            case Key::Space:        return "Space";
+            case Key::Minus:        return "-";
+            case Key::Equal:        return "=";
+            case Key::BracketLeft:  return "[";
+            case Key::BracketRight: return "]";
             default: break;
         }
         const int k = static_cast<int>(key);

@@ -1819,17 +1819,65 @@ public:
         return {w, h};
     }
 
-    void draw_image(std::uint32_t image, const Rect& dst, const Rect& /*src*/) override {
-        if (image == 0) return;
-        NVGpaint p = nvgImagePattern(vg_,
-                                     static_cast<float>(dst.x), static_cast<float>(dst.y),
-                                     static_cast<float>(dst.w), static_cast<float>(dst.h),
+    void draw_image(std::uint32_t image, const Rect& dst, const Rect& src) override {
+        if (image == 0 || dst.w <= 0 || dst.h <= 0) return;
+        // Pattern that maps the WHOLE image onto dst by default; when a
+        // sub-rect `src` is given, scale/offset the pattern so `src`
+        // lands exactly on `dst` and scissor away the rest.
+        float px = static_cast<float>(dst.x);
+        float py = static_cast<float>(dst.y);
+        float pw = static_cast<float>(dst.w);
+        float ph = static_cast<float>(dst.h);
+        bool  sub = false;
+        if (src.w > 0 && src.h > 0) {
+            int iw = 0, ih = 0;
+            nvgImageSize(vg_, static_cast<int>(image), &iw, &ih);
+            if (iw > 0 && ih > 0 && (src.x != 0 || src.y != 0 ||
+                                     src.w != iw || src.h != ih)) {
+                const float sx = static_cast<float>(dst.w) /
+                                 static_cast<float>(src.w);
+                const float sy = static_cast<float>(dst.h) /
+                                 static_cast<float>(src.h);
+                px = static_cast<float>(dst.x) - static_cast<float>(src.x) * sx;
+                py = static_cast<float>(dst.y) - static_cast<float>(src.y) * sy;
+                pw = static_cast<float>(iw) * sx;
+                ph = static_cast<float>(ih) * sy;
+                sub = true;
+            }
+        }
+        if (sub) {
+            nvgSave(vg_);
+            nvgIntersectScissor(vg_, static_cast<float>(dst.x),
+                                static_cast<float>(dst.y),
+                                static_cast<float>(dst.w),
+                                static_cast<float>(dst.h));
+        }
+        NVGpaint p = nvgImagePattern(vg_, px, py, pw, ph,
                                      0.0f, static_cast<int>(image), 1.0f);
         nvgBeginPath(vg_);
         nvgRect(vg_, static_cast<float>(dst.x), static_cast<float>(dst.y),
                 static_cast<float>(dst.w), static_cast<float>(dst.h));
         nvgFillPaint(vg_, p);
         nvgFill(vg_);
+        if (sub) nvgRestore(vg_);
+    }
+
+    std::uint32_t create_image_rgba(int w, int h,
+                                    const std::uint8_t* pixels) override {
+        if (w <= 0 || h <= 0 || pixels == nullptr) return 0;
+        const int img = nvgCreateImageRGBA(vg_, w, h, 0, pixels);
+        return img > 0 ? static_cast<std::uint32_t>(img) : 0u;
+    }
+
+    void update_image_rgba(std::uint32_t image,
+                           const std::uint8_t* pixels) override {
+        if (image == 0 || pixels == nullptr) return;
+        nvgUpdateImage(vg_, static_cast<int>(image), pixels);
+    }
+
+    void delete_image(std::uint32_t image) override {
+        if (image == 0) return;
+        nvgDeleteImage(vg_, static_cast<int>(image));
     }
 
     std::uint32_t adopt_native_image(std::uint64_t native_handle, int w,
@@ -2207,5 +2255,19 @@ std::string_view register_default_font(NVGcontext* vg) {
 }  // namespace detail
 
 #endif  // AFFINEUI_STUB_BUILD
+
+std::string_view embedded_font_data(bool bold) {
+#if !defined(AFFINEUI_STUB_BUILD) && defined(AFFINEUI_HAVE_EMBEDDED_FONTS)
+    if (bold) {
+        return {reinterpret_cast<const char*>(affineui_font_roboto_bold),
+                static_cast<std::size_t>(affineui_font_roboto_bold_len)};
+    }
+    return {reinterpret_cast<const char*>(affineui_font_roboto_regular),
+            static_cast<std::size_t>(affineui_font_roboto_regular_len)};
+#else
+    (void)bold;
+    return {};
+#endif
+}
 
 }  // namespace affineui

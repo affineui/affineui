@@ -357,6 +357,31 @@ public:
     /// load_image are cache-owned and must NOT be passed here.
     virtual void release_native_image(std::uint32_t image) { (void)image; }
 
+    // ── Dynamic images (app-owned pixel surfaces) ───────────────────
+    /// Create an image from raw RGBA8 pixels (tightly packed, stride =
+    /// w * 4, non-premultiplied). Returns a handle usable with
+    /// draw_image / update_image_rgba / delete_image; zero on failure.
+    /// Unlike load_image the pixels come from the app (a raster
+    /// document, a video frame, a CPU-composited canvas), so the handle
+    /// is NOT cached/deduplicated — the caller owns its lifetime and
+    /// must delete_image() it. Resource ops, not draw ops: safe to call
+    /// from a custom-paint handler; the display-list recorder forwards
+    /// them straight to the device painter.
+    virtual std::uint32_t create_image_rgba(int w, int h,
+                                            const std::uint8_t* pixels) {
+        (void)w; (void)h; (void)pixels;
+        return 0;
+    }
+    /// Replace the full pixel contents of an image created by
+    /// create_image_rgba. Dimensions must match the creation size.
+    virtual void update_image_rgba(std::uint32_t image,
+                                   const std::uint8_t* pixels) {
+        (void)image; (void)pixels;
+    }
+    /// Release an image created by create_image_rgba. Handles from
+    /// load_image are cache-owned and must NOT be passed here.
+    virtual void delete_image(std::uint32_t image) { (void)image; }
+
     // ── Clipping ────────────────────────────────────────────────────
     virtual void push_clip(const Rect& r) = 0;
     virtual void pop_clip()               = 0;
@@ -374,5 +399,11 @@ public:
     virtual void push_transform(const Mat2x3& m) { (void)m; }
     virtual void pop_transform() {}
 };
+
+/// Raw bytes of the library's embedded default UI font (Roboto Regular
+/// or Bold), for apps that rasterize text themselves (e.g. a raster
+/// canvas document). Empty when the library was built without embedded
+/// fonts. The storage is static — the view never dangles.
+std::string_view embedded_font_data(bool bold = false);
 
 }  // namespace affineui
