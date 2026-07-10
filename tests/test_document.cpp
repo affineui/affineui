@@ -1095,6 +1095,47 @@ TEST_CASE("UiControls script selects Decius menus on down and activates on up") 
     CHECK(find_hovered_chain_id(doc, "open-item", 260, 120).x < 0);
 }
 
+TEST_CASE("UiControls combo drag emits the change under the NAMED widget") {
+    // The value-bearing element of a dcs-combo is its inner (unnamed)
+    // <input>; the app's on_change is bound to the named combo node. A
+    // drag-scrub must bubble the change to that name — this was the
+    // "inspector vec fields do nothing" bug.
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        .dcs-combo { display: block; width: 120px; height: 24px; }
+        .dcs-combo__value { display: block; width: 120px; height: 24px; }
+        </style>
+        <div id="cx" class="dcs-combo" role="spinbutton" data-aui-name="position-0"
+             data-dcs-combo="" data-value="1" data-step="0.5">
+            <input class="dcs-combo__value" type="number" value="1">
+        </div>
+    )HTML");
+    doc.layout(260, 120, &painter);
+
+    auto send = [&](affineui::EventType type, int x, int y) {
+        affineui::Event e{};
+        e.type = type;
+        e.button = affineui::MouseButton::Left;
+        e.pos = {x, y};
+        return doc.dispatch(e);
+    };
+
+    // Horizontal drag-scrub across the combo.
+    send(affineui::EventType::MouseDown, 20, 12);
+    send(affineui::EventType::MouseMove, 80, 12);
+    send(affineui::EventType::MouseUp, 80, 12);
+
+    const auto changes = doc.take_widget_changes();
+    REQUIRE(!changes.empty());
+    CHECK(changes.back().name == "position-0");
+    CHECK(changes.back().value != "1");  // the value actually moved
+}
+
 TEST_CASE("UiControls script keeps one Decius popup layer open and closes outside") {
     affineui::Document doc;
     RecordingPainter painter;

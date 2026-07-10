@@ -2273,11 +2273,23 @@ namespace {
 
 
 std::string widget_event_name(lxb_dom_element_t* elem) {
-    if (!elem) return {};
-    if (auto name = detail::attr_string(elem, "data-aui-name"); !name.empty()) {
-        return name;
+    // The value-bearing element is often an inner, deliberately unnamed
+    // part of a compound widget — a dcs-combo's <input>, say — while the
+    // app bound on_change to the NAMED widget node. Resolve like a
+    // bubbling DOM change event: the nearest self-or-ancestor carrying a
+    // widget name (before this walk an inner-element change was silently
+    // dropped, so bubbling only turns "lost" into "delivered").
+    for (auto* cur = elem; cur != nullptr;
+         cur = detail::parent_element(cur)) {
+        if (auto name = detail::attr_string(cur, "data-aui-name");
+            !name.empty()) {
+            return name;
+        }
+        if (auto id = detail::attr_string(cur, "id"); !id.empty()) {
+            return id;
+        }
     }
-    return detail::attr_string(elem, "id");
+    return {};
 }
 
 }  // namespace
