@@ -51,10 +51,28 @@ public:
     /// has no node, e.g. groups). Inspect it through its reflection
     /// class: `get_class(*node)` — see e3d_scene.h.
     [[nodiscard]] e3d::Object3D* node_of(std::string_view id) const;
-    /// Set one reflected property (by its ObjectClass name, e.g.
-    /// "position.x", "visible") through an undoable command.
-    void set_node_property(std::string_view id, std::string_view prop,
-                           const affineui::PropertyValue& value);
+    /// Live-preview one reflected property (by its ObjectClass name,
+    /// e.g. "position.x") during a continuous gesture: applies the
+    /// value and remembers the pre-gesture value, but pushes NO undo
+    /// entry — commit_node_property() ends the gesture.
+    void preview_node_property(std::string_view id, std::string_view prop,
+                               const affineui::PropertyValue& value);
+    /// Commit a reflected property edit as one undoable command whose
+    /// undo restores the pre-gesture value (works with or without
+    /// preceding previews).
+    void commit_node_property(std::string_view id, std::string_view prop,
+                              const affineui::PropertyValue& value);
+
+    /// Live material hooks (the inspector's Material foldout): applied
+    /// directly to the node's mesh material — persistence stays in the
+    /// app document's properties, re-applied by sync_document().
+    void set_material_tint(std::string_view id, std::string_view hex);
+    void set_material_roughness(std::string_view id, double roughness);
+
+    /// Fired whenever a control mutates a node's transform (the gizmo
+    /// drag path — three.js objectChange), with the document object id.
+    /// The inspector listens to track edits live.
+    std::function<void(const std::string& id)> on_node_changed;
 
     static constexpr const char* kPaintName = "ge.scene";
     static constexpr const char* kNavPaintName = "ge.navball";
@@ -114,6 +132,10 @@ private:
     e3d::Quat  start_quaternion_;
     e3d::Vec3  start_scale_{1.0f, 1.0f, 1.0f};
     std::string tool_{"select"};
+
+    // Pre-gesture values captured by preview_node_property, keyed
+    // "<id>\x1f<prop>", consumed by commit_node_property's undo.
+    std::unordered_map<std::string, affineui::PropertyValue> gesture_old_;
 };
 
 }  // namespace ge

@@ -97,7 +97,16 @@ void GeViewport::attach(affineui::App& app, app::Context& ctx) {
             push_transform_command();
         }
     };
-    gizmo_->on_object_change = [this] { mark_dirty(); };
+    gizmo_->on_object_change = [this] {
+        mark_dirty();
+        // The scene's objectChange: surface which document object moved
+        // so the inspector can track the drag live.
+        if (on_node_changed) {
+            if (const ObjectPtr& obj = gizmo_->object()) {
+                on_node_changed(obj->name);  // node name == doc object id
+            }
+        }
+    };
 
     sync_document();
     sync_selection();
@@ -187,6 +196,25 @@ void GeViewport::sync_document() {
             nodes_.emplace(obj.id, std::move(node));
         }
     }
+    // Re-apply persisted material properties (idempotent) — the live
+    // set_material_* previews write the same values ahead of the
+    // document commit.
+    for (const app::Object& obj : objects) {
+        if (!nodes_.contains(obj.id)) continue;
+        const auto& doc = ctx_->document();
+        const app::PropValue tint_value =
+            doc.property(obj.id, "tint", app::PropValue{std::string{}});
+        if (const auto* tint = std::get_if<std::string>(&tint_value);
+            tint != nullptr && !tint->empty()) {
+            set_material_tint(obj.id, *tint);
+        }
+        const app::PropValue rough_value =
+            doc.property(obj.id, "roughness", app::PropValue{-1.0});
+        if (const auto* rough = std::get_if<double>(&rough_value);
+            rough != nullptr && *rough >= 0.0) {
+            set_material_roughness(obj.id, *rough);
+        }
+    }
     mark_dirty();
 }
 
@@ -269,15 +297,50 @@ Object3D* GeViewport::node_of(std::string_view id) const {
     return it != nodes_.end() ? it->second.get() : nullptr;
 }
 
-void GeViewport::set_node_property(std::string_view id,
-                                   std::string_view prop,
-                                   const affineui::PropertyValue& value) {
+namespace {
+std::string gesture_key(std::string_view id, std::string_view prop) {
+    std::string key(id);
+    key.push_back('\x1f');
+    key.append(prop);
+    return key;
+}
+}  // namespace
+
+void GeViewport::preview_node_property(std::string_view id,
+                                       std::string_view prop,
+                                       const affineui::PropertyValue& value) {
+    const auto it = nodes_.find(std::string(id));
+    if (it == nodes_.end()) return;
+    const ObjectPtr& node = it->second;
+    const affineui::ObjectClass& cls = get_class(*node);
+    // First preview of the gesture: remember the pre-gesture value the
+    // eventual commit's undo will restore.
+    gesture_old_.try_emplace(gesture_key(id, prop),
+                             cls.get(node.get(), prop));
+    cls.set(node.get(), prop, value);
+    mark_dirty();
+}
+
+void GeViewport::commit_node_property(std::string_view id,
+                                      std::string_view prop,
+                                      const affineui::PropertyValue& value) {
     const auto it = nodes_.find(std::string(id));
     if (it == nodes_.end() || ctx_ == nullptr) return;
     const ObjectPtr& node = it->second;
     const affineui::ObjectClass& cls = get_class(*node);
-    const affineui::PropertyValue old = cls.get(node.get(), prop);
-    if (old == value) return;  // no actual change
+    // Undo target: the pre-gesture value when previews ran, else the
+    // current value (a typed edit with no live phase).
+    affineui::PropertyValue old = cls.get(node.get(), prop);
+    const auto gesture = gesture_old_.find(gesture_key(id, prop));
+    if (gesture != gesture_old_.end()) {
+        old = gesture->second;
+        gesture_old_.erase(gesture);
+    }
+    if (old == value) {
+        cls.set(node.get(), prop, value);  // normalise display value
+        mark_dirty();
+        return;  // no actual change — nothing to undo
+    }
     // The node is captured by shared_ptr (undo stays valid after
     // remove/re-add) and the property by name, so redo/undo both go
     // through the same reflection mediator the inspector reads.
@@ -290,6 +353,58 @@ void GeViewport::set_node_property(std::string_view id,
         "obj.prop", "Edit " + node->name,
         [apply, value](app::Document&) { apply(value); },
         [apply, old](app::Document&) { apply(old); }));
+}
+
+// ── Materials ───────────────────────────────────────────────────────
+
+namespace {
+/// The first mesh in the node's subtree — the surface the inspector's
+/// Material foldout edits (light markers keep their bulb mesh first).
+Mesh* first_mesh(Object3D* node) {
+    Mesh* found = nullptr;
+    if (node == nullptr) return nullptr;
+    node->traverse([&](Object3D& n) {
+        if (found == nullptr && n.kind() == ObjectKind::Mesh) {
+            found = static_cast<Mesh*>(&n);
+        }
+    });
+    return found;
+}
+
+bool parse_hex_rgb(std::string_view s, std::uint32_t& out) {
+    if (!s.empty() && s.front() == '#') s.remove_prefix(1);
+    if (s.size() != 6) return false;
+    std::uint32_t v = 0;
+    for (const char c : s) {
+        v <<= 4;
+        if (c >= '0' && c <= '9') v |= static_cast<std::uint32_t>(c - '0');
+        else if (c >= 'a' && c <= 'f') v |= static_cast<std::uint32_t>(c - 'a') + 10u;
+        else if (c >= 'A' && c <= 'F') v |= static_cast<std::uint32_t>(c - 'A') + 10u;
+        else return false;
+    }
+    out = v;
+    return true;
+}
+}  // namespace
+
+void GeViewport::set_material_tint(std::string_view id,
+                                   std::string_view hex) {
+    Mesh* mesh = first_mesh(node_of(id));
+    std::uint32_t rgb = 0;
+    if (mesh == nullptr || !mesh->material || !parse_hex_rgb(hex, rgb)) {
+        return;
+    }
+    mesh->material->color = Color(rgb);  // sRGB hex → linear
+    mark_dirty();
+}
+
+void GeViewport::set_material_roughness(std::string_view id,
+                                        double roughness) {
+    Mesh* mesh = first_mesh(node_of(id));
+    if (mesh == nullptr || !mesh->material) return;
+    mesh->material->roughness =
+        std::clamp(static_cast<float>(roughness), 0.0f, 1.0f);
+    mark_dirty();
 }
 
 // ── Frame / paint ───────────────────────────────────────────────────

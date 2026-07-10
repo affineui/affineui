@@ -3,6 +3,7 @@
 #include "game_editor_styles.h"
 
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -32,6 +33,17 @@ double parse_double(std::string_view s, double fallback) {
     errno = 0;
     double out = std::strtod(tmp.c_str(), &end);
     return (end != tmp.c_str() && errno != ERANGE) ? out : fallback;
+}
+
+// Channel display text for live widget write-back: two decimals,
+// trailing zeros trimmed (what the combos themselves show).
+std::string format_channel(double v) {
+    char buf[32];
+    std::snprintf(buf, sizeof buf, "%.2f", v);
+    std::string s(buf);
+    while (!s.empty() && s.back() == '0') s.pop_back();
+    if (!s.empty() && s.back() == '.') s.pop_back();
+    return s.empty() ? "0" : s;
 }
 
 // A memento command for a single string/number property edit, with drag
@@ -113,6 +125,29 @@ GameEditor::GameEditor() : app_(config()) {
                              chain) {
         return viewport_->handle_event(ev, chain);
     });
+    // Track gizmo drags live: write the moving transform straight into
+    // the inspector's channel widgets (in place, no view rebuild, no
+    // change echo). The drag's end pushes the undo command, whose
+    // stack-changed reload settles the final values.
+    viewport_->on_node_changed = [this](const std::string& id) {
+        if (!viewport_ || selected_id() != id) return;
+        e3d::Object3D* node = viewport_->node_of(id);
+        if (node == nullptr) return;
+        const affineui::ObjectClass& cls = get_class(*node);
+        static constexpr const char* kPrefix[3] = {"position", "rotation",
+                                                   "scale"};
+        static constexpr const char* kAxis[3] = {".x", ".y", ".z"};
+        for (const char* prefix : kPrefix) {
+            for (int i = 0; i < 3; ++i) {
+                const auto value = cls.get(node, std::string(prefix) + kAxis[i]);
+                if (const double* d = std::get_if<double>(&value)) {
+                    app_.set_widget_value(
+                        std::string(prefix) + "-" + std::to_string(i),
+                        format_channel(*d));
+                }
+            }
+        }
+    };
 
     // Refresh the UI whenever the document or selection changes.
     doc.set_changed_handler(bind(this, &GameEditor::reload));
@@ -617,15 +652,27 @@ void GameEditor::build_inspector(View& v) {
         auto fold = v.foldout("Material", true, "fold-material");
         auto props = v.container("dcs-props", "material-props");
 
+        // Continuous controls split preview from commit: the live
+        // stream (on_change) drives the 3D material directly — no doc
+        // command, no view rebuild, so the drag survives — and the
+        // gesture end (on_commit) pushes the one undoable property
+        // command, whose reload settles everything.
         const double roughness =
             std::get<double>(doc.property(id, "roughness", app::PropValue{0.62}));
         v.slider("Roughness", roughness, 0.0, 1.0, "rough")
-            .on_change(bind(this, &GameEditor::set_roughness));
+            .on_change([this, id](std::string_view value) {
+                viewport_->set_material_roughness(
+                    id, parse_double(value, 0.62));
+            })
+            .on_commit(bind(this, &GameEditor::set_roughness));
 
         const std::string tint = std::get<std::string>(
             doc.property(id, "tint", app::PropValue{std::string{"#4d9fff"}}));
         v.colorfield("Tint", tint, "tint")
-            .on_change(bind(this, &GameEditor::set_tint));
+            .on_change([this, id](std::string_view value) {
+                viewport_->set_material_tint(id, value);
+            })
+            .on_commit(bind(this, &GameEditor::set_tint));
 
         const bool shadows =
             std::get<bool>(doc.property(id, "castShadows", app::PropValue{true}));
@@ -675,9 +722,18 @@ void GameEditor::build_inspector(View& v) {
                         const std::string prop =
                             std::string(row.prefix) + kAxis[i];
                         const double fallback = row.fallback;
+                        // Scrub = live preview on the node; gesture end
+                        // (or a typed edit) commits one undo entry.
                         field.on_change(
                             [this, id, prop, fallback](std::string_view value) {
-                                viewport_->set_node_property(
+                                viewport_->preview_node_property(
+                                    id, prop,
+                                    affineui::PropertyValue{
+                                        parse_double(value, fallback)});
+                            });
+                        field.on_commit(
+                            [this, id, prop, fallback](std::string_view value) {
+                                viewport_->commit_node_property(
                                     id, prop,
                                     affineui::PropertyValue{
                                         parse_double(value, fallback)});
@@ -701,11 +757,11 @@ void GameEditor::build_inspector(View& v) {
                     const std::string key = "obj-" + prop.name;
                     v.checkbox(std::string(prop.display_label()),
                                std::get<bool>(value), key)
-                        .on_change([this, id, name = prop.name](
+                        .on_commit([this, id, name = prop.name](
                                        std::string_view value) {
                             const bool on = value == "true" ||
                                             value == "1" || value == "on";
-                            viewport_->set_node_property(
+                            viewport_->commit_node_property(
                                 id, name, affineui::PropertyValue{on});
                         });
                 }
