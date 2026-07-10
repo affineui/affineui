@@ -108,8 +108,6 @@ class PhotoEditApp:
         self.status = TOOL_BY_ID[self.tool].tip
         self.panels = {"navigator": True, "color": True, "layers": True,
                        "adjust": True, "history": True}
-        self.color_tab = "color"
-        self.layers_tab = "layers"
         self.lock_flags = {"transparency": False, "image": False,
                            "position": False}
         self.layer_filtering = False
@@ -135,6 +133,17 @@ class PhotoEditApp:
         view.selector(ui.decius.selector.style, self.visual_style)
         view.selector(ui.decius.selector.density, self.density)
         view.selector(ui.decius.selector.accent, self.accent)
+        # Replay the LIVE dock arrangement (dragged palettes, docked splits,
+        # tearoffs) instead of the declared seed on every rebuild; placement
+        # overrides cover panels the user re-placed while their group was
+        # hidden. Without these providers each reload would snap every
+        # palette back to its seed position.
+        if self.app is not None:
+            doc = self.app.document()
+            view.set_dock_layout_provider(doc.dock_layout)
+            overrides = dict(doc.dock_overrides())
+            view.set_dock_placement_provider(
+                lambda pid: overrides.get(pid, ui.DockPlacement()))
         view.begin()
         view.container(classes="ps-app", key="ps-app", build=self._build_app)
         if self.dialog is not None:
@@ -351,23 +360,24 @@ class PhotoEditApp:
     # ── Body ────────────────────────────────────────────────────────────────
 
     def _build_body(self, v: ui.View) -> None:
-        v.container(classes="dcs-dock ps-doc-dock", key="ps-doc-dock",
-                    build=lambda d: stage.build_document_dock(self, d))
+        # The docking workspace: the stage is the declared document (the
+        # dock tree's center), every palette a DECLARED dockpanel seeded
+        # floating (panels.declare_float_panels). The dock-layout provider
+        # wired in build_view() replays the user's arrangement — dragged
+        # palette positions, docked splits, and torn-off tabs all survive
+        # rebuilds. The tool strip and quick floatbar are floating toolbars
+        # (not dockables) and stay raw overlays.
+        def workarea(dv: ui.View) -> None:
+            dv.document(lambda d: stage.build_document_body(self, d),
+                        title=self.title_text(), icon="image")
+            panels.declare_float_panels(self, dv)
+
+        v.document_view("ps-workarea", workarea)
         v.container(
             classes="dcs-toolbar dcs-toolbar--v dcs-toolbar--floating "
                     "ps-toolstrip",
             key="ps-toolstrip",
             build=lambda t: panels.build_toolstrip(self, t))
-        if self.panels["navigator"]:
-            panels.build_navigator(self, v)
-        if self.panels["color"]:
-            panels.build_color_panel(self, v)
-        if self.panels["layers"]:
-            panels.build_layers_panel(self, v)
-        if self.panels["adjust"]:
-            panels.build_adjustments(self, v)
-        if self.panels["history"]:
-            panels.build_history(self, v)
         panels.build_floatbar(self, v)
 
     # ── Derived text ────────────────────────────────────────────────────────
@@ -758,16 +768,6 @@ class PhotoEditApp:
             self.panels[key] = not self.panels[key]
             self.reload()
 
-    def set_color_tab(self, tab: str) -> None:
-        if tab in ("color", "swatches"):
-            self.color_tab = tab
-            self.reload()
-
-    def set_layers_tab(self, tab: str) -> None:
-        if tab in ("layers", "channels", "paths", "comps"):
-            self.layers_tab = tab
-            self.reload()
-
     def toggle_tweaks(self) -> None:
         self.tweaks_open = not self.tweaks_open
         self.reload()
@@ -983,6 +983,4 @@ class PhotoEditApp:
     def _reset_workspace(self) -> None:
         for key in self.panels:
             self.panels[key] = True
-        self.color_tab = "color"
-        self.layers_tab = "layers"
         self.fit_to_screen()
