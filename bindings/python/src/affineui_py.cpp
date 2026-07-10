@@ -675,15 +675,20 @@ PYBIND11_MODULE(_affineui, m) {
                 const std::string& label,
                 double value,
                 double step,
-                const std::string& key) {
-                 return view.combo(label, value, step, key);
+                const std::string& key,
+                bool linear) {
+                 return view.combo(label, value, step, key, linear);
              },
              py::arg("label"),
              py::arg("value"),
              py::arg("step") = 0.01,
              py::arg("key") = "",
+             py::arg("linear") = false,
              py::keep_alive<0, 1>(),
-             "Add a bare drag-scrub numeric combo (no field/label wrapper).")
+             "Add a bare drag-scrub numeric combo (no field/label wrapper). "
+             "linear=True scrubs at a constant step/pixel (for rotation "
+             "degrees etc.); the default accelerates with the value's "
+             "magnitude.")
         .def("colorfield",
              [](affineui::View& view,
                 const std::string& label,

@@ -243,6 +243,10 @@ bool find_live_control_at(detail::DocumentImpl& impl,
                     elem, "data-step",
                     detail::element_attr_double(combo, "data-step", 0.01)));
             if (out.step <= 0.0) out.step = 0.01;
+            // data-linear opts a free field out of magnitude-proportional
+            // acceleration (rotation degrees: constant step/pixel).
+            out.linear = detail::has_attr(elem, "data-linear") ||
+                         (combo && detail::has_attr(combo, "data-linear"));
             out.last_x = point.x;
         }
         if (out.max <= out.min) out.max = out.min + 1.0;
@@ -320,11 +324,15 @@ bool update_active_live_control(detail::DocumentImpl& impl, const Event& ev) {
             const double current = detail::element_attr_double(
                 drag.elem, "value",
                 detail::element_attr_double(drag.elem, "data-value", drag.start_value));
-            const double scaled_step =
-                std::max(drag.step, std::abs(current) / 100.0);
+            // Linear fields (rotation) scrub at a constant step/pixel; the
+            // default accelerates with magnitude (|value|/100) so large
+            // free values are reachable without a mile-long drag.
+            const double per_px = drag.linear
+                ? drag.step
+                : std::max(drag.step, std::abs(current) / 100.0);
             value = current +
                     static_cast<double>(ev.pos.x - drag.last_x) *
-                        scaled_step * mult;
+                        per_px * mult;
             drag.last_x = ev.pos.x;
         }
     } else if (drag.kind == LiveControlKind::DeciusFader) {

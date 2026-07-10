@@ -72,8 +72,8 @@ fn build_gallery(v: &View) {
         });
 
         v.foldout("Advanced", false, "advanced", |v| {
-            v.combo("X", 0.0, 0.01, "pos-x");
-            v.combo("Y", 0.0, 0.01, "pos-y");
+            v.combo("X", 0.0, 0.01, "pos-x", false);
+            v.combo("Y", 0.0, 0.01, "pos-y", false);
             v.textarea("Notes", "", 4, "notes");
         });
 

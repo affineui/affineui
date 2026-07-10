@@ -872,11 +872,15 @@ public:
     /// render without decimals — same dcs-combo, JS-parity data-step).
     /// Returns the vec ref; bind on_change on individual channels via
     /// component<>/find if needed.
+    /// `linear` (default false) forwards to each channel combo — set true
+    /// for a fixed-scale vector like rotation (constant step/pixel scrub,
+    /// no magnitude acceleration).
     WidgetRef vec(std::string_view label,
                   const std::vector<std::string>& channels,
                   const std::vector<double>& values = {},
                   std::string_view key = {},
                   double step = 0.01,
+                  bool linear = false,
                   std::source_location here = std::source_location::current());
     /// A drag splitter between docked regions. `horizontal` splits top/bottom.
     WidgetRef splitter(bool horizontal = false,
@@ -930,10 +934,16 @@ public:
     /// field/label wrapper — for packing several into a dcs-vec or a custom
     /// row. `label` is the short axis tag shown inside the combo (e.g. "X").
     /// Returns the combo ref (on_change fires with the new value).
+    /// `linear` = drag sensitivity is a constant step/pixel. The default
+    /// (false) accelerates the free scrub with the value's magnitude
+    /// (reach large numbers without a mile-long drag); set true for a
+    /// fixed-scale quantity like rotation degrees, where acceleration
+    /// feels wrong.
     WidgetRef combo(std::string_view label,
                     double value,
                     double step = 0.01,
                     std::string_view key = {},
+                    bool linear = false,
                     std::source_location here = std::source_location::current());
 
     [[nodiscard]] WidgetRef find_widget(std::string_view name);

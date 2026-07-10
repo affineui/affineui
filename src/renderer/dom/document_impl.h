@@ -624,6 +624,11 @@ struct DocumentImpl {
         int              last_x{0};
         bool             bipolar{false};
         bool             bounded{false};
+        // Linear scrub: a constant `step` per pixel, no value-proportional
+        // acceleration. For fields whose magnitude is not "how big is the
+        // number" but a fixed-scale quantity — rotation degrees, above
+        // all — where |value|/100 acceleration feels wrong.
+        bool             linear{false};
         bool             moved{false};
         bool             resize_x{false};
         bool             resize_y{false};

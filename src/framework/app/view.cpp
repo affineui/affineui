@@ -3491,7 +3491,7 @@ View::Scope View::foldout(std::string_view title, bool expanded,
 WidgetRef View::vec(std::string_view label,
                     const std::vector<std::string>& channels,
                     const std::vector<double>& values, std::string_view key,
-                    double step,
+                    double step, bool linear,
                     std::source_location here) {
     if (channels.size() < 2 || channels.size() > 4) {
         diagnostics_.push_back(
@@ -3527,7 +3527,7 @@ WidgetRef View::vec(std::string_view label,
         combo(channels[i], value, step,
               std::string(key.empty() ? "vec" : key) + "-" +
                   std::to_string(i),
-              here);
+              linear, here);
     }
     close_node();  // vec
     close_node();  // group
@@ -3822,7 +3822,8 @@ WidgetRef View::colorfield(std::string_view label, std::string_view value,
 }
 
 WidgetRef View::combo(std::string_view label, double value, double step,
-                      std::string_view key, std::source_location here) {
+                      std::string_view key, bool linear,
+                      std::source_location here) {
     // A bare dcs-combo (no field wrapper). Decius-specific control; for other
     // personalities fall back to a plain number input.
     if (theme_ != ViewTheme::Decius) {
@@ -3831,6 +3832,7 @@ WidgetRef View::combo(std::string_view label, double value, double step,
         set_attr(input, "type", "number");
         set_attr(input, "value", number(value));
         set_attr(input, "step", number(step));
+        if (linear) set_attr(input, "data-linear", "");
         if (!label.empty()) set_attr(input, "aria-label", label);
         return ref_for_node(input, current_panel_id(stack_));
     }
@@ -3842,6 +3844,7 @@ WidgetRef View::combo(std::string_view label, double value, double step,
     set_attr(combo, "data-dcs-combo", "");
     set_attr(combo, "data-value", number(value));
     set_attr(combo, "data-step", number(step));
+    if (linear) set_attr(combo, "data-linear", "");
     if (!label.empty()) set_attr(combo, "data-label", label);
     set_attr(combo, "style", "--fill:" + percent(0.5));
 
@@ -3861,8 +3864,12 @@ WidgetRef View::combo(std::string_view label, double value, double step,
                             "__input", here, false);
     set_attr(input, "type", "number");
     set_attr(input, "value", number(value));
-    set_attr(input, "data-fill-min", number(value - 1.0));
-    set_attr(input, "data-fill-max", number(value + 1.0));
+    // A bare combo is a FREE scrubber (unbounded, relative to its current
+    // value) — the vec channels are these. Do NOT stamp data-fill-min /
+    // data-fill-max: those mark a bounded scrub range, which would make
+    // the field a tiny ±1 absolute track that teleports to the pointer
+    // on any drag. A bounded combo opts in with real min/max (data-min /
+    // data-max), which also drives its fill bar.
 
     close_node();  // combo
     return ref_for_node(combo, current_panel_id(stack_));

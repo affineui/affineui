@@ -282,10 +282,13 @@ AFFINEUI_C_API affineui_widget* affineui_view_knob(affineui_view* view,
                                                    int bipolar,
                                                    const char* key);
 // Bare drag-scrub numeric combo (no field/label wrapper).
+// linear != 0 → constant step/pixel scrub (rotation degrees etc.);
+// 0 → magnitude-accelerated scrub (the C++ default).
 AFFINEUI_C_API affineui_widget* affineui_view_combo(affineui_view* view,
                                                     const char* label,
                                                     double value, double step,
-                                                    const char* key);
+                                                    const char* key,
+                                                    int linear);
 // Swatch-popup color field.
 AFFINEUI_C_API affineui_widget* affineui_view_color_field(affineui_view* view,
                                                           const char* label,
