@@ -746,6 +746,16 @@ void dock_structure_changed(detail::DocumentImpl& impl) {
     // Elements created or re-parented by the surgery have no (or stale)
     // lexbor stylesheet attachments; rebuild the match lists before the
     // resolver walks them (same contract as set_attribute_on_element).
+    // Inline styles FIRST: elements that acquired style="" during the
+    // suppressed gesture have an empty cached inline list, and the rematch
+    // below re-attaches that cache verbatim — without the re-parse a spawned
+    // floater's position/size style is inert and the panel collapses to an
+    // intrinsic box at the origin.
+    if (impl.doc) {
+        if (auto* body = lxb_html_document_body_element(impl.doc)) {
+            detail::parse_inline_styles_deep(lxb_dom_interface_node(body));
+        }
+    }
     detail::rematch_stylesheet_matches_for_subtree(impl, -1);
     const auto st1 = std::chrono::steady_clock::now();
     detail::recollect_blocks_from_current_dom(impl);
@@ -854,6 +864,10 @@ Document::DockLayout::Node dock_layout_node(lxb_dom_element_t* e) {
     }
     // Leaf: a dockpane.
     n.kind = detail::dock_kind_of(e);
+    n.dock_parent = detail::attr_string(e, "data-aui-dock-parent");
+    n.dock_side = detail::has_attr(e, "data-aui-dock-side")
+                      ? detail::int_attr(e, "data-aui-dock-side", -1)
+                      : -1;
     for (auto* tab : detail::dock_tabs(e)) {
         const std::string id = detail::dockpane_tab_panel_id(tab);
         if (id.empty()) continue;
@@ -971,8 +985,38 @@ std::string dock_kind_of(lxb_dom_element_t* pane) {
 }
 
 std::string pane_panel_id(lxb_dom_element_t* pane) {
+    // Pane identity, best-effort (decius.js targets pane ELEMENTS — this id
+    // is metadata for overrides/traces, so derive it from whatever the pane
+    // carries rather than requiring one naming convention):
+    //   1. View/surgery panes: data-aui-name="pane-<id>".
+    //   2. Panes inside a floating panel: the floater's data-dcs-dock-id.
+    //   3. App-authored panes (the DENDER N-panel): the selected (or first)
+    //      tab's panel id — a pane IS its tabs.
+    if (!pane) return {};
     const std::string n = detail::attr_string(pane, "data-aui-name");  // pane-<id>
-    return n.rfind("pane-", 0) == 0 ? n.substr(5) : std::string();
+    if (n.rfind("pane-", 0) == 0) return n.substr(5);
+    if (auto* floater =
+            detail::ancestor_with_class(pane, "dcs-panel--floating")) {
+        std::string id = detail::attr_string(floater, "data-dcs-dock-id");
+        if (!id.empty()) return id;
+    }
+    lxb_dom_element_t* first_tab = nullptr;
+    lxb_dom_element_t* selected_tab = nullptr;
+    struct Walk {
+        lxb_dom_element_t** first;
+        lxb_dom_element_t** selected;
+        void operator()(lxb_dom_element_t* e) {
+            if (!detail::class_list_contains(e, "dcs-dockpane__tab")) return;
+            if (!*first) *first = e;
+            if (!*selected &&
+                detail::attr_string(e, "aria-selected") == "true") {
+                *selected = e;
+            }
+        }
+    } walk{&first_tab, &selected_tab};
+    detail::walk_dom_elements(lxb_dom_interface_node(pane), walk);
+    auto* tab = selected_tab ? selected_tab : first_tab;
+    return tab ? detail::dockpane_tab_panel_id(tab) : std::string();
 }
 }  // namespace detail
 namespace {
@@ -1416,23 +1460,28 @@ DropTarget compute_drop_target(detail::DocumentImpl& impl, Point pt,
               pt.y < b.y + b.h)) {
             return window_edge.valid ? window_edge : out;
         }
-        // decius dockDropDecision: kinds must match, and the source pane is
-        // not a CENTER target for its own tab. Extension (upstreamed to
-        // decius.js too): a MULTI-tab pane's edge zones ARE valid for its own
-        // tab — "split Console out of Assets" in one gesture. Single-tab
-        // self-drops stay free-space (tearoff).
+        // decius dockDropDecision: kinds must match. The source pane IS a
+        // target for its own tab: hovering it gives visual feedback ("drop
+        // back where it was") and releasing is a no-op — for a single-tab
+        // pane the WHOLE pane is that center target. Extension (upstreamed
+        // to decius.js too): a MULTI-tab pane's edge zones ARE valid for its
+        // own tab — "split Console out of Assets" in one gesture.
         const bool self_drop = e == source_pane;
-        if (detail::dock_kind_of(e) != drag_kind ||
-            (self_drop && detail::dock_tabs(e).size() <= 1)) {
+        if (detail::dock_kind_of(e) != drag_kind) {
             return window_edge.valid ? window_edge : out;
         }
-        const std::string id = detail::pane_panel_id(e);
-        if (id.empty()) return window_edge.valid ? window_edge : out;
-        out.parent = id;
+        // The pane ELEMENT is the target (decius.js semantics); the id is
+        // best-effort metadata — an app-authored pane with no derivable id
+        // is still a perfectly good dock target.
+        out.parent = detail::pane_panel_id(e);
         out.pane = e;
         const int lx = b.x - hx, ly = b.y - hy;
         if (detail::ancestor_with_class(e, "dcs-panel--floating") ||
-            point_over_pane_tabbar(impl, e, pt)) {
+            point_over_pane_tabbar(impl, e, pt) ||
+            (self_drop && detail::dock_tabs(e).size() <= 1)) {
+            // Floaters and single-tab self-drops are whole-pane center
+            // targets (edge-splitting a single-tab pane out of itself is
+            // meaningless; the feedback reads "drop back where it was").
             out.zone = DropZone::Tab;
         } else {
             // Edge intent mirrors decius.js edgeZone(): a percentage band
@@ -2266,6 +2315,16 @@ namespace {
 
 }  // namespace
 
+bool Document::take_dock_structure_changed() {
+#if !defined(AFFINEUI_STUB_BUILD)
+    const bool changed = impl_->dock_structure_dirty;
+    impl_->dock_structure_dirty = false;
+    return changed;
+#else
+    return false;
+#endif
+}
+
 Document::DockLayout Document::dock_layout() const {
     DockLayout out;
 #if !defined(AFFINEUI_STUB_BUILD)
@@ -2292,21 +2351,61 @@ Document::DockLayout Document::dock_layout() const {
         if (detail::class_list_contains(e, "dcs-panel--floating")) floats.push_back(e);
     };
     detail::walk_dom_elements(lxb_dom_interface_node(host), collect);
+    const int host_idx = detail::block_index_for_exact_element(*impl_, host);
     for (auto* fp : floats) {
         auto* pane = detail::first_descendant_with_class(fp, "dcs-dockpane");
         if (!pane) continue;
         DockLayout::Float f;
+        // Inline style is the authority, in WHICHEVER form it uses: drag
+        // surgery writes concrete left/top, a corner-anchored seed says
+        // right:/bottom:. Keeping the anchored form in the snapshot (instead
+        // of converting through the layout rect) means the harvest never
+        // depends on layout timing — it can run mid-gesture, pre-settle,
+        // and still replay the float exactly where the style puts it. The
+        // rendered rect (host-relative) is only the last-resort fallback for
+        // raw-HTML floats positioned by external CSS.
         const std::string style = detail::attr_string(fp, "style");
-        auto px = [&](std::string_view prop) {
+        auto px = [&](std::string_view prop) -> std::optional<int> {
             const std::string v = detail::find_decl_value(style, prop);
-            return v.empty()
-                       ? 0
-                       : static_cast<int>(std::strtol(v.c_str(), nullptr, 10));
+            if (v.empty()) return std::nullopt;
+            return static_cast<int>(std::strtol(v.c_str(), nullptr, 10));
         };
-        f.x = px("left");
-        f.y = px("top");
-        f.w = px("width");
-        f.h = px("height");
+        const auto sl = px("left"), st = px("top");
+        const auto sr = px("right"), sb = px("bottom");
+        const auto sw = px("width"), sh = px("height");
+        const int fp_idx = detail::block_index_for_exact_element(*impl_, fp);
+        const bool have_rect =
+            host_idx >= 0 && fp_idx >= 0 &&
+            impl_->blocks[static_cast<std::size_t>(fp_idx)].bounds.w > 0 &&
+            impl_->blocks[static_cast<std::size_t>(fp_idx)].bounds.h > 0;
+        const Rect hb = host_idx >= 0
+                            ? impl_->blocks[static_cast<std::size_t>(host_idx)]
+                                  .bounds
+                            : Rect{};
+        const Rect fb = fp_idx >= 0
+                            ? impl_->blocks[static_cast<std::size_t>(fp_idx)]
+                                  .bounds
+                            : Rect{};
+        if (sl) {
+            f.x = *sl;
+        } else if (sr) {
+            f.x = *sr;
+            f.from_right = true;
+        } else {
+            f.x = have_rect ? static_cast<int>(std::lround(fb.x - hb.x)) : 0;
+        }
+        if (st) {
+            f.y = *st;
+        } else if (sb) {
+            f.y = *sb;
+            f.from_bottom = true;
+        } else {
+            f.y = have_rect ? static_cast<int>(std::lround(fb.y - hb.y)) : 0;
+        }
+        f.w = sw ? *sw
+                 : (have_rect ? static_cast<int>(std::lround(fb.w)) : 0);
+        f.h = sh ? *sh
+                 : (have_rect ? static_cast<int>(std::lround(fb.h)) : 0);
         f.title_only = detail::class_list_contains(pane, "dcs-dockpane--title-only") ||
                        dock_title_tab(pane) != nullptr;
         f.pane = dock_layout_node(pane);

@@ -1,4 +1,4 @@
-#include <doctest/doctest.h>
+﻿#include <doctest/doctest.h>
 
 #include "affineui/automation.h"
 #include "affineui/document.h"
@@ -31,6 +31,9 @@ public:
         float max_width{0.0f};
         TextAlign align{TextAlign::Left};
         float alpha{1.0f};
+        // Clip active while this run was drawn (clipped == false â†’ none).
+        affineui::Rect clip{};
+        bool clipped{false};
     };
     struct FillDraw {
         affineui::Rect rect;
@@ -59,7 +62,7 @@ public:
         affineui::PathPaint paint;
         bool stroked{false};
         float width{0.0f};
-        // First kPathMove point and final on-path point — enough to
+        // First kPathMove point and final on-path point â€” enough to
         // assert endpoint geometry without decoding the whole stream.
         float x0{0.0f};
         float y0{0.0f};
@@ -115,6 +118,7 @@ public:
     std::vector<std::string> image_urls;
     std::vector<affineui::Rect> image_draws;
     std::vector<affineui::Rect> clip_rects;
+    std::vector<affineui::Rect> active_clip_stack;
     std::vector<bool> shadow_insets;
     std::vector<ShadowDraw> shadow_draws;
     std::vector<float> alpha_stack;
@@ -242,8 +246,13 @@ public:
     void draw_text(std::uint32_t, const affineui::Point& pos,
                    std::string_view text, affineui::Color color) override {
         text_runs.emplace_back(text);
-        text_draws.push_back({std::string(text), pos, color, 0.0f,
-                              TextAlign::Left, current_alpha});
+        TextDraw d{std::string(text), pos, color, 0.0f,
+                   TextAlign::Left, current_alpha};
+        if (!active_clip_stack.empty()) {
+            d.clip = active_clip_stack.back();
+            d.clipped = true;
+        }
+        text_draws.push_back(std::move(d));
     }
     affineui::Size measure_text_box(std::uint32_t, std::string_view text,
                                     float max_width, float, float) override {
@@ -260,8 +269,13 @@ public:
         const affineui::Point pos{static_cast<int>(std::lround(x)),
                                   static_cast<int>(std::lround(y))};
         text_runs.emplace_back(text);
-        text_draws.push_back({std::string(text), pos, color, max_width, align,
-                              current_alpha});
+        TextDraw d{std::string(text), pos, color, max_width, align,
+                   current_alpha};
+        if (!active_clip_stack.empty()) {
+            d.clip = active_clip_stack.back();
+            d.clipped = true;
+        }
+        text_draws.push_back(std::move(d));
     }
     std::uint32_t load_image(std::string_view url) override {
         image_urls.emplace_back(url);
@@ -274,8 +288,13 @@ public:
                     const affineui::Rect&) override {
         image_draws.push_back(dst);
     }
-    void push_clip(const affineui::Rect& rect) override { clip_rects.push_back(rect); }
-    void pop_clip() override {}
+    void push_clip(const affineui::Rect& rect) override {
+        clip_rects.push_back(rect);
+        active_clip_stack.push_back(rect);
+    }
+    void pop_clip() override {
+        if (!active_clip_stack.empty()) active_clip_stack.pop_back();
+    }
     void push_alpha(float alpha) override {
         alpha_stack.push_back(current_alpha);
         current_alpha *= alpha;
@@ -497,7 +516,7 @@ std::string read_test_file(const std::filesystem::path& path) {
     return ss.str();
 }
 
-// ── Document::DockLayout assertions (the dock structure IS the DOM) ─────────
+// â”€â”€ Document::DockLayout assertions (the dock structure IS the DOM) â”€â”€â”€â”€â”€â”€â”€â”€â”€
 using DockLayoutNode = affineui::Document::DockLayout::Node;
 
 bool dock_leaf_has_tab(const DockLayoutNode& n, std::string_view tab) {
@@ -564,7 +583,7 @@ TEST_CASE("set_html accepts a string without crashing") {
 
 // Simulates the user's gesture that exposed the menu lag: open a menubar
 // menu in the REAL game-editor document, then sweep the pointer along the
-// bar. Every MouseMove dispatch must stay well under a frame — the bug
+// bar. Every MouseMove dispatch must stay well under a frame â€” the bug
 // history here is whole-document work (recollects, full restyles) hiding
 // inside attribute mutations on the open/close path.
 TEST_CASE("menubar hover-switch dispatch stays under a frame budget (GE app)") {
@@ -590,14 +609,14 @@ TEST_CASE("menubar hover-switch dispatch stays under a frame budget (GE app)") {
     };
 
     // The sweep only measures the real path if menus genuinely open and
-    // switch — track the expanded trigger's rect as it moves.
+    // switch â€” track the expanded trigger's rect as it moves.
     auto menu_open_somewhere = [&] {
         // An open dcs-menu is a visible element with the class; probe a
         // known row: any menu shows items 20+px tall below the bar.
         return doc.find_element_rect("[aria-expanded=true]").w > 0;
     };
 
-    // Locate the first menubar trigger by probing along the bar — the
+    // Locate the first menubar trigger by probing along the bar â€” the
     // harness painter's fake text metrics shift x positions, so nothing
     // is hardcoded.
     auto trigger_at = [&](int x) -> affineui::Rect {
@@ -653,7 +672,7 @@ TEST_CASE("menubar hover-switch dispatch stays under a frame budget (GE app)") {
     // the pointer across several triggers.
     CHECK(switches >= 2);
 
-    // Return sweep: every menu now has retained boxes — this is the
+    // Return sweep: every menu now has retained boxes â€” this is the
     // steady state a user feels when sliding back and forth.
     double warm_total = 0.0;
     double warm_worst = 0.0;
@@ -728,13 +747,13 @@ TEST_CASE("align-self overrides the container's align-items per item") {
     const auto c = doc.find_element_rect("#c");
     const auto s = doc.find_element_rect("#stretchy");
     REQUIRE(a.w > 0);
-    // auto → the container's align-items (flex-start).
+    // auto â†’ the container's align-items (flex-start).
     CHECK(a.y == 0);
-    // center → (200 - 20) / 2.
+    // center â†’ (200 - 20) / 2.
     CHECK(b.y == 90);
-    // flex-end → 200 - 20.
+    // flex-end â†’ 200 - 20.
     CHECK(c.y == 180);
-    // stretch (heightless item) → full cross size.
+    // stretch (heightless item) â†’ full cross size.
     CHECK(s.y == 0);
     CHECK(s.h == 200);
 }
@@ -782,7 +801,7 @@ TEST_CASE("checks toggle on mouse DOWN and are not re-toggled by the release") {
     CHECK(checked());
 
     // Press again, drag off, release elsewhere: the press already
-    // committed — the state keeps the down-toggled value.
+    // committed â€” the state keeps the down-toggled value.
     send(affineui::EventType::MouseDown, {80, 12});
     send(affineui::EventType::MouseMove, {80, 60});
     send(affineui::EventType::MouseUp, {80, 60});
@@ -1937,7 +1956,7 @@ TEST_CASE("UiControls: tree drag/drop lands under FAST mouse moves (no frame "
     // so consecutive dispatches see whatever the previous one left behind. The
     // drop-highlight class mutation dirtied layout, the next move's geometric
     // row lookup ran against the stale block tree, found nothing, and cleared
-    // the drop target — flickering drop cursors and drops that landed nowhere
+    // the drop target â€” flickering drop cursors and drops that landed nowhere
     // ("drag and drop only works intermittently"). Unlike the test above, this
     // one never calls layout() between events: every pointer event must make
     // the block tree current itself.
@@ -1995,7 +2014,7 @@ TEST_CASE("UiControls: tree drag/drop lands under FAST mouse moves (no frame "
     const int x = hero.x + 24;
     send(affineui::EventType::MouseDown, {x, hero.y + hero.h / 2});
     // Stream a fast move sequence from the hero row down past the camera
-    // row's bottom band — 2px steps, NO layout() calls in between.
+    // row's bottom band â€” 2px steps, NO layout() calls in between.
     const int y_end = camera.y + camera.h - 2;
     for (int y = hero.y + hero.h / 2; y <= y_end; y += 2) {
         send(affineui::EventType::MouseMove, {x, y});
@@ -2503,7 +2522,7 @@ TEST_CASE("Full decius bundle: title-only float title tab is content-sized "
         // And it must NOT paint the active-TAB chrome: the bundle suppresses
         // the [aria-selected=true]:before/:after accent bars for
         // .dcs-panel__title--dock-tab (a title, not a tab). The accent for
-        // data-dcs-accent=cyan is #00b8d4 — no fill of that color may appear
+        // data-dcs-accent=cyan is #00b8d4 â€” no fill of that color may appear
         // anywhere over the tab.
         painter.fill_draws.clear();
         doc.draw(painter);
@@ -2526,7 +2545,7 @@ TEST_CASE("Full decius bundle: title-only float title tab is content-sized "
     }
 
     SUBCASE("painterless (headless estimate)") {
-        // Server-side / painterless layout estimates glyph metrics — text must
+        // Server-side / painterless layout estimates glyph metrics â€” text must
         // still OCCUPY space or content-sized boxes collapse.
         doc.layout(620, 420, nullptr);
         const auto title = doc.find_element_rect("#title-tab");
@@ -2568,7 +2587,7 @@ TEST_CASE("Full decius bundle: horizontal dock splitter reports NS cursor") {
 }
 
 TEST_CASE("Splitter cursor resolves row-resize from the decius rules ALONE "
-          "(no inline cursor) — .dcs-splitter--h must beat base col-resize") {
+          "(no inline cursor) â€” .dcs-splitter--h must beat base col-resize") {
     const char* rules =
         ".dcs-splitter{cursor:col-resize}"
         ".dcs-dock--v>.dcs-splitter,.dcs-splitter--h{cursor:row-resize}"
@@ -2613,7 +2632,7 @@ TEST_CASE("Horizontal splitter resolves row-resize even with a base "
           ".dcs-splitter{col-resize} rule present (direction, not thinness)") {
     // The decius bundle has `.dcs-splitter{cursor:col-resize}` (base) AND
     // `.dcs-dock--v>.dcs-splitter,.dcs-splitter--h{cursor:row-resize}`. The
-    // bottom (horizontal) splitter must end up row-resize (NS, up/down) — the
+    // bottom (horizontal) splitter must end up row-resize (NS, up/down) â€” the
     // base col-resize must NOT win. (User: "left-right cursor for an up-down
     // splitter".) Inline cursor:row-resize (set by View::splitter) must also win.
     affineui::Document doc;
@@ -2682,7 +2701,7 @@ TEST_CASE("Class mutation re-cascades a child-combinator rule keyed on the "
     // The exact shape decius uses to collapse a foldout: a rule keyed on a
     // *compound* class (.fold.fold--collapsed) with a child combinator at the
     // descendant body. Toggling the collapsed class on the parent must hide the
-    // body purely through the cascade — no element ever sets `hidden`/`display`
+    // body purely through the cascade â€” no element ever sets `hidden`/`display`
     // directly. This isolates the renderer behaviour the foldout relies on.
     affineui::Document doc;
     RecordingPainter painter;
@@ -2701,12 +2720,12 @@ TEST_CASE("Class mutation re-cascades a child-combinator rule keyed on the "
     doc.layout(160, 120, &painter);
 
     // STATIC: the child-combinator rule keyed on the compound ancestor class
-    // must already apply at load — 'a' open (body visible), 'b' collapsed
+    // must already apply at load â€” 'a' open (body visible), 'b' collapsed
     // (body display:none, so not hit-testable).
     CHECK(find_hovered_chain_id(doc, "a-body", 160, 120).x >= 0);
     CHECK(find_hovered_chain_id(doc, "b-body", 160, 120).x < 0);
 
-    // DYNAMIC (the common foldout round-trip — starts visible): adding the
+    // DYNAMIC (the common foldout round-trip â€” starts visible): adding the
     // collapsed class to 'a' hides a-body via re-cascade of the descendant
     // rule; removing it again must bring a-body back. a-body kept its box
     // through the collapse, so this exercises the restyle path.
@@ -2717,7 +2736,7 @@ TEST_CASE("Class mutation re-cascades a child-combinator rule keyed on the "
     doc.layout(160, 120, &painter);
     CHECK(find_hovered_chain_id(doc, "a-body", 160, 120).x >= 0);
 
-    // DYNAMIC (the reveal case — hidden at load, so it never had a box):
+    // DYNAMIC (the reveal case â€” hidden at load, so it never had a box):
     // removing the collapsed class from 'b' must create b-body's box and show
     // it. This is the path box-collection's display:none skip used to strand.
     REQUIRE(doc.set_attribute_by_id("b", "class", "fold"));
@@ -2765,7 +2784,7 @@ TEST_CASE("A custom-property override from an attribute selector resolves throug
     // Decius sets its spacing scale on the root and overrides it per density:
     // `[data-dcs-density=compact]{--dcs-s-1:1px}` etc., then consumes it as
     // `gap:var(--dcs-s-1)`. If the attribute-conditional override doesn't win
-    // (or var() doesn't pick it up), every compact gap/padding is wrong — which
+    // (or var() doesn't pick it up), every compact gap/padding is wrong â€” which
     // would read as "the vec spacing looks off". Verify the override resolves.
     affineui::Document doc;
     RecordingPainter painter;
@@ -2799,7 +2818,7 @@ TEST_CASE("Vec channel combos share width evenly with only the declared gap "
     // The transform/vec widget is a flex row of .dcs-combo cells, each
     // flex:1 1 0 so they share the row equally, separated only by the small
     // `gap`. The cell holds a number <input> (flex:1; min-width:0) that must be
-    // allowed to shrink — otherwise the cells bloat and the spacing looks wrong.
+    // allowed to shrink â€” otherwise the cells bloat and the spacing looks wrong.
     affineui::Document doc;
     RecordingPainter painter;
     doc.set_html(R"HTML(
@@ -2833,7 +2852,7 @@ TEST_CASE("Vec channel combos share width evenly with only the declared gap "
     CHECK(x->rect.w == 48);
     CHECK(y->rect.w == 48);
     CHECK(z->rect.w == 48);
-    // The only space between cells is the 6px gap — not a larger spread.
+    // The only space between cells is the 6px gap â€” not a larger spread.
     CHECK(y->rect.x - (x->rect.x + x->rect.w) == 6);
     CHECK(z->rect.x - (y->rect.x + y->rect.w) == 6);
 }
@@ -2841,11 +2860,11 @@ TEST_CASE("Vec channel combos share width evenly with only the declared gap "
 TEST_CASE("Clicking a foldout's title TEXT toggles it, and the collapse rule "
           "living in the USER stylesheet re-cascades (the game-editor setup)") {
     // Two game-editor-faithful conditions in one: (1) the header has only a
-    // title (no chevron), so the click lands on the title's TEXT block — the
+    // title (no chevron), so the click lands on the title's TEXT block â€” the
     // matcher must walk up past it to the header (a prior early-return bailed on
     // text clicks, so clicking a foldout title never toggled it); (2) decius is
     // loaded as the USER stylesheet (App::set_stylesheet), so the collapse rule
-    // is NOT in the document's <style> — the toggle must re-match against it.
+    // is NOT in the document's <style> â€” the toggle must re-match against it.
     affineui::Document doc;
     RecordingPainter painter;
     doc.set_user_stylesheet(
@@ -4668,7 +4687,7 @@ TEST_CASE("inline svg circular arc path paints with viewBox scaling and vars") {
     // The general SVG renderer strokes path data through the Painter's
     // vector-path API (arcs are lowered to cubics), so assert on the
     // stroked path: accent colour resolved through var(), and endpoints
-    // at the viewBox-scaled arc extremes (24 viewBox units → 56px box,
+    // at the viewBox-scaled arc extremes (24 viewBox units â†’ 56px box,
     // scale 56/24).
     const float sc = 56.0f / 24.0f;
     bool saw_accent_arc = false;
@@ -4794,7 +4813,7 @@ TEST_CASE("right-aligned input text uses its own content box") {
     // The input occupies x=96..394. With border-box sizing, 1px border and
     // 6px left/right padding, its content box is x=103..387. A right-
     // aligned single-line input pre-shifts its draw ORIGIN so the glyph
-    // run ends exactly at the content box's right edge — the alignment is
+    // run ends exactly at the content box's right edge â€” the alignment is
     // resolved in text_control_geometry (one origin shared by paint and
     // caret hit-mapping), and the painter receives a left-aligned run
     // with an unbounded wrap width (inputs never wrap: UA white-space is
@@ -7011,7 +7030,7 @@ TEST_CASE("rounded overflow clips descendant background corners") {
     CHECK(saw_child_left_clip);
 }
 
-// ── @media query tests ────────────────────────────────────────────────
+// â”€â”€ @media query tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // Verify that min-width / max-width media queries are evaluated against
 // the actual layout viewport width and nested style rules are applied
@@ -7019,7 +7038,7 @@ TEST_CASE("rounded overflow clips descendant background corners") {
 
 TEST_CASE("@media min-width matches and applies nested rules") {
     // A blue box becomes red inside @media (min-width: 600px).
-    // At viewport 800px the query matches → fill should be red.
+    // At viewport 800px the query matches â†’ fill should be red.
     affineui::Document doc;
     RecordingPainter painter;
 
@@ -7032,7 +7051,7 @@ TEST_CASE("@media min-width matches and applies nested rules") {
         </style>
         <div></div>
     )HTML");
-    doc.layout(800, 600, &painter);  // 800 >= 600 → @media matches
+    doc.layout(800, 600, &painter);  // 800 >= 600 â†’ @media matches
     doc.draw(painter);
 
     // Red (#ff0000) should be present; blue (#0000ff) should NOT be
@@ -7042,7 +7061,7 @@ TEST_CASE("@media min-width matches and applies nested rules") {
 }
 
 TEST_CASE("@media min-width does NOT match when viewport is smaller") {
-    // Same setup as above, but viewport is 400px < 600px → query fails,
+    // Same setup as above, but viewport is 400px < 600px â†’ query fails,
     // the nested rule is NOT applied, and the base blue remains.
     affineui::Document doc;
     RecordingPainter painter;
@@ -7056,7 +7075,7 @@ TEST_CASE("@media min-width does NOT match when viewport is smaller") {
         </style>
         <div></div>
     )HTML");
-    doc.layout(400, 600, &painter);  // 400 < 600 → @media does NOT match
+    doc.layout(400, 600, &painter);  // 400 < 600 â†’ @media does NOT match
     doc.draw(painter);
 
     CHECK(saw_fill(painter, affineui::Color::rgb(0x00, 0x00, 0xff)));
@@ -7077,7 +7096,7 @@ TEST_CASE("@media max-width matches when viewport is small enough") {
         </style>
         <div></div>
     )HTML");
-    doc.layout(320, 480, &painter);  // 320 <= 480 → @media matches
+    doc.layout(320, 480, &painter);  // 320 <= 480 â†’ @media matches
     doc.draw(painter);
 
     CHECK(saw_fill(painter, affineui::Color::rgb(0x00, 0xff, 0x00)));
@@ -7098,13 +7117,13 @@ TEST_CASE("@media viewport re-evaluated on layout width change") {
         <div></div>
     )HTML");
 
-    // First layout at 800px → red
+    // First layout at 800px â†’ red
     doc.layout(800, 600, &painter);
     painter.fill_colors.clear();
     doc.draw(painter);
     CHECK(saw_fill(painter, affineui::Color::rgb(0xff, 0x00, 0x00)));
 
-    // Second layout at 400px → media no longer matches → blue
+    // Second layout at 400px â†’ media no longer matches â†’ blue
     doc.layout(400, 600, &painter);
     painter.fill_colors.clear();
     doc.draw(painter);
@@ -7496,7 +7515,7 @@ TEST_CASE("UiControls: dragging a dcs-splitter redistributes pane flex-basis") {
     CHECK(left_w1 + right_w1 == 400);
 }
 
-TEST_CASE("UiControls: a splitter next to a flex:1 grower never freezes it — "
+TEST_CASE("UiControls: a splitter next to a flex:1 grower never freezes it â€” "
           "the document keeps filling the window after a drag (regression)") {
     // Regression for the reported game-editor bug: the old splitter wrote
     // `flex:0 0 <px>` onto BOTH siblings, so a drag froze the flex:1
@@ -7725,9 +7744,62 @@ TEST_CASE("UiControls: clicking a dock-pane tab switches the active body") {
     doc.dispatch(up);
     doc.layout(300, 200, &painter);
 
-    // Now B is visible and A is hidden — the tab switched.
+    // Now B is visible and A is hidden â€” the tab switched.
     CHECK(find_hovered_id(doc, "bodyB", 300, 200).x >= 0);
     CHECK(find_hovered_id(doc, "bodyA", 300, 200).x < 0);
+}
+
+TEST_CASE("overflow:auto flex body clips overflowing children to the pane "
+          "(inspector bleed repro)") {
+    // Field bug (DENDER/PhotoEdit inspector): pane content descends past the
+    // pane's bottom edge and paints over the panel below. The pane shape is
+    // the canonical dockpane: fixed-height flex column, header, then a
+    // `flex:1; min-height:0; overflow:auto` body holding taller content.
+    // Two independent ways this can break, both asserted here:
+    //   1. LAYOUT â€” the body must get the pane's remaining height (100px),
+    //      not its content height (240px). `min-height:0` on a flex child
+    //      is what allows it to shrink below content size.
+    //   2. PAINT â€” the body must register as a clip ancestor and push a
+    //      clip of its padding box for descendant draws.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .pane { position: absolute; left: 0; top: 0; width: 200px;
+                height: 120px; display: flex; flex-direction: column; }
+        .hdr  { flex: 0 0 20px; }
+        .scrollbody { flex: 1; min-height: 0; overflow: auto; }
+        .row  { height: 30px; }
+        </style>
+        <div class="pane">
+          <div class="hdr"></div>
+          <div id="scrollbody" class="scrollbody" data-aui-name="scrollbody">
+            <div class="row">r1</div><div class="row">r2</div>
+            <div class="row">r3</div><div class="row">r4</div>
+            <div class="row">r5</div><div class="row">r6</div>
+            <div class="row">r7</div><div class="row">r8</div>
+          </div>
+        </div>
+    )HTML");
+    doc.layout(400, 300, &painter);
+
+    // 1. Layout: the body fills the pane below the header â€” 100px tall,
+    //    NOT the 240px of row content.
+    const auto body = doc.find_element_rect("scrollbody");
+    REQUIRE(body.w > 0);
+    CHECK(body.y == 20);
+    CHECK(body.h == 100);
+
+    // 2. Paint: drawing the document pushes a clip matching the body's
+    //    padding box for its (overflowing) children.
+    painter.clip_rects.clear();
+    doc.draw(painter);
+    bool body_clip_seen = false;
+    for (const auto& r : painter.clip_rects) {
+        if (r.y == 20 && r.h == 100 && r.x == 0) body_clip_seen = true;
+    }
+    CHECK(body_clip_seen);
 }
 
 TEST_CASE("UiControls: dragging a floating element by its handle repositions it "
@@ -7777,7 +7849,7 @@ TEST_CASE("UiControls: dragging a floating element by its handle repositions it 
     CHECK(doc.hovered_info().bounds.x == 50);
     CHECK(doc.hovered_info().bounds.y == 60);
 
-    // Drag far past the bounds — it clamps so the 60x40 float stays inside the
+    // Drag far past the bounds â€” it clamps so the 60x40 float stays inside the
     // 400x300 host (max left 340, max top 260).
     auto grip2 = find_hovered_id(doc, "grip", 400, 300);
     press(affineui::EventType::MouseDown, grip2);
@@ -7787,6 +7859,269 @@ TEST_CASE("UiControls: dragging a floating element by its handle repositions it 
     find_hovered_id(doc, "grip", 400, 300);
     CHECK(doc.hovered_info().bounds.x == 340);
     CHECK(doc.hovered_info().bounds.y == 260);
+}
+
+TEST_CASE("UiControls: dragging a float with NO authored left/top (right-"
+          "anchored, offset host) moves by the mouse delta, not off-screen") {
+    // Field bug (DENDER tearout/toolbar): the drag math derived the
+    // containing-block origin as (element pos - authored inset), which is
+    // garbage when left/top isn't authored â€” a right-anchored or
+    // style-less float teleported off-screen on the first move (trace:
+    // `write left/top=(-871,16)`). The containing block must be resolved
+    // from the positioned-ancestor chain instead. The host here sits at a
+    // NON-ZERO origin so the two derivations disagree.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .page  { position: absolute; left: 0; top: 0; width: 600px; height: 300px; }
+        .host  { position: absolute; left: 200px; top: 40px;
+                 width: 300px; height: 200px; }
+        .float { position: absolute; right: 20px; top: 30px;
+                 width: 80px; height: 50px; }
+        .grip  { display: block; width: 80px; height: 14px; }
+        </style>
+        <div class="page">
+          <div class="host">
+            <div id="float" class="float" data-dcs-drag data-dcs-drag-bounds=".host">
+              <span id="grip" class="grip" data-dcs-drag-handle></span>
+            </div>
+          </div>
+        </div>
+    )HTML");
+    doc.layout(600, 300, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    // right:20 in a 300-wide host at x=200 â†’ float doc-x = 200+300-20-80 = 400.
+    auto grip = find_hovered_id(doc, "grip", 600, 300);
+    REQUIRE(grip.x >= 0);
+    const auto before = doc.hovered_info().bounds;
+    CHECK(before.x == 400);
+    CHECK(before.y == 70);
+
+    auto press = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        doc.dispatch(e);
+    };
+    // Drag by (-30, +20): the float must land at exactly (370, 90) in doc
+    // space â€” NOT at the host origin, NOT off-screen.
+    press(affineui::EventType::MouseDown, grip);
+    press(affineui::EventType::MouseMove, {grip.x - 30, grip.y + 20});
+    press(affineui::EventType::MouseUp, {grip.x - 30, grip.y + 20});
+    doc.layout(600, 300, &painter);
+
+    REQUIRE(find_hovered_id(doc, "grip", 600, 300).x >= 0);
+    const auto after = doc.hovered_info().bounds;
+    CHECK(after.x == 370);
+    CHECK(after.y == 90);
+}
+
+TEST_CASE("scratch: clip probe over a dumped app document"
+          " * [.]") {  // hidden: run explicitly with -tc="scratch:*"
+    // Diagnostic harness for the text-escapes-clip bug: load a real app dump
+    // (AFFINEUI_PROBE_HTML=<path>), lay it out, and report where inspector
+    // text draws land relative to the pane that should clip them.
+    const char* path = std::getenv("AFFINEUI_PROBE_HTML");
+    if (!path) return;
+    std::ifstream in(path, std::ios::binary);
+    REQUIRE(in.good());
+    std::stringstream ss;
+    ss << in.rdbuf();
+
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(ss.str());
+    doc.layout(1600, 1000, &painter);
+
+    auto report = [&](const char* name) {
+        const auto r = doc.find_element_rect(name);
+        MESSAGE(name << " rect=(" << r.x << "," << r.y << " " << r.w << "x"
+                     << r.h << ")");
+        return r;
+    };
+    const auto body = report("props-body");
+    report("prop-sheet");
+    report("prop-rail");
+
+    RecordingPainter paint;
+    doc.draw(paint);
+    int escaped = 0;
+    for (const auto& t : paint.text_draws) {
+        // Inspector texts that paint below the inspector body's bottom edge
+        // (or above its top) while positioned inside its x-range.
+        if (body.w <= 0) break;
+        const bool in_x = t.pos.x >= body.x && t.pos.x < body.x + body.w;
+        const bool out_y = t.pos.y > body.y + body.h || t.pos.y + 14 < body.y;
+        if (!in_x || !out_y) continue;
+        if (++escaped <= 12) {
+            MESSAGE("ESCAPE text='" << t.text.substr(0, 24) << "' pos=("
+                    << t.pos.x << "," << t.pos.y << ") clipped=" << t.clipped
+                    << " clip=(" << t.clip.x << "," << t.clip.y << " "
+                    << t.clip.w << "x" << t.clip.h << ")");
+        }
+    }
+    MESSAGE("total escaped inspector-x texts: " << escaped);
+}
+
+TEST_CASE("paint: a self-clipping label is ALSO clipped by its scroll pane "
+          "(ancestor clip chain intersects, inspector bleed repro)") {
+    // Field bug (DENDER inspector, but any scroll pane): the draw pass
+    // pushed only the NEAREST clip ancestor. Any element with its own clip
+    // context â€” a text-overflow:ellipsis label, an input â€” was therefore
+    // exempt from its scroll pane's clip: its self-clip rect rides along
+    // with the content, so overflowing/scrolled rows painted their text and
+    // chrome straight over neighbouring panes. CSS requires the clip to be
+    // the INTERSECTION of all clipping ancestors.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .pane  { position: absolute; left: 20px; top: 10px;
+                 width: 200px; height: 100px; overflow: auto; }
+        .row   { height: 30px; }
+        .label { overflow: hidden; height: 18px; }
+        </style>
+        <div class="pane">
+          <div class="row"><div class="label">ROW0</div></div>
+          <div class="row"><div class="label">ROW1</div></div>
+          <div class="row"><div class="label">ROW2</div></div>
+          <div class="row"><div class="label">ROW3</div></div>
+          <div class="row"><div class="label">ROW4</div></div>
+          <div class="row"><div class="label">BELOWFOLD</div></div>
+        </div>
+    )HTML");
+    doc.layout(400, 200, &painter);
+
+    RecordingPainter paint;
+    doc.draw(paint);
+
+    const RecordingPainter::TextDraw* below = nullptr;
+    const RecordingPainter::TextDraw* row0 = nullptr;
+    for (const auto& t : paint.text_draws) {
+        if (t.text == "BELOWFOLD") below = &t;
+        if (t.text == "ROW0") row0 = &t;
+    }
+    REQUIRE(below != nullptr);
+    REQUIRE(row0 != nullptr);
+
+    // Pane content box: (20,10 200x100) â†’ bottom edge at y=110.
+    // ROW0's label self-clip intersected with the pane is just the label
+    // box â€” fully inside the pane.
+    REQUIRE(row0->clipped);
+    CHECK(row0->clip.y >= 10);
+    CHECK(row0->clip.y + row0->clip.h <= 110);
+
+    // Row 5 sits at y=160, past the pane's fold. Its label still clips it
+    // (nearest ancestor), but the effective clip must ALSO be bounded by
+    // the pane â€” the intersection is empty, so nothing can paint below
+    // y=110. The old nearest-only clip was (row5's label box at y=160),
+    // letting the text draw over whatever lay under the pane.
+    REQUIRE(below->clipped);
+    // The intersection is empty (the label box lies wholly past the fold);
+    // an empty scissor paints nothing regardless of where it's anchored.
+    CHECK(below->clip.h == 0);
+}
+
+TEST_CASE("UiControls: float drag is a pure paint translation mid-gesture â€” "
+          "layout stays at the grab position, style commits on release") {
+    // Compositor semantics (the interaction budget depends on it): while a
+    // float drag is live, mouse moves must not restyle or re-lay-out
+    // anything. The dragged subtree paints through a translation injected in
+    // effective_transform_for; the inline left/top is written exactly once,
+    // on MouseUp. Regression: the old path wrote the style attribute per
+    // move â€” restyle + full relayout at mouse-poll rate made drags crawl.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .host  { position: absolute; left: 100px; top: 20px;
+                 width: 400px; height: 240px; }
+        .float { position: absolute; left: 40px; top: 30px;
+                 width: 80px; height: 50px; background: #123456; }
+        .grip  { display: block; width: 80px; height: 14px; }
+        </style>
+        <div class="host">
+          <div class="float" data-aui-name="float" data-dcs-drag
+               data-dcs-drag-bounds=".host">
+            <span id="grip" class="grip" data-dcs-drag-handle></span>
+          </div>
+        </div>
+    )HTML");
+    doc.layout(600, 300, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    const affineui::Color float_bg{0x12, 0x34, 0x56, 0xFF};
+    auto float_fill_at = [&](RecordingPainter& p)
+        -> const RecordingPainter::FillDraw* {
+        for (const auto& f : p.fill_draws) {
+            if (f.color.r == float_bg.r && f.color.g == float_bg.g &&
+                f.color.b == float_bg.b) {
+                return &f;
+            }
+        }
+        return nullptr;
+    };
+
+    auto send = [&](affineui::EventType t, affineui::Point p) {
+        affineui::Event e{};
+        e.type = t;
+        e.button = affineui::MouseButton::Left;
+        e.pos = p;
+        doc.dispatch(e);
+    };
+
+    // left:40/top:30 in a host at (100,20) â†’ float doc pos (140,50).
+    const auto grab = doc.find_element_rect("float");
+    REQUIRE(grab.x == 140);
+    REQUIRE(grab.y == 50);
+
+    send(affineui::EventType::MouseDown, {170, 55});   // on the grip
+    send(affineui::EventType::MouseMove, {170 + 25, 55 + 15});
+
+    // Mid-gesture: the block tree has NOT moved (no style write, no
+    // relayout) ...
+    const auto mid = doc.find_element_rect("float");
+    CHECK(mid.x == 140);
+    CHECK(mid.y == 50);
+
+    // ... but paint shows the float translated by the mouse delta: its
+    // background fill still carries the layout rect, offset by a pure
+    // translate transform.
+    RecordingPainter mid_paint;
+    doc.draw(mid_paint);
+    {
+        const auto* f = float_fill_at(mid_paint);
+        REQUIRE(f != nullptr);
+        CHECK(f->rect.x == 140);
+        CHECK(f->rect.y == 50);
+        CHECK(f->transform.tx == 25.0f);
+        CHECK(f->transform.ty == 15.0f);
+        CHECK(f->transform.a == 1.0f);
+        CHECK(f->transform.d == 1.0f);
+    }
+
+    // Release: the position lands in the document (single style commit) and
+    // paint no longer needs a transform.
+    send(affineui::EventType::MouseUp, {170 + 25, 55 + 15});
+    doc.layout(600, 300, &painter);
+    const auto after = doc.find_element_rect("float");
+    CHECK(after.x == 165);
+    CHECK(after.y == 65);
+    RecordingPainter end_paint;
+    doc.draw(end_paint);
+    {
+        const auto* f = float_fill_at(end_paint);
+        REQUIRE(f != nullptr);
+        CHECK(f->rect.x == 165);
+        CHECK(f->rect.y == 65);
+        CHECK(f->transform.is_identity());
+    }
 }
 
 TEST_CASE("UiControls: dragging a dock tab OUT of its pane tears it off into a "
@@ -7872,6 +8207,365 @@ TEST_CASE("UiControls: dragging a dock tab OUT of its pane tears it off into a "
     CHECK(dock_tree_has_tab(layout.root, "Doc"));  // the document pane survives
 }
 
+namespace {
+
+// Canonical dockable workspace for tab-drag tests: 200px panels pane X (+
+// optional Y tab), documents center pane, a drop indicator, inside a 600x400
+// float host.
+std::string dock_drag_workspace_html(bool with_second_panel) {
+    std::string second;
+    if (with_second_panel) {
+        second =
+            "<button id=\"tabY\" class=\"dcs-dockpane__tab\" "
+            "aria-selected=\"false\" data-dcs-target=\"#Y-body\">Y</button>";
+    }
+    return R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost { position: relative; width: 600px; height: 400px; display: flex; }
+        .dcs-dock { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-panel--floating { position: absolute; }
+        [hidden] { display: none; }
+        [data-dcs-tabpanel][hidden] { display: none; }
+        </style>
+        <div class="dcs-dock--floathost" data-dcs-float-host>
+          <div class="dcs-dock">
+            <section class="dcs-dockpane" data-aui-name="pane-X" style="flex:0 0 200px">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button id="tabX" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#X-body">X</button>
+)HTML" + second + R"HTML(
+              </div></div>
+              <div class="dcs-dockpane__body">
+                <div id="X-body" data-dcs-tabpanel>content</div>
+)HTML" + std::string(with_second_panel
+                         ? "<div id=\"Y-body\" data-dcs-tabpanel hidden>ycontent</div>"
+                         : "") + R"HTML(
+              </div>
+            </section>
+            <section class="dcs-dockpane dcs-dockpane--center" data-aui-name="pane-__document__" style="flex:1 1 0">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Doc-body">Doc</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="Doc-body" data-dcs-tabpanel>doc</div></div>
+            </section>
+          </div>
+          <div id="__dropind" data-aui-name="dropind" hidden></div>
+        </div>
+    )HTML";
+}
+
+}  // namespace
+
+TEST_CASE("UiControls: a tearout's title tab dragged to free space re-spawns "
+          "the tearout at the drop point (single-tab tearout moves)") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(dock_drag_workspace_html(false));
+    doc.layout(600, 400, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto down = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseDown;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+    auto move = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseMove; e.pos = p;
+        doc.dispatch(e);
+    };
+    auto up = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseUp;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+
+    // Tear X off into a floater.
+    auto tab = find_hovered_id(doc, "tabX", 600, 400);
+    REQUIRE(tab.x >= 0);
+    down(tab);
+    move({400, 200});
+    up({400, 200});
+    auto layout = doc.dock_layout();
+    REQUIRE(layout.floats.size() == 1);
+    const int old_x = layout.floats[0].x;
+    const int old_y = layout.floats[0].y;
+
+    // Drag the tearout's TITLE TAB to a different free-space point. This was
+    // a hard no-op ("repositions via its chrome") â€” it must re-spawn the
+    // panel's tearout at the drop point instead.
+    tab = find_hovered_id(doc, "tabX", 600, 400);
+    REQUIRE(tab.x >= 0);
+    down(tab);
+    move({120, 320});
+    up({120, 320});
+
+    layout = doc.dock_layout();
+    REQUIRE(layout.floats.size() == 1);
+    CHECK(layout.floats[0].pane.tabs == std::vector<std::string>{"X"});
+    CHECK(layout.floats[0].title_only == true);
+    CHECK((layout.floats[0].x != old_x || layout.floats[0].y != old_y));
+    CHECK_FALSE(dock_tree_has_tab(layout.root, "X"));
+}
+
+TEST_CASE("UiControls: a tab dragged out of a MULTI-tab tearout splits into "
+          "its own tearout, source keeps the rest") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(dock_drag_workspace_html(true));
+    doc.layout(600, 400, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto down = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseDown;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+    auto move = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseMove; e.pos = p;
+        doc.dispatch(e);
+    };
+    auto up = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseUp;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+
+    // Tear X off, then drop Y onto the floater's center to join it.
+    auto tab = find_hovered_id(doc, "tabX", 600, 400);
+    REQUIRE(tab.x >= 0);
+    down(tab);
+    move({400, 200});
+    up({400, 200});
+    auto layout = doc.dock_layout();
+    REQUIRE(layout.floats.size() == 1);
+    const affineui::Point float_center{layout.floats[0].x + layout.floats[0].w / 2,
+                                       layout.floats[0].y + layout.floats[0].h / 2};
+
+    tab = find_hovered_id(doc, "tabY", 600, 400);
+    REQUIRE(tab.x >= 0);
+    down(tab);
+    move(float_center);
+    up(float_center);
+    layout = doc.dock_layout();
+    REQUIRE(layout.floats.size() == 1);
+    {
+        auto tabs = layout.floats[0].pane.tabs;
+        std::sort(tabs.begin(), tabs.end());
+        CHECK(tabs == std::vector<std::string>{"X", "Y"});
+    }
+    CHECK(layout.floats[0].title_only == false);
+
+    // Drag Y's tab from the tearout's tab row into free space (outside the
+    // source floater â€” dropping on the floater itself is the self no-op) â†’
+    // it splits into its OWN tearout; the source keeps X (and collapses to
+    // title-only).
+    tab = find_hovered_id(doc, "tabY", 600, 400);
+    REQUIRE(tab.x >= 0);
+    down(tab);
+    move({100, 300});
+    up({100, 300});
+
+    layout = doc.dock_layout();
+    REQUIRE(layout.floats.size() == 2);
+    std::vector<std::string> all_tabs;
+    for (const auto& f : layout.floats) {
+        REQUIRE(f.pane.tabs.size() == 1);
+        all_tabs.push_back(f.pane.tabs[0]);
+        CHECK(f.title_only == true);
+    }
+    std::sort(all_tabs.begin(), all_tabs.end());
+    CHECK(all_tabs == std::vector<std::string>{"X", "Y"});
+}
+
+TEST_CASE("UiControls: an APP-AUTHORED floating pane (no pane-<id> naming, "
+          "N-panel shape) is a valid Tab drop target and self-target") {
+    // Field bug (DENDER N-panel): compute_drop_target required a
+    // pane-<id> data-aui-name to consider a pane a target at all, so
+    // app-authored dockpanes â€” named by their own keys, tabs targeting
+    // "#<id>" directly â€” never highlighted and never accepted drops. The
+    // pane ELEMENT is the target; the id is best-effort metadata.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost { position: relative; width: 600px; height: 400px; display: flex; }
+        .dcs-dock { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-panel--floating { position: absolute; }
+        [hidden] { display: none; }
+        [data-dcs-tabpanel][hidden] { display: none; }
+        </style>
+        <div class="dcs-dock--floathost" data-dcs-float-host>
+          <div class="dcs-dock">
+            <section class="dcs-dockpane" data-aui-name="pane-X" style="flex:0 0 200px">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button id="tabX" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#X-body">X</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="X-body" data-dcs-tabpanel>content</div></div>
+            </section>
+            <section class="dcs-dockpane dcs-dockpane--center" data-aui-name="pane-__document__" style="flex:1 1 0">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Doc-body">Doc</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="Doc-body" data-dcs-tabpanel>doc</div></div>
+            </section>
+          </div>
+          <!-- App-authored floating cluster, N-panel shape: pane named by an
+               app key, tabs targeting "#<id>" with no -body suffix. -->
+          <section class="dcs-panel dcs-panel--floating" data-aui-name="app-float"
+                   style="left:380px;top:60px;width:180px;height:200px;display:flex;flex-direction:column">
+            <section class="dcs-dockpane" data-aui-name="np-pane" style="flex:1">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button id="tabItem" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#np-item">Item</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="np-item" data-dcs-tabpanel>item props</div></div>
+            </section>
+          </section>
+          <div id="__dropind" data-aui-name="dropind" hidden></div>
+        </div>
+    )HTML");
+    doc.layout(600, 400, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto down = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseDown;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+    auto move = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseMove; e.pos = p;
+        doc.dispatch(e);
+    };
+    auto up = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseUp;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+
+    // Drag X's tab over the app pane: it must highlight (valid Tab target â€”
+    // floaters only ever JOIN as tabs, never split) ...
+    auto tab = find_hovered_id(doc, "tabX", 600, 400);
+    REQUIRE(tab.x >= 0);
+    const affineui::Point over_app{380 + 90, 60 + 100};  // app pane center
+    down(tab);
+    move(over_app);
+    {
+        const auto ind = doc.find_element_rect("dropind");
+        CHECK(ind.w > 0);
+    }
+    // ... and dropping joins its tab row.
+    up(over_app);
+    {
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        CHECK_FALSE(dock_tree_has_tab(layout.root, "X"));
+        REQUIRE(layout.floats.size() == 1);
+        auto tabs = layout.floats[0].pane.tabs;
+        std::sort(tabs.begin(), tabs.end());
+        CHECK(tabs == std::vector<std::string>{"X", "np-item"});
+    }
+
+    // Self-drop on the app pane: highlight, release = no-op.
+    tab = find_hovered_id(doc, "tabItem", 600, 400);
+    REQUIRE(tab.x >= 0);
+    down(tab);
+    move(over_app);
+    {
+        const auto ind = doc.find_element_rect("dropind");
+        CHECK(ind.w > 0);
+    }
+    up(over_app);
+    {
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.floats.size() == 1);
+        auto tabs = layout.floats[0].pane.tabs;
+        std::sort(tabs.begin(), tabs.end());
+        CHECK(tabs == std::vector<std::string>{"X", "np-item"});
+    }
+}
+
+TEST_CASE("UiControls: dragging a tab over its OWN pane shows the drop "
+          "indicator and releasing there is a no-op (docked and floating)") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(dock_drag_workspace_html(false));
+    doc.layout(600, 400, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto down = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseDown;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+    auto move = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseMove; e.pos = p;
+        doc.dispatch(e);
+    };
+    auto up = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseUp;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+
+    // Docked: drag X's tab down into its own pane body.
+    auto tab = find_hovered_id(doc, "tabX", 600, 400);
+    REQUIRE(tab.x >= 0);
+    down(tab);
+    move({100, 220});  // well inside pane X, past the drag threshold
+    // Visual feedback: the indicator is visible over the source pane.
+    {
+        const auto ind = doc.find_element_rect("dropind");
+        CHECK(ind.w > 0);
+        CHECK(ind.h > 0);
+    }
+    up({100, 220});
+    {
+        const auto layout = doc.dock_layout();
+        REQUIRE(layout.present);
+        CHECK(layout.floats.empty());              // no tearoff
+        CHECK(dock_tree_has_tab(layout.root, "X"));  // still docked
+        CHECK(doc.find_element_rect("dropind").w == 0);  // hidden again
+    }
+
+    // Floating: tear X off, then drag its title tab onto the floater itself.
+    tab = find_hovered_id(doc, "tabX", 600, 400);
+    REQUIRE(tab.x >= 0);
+    down(tab);
+    move({400, 200});
+    up({400, 200});
+    auto layout = doc.dock_layout();
+    REQUIRE(layout.floats.size() == 1);
+    const int old_x = layout.floats[0].x;
+    const int old_y = layout.floats[0].y;
+    // The spawned floater must actually LAY OUT at its spawn rect â€” a
+    // collapsed float (inline style lost/ignored) breaks every later
+    // hit-test on it.
+    {
+        const auto fr = doc.find_element_rect("float-X");
+        CHECK(fr.x == old_x);
+        CHECK(fr.y == old_y);
+        CHECK(fr.w == layout.floats[0].w);
+        CHECK(fr.h == layout.floats[0].h);
+    }
+    const affineui::Point inside{layout.floats[0].x + layout.floats[0].w / 2,
+                                 layout.floats[0].y + layout.floats[0].h / 2};
+
+    tab = find_hovered_id(doc, "tabX", 600, 400);
+    REQUIRE(tab.x >= 0);
+    down(tab);
+    move(inside);
+    {
+        const auto ind = doc.find_element_rect("dropind");
+        CHECK(ind.w > 0);  // feedback over its own floater
+    }
+    up(inside);
+    layout = doc.dock_layout();
+    REQUIRE(layout.floats.size() == 1);  // no duplicate spawned
+    CHECK(layout.floats[0].pane.tabs == std::vector<std::string>{"X"});
+    CHECK(layout.floats[0].x == old_x);  // and it did not jump
+    CHECK(layout.floats[0].y == old_y);
+}
+
 TEST_CASE("UiControls: dropping a dragged tab on another pane's edge zone "
           "splits the target there (DOM surgery, not floating)") {
     affineui::Document doc;
@@ -7924,7 +8618,7 @@ TEST_CASE("UiControls: dropping a dragged tab on another pane's edge zone "
         e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
     };
 
-    // Drag B's tab onto pane A's LEFT edge zone (x≈40 < 22% of 300).
+    // Drag B's tab onto pane A's LEFT edge zone (xâ‰ˆ40 < 22% of 300).
     auto tabB = find_hovered_id(doc, "tabB", 600, 400);
     REQUIRE(tabB.x >= 0);
     down(tabB);
@@ -7987,7 +8681,7 @@ TEST_CASE("UiControls: viewport edge docking does not steal a pane edge") {
     };
     // Drop at x=8: within the 32px window-edge band AND within pane A's left
     // edge zone. The pane edge under the cursor wins, so the fresh pane lands
-    // as a direct sibling of A in the WORKSPACE dock (root.children order) —
+    // as a direct sibling of A in the WORKSPACE dock (root.children order) â€”
     // a window-edge split would instead wrap the workspace dock in a new one
     // (root.children[1] would be a nested split, not the A leaf).
     auto tabB = find_hovered_id(doc, "tabB", 600, 400);
@@ -8140,7 +8834,7 @@ TEST_CASE("UiControls: dock preview uses the topmost element's dock ancestor") {
     REQUIRE(tab.x >= 0);
     ev(affineui::EventType::MouseDown, tab);
     // (150,300) is geometrically inside pane Behind, but the TOPMOST element
-    // there is the z-raised console overlay, which has no dockpane ancestor —
+    // there is the z-raised console overlay, which has no dockpane ancestor â€”
     // so there is no valid target and no preview.
     ev(affineui::EventType::MouseMove, {150, 300});
     doc.layout(520, 400, &painter);
@@ -8559,7 +9253,7 @@ TEST_CASE("UiControls: dock preview target clears after leaving a valid pane") {
     CHECK(assets_leaf->tabs == std::vector<std::string>{"Assets"});
 }
 
-TEST_CASE("UiControls: self-pane docking — center is a no-op preview, edge "
+TEST_CASE("UiControls: self-pane docking â€” center is a no-op preview, edge "
           "splits the tab out of its own group") {
     // A multi-tab pane is a valid target for its OWN tab: dropping on its
     // CENTER shows the preview but is a NO-OP on release (the tab is already
@@ -8633,7 +9327,7 @@ TEST_CASE("UiControls: self-pane docking — center is a no-op preview, edge "
         pane_bounds.y + pane_bounds.h / 2};
 
     // Drop on the source pane's CENTER: the preview DOES show (a valid target),
-    // but the release is a NO-OP — Console stays a tab of Assets, no float.
+    // but the release is a NO-OP â€” Console stays a tab of Assets, no float.
     ev(affineui::EventType::MouseDown, console_tab);
     const auto center_move_result =
         ev(affineui::EventType::MouseMove, source_center);
@@ -8657,7 +9351,7 @@ TEST_CASE("UiControls: self-pane docking — center is a no-op preview, edge "
     }
 
     // The source pane's own RIGHT edge band: a MULTI-tab pane's edge zones ARE
-    // valid for its own tab (the "split Console out of Assets" gesture —
+    // valid for its own tab (the "split Console out of Assets" gesture â€”
     // upstreamed to decius.js dockDropDecision as well). The drop splits the
     // pane: Console gets a fresh pane to the right of Assets.
     doc.set_html(html);
@@ -8806,7 +9500,7 @@ TEST_CASE("UiControls: View dock tab switches from Assets to Console") {
 }
 
 TEST_CASE("UiScript: deterministic docking gesture FUZZER (seeded; invariants "
-          "after every move) — UAF net when run under ASAN") {
+          "after every move) â€” UAF net when run under ASAN") {
     // The lesson of the docking work: single gestures pass, SEQUENCES crash.
     // This replays a long, seeded-random stream of dock / tearoff / re-dock
     // gestures with the editor's reload-after-every-change loop, and asserts
@@ -8926,7 +9620,7 @@ TEST_CASE("UiScript: bottom pane docks to the bottom of Hierarchy and back "
           "again, repeatedly (in-window crash sequence)") {
     // The exact gesture sequence reported crashing in the windowed editor:
     // drag the bottom pane's tab to the BOTTOM of Hierarchy (vertical split
-    // under it), then back to the bottom area, several times — with the
+    // under it), then back to the bottom area, several times â€” with the
     // editor's reload-after-every-layout-change loop in play.
     constexpr int W = 640;
     constexpr int H = 360;
@@ -8995,12 +9689,12 @@ TEST_CASE("UiScript: bottom pane docks to the bottom of Hierarchy and back "
     };
 
     for (int round = 0; round < 3; ++round) {
-        // Bottom pane tab → bottom band of Hierarchy: splits under it.
+        // Bottom pane tab â†’ bottom band of Hierarchy: splits under it.
         REQUIRE(ui.drag("[data-dcs-target=#Assets-body]", "pane-Hierarchy",
                         affineui::UiScript::Anchor::Bottom));
         expect_valid("after dock under Hierarchy");
         // ... and back again: to the bottom band of the workspace (over the
-        // document pane's lower edge — window-edge band docks it back at the
+        // document pane's lower edge â€” window-edge band docks it back at the
         // workspace level, the original arrangement).
         REQUIRE(ui.drag("[data-dcs-target=#Assets-body]", "pane-__document__",
                         affineui::UiScript::Anchor::Bottom));
@@ -9008,7 +9702,7 @@ TEST_CASE("UiScript: bottom pane docks to the bottom of Hierarchy and back "
     }
 }
 
-TEST_CASE("UiControls: game-editor-shaped tearoff — press reload, doc toolbar, "
+TEST_CASE("UiControls: game-editor-shaped tearoff â€” press reload, doc toolbar, "
           "panel toolbar rides along, second gesture survives") {
     // Mirrors the REAL game editor sequence that crashed in-window: the press
     // selects the tab which triggers an app reload MID-GESTURE (selection
@@ -9083,7 +9777,7 @@ TEST_CASE("UiControls: game-editor-shaped tearoff — press reload, doc toolbar,
 
     rebuild();
     // Gesture 1: press the Hierarchy tab (app reloads on the press, like the
-    // editor's selection reload), drag to the document body, release → tearoff.
+    // editor's selection reload), drag to the document body, release â†’ tearoff.
     auto tab = find_hovered_attr(doc, "data-dcs-target", "#Hierarchy-body", W, H);
     REQUIRE(tab.x >= 0);
     ev(affineui::EventType::MouseDown, tab, /*reload_after=*/true);
@@ -9101,7 +9795,7 @@ TEST_CASE("UiControls: game-editor-shaped tearoff — press reload, doc toolbar,
               .x >= 0);
 
     // Gesture 2 (the in-window crash): drag the float's title tab back onto
-    // the Inspector pane to re-dock — after the reload replay. Bounds are
+    // the Inspector pane to re-dock â€” after the reload replay. Bounds are
     // probed BEFORE the press: once a drag is armed, the drop indicator
     // overlay follows the cursor and steals hover probes.
     REQUIRE(find_hovered_attr(doc, "data-aui-name", "pane-Inspector", W, H).x >=
@@ -9120,7 +9814,7 @@ TEST_CASE("UiControls: game-editor-shaped tearoff — press reload, doc toolbar,
                                    W, H);
     REQUIRE(title.x >= 0);
     ev(affineui::EventType::MouseDown, title, /*reload_after=*/true);
-    // Aim at the middle of the Inspector pane (center → join as tab).
+    // Aim at the middle of the Inspector pane (center â†’ join as tab).
     const affineui::Point redock{insp.x + insp.w / 2, insp.y + insp.h / 2};
     ev(affineui::EventType::MouseMove, redock, false);
     ev(affineui::EventType::MouseUp, redock, false);
@@ -9245,7 +9939,7 @@ TEST_CASE("UiControls: dragging the primary dock tab leaves sibling tabs behind"
         ev(affineui::EventType::MouseUp, hierarchy_bottom);
 
         // Assets moved into a fresh pane below Hierarchy; the sibling tabs
-        // (Console, Log) stay behind in the source pane — they are real DOM
+        // (Console, Log) stay behind in the source pane â€” they are real DOM
         // children, nothing re-anchors.
         const auto layout = doc.dock_layout();
         REQUIRE(layout.present);
@@ -9413,7 +10107,7 @@ TEST_CASE("UiControls: dragging a dock parent onto its child preserves both pane
     CHECK(find_hovered_attr(doc, "data-aui-name", "pane-Assets", W, H).x >= 0);
 
     // 2. Drag the Assets tab onto the Console pane's CENTER: Assets joins
-    //    Console's tab row (just a tab move — no cycle, no lost pane).
+    //    Console's tab row (just a tab move â€” no cycle, no lost pane).
     const auto console = bounds_for_attr("data-aui-name", "pane-Console");
     drag_tab_to("#Assets-body",
                 {console.x + console.w / 2, console.y + console.h / 2});
@@ -9430,7 +10124,7 @@ TEST_CASE("UiControls: dragging a dock parent onto its child preserves both pane
     CHECK(find_hovered_attr(doc, "data-dcs-target", "#Assets-body", W, H).x >= 0);
     CHECK(find_hovered_attr(doc, "data-dcs-target", "#Console-body", W, H).x >= 0);
 
-    // 3. Round-trip back: drag Assets to the BOTTOM window edge — it splits
+    // 3. Round-trip back: drag Assets to the BOTTOM window edge â€” it splits
     //    back out into its own pane; Console keeps its pane. Both survive.
     const auto merged = bounds_for_attr("data-aui-name", "pane-Console");
     drag_tab_to("#Assets-body",
@@ -9486,7 +10180,7 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
     auto rebuild = [&]() {
         affineui::View v{affineui::ViewTheme::Decius};
         // Replay the live dock arrangement (the DOM surgery result) on every
-        // rebuild — this is the same wiring as a real app.
+        // rebuild â€” this is the same wiring as a real app.
         v.set_dock_layout_provider([&] { return doc.dock_layout(); });
         v.set_dock_active_tab_provider([&](std::string_view id) {
             return doc.dock_active_tab(id);
@@ -9587,7 +10281,7 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
     };
 
     // Structural probes against the live dock tree (the override store is
-    // dead — the dock structure IS the DOM).
+    // dead â€” the dock structure IS the DOM).
     auto console_split_from = [&](std::string_view neighbor_tab,
                                   bool console_after) {
         // Console is a single-tab leaf sharing a split with `neighbor_tab`'s
@@ -9788,7 +10482,7 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
     auto rebuild = [&]() {
         affineui::View v{affineui::ViewTheme::Decius};
         // Replay the live dock arrangement (the tearoff/redock surgery) on
-        // every rebuild — this also exercises the replay round-trip.
+        // every rebuild â€” this also exercises the replay round-trip.
         v.set_dock_layout_provider([&] { return doc.dock_layout(); });
         v.set_dock_active_tab_provider([&](std::string_view id) {
             return doc.dock_active_tab(id);
@@ -9955,7 +10649,7 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
         CHECK(layout.floats[0].h == resized_floating.h);
     }
 
-    // Dragging the title bar CHROME (not the title tab) moves the panel only —
+    // Dragging the title bar CHROME (not the title tab) moves the panel only â€”
     // it never re-docks (decius float-drag).
     const affineui::Point title_empty{
         resized_floating.x + resized_floating.w -
@@ -10015,7 +10709,7 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
     // float's center: the float accepts it as a co-tab. This leg drives the
     // raw surgery (no rebuild between gestures) and replays once at the end.
     // NOTE: joining a float that has been round-tripped through the View
-    // replay does not work yet — emit_one_floating_panel's title-only branch
+    // replay does not work yet â€” emit_one_floating_panel's title-only branch
     // emits no (hidden) tabbar, so ensure_tabbed_dock cannot re-home the
     // title tab (src bug, reported separately).
     auto ev_raw = [&](affineui::EventType t, affineui::Point p) {
@@ -10082,7 +10776,7 @@ TEST_CASE("UiControls: View panel tearoff uses a default size inside the "
 }
 
 TEST_CASE("UiControls: a 'panels' tab dropped on the document body does NOT dock "
-          "(dock-kind mismatch) — it tears off") {
+          "(dock-kind mismatch) â€” it tears off") {
     affineui::Document doc;
     RecordingPainter painter;
     doc.set_html(R"HTML(

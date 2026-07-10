@@ -699,12 +699,6 @@ void DenderApp::set_inspector_tab(std::string_view id) {
     reload();  // the selected tab's sheet content is built on demand
 }
 
-void DenderApp::set_npanel_tab(std::string_view id) {
-    // The interaction layer already switched the visible tabpanel; recording
-    // the choice keeps it across rebuilds.
-    ui_.npanel_tab = std::string(id);
-}
-
 void DenderApp::quit() { app_.quit(); }
 
 // ── Native events: keyboard + timeline scrub ────────────────────────────────

@@ -1751,6 +1751,27 @@ Mat2x3 local_transform_for(const detail::AnimatedStyle& an, const RectF& r) {
 }
 
 Mat2x3 effective_transform_for(const detail::DocumentImpl& impl, int idx) {
+    // An active float drag is a pure translation at this choke point
+    // (compositor semantics): the DOM/styles/layout stay at the grab
+    // position, and the dragged subtree is offset here — both draw and
+    // hit-test flow through this function — until commit_float_drag lands
+    // the final left/top on release. block_idx is captured at grab and the
+    // tree cannot recollect mid-gesture (moves mutate nothing), but verify
+    // the element still owns that slot before trusting it.
+    int drag_idx = -1;
+    float drag_dx = 0.0f;
+    float drag_dy = 0.0f;
+    {
+        const auto& d = impl.float_drag;
+        if (d.elem && d.block_idx >= 0 &&
+            d.block_idx < static_cast<int>(impl.blocks.size()) &&
+            (d.cur_x != d.elem_doc_x || d.cur_y != d.elem_doc_y) &&
+            detail::element_for_block(impl, d.block_idx) == d.elem) {
+            drag_idx = d.block_idx;
+            drag_dx = static_cast<float>(d.cur_x - d.elem_doc_x);
+            drag_dy = static_cast<float>(d.cur_y - d.elem_doc_y);
+        }
+    }
     std::vector<int> chain;
     for (int cur = idx; cur >= 0; ) {
         chain.push_back(cur);
@@ -1759,6 +1780,11 @@ Mat2x3 effective_transform_for(const detail::DocumentImpl& impl, int idx) {
     Mat2x3 combined = Mat2x3::identity();
     for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
         const auto& b = impl.blocks[static_cast<std::size_t>(*it)];
+        if (*it == drag_idx) {
+            // Doc-space translation applied outside the block's own
+            // transform, inside its ancestors'.
+            combined = Mat2x3::translate(drag_dx, drag_dy).then(combined);
+        }
         const int dy = detail::scroll_offset_y_for(impl.blocks, impl.style_store, *it);
         const RectF eff{
             b.bounds_f.x,

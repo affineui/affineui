@@ -68,9 +68,19 @@ public:
             std::string              kind;     ///< "panels" / "documents"
             std::vector<std::string> tabs;     ///< panel ids, in tab order
             std::string              active;   ///< active panel id ("" = first)
+            // Dock-graph placement, round-tripped so a replay re-emits the
+            // same data-aui-dock-parent/side the live pane carried (without
+            // this, one replay resets every pane's graph to document:left).
+            std::string              dock_parent;   ///< "" = the document
+            int                      dock_side{-1}; ///< Dock enum value; -1 = none
         };
         struct Float {
             int  x{0}, y{0}, w{0}, h{0};  ///< rect in workspace-root px
+            // x/y measure inward from the RIGHT/BOTTOM edge when set — a
+            // corner-anchored seed positions with right:/bottom: CSS, and the
+            // harvest keeps that form so the replay needs no layout pass.
+            bool from_right{false};
+            bool from_bottom{false};
             bool title_only{false};       ///< single-tab title-bar mode
             Node pane;                    ///< the floating dockpane (leaf)
         };
@@ -155,6 +165,13 @@ public:
     /// Wire into View::set_dock_layout_provider so view rebuilds re-emit the
     /// user's arrangement instead of the declared seed.
     [[nodiscard]] DockLayout dock_layout() const;
+
+    /// True once (consumes the flag) after dock SURGERY — tearoff,
+    /// drag-to-dock, tab move — restructured the DOM outside a view batch.
+    /// A retained View must not reconcile incrementally over that (the
+    /// surgery's wrapper elements would survive as duplicate chrome):
+    /// App::rebuild_view re-bootstraps when this fires.
+    [[nodiscard]] bool take_dock_structure_changed();
 
     /// Border-box rect of the first element matching `target`, in document
     /// coordinates (valid after layout). Target forms:

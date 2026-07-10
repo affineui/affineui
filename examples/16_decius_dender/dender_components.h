@@ -94,10 +94,13 @@ void tool_rail(affineui::View& view, std::string_view active_tool);
 /// `move_view_pressed` reflects the Move View orbit/pan toggle.
 void nav_cluster(affineui::View& view, bool move_view_pressed);
 
-/// The floating N-panel with Item / Tool / View tabs (tab buttons keyed
-/// "npanel-tab-<id>"); content per the web reference (cosmetic fields).
-void npanel(affineui::View& view, const DenderDocument& doc,
-            std::string_view active_tab);
+/// N-panel tab BODIES (Item / Tool / View), per the web reference (cosmetic
+/// fields). The panel chrome itself is DECLARED in build_workarea as three
+/// dockpanels seeded as one floating tab group — that is what lets the
+/// docking system replay their placement across rebuilds.
+void npanel_item_body(affineui::View& view);
+void npanel_tool_body(affineui::View& view);
+void npanel_view_body(affineui::View& view);
 
 // ── Timeline dopesheet body ──────────────────────────────────────────────────
 

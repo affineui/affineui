@@ -313,6 +313,55 @@ int nearest_clip_ancestor_for_block(const detail::DocumentImpl& impl, int idx) {
     }
     return -1;
 }
+
+bool clip_rect_for_block(const detail::DocumentImpl& impl, int idx,
+                         Rect& out) {
+    // CSS clips a box by the INTERSECTION of the padding boxes of ALL
+    // overflow-clipping ancestors — not just the nearest one. The nearest-
+    // only version made any element carrying its own clip context (a
+    // text-overflow:ellipsis label, an input) exempt from its scroll pane's
+    // clip: the self-clip rect rides the scroll offset, so scrolled content
+    // painted straight over neighbouring panes. position:fixed still escapes
+    // every clip below the fixed boundary, same as the nearest-clip rule.
+    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return false;
+    const int fixed_idx = nearest_fixed_ancestor_or_self(impl, idx);
+    const int fixed_parent =
+        fixed_idx >= 0
+            ? impl.blocks[static_cast<std::size_t>(fixed_idx)].parent_idx
+            : -2;
+    bool any = false;
+    Rect acc{};
+    for (int a = impl.blocks[static_cast<std::size_t>(idx)].parent_idx;
+         a >= 0;
+         a = impl.blocks[static_cast<std::size_t>(a)].parent_idx) {
+        if (fixed_idx >= 0 && a == fixed_parent) break;
+        if (!detail::block_clips_overflow(impl, a)) continue;
+        const auto& cb = impl.blocks[static_cast<std::size_t>(a)];
+        const auto& ccs = impl.style_store.computed(cb.id);
+        const int dy =
+            detail::scroll_offset_y_for(impl.blocks, impl.style_store, a);
+        const Rect r{
+            cb.bounds.x + ccs.used_border_left(),
+            cb.bounds.y - dy + ccs.used_border_top(),
+            std::max(0, cb.bounds.w - ccs.used_border_left() -
+                            ccs.used_border_right()),
+            std::max(0, cb.bounds.h - ccs.used_border_top() -
+                            ccs.used_border_bottom()),
+        };
+        if (!any) {
+            acc = r;
+            any = true;
+        } else {
+            const int x0 = std::max(acc.x, r.x);
+            const int y0 = std::max(acc.y, r.y);
+            const int x1 = std::min(acc.x + acc.w, r.x + r.w);
+            const int y1 = std::min(acc.y + acc.h, r.y + r.h);
+            acc = Rect{x0, y0, std::max(0, x1 - x0), std::max(0, y1 - y0)};
+        }
+    }
+    if (any) out = acc;
+    return any;
+}
 }  // namespace detail
 namespace {
 

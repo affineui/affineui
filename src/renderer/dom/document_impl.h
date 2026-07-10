@@ -375,6 +375,11 @@ struct DocumentImpl {
     Size                      content_size{0, 0};
     std::vector<Block>        blocks;
     bool                      paint_dirty{true};  // Phase 2C flips this
+    // Dock surgery (tearoff / drag-to-dock / tab move) restructured the DOM
+    // outside any View. Consumed by Document::take_dock_structure_changed():
+    // the app layer re-bootstraps its retained view instead of incrementally
+    // reconciling on top of foreign wrapper elements.
+    bool                      dock_structure_dirty{false};
     std::vector<Rect>         dirty_rects;
     std::vector<int>          pending_dirty_roots;
 
@@ -474,17 +479,29 @@ struct DocumentImpl {
 
     // A floating element (toolbar / torn-off panel) being dragged by its handle.
     // Moving a [data-dcs-drag-handle] repositions the whole [data-dcs-drag]
-    // container via inline left/top, clamped to its [data-dcs-drag-bounds]
-    // container. Mirrors decius drag; the position persists on release via
-    // result.layout_changed, like the splitter. cb_* is the containing-block
-    // origin in document space, derived at grab from (doc pos - inline left/top)
-    // so the math works regardless of which ancestor is the offset parent.
+    // container, clamped to its [data-dcs-drag-bounds] container. Mirrors
+    // decius drag; the position persists on release via result.layout_changed,
+    // like the splitter. cb_* is the containing-block origin in document space
+    // (nearest positioned ancestor's padding box) so the committed left/top are
+    // correct regardless of which ancestor is the offset parent.
+    //
+    // Compositor semantics during the gesture: moves only update cur_x/cur_y;
+    // the DOM, styles, and layout all stay at the grab position, and the
+    // dragged subtree is painted (and hit-tested) through a pure translation
+    // injected in effective_transform_for. The inline left/top style is
+    // committed ONCE on release (commit_float_drag) — moving x/y never
+    // restyles or re-lays-out anything.
     struct FloatDrag {
         lxb_dom_element_t* elem{nullptr};   // the moved [data-dcs-drag] container
+        int                block_idx{-1};   // elem's block at grab (tree is
+                                            //   stable during the gesture: no
+                                            //   DOM mutation until release)
         int                start_x{0};      // pointer at grab
         int                start_y{0};
         int                elem_doc_x{0};   // element border-box doc pos at grab
         int                elem_doc_y{0};
+        int                cur_x{0};        // current visual doc pos (clamped);
+        int                cur_y{0};        //   == elem_doc_* until first move
         int                cb_x{0};         // containing-block origin (doc space)
         int                cb_y{0};
         int                elem_w{0};
@@ -772,6 +789,9 @@ bool parse_generated_color(std::string value,
 // geometry / z-order / scrollbars
 int effective_z_index(const detail::DocumentImpl& impl, int idx);
 int nearest_clip_ancestor_for_block(const detail::DocumentImpl& impl, int idx);
+// Intersection of ALL overflow-clipping ancestors' padding boxes (doc
+// space, scroll-adjusted). False -> unclipped.
+bool clip_rect_for_block(const detail::DocumentImpl& impl, int idx, Rect& out);
 bool vertical_scrollbar_geometry(const detail::DocumentImpl& impl,
                                  int idx,
                                  ScrollbarGeometry& out);
@@ -842,6 +862,8 @@ std::string dock_placement_summary(const Document::DockPlacement& p);
 std::string dock_rect_summary(const Rect& r);
 void dock_trace(std::string msg);
 std::string dockpane_tab_panel_id(lxb_dom_element_t* tab);
+lxb_dom_element_t* dcs_target_for_trigger(detail::DocumentImpl& impl,
+                                          lxb_dom_element_t* trigger);
 std::string drop_target_summary(const DropTarget& t);
 lxb_dom_element_t* element_for_block(detail::DocumentImpl& impl, int idx);
 const lxb_dom_element_t* element_for_block(const detail::DocumentImpl& impl,
@@ -944,6 +966,7 @@ bool update_dcs_select_control(detail::DocumentImpl& impl,
                                const Event& ev);
 bool update_dcs_tree_drag(detail::DocumentImpl& impl, const Event& ev);
 bool update_float_drag(detail::DocumentImpl& impl, const Event& ev);
+bool commit_float_drag(detail::DocumentImpl& impl, const Event& ev);
 bool update_float_resize(detail::DocumentImpl& impl, const Event& ev);
 bool update_splitter_drag(detail::DocumentImpl& impl, const Event& ev);
 bool update_tab_drag_ghost(detail::DocumentImpl& impl,
@@ -1337,6 +1360,11 @@ bool pointer_moved_past_threshold(const Event& ev,
                                   const detail::DocumentImpl::LiveControlDrag& drag);
 void refresh_block_metadata_from_element(Block& block,
                                          lxb_dom_element_t* elem);
+// Re-parse `style=""` attributes acquired while lexbor's ev_insert hook was
+// suppressed (View batches, dock surgery) — styles_rematch only re-attaches
+// the CACHED inline list, it never re-parses. Deep variant walks the subtree.
+void parse_inline_style_attr(lxb_dom_element_t* e);
+void parse_inline_styles_deep(lxb_dom_node_t* n);
 bool rematch_stylesheet_matches_for_subtree(detail::DocumentImpl& impl,
                                             int root_idx);
 bool restyle_all_blocks(detail::DocumentImpl& impl);

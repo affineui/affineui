@@ -1749,6 +1749,14 @@ std::string target_id_from_selector(std::string_view selector) {
     return std::string(selector.substr(0, end));
 }
 
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
+// Resolve a trigger's data-dcs-target (or href) "#id" selector to its
+// element — how decius.js identifies a tab's panel. Dock surgery resolves
+// panels through THIS, not an id naming convention: raw-HTML documents (the
+// DENDER N-panel) target "#npanel-tool" directly, with no "-body" suffix.
 lxb_dom_element_t* dcs_target_for_trigger(detail::DocumentImpl& impl,
                                           lxb_dom_element_t* trigger) {
     if (!trigger) return nullptr;
@@ -1757,6 +1765,8 @@ lxb_dom_element_t* dcs_target_for_trigger(detail::DocumentImpl& impl,
     const auto target_id = target_id_from_selector(selector);
     return target_id.empty() ? nullptr : detail::find_dom_element_by_id(impl, target_id);
 }
+}  // namespace detail
+namespace {
 
 // ── Floating element drag (data-dcs-drag + data-dcs-drag-handle) ─────────────
 // A [data-dcs-drag] container (a floating toolbar or torn-off panel) is moved
@@ -1948,6 +1958,31 @@ bool floating_resize_enabled(lxb_dom_element_t* elem) {
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
+// The CSS containing block for a floating (absolutely-positioned) element:
+// the padding box of the nearest positioned ancestor, or the document
+// origin when there is none. Drag/resize write `left`/`top` relative to
+// THIS origin. The old derivation — element position minus its authored
+// inset — silently assumed an authored px `left`/`top`; for a panel
+// positioned by class rules, `right:`, percentages, or one whose style was
+// lost, it mistook the element's own position for the containing-block
+// origin, and a single drag teleported the panel off-screen (field trace:
+// `write left/top=(-871,16)` — the "tearout completely disappeared" bug).
+Point float_containing_block_origin(detail::DocumentImpl& impl, int idx) {
+    using P = detail::ComputedStyle::Position;
+    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return {0, 0};
+    for (int a = impl.blocks[static_cast<std::size_t>(idx)].parent_idx;
+         a >= 0 && a < static_cast<int>(impl.blocks.size());
+         a = impl.blocks[static_cast<std::size_t>(a)].parent_idx) {
+        const auto& ab = impl.blocks[static_cast<std::size_t>(a)];
+        const auto& acs = impl.style_store.computed(ab.id);
+        if (acs.position != P::Static) {
+            return {ab.bounds.x + acs.used_border_left(),
+                    ab.bounds.y + acs.used_border_top()};
+        }
+    }
+    return {0, 0};
+}
+
 bool find_float_resize_at(detail::DocumentImpl& impl, int from_idx, Point point,
                           detail::DocumentImpl::FloatResize& out) {
     int explicit_dir = 0;
@@ -1991,11 +2026,7 @@ bool find_float_resize_at(detail::DocumentImpl& impl, int from_idx, Point point,
             ? explicit_dir
             : float_resize_dir_for_point(blk.bounds, point);
         if (dir == 0) return false;
-        const auto cs = impl.style_store.computed(blk.id);
-        const int cur_left =
-            (cs.inset_has.left && !cs.inset_has.left_pct) ? cs.inset_left : 0;
-        const int cur_top =
-            (cs.inset_has.top && !cs.inset_has.top_pct) ? cs.inset_top : 0;
+        const Point cb = float_containing_block_origin(impl, bidx);
         out = {};
         out.elem = elem;
         out.dir = dir;
@@ -2005,8 +2036,8 @@ bool find_float_resize_at(detail::DocumentImpl& impl, int from_idx, Point point,
         out.elem_doc_y = blk.bounds.y;
         out.elem_w = blk.bounds.w;
         out.elem_h = blk.bounds.h;
-        out.cb_x = blk.bounds.x - cur_left;
-        out.cb_y = blk.bounds.y - cur_top;
+        out.cb_x = cb.x;
+        out.cb_y = cb.y;
         out.panel_id = detail::attr_string(elem, "data-dcs-dock-id");
         detail::dock_trace("float-resize-arm panel=" + out.panel_id +
                    " dir=" + std::to_string(dir) + " at=(" +
@@ -2073,23 +2104,23 @@ bool find_float_drag_at(detail::DocumentImpl& impl, int from_idx, Point point,
         const int bidx = detail::block_index_for_exact_element(impl, elem);
         if (bidx < 0) return false;
         const auto& blk = impl.blocks[static_cast<std::size_t>(bidx)];
-        // The element's current left/top may come from the cascade (a class
-        // rule) or a prior inline write, so read them from the COMPUTED style.
-        // Deriving the containing-block origin as (doc pos - computed inset)
-        // makes the drag math independent of where left/top was authored.
-        const auto cs = impl.style_store.computed(blk.id);
-        const int cur_left =
-            (cs.inset_has.left && !cs.inset_has.left_pct) ? cs.inset_left : 0;
-        const int cur_top =
-            (cs.inset_has.top && !cs.inset_has.top_pct) ? cs.inset_top : 0;
+        // Resolve the element's REAL containing block (nearest positioned
+        // ancestor). The written left/top are relative to it, so this is
+        // correct no matter how (or whether) the current position was
+        // authored — inline px, class rule, right-anchoring, or a panel
+        // whose style went missing.
+        const Point cb = float_containing_block_origin(impl, bidx);
         out = {};
         out.elem = elem;
+        out.block_idx = bidx;
         out.start_x = point.x;
         out.start_y = point.y;
         out.elem_doc_x = blk.bounds.x;
         out.elem_doc_y = blk.bounds.y;
-        out.cb_x = blk.bounds.x - cur_left;
-        out.cb_y = blk.bounds.y - cur_top;
+        out.cur_x = blk.bounds.x;
+        out.cur_y = blk.bounds.y;
+        out.cb_x = cb.x;
+        out.cb_y = cb.y;
         out.elem_w = blk.bounds.w;
         out.elem_h = blk.bounds.h;
         out.panel_id = detail::attr_string(elem, "data-dcs-dock-id");
@@ -2113,14 +2144,26 @@ bool find_float_drag_at(detail::DocumentImpl& impl, int from_idx, Point point,
                 out.bounds_h = hb.h;
             }
         }
+        detail::dock_trace(
+            "float-drag-arm elem_doc=(" + std::to_string(out.elem_doc_x) +
+            "," + std::to_string(out.elem_doc_y) + ") cb=(" +
+            std::to_string(out.cb_x) + "," + std::to_string(out.cb_y) +
+            ") bounds=(" + std::to_string(out.bounds_x) + "," +
+            std::to_string(out.bounds_y) + " " +
+            std::to_string(out.bounds_w) + "x" +
+            std::to_string(out.bounds_h) + ") start=(" +
+            std::to_string(out.start_x) + "," +
+            std::to_string(out.start_y) + ") style='" +
+            detail::attr_string(elem, "style") + "'");
         return true;
     }
     return false;
 }
 
-bool update_float_drag(detail::DocumentImpl& impl, const Event& ev) {
-    auto& d = impl.float_drag;
-    if (!d.elem) return false;
+namespace {
+
+// Clamped visual position for the dragged float at the given pointer pos.
+Point float_drag_pos(const detail::DocumentImpl::FloatDrag& d, const Event& ev) {
     int x = d.elem_doc_x + (ev.pos.x - d.start_x);
     int y = d.elem_doc_y + (ev.pos.y - d.start_y);
     if (d.bounds_w > 0 && d.bounds_h > 0) {
@@ -2129,10 +2172,54 @@ bool update_float_drag(detail::DocumentImpl& impl, const Event& ev) {
         y = std::clamp(y, d.bounds_y,
                        std::max(d.bounds_y, d.bounds_y + d.bounds_h - d.elem_h));
     }
+    return {x, y};
+}
+
+}  // namespace
+
+bool update_float_drag(detail::DocumentImpl& impl, const Event& ev) {
+    // Compositor semantics: a move only advances the drag's visual position.
+    // No style write, no restyle, no relayout — the dragged subtree paints
+    // (and hit-tests) through the translation effective_transform_for injects
+    // from cur_x/cur_y, and commit_float_drag writes the style once on
+    // release. This is what keeps a float drag O(µs) per mouse move.
+    auto& d = impl.float_drag;
+    if (!d.elem) return false;
+    const Point p = float_drag_pos(d, ev);
+    if (p.x == d.cur_x && p.y == d.cur_y) return false;
+    d.cur_x = p.x;
+    d.cur_y = p.y;
+    // Paint changed (the subtree's draw transform), layout did not. Without
+    // this the renderer keeps re-presenting the cached display list and the
+    // panel only visually moves on the release commit.
+    impl.paint_dirty = true;
+    if (detail::dock_trace_enabled()) {
+        detail::dock_trace(
+            "float-drag-move ev=(" + std::to_string(ev.pos.x) + "," +
+            std::to_string(ev.pos.y) + ") -> doc=(" + std::to_string(p.x) +
+            "," + std::to_string(p.y) + ")");
+    }
+    return true;
+}
+
+bool commit_float_drag(detail::DocumentImpl& impl, const Event& ev) {
+    // One-shot on release: write the final inline left/top (relative to the
+    // real containing block) so the moved position is part of the document.
+    // This is the gesture's only restyle/relayout.
+    auto& d = impl.float_drag;
+    if (!d.elem) return false;
+    const Point p = float_drag_pos(d, ev);
+    if (detail::dock_trace_enabled()) {
+        detail::dock_trace(
+            "float-drag-commit doc=(" + std::to_string(p.x) + "," +
+            std::to_string(p.y) + ") write left/top=(" +
+            std::to_string(p.x - d.cb_x) + "," +
+            std::to_string(p.y - d.cb_y) + ")");
+    }
     return detail::set_attribute_on_element(
         impl, d.elem, "style",
-        with_float_position(detail::attr_string(d.elem, "style"), x - d.cb_x,
-                            y - d.cb_y));
+        with_float_position(detail::attr_string(d.elem, "style"), p.x - d.cb_x,
+                            p.y - d.cb_y));
 }
 }  // namespace detail
 namespace {

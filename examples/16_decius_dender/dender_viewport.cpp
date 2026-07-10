@@ -1357,7 +1357,6 @@ bool DenderViewport::handle_event(
         }
         if (chain_entry_has(info, "dn-toolrail") ||
             chain_entry_has(info, "dn-navcluster") ||
-            chain_entry_has(info, "dn-npanel") ||
             chain_entry_has(info, "dcs-btn") ||
             chain_entry_has(info, "dcs-panel") ||
             chain_entry_has(info, "dcs-toolbar")) {

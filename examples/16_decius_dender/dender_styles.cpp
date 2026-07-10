@@ -41,9 +41,6 @@ std::string native_css() {
 .dn-navcluster{position:absolute;top:var(--dcs-s-3);right:232px;z-index:5;display:flex;gap:var(--dcs-s-3)}
 .dn-gizmo{position:relative;width:72px;height:72px}
 .dn-navbtns{display:flex;flex-direction:column;gap:2px}
-.dn-npanel{position:absolute;right:8px;top:8px;bottom:8px;width:220px;z-index:4;display:flex}
-.dn-npanel .dcs-dockpane{flex:1;min-width:0;min-height:0}
-.dn-npanel .dcs-dockpane__body{overflow:auto}
 
 /* ── Outliner ───────────────────────────────────────────────────────────── */
 #outliner-body{height:100%;overflow:auto}

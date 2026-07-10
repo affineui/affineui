@@ -23,7 +23,6 @@ namespace dender {
 struct UiState {
     std::string active_tool{"tweak"};   // tool-rail radio (web default Tweak)
     std::string inspector_tab{"object"};
-    std::string npanel_tab{"item"};
     bool snapping{false};
     bool proportional{false};
     bool show_gizmo{true};
@@ -91,7 +90,6 @@ public:
 
     void toggle_flag(std::string_view which);    // snapping/gizmo/… toggles
     void set_inspector_tab(std::string_view id); // rail tab (rebuild keeps it)
-    void set_npanel_tab(std::string_view id);    // records only, no rebuild
     void quit();
 
 private:

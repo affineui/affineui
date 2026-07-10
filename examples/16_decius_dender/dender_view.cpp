@@ -212,6 +212,25 @@ void DenderView::build_workarea(View& v) const {
             "Timeline", DockLocation::docked(Dock::Bottom, 140),
             [&](View& p) { build_timeline_body(p); }, "keyframe", "timeline");
         timeline.toolbar([&](View& tb) { build_timeline_toolbar(tb); });
+
+        // Floating N-panel (web: .dn-npanel, right:8/top:8 of the viewport):
+        // three DECLARED dockpanels seeded as one floating tab group. Being
+        // declared (not raw chrome) is what lets a drag-to-dock placement —
+        // e.g. Item split left of the Timeline — replay across rebuilds. The
+        // seed offset counts inward from the workarea's top-right, clearing
+        // the 340px outliner column so it lands over the viewport like the
+        // web reference.
+        auto npitem = dv.dockpanel(
+            "Item",
+            DockLocation::floating(affineui::DockCorner::TopRight, {356, 76},
+                                   {220, 520}),
+            [&](View& p) { ui::npanel_item_body(p); }, "cube", "npanel-item");
+        dv.dockpanel("Tool", DockLocation::tab().in(npitem),
+                     [&](View& p) { ui::npanel_tool_body(p); }, "axes",
+                     "npanel-tool");
+        dv.dockpanel("View", DockLocation::tab().in(npitem),
+                     [&](View& p) { ui::npanel_view_body(p); }, "camera",
+                     "npanel-view");
     });
 }
 
@@ -361,14 +380,7 @@ void DenderView::build_viewport_body(View& v) const {
     v.find_widget("nav-move").on_click([vp] { vp->toggle_pan_mode(); });
     v.find_widget("nav-camera").on_click([vp] { vp->frame_selected(); });
 
-    ui::npanel(v, doc_, ui_.npanel_tab);
-    for (const char* tab : {"item", "tool", "view"}) {
-        const std::string id(tab);
-        // The interaction layer switches the visible tabpanel; recording the
-        // choice keeps it across rebuilds.
-        v.find_widget("npanel-tab-" + id)
-            .on_click([app, id] { app->set_npanel_tab(id); });
-    }
+    // The N-panel is a declared floating dock group — see build_workarea.
 }
 
 // ── Outliner ────────────────────────────────────────────────────────────────

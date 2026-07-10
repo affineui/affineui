@@ -223,67 +223,29 @@ void combo_field(View& view, std::string_view label, std::string_view tag,
 
 }  // namespace
 
-void npanel(View& view, const DenderDocument& doc, std::string_view active_tab) {
-    (void) doc;  // cosmetic per the web sample: fields show the static values
-    auto panel =
-        view.container("dcs-panel dcs-panel--floating dn-npanel", "vp-npanel");
-    panel.attr("data-dcs-drag", "").attr("data-dcs-drag-bounds", ".dn-vp-canvas");
-    auto pane = view.container("dcs-dockpane", "npanel-pane");
+void npanel_item_body(View& view) {
+    // Cosmetic per the web sample: fields show the static values.
     {
-        auto tabbar = view.container("dcs-dockpane__tabbar", "npanel-tabbar");
-        tabbar.attr("data-dcs-drag-handle", "");
-        auto tabs = view.container("dcs-dockpane__tabs", "npanel-tabs");
-        struct Tab { const char* id; const char* icon; const char* label; };
-        static constexpr Tab kTabs[] = {
-            {"item", "cube", "Item"},
-            {"tool", "axes", "Tool"},
-            {"view", "camera", "View"},
-        };
-        for (const Tab& t : kTabs) {
-            auto tab = view.element("button", "dcs-dockpane__tab",
-                                    key_with("npanel-tab", t.id));
-            tab.attr("type", "button")
-                .attr("aria-selected", active_tab == t.id ? "true" : "false")
-                .attr("data-dcs-target", "#npanel-" + std::string(t.id));
-            icon(view, t.icon, {}, key_with("npanel-tab-icon", t.id));
-            view.element("span", "dcs-dockpane__tab-label",
-                         key_with("npanel-tab-label", t.id))
-                .text(t.label);
-        }
-    }
-    auto body = view.container("dcs-dockpane__body", "npanel-body");
-    {
-        auto item = view.container({}, "npanel-item");
-        item.attr("id", "npanel-item").attr("data-dcs-tabpanel", "");
-        if (active_tab != "item") item.attr("hidden", "");
-        {
-            auto fold = view.foldout("Transform", true, "npanel-fold-xform");
-            auto props = view.container("dcs-props", "npanel-xform-props");
-            view.vec("Location", {"X", "Y", "Z"}, {0.0, 0.0, 0.0}, "np-loc");
-            view.vec("Dimensions", {"X", "Y", "Z"}, {2.0, 2.0, 2.0}, "np-dim");
-        }
-        {
-            auto fold = view.foldout("View", true, "npanel-fold-view");
-            auto props = view.container("dcs-props", "npanel-view-props");
-            combo_field(view, "Focal", "Lens", 50.0, 0.5, "np-focal");
-            combo_field(view, "Clip Start", {}, 0.1, 0.01, "np-clip");
-            view.checkbox("Lock to Object", false, "np-lock");
-            view.container_ref("dcs-divider", "np-view-div");
-            view.button_group("Transform", {"Local", "Global"}, "Global",
-                              "np-orient");
-        }
+        auto fold = view.foldout("Transform", true, "npanel-fold-xform");
+        auto props = view.container("dcs-props", "npanel-xform-props");
+        view.vec("Location", {"X", "Y", "Z"}, {0.0, 0.0, 0.0}, "np-loc");
+        view.vec("Dimensions", {"X", "Y", "Z"}, {2.0, 2.0, 2.0}, "np-dim");
     }
     {
-        auto tool = view.container({}, "npanel-tool");
-        tool.attr("id", "npanel-tool").attr("data-dcs-tabpanel", "");
-        if (active_tab != "tool") tool.attr("hidden", "");
-    }
-    {
-        auto vw = view.container({}, "npanel-view");
-        vw.attr("id", "npanel-view").attr("data-dcs-tabpanel", "");
-        if (active_tab != "view") vw.attr("hidden", "");
+        auto fold = view.foldout("View", true, "npanel-fold-view");
+        auto props = view.container("dcs-props", "npanel-view-props");
+        combo_field(view, "Focal", "Lens", 50.0, 0.5, "np-focal");
+        combo_field(view, "Clip Start", {}, 0.1, 0.01, "np-clip");
+        view.checkbox("Lock to Object", false, "np-lock");
+        view.container_ref("dcs-divider", "np-view-div");
+        view.button_group("Transform", {"Local", "Global"}, "Global",
+                          "np-orient");
     }
 }
+
+void npanel_tool_body(View& view) { (void) view; }  // empty per the web
+
+void npanel_view_body(View& view) { (void) view; }  // empty per the web
 
 // ── Timeline dopesheet body ──────────────────────────────────────────────────
 

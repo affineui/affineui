@@ -282,25 +282,16 @@ void Document::draw(Painter& painter) {
         const bool has_transform = false;
 #endif
 
-        // Find the nearest ancestor whose overflow clips children
-        // (overflow: hidden | clip | scroll | auto). CSS clips descendant
-        // paint to the padding box, not the border box, so the ancestor's
-        // own border remains visible above clipped children.
-        const int clip_idx =
-            detail::nearest_clip_ancestor_for_block(*impl_, static_cast<int>(i));
-        const bool clipped = (clip_idx >= 0);
+        // Clip to the INTERSECTION of every ancestor whose overflow clips
+        // children (overflow: hidden | clip | scroll | auto) — an ellipsis
+        // label's own clip must not exempt it from its scroll pane's. CSS
+        // clips descendant paint to the padding box, not the border box, so
+        // each ancestor's own border remains visible above clipped children.
         Rect active_clip_rect{};
+        const bool clipped =
+            detail::clip_rect_for_block(*impl_, static_cast<int>(i),
+                                        active_clip_rect);
         if (clipped) {
-            const auto& cb = impl_->blocks[static_cast<std::size_t>(clip_idx)];
-            const auto& ccs = impl_->style_store.computed(cb.id);
-            const int clip_dy = detail::scroll_offset_y_for(
-                impl_->blocks, impl_->style_store, clip_idx);
-            active_clip_rect = Rect{
-                cb.bounds.x + ccs.used_border_left(),
-                cb.bounds.y - clip_dy + ccs.used_border_top(),
-                std::max(0, cb.bounds.w - ccs.used_border_left() - ccs.used_border_right()),
-                std::max(0, cb.bounds.h - ccs.used_border_top() - ccs.used_border_bottom()),
-            };
             painter.push_clip(active_clip_rect);
         }
 
@@ -344,7 +335,15 @@ void Document::draw(Painter& painter) {
         float bg_r_tr = r_tr;
         float bg_r_br = r_br;
         float bg_r_bl = r_bl;
-        if (clipped) {
+        // Rounded-clip emulation: scissors are rectangular, so a child whose
+        // box touches a rounded clip ancestor's edge inherits that corner's
+        // radius on its background. The radius donor is the NEAREST clipping
+        // ancestor (the intersection rect above has no radii of its own).
+        const int clip_idx =
+            clipped ? detail::nearest_clip_ancestor_for_block(
+                          *impl_, static_cast<int>(i))
+                    : -1;
+        if (clip_idx >= 0) {
             const auto& cb = impl_->blocks[static_cast<std::size_t>(clip_idx)];
             const auto& ccs = impl_->style_store.computed(cb.id);
             const float clip_tl = std::max(0.0f, detail::resolve_border_radius_px(
@@ -373,10 +372,6 @@ void Document::draw(Painter& painter) {
             if (touches_right && touches_bottom) bg_r_br = std::max(bg_r_br, clip_br);
             if (touches_left && touches_bottom) bg_r_bl = std::max(bg_r_bl, clip_bl);
         }
-        const bool bg_any_radius =
-            (bg_r_tl > 0 || bg_r_tr > 0 || bg_r_br > 0 || bg_r_bl > 0);
-        const bool bg_uniform_r =
-            (bg_r_tl == bg_r_tr && bg_r_tr == bg_r_br && bg_r_br == bg_r_bl);
         // Shared by both phases: text positioning needs the border insets.
         const int used_border_top    = cs.used_border_top();
         const int used_border_right  = cs.used_border_right();
