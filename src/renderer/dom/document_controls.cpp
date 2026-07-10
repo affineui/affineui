@@ -539,6 +539,12 @@ bool is_button_like_block(const Block& block) {
         widget && *widget == "button") {
         return true;
     }
+    // Any View node with a bound click handler (View::set_click_handler
+    // stamps this) — activation must reach plain containers used as
+    // tabs / rows, not only button-shaped widgets.
+    if (detail::block_attr_value(block, "data-aui-clickable") != nullptr) {
+        return true;
+    }
     return false;
 }
 

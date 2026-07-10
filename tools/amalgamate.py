@@ -96,6 +96,7 @@ INTERNAL_HEADERS = [
     "src/core/diag.h",              # TraceSpan + sampler; used by every renderer TU
     "src/c_api_util.h",             # shared by c_api.cpp / c_api_app.cpp
     "external/tinyjson/tiny-json.h",# used by core/tools/tools_server.cpp
+    "src/core/tools/tools_commands.h",  # server↔app command bridge (tools_server / document_tools)
     "src/renderer/style/element_id.h",
     "src/renderer/style/animated_style.h",
     "src/renderer/style/computed_style.h",
@@ -156,6 +157,7 @@ ENGINE_SOURCES = [
     "src/renderer/dom/document_restyle.cpp",
     "src/renderer/dom/document_style.cpp",
     "src/renderer/dom/document_text.cpp",
+    "src/renderer/dom/document_tools.cpp",
     "src/renderer/dom/dom_view.cpp",
     "src/renderer/dom/lexbor_bridge.cpp",
     "src/renderer/style/cascade.cpp",

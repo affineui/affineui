@@ -1254,7 +1254,16 @@ void settle_view_batch(detail::DocumentImpl& impl) {
         const auto t0 = std::chrono::steady_clock::now();
         auto roots = std::move(impl.view_batch_structure_roots);
         impl.view_batch_structure_roots.clear();
-        impl.view_batch_attr_roots.clear();  // recollect re-resolves all
+        // Attr mutations recorded this batch are NOT superseded by a scoped
+        // structural settle: the recollect below re-resolves via the WARM
+        // resolver cache, and only the structural roots' subtrees get
+        // invalidated. An attr-mutated element outside those subtrees (a
+        // tab strip's aria-selected flip while the panel body swaps) would
+        // re-resolve to its stale cached style — the "selection highlight
+        // never moves" class of bug. Invalidate each attr root too, and run
+        // the subtree rematch the op deferred to settle.
+        auto attr_roots = std::move(impl.view_batch_attr_roots);
+        impl.view_batch_attr_roots.clear();
         std::sort(roots.begin(), roots.end());
         std::vector<int> kept;
         for (const int r : roots) {
@@ -1274,6 +1283,47 @@ void settle_view_batch(detail::DocumentImpl& impl) {
                 invalidate_resolver_deep(impl, lxb_dom_interface_node(e));
             }
             (void) detail::rematch_stylesheet_matches_for_subtree(impl, r);
+        }
+        // Same cover-dedup as the structural roots: an attr root inside a
+        // kept structural subtree already got the deep invalidate + full
+        // rematch above, and repeated flips of the same root (a hover chain
+        // toggling one row's attrs several times per batch) need one pass,
+        // not one per mutation. Duplicates merge their rematch flags — a
+        // later flip's deferred rematch must not be lost to an earlier
+        // flip that needed none.
+        std::vector<std::pair<int, bool>> attr_kept;  // {root_idx, rematch}
+        for (const auto& a : attr_roots) {
+            if (a.root_idx < 0) continue;
+            bool covered = false;
+            for (const int k : kept) {
+                if (k == a.root_idx ||
+                    detail::is_descendant_of_or_self(impl.blocks, a.root_idx,
+                                                     k)) {
+                    covered = true;
+                    break;
+                }
+            }
+            if (covered) continue;
+            bool merged = false;
+            for (auto& [idx, rematch] : attr_kept) {
+                if (idx == a.root_idx) {
+                    rematch = rematch || a.needs_subtree_rematch;
+                    merged = true;
+                    break;
+                }
+            }
+            if (!merged) {
+                attr_kept.emplace_back(a.root_idx, a.needs_subtree_rematch);
+            }
+        }
+        for (const auto& [root_idx, needs_rematch] : attr_kept) {
+            if (auto* e = detail::element_for_block(impl, root_idx)) {
+                invalidate_resolver_deep(impl, lxb_dom_interface_node(e));
+            }
+            if (needs_rematch) {
+                (void) detail::rematch_stylesheet_matches_for_subtree(
+                    impl, root_idx);
+            }
         }
         const auto t2 = std::chrono::steady_clock::now();
         detail::recollect_blocks_from_current_dom(impl);
