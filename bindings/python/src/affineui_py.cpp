@@ -1558,6 +1558,42 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("view"),
              "Copy a View into the native App. The App copies callbacks and "
              "does not borrow the Python View object.")
+        .def("set_view",
+             [](affineui::App& app, py::function builder) {
+                 auto callback = keep_python_function(std::move(builder));
+                 // The builder runs from the App's frame loop (and from the
+                 // synchronous set_view()/rebuild_view() call below), so it
+                 // must acquire the GIL before touching Python. The View& is
+                 // handed to Python by reference — pybind wraps it without
+                 // copying or owning it, so the callback populates the App's
+                 // persistent retained View in place. Exceptions propagate
+                 // into rebuild_view() (which closes the mutation window and
+                 // rethrows); surface them as the callback's Python error.
+                 app.set_view([callback](affineui::View& view) {
+                     py::gil_scoped_acquire gil;
+                     try {
+                         (*callback)(py::cast(
+                             &view, py::return_value_policy::reference));
+                     } catch (py::error_already_set& e) {
+                         // Re-raise as a C++ exception so rebuild_view()'s
+                         // mid-batch handler closes the mutation window before
+                         // it unwinds; the message carries the Python trace.
+                         throw std::runtime_error(e.what());
+                     }
+                 });
+             },
+             py::arg("builder"),
+             "Install a view builder callable(View)->None and build once. "
+             "The App owns a persistent View; each rebuild re-runs the builder "
+             "into it and reconciles only the diff into the live document — "
+             "the fast path for apps that rebuild per state change. Follow a "
+             "state change with invalidate() (the frame loop coalesces and "
+             "reconciles) or rebuild_view() (synchronous, e.g. headless).")
+        .def("rebuild_view", &affineui::App::rebuild_view,
+             "Re-run the installed set_view() builder and reconcile the result "
+             "into the live document, synchronously. No-op until set_view() "
+             "has been called. Use invalidate() instead when running under the "
+             "frame loop so rebuilds coalesce to one per frame.")
         .def("load_html_file",
              [](affineui::App& app, const std::string& path) {
                  return app.load_html_file(path);
