@@ -190,9 +190,14 @@ void Document::draw(Painter& painter) {
     // appended in DFS order, so a root's subtree is contiguous within its z
     // group and the group boundary is a simple root change.
     //
-    // stacking_roots[i]: the OUTERMOST ancestor-or-self carrying a positive
+    // stacking_roots[i]: the NEAREST ancestor-or-self carrying a positive
     // z-index (the float section, a menu, a popover), or -1 for base flow.
-    // parent_idx < i (DFS append order), so one forward pass settles it.
+    // NEAREST, not outermost: the View's float LAYER div also carries a
+    // z-index, and an outermost rule made it the shared root of every
+    // floating panel — collapsing them back into one paint group. CSS
+    // semantics: each z-indexed positioned element is its own stacking
+    // context, atomic WITHIN its parent context. parent_idx < i (DFS append
+    // order), so one forward pass settles it.
     std::vector<int> stacking_roots(impl_->blocks.size(), -1);
 #if !defined(AFFINEUI_STUB_BUILD)
     for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
@@ -202,11 +207,9 @@ void Document::draw(Painter& painter) {
                 ? stacking_roots[static_cast<std::size_t>(blk.parent_idx)]
                 : -1;
         stacking_roots[i] =
-            parent_root != -1
-                ? parent_root
-                : (impl_->style_store.computed(blk.id).z_index_low > 0
-                       ? static_cast<int>(i)
-                       : -1);
+            impl_->style_store.computed(blk.id).z_index_low > 0
+                ? static_cast<int>(i)
+                : parent_root;
     }
 #endif
     enum class BlockPaintPhase : std::uint8_t { Boxes, Text };
