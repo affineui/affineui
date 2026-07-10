@@ -7,8 +7,6 @@
 #include <affineui/view.h>
 #include <affineui/version.h>
 
-#include "photo_core_py.h"
-
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -121,7 +119,6 @@ PYBIND11_MODULE(_affineui, m) {
     m.def("tools_active", [] { return affineui::tools_active(); });
     m.def("tools_port", [] { return affineui::tools_port(); });
     m.def("tools_shutdown", [] { affineui::tools_shutdown(); });
-    bind_photo_core(m);
 
     py::class_<affineui::Color>(m, "Color")
         .def(py::init([](int r, int g, int b, int a) {
@@ -243,7 +240,12 @@ PYBIND11_MODULE(_affineui, m) {
         .value("Digit6", affineui::Key::Digit6)
         .value("Digit7", affineui::Key::Digit7)
         .value("Digit8", affineui::Key::Digit8)
-        .value("Digit9", affineui::Key::Digit9);
+        .value("Digit9", affineui::Key::Digit9)
+        .value("Space", affineui::Key::Space)
+        .value("Minus", affineui::Key::Minus)
+        .value("Equal", affineui::Key::Equal)
+        .value("BracketLeft", affineui::Key::BracketLeft)
+        .value("BracketRight", affineui::Key::BracketRight);
 
     py::enum_<affineui::EventType>(
             m,
@@ -389,6 +391,10 @@ PYBIND11_MODULE(_affineui, m) {
              "Cursor the OS should display under the hovered element "
              "(0=default 1=pointer 2=text 3=crosshair 4=move 5=not-allowed "
              "6=ew-resize 7=ns-resize 8=nwse-resize).")
+        .def("text_editing_active",
+             &affineui::Document::text_editing_active,
+             "True while a text control has keyboard focus — app-level "
+             "keyboard shortcuts should stand down.")
         .def("dock_layout", &affineui::Document::dock_layout,
              "Snapshot of the CURRENT dock arrangement, read live from the "
              "DOM. Opaque: pass it back via View.set_dock_layout_provider so "
@@ -956,6 +962,22 @@ PYBIND11_MODULE(_affineui, m) {
              py::keep_alive<0, 1>(),
              "Add a generic container. If build is supplied it is called "
              "immediately with the same View.")
+        .def("canvas",
+             [](affineui::View& view,
+                const std::string& paint_name,
+                const std::string& classes,
+                const std::string& key) {
+                 return view.canvas(paint_name, classes, key);
+             },
+             py::arg("paint_name"),
+             py::arg("classes") = "",
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a custom-paint (canvas) surface. The handler registered "
+             "under paint_name (App.set_custom_paint or a native core's "
+             "attach) draws the element's content each frame; per-frame "
+             "updates flow through App.request_custom_repaint without "
+             "touching the DOM.")
         .def("panel",
              [](affineui::View& view, const std::string& key, py::object build) {
                  if (build.is_none()) {
@@ -1629,6 +1651,58 @@ PYBIND11_MODULE(_affineui, m) {
              "(same shape as a telemetry.frame JSONL record). Zeroed until "
              "the first frame presents, or when compiled with "
              "AFFINEUI_PERF=0.")
+        .def("on_event",
+             [](affineui::App& app, py::function cb) {
+                 auto callback = keep_python_function(std::move(cb));
+                 app.on_event(
+                     [callback](const affineui::Event& ev,
+                                const std::vector<
+                                    affineui::Document::HoverInfo>& hover)
+                         -> bool {
+                         try {
+                             py::gil_scoped_acquire gil;
+                             py::object result = (*callback)(ev, hover);
+                             return result.is_none() ? false
+                                                     : result.cast<bool>();
+                         } catch (py::error_already_set& e) {
+                             e.discard_as_unraisable("App.on_event");
+                         } catch (const std::exception& e) {
+                             std::fprintf(stderr,
+                                          "AffineUI Python callback failed "
+                                          "(App.on_event): %s\n",
+                                          e.what());
+                         }
+                         return false;
+                     });
+             },
+             py::arg("callback"),
+             "Register a low-level native event handler. The callback "
+             "receives (event, hover_chain) — the hover chain is hit-tested "
+             "deepest-first — and returns True to consume the event before "
+             "the document sees it. The hook native widget kits (and canvas "
+             "tools) build pointer-drag behaviors on.")
+        .def("on_frame",
+             [](affineui::App& app, py::function cb) {
+                 auto callback = keep_python_function(std::move(cb));
+                 app.on_frame([callback](double dt) {
+                     call_python_function("App.on_frame", callback, dt);
+                 });
+             },
+             py::arg("callback"),
+             "Register a per-frame tick callback (dt seconds) — the "
+             "requestAnimationFrame analog.")
+        .def("capture_pointer", &affineui::App::capture_pointer,
+             "Route MouseMove events to on_event handlers before DOM hover "
+             "hit-testing (browser-style pointer capture for drags).")
+        .def("release_pointer", &affineui::App::release_pointer)
+        .def("pointer_captured", &affineui::App::pointer_captured)
+        .def("request_custom_repaint",
+             [](affineui::App& app, const std::string& name) {
+                 app.request_custom_repaint(name);
+             },
+             py::arg("name"),
+             "Repaint every data-aui-paint=name element on the next frame — "
+             "no restyle, no layout, no reconcile.")
         .def("document",
              static_cast<affineui::Document& (affineui::App::*)()>(
                  &affineui::App::document),
