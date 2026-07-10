@@ -423,15 +423,16 @@ bool GeViewport::handle_event(
     }
 
     // Route by hover: only events over the viewport canvas (stats and
-    // the floating tool rail decline to the normal UI path).
+    // the floating tool rail decline to the normal UI path). The chain
+    // carries element CLASSES (deepest first), not widget keys.
     bool over_scene = false;
     for (const auto& info : chain) {
-        if (chain_entry_has(info, "vp-stats")) continue;
+        if (chain_entry_has(info, "ge-vp-stats")) continue;
         if (chain_entry_has(info, "dcs-btn") ||
             chain_entry_has(info, "dcs-toolbar")) {
             break;
         }
-        if (chain_entry_has(info, "vp-canvas")) {
+        if (chain_entry_has(info, "ge-vp-canvas")) {
             over_scene = true;
             break;
         }
