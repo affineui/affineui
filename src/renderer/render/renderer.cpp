@@ -1145,7 +1145,16 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
         return;
     }
 
-    if (frame.display_list_changed || !impl_->root_layer.valid) {
+    // paint_dirty must force a raster even when the display list is
+    // byte-identical: a custom-paint handler can emit a stable op set
+    // (draw_image of an offscreen 3D target) whose PIXELS change
+    // GPU-side under the same image handle — the content hash sees
+    // nothing, but request_custom_repaint bounded the change with
+    // dirty rects. Without this the root layer never re-rasterizes
+    // and the canvas freezes on screen while the offscreen scene
+    // keeps rendering.
+    if (frame.display_list_changed || frame.paint_dirty ||
+        !impl_->root_layer.valid) {
         const bool bounded_known_partial =
             impl_->root_layer.valid &&
             frame.display_list_changed &&
@@ -1154,9 +1163,19 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
             !frame.paint_dirty &&
             frame_area > 0 &&
             dirty_area * 100u <= frame_area * 40u;
+        // Paint-only invalidation: ops unchanged, pixels behind them
+        // changed. The document's dirty rects (already unioned into
+        // raster_bounds) bound the region exactly, so partial raster
+        // is safe without display-list diff bounds.
+        const bool paint_only_partial =
+            impl_->root_layer.valid &&
+            frame.paint_dirty &&
+            !frame.display_list_changed &&
+            !frame.viewport_changed &&
+            renderer_rect_valid(frame.raster_bounds);
         const bool can_partial_raster =
             impl_->partial_root_raster_enabled &&
-            (bounded_known_partial ||
+            (bounded_known_partial || paint_only_partial ||
              (impl_->root_layer.valid &&
               frame.display_list_changed &&
               renderer_rect_valid(frame.raster_bounds) &&
