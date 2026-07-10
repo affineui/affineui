@@ -1,4 +1,4 @@
-﻿#include <doctest/doctest.h>
+#include <doctest/doctest.h>
 
 #include "affineui/automation.h"
 #include "affineui/document.h"

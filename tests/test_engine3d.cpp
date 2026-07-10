@@ -1,4 +1,4 @@
-﻿// Tests for the example 3D engine (examples/core/3dengine) â€” math
+// Tests for the example 3D engine (examples/core/3dengine) â€” math
 // invariants and geometry generators. Pure CPU; no GPU context needed.
 #include <doctest/doctest.h>
 

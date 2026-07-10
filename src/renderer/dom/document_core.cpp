@@ -1,4 +1,4 @@
-﻿// document_core.cpp â€” affineui::Document lifecycle + public surface.
+// document_core.cpp â€” affineui::Document lifecycle + public surface.
 //
 // The document implementation is split across focused TUs (see
 // dom/document_impl.h for the shared types and cross-file helpers):
