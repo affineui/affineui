@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 #include "sokol_app.h"  // sapp_dpi_scale for crisp high-DPI targets
 
@@ -37,6 +38,8 @@ GeViewport::GeViewport() {
     orbit_->min_distance = 2.0f;
     orbit_->max_distance = 40.0f;
     orbit_->max_polar_angle = kPi * 0.495f;  // stay above the ground
+    // DCC convention: middle-drag pans (the wheel already dollies).
+    orbit_->button_middle = OrbitControls::Action::Pan;
     orbit_->update();
 
     gizmo_ = std::make_unique<TransformControls>(camera_);
@@ -77,6 +80,10 @@ void GeViewport::attach(affineui::App& app, app::Context& ctx) {
                          [this](affineui::Painter& p, const Rect& r) {
                              paint(p, r);
                          });
+    app.set_custom_paint(kNavPaintName,
+                         [this](affineui::Painter& p, const Rect& r) {
+                             paint_navball(p, r);
+                         });
     app.on_frame([this](double dt) { frame(dt); });
 
     gizmo_->on_dragging_changed = [this](bool dragging) {
@@ -98,6 +105,10 @@ void GeViewport::attach(affineui::App& app, app::Context& ctx) {
 
 void GeViewport::build(affineui::View& v) {
     v.canvas(kPaintName, "ge-vp-3dcanvas", "ge-vp-3d");
+    // Navigation axis ball (the web samples' orientation gizmo):
+    // painter-drawn, repainted with the scene on camera moves; nub
+    // clicks snap the camera down that axis.
+    v.canvas(kNavPaintName, "ge-vp-navball", "ge-vp-nav");
 }
 
 // ── Scene <-> app document ──────────────────────────────────────────
@@ -253,58 +264,32 @@ void GeViewport::push_transform_command() {
 
 // ── Inspector bridge ────────────────────────────────────────────────
 
-std::optional<GeViewport::ObjectTransform> GeViewport::transform_of(
-    std::string_view id) const {
+Object3D* GeViewport::node_of(std::string_view id) const {
     const auto it = nodes_.find(std::string(id));
-    if (it == nodes_.end()) return std::nullopt;
-    const Object3D& n = *it->second;
-    const Euler e = n.rotation();
-    ObjectTransform t;
-    t.location = n.position;
-    t.rotation_deg = {rad_to_deg(e.x), rad_to_deg(e.y), rad_to_deg(e.z)};
-    t.scale = n.scale;
-    return t;
+    return it != nodes_.end() ? it->second.get() : nullptr;
 }
 
-namespace {
-float& vec_axis(Vec3& v, int axis) {
-    return axis == 0 ? v.x : (axis == 1 ? v.y : v.z);
-}
-}  // namespace
-
-void GeViewport::set_location(std::string_view id, int axis, double value) {
+void GeViewport::set_node_property(std::string_view id,
+                                   std::string_view prop,
+                                   const affineui::PropertyValue& value) {
     const auto it = nodes_.find(std::string(id));
-    if (it == nodes_.end() || axis < 0 || axis > 2) return;
+    if (it == nodes_.end() || ctx_ == nullptr) return;
     const ObjectPtr& node = it->second;
-    const Vec3 old_p = node->position;
-    Vec3 p = old_p;
-    vec_axis(p, axis) = static_cast<float>(value);
-    node->position = p;
-    apply_transform_command(node, old_p, node->quaternion(), node->scale);
-}
-
-void GeViewport::set_rotation_deg(std::string_view id, int axis,
-                                  double value) {
-    const auto it = nodes_.find(std::string(id));
-    if (it == nodes_.end() || axis < 0 || axis > 2) return;
-    const ObjectPtr& node = it->second;
-    const Quat old_q = node->quaternion();
-    Euler e = node->rotation();
-    float* const channel[3] = {&e.x, &e.y, &e.z};
-    *channel[axis] = deg_to_rad(static_cast<float>(value));
-    node->set_rotation(e);
-    apply_transform_command(node, node->position, old_q, node->scale);
-}
-
-void GeViewport::set_scale(std::string_view id, int axis, double value) {
-    const auto it = nodes_.find(std::string(id));
-    if (it == nodes_.end() || axis < 0 || axis > 2) return;
-    const ObjectPtr& node = it->second;
-    const Vec3 old_s = node->scale;
-    Vec3 s = old_s;
-    vec_axis(s, axis) = static_cast<float>(value);
-    node->scale = s;
-    apply_transform_command(node, node->position, node->quaternion(), old_s);
+    const affineui::ObjectClass& cls = get_class(*node);
+    const affineui::PropertyValue old = cls.get(node.get(), prop);
+    if (old == value) return;  // no actual change
+    // The node is captured by shared_ptr (undo stays valid after
+    // remove/re-add) and the property by name, so redo/undo both go
+    // through the same reflection mediator the inspector reads.
+    auto apply = [this, node, prop = std::string(prop)](
+                     const affineui::PropertyValue& v) {
+        get_class(*node).set(node.get(), prop, v);
+        mark_dirty();
+    };
+    ctx_->stack().push(std::make_unique<app::LambdaCommand>(
+        "obj.prop", "Edit " + node->name,
+        [apply, value](app::Document&) { apply(value); },
+        [apply, old](app::Document&) { apply(old); }));
 }
 
 // ── Frame / paint ───────────────────────────────────────────────────
@@ -329,7 +314,11 @@ void GeViewport::frame(double /*dt*/) {
     selection_box_->update_from(selected_node_.get());
     renderer_->render(*scene_, *camera_);
     dirty_ = false;
-    if (app_ != nullptr) app_->request_custom_repaint(kPaintName);
+    if (app_ != nullptr) {
+        app_->request_custom_repaint(kPaintName);
+        // The axis ball tracks the camera; repaint it with the scene.
+        app_->request_custom_repaint(kNavPaintName);
+    }
 }
 
 void GeViewport::paint(affineui::Painter& p, const Rect& r) {
@@ -338,6 +327,136 @@ void GeViewport::paint(affineui::Painter& p, const Rect& r) {
     if (renderer_ == nullptr) return;
     const std::uint32_t image = renderer_->painter_image(p);
     if (image != 0) p.draw_image(image, r, r);
+}
+
+// ── Navigation axis ball ────────────────────────────────────────────
+// Port of the web samples' orientation gizmo (dender app.js
+// buildGizmo / DENDER's paint_gizmo): the six world axis directions
+// rotated into camera space, depth-sorted so near nubs paint over far
+// ones, back-facing nubs dimmed; positive axes are filled nubs with a
+// letter and a spoke, negative axes hollow rings.
+
+namespace {
+
+constexpr affineui::Color kNavAxisColor[3] = {
+    affineui::Color{0xd8, 0x47, 0x5a, 0xff},   // X
+    affineui::Color{0x6f, 0xb7, 0x4a, 0xff},   // Y
+    affineui::Color{0x3f, 0x7a, 0xd0, 0xff}};  // Z
+
+affineui::Color nav_alpha(affineui::Color c, double a01) {
+    c.a = static_cast<std::uint8_t>(
+        std::clamp(static_cast<long>(a01 * 255.0 + 0.5), 0L, 255L));
+    return c;
+}
+
+constexpr e3d::Vec3 kNavDirs[6] = {{1, 0, 0},  {0, 1, 0},  {0, 0, 1},
+                                   {-1, 0, 0}, {0, -1, 0}, {0, 0, -1}};
+
+}  // namespace
+
+void GeViewport::paint_navball(affineui::Painter& p, const Rect& r) {
+    nav_rect_ = r;
+    if (r.w <= 0 || r.h <= 0) return;
+    // Drawn in the web gizmo's 72x72 local space, scaled to the block.
+    const double s = std::min(r.w, r.h) / 72.0;
+    auto gx = [&](double v) {
+        return static_cast<float>(static_cast<double>(r.x) + v * s);
+    };
+    auto gy = [&](double v) {
+        return static_cast<float>(static_cast<double>(r.y) + v * s);
+    };
+    const auto sw = [&](double v) { return static_cast<float>(v * s); };
+
+    // Camera basis: nubs project onto the screen right/up axes; the
+    // depth axis (+Z of the camera frame) points toward the viewer.
+    const Quat q = camera_->quaternion();
+    const Vec3 right = Vec3::unit_x().applied(q);
+    const Vec3 up = Vec3::unit_y().applied(q);
+    const Vec3 back = Vec3::unit_z().applied(q);
+
+    struct Nub {
+        double x, y, depth;
+        int axis;
+    };
+    std::array<Nub, 6> nubs{};
+    for (int i = 0; i < 6; ++i) {
+        const Vec3& d = kNavDirs[i];
+        const double px = d.dot(right);
+        const double py = d.dot(up);
+        nubs[static_cast<std::size_t>(i)] = {36.0 + px * 26.0,
+                                             36.0 - py * 26.0,
+                                             static_cast<double>(d.dot(back)),
+                                             i};
+        // Click hit-testing stays in 72-space (handle_event scales the
+        // pointer back to it).
+        nav_nubs_[static_cast<std::size_t>(i)] = {36.0 + px * 26.0,
+                                                  36.0 - py * 26.0, i};
+    }
+    std::sort(nubs.begin(), nubs.end(),
+              [](const Nub& a, const Nub& n) { return a.depth < n.depth; });
+
+    static const affineui::Color kLetterColor{0x10, 0x13, 0x1a, 0xff};
+    static const affineui::Color kRingFill{0x22, 0x26, 0x2d, 0xff};
+    for (const auto& n : nubs) {
+        const int color_axis = n.axis % 3;
+        const bool positive = n.axis < 3;
+        const double alpha = n.depth < -0.05 ? 0.55 : 1.0;
+        const affineui::Color axis_col =
+            nav_alpha(kNavAxisColor[color_axis], alpha);
+        if (positive) {
+            // Spoke from the ball center to the nub, then the filled
+            // nub with its letter (drawn as strokes, like the web's).
+            p.stroke_line(gx(36.0), gy(36.0), gx(n.x), gy(n.y), axis_col,
+                          sw(2.0));
+            p.fill_circle(gx(n.x), gy(n.y), sw(7.5), axis_col);
+            std::vector<float> d;
+            auto rel = [&](double dx, double dy, bool move) {
+                d.push_back(move ? affineui::kPathMove : affineui::kPathLine);
+                d.push_back(gx(n.x + dx));
+                d.push_back(gy(n.y + dy));
+            };
+            if (color_axis == 0) {  // X
+                rel(-2.3, -2.7, true);
+                rel(2.3, 2.7, false);
+                rel(2.3, -2.7, true);
+                rel(-2.3, 2.7, false);
+            } else if (color_axis == 1) {  // Y
+                rel(-2.3, -2.7, true);
+                rel(0.0, 0.0, false);
+                rel(2.3, -2.7, true);
+                rel(0.0, 0.0, false);
+                rel(0.0, 2.7, false);
+            } else {  // Z
+                rel(-2.2, -2.6, true);
+                rel(2.2, -2.6, false);
+                rel(-2.2, 2.6, false);
+                rel(2.2, 2.6, false);
+            }
+            p.stroke_path(d.data(), d.size(),
+                          affineui::PathPaint::solid(
+                              nav_alpha(kLetterColor, alpha)),
+                          sw(1.3));
+        } else {
+            // Negative axes: hollow ring.
+            p.fill_circle(gx(n.x), gy(n.y), sw(6.0),
+                          nav_alpha(kRingFill, alpha));
+            p.stroke_arc(gx(n.x), gy(n.y), sw(6.0), 0.0f, 360.0f, axis_col,
+                         sw(1.5));
+        }
+    }
+}
+
+void GeViewport::snap_camera_to_axis(int axis) {
+    if (axis < 0 || axis > 5) return;
+    // Web snap(): put the camera `dist` down the axis from the orbit
+    // target; OrbitControls.update() re-aims it and its pole clamp
+    // keeps the straight up/down views from gimbal-flipping.
+    const Vec3 dir = kNavDirs[axis];
+    float dist = (camera_->position - orbit_->target).length();
+    if (dist <= 0.0f) dist = 8.0f;
+    camera_->position = orbit_->target + dir * dist;
+    orbit_->update();
+    mark_dirty();
 }
 
 // ── Input ───────────────────────────────────────────────────────────
@@ -452,7 +571,25 @@ bool GeViewport::handle_event(
         return true;
     }
     if (ev.type == ET::MouseDown) {
-        // Gizmo first: it consumes the press when a handle is hit.
+        // Nav-ball nub click: snap the camera down that axis (empty
+        // ball space falls through to the orbit drag, like the web's
+        // pointer-events:none gizmo svg).
+        if (ev.button == affineui::MouseButton::Left && nav_rect_.w > 0 &&
+            mx >= nav_rect_.x && mx < nav_rect_.x + nav_rect_.w &&
+            my >= nav_rect_.y && my < nav_rect_.y + nav_rect_.h) {
+            const double s = std::min(nav_rect_.w, nav_rect_.h) / 72.0;
+            const double lx = (mx - nav_rect_.x) / s;
+            const double ly = (my - nav_rect_.y) / s;
+            for (const NavNub& n : nav_nubs_) {
+                const double dx = lx - n.x;
+                const double dy = ly - n.y;
+                if (dx * dx + dy * dy <= 10.0 * 10.0) {
+                    snap_camera_to_axis(n.axis);
+                    return true;
+                }
+            }
+        }
+        // Gizmo next: it consumes the press when a handle is hit.
         if (ev.button == affineui::MouseButton::Left &&
             gizmo_->pointer_down(to_ndc(mx, my))) {
             gizmo_dragging_ = true;

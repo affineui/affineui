@@ -22,6 +22,9 @@ std::string native_css() {
   background:#232529}
 /* The e3d render target: a custom-paint block filling the pane. */
 .ge-vp-3dcanvas{position:absolute;left:0;top:0;width:100%;height:100%}
+/* Navigation axis ball (painter-drawn orientation gizmo, web parity:
+   top-right of the viewport, nub clicks snap the camera). */
+.ge-vp-navball{position:absolute;top:10px;right:12px;width:72px;height:72px;z-index:5}
 .ge-vp-stats{position:absolute;left:12px;top:10px;color:#d7dae1;font-size:var(--dcs-fs-xs);
   line-height:1.5;text-shadow:0 1px 2px rgba(0,0,0,.8);pointer-events:none}
 .ge-toolrail{z-index:5}

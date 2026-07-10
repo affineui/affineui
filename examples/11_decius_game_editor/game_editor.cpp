@@ -633,41 +633,82 @@ void GameEditor::build_inspector(View& v) {
             .on_change(bind(this, &GameEditor::set_cast_shadows));
     }
 
-    // ── Transform — live 3-channel vector fields bound to the 3D node ───
+    // ── Transform / Object — reflection-driven fields ───────────────────
+    // The selected object's 3D node is inspected through its ObjectClass
+    // (e3d get_class): "<prefix>.x/.y/.z" double triples render as
+    // 3-channel vec fields in the Transform foldout, standalone bools as
+    // checkboxes in an Object foldout. Edits write back through the same
+    // reflection mediator via the viewport's undoable property setter;
+    // the stack-changed handler then reloads the UI with fresh values.
     if (viewport_) {
-        if (const auto t = viewport_->transform_of(id)) {
-            auto fold = v.foldout("Transform", true, "fold-xform");
-            auto props = v.container("dcs-props", "xform-props");
-            v.vec("Location", {"X", "Y", "Z"},
-                  {t->location.x, t->location.y, t->location.z}, "loc");
-            v.vec("Rotation", {"X", "Y", "Z"},
-                  {t->rotation_deg.x, t->rotation_deg.y, t->rotation_deg.z},
-                  "rot");
-            v.vec("Scale", {"X", "Y", "Z"},
-                  {t->scale.x, t->scale.y, t->scale.z}, "scl");
-            for (int i = 0; i < 3; ++i) {
-                const std::string axis = std::to_string(i);
-                // Channel edits route through the viewport, which pushes
-                // an undoable transform command; the stack-changed
-                // handler then reloads the UI with the fresh values.
-                v.find_widget("loc-" + axis)
-                    .attr("data-suffix", " m")
-                    .on_change([this, id, i](std::string_view value) {
-                        viewport_->set_location(id, i,
-                                                parse_double(value, 0.0));
-                    });
-                v.find_widget("rot-" + axis)
-                    .attr("data-step", "1")
-                    .attr("data-suffix", "\xC2\xB0")
-                    .on_change([this, id, i](std::string_view value) {
-                        viewport_->set_rotation_deg(id, i,
-                                                    parse_double(value, 0.0));
-                    });
-                v.find_widget("scl-" + axis)
-                    .on_change([this, id, i](std::string_view value) {
-                        viewport_->set_scale(id, i,
-                                             parse_double(value, 1.0));
-                    });
+        if (e3d::Object3D* node = viewport_->node_of(id)) {
+            const affineui::ObjectClass& cls = get_class(*node);
+            {
+                auto fold = v.foldout("Transform", true, "fold-xform");
+                auto props = v.container("dcs-props", "xform-props");
+                struct VecRow {
+                    const char* prefix;
+                    const char* label;   // Blender-style display name
+                    const char* suffix;  // channel unit suffix
+                    double      fallback;
+                };
+                static constexpr VecRow kRows[] = {
+                    {"position", "Location", " m", 0.0},
+                    {"rotation", "Rotation", "\xC2\xB0", 0.0},
+                    {"scale", "Scale", "", 1.0},
+                };
+                static constexpr const char* kAxis[3] = {".x", ".y", ".z"};
+                for (const VecRow& row : kRows) {
+                    std::array<double, 3> ch{};
+                    for (int i = 0; i < 3; ++i) {
+                        ch[static_cast<std::size_t>(i)] = std::get<double>(
+                            cls.get(node, std::string(row.prefix) + kAxis[i]));
+                    }
+                    v.vec(row.label, {"X", "Y", "Z"}, {ch[0], ch[1], ch[2]},
+                          row.prefix);
+                    for (int i = 0; i < 3; ++i) {
+                        auto field = v.find_widget(std::string(row.prefix) +
+                                                   "-" + std::to_string(i));
+                        if (*row.suffix != '\0') {
+                            field.attr("data-suffix", row.suffix);
+                        }
+                        const std::string prop =
+                            std::string(row.prefix) + kAxis[i];
+                        const double fallback = row.fallback;
+                        field.on_change(
+                            [this, id, prop, fallback](std::string_view value) {
+                                viewport_->set_node_property(
+                                    id, prop,
+                                    affineui::PropertyValue{
+                                        parse_double(value, fallback)});
+                            });
+                    }
+                }
+            }
+            {
+                // Every remaining writable bool property, rendered
+                // generically (attr::Label supplies the display name).
+                auto fold = v.foldout("Object", true, "fold-object");
+                auto props = v.container("dcs-props", "object-props");
+                for (std::size_t i = 0; i < cls.property_count(); ++i) {
+                    const auto prop = cls.property_at(i);
+                    if (!prop.valid() || !prop.set ||
+                        prop.has<affineui::attr::ReadOnly>()) {
+                        continue;
+                    }
+                    const auto value = prop.get(node);
+                    if (!std::holds_alternative<bool>(value)) continue;
+                    const std::string key = "obj-" + prop.name;
+                    v.checkbox(std::string(prop.display_label()),
+                               std::get<bool>(value), key)
+                        .on_change([this, id, name = prop.name](
+                                       std::string_view value) {
+                            const bool on = value == "true" ||
+                                            value == "1" || value == "on";
+                            viewport_->set_node_property(
+                                id, name, affineui::PropertyValue{on});
+                        });
+                }
             }
         }
     }

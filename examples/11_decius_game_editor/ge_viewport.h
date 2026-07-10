@@ -7,8 +7,8 @@
 // a translate/rotate/scale gizmo wired into the app's selection and
 // undo stack.
 
+#include <array>
 #include <memory>
-#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -47,25 +47,23 @@ public:
     void sync_selection();
 
     // ── Inspector bridge ────────────────────────────────────────────
-    struct ObjectTransform {
-        e3d::Vec3 location;
-        e3d::Vec3 rotation_deg;
-        e3d::Vec3 scale{1.0f, 1.0f, 1.0f};
-    };
-    /// Current transform of a document object's 3D node (nullopt when
-    /// the object has no node, e.g. groups).
-    [[nodiscard]] std::optional<ObjectTransform> transform_of(
-        std::string_view id) const;
-    /// Set one channel (axis 0=X 1=Y 2=Z) through an undoable command.
-    void set_location(std::string_view id, int axis, double value);
-    void set_rotation_deg(std::string_view id, int axis, double value);
-    void set_scale(std::string_view id, int axis, double value);
+    /// The 3D node mirroring a document object (nullptr when the object
+    /// has no node, e.g. groups). Inspect it through its reflection
+    /// class: `get_class(*node)` — see e3d_scene.h.
+    [[nodiscard]] e3d::Object3D* node_of(std::string_view id) const;
+    /// Set one reflected property (by its ObjectClass name, e.g.
+    /// "position.x", "visible") through an undoable command.
+    void set_node_property(std::string_view id, std::string_view prop,
+                           const affineui::PropertyValue& value);
 
     static constexpr const char* kPaintName = "ge.scene";
+    static constexpr const char* kNavPaintName = "ge.navball";
 
 private:
     void frame(double dt);
     void paint(affineui::Painter& p, const affineui::Rect& r);
+    void paint_navball(affineui::Painter& p, const affineui::Rect& r);
+    void snap_camera_to_axis(int axis);
     void mark_dirty();
     e3d::Vec2 to_ndc(double x, double y) const;
     e3d::ObjectPtr make_node(const app::Object& obj, std::size_t index);
@@ -93,6 +91,16 @@ private:
 
     affineui::Rect canvas_rect_{};
     bool           dirty_{true};
+
+    // Navigation gizmo (axis ball): nub centers in the web gizmo's
+    // 72x72 local space, refreshed by paint_navball for click
+    // hit-testing (the web's snap-to-axis nubs).
+    struct NavNub {
+        double x{0.0}, y{0.0};
+        int    axis{0};  // 0..5 = +X +Y +Z -X -Y -Z
+    };
+    std::array<NavNub, 6> nav_nubs_{};
+    affineui::Rect        nav_rect_{};
 
     // Camera drag / click-vs-drag state.
     bool   cam_dragging_{false};
