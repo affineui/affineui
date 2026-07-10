@@ -6743,6 +6743,58 @@ TEST_CASE("focused input edits at caret and preserves caret across relayout") {
     CHECK(painter.text_runs.back() == "Xa!cd");
 }
 
+TEST_CASE("focused input never shows caret and selection at the same time") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>body{margin:0;padding:0}
+        input{display:block;width:160px;padding:4px 8px;border:0}</style>
+        <input value="abcd">
+    )HTML");
+    doc.layout(320, 0, &painter);
+
+    const auto input_pos = find_hovered_tag(doc, "input");
+    REQUIRE(input_pos.x >= 0);
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = input_pos;
+    doc.dispatch(down);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = input_pos;
+    doc.dispatch(up);
+
+    // A short near-vertical stroke inside the field is the caret.
+    auto has_caret = [&] {
+        painter.stroke_line_draws.clear();
+        doc.draw(painter);
+        for (const auto& sl : painter.stroke_line_draws) {
+            const bool vertical = std::abs(sl.x0 - sl.x1) < 0.5f;
+            const float h = std::abs(sl.y1 - sl.y0);
+            if (vertical && h >= 6.0f && h <= 24.0f) return true;
+        }
+        return false;
+    };
+
+    // Select all (Ctrl+A) → a selection is active → NO caret painted.
+    affineui::Event sel{};
+    sel.type = affineui::EventType::KeyDown;
+    sel.key = affineui::Key::A;
+    sel.ctrl = true;
+    doc.dispatch(sel);
+    CHECK_FALSE(has_caret());
+
+    // Collapse the selection (ArrowRight) → caret returns.
+    affineui::Event right{};
+    right.type = affineui::EventType::KeyDown;
+    right.key = affineui::Key::ArrowRight;
+    doc.dispatch(right);
+    CHECK(has_caret());
+}
+
 TEST_CASE("text input click placement uses measured glyph advances") {
     affineui::Document doc;
     RecordingPainter painter;

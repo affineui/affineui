@@ -1359,7 +1359,12 @@ void Document::draw(Painter& painter) {
                                   line_height_mult,
                                   letter_spacing_px,
                                   paint_align);
-            if (b.text_control && static_cast<int>(i) == impl_->focused_idx) {
+            // A text field shows EITHER a selection highlight OR the
+            // caret, never both: suppress the caret while a non-empty
+            // selection is active (the select-all a numeric field does
+            // on first focus, or any range drag).
+            if (b.text_control && static_cast<int>(i) == impl_->focused_idx &&
+                !detail::has_text_selection(b)) {
                 const TextLayoutEntry* caret_layout = cached_text_layout;
                 if (caret_layout == nullptr) {
                     TextControlGeometry g{};
