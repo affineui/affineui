@@ -12,11 +12,13 @@ from typing import TYPE_CHECKING, Callable
 
 import affineui as ui
 
-from . import colors, stage
+from . import colors
 from .specs import (ADJUSTMENTS, CHANNELS, COMPS, LAYER_BLENDS, SWATCHES,
                     TOOLS, tool_icon_html)
 
 if TYPE_CHECKING:
+    import photo_core
+
     from .app import PhotoEditApp
 
 def _icon_button(v: ui.View, key: str, icon_html: str, title: str,
@@ -128,10 +130,12 @@ def _build_color_chips(app: "PhotoEditApp", v: ui.View) -> None:
     swap.attr("role", "button").attr("title", "Swap colors (X)")
     swap.on_click(app.swap_colors)
     bg = v.container(classes="ps-colorchip ps-colorchip--bg", key="ps-chip-bg")
+    bg.attr("id", "ps-chip-bg")
     bg.attr("style", f"background:{app.bg}")
     bg.attr("role", "button").attr("title", f"Background color {app.bg}")
     bg.on_click(app.open_background_picker)
     fg = v.container(classes="ps-colorchip ps-colorchip--fg", key="ps-chip-fg")
+    fg.attr("id", "ps-chip-fg")
     fg.attr("style", f"background:{app.fg}")
     fg.attr("role", "button").attr("title", f"Foreground color {app.fg}")
     fg.on_click(app.open_foreground_picker)
@@ -167,38 +171,10 @@ def _navigator_body(app: "PhotoEditApp", v: ui.View) -> None:
 
 
 def _nav_thumb(app: "PhotoEditApp", v: ui.View) -> None:
-    doc_w, doc_h = max(1, app.doc.width()), max(1, app.doc.height())
-    box_w, box_h = 174.0, 100.0  # thumb interior minus margins
-    scale = min(box_w / doc_w, box_h / doc_h)
-    nav_w, nav_h = doc_w * scale, doc_h * scale
-
-    def mini_doc(m: ui.View) -> None:
-        inner = m.container(classes="ps-nav-scale", key="ps-nav-scale",
-                            build=lambda s: stage.render_layer_stack(
-                                app, s, "nav"))
-        inner.attr("style",
-                   f"position:absolute;left:0;top:0;width:{doc_w}px;"
-                   f"height:{doc_h}px;transform:scale({scale:.5f});"
-                   "transform-origin:0 0")
-
-    doc_box = v.container(classes="ps-nav-doc", key="ps-nav-doc",
-                          build=mini_doc)
-    doc_box.attr("style",
-                 f"left:50%;top:50%;width:{nav_w:.1f}px;"
-                 f"height:{nav_h:.1f}px;margin-left:{-nav_w / 2:.1f}px;"
-                 f"margin-top:{-nav_h / 2:.1f}px")
-
-    # Red viewport rectangle: visible fraction of the doc at current zoom.
-    stage_w, stage_h = app.stage_size()
-    fx = min(1.0, stage_w / (doc_w * app.zoom))
-    fy = min(1.0, stage_h / (doc_h * app.zoom))
-    cx = min(max(0.5 - app.pan_x / (app.zoom * doc_w), fx / 2), 1 - fx / 2)
-    cy = min(max(0.5 - app.pan_y / (app.zoom * doc_h), fy / 2), 1 - fy / 2)
-    view = v.container(classes="ps-nav-view", key="ps-nav-view")
-    view.attr("style",
-              f"left:calc(50% + {((cx - fx / 2) - 0.5) * nav_w:.1f}px);"
-              f"top:calc(50% + {((cy - fy / 2) - 0.5) * nav_h:.1f}px);"
-              f"width:{fx * nav_w:.1f}px;height:{fy * nav_h:.1f}px")
+    # The raster core paints the live composite (and the viewport
+    # rectangle) into this canvas each frame. Click/drag-to-pan routes
+    # through App.on_event (web panels.js Navigator behavior).
+    v.canvas("ps-nav", classes="ps-nav-canvas", key="ps-nav-canvas")
 
 
 # ── Color / Swatches ─────────────────────────────────────────────────────────
@@ -206,22 +182,28 @@ def _nav_thumb(app: "PhotoEditApp", v: ui.View) -> None:
 def _color_tab(app: "PhotoEditApp", v: ui.View) -> None:
     def body(p: ui.View) -> None:
         h, s, val = app.hsv
-        # SV square + hue bar reflect the foreground; pointer-precise picking
-        # inside the square is Phase-B (no pointer coordinates on click). The
-        # hex + RGB fields below are the committing editors.
-        sv = p.container(classes="ps-sv", key="ps-sv",
-                         build=lambda box: box.container(
-                             classes="ps-sv-dot", key="ps-sv-dot").attr(
-                             "style",
-                             f"left:{s * 100:.1f}%;"
-                             f"top:{(1 - val) * 100:.1f}%"))
+        # SV square + hue bar: pointer-precise picking routes through
+        # App.on_event (web initPicker drag), which updates the dots and
+        # chips live via DOM style mutations.
+        def sv_body(box: ui.View) -> None:
+            dot = box.container(classes="ps-sv-dot", key="ps-sv-dot")
+            dot.attr("id", "ps-sv-dot")
+            dot.attr("style", f"left:{s * 100:.1f}%;"
+                              f"top:{(1 - val) * 100:.1f}%")
+
+        sv = p.container(classes="ps-sv", key="ps-sv", build=sv_body)
+        sv.attr("id", "ps-sv")
         sv.attr("style",
                 "background:linear-gradient(to top,#000,transparent),"
                 f"linear-gradient(to right,#fff,hsl({h:.0f},100%,50%))")
-        p.container(classes="ps-hue", key="ps-hue",
-                    build=lambda bar: bar.container(
-                        classes="ps-hue-dot", key="ps-hue-dot").attr(
-                        "style", f"left:{h / 360 * 100:.1f}%"))
+
+        def hue_body(bar: ui.View) -> None:
+            dot = bar.container(classes="ps-hue-dot", key="ps-hue-dot")
+            dot.attr("id", "ps-hue-dot")
+            dot.attr("style", f"left:{h / 360 * 100:.1f}%")
+
+        hue = p.container(classes="ps-hue", key="ps-hue", build=hue_body)
+        hue.attr("id", "ps-hue")
         hexfield = p.input("Hex", app.fg, key="ps-hex")
         hexfield.cls("ps-hex-field")
         hexfield.on_change(app.set_foreground_hex)
@@ -291,15 +273,14 @@ def _layer_filter_bar(app: "PhotoEditApp", v: ui.View) -> None:
 
 def _layer_blend_row(app: "PhotoEditApp", v: ui.View) -> None:
     layer = app.current_layer()
-    blend = v.dropdown("", list(LAYER_BLENDS),
-                       layer.blend if layer.blend in LAYER_BLENDS
-                       else "Normal", key="ps-blend")
+    blend = v.dropdown("", list(LAYER_BLENDS), app.current_blend_name(),
+                       key="ps-blend")
     blend.cls("ps-blend-select")
     blend.on_change(app.set_layer_blend)
     v.container(classes="ps-row-spacer", key="ps-bo-spacer")
     v.container(classes="ps-amt-label", key="ps-op-label",
                 build=lambda h: h.html("Opacity:"))
-    v.input("", f"{round(layer.opacity)}", type="number",
+    v.input("", f"{round(layer.opacity * 100)}", type="number",
             key="ps-op-amt").cls("ps-amt-field").on_change(
         app.set_layer_opacity)
 
@@ -321,7 +302,7 @@ def _layer_lock_row(app: "PhotoEditApp", v: ui.View) -> None:
     v.container(classes="ps-row-spacer", key="ps-lock-spacer")
     v.container(classes="ps-amt-label", key="ps-fill-label",
                 build=lambda h: h.html("Fill:"))
-    v.input("", f"{round(layer.fill)}", type="number",
+    v.input("", f"{round(layer.fill * 100)}", type="number",
             key="ps-fill-amt").cls("ps-amt-field").on_change(
         app.set_layer_fill)
 
@@ -332,8 +313,8 @@ def _layer_rows(app: "PhotoEditApp", v: ui.View) -> None:
 
 
 def _layer_row(app: "PhotoEditApp", v: ui.View,
-               layer: ui.PhotoLayerSnapshot) -> None:
-    is_active = layer.id == app.doc.active_layer_id()
+               layer: "photo_core.PhotoLayer") -> None:
+    is_active = layer.id == app.doc.active_id()
 
     def row(r: ui.View) -> None:
         eye = r.container(
@@ -344,19 +325,12 @@ def _layer_row(app: "PhotoEditApp", v: ui.View,
         eye.attr("role", "button").attr("title", "Toggle visibility")
         eye.on_click(lambda: app.toggle_layer_visible(layer.id))
 
-        def thumb(t: ui.View) -> None:
-            if layer.kind == "text":
-                t.html('<span class="ps-tcap" style="position:absolute;'
-                       'inset:0;display:flex;align-items:center;'
-                       'justify-content:center;color:#333">T</span>',
-                       key=f"thumb-t-{layer.id}")
-            else:
-                t.container(classes="ps-layer-thumb-fill",
-                            key=f"thumb-fill-{layer.id}").attr(
-                    "style", layer.style)
-
+        # Live pixel thumbnail, painted by the raster core.
         r.container(classes="ps-layer-thumb", key=f"thumb-{layer.id}",
-                    build=thumb)
+                    build=lambda t: t.canvas(
+                        app.doc.thumb_paint_name(layer.id),
+                        classes="ps-layer-thumb-fill",
+                        key=f"thumb-canvas-{layer.id}"))
 
         if app.renaming_layer_id == layer.id:
             rename = r.input("", layer.name, key=f"rename-{layer.id}")
@@ -471,15 +445,16 @@ def _adjust_grid(app: "PhotoEditApp", v: ui.View) -> None:
 
 def _history_list(app: "PhotoEditApp", v: ui.View) -> None:
     current = app.doc.history_index()
-    for index, (label, icon) in enumerate(app.doc.history_entries()):
+    for index, entry in enumerate(app.doc.history_entries()):
         classes = "ps-history-item"
         if index == current:
             classes += " is-current"
         elif index > current:
             classes += " is-future"
-        item = v.container(classes=classes, key=f"history-{index}",
-                           build=lambda h, label=label, icon=icon: h.html(
-                               f"{_di(icon)}<span>{escape(label)}</span>"))
+        item = v.container(
+            classes=classes, key=f"history-{index}",
+            build=lambda h, label=entry.name, icon=entry.icon: h.html(
+                f"{_di(icon)}<span>{escape(label)}</span>"))
         item.attr("role", "button")
         item.on_click(lambda index=index: app.jump_history(index))
 

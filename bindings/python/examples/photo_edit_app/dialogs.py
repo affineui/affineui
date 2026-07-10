@@ -2,8 +2,10 @@
 
 A small declarative dialog framework: each dialog is a DialogSpec with typed
 fields; field edits land in ``app.dialog_values``; OK dispatches on the spec
-id. Field defaults, ranges, and OK behavior mirror the web app at the
-document-state level.
+id. Adjustment/filter modals live-preview through the raster core
+(begin_preview / preview_adjust / commit_preview / cancel_preview), exactly
+like the web's adjustModal keeps a base ImageData and re-applies per slider
+input.
 """
 
 from __future__ import annotations
@@ -15,7 +17,8 @@ from typing import TYPE_CHECKING
 import affineui as ui
 
 from . import colors
-from .specs import DIALOG_BLENDS, DOC_PRESETS, PLACE_ASSETS, SHORTCUTS
+from .specs import (BLEND_TO_CANVAS, DIALOG_BLENDS, DOC_PRESETS,
+                    PLACE_ASSETS, SHORTCUTS)
 
 if TYPE_CHECKING:
     from .app import PhotoEditApp
@@ -164,8 +167,7 @@ def open_place(app: "PhotoEditApp") -> None:
         "place", "Place Embedded", "import", 380, (
             Field("static",
                   label="Places a generated asset as a new layer."),
-            Field("select", "asset", "Asset", "Sun flare",
-                  tuple(PLACE_ASSETS.keys())),
+            Field("select", "asset", "Asset", "Sun flare", PLACE_ASSETS),
         ), ok_label="Place"))
 
 
@@ -193,9 +195,17 @@ def open_color_picker(app: "PhotoEditApp", target: str) -> None:
         )))
 
 
-# Adjustment modals (§8): live-preview in the web; here the slider values are
-# applied as a CSS filter on OK. (Live preview needs pointer/drag streaming —
-# Phase B.)
+# Adjustment / filter modals (§8): live-preview through the raster core.
+# Opening captures the active layer's region (begin_preview); every slider
+# move re-applies onto that base (preview_adjust); OK commits + snapshots,
+# Cancel/× restores the base — exactly the web adjustModal contract.
+
+_ADJUST_ICONS = {
+    "bc": "light", "hsl": "color-grade", "levels": "graph",
+    "vibrance": "wave-sine", "fblur": "blur",
+}
+
+
 def open_adjust(app: "PhotoEditApp", key: str, label: str) -> None:
     fields: tuple[Field, ...]
     if key == "bc":
@@ -218,17 +228,42 @@ def open_adjust(app: "PhotoEditApp", key: str, label: str) -> None:
                         lo=-100, hi=100),)
     elif key == "fblur":
         fields = (Field("slider", "amount", "Amount", 4, lo=0, hi=40),)
-    elif key == "fnoise":
-        fields = (Field("slider", "amount", "Amount", 25, lo=0, hi=100),)
     else:  # Generic fallback modal (curves/balance/mixer/photo/exposure).
         fields = (Field("slider", "amount", "Amount", 0, lo=-100, hi=100),)
+    if not app.doc.begin_preview():
+        app.toast("Layer is locked")
+        return
     app.show_dialog(DialogSpec(f"adjust:{key}", label,
                                "color-grade", 380, fields))
+    _preview_adjust(app, key)  # web parity: preview the defaults on open
+
+
+def _preview_adjust(app: "PhotoEditApp", key: str) -> None:
+    if key == "bc":
+        app.doc.preview_adjust("bc", _num(app, "brightness", 0),
+                               _num(app, "contrast", 0), 0)
+    elif key == "hsl":
+        app.doc.preview_adjust("hsl", _num(app, "hue", 0),
+                               _num(app, "saturation", 0),
+                               _num(app, "lightness", 0))
+    elif key == "levels":
+        app.doc.preview_adjust("levels", _num(app, "black", 0),
+                               _num(app, "white", 255),
+                               _num(app, "gamma", 100))
+    elif key == "vibrance":
+        app.doc.preview_adjust("vibrance", _num(app, "amount", 0), 0, 0)
+    elif key == "fblur":
+        app.doc.preview_adjust("blur", _num(app, "amount", 4), 0, 0)
+    else:
+        app.doc.preview_adjust("generic", _num(app, "amount", 0), 0, 0)
 
 
 # ── Field-change hooks (web onField) ─────────────────────────────────────────
 
 def field_changed(app: "PhotoEditApp", spec: DialogSpec, key: str) -> None:
+    if spec.id.startswith("adjust:"):
+        _preview_adjust(app, spec.id.split(":", 1)[1])
+        return
     if spec.id == "new_doc" and key == "preset":
         preset = _text(app, "preset", "Custom")
         if preset in DOC_PRESETS and preset != "Custom":
@@ -258,20 +293,20 @@ def handle_ok(app: "PhotoEditApp", spec: DialogSpec) -> None:
     elif sid == "image_size":
         w = max(1, int(_num(app, "width", app.doc.width())))
         h = max(1, int(_num(app, "height", app.doc.height())))
-        # Phase B: real pixel resampling; state-level resize only.
-        app.doc.resize_document(w, h, "Image Size", "aspect")
+        app.doc.resize_image(w, h)
         app.toast(f"Image resized to {w} × {h}px")
     elif sid == "canvas_size":
         w = max(1, int(_num(app, "width", app.doc.width())))
         h = max(1, int(_num(app, "height", app.doc.height())))
-        # Phase B: anchor-relative content placement; dims-only here.
-        app.doc.resize_document(w, h, "Canvas Size", "fit")
+        app.doc.resize_canvas(w, h, _text(app, "anchor", "mc"))
         app.toast(f"Canvas resized to {w} × {h}px "
                   f"(anchor {_text(app, 'anchor', 'mc')})")
     elif sid == "new_layer":
-        app.doc.add_layer(_text(app, "name", app.next_layer_name()), "pixel",
-                          "", _text(app, "mode", "Normal"),
-                          _num(app, "opacity", 100), "New Layer", "plus")
+        blend = BLEND_TO_CANVAS.get(_text(app, "mode", "Normal"),
+                                    "source-over")
+        app.doc.add_layer(_text(app, "name", app.next_layer_name()),
+                          blend, _num(app, "opacity", 100) / 100.0,
+                          "New Layer", "plus")
         app.status = "New Layer"
     elif sid == "fill":
         _ok_fill(app)
@@ -282,14 +317,12 @@ def handle_ok(app: "PhotoEditApp", spec: DialogSpec) -> None:
         app.sel_feather = _num(app, "radius", 8)
         app.toast(f"Feather set to {round(app.sel_feather)}px")
     elif sid == "export":
-        ext = _text(app, "format", "PNG").lower()
-        app.toast(f"Exported decius-photoeditor.{ext}")
+        scale = {"1×": 1.0, "2×": 2.0, "0.5×": 0.5}.get(
+            _text(app, "scale", "1×"), 1.0)
+        app.export_document(_text(app, "format", "PNG"), scale)
     elif sid == "place":
         asset = _text(app, "asset", "Sun flare")
-        style, blend, opacity = PLACE_ASSETS.get(
-            asset, PLACE_ASSETS["Sun flare"])
-        app.doc.add_layer(asset, "pixel", style, blend, opacity,
-                          f"Place {asset}", "import")
+        app.doc.place_asset(asset)
         app.status = f"Placed {asset}"
     elif sid.startswith("picker:"):
         target = sid.split(":", 1)[1]
@@ -302,7 +335,10 @@ def handle_ok(app: "PhotoEditApp", spec: DialogSpec) -> None:
             app.bg = color
             app.status = f"Background {color}"
     elif sid.startswith("adjust:"):
-        _ok_adjust(app, sid.split(":", 1)[1], spec.title)
+        key = sid.split(":", 1)[1]
+        app.doc.commit_preview(spec.title,
+                               _ADJUST_ICONS.get(key, "color-grade"))
+        app.status = spec.title
     # "shortcuts" / "about" need no OK action.
 
 
@@ -311,17 +347,15 @@ def _ok_new_doc(app: "PhotoEditApp") -> None:
     w = max(1, int(_num(app, "width", 1280)))
     h = max(1, int(_num(app, "height", 800)))
     background = _text(app, "background", "White")
-    style = {
-        "White": "background:#ffffff",
-        "Black": "background:#000000",
+    hex_bg = {
+        "White": "#ffffff",
+        "Black": "#000000",
         "Transparent": "",
-        "Foreground": f"background:{app.fg}",
-    }.get(background, "background:#ffffff")
-    app.doc.new_document(w, h, style)
+        "Foreground": app.fg,
+    }.get(background, "#ffffff")
+    app.doc.new_document(w, h, hex_bg)
     app.doc_name = name
     app.color_mode = _text(app, "mode", "RGB/8")
-    app.selection = None
-    app.set_zoom(app.fit_zoom(), reload=False)
     app.toast(f"Created {name} — {w} × {h}px")
 
 
@@ -334,8 +368,9 @@ def _ok_fill(app: "PhotoEditApp") -> None:
         "White": "#ffffff",
         "50% Gray": "#808080",
     }.get(contents, app.fg)
-    # Blend-mode fills are Phase-B pixel work; opacity is honored.
-    if app.doc.fill_active(color, _num(app, "opacity", 100), "Fill"):
+    blend = BLEND_TO_CANVAS.get(_text(app, "mode", "Normal"), "source-over")
+    if app.doc.fill_layer(color, _num(app, "opacity", 100) / 100.0, blend,
+                          "Fill"):
         app.status = "Fill"
     else:
         app.status = "Layer is locked"
@@ -344,54 +379,12 @@ def _ok_fill(app: "PhotoEditApp") -> None:
 def _ok_stroke(app: "PhotoEditApp") -> None:
     width = max(1, int(_num(app, "width", 4)))
     color = colors.normalize_hex(_text(app, "color", app.fg)) or app.fg
-    opacity = _num(app, "opacity", 100) / 100.0
-    rgba = colors.hex_to_rgba(color, opacity)
-    # CSS approximation: inset box-shadow strokes the layer bounds
-    # (selection-rect strokes and inside/outside placement are Phase B).
-    if app.doc.append_active_style(
-            f"box-shadow:inset 0 0 0 {width}px {rgba}", "Stroke", "edit"):
+    location = _text(app, "location", "Center").lower()
+    if app.doc.stroke_selection(color, width, location,
+                                _num(app, "opacity", 100) / 100.0):
         app.status = "Stroke"
     else:
         app.status = "Layer is locked"
-
-
-def _ok_adjust(app: "PhotoEditApp", key: str, title: str) -> None:
-    if key == "bc":
-        b = _num(app, "brightness", 0)
-        c = _num(app, "contrast", 0)
-        css = f"brightness({1 + b * 0.012:.3f}) contrast({1 + c * 0.01:.3f})"
-        applied = app.doc.adjust_active(css, "Brightness/Contrast", "light")
-    elif key == "hsl":
-        h = _num(app, "hue", 0)
-        s = _num(app, "saturation", 0)
-        l = _num(app, "lightness", 0)
-        css = (f"hue-rotate({h:.0f}deg) saturate({1 + s * 0.01:.3f}) "
-               f"brightness({1 + l * 0.01:.3f})")
-        applied = app.doc.adjust_active(css, "Hue/Saturation", "color-grade")
-    elif key == "levels":
-        lo = _num(app, "black", 0)
-        hi = max(lo + 1, _num(app, "white", 255))
-        gamma = max(10.0, _num(app, "gamma", 100))
-        css = (f"contrast({255 / (hi - lo):.3f}) "
-               f"brightness({gamma / 100:.3f})")
-        applied = app.doc.adjust_active(css, "Levels", "graph")
-    elif key == "vibrance":
-        css = f"saturate({1 + _num(app, 'amount', 0) * 0.01:.3f})"
-        applied = app.doc.adjust_active(css, "Vibrance", "wave-sine")
-    elif key == "fblur":
-        amount = max(0.0, _num(app, "amount", 4))
-        applied = app.doc.adjust_active(f"blur({amount:.0f}px)",
-                                        "Gaussian Blur", "blur")
-    elif key == "fnoise":
-        # Phase B: per-pixel noise has no CSS analogue.
-        app.toast("Add Noise is Phase-B pixel work")
-        return
-    else:
-        amount = _num(app, "amount", 0)
-        css = (f"brightness({1 + amount * 0.005:.3f}) "
-               f"contrast({1 + amount * 0.002:.3f})")
-        applied = app.doc.adjust_active(css, title, "color-grade")
-    app.status = title if applied else "Layer is locked"
 
 
 # ── Rendering ────────────────────────────────────────────────────────────────
@@ -458,8 +451,8 @@ def _build_fields(app: "PhotoEditApp", spec: DialogSpec, v: ui.View) -> None:
             v.slider(field.label,
                      float(app.dialog_values.get(key, field.value) or 0),
                      field.lo, field.hi, key=f"dlg-{key}").on_change(
-                lambda text, key=key: app.set_dialog_value(
-                    key, text, numeric=True))
+                lambda text, key=key, spec=spec: app.set_dialog_value(
+                    key, text, numeric=True, spec=spec))
         elif field.kind == "check":
             v.checkbox(field.label,
                        bool(app.dialog_values.get(key, field.value)),

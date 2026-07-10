@@ -89,19 +89,16 @@ PHOTO_CSS = r"""
 .ps-ruler{position:absolute;background:var(--dcs-surface-1,#252a34);color:var(--dcs-text-mute,#8c93a3);font:8px var(--dcs-font-mono,monospace);overflow:hidden;z-index:1}
 .ps-ruler--h{left:18px;right:0;top:0;height:18px;border-bottom:1px solid var(--dcs-line,#343946)}
 .ps-ruler--v{left:0;top:18px;bottom:0;width:18px;border-right:1px solid var(--dcs-line,#343946)}
-.ps-ruler-ticks{display:flex;height:100%;align-items:flex-end}
-.ps-ruler-ticks span{flex:none;border-left:1px solid var(--dcs-line-strong,#4b5262);height:8px;padding-left:2px;overflow:hidden;white-space:nowrap}
-.ps-ruler--v .ps-ruler-ticks{flex-direction:column;align-items:flex-start;width:100%}
-.ps-ruler--v .ps-ruler-ticks span{border-left:0;border-top:1px solid var(--dcs-line-strong,#4b5262);width:8px;height:auto;padding-left:0;padding-top:2px}
+.ps-ruler-ticks{position:relative;width:100%;height:100%}
+.ps-ruler--h .ps-ruler-ticks span{position:absolute;top:0;height:100%;border-left:1px solid var(--dcs-line-strong,#4b5262);padding-left:2px;overflow:hidden;white-space:nowrap}
+.ps-ruler--v .ps-ruler-ticks span{position:absolute;left:0;width:100%;border-top:1px solid var(--dcs-line-strong,#4b5262);padding-top:1px;overflow:hidden;white-space:nowrap}
 .ps-stage{position:absolute;left:18px;right:0;top:18px;bottom:0;overflow:hidden;cursor:crosshair}
-.ps-doc{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) translate(var(--px,0),var(--py,0)) scale(var(--z,.67));transform-origin:center;box-shadow:0 0 0 1px #0008,0 24px 60px rgba(0,0,0,.45);background-image:repeating-conic-gradient(#cfcfcf 0 90deg,#fff 90deg 180deg);background-size:16px 16px;overflow:hidden}
-.ps-layer-canvas{position:absolute;inset:0}
-.ps-layer-text{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-size:120px;color:#fff}
-.ps-layer-title{font-weight:700;font-size:1em;line-height:1;text-shadow:0 4px 20px rgba(0,0,0,.5);letter-spacing:2px}
-.ps-layer-subtitle{font-family:var(--dcs-font-mono,monospace);font-weight:500;font-size:.25em;color:rgba(255,255,255,.82)}
-.ps-marquee{position:absolute;outline:1px dashed #fff;box-shadow:0 0 0 1px #000;pointer-events:none;animation:ps-ants .6s linear infinite}
+/* The raster core paints the zoomed/panned document (checkerboard,
+   composite, pen preview) into this custom-paint canvas each frame. */
+.ps-stage-canvas{position:absolute;inset:0}
+.ps-marquee{position:absolute;outline:1px dashed #fff;box-shadow:0 0 0 1px #000;pointer-events:none;animation:ps-ants .6s linear infinite;z-index:900}
 @keyframes ps-ants{0%{outline-offset:0}100%{outline-offset:-4px}}
-.ps-grid-overlay{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.12) 1px,transparent 1px);background-size:64px 64px;pointer-events:none;opacity:.5}
+.ps-grid-overlay{position:absolute;background-image:linear-gradient(rgba(255,255,255,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.12) 1px,transparent 1px);background-size:64px 64px;pointer-events:none;opacity:.5}
 .ps-stage-badge{position:absolute;z-index:5}
 .ps-stage-badge--bl{left:8px;bottom:8px}
 .ps-stage-badge--tr{right:8px;top:8px}
@@ -131,9 +128,8 @@ PHOTO_CSS = r"""
 
 /* ── Navigator ─────────────────────────────────────────────────────────── */
 .ps-nav-body{display:flex;flex-direction:column;gap:8px;padding:10px}
-.ps-nav-thumb{position:relative;height:116px;border:1px solid var(--dcs-line,#343946);border-radius:3px;overflow:hidden;background-image:repeating-conic-gradient(#cfcfcf 0 90deg,#fff 90deg 180deg);background-size:10px 10px;cursor:move}
-.ps-nav-doc{position:absolute;overflow:hidden;background:#0b1437}
-.ps-nav-view{position:absolute;border:1.5px solid var(--dcs-danger,#ff5b6a);box-shadow:0 0 0 1px #0008;pointer-events:none}
+.ps-nav-thumb{position:relative;height:116px;border:1px solid var(--dcs-line,#343946);border-radius:3px;overflow:hidden;background:var(--dcs-well,#171a21);cursor:move}
+.ps-nav-canvas{position:absolute;inset:0}
 .ps-nav-zoomrow{display:flex;align-items:center;gap:7px;color:var(--dcs-text-dim,#a6adbb);font-size:13px}
 .ps-nav-zoomrow>.dcs-field{flex:1 1 auto;min-width:0;height:22px;min-height:22px}
 .ps-nav-zoomrow i{cursor:pointer}
