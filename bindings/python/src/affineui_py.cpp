@@ -7,8 +7,6 @@
 #include <affineui/view.h>
 #include <affineui/version.h>
 
-#include "photo_core_py.h"
-
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -121,7 +119,6 @@ PYBIND11_MODULE(_affineui, m) {
     m.def("tools_active", [] { return affineui::tools_active(); });
     m.def("tools_port", [] { return affineui::tools_port(); });
     m.def("tools_shutdown", [] { affineui::tools_shutdown(); });
-    bind_photo_core(m);
 
     py::class_<affineui::Color>(m, "Color")
         .def(py::init([](int r, int g, int b, int a) {
@@ -243,7 +240,12 @@ PYBIND11_MODULE(_affineui, m) {
         .value("Digit6", affineui::Key::Digit6)
         .value("Digit7", affineui::Key::Digit7)
         .value("Digit8", affineui::Key::Digit8)
-        .value("Digit9", affineui::Key::Digit9);
+        .value("Digit9", affineui::Key::Digit9)
+        .value("Space", affineui::Key::Space)
+        .value("Minus", affineui::Key::Minus)
+        .value("Equal", affineui::Key::Equal)
+        .value("BracketLeft", affineui::Key::BracketLeft)
+        .value("BracketRight", affineui::Key::BracketRight);
 
     py::enum_<affineui::EventType>(
             m,
@@ -405,7 +407,103 @@ PYBIND11_MODULE(_affineui, m) {
              &affineui::Document::caret_rect,
              "Caret rectangle of the focused text control in document CSS "
              "points, for IME candidate-window placement (w<=0 when no "
-             "text control is focused).");
+             "text control is focused).")
+        .def("text_editing_active",
+             &affineui::Document::text_editing_active,
+             "True while a text control has keyboard focus — app-level "
+             "keyboard shortcuts should stand down.")
+        .def("dock_layout", &affineui::Document::dock_layout,
+             "Snapshot of the CURRENT dock arrangement, read live from the "
+             "DOM. Opaque: pass it back via View.set_dock_layout_provider so "
+             "rebuilds replay the user's arrangement (tearoffs, splits) "
+             "instead of the declared seed.")
+        .def("dock_overrides", &affineui::Document::dock_overrides,
+             "Runtime placement overrides recorded by dock gestures, as a "
+             "list of (panel_id, DockPlacement) pairs. Feed them back via "
+             "View.set_dock_placement_provider.")
+        .def("take_dock_structure_changed",
+             &affineui::Document::take_dock_structure_changed,
+             "True once (consumes the flag) after a dock gesture "
+             "restructured the DOM. Apps driving their own rebuild loop "
+             "should rebuild the whole view when this fires.")
+        .def("reset_dock_state", &affineui::Document::reset_dock_state,
+             "Forget all runtime dock overrides and remembered active tabs "
+             "(Reset Workspace). Rebuild once WITHOUT wiring the dock "
+             "providers so the declared seed layout wins.");
+
+    // ── Declarative docking (document_view / dockpanel) ─────────────────
+    py::enum_<affineui::Dock>(m, "Dock")
+        .value("Left", affineui::Dock::Left)
+        .value("Right", affineui::Dock::Right)
+        .value("Top", affineui::Dock::Top)
+        .value("Bottom", affineui::Dock::Bottom)
+        .value("Tab", affineui::Dock::Tab);
+
+    py::enum_<affineui::DockCorner>(m, "DockCorner")
+        .value("TopLeft", affineui::DockCorner::TopLeft)
+        .value("TopRight", affineui::DockCorner::TopRight)
+        .value("BottomLeft", affineui::DockCorner::BottomLeft)
+        .value("BottomRight", affineui::DockCorner::BottomRight);
+
+    py::class_<affineui::Document::DockPlacement>(m, "DockPlacement")
+        .def(py::init<>())
+        .def_readwrite("present", &affineui::Document::DockPlacement::present)
+        .def_readwrite("floating",
+                       &affineui::Document::DockPlacement::floating)
+        .def_readwrite("parent", &affineui::Document::DockPlacement::parent)
+        .def_readwrite("side", &affineui::Document::DockPlacement::side)
+        .def_readwrite("size", &affineui::Document::DockPlacement::size)
+        .def_readwrite("x", &affineui::Document::DockPlacement::x)
+        .def_readwrite("y", &affineui::Document::DockPlacement::y)
+        .def_readwrite("w", &affineui::Document::DockPlacement::w)
+        .def_readwrite("h", &affineui::Document::DockPlacement::h);
+
+    // Opaque: harvested from Document.dock_layout(), handed back verbatim to
+    // View.set_dock_layout_provider. Apps never inspect the tree from Python.
+    py::class_<affineui::Document::DockLayout>(m, "DockLayout")
+        .def(py::init<>())
+        .def_readonly("present", &affineui::Document::DockLayout::present);
+
+    py::class_<affineui::DockHandle>(m, "DockHandle")
+        .def_readonly("id", &affineui::DockHandle::id)
+        .def("__bool__",
+             [](const affineui::DockHandle& h) { return bool(h); })
+        .def("toolbar",
+             [](affineui::DockHandle& h, py::function build) {
+                 auto cb = keep_python_function(std::move(build));
+                 h.toolbar([cb = std::move(cb)](affineui::View& v) {
+                     py::gil_scoped_acquire gil;
+                     (*cb)(&v);
+                 });
+                 return h;
+             },
+             py::arg("build"),
+             "Declare this pane's tab toolbar; build fills the strip.");
+
+    py::class_<affineui::DockLocation>(m, "DockLocation")
+        .def(py::init<>())
+        .def_static("docked", &affineui::DockLocation::docked,
+                    py::arg("side"), py::arg("px") = 0,
+                    "Docked on a side of the document (or of .in_(panel)).")
+        .def_static("tab", &affineui::DockLocation::tab,
+                    "A tab sharing another panel's pane (chain .in_(panel)).")
+        .def_static("floating", &affineui::DockLocation::floating,
+                    py::arg("anchor"), py::arg("pos"), py::arg("size"),
+                    "Floating, anchored to a corner; pos counts inward from "
+                    "that corner, size is (w, h) px.")
+        .def_static("tearoff", &affineui::DockLocation::tearoff,
+                    py::arg("anchor"), py::arg("pos"), py::arg("size"))
+        // `in` is a Python keyword — bind the fluent setter as in_().
+        .def("in_",
+             [](affineui::DockLocation& l, const affineui::DockHandle& h) {
+                 return l.in(h);
+             },
+             py::arg("panel"), py::return_value_policy::reference_internal,
+             "Place relative to another declared panel (chainable).")
+        .def("sized", &affineui::DockLocation::sized, py::arg("px"),
+             py::return_value_policy::reference_internal)
+        .def("tearout_size", &affineui::DockLocation::tearout_size,
+             py::arg("px"), py::return_value_policy::reference_internal);
 
     py::enum_<affineui::ViewTheme>(m, "ViewTheme")
         .value("Plain", affineui::ViewTheme::Plain)
@@ -692,15 +790,20 @@ PYBIND11_MODULE(_affineui, m) {
                 const std::string& label,
                 double value,
                 double step,
-                const std::string& key) {
-                 return view.combo(label, value, step, key);
+                const std::string& key,
+                bool linear) {
+                 return view.combo(label, value, step, key, linear);
              },
              py::arg("label"),
              py::arg("value"),
              py::arg("step") = 0.01,
              py::arg("key") = "",
+             py::arg("linear") = false,
              py::keep_alive<0, 1>(),
-             "Add a bare drag-scrub numeric combo (no field/label wrapper).")
+             "Add a bare drag-scrub numeric combo (no field/label wrapper). "
+             "linear=True scrubs at a constant step/pixel (for rotation "
+             "degrees etc.); the default accelerates with the value's "
+             "magnitude.")
         .def("colorfield",
              [](affineui::View& view,
                 const std::string& label,
@@ -876,6 +979,22 @@ PYBIND11_MODULE(_affineui, m) {
              py::keep_alive<0, 1>(),
              "Add a generic container. If build is supplied it is called "
              "immediately with the same View.")
+        .def("canvas",
+             [](affineui::View& view,
+                const std::string& paint_name,
+                const std::string& classes,
+                const std::string& key) {
+                 return view.canvas(paint_name, classes, key);
+             },
+             py::arg("paint_name"),
+             py::arg("classes") = "",
+             py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Add a custom-paint (canvas) surface. The handler registered "
+             "under paint_name (App.set_custom_paint or a native core's "
+             "attach) draws the element's content each frame; per-frame "
+             "updates flow through App.request_custom_repaint without "
+             "touching the DOM.")
         .def("panel",
              [](affineui::View& view, const std::string& key, py::object build) {
                  if (build.is_none()) {
@@ -1095,6 +1214,103 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("key") = "", py::arg("build") = py::none(),
              py::keep_alive<0, 1>(),
              "Add a dockable panel (titled tab + body); fill the body via build.")
+        // ── Declarative docking workspace ────────────────────────────────
+        .def("document_view",
+             [](affineui::View& view, const std::string& key,
+                py::function build) {
+                 auto cb = keep_python_function(std::move(build));
+                 return view.document_view(
+                     key, [cb = std::move(cb)](affineui::View& dv) {
+                         py::gil_scoped_acquire gil;
+                         (*cb)(&dv);
+                     });
+             },
+             py::arg("key"), py::arg("build"), py::keep_alive<0, 1>(),
+             "The docking workspace: declare the document and dockpanels "
+             "inside build; the layout resolves from the declared seed, or "
+             "replays the live arrangement when a dock-layout provider is "
+             "wired.")
+        .def("document",
+             [](affineui::View& view, py::function content,
+                const std::string& title, const std::string& icon) {
+                 auto cb = keep_python_function(std::move(content));
+                 return view.document(
+                     [cb = std::move(cb)](affineui::View& p) {
+                         py::gil_scoped_acquire gil;
+                         (*cb)(&p);
+                     },
+                     title, icon);
+             },
+             py::arg("content"), py::arg("title") = "",
+             py::arg("icon") = "", py::keep_alive<0, 1>(),
+             "Declare the center document of a document_view.")
+        .def("dockpanel",
+             [](affineui::View& view, const std::string& title,
+                const affineui::DockLocation& where, py::function content,
+                const std::string& icon, const std::string& key) {
+                 auto cb = keep_python_function(std::move(content));
+                 return view.dockpanel(
+                     title, where,
+                     [cb = std::move(cb)](affineui::View& p) {
+                         py::gil_scoped_acquire gil;
+                         (*cb)(&p);
+                     },
+                     icon, key);
+             },
+             py::arg("title"), py::arg("where"), py::arg("content"),
+             py::arg("icon") = "", py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Declare a dockable panel at a DockLocation; returns a "
+             "DockHandle usable as another panel's parent.")
+        .def("set_dock_layout_provider",
+             [](affineui::View& view, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 view.set_dock_layout_provider(
+                     [cb = std::move(cb)]() -> affineui::Document::DockLayout {
+                         py::gil_scoped_acquire gil;
+                         return (*cb)().cast<affineui::Document::DockLayout>();
+                     });
+             },
+             py::arg("fn"),
+             "Wire () -> DockLayout (usually app.document().dock_layout) so "
+             "rebuilds replay the live arrangement.")
+        .def("set_dock_placement_provider",
+             [](affineui::View& view, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 view.set_dock_placement_provider(
+                     [cb = std::move(cb)](std::string_view id)
+                         -> affineui::Document::DockPlacement {
+                         py::gil_scoped_acquire gil;
+                         return (*cb)(std::string(id))
+                             .cast<affineui::Document::DockPlacement>();
+                     });
+             },
+             py::arg("fn"),
+             "Wire (panel_id) -> DockPlacement runtime overrides (tearoffs / "
+             "drag-to-dock) that win over the declared DockLocation.")
+        .def("set_dock_size_provider",
+             [](affineui::View& view, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 view.set_dock_size_provider(
+                     [cb = std::move(cb)](std::string_view id) -> int {
+                         py::gil_scoped_acquire gil;
+                         return (*cb)(std::string(id)).cast<int>();
+                     });
+             },
+             py::arg("fn"),
+             "Wire (panel_id) -> saved px size (0 = none); a saved size wins "
+             "over the declared seed.")
+        .def("set_dock_active_tab_provider",
+             [](affineui::View& view, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 view.set_dock_active_tab_provider(
+                     [cb = std::move(cb)](std::string_view id) -> std::string {
+                         py::gil_scoped_acquire gil;
+                         return (*cb)(std::string(id)).cast<std::string>();
+                     });
+             },
+             py::arg("fn"),
+             "Wire (pane_id) -> active tab panel id (empty = primary).")
         .def("splitter",
              [](affineui::View& view, bool horizontal, const std::string& key) {
                  return view.splitter(horizontal, key);
@@ -1359,6 +1575,42 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("view"),
              "Copy a View into the native App. The App copies callbacks and "
              "does not borrow the Python View object.")
+        .def("set_view",
+             [](affineui::App& app, py::function builder) {
+                 auto callback = keep_python_function(std::move(builder));
+                 // The builder runs from the App's frame loop (and from the
+                 // synchronous set_view()/rebuild_view() call below), so it
+                 // must acquire the GIL before touching Python. The View& is
+                 // handed to Python by reference — pybind wraps it without
+                 // copying or owning it, so the callback populates the App's
+                 // persistent retained View in place. Exceptions propagate
+                 // into rebuild_view() (which closes the mutation window and
+                 // rethrows); surface them as the callback's Python error.
+                 app.set_view([callback](affineui::View& view) {
+                     py::gil_scoped_acquire gil;
+                     try {
+                         (*callback)(py::cast(
+                             &view, py::return_value_policy::reference));
+                     } catch (py::error_already_set& e) {
+                         // Re-raise as a C++ exception so rebuild_view()'s
+                         // mid-batch handler closes the mutation window before
+                         // it unwinds; the message carries the Python trace.
+                         throw std::runtime_error(e.what());
+                     }
+                 });
+             },
+             py::arg("builder"),
+             "Install a view builder callable(View)->None and build once. "
+             "The App owns a persistent View; each rebuild re-runs the builder "
+             "into it and reconciles only the diff into the live document — "
+             "the fast path for apps that rebuild per state change. Follow a "
+             "state change with invalidate() (the frame loop coalesces and "
+             "reconciles) or rebuild_view() (synchronous, e.g. headless).")
+        .def("rebuild_view", &affineui::App::rebuild_view,
+             "Re-run the installed set_view() builder and reconcile the result "
+             "into the live document, synchronously. No-op until set_view() "
+             "has been called. Use invalidate() instead when running under the "
+             "frame loop so rebuilds coalesce to one per frame.")
         .def("load_html_file",
              [](affineui::App& app, const std::string& path) {
                  return app.load_html_file(path);
@@ -1452,6 +1704,58 @@ PYBIND11_MODULE(_affineui, m) {
              "(same shape as a telemetry.frame JSONL record). Zeroed until "
              "the first frame presents, or when compiled with "
              "AFFINEUI_PERF=0.")
+        .def("on_event",
+             [](affineui::App& app, py::function cb) {
+                 auto callback = keep_python_function(std::move(cb));
+                 app.on_event(
+                     [callback](const affineui::Event& ev,
+                                const std::vector<
+                                    affineui::Document::HoverInfo>& hover)
+                         -> bool {
+                         try {
+                             py::gil_scoped_acquire gil;
+                             py::object result = (*callback)(ev, hover);
+                             return result.is_none() ? false
+                                                     : result.cast<bool>();
+                         } catch (py::error_already_set& e) {
+                             e.discard_as_unraisable("App.on_event");
+                         } catch (const std::exception& e) {
+                             std::fprintf(stderr,
+                                          "AffineUI Python callback failed "
+                                          "(App.on_event): %s\n",
+                                          e.what());
+                         }
+                         return false;
+                     });
+             },
+             py::arg("callback"),
+             "Register a low-level native event handler. The callback "
+             "receives (event, hover_chain) — the hover chain is hit-tested "
+             "deepest-first — and returns True to consume the event before "
+             "the document sees it. The hook native widget kits (and canvas "
+             "tools) build pointer-drag behaviors on.")
+        .def("on_frame",
+             [](affineui::App& app, py::function cb) {
+                 auto callback = keep_python_function(std::move(cb));
+                 app.on_frame([callback](double dt) {
+                     call_python_function("App.on_frame", callback, dt);
+                 });
+             },
+             py::arg("callback"),
+             "Register a per-frame tick callback (dt seconds) — the "
+             "requestAnimationFrame analog.")
+        .def("capture_pointer", &affineui::App::capture_pointer,
+             "Route MouseMove events to on_event handlers before DOM hover "
+             "hit-testing (browser-style pointer capture for drags).")
+        .def("release_pointer", &affineui::App::release_pointer)
+        .def("pointer_captured", &affineui::App::pointer_captured)
+        .def("request_custom_repaint",
+             [](affineui::App& app, const std::string& name) {
+                 app.request_custom_repaint(name);
+             },
+             py::arg("name"),
+             "Repaint every data-aui-paint=name element on the next frame — "
+             "no restyle, no layout, no reconcile.")
         .def("document",
              static_cast<affineui::Document& (affineui::App::*)()>(
                  &affineui::App::document),

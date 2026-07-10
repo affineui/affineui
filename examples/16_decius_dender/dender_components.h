@@ -7,7 +7,8 @@
 // trailing check marks). Purely presentational — interactive pieces emit
 // stable widget keys and the view attaches the handlers.
 
-#include "dender_document.h"
+#include "dender_scene.h"
+#include "dender_stats.h"
 
 #include <affineui/affineui.h>
 
@@ -77,11 +78,10 @@ void submenu_stub(affineui::View& view, std::string_view label,
 // stacked above it.)
 
 /// Top-left stats overlay ("User Perspective" / collection | active name).
-void viewport_stats(affineui::View& view, const DenderDocument& doc);
+void viewport_stats(affineui::View& view, std::string_view active_name);
 
-/// Bottom-left corner overlay (verts/faces/tris/objects readout, computed
-/// live from the mesh tables).
-void viewport_corner(affineui::View& view, const DenderDocument& doc);
+/// Bottom-left corner overlay (verts/faces/tris/objects readout).
+void viewport_corner(affineui::View& view, const SceneStats& stats);
 
 /// The floating tool rail. Buttons are keyed "rail-<tool>" (tweak, cursor,
 /// move, rotate, scale, transform, annotate, measure, add-cube) so the view
@@ -98,7 +98,9 @@ void nav_cluster(affineui::View& view, bool move_view_pressed);
 /// fields). The panel chrome itself is DECLARED in build_workarea as three
 /// dockpanels seeded as one floating tab group — that is what lets the
 /// docking system replay their placement across rebuilds.
-void npanel_item_body(affineui::View& view);
+// Item N-panel body is a live mini-inspector — see DenderView::
+// build_npanel_item_body (it needs app/viewport access). Tool/View bodies
+// stay empty per the web sample.
 void npanel_tool_body(affineui::View& view);
 void npanel_view_body(affineui::View& view);
 
@@ -107,7 +109,8 @@ void npanel_view_body(affineui::View& view);
 /// Ruler ticks + playback-range tint + Summary/active tracks with diamond
 /// keys + the playhead. `width_px` is the pane's available width (the ruler
 /// scale is resolution-dependent, like the web's clientWidth rebuild).
-void timeline_body(affineui::View& view, const DenderDocument& doc,
-                   int width_px);
+/// `active_name` is the active object's name (the web's static object track).
+void timeline_body(affineui::View& view, const Timeline& timeline,
+                   std::string_view active_name, int width_px);
 
 }  // namespace dender::ui

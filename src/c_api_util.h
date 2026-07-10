@@ -83,5 +83,12 @@ static_assert(AFFINEUI_KEY_A == static_cast<int>(affineui::Key::A));
 static_assert(AFFINEUI_KEY_Z == static_cast<int>(affineui::Key::Z));
 static_assert(AFFINEUI_KEY_DIGIT0 == static_cast<int>(affineui::Key::Digit0));
 static_assert(AFFINEUI_KEY_DIGIT9 == static_cast<int>(affineui::Key::Digit9));
+static_assert(AFFINEUI_KEY_SPACE == static_cast<int>(affineui::Key::Space));
+static_assert(AFFINEUI_KEY_MINUS == static_cast<int>(affineui::Key::Minus));
+static_assert(AFFINEUI_KEY_EQUAL == static_cast<int>(affineui::Key::Equal));
+static_assert(AFFINEUI_KEY_BRACKET_LEFT ==
+              static_cast<int>(affineui::Key::BracketLeft));
+static_assert(AFFINEUI_KEY_BRACKET_RIGHT ==
+              static_cast<int>(affineui::Key::BracketRight));
 
 }  // namespace affineui_c

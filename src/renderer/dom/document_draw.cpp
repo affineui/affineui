@@ -177,12 +177,56 @@ void Document::draw(Painter& painter) {
         });
 #endif
 
-    // Two paint passes per z level (CSS 2.1 Appendix E): every block's
-    // background/border at this stacking level paints before ANY of the
-    // level's text. Glyph ink that overhangs its box (descenders in
+    // Two paint passes per STACKING CONTEXT (CSS 2.1 Appendix E): every
+    // block's background/border in a context paints before ANY of that
+    // context's text. Glyph ink that overhangs its box (descenders in
     // line-height:1 menu rows) can then never be overpainted by the next
     // sibling's background — matching browser painting order.
-    enum class BlockPaintPhase : std::uint8_t { Boxes, Text };
+    //
+    // The grouping must be per stacking ROOT, not per z VALUE: two floating
+    // panels both at z-index:60 are separate atomic units — the earlier
+    // panel's TEXT must paint before the later panel's BACKGROUND, or a
+    // covered palette's labels bleed through the panel above it. Blocks are
+    // appended in DFS order, so a root's subtree is contiguous within its z
+    // group and the group boundary is a simple root change.
+    //
+    // KNOWN LIMIT: effective_z_index is max-along-the-ancestor-chain, so a
+    // HIGHER-z descendant (z:100 popover inside a z:60 float) sorts into its
+    // own z band and escapes its parent's atomic group — it paints above a
+    // LATER sibling float, where CSS keeps the whole subtree below it. Full
+    // fidelity needs hierarchical (lexicographic z-path) paint ordering.
+    // Today that divergence only shows for open popovers inside floats,
+    // where painting above neighbouring panels is the desirable UX anyway.
+    //
+    // stacking_roots[i]: the NEAREST ancestor-or-self carrying a positive
+    // z-index (the float section, a menu, a popover), or -1 for base flow.
+    // NEAREST, not outermost: the View's float LAYER div also carries a
+    // z-index, and an outermost rule made it the shared root of every
+    // floating panel — collapsing them back into one paint group. CSS
+    // semantics: each z-indexed positioned element is its own stacking
+    // context, atomic WITHIN its parent context. parent_idx < i (DFS append
+    // order), so one forward pass settles it.
+    std::vector<int> stacking_roots(impl_->blocks.size(), -1);
+#if !defined(AFFINEUI_STUB_BUILD)
+    for (std::size_t i = 0; i < impl_->blocks.size(); ++i) {
+        const auto& blk = impl_->blocks[i];
+        const int parent_root =
+            blk.parent_idx >= 0
+                ? stacking_roots[static_cast<std::size_t>(blk.parent_idx)]
+                : -1;
+        stacking_roots[i] =
+            impl_->style_store.computed(blk.id).z_index_low > 0
+                ? static_cast<int>(i)
+                : parent_root;
+    }
+#endif
+    // Overlay is a third per-context phase: a pane's scrollbar thumb paints
+    // on top of its OWN context's content but underneath later/higher
+    // contexts. (The old global draw-last scrollbar pass painted every
+    // pane's thumb over overlapping floating panels — wrong z.) Only blocks
+    // that actually have a scrollbar get an Overlay entry, so the extra
+    // phase costs nothing for everything else.
+    enum class BlockPaintPhase : std::uint8_t { Boxes, Text, Overlay };
     std::vector<std::pair<int, BlockPaintPhase>> phased_order;
     phased_order.reserve(paint_order.size() * 2);
     {
@@ -192,9 +236,13 @@ void Document::draw(Painter& painter) {
 #if !defined(AFFINEUI_STUB_BUILD)
             const int group_z =
                 detail::effective_z_index(*impl_, paint_order[group_begin]);
+            const int group_root = stacking_roots[static_cast<std::size_t>(
+                paint_order[group_begin])];
             while (group_end < paint_order.size() &&
                    detail::effective_z_index(*impl_, paint_order[group_end]) ==
-                       group_z) {
+                       group_z &&
+                   stacking_roots[static_cast<std::size_t>(
+                       paint_order[group_end])] == group_root) {
                 ++group_end;
             }
 #else
@@ -208,6 +256,16 @@ void Document::draw(Painter& painter) {
                 phased_order.emplace_back(paint_order[k],
                                           BlockPaintPhase::Text);
             }
+#if !defined(AFFINEUI_STUB_BUILD)
+            for (std::size_t k = group_begin; k < group_end; ++k) {
+                ScrollbarGeometry sb{};
+                if (detail::vertical_scrollbar_geometry(*impl_,
+                                                        paint_order[k], sb)) {
+                    phased_order.emplace_back(paint_order[k],
+                                              BlockPaintPhase::Overlay);
+                }
+            }
+#endif
             group_begin = group_end;
         }
     }
@@ -389,13 +447,8 @@ void Document::draw(Painter& painter) {
         // the guard is the change, the stanzas are not.)
         if (phase == BlockPaintPhase::Boxes) {
         // Background color paints first; background images/gradients layer over it.
-        const bool native_color_square = detail::block_has_class(b, "dcs-color-square");
-        const bool native_hue_bar = detail::block_has_class(b, "dcs-hue-bar");
-        const bool native_color_picker_paint =
-            native_color_square || native_hue_bar;
         const bool has_gradient =
-            !native_color_picker_paint &&
-            (an.gradient_kind != detail::AnimatedStyle::GradientKind::None);
+            an.gradient_kind != detail::AnimatedStyle::GradientKind::None;
         const bool has_grid =
             ((an.background_grid_rgba & 0xFFu) != 0 &&
              an.background_grid_size_px != 0);
@@ -556,16 +609,51 @@ void Document::draw(Painter& painter) {
         if (has_gradient && bg_rect.w > 0 && bg_rect.h > 0) {
             const Color s0 = detail::unpack_rgba(an.gradient_stop0_rgba);
             const Color s1 = detail::unpack_rgba(an.gradient_stop1_rgba);
+            // N-stop (>2) ramps carry a full out-of-line stop list; 2-stop
+            // and stripe fills use the compact inline stop0/stop1 fast path.
+            const bool multi_stop =
+                b.gradient_stops && b.gradient_stops->size() > 2 &&
+                an.gradient_kind != detail::AnimatedStyle::GradientKind::LinearStripes;
             if (an.gradient_kind == detail::AnimatedStyle::GradientKind::Linear) {
-                painter.fill_linear_gradient_rect(
-                    bg_rect, static_cast<float>(an.gradient_angle_deg),
-                    s0, s1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
+                if (multi_stop) {
+                    std::array<Painter::GradientStop, PathPaint::kMaxStops> gs{};
+                    const std::size_t n = std::min<std::size_t>(
+                        b.gradient_stops->size(), PathPaint::kMaxStops);
+                    for (std::size_t i = 0; i < n; ++i) {
+                        gs[i].offset = (*b.gradient_stops)[i].offset;
+                        gs[i].color  = detail::unpack_rgba((*b.gradient_stops)[i].rgba);
+                    }
+                    painter.fill_linear_gradient_rect_n(
+                        bg_rect, static_cast<float>(an.gradient_angle_deg),
+                        gs.data(), n,
+                        clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
+                } else {
+                    painter.fill_linear_gradient_rect(
+                        bg_rect, static_cast<float>(an.gradient_angle_deg),
+                        s0, s1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
+                }
             } else if (an.gradient_kind == detail::AnimatedStyle::GradientKind::Radial) {
-                painter.fill_radial_gradient_rect(
-                    bg_rect, s0, s1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
-                    static_cast<float>(an.gradient_center_x_pct),
-                    static_cast<float>(an.gradient_center_y_pct),
-                    static_cast<float>(an.gradient_stop1_pos_pct));
+                if (multi_stop) {
+                    std::array<Painter::GradientStop, PathPaint::kMaxStops> gs{};
+                    const std::size_t n = std::min<std::size_t>(
+                        b.gradient_stops->size(), PathPaint::kMaxStops);
+                    for (std::size_t i = 0; i < n; ++i) {
+                        gs[i].offset = (*b.gradient_stops)[i].offset;
+                        gs[i].color  = detail::unpack_rgba((*b.gradient_stops)[i].rgba);
+                    }
+                    painter.fill_radial_gradient_rect_n(
+                        bg_rect, gs.data(), n,
+                        clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
+                        static_cast<float>(an.gradient_center_x_pct),
+                        static_cast<float>(an.gradient_center_y_pct),
+                        static_cast<float>(an.gradient_stop1_pos_pct));
+                } else {
+                    painter.fill_radial_gradient_rect(
+                        bg_rect, s0, s1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
+                        static_cast<float>(an.gradient_center_x_pct),
+                        static_cast<float>(an.gradient_center_y_pct),
+                        static_cast<float>(an.gradient_stop1_pos_pct));
+                }
             } else if (an.gradient_kind == detail::AnimatedStyle::GradientKind::LinearStripes) {
                 painter.fill_linear_stripes_rect(
                     bg_rect, static_cast<float>(an.gradient_angle_deg),
@@ -583,44 +671,24 @@ void Document::draw(Painter& painter) {
                 clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
         }
 
-        if (native_color_square && eff.w > 0 && eff.h > 0) {
-            Color hue = Color::rgb(255, 0, 0);
-            if (b.custom_props) {
-                const auto it = b.custom_props->find("--hue");
-                if (it != b.custom_props->end()) {
-                    const std::string value(detail::trim_css_ws(it->second));
-                    std::uint32_t rgba = 0;
-                    if (detail::parse_hex_color(value, rgba)) {
-                        hue = detail::unpack_rgba(rgba);
-                    }
-                }
-            }
-            painter.fill_linear_gradient_rect(
-                eff, 90.0f, Color::rgb(255, 255, 255), hue,
-                bg_r_tl, bg_r_tr, bg_r_br, bg_r_bl);
-            painter.fill_linear_gradient_rect(
-                eff, 0.0f, Color::rgb(0, 0, 0),
-                Color::rgba(0, 0, 0, 0),
-                bg_r_tl, bg_r_tr, bg_r_br, bg_r_bl);
-        } else if (native_hue_bar && eff.w > 0 && eff.h > 0) {
-            const std::array<Color, 7> stops{
-                Color::rgb(255, 0, 0),   Color::rgb(255, 255, 0),
-                Color::rgb(0, 255, 0),   Color::rgb(0, 255, 255),
-                Color::rgb(0, 0, 255),   Color::rgb(255, 0, 255),
-                Color::rgb(255, 0, 0),
-            };
-            for (int segment = 0; segment < 6; ++segment) {
-                const int x0 = eff.x + (eff.w * segment) / 6;
-                const int x1 = eff.x + (eff.w * (segment + 1)) / 6;
-                const Rect seg{x0, eff.y, std::max(0, x1 - x0), eff.h};
-                if (seg.w <= 0) continue;
+        // Overlay gradient layer (CSS `background` top layer) — painted
+        // over the bottom gradient. The color-picker square's black->
+        // transparent value shade rides on top of the white->hue ramp.
+        if (b.overlay_gradient && b.overlay_gradient->kind != 0 &&
+            bg_rect.w > 0 && bg_rect.h > 0) {
+            const auto& ov = *b.overlay_gradient;
+            const Color o0 = detail::unpack_rgba(ov.stop0_rgba);
+            const Color o1 = detail::unpack_rgba(ov.stop1_rgba);
+            if (ov.kind == 1) {  // linear
                 painter.fill_linear_gradient_rect(
-                    seg, 90.0f, stops[static_cast<std::size_t>(segment)],
-                    stops[static_cast<std::size_t>(segment + 1)],
-                    segment == 0 ? bg_r_tl : 0.0f,
-                    segment == 5 ? bg_r_tr : 0.0f,
-                    segment == 5 ? bg_r_br : 0.0f,
-                    segment == 0 ? bg_r_bl : 0.0f);
+                    bg_rect, static_cast<float>(ov.angle_deg),
+                    o0, o1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
+            } else {  // radial
+                painter.fill_radial_gradient_rect(
+                    bg_rect, o0, o1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
+                    static_cast<float>(ov.center_x_pct),
+                    static_cast<float>(ov.center_y_pct),
+                    static_cast<float>(ov.stop1_pos_pct));
             }
         }
 
@@ -1010,6 +1078,34 @@ void Document::draw(Painter& painter) {
 
         // ── PHASE: text + widget chrome ──────────────────────────────
         if (phase == BlockPaintPhase::Text) {
+        // The dcs-grip drag handle is a dotted texture — widget chrome the
+        // painter draws directly (a peer of the checkbox tick / switch knob
+        // below), not a CSS background. Drawn dots, so there is no image
+        // resource to own or free. Small faint dots on a 4px grid in the
+        // grip's currentColor, centered in the grip so a wide/tall grip
+        // keeps the pattern tight rather than a dense full-bleed block.
+        if (detail::block_has_class(b, "dcs-grip") &&
+            eff.w > 0 && eff.h > 0 && (an.color_rgba & 0xFFu) != 0) {
+            Color dot = detail::unpack_rgba(an.color_rgba);
+            dot.a = static_cast<std::uint8_t>(dot.a * 70 / 100);  // faint
+            const int step = 4;
+            const float r = 0.7f;
+            // Center the dot lattice within the grip's box on both axes so
+            // the rows/cols are balanced (no lopsided edge row).
+            const int cols = std::max(1, (eff.w - 2) / step);
+            const int rows = std::max(1, (eff.h - 2) / step);
+            const int used_w = cols * step;
+            const int used_h = rows * step;
+            const int x0 = eff.x + (eff.w - used_w) / 2 + step / 2;
+            const int y0 = eff.y + (eff.h - used_h) / 2 + step / 2;
+            for (int ry = 0; ry < rows; ++ry) {
+                for (int cx = 0; cx < cols; ++cx) {
+                    painter.fill_circle(
+                        static_cast<float>(x0 + cx * step),
+                        static_cast<float>(y0 + ry * step), r, dot);
+                }
+            }
+        }
         if (!b.text.empty()) {
             const auto font = painter.resolve_font(
                 impl_->style_store.font_family_of(cs.font_id), cs.font_size_px, cs.font_weight, cs.font_style != 0);
@@ -1180,14 +1276,32 @@ void Document::draw(Painter& painter) {
                     // the origin by the element's own scroll offset; clip
                     // everything (selection, text, caret, decorations) to the
                     // padding box so overflowing lines never paint over
-                    // content below.
-                    const Rect text_clip{
+                    // content below. The scissor REPLACES the active clip,
+                    // so intersect with the ancestor clip chain too — a
+                    // textarea hanging past its scrolled pane must not paint
+                    // its value outside the pane (tearoff bottom edge).
+                    Rect text_clip{
                         eff.x + used_border_left,
                         eff.y + used_border_top,
                         std::max(0, eff.w - used_border_left -
                                         used_border_right),
                         std::max(0, eff.h - used_border_top -
                                         used_border_bottom)};
+                    Rect anc_clip;
+                    if (detail::clip_rect_for_block(*impl_,
+                                                    static_cast<int>(i),
+                                                    anc_clip)) {
+                        const auto x0 = std::max(text_clip.x, anc_clip.x);
+                        const auto y0 = std::max(text_clip.y, anc_clip.y);
+                        const auto x1 = std::min(text_clip.x + text_clip.w,
+                                                 anc_clip.x + anc_clip.w);
+                        const auto y1 = std::min(text_clip.y + text_clip.h,
+                                                 anc_clip.y + anc_clip.h);
+                        text_clip.x = x0;
+                        text_clip.y = y0;
+                        text_clip.w = std::max(x1 - x0, decltype(x1){0});
+                        text_clip.h = std::max(y1 - y0, decltype(y1){0});
+                    }
                     painter.push_clip(text_clip);
                     pushed_text_control_clip = true;
                 }
@@ -1359,7 +1473,12 @@ void Document::draw(Painter& painter) {
                                   line_height_mult,
                                   letter_spacing_px,
                                   paint_align);
-            if (b.text_control && static_cast<int>(i) == impl_->focused_idx) {
+            // A text field shows EITHER a selection highlight OR the
+            // caret, never both: suppress the caret while a non-empty
+            // selection is active (the select-all a numeric field does
+            // on first focus, or any range drag).
+            if (b.text_control && static_cast<int>(i) == impl_->focused_idx &&
+                !detail::has_text_selection(b)) {
                 const TextLayoutEntry* caret_layout = cached_text_layout;
                 if (caret_layout == nullptr) {
                     TextControlGeometry g{};
@@ -1858,24 +1977,32 @@ void Document::draw(Painter& painter) {
         }
         }  // phase == BlockPaintPhase::Text
 
+        // ── PHASE: overlay ───────────────────────────────────────────
+        // Scrollbar thumb, on top of this stacking context's own content
+        // (boxes + text painted above) but under later/higher contexts —
+        // the old global draw-last pass put every pane's thumb over
+        // overlapping floating panels. The geometry is already in VISUAL
+        // space (block_border_visual_rect applies effective_transform_for),
+        // so it must draw with the block's transform popped — drawing it
+        // transformed applied the drag translation twice and the thumb
+        // diverged from its pane as a float moved.
+#if !defined(AFFINEUI_STUB_BUILD)
+        if (phase == BlockPaintPhase::Overlay) {
+            ScrollbarGeometry scrollbar{};
+            if (detail::vertical_scrollbar_geometry(
+                    *impl_, static_cast<int>(i), scrollbar)) {
+                if (has_transform) painter.pop_transform();
+                // Catppuccin overlay0-ish, semi-transparent.
+                painter.fill_rounded_rect(
+                    scrollbar.thumb, 3.0f, Color{0x9c, 0xa0, 0xb0, 0xC0});
+                if (has_transform) painter.push_transform(paint_transform);
+            }
+        }
+#endif
+
         if (has_opacity) painter.pop_alpha();
         if (clipped) painter.pop_clip();
         if (has_transform) painter.pop_transform();
-    }
-
-    // Scrollbar overlay â€” drawn last so it sits on top of any
-    // clipped content. A simple right-side thumb showing how far
-    // we've scrolled; track is transparent.
-    for (const auto& b : impl_->blocks) {
-        ScrollbarGeometry scrollbar{};
-        if (!detail::vertical_scrollbar_geometry(
-                *impl_, static_cast<int>(&b - impl_->blocks.data()),
-                scrollbar)) {
-            continue;
-        }
-        // Catppuccin overlay0-ish, semi-transparent.
-        painter.fill_rounded_rect(
-            scrollbar.thumb, 3.0f, Color{0x9c, 0xa0, 0xb0, 0xC0});
     }
 }
 }  // namespace affineui

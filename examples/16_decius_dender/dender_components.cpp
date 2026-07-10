@@ -1,7 +1,5 @@
 #include "dender_components.h"
 
-#include "dender_viewport.h"  // live scene stats for the corner overlay
-
 #include <cstdio>
 
 namespace dender::ui {
@@ -122,18 +120,17 @@ void submenu_stub(View& view, std::string_view label,
 
 // ── Viewport overlay stack ───────────────────────────────────────────────────
 
-void viewport_stats(View& view, const DenderDocument& doc) {
+void viewport_stats(View& view, std::string_view active_name) {
     auto stats = view.container("dn-vp-stats", "vp-stats");
     view.element("b", {}, "vp-stats-camera").text("User Perspective");
     view.element_ref("br", {}, "vp-stats-break");
-    const SceneObject* active = doc.active();
     view.text("(1) Collection | " +
-                  (active != nullptr ? active->name : std::string{"\xE2\x80\x94"}),
+                  (active_name.empty() ? std::string{"\xE2\x80\x94"}
+                                       : std::string(active_name)),
               "vp-stats-selection");
 }
 
-void viewport_corner(View& view, const DenderDocument& doc) {
-    const SceneStats stats = scene_stats(doc);
+void viewport_corner(View& view, const SceneStats& stats) {
     auto corner = view.container("dn-vp-corner", "vp-corner");
     view.text("Verts " + std::to_string(stats.verts) + " | Faces " +
                   std::to_string(stats.faces) + " | Tris " +
@@ -191,7 +188,10 @@ void nav_cluster(View& view, bool move_view_pressed) {
         auto gizmo = view.container("dn-gizmo", "vp-gizmo");
         gizmo.attr("data-dcs-tip", "Viewpoint");
         gizmo.attr("data-aui-name", "dn-vp-gizmo");
-        auto canvas = view.canvas(kGizmoPaintName, {}, "vp-gizmo-canvas");
+        // The shared viewport's nav axis-ball, painted by its "dender.navball"
+        // custom-paint handler (registered in Viewport3D::attach).
+        auto canvas = view.canvas("dender.navball", "dn-vp-navball",
+                                  "vp-gizmo-canvas");
         canvas.attr("style",
                     "position:absolute;inset:0;width:100%;height:100%");
     }
@@ -223,25 +223,9 @@ void combo_field(View& view, std::string_view label, std::string_view tag,
 
 }  // namespace
 
-void npanel_item_body(View& view) {
-    // Cosmetic per the web sample: fields show the static values.
-    {
-        auto fold = view.foldout("Transform", true, "npanel-fold-xform");
-        auto props = view.container("dcs-props", "npanel-xform-props");
-        view.vec("Location", {"X", "Y", "Z"}, {0.0, 0.0, 0.0}, "np-loc");
-        view.vec("Dimensions", {"X", "Y", "Z"}, {2.0, 2.0, 2.0}, "np-dim");
-    }
-    {
-        auto fold = view.foldout("View", true, "npanel-fold-view");
-        auto props = view.container("dcs-props", "npanel-view-props");
-        combo_field(view, "Focal", "Lens", 50.0, 0.5, "np-focal");
-        combo_field(view, "Clip Start", {}, 0.1, 0.01, "np-clip");
-        view.checkbox("Lock to Object", false, "np-lock");
-        view.container_ref("dcs-divider", "np-view-div");
-        view.button_group("Transform", {"Local", "Global"}, "Global",
-                          "np-orient");
-    }
-}
+// npanel_item_body is now DenderView::build_npanel_item_body (a live
+// mini-inspector needing app/viewport access); the old cosmetic version
+// lived here.
 
 void npanel_tool_body(View& view) { (void) view; }  // empty per the web
 
@@ -270,8 +254,8 @@ void timeline_track(View& view, std::string_view label, bool accent,
 
 }  // namespace
 
-void timeline_body(View& view, const DenderDocument& doc, int width_px) {
-    const Timeline& tl = doc.timeline();
+void timeline_body(View& view, const Timeline& tl, std::string_view active_name,
+                   int width_px) {
     // Before the first frame the window reports a degenerate size; lay the
     // ruler out for a plausible width and let the resize reload correct it.
     const double width = width_px >= 320 ? width_px : 1280.0;
@@ -309,11 +293,10 @@ void timeline_body(View& view, const DenderDocument& doc, int width_px) {
     // Tracks: Summary + the active object (the web's static "Cube" row).
     {
         auto tracks = view.container("dn-tl-tracks", "tl-tracks");
-        const SceneObject* active = doc.active();
         timeline_track(view, "Summary", false, tl, scale, max_x, "tl-track-sum");
         timeline_track(view,
-                       active != nullptr ? std::string_view{active->name}
-                                         : std::string_view{"\xE2\x80\x94"},
+                       active_name.empty() ? std::string_view{"\xE2\x80\x94"}
+                                           : active_name,
                        true, tl, scale, max_x, "tl-track-obj");
     }
 

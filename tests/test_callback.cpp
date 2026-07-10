@@ -140,30 +140,34 @@ TEST_CASE("const member methods can be bound") {
 
 TEST_CASE("WeakRef reflects target lifetime") {
     WeakRef<Counter> ref;
+    Counter* borrowed = nullptr;
     {
         Counter counter;
         ref = affineui::to_weak_ref(&counter);
         CHECK(ref.bound());
         CHECK(ref.alive());
-        CHECK(ref.lock() == &counter);
+        borrowed = ref.get();
+        CHECK(borrowed == &counter);
     }
+    // get() returns a non-owning borrow; it never pins the target. Do not
+    // dereference `borrowed` here. Resolving the WeakRef again is safe/null.
     CHECK(ref.bound());
-    CHECK_FALSE(ref.alive());      // expired after destruction
-    CHECK(ref.lock() == nullptr);  // resolves to null, never dangling
+    CHECK_FALSE(ref.alive());     // expired after destruction
+    CHECK(ref.get() == nullptr);  // resolves to null, never dangling
 }
 
 TEST_CASE("a default WeakRef is unbound and never resolves") {
     WeakRef<Counter> ref;
     CHECK_FALSE(ref.bound());
     CHECK_FALSE(ref.alive());
-    CHECK(ref.lock() == nullptr);
+    CHECK(ref.get() == nullptr);
 }
 
 TEST_CASE("to_weak_ref on a null pointer yields an empty reference") {
     Counter* none = nullptr;
     WeakRef<Counter> ref = affineui::to_weak_ref(none);
     CHECK_FALSE(ref.bound());
-    CHECK(ref.lock() == nullptr);
+    CHECK(ref.get() == nullptr);
 }
 
 TEST_CASE("a recycled registry slot invalidates the old WeakRef") {
@@ -174,14 +178,14 @@ TEST_CASE("a recycled registry slot invalidates the old WeakRef") {
     {
         Counter first;
         stale = affineui::to_weak_ref(&first);
-        CHECK(stale.lock() == &first);
+        CHECK(stale.get() == &first);
     }
     // `first` is gone; its slot is free. A new Counter may take that slot.
     Counter second;
     WeakRef<Counter> fresh = affineui::to_weak_ref(&second);
     CHECK(fresh.alive());
     CHECK_FALSE(stale.alive());  // generation bump defeats slot reuse
-    CHECK(stale.lock() != &second);
+    CHECK(stale.get() != &second);
 }
 
 TEST_CASE("copying a bound callback shares the same liveness guard") {

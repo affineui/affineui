@@ -630,6 +630,8 @@ void collect_blocks(detail::DocumentImpl& impl,
         b.attrs      = elem_attrs;
         b.custom_props = rs.custom_props;
         b.box_shadows = rs.box_shadows;
+        b.gradient_stops = rs.gradient_stops;
+        b.overlay_gradient = rs.overlay_gradient;
         if (b.tag == "img") {
             b.image_src = detail::attr_string(elem, "src");
         }
@@ -1774,20 +1776,57 @@ Mat2x3 effective_transform_for(const detail::DocumentImpl& impl, int idx) {
             drag_dy = static_cast<float>(d.cur_y - d.elem_doc_y);
         }
     }
-    std::vector<int> chain;
-    for (int cur = idx; cur >= 0; ) {
-        chain.push_back(cur);
-        cur = impl.blocks[static_cast<std::size_t>(cur)].parent_idx;
+    // The tab-drag ghost moves the same way: its style is anchored once at
+    // the spawn point and every subsequent mousemove only updates cur_*.
+    int ghost_idx = -1;
+    float ghost_dx = 0.0f;
+    float ghost_dy = 0.0f;
+    if (impl.tab_drag_ghost && impl.tab_drag_ghost_block_idx >= 0 &&
+        impl.tab_drag_ghost_block_idx < static_cast<int>(impl.blocks.size()) &&
+        (impl.tab_drag_ghost_cur_x != impl.tab_drag_ghost_spawn_x ||
+         impl.tab_drag_ghost_cur_y != impl.tab_drag_ghost_spawn_y) &&
+        detail::element_for_block(impl, impl.tab_drag_ghost_block_idx) ==
+            impl.tab_drag_ghost) {
+        ghost_idx = impl.tab_drag_ghost_block_idx;
+        ghost_dx = static_cast<float>(impl.tab_drag_ghost_cur_x -
+                                      impl.tab_drag_ghost_spawn_x);
+        ghost_dy = static_cast<float>(impl.tab_drag_ghost_cur_y -
+                                      impl.tab_drag_ghost_spawn_y);
     }
+    // Allocation-free ancestor chain: this runs per block inside the
+    // subtree_visual_rect dirty-rect walks (every mutation snapshots one),
+    // and a heap vector here was a sampled hot spot during drags. Real
+    // block-tree depth is far below the fixed cap; deeper chains fall back
+    // to the heap cleanly.
+    int chain_fixed[128];
+    std::size_t depth = 0;
+    std::vector<int> chain_heap;
+    for (int cur = idx; cur >= 0;
+         cur = impl.blocks[static_cast<std::size_t>(cur)].parent_idx) {
+        if (depth < std::size(chain_fixed)) {
+            chain_fixed[depth] = cur;
+        } else {
+            if (chain_heap.empty()) {
+                chain_heap.assign(chain_fixed, chain_fixed + depth);
+            }
+            chain_heap.push_back(cur);
+        }
+        ++depth;
+    }
+    const int* chain = chain_heap.empty() ? chain_fixed : chain_heap.data();
     Mat2x3 combined = Mat2x3::identity();
-    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-        const auto& b = impl.blocks[static_cast<std::size_t>(*it)];
-        if (*it == drag_idx) {
+    for (std::size_t i = depth; i-- > 0; ) {
+        const int cur = chain[i];
+        const auto& b = impl.blocks[static_cast<std::size_t>(cur)];
+        if (cur == drag_idx) {
             // Doc-space translation applied outside the block's own
             // transform, inside its ancestors'.
             combined = Mat2x3::translate(drag_dx, drag_dy).then(combined);
         }
-        const int dy = detail::scroll_offset_y_for(impl.blocks, impl.style_store, *it);
+        if (cur == ghost_idx) {
+            combined = Mat2x3::translate(ghost_dx, ghost_dy).then(combined);
+        }
+        const int dy = detail::scroll_offset_y_for(impl.blocks, impl.style_store, cur);
         const RectF eff{
             b.bounds_f.x,
             b.bounds_f.y - static_cast<float>(dy),

@@ -1590,8 +1590,27 @@ bool apply_deferred_text_focus(detail::DocumentImpl& impl,
         drag.focus_idx >= static_cast<int>(impl.blocks.size())) {
         return false;
     }
+    // A click that neither dragged (would have scrubbed the value) nor
+    // moved focus lands here. Two-stage caret, the numeric-field idiom:
+    //   first click (field was NOT already focused) → select the whole
+    //     value + caret at the end, so a retype replaces it wholesale;
+    //   second click (field already focused) → place the caret at the
+    //     click point, for editing a digit in place.
+    const bool already_focused = impl.focused_idx == drag.focus_idx;
     bool changed = detail::set_focus(impl, drag.focus_idx);
-    changed = detail::set_text_caret_from_point(impl, drag.focus_idx, point) || changed;
+    auto& block = impl.blocks[static_cast<std::size_t>(drag.focus_idx)];
+    if (!already_focused && block.text_control) {
+        detail::set_text_selection(impl, drag.focus_idx, block,
+                                   /*anchor=*/0,
+                                   /*focus=*/block.text_value.size());
+        detail::add_dirty_rect(impl,
+                               detail::block_visual_rect(impl, drag.focus_idx));
+        changed = true;
+    } else {
+        changed = detail::set_text_caret_from_point(impl, drag.focus_idx,
+                                                    point) ||
+                  changed;
+    }
     return changed;
 }
 }  // namespace detail

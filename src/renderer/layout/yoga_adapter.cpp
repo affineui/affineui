@@ -765,8 +765,20 @@ void layout_blocks_with_yoga(int viewport_width_px,
         const auto parent_flex_direction = parent_style_for_flex
             ? parent_style_for_flex->flex_direction
             : ComputedStyle::FlexDirection::Row;
+        // Percent sizes on an absolutely positioned box always resolve
+        // against the containing block's final size (CSS2 §10.5), even
+        // when that size is itself auto/stretch-derived — the
+        // "indefinite parent" circularity below only exists for in-flow
+        // children, and Yoga lays out absolute children after the parent
+        // is sized. Gate both heuristics off for abspos boxes, or a
+        // `position:absolute; height:100%` overlay collapses to 0.
+        const bool abs_positioned =
+            inputs[i].style &&
+            (inputs[i].style->position == ComputedStyle::Position::Absolute ||
+             inputs[i].style->position == ComputedStyle::Position::Fixed);
         bool percent_width_indefinite = false;
-        if (inputs[i].style && inputs[i].style->width_pct_x100 >= 0 &&
+        if (!abs_positioned &&
+            inputs[i].style && inputs[i].style->width_pct_x100 >= 0 &&
             inputs[i].parent_idx >= 0) {
             const auto parent_idx =
                 static_cast<std::size_t>(inputs[i].parent_idx);
@@ -789,7 +801,8 @@ void layout_blocks_with_yoga(int viewport_width_px,
             }
         }
         bool percent_height_indefinite = false;
-        if (inputs[i].style && inputs[i].style->height_pct >= 0 &&
+        if (!abs_positioned &&
+            inputs[i].style && inputs[i].style->height_pct >= 0 &&
             inputs[i].parent_idx >= 0) {
             const auto parent_idx =
                 static_cast<std::size_t>(inputs[i].parent_idx);

@@ -1339,6 +1339,15 @@ WidgetRef& WidgetRef::on_change(std::function<void(std::string_view)> cb) {
     return *this;
 }
 
+WidgetRef& WidgetRef::on_commit(std::function<void(std::string_view)> cb) {
+    if (owner_) {
+        if (auto* n = owner_->resolve_widget_ref(*this)) {
+            owner_->set_commit_handler(*n, std::move(cb));
+        }
+    }
+    return *this;
+}
+
 WidgetRef& WidgetRef::append(const std::function<void(View&)>& build) {
     if (owner_ && owner_->can_mutate_children("append")) {
         if (auto* n = owner_->resolve_widget_ref(*this)) {
@@ -1454,6 +1463,7 @@ void View::clear() {
     widget_names_.clear();
     click_handlers_.clear();
     change_handlers_.clear();
+    commit_handlers_.clear();
 }
 
 View& View::selector(std::string_view name, std::string_view value) {
@@ -2942,6 +2952,25 @@ void View::emit_dock_node(const DockNode& node, bool is_root,
                                     std::source_location::current(), true);
             set_attr(panel, "id", panel_body_id);
             set_attr(panel, "data-dcs-tabpanel", "");
+            // A document pane hosts float content whose containing block must
+            // be the sized float-host. The tabpanel sits between them, and a
+            // static tabpanel is content-sized — so an absolutely-positioned
+            // child (e.g. a stage filling `inset:0`) resolves its insets
+            // against a zero-height box and collapses. Fill the host: the
+            // tabpanel becomes a definite-size positioned containing block,
+            // and stacked tabpanels overlay correctly (only the selected one
+            // is visible). Non-document panes keep normal flow.
+            //
+            // `pointer-events:none` keeps the sizing shim transparent to hit
+            // testing: the float-host underneath stays the dock-drop target,
+            // and the tabpanel's own content (the stage, which sets its own
+            // pointer-events) still hit-tests. Without this the full-bleed
+            // tabpanel would steal every hit from the host.
+            if (node.is_document) {
+                set_attr(panel, "style",
+                         "position:absolute;inset:0;overflow:hidden;"
+                         "pointer-events:none");
+            }
             if (!selected) set_attr(panel, "hidden", "");
             else remove_attr(panel, "hidden");
             if (selected && content) content(*this);
@@ -3481,6 +3510,7 @@ View::Scope View::foldout(std::string_view title, bool expanded,
 WidgetRef View::vec(std::string_view label,
                     const std::vector<std::string>& channels,
                     const std::vector<double>& values, std::string_view key,
+                    double step, bool linear,
                     std::source_location here) {
     if (channels.size() < 2 || channels.size() > 4) {
         diagnostics_.push_back(
@@ -3513,10 +3543,10 @@ WidgetRef View::vec(std::string_view label,
     (void) vec_node;
     for (std::size_t i = 0; i < channels.size(); ++i) {
         const double value = i < values.size() ? values[i] : 0.0;
-        combo(channels[i], value, 0.01,
+        combo(channels[i], value, step,
               std::string(key.empty() ? "vec" : key) + "-" +
                   std::to_string(i),
-              here);
+              linear, here);
     }
     close_node();  // vec
     close_node();  // group
@@ -3811,7 +3841,8 @@ WidgetRef View::colorfield(std::string_view label, std::string_view value,
 }
 
 WidgetRef View::combo(std::string_view label, double value, double step,
-                      std::string_view key, std::source_location here) {
+                      std::string_view key, bool linear,
+                      std::source_location here) {
     // A bare dcs-combo (no field wrapper). Decius-specific control; for other
     // personalities fall back to a plain number input.
     if (theme_ != ViewTheme::Decius) {
@@ -3820,6 +3851,7 @@ WidgetRef View::combo(std::string_view label, double value, double step,
         set_attr(input, "type", "number");
         set_attr(input, "value", number(value));
         set_attr(input, "step", number(step));
+        if (linear) set_attr(input, "data-linear", "");
         if (!label.empty()) set_attr(input, "aria-label", label);
         return ref_for_node(input, current_panel_id(stack_));
     }
@@ -3831,6 +3863,7 @@ WidgetRef View::combo(std::string_view label, double value, double step,
     set_attr(combo, "data-dcs-combo", "");
     set_attr(combo, "data-value", number(value));
     set_attr(combo, "data-step", number(step));
+    if (linear) set_attr(combo, "data-linear", "");
     if (!label.empty()) set_attr(combo, "data-label", label);
     set_attr(combo, "style", "--fill:" + percent(0.5));
 
@@ -3850,8 +3883,12 @@ WidgetRef View::combo(std::string_view label, double value, double step,
                             "__input", here, false);
     set_attr(input, "type", "number");
     set_attr(input, "value", number(value));
-    set_attr(input, "data-fill-min", number(value - 1.0));
-    set_attr(input, "data-fill-max", number(value + 1.0));
+    // A bare combo is a FREE scrubber (unbounded, relative to its current
+    // value) — the vec channels are these. Do NOT stamp data-fill-min /
+    // data-fill-max: those mark a bounded scrub range, which would make
+    // the field a tiny ±1 absolute track that teleports to the pointer
+    // on any drag. A bounded combo opts in with real min/max (data-min /
+    // data-max), which also drives its fill bar.
 
     close_node();  // combo
     return ref_for_node(combo, current_panel_id(stack_));
@@ -3892,6 +3929,17 @@ std::vector<WidgetChangeBinding> View::change_bindings() const {
     std::vector<WidgetChangeBinding> out;
     out.reserve(change_handlers_.size());
     for (const auto& [id, handler] : change_handlers_) {
+        const auto* node = find_id(id);
+        if (!node || node->widget_name.empty() || !handler) continue;
+        out.push_back({node->widget_name, handler});
+    }
+    return out;
+}
+
+std::vector<WidgetChangeBinding> View::commit_bindings() const {
+    std::vector<WidgetChangeBinding> out;
+    out.reserve(commit_handlers_.size());
+    for (const auto& [id, handler] : commit_handlers_) {
         const auto* node = find_id(id);
         if (!node || node->widget_name.empty() || !handler) continue;
         out.push_back({node->widget_name, handler});
@@ -4221,6 +4269,13 @@ void View::set_click_handler(WidgetNode& node, std::function<void()> cb) {
     } else {
         click_handlers_.push_back({node.id, std::move(cb)});
     }
+    // Binding a click handler makes the node activatable no matter its
+    // tag: the interaction layer's activation walk only fires for
+    // button-LIKE blocks, so stamp the marker it recognizes. Without
+    // this, on_click on a plain container (a tab, a list row) is
+    // silently dead — the handler registers but no activation is ever
+    // emitted for the element.
+    set_attr(node, "data-aui-clickable", "1");
 }
 
 void View::set_change_handler(WidgetNode& node,
@@ -4231,6 +4286,17 @@ void View::set_change_handler(WidgetNode& node,
         it->second = std::move(cb);
     } else {
         change_handlers_.push_back({node.id, std::move(cb)});
+    }
+}
+
+void View::set_commit_handler(WidgetNode& node,
+                              std::function<void(std::string_view)> cb) {
+    auto it = std::find_if(commit_handlers_.begin(), commit_handlers_.end(),
+        [&](const auto& entry) { return entry.first == node.id; });
+    if (it != commit_handlers_.end()) {
+        it->second = std::move(cb);
+    } else {
+        commit_handlers_.push_back({node.id, std::move(cb)});
     }
 }
 
@@ -4287,6 +4353,12 @@ void View::unregister_tree(const WidgetNode& node) {
                 return entry.first == node.id;
             }),
         change_handlers_.end());
+    commit_handlers_.erase(
+        std::remove_if(commit_handlers_.begin(), commit_handlers_.end(),
+            [&](const auto& entry) {
+                return entry.first == node.id;
+            }),
+        commit_handlers_.end());
     if (!node.widget_name.empty()) {
         widget_names_.erase(
             std::remove_if(widget_names_.begin(), widget_names_.end(),

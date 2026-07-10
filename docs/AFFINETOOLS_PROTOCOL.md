@@ -7,9 +7,11 @@ consumer may rely on. **A stage is not done until its domains' schemas are
 recorded here.** Schemas are versioned; breaking a field is a version bump,
 never a silent change.
 
-Status: **protocol v0 — telemetry domain implemented** (file profile via
-R1; wire profile via the S1 server, `src/tools/tools_server.cpp`; client
-reference: `scripts/affinetools_cli.py`; enforcement:
+Status: **protocol v0 — telemetry + log domains implemented; dom / css /
+resource READ domains implemented** (file profile via R1; wire profile via
+the S1 server, `src/core/tools/tools_server.cpp`, read servicing in
+`src/renderer/dom/document_tools.cpp`; client reference:
+`scripts/affinetools_cli.py` + `extras/tools`; enforcement:
 `tests/test_telemetry.cpp` + `tests/test_tools.cpp`).
 
 ## Profiles
@@ -50,12 +52,28 @@ crashed targets simply fail to connect.
 
 | method | params | result |
 | --- | --- | --- |
-| `hello` | `token` (required), `client` (informational) | `protocol` (int, 0), `affineui`, `session_id` (16 hex), `capabilities` (["telemetry","log"]), `t0_wall` |
+| `hello` | `token` (required), `client` (informational) | `protocol` (int, 0), `affineui`, `session_id` (16 hex), `capabilities` (["telemetry","log","dom","css","resource"]), `t0_wall` |
 | `ping` | — | `{}` |
 | `telemetry.subscribe` | — | `{}`; `telemetry.frame` / `target.idle` events start flowing |
 | `telemetry.unsubscribe` | — | `{}` |
 | `log.subscribe` | — | `{}`; `log.line` events start flowing (recent buffered history first) |
 | `log.unsubscribe` | — | `{}` |
+| `dom.document` | — | `{root: Node}` — the `<body>` root, shallow (§dom) |
+| `dom.children` | `nid` | `{nodes: [Node…], truncated?}` — tree children of `nid` |
+| `dom.html` | `nid` (optional) | `{html, truncated?}` — serialized outer HTML (whole document when `nid` absent) |
+| `css.box_model` | `nid` | `{laid_out, rect, visual, margin, border, padding, scroll_y, content_h}` (§css) |
+| `resource.stylesheets` | — | `{sheets: [{index, origin, label, bytes}…]}` (§resource) |
+| `resource.stylesheet_text` | `index` | `{index, text, truncated?}` |
+
+**Read-command semantics.** dom/css/resource methods are queued (bounded,
+32 in flight — overflow answers error `-32005 "busy"`) and serviced by the
+app thread at its next frame boundary via `affineui::tools_pump()` — on
+idle-short-circuited frames too, so a quiet target still answers within
+one display tick. Every read is **read-only-never-relayout** (DESIGN
+§2.4): geometry is the last-laid-out state; nothing mutates the document.
+Errors: `-32010 "stale node"` (the nid's versioned slot no longer resolves
+— refetch from the root), `-32011 "no document"`, `-32012 "no such
+stylesheet"`.
 
 ### Events (v0)
 
@@ -184,8 +202,69 @@ sink/subscriber is active, so "quiet" and "hung" are distinguishable
 
 ---
 
+## `dom` — DOM reads (v0)
+
+Node identity is the wire **nid**: `[document_id, node_slot, generation]`
+— the versioned-slot `DomHandle` (DESIGN §2.5). Handles stay valid across
+mutations that keep the node alive; removal/destruction bumps the slot
+generation and further requests answer `-32010`. There is **no live
+`dom.patch` stream yet** (that requires the §3.3 mutation observer and its
+audit) — clients poll/refetch on demand; a stale-nid error is the signal
+to re-snapshot.
+
+**`Node`** — one element or text node, shallow:
+
+```json
+{"nid":[1,4,1],"tag":"div","children":12,"rect":[0,36,439,20],
+ "attrs":[["id","root"],["class","dcs-panel"]]}
+{"nid":[1,9,1],"tag":"#text","children":0,"text":"Hello"}
+```
+
+| field | type | meaning |
+| --- | --- | --- |
+| `nid` | [u32,u32,u32] | versioned weak node id |
+| `tag` | string | element tag, or `"#text"` for a text node |
+| `children` | int | tree children (elements + non-whitespace text) |
+| `rect` | [x,y,w,h] | last-laid-out border box, **visual** space (scroll/transform applied); zeros when the node has no box |
+| `attrs` | [[name,value]…] | element attributes, document order (elements only) |
+| `text` | string | text-node content, ≤160 bytes UTF-8-safe preview (text nodes only) |
+
+Pure-whitespace text nodes are omitted. `dom.children` caps at 512 nodes
+per reply (`truncated: true`); `dom.html` caps at 512 KiB.
+
+## `css.box_model` — last-laid-out box numbers (v0)
+
+```json
+{"laid_out":true,"rect":[0,36,439,20],"visual":[0,36,439,20],
+ "margin":[0,0,0,0],"border":[1,1,1,1],"padding":[8,16,8,16],
+ "scroll_y":0,"content_h":0}
+```
+
+| field | type | meaning |
+| --- | --- | --- |
+| `laid_out` | bool | false = no box (display:none subtree, `<head>` …); other fields absent |
+| `rect` | [x,y,w,h] | border box, document space |
+| `visual` | [x,y,w,h] | border box, visual space |
+| `margin` / `border` / `padding` | [t,r,b,l] | used values, px (`border` is the *used* width — 0 when the side's style is none) |
+| `scroll_y` / `content_h` | px | scroll state for scrollable blocks |
+
+## `resource` — stylesheet sources (v0)
+
+`resource.stylesheets` enumerates in cascade order: author `<style>` /
+`<link rel=stylesheet>` sheets in document order, then the user stylesheet
+(framework bundle / app theme) last. `origin` ∈ `"style" | "link" |
+"user"`; `label` is the href (or a positional label); `bytes` is `-1` for
+a `<link>` until its text is fetched. `resource.stylesheet_text` resolves
+`<link>` bodies through the document's resource loader and caps replies at
+768 KiB (`truncated: true`).
+
+---
+
 ## Planned domains (schemas land with their stage)
 
-`dom` / `view` / `overlay` / `input` (S2a) · `css` (S2b) · `perf` / `page`
-/ `log` (S3) · `mem` snapshots / `resource` (S4) — see DESIGN §3.4 for
-method semantics. Each gets its own section here when implemented.
+`dom.patch` events + dom writes / `view` / `overlay` / `input` (S2a
+remainder — dom.patch is gated on the §3.3 mutation-path audit) ·
+`css.matched` / overrides (S2b) · `perf` / `page` (S3) · `mem` snapshots /
+`resource.textures`+`fonts`+`gpu` (S4, needs the R3 resource registries) —
+see DESIGN §3.4 for method semantics. Each gets its own section here when
+implemented.

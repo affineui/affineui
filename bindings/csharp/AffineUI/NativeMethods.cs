@@ -375,7 +375,7 @@ internal static partial class NativeMethods
     internal static partial IntPtr affineui_view_knob(IntPtr view, string? label, double value, double min, double max, int bipolar, string? key);
 
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial IntPtr affineui_view_combo(IntPtr view, string? label, double value, double step, string? key);
+    internal static partial IntPtr affineui_view_combo(IntPtr view, string? label, double value, double step, string? key, int linear);
 
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial IntPtr affineui_view_color_field(IntPtr view, string? label, string? value, IntPtr swatches, nuint swatchCount, string? key);

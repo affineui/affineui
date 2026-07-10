@@ -168,6 +168,7 @@ target_sources(affineui PRIVATE
     src/renderer/dom/document_restyle.cpp
     src/renderer/dom/document_style.cpp
     src/renderer/dom/document_text.cpp
+    src/renderer/dom/document_tools.cpp
     src/renderer/dom/dom_view.cpp
     src/renderer/style/cascade.cpp
     src/renderer/style/computed.cpp

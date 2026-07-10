@@ -87,6 +87,11 @@ inline Key key_to_affine(SDL_Keycode sym) {
         case SDLK_DOWN:      return Key::ArrowDown;
         case SDLK_HOME:      return Key::Home;
         case SDLK_END:       return Key::End;
+        case SDLK_SPACE:        return Key::Space;
+        case SDLK_MINUS:        return Key::Minus;
+        case SDLK_EQUALS:       return Key::Equal;
+        case SDLK_LEFTBRACKET:  return Key::BracketLeft;
+        case SDLK_RIGHTBRACKET: return Key::BracketRight;
         default: break;
     }
     // SDLK letters (a–z) and digits (0–9) are contiguous ASCII ranges, as are
