@@ -81,9 +81,9 @@ PHOTO_CSS = r"""
 .ps-menubar .dcs-menubar__item{text-transform:none}
 
 /* ── Body / stage ──────────────────────────────────────────────────────── */
-.ps-body{position:relative;flex:1 1 auto;min-height:0;overflow:hidden;background:var(--dcs-stage,#151820)}
-.ps-doc-dock{position:absolute;inset:0}
-.ps-doc-dock>.dcs-dockpane{position:absolute;inset:0;display:flex;flex-direction:column}
+/* Flex column so the document_view workarea (flex:1 1 0;height:0 host)
+   fills the body; the tool strip / floatbar are absolute overlays. */
+.ps-body{position:relative;display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:hidden;background:var(--dcs-stage,#151820)}
 .ps-stagewrap{position:absolute;inset:0;background:var(--dcs-stage,#151820);overflow:hidden}
 .ps-ruler-corner{position:absolute;left:0;top:0;width:18px;height:18px;background:var(--dcs-surface-1,#252a34);border-right:1px solid var(--dcs-line,#343946);border-bottom:1px solid var(--dcs-line,#343946);z-index:2}
 .ps-ruler{position:absolute;background:var(--dcs-surface-1,#252a34);color:var(--dcs-text-mute,#8c93a3);font:8px var(--dcs-font-mono,monospace);overflow:hidden;z-index:1}
@@ -124,19 +124,10 @@ PHOTO_CSS = r"""
 .ps-reset{left:-1px;bottom:-1px}
 
 /* ── Floating panels ───────────────────────────────────────────────────── */
-.ps-floating{position:absolute;z-index:12}
-.ps-float-panel{display:flex;flex-direction:column;min-height:90px}
-/* NOTE: do not make this body a flex column — a flex-column overflow:auto
-   body inside a top+bottom-anchored absolute panel trips a layout blowup in
-   the native engine (content height ~2^30). Block body + height:100% child
-   is equivalent here. */
-.ps-float-panel>.dcs-panel__body{flex:1 1 auto;min-height:0;overflow:auto}
-.ps-panel-title{display:flex;align-items:center;gap:7px;min-width:0}
-.ps-panel-title span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ps-ptabs{display:flex;align-items:center;gap:2px;flex:1 1 auto;min-width:0}
-.ps-ptab{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:3px;color:var(--dcs-text-dim,#a6adbb);font-size:12px;cursor:pointer;white-space:nowrap}
-.ps-ptab:hover{background:var(--dcs-surface-2,#303642);color:var(--dcs-text,#e7e9ee)}
-.ps-ptab[aria-selected=true]{background:var(--dcs-surface-2,#303642);color:var(--dcs-text,#e7e9ee)}
+/* The palettes are DECLARED dockpanels (dcs-panel--floating > dcs-dockpane
+   chrome emitted by the framework); only their tabpanel content is ours.
+   Make each tabpanel fill and scroll within the pane body. */
+.dcs-panel--floating .dcs-dockpane__body>[data-dcs-tabpanel]{height:100%;overflow:auto}
 
 /* ── Navigator ─────────────────────────────────────────────────────────── */
 .ps-nav-body{display:flex;flex-direction:column;gap:8px;padding:10px}

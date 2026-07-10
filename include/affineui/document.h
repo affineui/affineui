@@ -27,6 +27,7 @@ enum class DocumentScript {
 
 namespace detail {
 struct DocumentImpl;
+class ImmRuntime;
 }
 
 /// A parsed HTML document with its associated CSS, layout, and event state.
@@ -166,6 +167,12 @@ public:
     /// All accumulated dock-placement overrides, for the app to persist.
     [[nodiscard]] std::vector<std::pair<std::string, DockPlacement>>
     dock_overrides() const;
+
+    /// Forget every runtime dock override and remembered active tab (a
+    /// "Reset workspace" action). The app should then rebuild WITHOUT wiring
+    /// the dock-layout/placement providers for that one pass, so the declared
+    /// seed layout wins over the live DOM arrangement.
+    void reset_dock_state();
 
     /// The current dock arrangement, read live from the DOM (see DockLayout).
     /// Wire into View::set_dock_layout_provider so view rebuilds re-emit the
@@ -375,6 +382,10 @@ private:
 
     std::unique_ptr<detail::DocumentImpl> impl_;
     friend class App;
+    friend class detail::ImmRuntime;
+    // Devtools read pump (tools.h): services queued dom/css/resource
+    // read commands at the frame boundary; read-only-never-relayout.
+    friend void tools_pump(Document& doc);
 };
 
 }  // namespace affineui

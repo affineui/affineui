@@ -4,6 +4,7 @@
 // event → shutdown. This is the S1 spine exercised end-to-end in-process;
 // scripts/affinetools_cli.py is the same flow from Python.
 
+#include "affineui/document.h"
 #include "affineui/renderer.h"
 #include "affineui/telemetry.h"
 #include "affineui/tools.h"
@@ -18,6 +19,7 @@
 #include <cstdlib>
 #include <ostream>
 #include <string>
+#include <thread>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -372,3 +374,174 @@ TEST_CASE("tools server: discovery, auth, subscribe, telemetry event") {
     CHECK(tools_port() == 0);
     CHECK(read_discovery_file().empty());  // removed on shutdown
 }
+
+#if !defined(AFFINEUI_STUB_BUILD)
+
+TEST_CASE("tools server: dom/css/resource reads via the typed-command pump") {
+    REQUIRE(test_sockets_init());
+    REQUIRE(tools_listen(0));
+    const int port = tools_port();
+    REQUIRE(port > 0);
+    json::Value disco;
+    REQUIRE(json::parse(read_discovery_file(), disco));
+    const std::string token{disco.get_string("token")};
+
+    // A small known document, laid out headlessly — this test thread IS
+    // the app thread, so it services queued commands with tools_pump.
+    Document doc;
+    doc.set_user_stylesheet(".panel { padding: 8px; margin: 2px; }");
+    doc.set_html(
+        "<style>.x { color: red; }</style>"
+        "<div id='root' class='panel x'><p id='p1'>Hello</p>"
+        "<span>World</span></div>");
+    doc.layout(640, 480, nullptr);
+
+    socket_t s = connect_loopback(port);
+    REQUIRE(s != kBadSocket);
+    REQUIRE(send_framed_msg(
+        s, std::string(R"({"id":1,"method":"hello","params":{"token":")") +
+               token + R"("}})"));
+    {
+        json::Value v;
+        REQUIRE(json::parse(recv_framed_msg(s), v));
+        const json::Value* result = v.get("result");
+        REQUIRE(result != nullptr);
+        // The read domains are advertised.
+        const json::Value* caps = result->get("capabilities");
+        REQUIRE(caps != nullptr);
+        bool has_dom = false;
+        for (const json::Value& c : caps->array) has_dom |= c.string == "dom";
+        CHECK(has_dom);
+    }
+
+    // Send a read request, wait for the server thread to queue it, pump
+    // it against the document (app-thread role), then read the response.
+    auto request = [&](const std::string& msg) -> json::Value {
+        REQUIRE(send_framed_msg(s, msg));
+        for (int i = 0; i < 600 && !tools_has_pending(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        REQUIRE(tools_has_pending());
+        tools_pump(doc);
+        json::Value v;
+        REQUIRE(json::parse(recv_framed_msg(s), v));
+        return v;
+    };
+    auto nid_params = [](const json::Value& node) {
+        const json::Value* nid = node.get("nid");
+        REQUIRE(nid != nullptr);
+        REQUIRE(nid->array.size() == 3);
+        char buf[80];
+        std::snprintf(buf, sizeof(buf), "[%d,%d,%d]",
+                      static_cast<int>(nid->array[0].number),
+                      static_cast<int>(nid->array[1].number),
+                      static_cast<int>(nid->array[2].number));
+        return std::string(buf);
+    };
+
+    // dom.document → the <body> root, shallow.
+    json::Value root_reply = request(R"({"id":10,"method":"dom.document"})");
+    const json::Value* root =
+        root_reply.get("result") ? root_reply.get("result")->get("root")
+                                 : nullptr;
+    REQUIRE(root != nullptr);
+    CHECK(root->get_string("tag") == "body");
+    CHECK(root->get_number("children") >= 1.0);
+
+    // dom.children(root) → find <div id=root>; attrs ride along.
+    json::Value kids = request(
+        R"({"id":11,"method":"dom.children","params":{"nid":)" +
+        nid_params(*root) + "}}");
+    const json::Value* nodes = kids.get("result")->get("nodes");
+    REQUIRE(nodes != nullptr);
+    const json::Value* div = nullptr;
+    for (const json::Value& n : nodes->array) {
+        if (n.get_string("tag") == "div") div = &n;
+    }
+    REQUIRE(div != nullptr);
+    CHECK(div->get_number("children") == 2.0);
+    bool has_id_root = false;
+    if (const json::Value* attrs = div->get("attrs")) {
+        for (const json::Value& a : attrs->array) {
+            if (a.array.size() == 2 && a.array[0].string == "id" &&
+                a.array[1].string == "root") {
+                has_id_root = true;
+            }
+        }
+    }
+    CHECK(has_id_root);
+
+    // dom.children(p) → one #text node with the content.
+    json::Value div_kids = request(
+        R"({"id":12,"method":"dom.children","params":{"nid":)" +
+        nid_params(*div) + "}}");
+    const json::Value* div_nodes = div_kids.get("result")->get("nodes");
+    REQUIRE(div_nodes != nullptr);
+    REQUIRE(div_nodes->array.size() == 2);
+    const json::Value& p = div_nodes->array[0];
+    CHECK(p.get_string("tag") == "p");
+    json::Value p_kids = request(
+        R"({"id":13,"method":"dom.children","params":{"nid":)" +
+        nid_params(p) + "}}");
+    const json::Value* p_nodes = p_kids.get("result")->get("nodes");
+    REQUIRE(p_nodes != nullptr);
+    REQUIRE(p_nodes->array.size() == 1);
+    CHECK(p_nodes->array[0].get_string("tag") == "#text");
+    CHECK(p_nodes->array[0].get_string("text") == "Hello");
+
+    // css.box_model(div) → .panel's padding/margin, laid-out rect.
+    json::Value box = request(
+        R"({"id":14,"method":"css.box_model","params":{"nid":)" +
+        nid_params(*div) + "}}");
+    const json::Value* bm = box.get("result");
+    REQUIRE(bm != nullptr);
+    CHECK(bm->get("laid_out") != nullptr);
+    const json::Value* padding = bm->get("padding");
+    REQUIRE(padding != nullptr);
+    CHECK(padding->array[0].number == 8.0);
+    const json::Value* margin = bm->get("margin");
+    REQUIRE(margin != nullptr);
+    CHECK(margin->array[0].number == 2.0);
+    const json::Value* rect = bm->get("rect");
+    REQUIRE(rect != nullptr);
+    CHECK(rect->array[2].number > 0.0);  // laid-out width
+
+    // resource.stylesheets → the <style> sheet + the user sheet, in
+    // cascade order (user last).
+    json::Value sheets_reply =
+        request(R"({"id":15,"method":"resource.stylesheets"})");
+    const json::Value* sheets = sheets_reply.get("result")->get("sheets");
+    REQUIRE(sheets != nullptr);
+    REQUIRE(sheets->array.size() == 2);
+    CHECK(sheets->array[0].get_string("origin") == "style");
+    CHECK(sheets->array[1].get_string("origin") == "user");
+
+    // resource.stylesheet_text — fetch both, verify content routing.
+    json::Value text0 =
+        request(R"({"id":16,"method":"resource.stylesheet_text",)"
+                R"("params":{"index":0}})");
+    CHECK(std::string(text0.get("result")->get_string("text")).find("color") !=
+          std::string::npos);
+    json::Value text1 =
+        request(R"({"id":17,"method":"resource.stylesheet_text",)"
+                R"("params":{"index":1}})");
+    CHECK(std::string(text1.get("result")->get_string("text")).find(".panel") !=
+          std::string::npos);
+
+    // dom.html (whole document) → serialized live DOM.
+    json::Value html_reply = request(R"({"id":18,"method":"dom.html"})");
+    const std::string html{html_reply.get("result")->get_string("html")};
+    CHECK(html.find("Hello") != std::string::npos);
+    CHECK(html.find("root") != std::string::npos);
+
+    // A stale nid answers an error, not garbage.
+    json::Value stale = request(
+        R"({"id":19,"method":"dom.children","params":{"nid":[999,999,999]}})");
+    REQUIRE(stale.get("error") != nullptr);
+    CHECK(stale.get("error")->get_number("code") == -32010.0);
+
+    test_close(s);
+    tools_shutdown();
+}
+
+#endif  // !AFFINEUI_STUB_BUILD

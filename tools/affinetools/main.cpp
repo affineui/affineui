@@ -28,6 +28,8 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -154,8 +156,12 @@ html,body,.aui-root{margin:0;padding:0;min-height:0}
 .aft-tabs__icon{display:flex;align-items:center;padding:0 12px;border:none;
   background:transparent;color:var(--dcs-text-mute);cursor:pointer}
 
-/* body */
-.aft-body{flex:1;min-height:0;overflow:auto;padding:14px 16px}
+/* body: full-bleed — panels own their padding/scrolling (the mock's
+   panels butt against the tab strip with hairline separators). The
+   Performance/dump readouts keep the padded scroll region via .aft-pad. */
+.aft-body{flex:1;min-height:0;display:flex;flex-direction:column;
+  overflow:hidden}
+.aft-pad{flex:1;min-height:0;overflow:auto;padding:14px 16px}
 .aft-panel-title{font-size:13px;font-weight:600;color:var(--dcs-text);
   margin:0 0 2px}
 .aft-panel-sub{font-size:11px;color:var(--dcs-text-mute);
@@ -212,6 +218,103 @@ html,body,.aui-root{margin:0;padding:0;min-height:0}
 .aft-stat--ok .aft-stat__value{color:var(--dcs-ok)}
 .aft-stat--warn .aft-stat__value{color:var(--dcs-warn)}
 
+/* ── Elements: DOM tree + styles side panel (mock ElementsPanel) ── */
+.aft-el{flex:1;display:flex;min-height:0}
+.aft-el__tree{flex:1;min-width:0;overflow:auto;padding:6px 0;
+  font-family:var(--dcs-font-mono);font-size:12px}
+.aft-el__side{min-width:0;overflow:auto;
+  background:var(--dcs-bg);padding:12px}
+/* one markup-styled tree row: chevron gutter + colored tag/attr spans */
+.aft-node{display:flex;align-items:center;height:20px;
+  padding-right:8px;white-space:nowrap;cursor:default;min-width:max-content}
+.aft-node__chev{margin-right:4px}
+.aft-node[aria-selected="true"]{background:var(--dcs-accent-dim);
+  box-shadow:inset 2px 0 0 var(--dcs-accent)}
+.aft-node__chev{width:12px;flex:0 0 12px;display:inline-flex;
+  color:var(--dcs-text-mute);cursor:pointer}
+.aft-node__chev .di{transition:transform .1s}
+.aft-node__chev--open .di{transform:rotate(90deg)}
+.aft-t{color:var(--dcs-pink)}       /* tag name */
+.aft-a{color:var(--dcs-warn);margin-left:5px}  /* attribute name */
+.aft-p{color:var(--dcs-text-mute)}  /* punctuation */
+.aft-v{color:var(--dcs-ok)}         /* attribute value */
+.aft-x{color:var(--dcs-text-dim)}   /* text content */
+/* attributes list */
+.aft-kv{font-family:var(--dcs-font-mono);font-size:11.5px;line-height:1.6}
+.aft-kv__row{display:flex;gap:6px;min-height:18px;align-items:baseline}
+.aft-kv__k{color:var(--dcs-warn);flex:0 0 auto;max-width:45%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aft-kv__v{color:var(--dcs-text);min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+/* box-model diagram: nested tinted boxes (mock BoxModel) */
+.aft-box{font-family:var(--dcs-font-mono);font-size:10px;text-align:center}
+.aft-box__layer{border:1px solid var(--dcs-line);position:relative}
+.aft-box__layer--margin{background:rgba(242,177,74,.12);padding:18px 24px}
+.aft-box__layer--border{background:rgba(180,140,255,.14);padding:14px 20px}
+.aft-box__layer--padding{background:rgba(78,209,138,.12);padding:14px 20px}
+.aft-box__core{background:rgba(77,159,255,.18);
+  border:1px solid var(--dcs-accent);padding:10px 4px;
+  color:var(--dcs-text);font-size:11px}
+.aft-box__tag{position:absolute;top:1px;left:4px;color:var(--dcs-text-mute);
+  font-size:8px;letter-spacing:.08em}
+.aft-box__foot{display:flex;justify-content:space-between;margin-top:8px;
+  font-size:10px;color:var(--dcs-text-dim)}
+.aft-box__foot span{white-space:nowrap}
+
+/* ── Sources: file list + code viewer (mock SourcesPanel) ── */
+.aft-srcwrap{flex:1;display:flex;min-height:0}
+.aft-srclist{overflow:auto;background:var(--dcs-bg);padding:6px 0}
+.aft-srcitem{display:flex;align-items:center;gap:6px;height:22px;
+  padding:0 8px 0 10px;font-size:12px;cursor:pointer;
+  color:var(--dcs-text-dim);white-space:nowrap}
+.aft-srcitem .di{color:var(--dcs-text-mute)}
+.aft-srcitem[aria-selected="true"]{color:var(--dcs-text);
+  background:var(--dcs-accent-dim);box-shadow:inset 2px 0 0 var(--dcs-accent)}
+.aft-srcitem[aria-selected="true"] .di{color:var(--dcs-accent)}
+.aft-srcitem__label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  font-family:var(--dcs-font-mono)}
+.aft-srcview{flex:1;min-width:0;display:flex;flex-direction:column}
+.aft-srchead{display:flex;align-items:center;flex:0 0 26px;gap:8px;
+  border-bottom:1px solid var(--dcs-line);background:var(--dcs-surface-1);
+  padding:0 10px;font-family:var(--dcs-font-mono);font-size:12px;
+  color:var(--dcs-text)}
+.aft-srchead__n{margin-left:auto;font-size:11px;color:var(--dcs-text-mute)}
+.aft-code{flex:1;min-height:0;overflow-x:auto;overflow-y:hidden;
+  background:var(--dcs-well);font-family:var(--dcs-font-mono);font-size:12px}
+.aft-code__row{display:flex;min-height:20px;min-width:max-content;
+  white-space:pre;color:var(--dcs-text-dim)}
+.aft-code__ln{width:44px;flex:0 0 44px;text-align:right;padding-right:8px;
+  color:var(--dcs-text-mute);user-select:none}
+.aft-code__tx{padding-left:10px}
+.aft-src__empty{padding:14px;color:var(--dcs-text-dim);font-size:12px;
+  font-family:var(--dcs-font)}
+/* syntax tints (mock hl()) */
+.aft-hl-tag{color:var(--dcs-pink)}
+.aft-hl-attr{color:var(--dcs-warn)}
+.aft-hl-val{color:var(--dcs-ok)}
+.aft-hl-com{color:var(--dcs-text-mute)}
+.aft-hl-prop{color:var(--dcs-accent)}
+.aft-hl-sel{color:var(--dcs-purple)}
+.aft-hl-num{color:var(--dcs-warn)}
+
+/* ── shared panel toolbar + right-aligned mini stats (mock Stat) ── */
+.aft-toolbar{display:flex;align-items:center;gap:10px;flex:0 0 auto;
+  padding:8px 12px;border-bottom:1px solid var(--dcs-line)}
+.aft-tstat{display:flex;flex-direction:column;align-items:flex-end;
+  min-width:52px}
+.aft-tstat__l{font-size:9px;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--dcs-text-mute);font-family:var(--dcs-font-mono)}
+.aft-tstat__v{font-size:13px;color:var(--dcs-text);
+  font-family:var(--dcs-font-num);font-variant-numeric:tabular-nums}
+.aft-tstat--ok .aft-tstat__v{color:var(--dcs-ok)}
+.aft-tstat--warn .aft-tstat__v{color:var(--dcs-warn)}
+
+/* ── Memory: toolbar + heap timeline + counters (mock MemoryPanel) ── */
+.aft-mem{flex:1;min-height:0;overflow:auto}
+.aft-mem__graphwrap{padding:12px;border-bottom:1px solid var(--dcs-line)}
+.aft-note{color:var(--dcs-text-mute);font-size:11px;max-width:64ch;
+  line-height:1.5}
+
 /* status bar */
 .aft-status{height:22px;flex:0 0 22px;display:flex;align-items:center;gap:12px;
   padding:0 12px;background:var(--dcs-surface-1);
@@ -236,10 +339,11 @@ struct Tab {
     const char* icon;  // di-* glyph
 };
 const Tab kTabs[] = {
-    {"elements",    "Elements",    "layers"},
+    // Icons follow the design mock's TABS (design/affinetools devtools.jsx).
+    {"elements",    "Elements",    "array"},
     {"sources",     "Sources",     "file"},
-    {"performance", "Performance", "gizmo"},
-    {"memory",      "Memory",      "cube"},
+    {"performance", "Performance", "graph"},
+    {"memory",      "Memory",      "cpu"},
 };
 
 // Frametime graph interaction state.
@@ -263,11 +367,49 @@ struct GraphState {
     bool   dragging{false};
     std::size_t drag_anchor{0};
 
-    // Last painted geometry, so the pointer handler can map screen x → age.
-    // Written by the paint handler, read by on_event (same thread).
+    // Last painted geometry, so the pointer handler can map screen x → age
+    // and hit-test the graph box. Written by the paint handler, read by
+    // on_event (same thread).
     int graph_x{0};
+    int graph_y{0};
     int graph_w{0};
+    int graph_h{0};
     std::size_t frames_in_view{0};
+};
+
+/// A nid as a stable map/set key.
+std::string nid_key(const affineui::DomHandle& nid) {
+    char buf[48];
+    std::snprintf(buf, sizeof(buf), "%u:%u:%u", nid.document_id,
+                  nid.node_slot, nid.generation);
+    return buf;
+}
+
+// Elements tab: a lazily-fetched mirror of the target's DOM tree.
+// Children are fetched on first expand and cached; Refresh (or a stale
+// nid answer after the target mutated) drops the whole mirror and
+// refetches from the root.
+struct ElementsState {
+    bool loaded{false};
+    affineui::tools::DomNodeInfo root;
+    std::map<std::string, std::vector<affineui::tools::DomNodeInfo>> children;
+    std::set<std::string> expanded;
+    std::string selected_key;
+    affineui::tools::DomNodeInfo selected;
+    affineui::tools::BoxModel box;
+    bool stale{false};  // a fetch failed — show the refresh hint
+};
+
+// Sources tab: stylesheet list + windowed text viewer.
+struct SourcesState {
+    bool loaded{false};
+    std::vector<affineui::tools::StylesheetInfo> sheets;
+    int selected{-1};  // sheet index; kDocHtml = the live DOM
+    static constexpr int kDocHtml = -2;
+    std::vector<std::string> lines;   // current selection, split
+    std::size_t first_line{0};        // top visible line (wheel-scrolled)
+    std::size_t visible{0};           // rows that fit (build-set)
+    bool stale{false};
 };
 
 struct ToolsModel {
@@ -295,6 +437,22 @@ struct ToolsModel {
     affineui::Rect           log_rect{};
     std::size_t              log_visible{0};   // rows that fit (build-set)
     std::function<void(std::uint64_t)> select_frame;  // log click → graph
+
+    // Elements / Sources panel state + callbacks (installed in main()).
+    ElementsState elements;
+    SourcesState  sources;
+    // Splitter-owned pane widths (px). The core splitter drag pins the
+    // pane's inline flex live; before each rebuild the app samples the
+    // laid-out width back so the declared style re-seeds it (the same
+    // interaction → persist → re-seed rail the dock uses).
+    int el_side_w{320};
+    int src_list_w{200};
+    std::function<void()> sample_pane_sizes;
+    std::function<void()> el_refresh;
+    std::function<void(const affineui::tools::DomNodeInfo&)> el_select;
+    std::function<void(const affineui::tools::DomNodeInfo&)> el_toggle;
+    std::function<void()> src_refresh;
+    std::function<void(int)> src_select;
 };
 
 // A mock-style stat tile: uppercase label over a tabular value. Label and
@@ -384,6 +542,616 @@ void build_log_panel(affineui::View& v, ToolsModel& m) {
         {
             affineui::View::Scope txt = v.element("span", "aft-log__text", key + "-x");
             v.text(e.text, key + "-xt");
+        }
+    }
+}
+
+// ── Elements panel (mock ElementsPanel: markup-styled DOM tree rows +
+// a 320px styles side panel with the box-model diagram) ─────────────────
+
+/// Chrome-style node label: `div#id.class1.class2`, or a quoted preview
+/// for #text nodes. Used for the details-pane title.
+std::string element_label(const affineui::tools::DomNodeInfo& node) {
+    if (node.is_text()) {
+        std::string out = "\"";
+        out += node.text;
+        out += '"';
+        return out;
+    }
+    std::string out{node.tag};
+    if (const std::string_view id = node.attr("id"); !id.empty()) {
+        out += '#';
+        out += id;
+    }
+    std::string classes{node.attr("class")};
+    for (char& c : classes) {
+        if (c == ' ') c = '.';
+    }
+    if (!classes.empty()) {
+        out += '.';
+        out += classes;
+    }
+    return out;
+}
+
+/// One `name="value"` fragment of a tree-row label (attr name in warn,
+/// value in ok, punctuation muted — the mock's markup coloring).
+void append_attr_spans(affineui::View& v, std::string_view name,
+                       std::string_view value, const std::string& key) {
+    {
+        affineui::View::Scope a =
+            v.element("span", "aft-a", key + "-a");
+        v.text(name, key + "-at");
+    }
+    {
+        affineui::View::Scope p = v.element("span", "aft-p", key + "-p");
+        v.text("=", key + "-pt");
+    }
+    {
+        affineui::View::Scope val = v.element("span", "aft-v", key + "-v");
+        std::string quoted = "\"";
+        quoted += value;
+        quoted += '"';
+        v.text(quoted, key + "-vt");
+    }
+}
+
+/// Render one mirror node (and, when expanded, its cached children).
+/// Row click selects; chevron click expands/collapses (fetching children
+/// lazily) — the chevron's own handler is nearer in the activation walk,
+/// so it naturally claims its clicks from the row.
+void build_dom_tree(affineui::View& v, ToolsModel& m,
+                    const affineui::tools::DomNodeInfo& node, int depth) {
+    ElementsState& el = m.elements;
+    const std::string key = nid_key(node.nid);
+    const bool expandable = node.child_count > 0;
+    const bool open = expandable && el.expanded.count(key) > 0;
+
+    {  // the row closes before its children rows — siblings, not nested
+    affineui::View::Scope row = v.container("aft-node", key);
+    char indent[48];
+    std::snprintf(indent, sizeof(indent), "padding-left:%dpx",
+                  8 + depth * 14);
+    row.ref()
+        .attr("aria-selected",
+              el.selected_key == key ? "true" : "false")
+        .attr("style", indent)
+        .on_click([&m, node] { if (m.el_select) m.el_select(node); });
+    {
+        std::string chev_cls = "aft-node__chev";
+        if (open) chev_cls += " aft-node__chev--open";
+        affineui::View::Scope chev =
+            v.element("span", chev_cls, key + "-c");
+        if (expandable) {
+            chev.ref().on_click(
+                [&m, node] { if (m.el_toggle) m.el_toggle(node); });
+            v.element_ref("i", "di di-chevron-right", key + "-ci");
+        }
+    }
+    if (node.is_text()) {
+        affineui::View::Scope txt = v.element("span", "aft-x", key + "-x");
+        std::string quoted = "\"";
+        quoted += node.text;
+        quoted += '"';
+        v.text(quoted, key + "-xt");
+    } else {
+        {
+            affineui::View::Scope t =
+                v.element("span", "aft-t", key + "-t0");
+            v.text("<" + node.tag, key + "-t0t");
+        }
+        if (const std::string_view id = node.attr("id"); !id.empty()) {
+            append_attr_spans(v, "id", id, key + "-id");
+        }
+        if (const std::string_view cls = node.attr("class"); !cls.empty()) {
+            append_attr_spans(v, "class", cls, key + "-cl");
+        }
+        {
+            affineui::View::Scope t =
+                v.element("span", "aft-t", key + "-t1");
+            v.text(">", key + "-t1t");
+        }
+        if (!open && expandable) {
+            affineui::View::Scope p =
+                v.element("span", "aft-p", key + "-el");
+            v.text("…", key + "-elt");
+        }
+    }
+    }  // row scope
+    if (!open) return;
+    const auto it = el.children.find(key);
+    if (it == el.children.end()) return;
+    for (const affineui::tools::DomNodeInfo& child : it->second) {
+        build_dom_tree(v, m, child, depth + 1);
+    }
+}
+
+/// One nested band of the box-model diagram (margin/border/padding).
+/// The returned Scope is the band's interior for the next layer. Values
+/// are NOT drawn in the bands (they don't fit legibly at these band
+/// sizes) — they go in the footer line, exactly like the mock.
+affineui::View::Scope box_layer(affineui::View& v, const char* name,
+                                std::string_view key) {
+    affineui::View::Scope layer = v.container(
+        std::string("aft-box__layer aft-box__layer--") + name, key);
+    {
+        affineui::View::Scope tag =
+            v.element("span", "aft-box__tag", std::string(key) + "-t");
+        v.text(name, std::string(key) + "-tt");
+    }
+    return layer;
+}
+
+/// CSS-shorthand form of a top/right/bottom/left quad: "8" when uniform,
+/// else "8 16 8 16".
+std::string box_shorthand(const int vals[4]) {
+    char buf[48];
+    if (vals[0] == vals[1] && vals[1] == vals[2] && vals[2] == vals[3]) {
+        std::snprintf(buf, sizeof(buf), "%d", vals[0]);
+    } else {
+        std::snprintf(buf, sizeof(buf), "%d %d %d %d", vals[0], vals[1],
+                      vals[2], vals[3]);
+    }
+    return buf;
+}
+
+void build_elements(affineui::View& v, ToolsModel& m) {
+    ElementsState& el = m.elements;
+    affineui::View::Scope split = v.container("aft-el", "el-split");
+    {
+        affineui::View::Scope pane = v.container("aft-el__tree", "el-tree");
+        if (!el.loaded) {
+            affineui::View::Scope empty =
+                v.container("aft-src__empty", "el-empty");
+            v.text(el.stale ? "The target changed — refresh to refetch."
+                            : "No DOM snapshot yet.",
+                   "el-empty-t");
+            return;
+        }
+        build_dom_tree(v, m, el.root, 0);
+    }
+    v.splitter(false, "el-split-bar");
+    {
+        affineui::View::Scope side = v.container("aft-el__side", "el-side");
+        side.attr("style",
+                  "flex:0 0 " + std::to_string(m.el_side_w) +
+                      "px;min-width:0;min-height:0");
+        {
+            affineui::View::Scope caprow =
+                v.container("aft-graph__caprow", "el-cap-row");
+            if (el.stale) {
+                v.text("target changed", "el-stale").cls("aft-soon");
+            }
+            v.container("aft-graph__capgap", "el-gap");
+            v.button("Refresh", false, "el-refresh")
+                .add_class("dcs-btn--sm")
+                .on_click([&m] { if (m.el_refresh) m.el_refresh(); });
+        }
+        if (el.selected_key.empty()) {
+            v.paragraph("Select a node to inspect it.", "el-hint")
+                .cls("aft-empty");
+            return;
+        }
+        v.paragraph(element_label(el.selected), "el-sel-title")
+            .cls("aft-panel-title");
+        char sub[96];
+        std::snprintf(sub, sizeof(sub), "nid %s · %d children",
+                      nid_key(el.selected.nid).c_str(),
+                      el.selected.child_count);
+        v.paragraph(sub, "el-sel-sub").cls("aft-panel-sub");
+
+        if (el.box.laid_out) {
+            v.paragraph("Box model", "el-box-cap").cls("aft-caption");
+            {
+                affineui::View::Scope box = v.container("aft-box", "el-box");
+                {
+                    affineui::View::Scope margin =
+                        box_layer(v, "margin", "el-bm");
+                    affineui::View::Scope border =
+                        box_layer(v, "border", "el-bb");
+                    affineui::View::Scope padding =
+                        box_layer(v, "padding", "el-bp");
+                    affineui::View::Scope core =
+                        v.container("aft-box__core", "el-bc");
+                    char dims[48];
+                    const int cw = el.box.rect.w -
+                                   el.box.border[1] - el.box.border[3] -
+                                   el.box.padding[1] - el.box.padding[3];
+                    const int ch = el.box.rect.h -
+                                   el.box.border[0] - el.box.border[2] -
+                                   el.box.padding[0] - el.box.padding[2];
+                    std::snprintf(dims, sizeof(dims), "%d × %d", cw, ch);
+                    v.text(dims, "el-bc-t");
+                }
+                // Values live in the footer lines (mock BoxModel foot) —
+                // each segment its own span so the flex row spaces them.
+                auto foot_span = [&v](std::string_view key,
+                                      const std::string& text) {
+                    affineui::View::Scope s =
+                        v.element("span", "", key);
+                    v.text(text, std::string(key) + "t");
+                };
+                {
+                    affineui::View::Scope foot =
+                        v.container("aft-box__foot", "el-box-foot");
+                    foot_span("el-bf-p",
+                              "padding " + box_shorthand(el.box.padding));
+                    foot_span("el-bf-b",
+                              "border " + box_shorthand(el.box.border));
+                    foot_span("el-bf-m",
+                              "margin " + box_shorthand(el.box.margin));
+                }
+                {
+                    affineui::View::Scope foot =
+                        v.container("aft-box__foot", "el-box-foot2");
+                    char pos[48];
+                    std::snprintf(pos, sizeof(pos), "at %d,%d",
+                                  el.box.rect.x, el.box.rect.y);
+                    foot_span("el-bf2-a", pos);
+                    char sz[64];
+                    std::snprintf(sz, sizeof(sz), "border box %d × %d",
+                                  el.box.rect.w, el.box.rect.h);
+                    foot_span("el-bf2-b", sz);
+                }
+            }
+        } else if (!el.selected.is_text()) {
+            v.paragraph("Not laid out (display:none subtree or <head>).",
+                        "el-box-none")
+                .cls("aft-soon");
+        }
+
+        if (!el.selected.is_text()) {
+            v.paragraph("Attributes", "el-attr-cap")
+                .cls("aft-caption")
+                .attr("style", "margin:16px 0 8px");
+            affineui::View::Scope kv = v.container("aft-kv", "el-attrs");
+            if (el.selected.attrs.empty()) {
+                v.text("(none)", "el-attrs-none").cls("aft-soon");
+            }
+            int i = 0;
+            for (const auto& [name, value] : el.selected.attrs) {
+                const std::string key = "el-attr-" + std::to_string(i++);
+                affineui::View::Scope row =
+                    v.container("aft-kv__row", key);
+                {
+                    affineui::View::Scope k =
+                        v.element("span", "aft-kv__k", key + "-k");
+                    v.text(name, key + "-kt");
+                }
+                {
+                    affineui::View::Scope val =
+                        v.element("span", "aft-kv__v", key + "-v");
+                    v.text(value.empty() ? "\"\"" : value, key + "-vt");
+                }
+            }
+        }
+    }
+}
+
+// ── Memory panel (mock MemoryPanel: toolbar with right-aligned stats,
+// heap timeline, counters) ───────────────────────────────────────────────
+
+/// A toolbar mini-stat (mock Stat): tiny uppercase label over a tabular
+/// value, right-aligned in the toolbar.
+void toolbar_stat(affineui::View& v, std::string_view key, const char* label,
+                  const char* value, const char* tone = "") {
+    std::string cls = "aft-tstat";
+    if (tone[0] != '\0') { cls += " aft-tstat--"; cls += tone; }
+    const std::string k{key};
+    affineui::View::Scope tile = v.container(cls, key);
+    {
+        affineui::View::Scope l = v.element("span", "aft-tstat__l", k + "-l");
+        v.text(label, k + "-lt");
+    }
+    {
+        affineui::View::Scope val =
+            v.element("span", "aft-tstat__v", k + "-v");
+        v.text(value, k + "-vt");
+    }
+}
+
+void build_memory(affineui::View& v, ToolsModel& m,
+                  const affineui::tools::ClientStatus& s) {
+    {
+        affineui::View::Scope bar = v.container("aft-toolbar", "mem-bar");
+        {
+            affineui::View::Scope legend =
+                v.container("aft-graph__legend", "mem-legend");
+            struct { const char* label; const char* color; } keys[] = {
+                {"heap bytes", "#4d9fff"}, {"live blocks", "#4ed18a"},
+            };
+            for (const auto& k : keys) {
+                affineui::View::Scope key = v.container(
+                    "aft-graph__key", std::string("mlk-") + k.label);
+                v.element_ref("span", "aft-graph__sw",
+                              std::string("msw-") + k.label)
+                    .attr("style", std::string("background:") + k.color);
+                v.text(k.label, std::string("mlt-") + k.label);
+            }
+        }
+        v.container("aft-graph__capgap", "mem-gap");
+        if (s.have_frame) {
+            const affineui::FrameTelemetry& t = s.last_frame;
+            char v_mem[32], v_blk[32], v_alloc[32];
+            std::snprintf(v_mem, sizeof(v_mem), "%.2f MB",
+                          static_cast<double>(t.mem_live_bytes) /
+                              (1024.0 * 1024.0));
+            std::snprintf(v_blk, sizeof(v_blk), "%llu",
+                          static_cast<unsigned long long>(t.mem_live_blocks));
+            std::snprintf(v_alloc, sizeof(v_alloc), "%u / %u", t.allocs,
+                          t.frees);
+            toolbar_stat(v, "m-heap", "heap", v_mem);
+            toolbar_stat(v, "m-blk", "blocks", v_blk);
+            toolbar_stat(v, "m-alloc", "alloc/free", v_alloc,
+                         t.allocs > t.frees + 64 ? "warn" : "");
+        }
+    }
+    affineui::View::Scope body = v.container("aft-mem", "mem-body");
+    {
+        affineui::View::Scope wrap =
+            v.container("aft-mem__graphwrap", "mem-graphwrap");
+        v.paragraph("Live heap · affineui::mem · per presented frame",
+                    "mem-cap")
+            .cls("aft-caption");
+        v.canvas("memgraph", "mem-graph").cls("aft-graph");
+    }
+    if (!s.have_frame) {
+        v.paragraph("Waiting for the first frame…", "mem-wait")
+            .cls("aft-soon")
+            .attr("style", "padding:12px");
+    }
+    v.paragraph(
+        "Counters cover allocations routed through affineui::mem (the "
+        "library's own traffic). Heap snapshots and per-category "
+        "breakdowns need a target built with AFFINEUI_MEM_DEBUG — they "
+        "land with the mem.snapshot domain.",
+        "mem-note")
+        .cls("aft-note")
+        .attr("style", "padding:12px");
+}
+
+// ── Sources panel (mock SourcesPanel: file list + code viewer with
+// gutter line numbers and syntax tints) ──────────────────────────────────
+
+/// One tinted segment of a source line.
+struct HlSpan {
+    const char*      cls;  // aft-hl-* ("" = default dim text)
+    std::string_view text;
+};
+
+/// Tokenize one line for display — the mock's hl(): HTML gets tag /
+/// attr="value" / comment tints; CSS gets --custom-prop, .selector,
+/// #hex and number tints. Purely lexical and line-local by design (the
+/// viewer windows lines independently); a mid-token line break simply
+/// renders untinted. Bounded: one pass, no allocation beyond `out`.
+void highlight_line(std::string_view s, bool css, std::vector<HlSpan>& out) {
+    out.clear();
+    auto flush = [&](std::size_t from, std::size_t to, const char* cls) {
+        if (to > from) out.push_back({cls, s.substr(from, to - from)});
+    };
+    const auto is_word = [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+               (c >= '0' && c <= '9') || c == '-' || c == '_';
+    };
+    std::size_t plain = 0;  // start of the pending untinted run
+    std::size_t i = 0;
+    while (i < s.size()) {
+        if (!css && s.compare(i, 4, "<!--") == 0) {
+            // Comment: tint to --> or end of line.
+            flush(plain, i, "");
+            std::size_t end = s.find("-->", i);
+            end = end == std::string_view::npos ? s.size() : end + 3;
+            flush(i, end, "aft-hl-com");
+            plain = i = end;
+            continue;
+        }
+        if (!css && s[i] == '<') {
+            // `<tag` / `</tag`: bracket muted, name pink.
+            std::size_t j = i + 1;
+            if (j < s.size() && s[j] == '/') ++j;
+            std::size_t name = j;
+            while (j < s.size() && is_word(s[j])) ++j;
+            if (j > name) {
+                flush(plain, i, "");
+                flush(i, name, "aft-hl-com");
+                flush(name, j, "aft-hl-tag");
+                plain = i = j;
+                continue;
+            }
+        }
+        if (s[i] == '"' || s[i] == '\'') {
+            // "value" (quoted string): value green; if directly preceded
+            // by name= inside the pending run, tint the name too.
+            const char quote = s[i];
+            std::size_t end = s.find(quote, i + 1);
+            if (end != std::string_view::npos) {
+                std::size_t name_end = i;
+                std::size_t name_begin = i;
+                if (!css && i >= 1 && s[i - 1] == '=') {
+                    name_end = i - 1;
+                    name_begin = name_end;
+                    while (name_begin > plain && is_word(s[name_begin - 1])) {
+                        --name_begin;
+                    }
+                }
+                flush(plain, name_begin, "");
+                if (name_begin < name_end) {
+                    flush(name_begin, name_end, "aft-hl-attr");
+                    flush(name_end, i, "");  // the '='
+                }
+                flush(i, end + 1, "aft-hl-val");
+                plain = i = end + 1;
+                continue;
+            }
+        }
+        if (css && s.compare(i, 2, "--") == 0 && i + 2 < s.size() &&
+            is_word(s[i + 2])) {
+            std::size_t j = i + 2;
+            while (j < s.size() && is_word(s[j])) ++j;
+            flush(plain, i, "");
+            flush(i, j, "aft-hl-prop");
+            plain = i = j;
+            continue;
+        }
+        if (css && (s[i] == '.' || s[i] == '#') && i + 1 < s.size() &&
+            is_word(s[i + 1])) {
+            std::size_t j = i + 1;
+            while (j < s.size() && is_word(s[j])) ++j;
+            // #hex color vs #selector: a hex run followed by non-word.
+            const bool hexish =
+                s[i] == '#' &&
+                std::string_view("0123456789abcdefABCDEF").find(s[i + 1]) !=
+                    std::string_view::npos &&
+                (j - i == 4 || j - i == 7 || j - i == 9);
+            flush(plain, i, "");
+            flush(i, j, hexish ? "aft-hl-val" : "aft-hl-sel");
+            plain = i = j;
+            continue;
+        }
+        if (css && (s[i] >= '0' && s[i] <= '9') &&
+            (i == 0 || !is_word(s[i - 1]))) {
+            std::size_t j = i;
+            while (j < s.size() &&
+                   ((s[j] >= '0' && s[j] <= '9') || s[j] == '.')) {
+                ++j;
+            }
+            std::size_t unit = j;
+            while (unit < s.size() && unit - j < 3 &&
+                   ((s[unit] >= 'a' && s[unit] <= 'z') || s[unit] == '%')) {
+                ++unit;
+            }
+            flush(plain, i, "");
+            flush(i, unit, "aft-hl-num");
+            plain = i = unit;
+            continue;
+        }
+        ++i;
+    }
+    flush(plain, s.size(), "");
+}
+
+void build_sources(affineui::View& v, ToolsModel& m) {
+    SourcesState& src = m.sources;
+    affineui::View::Scope split = v.container("aft-srcwrap", "src-split");
+    {
+        affineui::View::Scope list = v.container("aft-srclist", "src-list");
+        list.attr("style",
+                  "flex:0 0 " + std::to_string(m.src_list_w) +
+                      "px;min-width:0;min-height:0");
+        auto item = [&](int index, std::string_view icon,
+                        std::string_view label, std::string_view key) {
+            affineui::View::Scope row = v.container("aft-srcitem", key);
+            row.ref()
+                .attr("aria-selected",
+                      src.selected == index ? "true" : "false")
+                .on_click([&m, index] {
+                    if (m.src_select) m.src_select(index);
+                });
+            v.element_ref("i", std::string("di di-") + std::string(icon),
+                          std::string(key) + "-i");
+            {
+                affineui::View::Scope l = v.element(
+                    "span", "aft-srcitem__label", std::string(key) + "-l");
+                v.text(label, std::string(key) + "-lt");
+            }
+        };
+        item(SourcesState::kDocHtml, "array", "document (live DOM)",
+             "src-doc");
+        for (const affineui::tools::StylesheetInfo& sheet : src.sheets) {
+            item(sheet.index, "file", sheet.label,
+                 "src-sheet-" + std::to_string(sheet.index));
+        }
+        if (src.stale) {
+            affineui::View::Scope note =
+                v.container("aft-src__empty", "src-stale");
+            v.text("fetch failed — reselect to retry", "src-stale-t");
+        }
+    }
+    v.splitter(false, "src-split-bar");
+    {
+        affineui::View::Scope viewer = v.container("aft-srcview", "src-view");
+        const bool is_doc = src.selected == SourcesState::kDocHtml;
+        std::string label = "—";
+        std::string lang;
+        if (is_doc) {
+            label = "document";
+            lang = "html";
+        } else if (src.selected >= 0) {
+            for (const auto& sheet : src.sheets) {
+                if (sheet.index == src.selected) {
+                    label = sheet.label;
+                    lang = "css";
+                }
+            }
+        }
+        {
+            affineui::View::Scope head =
+                v.container("aft-srchead", "src-head");
+            v.text(label, "src-head-name");
+            if (!lang.empty()) {
+                v.text(lang, "src-head-lang")
+                    .cls("dcs-badge dcs-badge--soft");
+            }
+            {
+                affineui::View::Scope n =
+                    v.element("span", "aft-srchead__n", "src-head-n");
+                char count[32];
+                std::snprintf(count, sizeof(count), "%zu lines",
+                              src.lines.size());
+                v.text(src.selected == -1 ? "" : count, "src-head-nt");
+            }
+        }
+        affineui::View::Scope code = v.container("aft-code", "src-code");
+        if (src.selected == -1) {
+            v.paragraph("Select a source to view it.", "src-none")
+                .cls("aft-src__empty");
+            return;
+        }
+        if (src.lines.empty()) {
+            v.paragraph("(empty)", "src-empty").cls("aft-src__empty");
+            return;
+        }
+        constexpr std::size_t kVisible = 32;  // rows in the viewer box
+        src.visible = kVisible;
+        const std::size_t first =
+            std::min(src.first_line,
+                     src.lines.size() > kVisible ? src.lines.size() - kVisible
+                                                 : std::size_t{0});
+        const std::size_t last = std::min(src.lines.size(), first + kVisible);
+        std::vector<HlSpan> spans;
+        for (std::size_t i = first; i < last; ++i) {
+            const std::string key = "src-ln-" + std::to_string(i);
+            affineui::View::Scope row = v.container("aft-code__row", key);
+            char ln[16];
+            std::snprintf(ln, sizeof(ln), "%zu", i + 1);
+            {
+                affineui::View::Scope g =
+                    v.element("span", "aft-code__ln", key + "-n");
+                v.text(ln, key + "-nt");
+            }
+            {
+                affineui::View::Scope tx =
+                    v.element("span", "aft-code__tx", key + "-x");
+                if (src.lines[i].empty()) {
+                    v.text(" ", key + "-xt");
+                } else {
+                    highlight_line(src.lines[i], lang == "css", spans);
+                    int seg = 0;
+                    for (const HlSpan& span : spans) {
+                        const std::string skey =
+                            key + "-s" + std::to_string(seg++);
+                        if (span.cls[0] == '\0') {
+                            affineui::View::Scope plain =
+                                v.element("span", "", skey);
+                            v.text(span.text, skey + "t");
+                        } else {
+                            affineui::View::Scope tinted =
+                                v.element("span", span.cls, skey);
+                            v.text(span.text, skey + "t");
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -596,6 +1364,10 @@ void build_view(affineui::View& v, ToolsModel& m) {
     using affineui::View;
     v.set_theme(affineui::ViewTheme::Decius);
 
+    // Persist splitter-dragged pane sizes: sample the live layout before
+    // this rebuild re-declares the panes' flex bases.
+    if (m.sample_pane_sizes) m.sample_pane_sizes();
+
     const affineui::tools::ClientStatus s = m.client.status();
 
     View::Scope root = v.container("dcs aft-root", "root");
@@ -606,7 +1378,7 @@ void build_view(affineui::View& v, ToolsModel& m) {
         View::Scope tabs = v.container("aft-tabs", "tabs");
         {
             View::Scope brand = v.container("aft-brand", "brand");
-            v.element_ref("i", "di di-gizmo", "brand-icon");
+            v.element_ref("i", "di di-cross-target", "brand-icon");
             v.text("affinetools", "brand-name").cls("aft-brand__name");
         }
         for (const Tab& tab : kTabs) {
@@ -634,8 +1406,10 @@ void build_view(affineui::View& v, ToolsModel& m) {
     {
         View::Scope body = v.container("aft-body", "body");
         if (m.dump_mode) {
+            View::Scope pad = v.container("aft-pad", "pad");
             build_dump(v, m);
         } else if (!s.connected) {
+            View::Scope pad = v.container("aft-pad", "pad");
             v.paragraph("Waiting for a target", "wait-title")
                 .cls("aft-panel-title");
             v.paragraph(
@@ -644,16 +1418,14 @@ void build_view(affineui::View& v, ToolsModel& m) {
                 "wait-hint")
                 .cls("aft-empty");
         } else if (m.active_tab == "performance") {
+            View::Scope pad = v.container("aft-pad", "pad");
             build_performance(v, m, s);
-        } else {
-            // Elements / Sources / Memory panels land in S2+.
-            for (const Tab& tab : kTabs) {
-                if (m.active_tab != tab.id) continue;
-                v.paragraph(tab.label, "panel-title").cls("aft-panel-title");
-                v.paragraph("This panel arrives in a later stage.",
-                            "panel-soon")
-                    .cls("aft-soon");
-            }
+        } else if (m.active_tab == "elements") {
+            build_elements(v, m);
+        } else if (m.active_tab == "memory") {
+            build_memory(v, m, s);
+        } else if (m.active_tab == "sources") {
+            build_sources(v, m);
         }
     }
 
@@ -732,11 +1504,142 @@ int main(int argc, char** argv) {
                      "[affinetools] decius bundle unavailable; styling plain\n");
     }
 
-    // Tab selection: mutate the model and rebuild once. (Panels other than
-    // Performance are placeholders until S2+.)
+    // Splitter persistence: read the panes' laid-out widths back into the
+    // model before each rebuild (build_view calls this) so the declared
+    // inline flex re-seeds whatever the user dragged.
+    model.sample_pane_sizes = [&] {
+        const affineui::Rect side = app.document().find_element_rect("el-side");
+        if (side.w >= 24) model.el_side_w = side.w;
+        const affineui::Rect list = app.document().find_element_rect("src-list");
+        if (list.w >= 24) model.src_list_w = list.w;
+    };
+
+    // ── Elements: lazy DOM mirror (fetch on activation / expand) ────────
+    auto load_elements = [&] {
+        ElementsState& el = model.elements;
+        el = ElementsState{};
+        if (!model.client.attached()) return;
+        affineui::tools::DomNodeInfo root;
+        if (!model.client.dom_document(root)) {
+            el.stale = true;
+            return;
+        }
+        el.root = root;
+        el.loaded = true;
+        const std::string rk = nid_key(root.nid);
+        el.expanded.insert(rk);
+        std::vector<affineui::tools::DomNodeInfo> kids;
+        if (model.client.dom_children(root.nid, kids)) {
+            el.children[rk] = std::move(kids);
+        } else {
+            el.stale = true;
+        }
+    };
+    model.el_refresh = [&] {
+        load_elements();
+        app.rebuild_view();
+    };
+    model.el_select = [&](const affineui::tools::DomNodeInfo& node) {
+        ElementsState& el = model.elements;
+        el.selected_key = nid_key(node.nid);
+        el.selected = node;
+        el.box = affineui::tools::BoxModel{};
+        if (!node.is_text() &&
+            !model.client.css_box_model(node.nid, el.box)) {
+            el.stale = true;  // nid went stale — the tree moved on
+        }
+        app.rebuild_view();
+    };
+    model.el_toggle = [&](const affineui::tools::DomNodeInfo& node) {
+        if (node.child_count <= 0) return;
+        ElementsState& el = model.elements;
+        const std::string key = nid_key(node.nid);
+        if (el.expanded.count(key) > 0) {
+            el.expanded.erase(key);
+        } else if (el.children.count(key) > 0) {
+            el.expanded.insert(key);
+        } else {
+            std::vector<affineui::tools::DomNodeInfo> kids;
+            if (model.client.dom_children(node.nid, kids)) {
+                el.children[key] = std::move(kids);
+                el.expanded.insert(key);
+            } else {
+                el.stale = true;
+            }
+        }
+        app.rebuild_view();
+    };
+
+    // ── Sources: stylesheet list + text fetch ────────────────────────────
+    auto load_sources = [&] {
+        SourcesState& src = model.sources;
+        src = SourcesState{};
+        if (!model.client.attached()) return;
+        if (model.client.stylesheets(src.sheets)) {
+            src.loaded = true;
+        } else {
+            src.stale = true;
+        }
+    };
+    model.src_refresh = [&] {
+        load_sources();
+        app.rebuild_view();
+    };
+    model.src_select = [&](int index) {
+        SourcesState& src = model.sources;
+        src.selected = index;
+        src.lines.clear();
+        src.first_line = 0;
+        std::string text;
+        const bool ok =
+            index == SourcesState::kDocHtml
+                ? model.client.dom_html(affineui::DomHandle{}, text)
+                : model.client.stylesheet_text(index, text);
+        if (!ok) {
+            src.stale = true;
+        } else {
+            // Split into lines for the windowed viewer (budgeted — the
+            // wire payload is already capped target-side). Minified
+            // sheets are one enormous line; hard-wrap so a row's
+            // max-content width stays sane for the h-scroller.
+            constexpr std::size_t kMaxLines = 40000;
+            constexpr std::size_t kWrapCol = 240;
+            std::size_t start = 0;
+            while (start <= text.size() && src.lines.size() < kMaxLines) {
+                std::size_t end = text.find('\n', start);
+                if (end == std::string::npos) end = text.size();
+                std::size_t len = end - start;
+                if (len > 0 && text[start + len - 1] == '\r') --len;
+                std::string_view line(text.data() + start, len);
+                while (line.size() > kWrapCol &&
+                       src.lines.size() < kMaxLines) {
+                    // Prefer a natural break (after a '}' or ';').
+                    std::size_t cut = line.find_last_of("};", kWrapCol);
+                    cut = cut == std::string_view::npos ? kWrapCol : cut + 1;
+                    src.lines.emplace_back(line.substr(0, cut));
+                    line.remove_prefix(cut);
+                }
+                src.lines.emplace_back(line);
+                start = end + 1;
+            }
+            if (!src.lines.empty() && src.lines.back().empty()) {
+                src.lines.pop_back();  // trailing newline artifact
+            }
+        }
+        app.rebuild_view();
+    };
+
+    // Tab selection: mutate the model, fetch the panel's data on first
+    // activation, and rebuild once.
     model.select_tab = [&](std::string id) {
         if (model.active_tab == id) return;
         model.active_tab = std::move(id);
+        if (model.active_tab == "elements" && !model.elements.loaded) {
+            load_elements();
+        }
+        if (model.active_tab == "sources" && !model.sources.loaded) {
+            load_sources();
+        }
         app.rebuild_view();
     };
 
@@ -817,7 +1720,9 @@ int main(int argc, char** argv) {
 
         // Record geometry for the pointer handler (age 0 = newest = right).
         g.graph_x = r.x;
+        g.graph_y = r.y;
         g.graph_w = r.w;
+        g.graph_h = r.h;
         g.frames_in_view = in_view;
         if (hist.empty()) return;
 
@@ -891,6 +1796,60 @@ int main(int argc, char** argv) {
         }
     });
 
+    // Memory graph: heap bytes as bars, live blocks as a line, newest at
+    // the right — same fit-scale discipline as the frametime graph.
+    std::vector<affineui::FrameTelemetry> mem_hist;
+    app.set_custom_paint("memgraph", [&](affineui::Painter& p,
+                                         const affineui::Rect& r) {
+        constexpr int kBarW = 2;
+        const std::size_t max_bars =
+            static_cast<std::size_t>(std::max(1, r.w / kBarW));
+        model.client.frame_history(mem_hist, max_bars);
+        p.fill_rect(r, affineui::Color{20, 22, 28, 255});
+        if (mem_hist.empty()) return;
+
+        const int pad = 2;
+        const int h = r.h - pad * 2;
+        const int base_y = r.y + r.h - pad;
+        const std::size_t in_view = std::min(mem_hist.size(), max_bars);
+        std::uint64_t max_bytes = 1, max_blocks = 1;
+        for (std::size_t k = 0; k < in_view; ++k) {
+            const affineui::FrameTelemetry& f =
+                mem_hist[mem_hist.size() - 1 - k];
+            max_bytes = std::max(max_bytes, f.mem_live_bytes);
+            max_blocks = std::max(max_blocks, f.mem_live_blocks);
+        }
+        const affineui::Color c_heap{77, 159, 255, 200};
+        const affineui::Color c_blocks{78, 209, 138, 255};
+        float prev_x = 0.0f, prev_y = 0.0f;
+        for (std::size_t age = 0; age < in_view; ++age) {
+            const affineui::FrameTelemetry& f =
+                mem_hist[mem_hist.size() - 1 - age];
+            const int x = r.x + r.w - static_cast<int>(age + 1) * kBarW;
+            if (x < r.x) break;
+            // Heap: filled bar, ~85% fit scale.
+            const int bh = static_cast<int>(
+                (static_cast<double>(f.mem_live_bytes) / max_bytes) * h *
+                0.85);
+            if (bh > 0) {
+                p.fill_rect(affineui::Rect{x, base_y - bh, kBarW - 1, bh},
+                            c_heap);
+            }
+            // Blocks: polyline over the bars.
+            const float bx = static_cast<float>(x) + kBarW * 0.5f;
+            const float by = static_cast<float>(base_y) -
+                             static_cast<float>(
+                                 (static_cast<double>(f.mem_live_blocks) /
+                                  max_blocks) *
+                                 h * 0.85);
+            if (age > 0) {
+                p.stroke_line(bx, by, prev_x, prev_y, c_blocks, 1.0f);
+            }
+            prev_x = bx;
+            prev_y = by;
+        }
+    });
+
     app.set_view([&model](affineui::View& v) { build_view(v, model); });
     // Decius bundle + the devtools chrome CSS as one user stylesheet. The
     // base_url ("aft-embedded:/css/") makes the bundle's relative
@@ -917,6 +1876,11 @@ int main(int argc, char** argv) {
                     std::fprintf(stderr,
                                  "[affinetools] attached pid %d session %s\n",
                                  s.pid, s.session_id.c_str());
+                    // A (re)attach invalidates any mirrored target state.
+                    model.elements = ElementsState{};
+                    model.sources = SourcesState{};
+                    if (model.active_tab == "elements") load_elements();
+                    if (model.active_tab == "sources") load_sources();
                 }
             }
         }
@@ -945,13 +1909,35 @@ int main(int argc, char** argv) {
         // first_item). A scroll up drops out of follow mode; scrolling back
         // to the bottom re-enters it.
         if (ev.type == affineui::EventType::MouseWheel) {
-            bool over_log = false;
+            bool over_log = false, over_src = false;
             for (const auto& info : hover) {
                 if (std::find(info.classes.begin(), info.classes.end(),
                               "aft-log") != info.classes.end()) {
                     over_log = true;
                     break;
                 }
+                if (std::find(info.classes.begin(), info.classes.end(),
+                              "aft-code") != info.classes.end()) {
+                    over_src = true;
+                    break;
+                }
+            }
+            // Source viewer: wheel scrolls the windowed line list.
+            if (over_src) {
+                SourcesState& src = model.sources;
+                const std::size_t vis = src.visible ? src.visible : 30;
+                if (src.lines.size() <= vis) return true;
+                const std::size_t max_first = src.lines.size() - vis;
+                const std::size_t step = 3;
+                if (ev.wheel_dy > 0.0f) {
+                    src.first_line =
+                        src.first_line >= step ? src.first_line - step : 0;
+                } else if (ev.wheel_dy < 0.0f) {
+                    src.first_line =
+                        std::min(max_first, src.first_line + step);
+                }
+                app.rebuild_view();
+                return true;
             }
             if (!over_log) return false;
             const std::size_t total = model.client.log_count();
@@ -975,6 +1961,9 @@ int main(int argc, char** argv) {
             return true;
         }
 
+        // Graph selection only exists on the Performance tab; the recorded
+        // geometry goes stale when another panel is showing.
+        if (model.active_tab != "performance") return false;
         GraphState& g = model.graph;
         if (g.graph_w <= 0 || g.frames_in_view == 0) return false;
         const int bar_w = std::max(1, g.px_per_frame);
@@ -986,8 +1975,12 @@ int main(int argc, char** argv) {
             const std::size_t max_age = g.frames_in_view - 1;
             return std::min(static_cast<std::size_t>(age), max_age);
         };
+        // Hit-test the graph BOX — x and y. (An x-only test consumed every
+        // click in the graph's horizontal band, which is the whole window:
+        // the tab strip appeared dead.)
         const bool inside =
-            ev.pos.x >= g.graph_x && ev.pos.x < g.graph_x + g.graph_w;
+            ev.pos.x >= g.graph_x && ev.pos.x < g.graph_x + g.graph_w &&
+            ev.pos.y >= g.graph_y && ev.pos.y < g.graph_y + g.graph_h;
 
         switch (ev.type) {
             case affineui::EventType::MouseDown: {

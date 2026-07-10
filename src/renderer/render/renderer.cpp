@@ -116,8 +116,6 @@ struct RendererImpl {
 
 Renderer::Renderer() : impl_(std::make_unique<detail::RendererImpl>()) {}
 Renderer::~Renderer() { shutdown(); }
-Renderer::Renderer(Renderer&&) noexcept            = default;
-Renderer& Renderer::operator=(Renderer&&) noexcept = default;
 
 bool Renderer::ready() const noexcept { return impl_->ready; }
 

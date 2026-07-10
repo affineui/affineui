@@ -25,6 +25,7 @@ namespace {
 class RecordingPainter final : public affineui::Painter {
 public:
     struct TextDraw {
+        int seq{0};  // global op order (shared counter with FillDraw)
         std::string text;
         affineui::Point pos;
         affineui::Color color;
@@ -35,12 +36,18 @@ public:
         affineui::Rect clip{};
         bool clipped{false};
     };
+    // Global op sequence: monotonically stamps fills and text runs so tests
+    // can assert CROSS-vector paint order (e.g. "the upper float's
+    // background painted after the lower float's text").
+    int op_seq{0};
     struct FillDraw {
+        int seq{0};
         affineui::Rect rect;
         affineui::Color color;
         affineui::Mat2x3 transform;
     };
     struct RoundedFillDraw {
+        int seq{0};  // global op order (shared counter with Fill/TextDraw)
         affineui::Rect rect;
         float tl{0.0f};
         float tr{0.0f};
@@ -130,7 +137,7 @@ public:
     void end_frame() override {}
     void fill_rect(const affineui::Rect& rect, affineui::Color color) override {
         fill_colors.push_back(color);
-        fill_draws.push_back({rect, color, current_transform});
+        fill_draws.push_back({++op_seq, rect, color, current_transform});
     }
     void stroke_rect(const affineui::Rect&, affineui::Color color, float) override {
         stroke_colors.push_back(color);
@@ -195,7 +202,8 @@ public:
     void fill_rounded_rect(const affineui::Rect& rect, float radius,
                            affineui::Color color) override {
         fill_colors.push_back(color);
-        rounded_fill_draws.push_back({rect, radius, radius, radius, radius, color});
+        rounded_fill_draws.push_back(
+            {++op_seq, rect, radius, radius, radius, radius, color});
     }
     void stroke_rounded_rect(const affineui::Rect&, float, affineui::Color color, float) override {
         stroke_colors.push_back(color);
@@ -204,7 +212,7 @@ public:
                                    float br, float bl,
                                    affineui::Color color) override {
         fill_colors.push_back(color);
-        rounded_fill_draws.push_back({rect, tl, tr, br, bl, color});
+        rounded_fill_draws.push_back({++op_seq, rect, tl, tr, br, bl, color});
     }
     void stroke_rounded_rect_varying(const affineui::Rect&, float, float, float, float,
                                      affineui::Color color, float) override {
@@ -246,7 +254,7 @@ public:
     void draw_text(std::uint32_t, const affineui::Point& pos,
                    std::string_view text, affineui::Color color) override {
         text_runs.emplace_back(text);
-        TextDraw d{std::string(text), pos, color, 0.0f,
+        TextDraw d{++op_seq, std::string(text), pos, color, 0.0f,
                    TextAlign::Left, current_alpha};
         if (!active_clip_stack.empty()) {
             d.clip = active_clip_stack.back();
@@ -269,7 +277,7 @@ public:
         const affineui::Point pos{static_cast<int>(std::lround(x)),
                                   static_cast<int>(std::lround(y))};
         text_runs.emplace_back(text);
-        TextDraw d{std::string(text), pos, color, max_width, align,
+        TextDraw d{++op_seq, std::string(text), pos, color, max_width, align,
                    current_alpha};
         if (!active_clip_stack.empty()) {
             d.clip = active_clip_stack.back();
@@ -8208,6 +8216,122 @@ TEST_CASE("paint: a self-clipping label is ALSO clipped by its scroll pane "
     CHECK(below->clip.h == 0);
 }
 
+TEST_CASE("paint: same-z floating panels paint ATOMICALLY - the lower "
+          "float's text goes under the upper float's background") {
+    // Field bug (PhotoEdit palettes, any overlapping same-z floats): the
+    // boxes-then-text phases were grouped per z VALUE, so two floats both
+    // at z-index:60 shared one group — every background painted, then every
+    // text run, and the covered palette's labels bled through the panel
+    // above it. Phases must group per NEAREST stacking root: each float is
+    // atomic. The layer wrapper below models the View's float LAYER, which
+    // itself carries a z-index — an "outermost root" rule made IT the
+    // shared root of every float and the bleed survived (second repro).
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .host  { position: relative; width: 400px; height: 300px; }
+        .layer { position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+                 z-index: 60; }
+        .float { position: absolute; z-index: 60; width: 200px;
+                 height: 120px; }
+        .under { left: 20px;  top: 20px; background: #222222; }
+        .over  { left: 120px; top: 60px; background: #123456; }
+        .scroll { height: 60px; overflow: auto; }
+        .tall   { height: 400px; }
+        </style>
+        <div class="host">
+          <div class="layer">
+            <div class="float under">
+              <div>COVERED LABEL</div>
+              <div class="scroll"><div class="tall">tall</div></div>
+            </div>
+            <div class="float over"><div>ON TOP</div></div>
+          </div>
+        </div>
+    )HTML");
+    doc.layout(400, 300, &painter);
+
+    RecordingPainter paint;
+    doc.draw(paint);
+
+    const RecordingPainter::TextDraw* covered = nullptr;
+    for (const auto& t : paint.text_draws) {
+        if (t.text.find("COVERED") != std::string::npos) covered = &t;
+    }
+    REQUIRE(covered != nullptr);
+    const RecordingPainter::FillDraw* over_bg = nullptr;
+    for (const auto& f : paint.fill_draws) {
+        // #123456 — the upper float's background fill.
+        if (f.color.r == 0x12 && f.color.g == 0x34 && f.color.b == 0x56) {
+            over_bg = &f;
+        }
+    }
+    REQUIRE(over_bg != nullptr);
+    MESSAGE("covered-text seq=", covered->seq, " upper-bg seq=", over_bg->seq);
+    // The lower float paints atomically (bg THEN text) before the upper
+    // float's background — so the label ends up underneath.
+    CHECK(covered->seq < over_bg->seq);
+
+    // The lower float's SCROLLBAR THUMB is part of the same atomic unit
+    // (per-context Overlay phase), so it too paints before the upper
+    // float's background. The old global draw-last scrollbar pass put
+    // every pane's thumb over overlapping panels.
+    const RecordingPainter::RoundedFillDraw* thumb = nullptr;
+    for (const auto& f : paint.rounded_fill_draws) {
+        // The thumb's fixed overlay color (0x9c,0xa0,0xb0).
+        if (f.color.r == 0x9c && f.color.g == 0xa0 && f.color.b == 0xb0) {
+            thumb = &f;
+        }
+    }
+    REQUIRE(thumb != nullptr);
+    MESSAGE("thumb seq=", thumb->seq);
+    CHECK(thumb->seq > covered->seq);   // above its own context's content
+    CHECK(thumb->seq < over_bg->seq);   // under the upper float
+}
+
+TEST_CASE("paint: a textarea's VALUE clip intersects the ancestor chain "
+          "(tearoff-bottom bleed repro)") {
+    // Field bug: the textarea stanza pushes its OWN padding-box scissor for
+    // value/caret/selection painting — and a scissor REPLACES the active
+    // clip. A textarea hanging past the fold of its scrolled pane (the
+    // bottom of a tearoff) therefore painted its value over whatever lay
+    // below the panel. The self-clip must intersect the ancestor chain.
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .pane { position: absolute; left: 20px; top: 10px;
+                width: 220px; height: 100px; overflow: auto; }
+        .row  { height: 80px; }
+        textarea { width: 200px; height: 60px; }
+        </style>
+        <div class="pane">
+          <div class="row">above</div>
+          <textarea>WEATHERED SANDSTONE</textarea>
+        </div>
+    )HTML");
+    doc.layout(400, 300, &painter);
+
+    RecordingPainter paint;
+    doc.draw(paint);
+
+    const RecordingPainter::TextDraw* value = nullptr;
+    for (const auto& t : paint.text_draws) {
+        if (t.text.find("WEATHERED") != std::string::npos) value = &t;
+    }
+    REQUIRE(value != nullptr);
+    REQUIRE(value->clipped);
+    // Pane content box bottom edge is y=110; the textarea starts at y=90
+    // (10 + 80), so only its first 20px are inside the pane. The effective
+    // clip must not extend past the pane's fold.
+    MESSAGE("textarea value clip=(", value->clip.x, ",", value->clip.y, " ",
+            value->clip.w, "x", value->clip.h, ")");
+    CHECK(value->clip.y + value->clip.h <= 110);
+}
+
 TEST_CASE("UiControls: float drag is a pure paint translation mid-gesture â€” "
           "layout stays at the grab position, style commits on release") {
     // Compositor semantics (the interaction budget depends on it): while a
@@ -8320,7 +8444,7 @@ TEST_CASE("UiControls: dragging a dock tab OUT of its pane tears it off into a "
         .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
         [data-dcs-tabpanel][hidden] { display: none; }
@@ -8409,7 +8533,7 @@ std::string dock_drag_workspace_html(bool with_second_panel) {
         .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
         [data-dcs-tabpanel][hidden] { display: none; }
@@ -8441,6 +8565,156 @@ std::string dock_drag_workspace_html(bool with_second_panel) {
 }
 
 }  // namespace
+
+TEST_CASE("UiControls: a FIXED side column keeps its width through a "
+          "dock/undock cycle on its edge (no flex scramble)") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(dock_drag_workspace_html(true));
+    doc.layout(600, 400, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto down = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseDown;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+    auto move = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseMove; e.pos = p;
+        doc.dispatch(e);
+    };
+    auto up = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseUp;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+
+    const auto x0 = doc.find_element_rect("pane-X");
+    const auto d0 = doc.find_element_rect("pane-__document__");
+    REQUIRE(x0.w == 200);
+    MESSAGE("before: pane-X w=", x0.w, " doc x=", d0.x);
+
+    // Split Y out of X onto X's RIGHT edge: the 200px column carves into two
+    // fixed halves that (with the splitter) still sum to 200 — the document
+    // must not move.
+    auto tab = find_hovered_id(doc, "tabY", 600, 400);
+    REQUIRE(tab.x >= 0);
+    down(tab);
+    move({static_cast<int>(x0.x + x0.w) - 10,
+          static_cast<int>(x0.y + x0.h / 2)});
+    up({static_cast<int>(x0.x + x0.w) - 10,
+        static_cast<int>(x0.y + x0.h / 2)});
+
+    const auto x1 = doc.find_element_rect("pane-X");
+    const auto y1 = doc.find_element_rect("pane-Y");
+    const auto d1 = doc.find_element_rect("pane-__document__");
+    MESSAGE("split: X=(", x1.x, ",", x1.w, ") Y=(", y1.x, ",", y1.w,
+            ") doc x=", d1.x);
+    REQUIRE(y1.w > 0);
+    CHECK(std::abs((x1.w + y1.w + 1) - 200) <= 4);   // column total preserved
+    CHECK(std::abs(d1.x - d0.x) <= 4);               // document did not move
+
+    // Undock Y to free space: the freed slice grows the FIXED neighbour back
+    // (un-split restores the pre-split width); nothing else is rebalanced.
+    tab = find_hovered_id(doc, "tabY", 600, 400);
+    REQUIRE(tab.x >= 0);
+    down(tab);
+    move({450, 300});
+    up({450, 300});
+
+    const auto layout = doc.dock_layout();
+    CHECK(layout.floats.size() == 1);
+    const auto x2 = doc.find_element_rect("pane-X");
+    const auto d2 = doc.find_element_rect("pane-__document__");
+    MESSAGE("undock: pane-X w=", x2.w, " doc x=", d2.x);
+    CHECK(std::abs(x2.w - x0.w) <= 4);               // 200px column restored
+    CHECK(std::abs(d2.x - d0.x) <= 4);
+}
+
+TEST_CASE("UiControls: a WINDOW-EDGE drop wraps the whole workspace - the "
+          "new pane spans the full orthogonal axis (across inner rows)") {
+    // Vertical root: a row (fixed column + document) above a bottom
+    // timeline row. A right-window-edge drop must produce a FULL-HEIGHT
+    // column crossing the timeline — not a split of the inner row only.
+    static constexpr const char* kHtml = R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .dcs-dock--floathost { position: relative; width: 600px; height: 400px; display: flex; }
+        .dcs-dock { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+        .dcs-dock--v { flex-direction: column; }
+        .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+        .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
+        .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
+        .dcs-splitter { flex: 0 0 1px; }
+        .dcs-panel--floating { position: absolute; }
+        [hidden] { display: none; }
+        </style>
+        <div class="dcs-dock--floathost" data-dcs-float-host>
+          <div class="dcs-dock dcs-dock--v">
+            <div class="dcs-dock" style="flex:1 1 0;min-width:0;min-height:0">
+              <section class="dcs-dockpane" data-aui-name="pane-X" style="flex:0 0 200px">
+                <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                  <button id="tabX" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#X-body">X</button>
+                </div></div>
+                <div class="dcs-dockpane__body"><div id="X-body" data-dcs-tabpanel>content</div></div>
+              </section>
+              <div class="dcs-splitter"></div>
+              <section class="dcs-dockpane dcs-dockpane--center" data-aui-name="pane-__document__" style="flex:1 1 0">
+                <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                  <button class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#Doc-body">Doc</button>
+                </div></div>
+                <div class="dcs-dockpane__body"><div id="Doc-body" data-dcs-tabpanel>doc</div></div>
+              </section>
+            </div>
+            <div class="dcs-splitter dcs-splitter--h"></div>
+            <section class="dcs-dockpane" data-aui-name="pane-T" style="flex:0 0 100px">
+              <div class="dcs-dockpane__tabbar"><div class="dcs-dockpane__tabs">
+                <button id="tabT" class="dcs-dockpane__tab" aria-selected="true" data-dcs-target="#T-body">T</button>
+              </div></div>
+              <div class="dcs-dockpane__body"><div id="T-body" data-dcs-tabpanel>timeline</div></div>
+            </section>
+          </div>
+          <div id="__dropind" data-aui-name="dropind" hidden></div>
+        </div>
+    )HTML";
+
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(kHtml);
+    doc.layout(600, 400, &painter);
+    doc.attach_script(affineui::DocumentScript::UiControls);
+
+    auto down = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseDown;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+    auto move = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseMove; e.pos = p;
+        doc.dispatch(e);
+    };
+    auto up = [&](affineui::Point p) {
+        affineui::Event e{}; e.type = affineui::EventType::MouseUp;
+        e.button = affineui::MouseButton::Left; e.pos = p; doc.dispatch(e);
+    };
+
+    const auto t0 = doc.find_element_rect("pane-T");
+    REQUIRE(t0.h == 100);
+
+    auto tab = find_hovered_id(doc, "tabX", 600, 400);
+    REQUIRE(tab.x >= 0);
+    down(tab);
+    move({590, 200});  // inside the 32px right-window-edge band
+    up({590, 200});
+
+    const auto x1 = doc.find_element_rect("pane-X");
+    const auto t1 = doc.find_element_rect("pane-T");
+    MESSAGE("edge-dock: pane-X=(", x1.x, ",", x1.y, " ", x1.w, "x", x1.h,
+            ") pane-T=(", t1.x, ",", t1.y, " ", t1.w, "x", t1.h, ")");
+    // Full workspace height, pinned to the right edge, crossing the
+    // timeline row (which shrinks to make room).
+    CHECK(x1.h >= 395);
+    CHECK(x1.x + x1.w >= 595);
+    CHECK(x1.w >= 96);
+    CHECK(t1.w < 500);
+}
 
 TEST_CASE("UiControls: a tearout's title tab dragged to free space re-spawns "
           "the tearout at the drop point (single-tab tearout moves)") {
@@ -8761,7 +9035,7 @@ TEST_CASE("UiControls: dropping a dragged tab on another pane's edge zone "
         .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
         [data-dcs-tabpanel][hidden] { display: none; }
@@ -8820,7 +9094,8 @@ TEST_CASE("UiControls: dropping a dragged tab on another pane's edge zone "
     CHECK(layout.root.children[1].tabs == std::vector<std::string>{"A"});
 }
 
-TEST_CASE("UiControls: viewport edge docking does not steal a pane edge") {
+TEST_CASE("UiControls: the window-edge band WINS over a pane edge under "
+          "the cursor (edge dock is an explicit full-span intent)") {
     affineui::Document doc;
     RecordingPainter painter;
     doc.set_html(R"HTML(
@@ -8832,7 +9107,7 @@ TEST_CASE("UiControls: viewport edge docking does not steal a pane edge") {
         .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
         [data-dcs-tabpanel][hidden] { display: none; }
@@ -8865,10 +9140,16 @@ TEST_CASE("UiControls: viewport edge docking does not steal a pane edge") {
     // as a direct sibling of A in the WORKSPACE dock (root.children order) â€”
     // a window-edge split would instead wrap the workspace dock in a new one
     // (root.children[1] would be a nested split, not the A leaf).
+    //
+    // UPDATED CONTRACT: the WINDOW EDGE wins over the pane edge under the
+    // cursor. Cursor-at-the-edge is an explicit "span this whole side"
+    // intent; the full-span arrangement would otherwise be unreachable
+    // wherever a pane touches the edge. The fresh pane docks against the
+    // whole workspace, wrapping the old root: [fresh(B), wrapped(A)].
     auto tabB = find_hovered_id(doc, "tabB", 600, 400);
     REQUIRE(tabB.x >= 0);
     ev(affineui::EventType::MouseDown, tabB);
-    ev(affineui::EventType::MouseMove, {8, 200});   // pane edge wins under cursor
+    ev(affineui::EventType::MouseMove, {8, 200});   // window-edge band wins
     ev(affineui::EventType::MouseUp, {8, 200});
     const auto layout = doc.dock_layout();
     REQUIRE(layout.present);
@@ -8876,10 +9157,17 @@ TEST_CASE("UiControls: viewport edge docking does not steal a pane edge") {
     REQUIRE(layout.root.split);
     CHECK_FALSE(layout.root.vertical);
     REQUIRE(layout.root.children.size() == 2);
-    CHECK_FALSE(layout.root.children[0].split);  // leaf, not a wrapped dock
-    CHECK_FALSE(layout.root.children[1].split);
+    // First child: B as a full-height leaf pinned to the left edge.
+    CHECK_FALSE(layout.root.children[0].split);
     CHECK(layout.root.children[0].tabs == std::vector<std::string>{"B"});
-    CHECK(layout.root.children[1].tabs == std::vector<std::string>{"A"});
+    // Second child: the WRAPPED old workspace dock holding A.
+    REQUIRE(layout.root.children[1].split);
+    REQUIRE(layout.root.children[1].children.size() == 1);
+    CHECK(layout.root.children[1].children[0].tabs ==
+          std::vector<std::string>{"A"});
+    // B spans the workspace's full height (the edge-dock contract).
+    const auto rb = doc.find_element_rect("pane-B");
+    CHECK(rb.h >= 395);
 }
 
 TEST_CASE("UiControls: dock tab drag shows a transient title ghost") {
@@ -9219,7 +9507,7 @@ TEST_CASE("UiControls: co-tab dropped on a pane bottom preview splits out of "
         .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
         [data-dcs-tabpanel][hidden] { display: none; }
@@ -9318,7 +9606,7 @@ TEST_CASE("UiControls: dock preview target clears after leaving a valid pane") {
         .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
         [data-dcs-tabpanel][hidden] { display: none; }
@@ -9450,7 +9738,7 @@ TEST_CASE("UiControls: self-pane docking â€” center is a no-op preview, edg
         .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
         [data-dcs-tabpanel][hidden] { display: none; }
@@ -10353,7 +10641,7 @@ TEST_CASE("UiControls: console can redock between Assets and Hierarchy "
         .dcs-dockpane__tabs { display: flex; min-width: 0; }
         .dcs-dockpane__tab { display: inline-flex; padding: 0 12px; white-space: nowrap; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
     )CSS");
@@ -10969,7 +11257,7 @@ TEST_CASE("UiControls: a 'panels' tab dropped on the document body does NOT dock
         .dcs-dockpane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         .dcs-dockpane__tab { display: inline-block; padding: 6px 16px; }
         .dcs-dockpane__body { flex: 1; min-width: 0; min-height: 0; }
-        .dcs-splitter { flex: 0 0 6px; }
+        .dcs-splitter { flex: 0 0 1px; }
         .dcs-panel--floating { position: absolute; }
         [hidden] { display: none; }
         [data-dcs-tabpanel][hidden] { display: none; }
@@ -11221,4 +11509,65 @@ TEST_CASE("UiControls: splitter is inert without the script attached") {
     auto left_after = find_hovered_id(doc, "left", 440, 200);
     REQUIRE(left_after.x >= 0);
     CHECK(doc.hovered_info().bounds.w == 200);
+}
+
+TEST_CASE("Inline style: a descendant-inert write restyles only the target "
+          "block yet stays layout-live; an inherited-prop write still "
+          "reaches descendants") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        .row { display: flex; width: 400px; height: 60px; }
+        .pane { display: flex; min-width: 0; }
+        </style>
+        <div class="row">
+          <div id="a" class="pane" style="flex:0 0 100px"><span id="t">label</span></div>
+          <div id="b" class="pane" style="flex:1 1 0">rest</div>
+        </div>
+    )HTML");
+    doc.layout(400, 60, &painter);
+    REQUIRE(doc.find_element_rect("#a").w == 100);
+
+    // The splitter-drag shape: flex + min-* only. Takes the block-local
+    // restyle fast path — the new basis must still drive layout.
+    REQUIRE(doc.set_attribute_by_id(
+        "a", "style", "flex:0 0 220px;min-width:0;min-height:0"));
+    doc.layout(400, 60, &painter);
+    CHECK(doc.find_element_rect("#a").w == 220);
+    CHECK(doc.find_element_rect("#b").w == 180);
+
+    // Adding an INHERITED property (color) fails the inert check on the new
+    // text — the subtree path must run so the descendant text repaints in
+    // the new color.
+    REQUIRE(doc.set_attribute_by_id(
+        "a", "style",
+        "flex:0 0 220px;min-width:0;min-height:0;color:#12fe34"));
+    RecordingPainter repaint;
+    doc.layout(400, 60, &repaint);
+    doc.draw(repaint);
+    const auto want = affineui::Color::rgb(0x12, 0xfe, 0x34);
+    bool label_recolored = false;
+    for (const auto& d : repaint.text_draws) {
+        if (d.text == "label" && same_color(d.color, want)) {
+            label_recolored = true;
+        }
+    }
+    CHECK(label_recolored);
+
+    // And REMOVING the inherited property must also take the subtree path
+    // (the OLD text is not inert): the label returns to the default color.
+    REQUIRE(doc.set_attribute_by_id(
+        "a", "style", "flex:0 0 220px;min-width:0;min-height:0"));
+    RecordingPainter repaint2;
+    doc.layout(400, 60, &repaint2);
+    doc.draw(repaint2);
+    bool label_still_green = false;
+    for (const auto& d : repaint2.text_draws) {
+        if (d.text == "label" && same_color(d.color, want)) {
+            label_still_green = true;
+        }
+    }
+    CHECK_FALSE(label_still_green);
 }

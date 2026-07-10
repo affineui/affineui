@@ -4250,6 +4250,13 @@ void View::set_click_handler(WidgetNode& node, std::function<void()> cb) {
     } else {
         click_handlers_.push_back({node.id, std::move(cb)});
     }
+    // Binding a click handler makes the node activatable no matter its
+    // tag: the interaction layer's activation walk only fires for
+    // button-LIKE blocks, so stamp the marker it recognizes. Without
+    // this, on_click on a plain container (a tab, a list row) is
+    // silently dead — the handler registers but no activation is ever
+    // emitted for the element.
+    set_attr(node, "data-aui-clickable", "1");
 }
 
 void View::set_change_handler(WidgetNode& node,

@@ -161,6 +161,7 @@ void invalidate_dom_weak_slot(DocumentImpl& impl, lxb_dom_node_t* node) {
     impl.live_text_values.erase(node);
     impl.live_text_carets.erase(node);
     impl.live_text_selections.erase(node);
+    impl.text_layout_signatures.erase(node);
     impl.user_textarea_sizes.erase(node);
     impl.dcs_select_anchors.erase(node);
     for (auto it = impl.dcs_select_anchors.begin();
@@ -171,11 +172,73 @@ void invalidate_dom_weak_slot(DocumentImpl& impl, lxb_dom_node_t* node) {
             ++it;
         }
     }
+
+    if (node->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+        auto* element = lxb_dom_interface_element(node);
+        if (impl.splitter_drag.prev == element ||
+            impl.splitter_drag.next == element) {
+            impl.splitter_drag = {};
+        }
+        if (impl.float_drag.elem == element) impl.float_drag = {};
+        if (impl.float_resize.elem == element) impl.float_resize = {};
+        if (impl.tab_drag.tab == element || impl.tab_drag.pane == element) {
+            impl.tab_drag = {};
+        }
+        if (impl.tab_drag_ghost == element) {
+            impl.tab_drag_ghost = nullptr;
+            impl.tab_drag_ghost_block_idx = -1;
+        }
+        if (impl.pressed_dcs_menu_item == element) {
+            impl.pressed_dcs_menu_item = nullptr;
+            impl.pressed_dcs_menu_item_was_active = false;
+            impl.pressed_dcs_menu_item_bounds = {};
+        }
+        if (impl.pressed_button == element) impl.pressed_button = nullptr;
+        if (impl.colorfield_drag.field == element ||
+            impl.colorfield_drag.part == element) {
+            impl.colorfield_drag = {};
+        }
+        if (impl.tree_drag.tree == element ||
+            impl.tree_drag.row == element ||
+            impl.tree_drag.target == element ||
+            impl.tree_drag.select_box == element ||
+            impl.tree_drag.select_row == element) {
+            impl.tree_drag = {};
+        }
+        if (impl.live_drag.elem == element) impl.live_drag = {};
+    }
+
     for (auto& slot : impl.dom_weak_slots) {
         if (slot.node == node) {
             slot.node = nullptr;
             advance_generation(slot);
         }
+    }
+}
+
+void invalidate_dom_node_on_destroy(DocumentImpl& impl,
+                                    lxb_dom_node_t* node) {
+    invalidate_dom_weak_slot(impl, node);
+    if (node != nullptr && node->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+        impl.style_store.release(lxb_dom_interface_element(node));
+    }
+}
+
+void invalidate_dom_subtree_on_destroy(DocumentImpl& impl,
+                                       lxb_dom_node_t* root) {
+    if (root == nullptr) return;
+    auto* node = root;
+    while (node != nullptr) {
+        invalidate_dom_node_on_destroy(impl, node);
+        if (node->first_child != nullptr) {
+            node = node->first_child;
+            continue;
+        }
+        while (node != root && node->next == nullptr) {
+            node = node->parent;
+        }
+        if (node == root) break;
+        node = node->next;
     }
 }
 
@@ -198,7 +261,7 @@ lxb_status_t affineui_dom_event_remove(lxb_dom_node_t* node) {
 lxb_status_t affineui_dom_event_destroy(lxb_dom_node_t* node) {
     auto* impl = document_impl_from_node(node);
     if (impl != nullptr) {
-        invalidate_dom_weak_slot(*impl, node);
+        invalidate_dom_node_on_destroy(*impl, node);
         if (impl->lexbor_ev_destroy != nullptr) {
             return impl->lexbor_ev_destroy(node);
         }
@@ -474,6 +537,11 @@ Document::dock_overrides() const {
     out.reserve(impl_->dock_overrides.size());
     for (const auto& [id, p] : impl_->dock_overrides) out.emplace_back(id, p);
     return out;
+}
+
+void Document::reset_dock_state() {
+    impl_->dock_overrides.clear();
+    impl_->dock_active_tabs.clear();
 }
 
 std::string Document::dock_active_tab(std::string_view pane_id) const {
@@ -1006,6 +1074,7 @@ public:
                 detail::parse_inline_styles_deep(child);
                 group.push_back(child);
             }
+            lxb_dom_node_destroy(frag);
         }
         // Paint-only lane: raw html swapped INSIDE an <svg> subtree changes
         // vector content only â€” svg children carry no blocks, so restyle/
@@ -1249,7 +1318,16 @@ void settle_view_batch(detail::DocumentImpl& impl) {
         const auto t0 = std::chrono::steady_clock::now();
         auto roots = std::move(impl.view_batch_structure_roots);
         impl.view_batch_structure_roots.clear();
-        impl.view_batch_attr_roots.clear();  // recollect re-resolves all
+        // Attr mutations recorded this batch are NOT superseded by a scoped
+        // structural settle: the recollect below re-resolves via the WARM
+        // resolver cache, and only the structural roots' subtrees get
+        // invalidated. An attr-mutated element outside those subtrees (a
+        // tab strip's aria-selected flip while the panel body swaps) would
+        // re-resolve to its stale cached style — the "selection highlight
+        // never moves" class of bug. Invalidate each attr root too, and run
+        // the subtree rematch the op deferred to settle.
+        auto attr_roots = std::move(impl.view_batch_attr_roots);
+        impl.view_batch_attr_roots.clear();
         std::sort(roots.begin(), roots.end());
         std::vector<int> kept;
         for (const int r : roots) {
@@ -1269,6 +1347,47 @@ void settle_view_batch(detail::DocumentImpl& impl) {
                 invalidate_resolver_deep(impl, lxb_dom_interface_node(e));
             }
             (void) detail::rematch_stylesheet_matches_for_subtree(impl, r);
+        }
+        // Same cover-dedup as the structural roots: an attr root inside a
+        // kept structural subtree already got the deep invalidate + full
+        // rematch above, and repeated flips of the same root (a hover chain
+        // toggling one row's attrs several times per batch) need one pass,
+        // not one per mutation. Duplicates merge their rematch flags — a
+        // later flip's deferred rematch must not be lost to an earlier
+        // flip that needed none.
+        std::vector<std::pair<int, bool>> attr_kept;  // {root_idx, rematch}
+        for (const auto& a : attr_roots) {
+            if (a.root_idx < 0) continue;
+            bool covered = false;
+            for (const int k : kept) {
+                if (k == a.root_idx ||
+                    detail::is_descendant_of_or_self(impl.blocks, a.root_idx,
+                                                     k)) {
+                    covered = true;
+                    break;
+                }
+            }
+            if (covered) continue;
+            bool merged = false;
+            for (auto& [idx, rematch] : attr_kept) {
+                if (idx == a.root_idx) {
+                    rematch = rematch || a.needs_subtree_rematch;
+                    merged = true;
+                    break;
+                }
+            }
+            if (!merged) {
+                attr_kept.emplace_back(a.root_idx, a.needs_subtree_rematch);
+            }
+        }
+        for (const auto& [root_idx, needs_rematch] : attr_kept) {
+            if (auto* e = detail::element_for_block(impl, root_idx)) {
+                invalidate_resolver_deep(impl, lxb_dom_interface_node(e));
+            }
+            if (needs_rematch) {
+                (void) detail::rematch_stylesheet_matches_for_subtree(
+                    impl, root_idx);
+            }
         }
         const auto t2 = std::chrono::steady_clock::now();
         detail::recollect_blocks_from_current_dom(impl);
@@ -1367,6 +1486,10 @@ namespace {
 ViewSink* Document::begin_view_mutations() {
 #if !defined(AFFINEUI_STUB_BUILD)
     if (!impl_->doc) return nullptr;
+    // A sink has driven this document at least once: its View owner rebuilds
+    // it after dock surgery (take_dock_structure_changed → bootstrap), which
+    // lets the surgery settle skip work the rebuild redoes anyway.
+    impl_->view_managed = true;
     detail::debug_validate_attr_lists(*impl_, "begin-view-mutations");
     if (!impl_->view_sink) {
         auto sink = std::make_unique<DocumentViewSink>(*impl_);

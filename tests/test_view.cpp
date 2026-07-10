@@ -2139,6 +2139,149 @@ TEST_CASE("dock replay: left-edge split of the bottom timeline survives the "
     CHECK(std::abs(props1.h - timeline1.h) <= 2);
 }
 
+// A WINDOW-edge drop wraps the whole workspace in a fresh root dock so the
+// new pane spans the full orthogonal axis (crossing the timeline row). That
+// span must SURVIVE the app re-bootstrap: the harvest→replay round trip has
+// to reproduce the root-level wrapper, not re-nest the pane as a plain
+// right-of-document split inside the inner row.
+TEST_CASE("dock replay: a window-edge drop keeps its full-axis span across "
+          "the app reload") {
+    std::ifstream bundle_in(
+        AFFINEUI_TEST_SOURCE_DIR
+        "/examples/frameworks/css/decius-css-0.6.2.bundle.min.css",
+        std::ios::binary);
+    REQUIRE(bundle_in.good());
+    std::string bundle((std::istreambuf_iterator<char>(bundle_in)),
+                       std::istreambuf_iterator<char>());
+    bundle +=
+        "\n.dn-app{position:fixed;inset:0;display:flex;flex-direction:column;"
+        "overflow:hidden}\n";
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    std::function<void()> on_layout_changed;
+    cfg.on_layout_changed = [&] {
+        if (on_layout_changed) on_layout_changed();
+    };
+    affineui::App app{cfg};
+
+    int reloads = 0;
+    std::function<affineui::View()> build = [&] {
+        affineui::View v{affineui::ViewTheme::Decius};
+        v.set_framework_version("0.6.2");
+        v.set_dock_layout_provider(
+            [&] { return app.document().dock_layout(); });
+        v.set_dock_placement_provider([&](std::string_view id) {
+            return app.document().dock_override(id);
+        });
+        v.set_dock_active_tab_provider([&](std::string_view id) {
+            return app.document().dock_active_tab(id);
+        });
+        v.begin();
+        {
+            auto shell = v.container("dn-app", "app");
+            v.document_view("workarea", [&](affineui::View& dv) {
+                dv.document(
+                    [&](affineui::View& doc) {
+                        auto canvas = doc.container({}, "vp-canvas");
+                        canvas.attr("data-dcs-float-host", "");
+                    },
+                    "Viewport", "cube");
+                auto outliner = dv.dockpanel(
+                    "Outliner",
+                    affineui::DockLocation::docked(affineui::Dock::Right, 340),
+                    [&](affineui::View& p) { p.text("outliner body", "ob"); },
+                    "folder-open", "outliner");
+                dv.dockpanel(
+                    "Inspector",
+                    affineui::DockLocation::docked(affineui::Dock::Bottom)
+                        .in(outliner),
+                    [&](affineui::View& p) { p.text("inspector body", "ib"); },
+                    "cog", "props");
+                dv.dockpanel(
+                    "Timeline",
+                    affineui::DockLocation::docked(affineui::Dock::Bottom, 140),
+                    [&](affineui::View& p) { p.text("timeline body", "tb"); },
+                    "keyframe", "timeline");
+            });
+        }
+        v.end();
+        return v;
+    };
+
+    constexpr int W = 1440;
+    constexpr int H = 900;
+    TestPainter painter;
+    auto reload = [&] {
+        ++reloads;
+        app.load_view(build());
+    };
+    on_layout_changed = reload;
+    app.load_view(build());
+    app.set_stylesheet(bundle);
+    app.document().layout(W, H, &painter);
+
+    const auto timeline0 = app.document().find_element_rect("pane-timeline");
+    const auto props0 = app.document().find_element_rect("pane-props");
+    REQUIRE(timeline0.w > 0);
+    REQUIRE(props0.w > 0);
+
+    // Grab the Inspector tab and drop it in the LEFT WINDOW-EDGE band
+    // (x < 32), mid-height — an explicit "span this whole side" gesture.
+    affineui::Point props_tab{-1, -1};
+    {
+        affineui::Event probe{};
+        probe.type = affineui::EventType::MouseMove;
+        for (int dy = 2; dy <= 44 && props_tab.x < 0; dy += 3) {
+            for (int dx = 2; dx < props0.w && props_tab.x < 0; dx += 3) {
+                probe.pos = {props0.x + dx, props0.y + dy};
+                app.dispatch(probe);
+                for (const auto& info :
+                     app.document().hovered_info_chain()) {
+                    if (std::find(info.classes.begin(), info.classes.end(),
+                                  "dcs-dockpane__tab") !=
+                        info.classes.end()) {
+                        props_tab = probe.pos;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    REQUIRE(props_tab.x >= 0);
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = props_tab;
+    app.dispatch(down);
+    const affineui::Point drop{10, H / 2};
+    affineui::Event mv{};
+    mv.type = affineui::EventType::MouseMove;
+    mv.pos = drop;
+    app.dispatch(mv);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = drop;
+    app.dispatch(up);
+    app.document().layout(W, H, &painter);
+
+    CHECK(reloads >= 1);
+    const auto timeline1 = app.document().find_element_rect("pane-timeline");
+    const auto props1 = app.document().find_element_rect("pane-props");
+    REQUIRE(timeline1.w > 0);
+    REQUIRE(props1.w > 0);
+    MESSAGE("timeline1=(", timeline1.x, ",", timeline1.y, " ", timeline1.w,
+            "x", timeline1.h, ") props1=(", props1.x, ",", props1.y, " ",
+            props1.w, "x", props1.h, ")");
+    // Full-height left column: starts at the workarea's left edge and its
+    // height covers the timeline row too — the timeline no longer reaches
+    // the window's left edge.
+    CHECK(props1.x <= 4);
+    CHECK(props1.y + props1.h >= timeline1.y + timeline1.h - 4);
+    CHECK(timeline1.x >= props1.x + props1.w - 2);
+}
+
 TEST_CASE("App dispatch invokes command knob change callbacks") {
     for (const auto theme :
          {affineui::ViewTheme::Bootstrap, affineui::ViewTheme::Decius}) {
@@ -2860,6 +3003,65 @@ TEST_CASE("App Decius colorfield picker survives model-backed rebuilds") {
     CHECK(tint != "#3bb7ff");
     CHECK(app.document().find_element_rect("#aui-cf-tint-picker").w ==
           picker.w);
+}
+
+TEST_CASE("App load_view drops deferred widget changes from the old DOM") {
+    affineui::View first{affineui::ViewTheme::Decius};
+    int old_callbacks = 0;
+    first.begin();
+    first.input("Tint", "#3bb7ff", "color", "tint")
+        .on_change([&](std::string_view) { ++old_callbacks; });
+    first.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    app.load_view(first);
+    app.document().layout(360, 180);
+
+    auto click_at = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        app.dispatch(down);
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        app.dispatch(up);
+    };
+
+    const auto caret = find_hovered_tag_attr(app, "span", "data-dcs-target",
+                                             "#aui-cf-tint-picker", 360, 180);
+    REQUIRE(caret.x >= 0);
+    click_at(caret);
+    app.document().layout(360, 260);
+    const auto sv = app.document().find_element_rect("#aui-cf-tint-picker-sv");
+    REQUIRE(sv.w > 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {sv.x + 1, sv.y + 1};
+    CHECK(app.dispatch(down));
+    CHECK(old_callbacks == 0);
+
+    affineui::View replacement{affineui::ViewTheme::Decius};
+    int replacement_callbacks = 0;
+    replacement.begin();
+    replacement.input("Tint", "#ff0000", "color", "tint")
+        .on_change([&](std::string_view) { ++replacement_callbacks; });
+    replacement.end();
+    app.load_view(replacement);
+    app.document().layout(360, 180);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = {0, 0};
+    app.dispatch(up);
+    CHECK(replacement_callbacks == 0);
 }
 
 TEST_CASE("App Decius colorfield pickers stay anchored in scrolled panels") {
