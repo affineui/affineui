@@ -67,6 +67,7 @@ class EventType:
     Resize: EventType
     FocusLost: EventType
     FocusGained: EventType
+    Composition: EventType
 
 class MouseButton:
     Left: MouseButton
@@ -300,6 +301,9 @@ class Event:
     button: MouseButton
     key: Key
     text: str
+    composition_cursor: int
+    composition_clause_begin: int
+    composition_clause_end: int
     shift: bool
     ctrl: bool
     alt: bool
@@ -314,6 +318,8 @@ class Document:
     def set_html(self, html: str) -> None: ...
     def set_user_stylesheet(self, css: str, base_url: Optional[str] = None) -> None: ...
     def hovered_cursor(self) -> int: ...
+    def text_input_active(self) -> bool: ...
+    def caret_rect(self) -> Rect: ...
     def layout(self, width: int, height: int = 0) -> None: ...
     def content_size(self) -> Size: ...
     def set_attribute_by_id(self, elem_id: str, name: str, value: str) -> bool: ...

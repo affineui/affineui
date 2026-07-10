@@ -222,6 +222,10 @@ bool refresh_active_chain(detail::DocumentImpl& impl,
 // ancestor list.
 bool set_focus(detail::DocumentImpl& impl, int target_idx) {
     if (target_idx == impl.focused_idx) return false;
+    // An IME preedit belongs to the focused control; it cannot outlive the
+    // focus (cleared while focused_idx still points at the old control so
+    // the spliced display text is restored).
+    detail::clear_text_composition(impl);
     const int old_idx = impl.focused_idx;
     impl.focused_idx  = target_idx;
     if (old_idx >= 0 && old_idx < static_cast<int>(impl.blocks.size())) {
@@ -407,6 +411,183 @@ bool focused_text_control(detail::DocumentImpl& impl, Block*& out) {
 }  // namespace detail
 namespace {
 
+// Snap `pos` down to a UTF-8 boundary within `s`, clamped to its size.
+// Unlike previous_utf8_boundary this is a no-op when already on one.
+std::size_t snap_utf8_boundary(std::string_view s, std::size_t pos) {
+    pos = std::min(pos, s.size());
+    while (pos > 0 &&
+           (static_cast<unsigned char>(s[pos]) & 0xC0u) == 0x80u) {
+        --pos;
+    }
+    return pos;
+}
+
+void reset_composition_state(detail::DocumentImpl& impl) {
+    impl.composition_node = nullptr;
+    impl.composition_text.clear();
+    impl.composition_cursor = 0;
+    impl.composition_clause_begin = 0;
+    impl.composition_clause_end = 0;
+    impl.composition_composed.clear();
+}
+
+// Rebuild the composed string cache and the block's display text after a
+// composition change, and drop the cached text layout so caret tables are
+// rebuilt against the composed string.
+void refresh_composed_display(detail::DocumentImpl& impl,
+                              int idx,
+                              Block& block) {
+    const std::size_t caret =
+        std::min(block.caret_offset, block.text_value.size());
+    impl.composition_composed = block.text_value;
+    impl.composition_composed.insert(caret, impl.composition_text);
+    block.text = detail::text_control_display_value(
+        block, impl.composition_composed);
+    block.placeholder_visible = false;
+    if (auto* elem = detail::element_for_block(impl, idx)) {
+        impl.text_layout_signatures.erase(lxb_dom_interface_node(elem));
+    }
+}
+
+}  // namespace
+
+// Cross-file document helpers — declared in internal/document_impl.h.
+namespace detail {
+bool text_composition_active(const detail::DocumentImpl& impl,
+                             int idx,
+                             const Block& block) {
+    if (impl.composition_node == nullptr || impl.composition_text.empty()) {
+        return false;
+    }
+    if (!block.text_control) return false;
+    const auto* elem = detail::element_for_block(impl, idx);
+    return elem != nullptr &&
+           lxb_dom_interface_node(const_cast<lxb_dom_element_t*>(elem)) ==
+               impl.composition_node;
+}
+
+const std::string& composed_text_value(const detail::DocumentImpl& impl,
+                                       int idx,
+                                       const Block& block) {
+    return detail::text_composition_active(impl, idx, block)
+        ? impl.composition_composed
+        : block.text_value;
+}
+
+std::size_t composed_caret_offset(const detail::DocumentImpl& impl,
+                                  int idx,
+                                  const Block& block) {
+    const std::size_t base =
+        std::min(block.caret_offset, block.text_value.size());
+    if (!detail::text_composition_active(impl, idx, block)) return base;
+    return base + impl.composition_cursor;
+}
+
+std::pair<std::size_t, std::size_t> composition_display_range(
+    const detail::DocumentImpl& impl, int idx, const Block& block) {
+    if (!detail::text_composition_active(impl, idx, block)) return {0, 0};
+    const std::size_t base =
+        std::min(block.caret_offset, block.text_value.size());
+    return {base, base + impl.composition_text.size()};
+}
+
+void splice_composition_display(detail::DocumentImpl& impl,
+                                lxb_dom_node_t* node,
+                                Block& leaf) {
+    if (node == nullptr || node != impl.composition_node ||
+        impl.composition_text.empty()) {
+        return;
+    }
+    impl.composition_composed = leaf.text_value;
+    impl.composition_composed.insert(
+        std::min(leaf.caret_offset, leaf.text_value.size()),
+        impl.composition_text);
+    leaf.text = detail::text_control_display_value(
+        leaf, impl.composition_composed);
+    leaf.placeholder_visible = false;
+}
+
+bool clear_text_composition(detail::DocumentImpl& impl) {
+    if (impl.composition_node == nullptr) return false;
+    Block* control = nullptr;
+    if (detail::focused_text_control(impl, control)) {
+        const int idx = impl.focused_idx;
+        if (const auto* elem = detail::element_for_block(impl, idx);
+            elem != nullptr &&
+            lxb_dom_interface_node(const_cast<lxb_dom_element_t*>(elem)) ==
+                impl.composition_node) {
+            reset_composition_state(impl);
+            // Restore the committed display text (drop the spliced preedit).
+            control->text = detail::text_control_display_value(
+                *control, control->text_value);
+            control->placeholder_visible = false;
+            if (control->text.empty() && !control->placeholder.empty()) {
+                control->text = control->placeholder;
+                control->placeholder_visible = true;
+            }
+            impl.text_layout_signatures.erase(
+                lxb_dom_interface_node(
+                    const_cast<lxb_dom_element_t*>(elem)));
+            detail::add_dirty_rect(impl, detail::block_visual_rect(impl, idx));
+            return true;
+        }
+    }
+    // Composition target is gone (node removed / focus already moved);
+    // nothing on screen references the preedit, just drop the state.
+    reset_composition_state(impl);
+    return true;
+}
+
+bool update_text_composition(detail::DocumentImpl& impl,
+                             int idx,
+                             Block& block,
+                             std::string_view preedit,
+                             std::size_t cursor,
+                             std::size_t clause_begin,
+                             std::size_t clause_end) {
+    if (!block.text_control) return false;
+    auto* elem = detail::element_for_block(impl, idx);
+    if (elem == nullptr) return false;
+    auto* node = lxb_dom_interface_node(elem);
+
+    if (preedit.empty()) {
+        return detail::clear_text_composition(impl);
+    }
+
+    bool changed = false;
+    if (impl.composition_node == nullptr &&
+        detail::has_text_selection(block)) {
+        // Starting a composition replaces the selection (browser
+        // compositionstart semantics) — a real committed edit that happens
+        // before any preedit display.
+        const auto [begin, end] = detail::normalized_selection(block);
+        changed = detail::delete_text_range(impl, idx, block, begin, end);
+    }
+
+    cursor = snap_utf8_boundary(preedit, cursor);
+    clause_begin = snap_utf8_boundary(preedit, clause_begin);
+    clause_end = snap_utf8_boundary(preedit, clause_end);
+    if (clause_end < clause_begin) std::swap(clause_begin, clause_end);
+
+    if (impl.composition_node == node &&
+        impl.composition_text == preedit &&
+        impl.composition_cursor == cursor &&
+        impl.composition_clause_begin == clause_begin &&
+        impl.composition_clause_end == clause_end) {
+        return changed;
+    }
+    impl.composition_node = node;
+    impl.composition_text.assign(preedit);
+    impl.composition_cursor = cursor;
+    impl.composition_clause_begin = clause_begin;
+    impl.composition_clause_end = clause_end;
+    refresh_composed_display(impl, idx, block);
+    detail::add_dirty_rect(impl, detail::block_visual_rect(impl, idx));
+    return true;
+}
+}  // namespace detail
+namespace {
+
 void remove_last_utf8_codepoint(std::string& text) {
     if (text.empty()) return;
     std::size_t pos = text.size() - 1;
@@ -542,7 +723,8 @@ TextControlGeometry text_control_geometry(const detail::DocumentImpl& impl,
         const std::string display =
             block.placeholder_visible
                 ? block.text
-                : detail::text_control_display_value(block, block.text_value);
+                : detail::text_control_display_value(
+                      block, detail::composed_text_value(impl, idx, block));
         const Size measured = g.letter_spacing_px == 0.0f
             ? Size{painter.measure_text(g.font, display), 0}
             : painter.measure_text_box(g.font, display, 1e6f,
@@ -575,7 +757,9 @@ std::uint64_t text_layout_signature(const detail::DocumentImpl& impl,
     }
     hash_mix_string(h, block.tag);
     hash_mix_string(h, block.input_type);
-    hash_mix_string(h, block.text_value);
+    // Composed value: text_value with any active IME preedit spliced in —
+    // the string the entry's visual lines / caret tables are built from.
+    hash_mix_string(h, detail::composed_text_value(impl, idx, block));
     const auto& cs = impl.style_store.computed(block.id);
     hash_mix(h, g.font);
     // Positions are part of the identity: consumers read entry.text_x/text_y
@@ -654,13 +838,17 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
                   impl.style_store.computed(block.id),
                   entry.natural_line_height));
 
+    // The string the layout is built from: text_value with any active IME
+    // preedit spliced at the caret. All offsets in this entry (visual
+    // lines, caret tables) are byte offsets into this composed string.
+    const std::string& value = detail::composed_text_value(impl, idx, block);
     const auto display_segment = [&](std::size_t begin, std::size_t end) {
-        begin = std::min(begin, block.text_value.size());
-        end = std::min(end, block.text_value.size());
+        begin = std::min(begin, value.size());
+        end = std::min(end, value.size());
         if (begin > end) std::swap(begin, end);
         return detail::text_control_display_value(
             block,
-            std::string_view(block.text_value).substr(begin, end - begin));
+            std::string_view(value).substr(begin, end - begin));
     };
     const auto push_caret = [&](std::size_t offset,
                                 float x,
@@ -677,30 +865,30 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
     };
 
     const auto is_soft_break_space = [&](std::size_t pos) {
-        if (pos >= block.text_value.size()) return false;
+        if (pos >= value.size()) return false;
         const unsigned char ch =
-            static_cast<unsigned char>(block.text_value[pos]);
+            static_cast<unsigned char>(value[pos]);
         return ch == ' ' || ch == '\t';
     };
 
     std::vector<TextVisualLine> visual_lines;
     const auto push_line = [&](std::size_t begin, std::size_t end) {
-        begin = std::min(begin, block.text_value.size());
-        end = std::min(end, block.text_value.size());
+        begin = std::min(begin, value.size());
+        end = std::min(end, value.size());
         if (begin > end) std::swap(begin, end);
         visual_lines.push_back({begin, end});
     };
 
     std::size_t line_start = 0;
-    while (line_start <= block.text_value.size()) {
+    while (line_start <= value.size()) {
         std::size_t pos = line_start;
         std::size_t last_break_begin = std::numeric_limits<std::size_t>::max();
         std::size_t last_break_end = std::numeric_limits<std::size_t>::max();
         bool consumed_line = false;
 
-        while (pos < block.text_value.size()) {
-            const std::size_t next = detail::next_utf8_boundary(block.text_value, pos);
-            if (block.text_value[pos] == '\n') {
+        while (pos < value.size()) {
+            const std::size_t next = detail::next_utf8_boundary(value, pos);
+            if (value[pos] == '\n') {
                 push_line(line_start, pos);
                 line_start = next;
                 consumed_line = true;
@@ -719,8 +907,7 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
                         line_start = last_break_end;
                         while (is_soft_break_space(line_start)) {
                             line_start =
-                                detail::next_utf8_boundary(block.text_value,
-                                                   line_start);
+                                detail::next_utf8_boundary(value, line_start);
                         }
                     } else {
                         push_line(line_start, pos);
@@ -739,7 +926,7 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
         }
 
         if (consumed_line) continue;
-        push_line(line_start, block.text_value.size());
+        push_line(line_start, value.size());
         break;
     }
     if (visual_lines.empty()) {
@@ -757,7 +944,7 @@ TextLayoutEntry& ensure_text_layout_entry(detail::DocumentImpl& impl,
         entry.line_widths.push_back(line_width);
         push_caret(visual.begin, 0.0f, caret_line);
         for (std::size_t pos = visual.begin; pos < visual.end;) {
-            const std::size_t next = detail::next_utf8_boundary(block.text_value, pos);
+            const std::size_t next = detail::next_utf8_boundary(value, pos);
             push_caret(next,
                        measure_text_advance(
                            painter, g.font,
@@ -928,6 +1115,12 @@ bool set_text_caret_from_point(detail::DocumentImpl& impl,
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return false;
     auto& block = impl.blocks[static_cast<std::size_t>(idx)];
     if (!block.text_control) return false;
+    // While an IME composition is active the layout's caret table is in
+    // composed (value + preedit) space and the IME owns the caret; ignore
+    // pointer caret placement. The platform layer commits the composition
+    // on click (e.g. ImmNotifyIME(CPS_COMPLETE)), after which the click
+    // lands normally.
+    if (detail::text_composition_active(impl, idx, block)) return false;
     const std::size_t next = text_caret_offset_from_point(impl, idx, p);
     const std::size_t next_anchor =
         extend_selection ? std::min(anchor, block.text_value.size()) : next;
@@ -1038,6 +1231,15 @@ void set_live_text_state(detail::DocumentImpl& impl,
                          Block& block,
                          std::string value,
                          std::size_t caret) {
+    if (impl.composition_node != nullptr) {
+        // A committed value write invalidates any preedit spliced into this
+        // block's display (block.text is rebuilt below either way).
+        if (auto* elem = detail::element_for_block(impl, idx);
+            elem != nullptr &&
+            lxb_dom_interface_node(elem) == impl.composition_node) {
+            reset_composition_state(impl);
+        }
+    }
     block.text_value = std::move(value);
     block.caret_offset = std::min(caret, block.text_value.size());
     block.selection_anchor = block.caret_offset;
@@ -1223,6 +1425,57 @@ bool move_text_caret(detail::DocumentImpl& impl,
     return true;
 }
 
+}  // namespace detail
+
+bool Document::text_input_active() const {
+    Block* control = nullptr;
+    return detail::focused_text_control(*impl_, control) &&
+           !control->is_disabled;
+}
+
+Rect Document::caret_rect() const {
+    Block* control = nullptr;
+    if (!detail::focused_text_control(*impl_, control)) return {};
+    if (impl_->last_measurer == nullptr) return {};
+    return detail::text_caret_rect(*impl_, impl_->focused_idx,
+                                   *impl_->last_measurer);
+}
+
+namespace detail {
+Rect text_caret_rect(detail::DocumentImpl& impl, int idx, Painter& painter) {
+    if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return {};
+    auto& block = impl.blocks[static_cast<std::size_t>(idx)];
+    if (!block.text_control) return {};
+    const auto g = detail::text_control_geometry(impl, idx, painter);
+    const auto& entry =
+        detail::ensure_text_layout_entry(impl, idx, g, block, painter);
+    if (entry.caret_offsets.empty()) return {};
+    const auto& value = detail::composed_text_value(impl, idx, block);
+    const std::size_t caret_offset =
+        std::min(detail::composed_caret_offset(impl, idx, block),
+                 value.size());
+    // Same offset→(x, line) mapping the caret painter uses.
+    auto it = std::lower_bound(entry.caret_offsets.begin(),
+                               entry.caret_offsets.end(), caret_offset);
+    std::size_t caret_index = it == entry.caret_offsets.end()
+        ? entry.caret_offsets.size() - 1
+        : static_cast<std::size_t>(
+              std::distance(entry.caret_offsets.begin(), it));
+    if (entry.caret_offsets[caret_index] != caret_offset && caret_index > 0) {
+        --caret_index;
+    }
+    const auto line = entry.caret_lines[caret_index];
+    const float x = detail::aligned_line_origin_x(entry, line) +
+                    entry.caret_x[caret_index];
+    const float line_h = std::max(1.0f, entry.css_line_height);
+    return Rect{static_cast<int>(std::floor(x)),
+                static_cast<int>(std::floor(
+                    static_cast<float>(entry.text_y) +
+                    static_cast<float>(line) * line_h)),
+                1,
+                static_cast<int>(std::ceil(line_h))};
+}
+
 bool apply_deferred_text_focus(detail::DocumentImpl& impl,
                                const detail::DocumentImpl::LiveControlDrag& drag,
                                Point point) {
@@ -1256,7 +1509,44 @@ namespace {
 namespace detail {
 int  find_scrollable_y_ancestor(const detail::DocumentImpl&, int) { return -1; }
 bool focused_text_control(detail::DocumentImpl&, Block*&) { return false; }
+bool clear_text_composition(detail::DocumentImpl&) { return false; }
+std::size_t composed_caret_offset(const detail::DocumentImpl&,
+                                  int,
+                                  const Block& block) {
+    return std::min(block.caret_offset, block.text_value.size());
+}
+const std::string& composed_text_value(const detail::DocumentImpl&,
+                                       int,
+                                       const Block& block) {
+    return block.text_value;
+}
+std::pair<std::size_t, std::size_t> composition_display_range(
+    const detail::DocumentImpl&, int, const Block&) {
+    return {0, 0};
+}
+bool text_composition_active(const detail::DocumentImpl&,
+                             int,
+                             const Block&) {
+    return false;
+}
+bool update_text_composition(detail::DocumentImpl&,
+                             int,
+                             Block&,
+                             std::string_view,
+                             std::size_t,
+                             std::size_t,
+                             std::size_t) {
+    return false;
+}
+Rect text_caret_rect(detail::DocumentImpl&, int, Painter&) { return {}; }
+void splice_composition_display(detail::DocumentImpl&,
+                                lxb_dom_node_t*,
+                                Block&) {}
 }  // namespace detail
+
+bool Document::text_input_active() const { return false; }
+Rect Document::caret_rect() const { return {}; }
+
 namespace {
 
 }  // namespace

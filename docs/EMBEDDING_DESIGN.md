@@ -308,18 +308,21 @@ adapters just happen to back them with a real platform.
 ### Out — intents (UI → host), all optional
 The host wires only what it cares about; unset = that feature is simply off.
 - **Cursor** — `Ui::hovered_cursor()` (exists) → host sets its OS cursor.
-- **Text input / IME** — `Ui::text_input_active()` + `Ui::caret_rect()` so
-  the host enables the platform IME, positions the candidate window, or
-  raises the mobile soft keyboard. AffineUI can't open IME itself.
+- **Text input / IME** — `Ui::text_input_active()` + `Ui::caret_rect()`
+  (**implemented**) so the host enables the platform IME, positions the
+  candidate window, or raises the mobile soft keyboard. AffineUI can't
+  open IME itself.
 - **Clipboard** — copy/paste need the host: `clipboard_get` / `clipboard_set`
   hooks the host supplies; AffineUI calls them on Ctrl+C/V. Adapters wire
   these to sapp/SDL; embedders wire them to the engine (or leave unset).
 
 ### IME — the careful bit
-Embedded AffineUI receives committed text as `EventType::TextInput`, and (if
-the host drives it) preedit via a future `Composition` event; it emits the
-text-input-active + caret-rect intent so the host steers the platform IME.
-Minimal v1 = `TextInput` + caret rect; composition later.
+**Implemented** (see `docs/IME_ARCHITECTURE.md` for the full design and
+per-platform status): committed text arrives as `EventType::TextInput`,
+preedit as `EventType::Composition` (rendered inline at the caret with
+the conventional underlines, never entering the control's value), and the
+text-input-active + caret-rect intents let the host steer the platform
+IME. The SDL adapter is the reference host wiring.
 
 ### Queries — hit-test / click-through
 The host needs to gate its own input *without* dispatching: "is this screen
@@ -501,7 +504,7 @@ deterministic way to wipe a Ui without tearing down the embedding session.
 | Gamepad / navigation intents | console UIs | planned | nav events → focus model |
 | Hit-test / click-through query | input gating | easy | `Ui::hit_test` / `panel::hit_test_*` |
 | Cursor intent (out) | input | now | `Ui::hovered_cursor()` |
-| Text-input + caret intent (out) | IME | planned | `text_input_active()` + `caret_rect()` |
+| Text-input + caret intent (out) | IME | now | `text_input_active()` + `caret_rect()` + `Composition` event |
 | Clipboard hooks | copy/paste | planned | `clipboard_get` / `clipboard_set` |
 | Host-driven time/clock | animation/determinism | planned | `dt` to `render`/`tick` |
 | Logging / diagnostics hook | dev / engine logs | easy | host log callback |

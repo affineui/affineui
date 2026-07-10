@@ -369,6 +369,14 @@ int Ui::hovered_cursor() const {
     return impl_->document.hovered_cursor();
 }
 
+bool Ui::text_input_active() const {
+    return impl_->document.text_input_active();
+}
+
+Rect Ui::caret_rect() const {
+    return impl_->document.caret_rect();
+}
+
 std::vector<Document::HoverInfo> Ui::hovered_info_chain() const {
     return impl_->document.hovered_info_chain();
 }

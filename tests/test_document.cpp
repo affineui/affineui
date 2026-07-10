@@ -11041,3 +11041,220 @@ TEST_CASE("UiControls: splitter is inert without the script attached") {
     REQUIRE(left_after.x >= 0);
     CHECK(doc.hovered_info().bounds.w == 200);
 }
+
+// ── IME composition (preedit) — docs/IME_ARCHITECTURE.md §4 ─────────────
+
+namespace {
+
+// Shared fixture: a focused single-line input with committed value "ab"
+// and the caret at the end. Returns the input's bounds.
+affineui::Rect focus_ime_input(affineui::Document& doc,
+                               RecordingPainter& painter) {
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        input {
+          display: block;
+          box-sizing: border-box;
+          width: 180px;
+          height: 24px;
+          border: 1px solid #000;
+          padding: 2px 6px;
+          font-size: 12px;
+          line-height: 18px;
+        }
+        </style>
+        <input type="text" value="ab">
+    )HTML");
+    doc.layout(240, 0, &painter);
+    doc.draw(painter);
+
+    const auto input_pos = find_hovered_tag(doc, "input");
+    REQUIRE(input_pos.x >= 0);
+    const auto bounds = doc.hovered_info().bounds;
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {bounds.x + bounds.w - 10, bounds.y + bounds.h / 2};
+    doc.dispatch(down);
+    affineui::Event end{};
+    end.type = affineui::EventType::KeyDown;
+    end.key = affineui::Key::End;
+    doc.dispatch(end);
+    return bounds;
+}
+
+affineui::Event composition_event(std::string preedit, int cursor = -1) {
+    affineui::Event ev{};
+    ev.type = affineui::EventType::Composition;
+    ev.text = std::move(preedit);
+    ev.composition_cursor = cursor;
+    return ev;
+}
+
+bool any_text_run_contains(const RecordingPainter& painter,
+                           std::string_view needle) {
+    return std::any_of(painter.text_runs.begin(), painter.text_runs.end(),
+                       [&](const std::string& run) {
+                           return run.find(needle) != std::string::npos;
+                       });
+}
+
+}  // namespace
+
+TEST_CASE("IME preedit displays inline without committing") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    focus_ime_input(doc, painter);
+
+    CHECK(doc.dispatch(composition_event("\xE3\x81\x8B\xE3\x82\x93"))
+              .redraw_requested);  // preedit "かん"
+    painter.text_runs.clear();
+    doc.draw(painter);
+    CHECK(any_text_run_contains(painter, "ab\xE3\x81\x8B\xE3\x82\x93"));
+
+    // Cancel: display returns to the committed value — the preedit never
+    // entered it.
+    CHECK(doc.dispatch(composition_event("")).redraw_requested);
+    painter.text_runs.clear();
+    doc.draw(painter);
+    CHECK_FALSE(any_text_run_contains(painter, "\xE3\x81\x8B"));
+    CHECK(any_text_run_contains(painter, "ab"));
+}
+
+TEST_CASE("IME preedit draws an underline decoration") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    const auto bounds = focus_ime_input(doc, painter);
+
+    doc.dispatch(composition_event("\xE3\x81\x8B\xE3\x82\x93"));
+    painter.stroke_line_draws.clear();
+    doc.draw(painter);
+    // A horizontal stroke inside the control, below the text midline.
+    CHECK(std::any_of(
+        painter.stroke_line_draws.begin(), painter.stroke_line_draws.end(),
+        [&](const auto& line) {
+            return std::abs(line.y0 - line.y1) < 0.01f &&
+                   line.x1 > line.x0 &&
+                   line.y0 > bounds.y + bounds.h / 2 &&
+                   line.y0 < bounds.y + bounds.h;
+        }));
+}
+
+TEST_CASE("IME commit replaces the preedit with committed text") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    focus_ime_input(doc, painter);
+
+    doc.dispatch(composition_event("\xE3\x81\x8B\xE3\x82\x93"));
+    affineui::Event commit{};
+    commit.type = affineui::EventType::TextInput;
+    commit.text = "\xE6\xBC\xA2\xE5\xAD\x97";  // "漢字"
+    CHECK(doc.dispatch(commit).redraw_requested);
+
+    painter.text_runs.clear();
+    doc.draw(painter);
+    CHECK(any_text_run_contains(painter, "ab\xE6\xBC\xA2\xE5\xAD\x97"));
+    CHECK_FALSE(any_text_run_contains(painter, "\xE3\x81\x8B"));
+}
+
+TEST_CASE("IME composition start deletes the active selection") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    focus_ime_input(doc, painter);
+
+    affineui::Event select_all{};
+    select_all.type = affineui::EventType::KeyDown;
+    select_all.key = affineui::Key::A;
+    select_all.ctrl = true;
+    doc.dispatch(select_all);
+
+    doc.dispatch(composition_event("x"));
+    // Cancel the preedit: the selection deletion was a committed edit, so
+    // the control is now empty (browser compositionstart semantics).
+    doc.dispatch(composition_event(""));
+    painter.text_runs.clear();
+    doc.draw(painter);
+    CHECK_FALSE(any_text_run_contains(painter, "ab"));
+}
+
+TEST_CASE("IME active composition swallows editing keys") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    focus_ime_input(doc, painter);
+
+    doc.dispatch(composition_event("\xE3\x81\x8B"));
+    affineui::Event backspace{};
+    backspace.type = affineui::EventType::KeyDown;
+    backspace.key = affineui::Key::Backspace;
+    doc.dispatch(backspace);
+    doc.dispatch(composition_event(""));
+
+    painter.text_runs.clear();
+    doc.draw(painter);
+    // The committed value survived the Backspace that the IME owns.
+    CHECK(any_text_run_contains(painter, "ab"));
+}
+
+TEST_CASE("text_input_active and caret_rect report the focused control") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    CHECK_FALSE(doc.text_input_active());
+    CHECK(doc.caret_rect().w <= 0);
+
+    const auto bounds = focus_ime_input(doc, painter);
+    CHECK(doc.text_input_active());
+    const auto rect = doc.caret_rect();
+    CHECK(rect.w >= 1);
+    CHECK(rect.h > 0);
+    CHECK(rect.x >= bounds.x);
+    CHECK(rect.x <= bounds.x + bounds.w);
+    CHECK(rect.y >= bounds.y);
+    CHECK(rect.y + rect.h <= bounds.y + bounds.h + 1);
+
+    // Escape clears focus — and with it the text-input intent.
+    affineui::Event esc{};
+    esc.type = affineui::EventType::KeyDown;
+    esc.key = affineui::Key::Escape;
+    doc.dispatch(esc);
+    CHECK_FALSE(doc.text_input_active());
+    CHECK(doc.caret_rect().w <= 0);
+}
+
+TEST_CASE("caret_rect tracks the IME cursor inside the preedit") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    focus_ime_input(doc, painter);
+    const auto rect_before = doc.caret_rect();
+
+    // Cursor at the end of a two-codepoint preedit sits right of the
+    // committed-caret position; cursor 0 sits back at it.
+    doc.dispatch(composition_event("\xE3\x81\x8B\xE3\x82\x93", -1));
+    const auto rect_end = doc.caret_rect();
+    CHECK(rect_end.x > rect_before.x);
+
+    doc.dispatch(composition_event("\xE3\x81\x8B\xE3\x82\x93", 0));
+    const auto rect_start = doc.caret_rect();
+    CHECK(rect_start.x == rect_before.x);
+
+    // A cursor byte offset inside a codepoint snaps down to its start:
+    // offsets 4 and 3 (mid-second-codepoint) land on the same boundary.
+    doc.dispatch(composition_event("\xE3\x81\x8B\xE3\x82\x93", 4));
+    const auto rect_mid = doc.caret_rect();
+    doc.dispatch(composition_event("\xE3\x81\x8B\xE3\x82\x93", 3));
+    CHECK(rect_mid.x == doc.caret_rect().x);
+}
+
+TEST_CASE("IME preedit survives a relayout") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    focus_ime_input(doc, painter);
+
+    doc.dispatch(composition_event("\xE3\x81\x8B\xE3\x82\x93"));
+    doc.layout(240, 0, &painter);  // recollect while composing
+    painter.text_runs.clear();
+    doc.draw(painter);
+    CHECK(any_text_run_contains(painter, "ab\xE3\x81\x8B\xE3\x82\x93"));
+}

@@ -157,6 +157,36 @@ inline Event translate(const SDL_Event& ev) {
             out.type = EventType::TextInput;
             out.text = ev.text.text;
             return out;
+        case SDL_TEXTEDITING: {
+            // IME preedit update. SDL reports the editing cursor and
+            // selection in codepoints; the core protocol carries byte
+            // offsets into the UTF-8 preedit.
+            out.type = EventType::Composition;
+            out.text = ev.edit.text;
+            const auto byte_offset = [&out](int codepoints) {
+                std::size_t b = 0;
+                while (codepoints > 0 && b < out.text.size()) {
+                    ++b;
+                    while (b < out.text.size() &&
+                           (static_cast<unsigned char>(out.text[b]) & 0xC0u) ==
+                               0x80u) {
+                        ++b;
+                    }
+                    --codepoints;
+                }
+                return static_cast<int>(b);
+            };
+            out.composition_cursor = ev.edit.start < 0
+                ? static_cast<int>(out.text.size())
+                : byte_offset(ev.edit.start);
+            // SDL's editing selection is the IME's active clause.
+            out.composition_clause_begin = out.composition_cursor;
+            out.composition_clause_end =
+                (ev.edit.start >= 0 && ev.edit.length > 0)
+                    ? byte_offset(ev.edit.start + ev.edit.length)
+                    : out.composition_cursor;
+            return out;
+        }
         case SDL_WINDOWEVENT:
             if (ev.window.event == SDL_WINDOWEVENT_LEAVE) {
                 out.type = EventType::MouseMove;
@@ -166,6 +196,25 @@ inline Event translate(const SDL_Event& ev) {
             return out;
         default:
             return out;
+    }
+}
+
+/// Push the UI's text-input intent to SDL: while an editable control is
+/// focused, keep SDL text input started and anchor the IME candidate
+/// window on the caret (SDL_SetTextInputRect); otherwise stop it so the
+/// IME doesn't swallow game/tool keys. SDL does the per-platform IME
+/// work — this adapter is the reference wiring for the IME contract in
+/// docs/IME_ARCHITECTURE.md.
+inline void sync_text_input(Ui& ui) {
+    if (ui.text_input_active()) {
+        const Rect r = ui.caret_rect();
+        if (r.w > 0 && r.h > 0) {
+            SDL_Rect area{r.x, r.y, r.w, r.h};
+            SDL_SetTextInputRect(&area);
+        }
+        if (!SDL_IsTextInputActive()) SDL_StartTextInput();
+    } else if (SDL_IsTextInputActive()) {
+        SDL_StopTextInput();
     }
 }
 
@@ -179,6 +228,12 @@ inline bool dispatch(Ui& ui, const SDL_Event& ev) {
     const bool consumed = ui.dispatch(e);
     if (e.type == EventType::MouseMove) {
         SDL_SetCursor(detail::get_cached_cursor(ui.hovered_cursor()));
+    }
+    // Focus / caret / preedit may have moved — retarget the platform IME.
+    if (e.type == EventType::MouseDown || e.type == EventType::MouseUp ||
+        e.type == EventType::KeyDown || e.type == EventType::TextInput ||
+        e.type == EventType::Composition) {
+        sync_text_input(ui);
     }
     return consumed;
 }

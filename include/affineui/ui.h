@@ -173,6 +173,18 @@ public:
     ///   8 = nwse-resize
     int hovered_cursor() const;
 
+    /// True while an editable text control is focused. The host should
+    /// enable platform text input / IME (SDL_StartTextInput, mobile soft
+    /// keyboard) while this holds and disable it when it clears. See
+    /// docs/IME_ARCHITECTURE.md for the full IME contract.
+    [[nodiscard]] bool text_input_active() const;
+
+    /// Caret rectangle of the focused text control in panel-local CSS
+    /// points (w<=0 when unavailable). Hosts feed it to the platform so
+    /// the IME candidate window opens at the caret instead of a screen
+    /// corner. Tracks the IME cursor inside an active preedit.
+    [[nodiscard]] Rect caret_rect() const;
+
     // ── Handlers ────────────────────────────────────────────────────
 
     /// Register a click callback for elements matching a CSS-style

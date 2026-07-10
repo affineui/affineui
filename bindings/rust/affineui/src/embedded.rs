@@ -349,6 +349,24 @@ impl Ui {
         unsafe { sys::affineui_ui_hovered_cursor(self.raw) }
     }
 
+    /// True while an editable text control is focused — the host should
+    /// enable platform text input / IME while this holds and disable it
+    /// when it clears (see docs/IME_ARCHITECTURE.md).
+    pub fn text_input_active(&self) -> bool {
+        unsafe { sys::affineui_ui_text_input_active(self.raw) != 0 }
+    }
+
+    /// Caret rectangle `(x, y, w, h)` of the focused text control in
+    /// panel-local CSS points, for IME candidate-window placement.
+    /// `w == 0` when no text control is focused.
+    pub fn caret_rect(&self) -> (i32, i32, i32, i32) {
+        let (mut x, mut y, mut w, mut h) = (0, 0, 0, 0);
+        unsafe {
+            sys::affineui_ui_caret_rect(self.raw, &mut x, &mut y, &mut w, &mut h)
+        };
+        (x, y, w, h)
+    }
+
     // Live DOM mutation; return true only when the document changed.
 
     pub fn set_attr(&self, elem_id: &str, name: &str, value: &str) -> bool {

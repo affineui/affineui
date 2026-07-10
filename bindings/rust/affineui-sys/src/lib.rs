@@ -128,6 +128,10 @@ pub struct affineui_event {
     pub ctrl: c_int,
     pub alt: c_int,
     pub super_key: c_int,
+    // COMPOSITION only — byte offsets into `text` (see c_api.h).
+    pub composition_cursor: c_int,
+    pub composition_clause_begin: c_int,
+    pub composition_clause_end: c_int,
 }
 
 #[repr(C)]
@@ -263,6 +267,14 @@ extern "C" {
         user_free: affineui_user_free_fn,
     );
     pub fn affineui_ui_hovered_cursor(ui: *const affineui_ui) -> c_int;
+    pub fn affineui_ui_text_input_active(ui: *const affineui_ui) -> c_int;
+    pub fn affineui_ui_caret_rect(
+        ui: *const affineui_ui,
+        out_x: *mut c_int,
+        out_y: *mut c_int,
+        out_w: *mut c_int,
+        out_h: *mut c_int,
+    );
     pub fn affineui_ui_set_attr(
         ui: *mut affineui_ui,
         elem_id: *const c_char,

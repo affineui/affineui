@@ -341,6 +341,19 @@ public:
     ///   8 = nwse-resize
     int hovered_cursor() const;
 
+    /// True while an editable text control is focused — the host should
+    /// enable the platform IME / text-input mode (SDL_StartTextInput,
+    /// sapp IME enable, mobile soft keyboard). See docs/IME_ARCHITECTURE.md.
+    [[nodiscard]] bool text_input_active() const;
+
+    /// Caret rectangle of the focused text control in document coordinates
+    /// (CSS points): the caret line's x/y/height with w=1. Hosts use it to
+    /// position the IME candidate window (and, on mobile, drive keyboard
+    /// avoidance). Returns w<=0 when no text control is focused or the
+    /// document has not been measured yet. During an active composition
+    /// this tracks the IME cursor inside the preedit.
+    [[nodiscard]] Rect caret_rect() const;
+
 private:
     struct TransientState {
         struct Layer {

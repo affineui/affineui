@@ -58,6 +58,9 @@ inline affineui::Event to_event(const affineui_event& ev) {
     out.key      = static_cast<affineui::Key>(ev.key);
     out.key_code = ev.key_code;
     if (ev.text) out.text = ev.text;
+    out.composition_cursor       = ev.composition_cursor;
+    out.composition_clause_begin = ev.composition_clause_begin;
+    out.composition_clause_end   = ev.composition_clause_end;
     out.shift = ev.shift != 0;
     out.ctrl  = ev.ctrl != 0;
     out.alt   = ev.alt != 0;
@@ -71,6 +74,7 @@ static_assert(AFFINEUI_EVENT_MOUSE_MOVE == static_cast<int>(affineui::EventType:
 static_assert(AFFINEUI_EVENT_MOUSE_WHEEL == static_cast<int>(affineui::EventType::MouseWheel));
 static_assert(AFFINEUI_EVENT_TEXT_INPUT == static_cast<int>(affineui::EventType::TextInput));
 static_assert(AFFINEUI_EVENT_FOCUS_GAINED == static_cast<int>(affineui::EventType::FocusGained));
+static_assert(AFFINEUI_EVENT_COMPOSITION == static_cast<int>(affineui::EventType::Composition));
 static_assert(AFFINEUI_MOUSE_LEFT == static_cast<int>(affineui::MouseButton::Left));
 static_assert(AFFINEUI_MOUSE_MIDDLE == static_cast<int>(affineui::MouseButton::Middle));
 static_assert(AFFINEUI_KEY_UNKNOWN == static_cast<int>(affineui::Key::Unknown));
