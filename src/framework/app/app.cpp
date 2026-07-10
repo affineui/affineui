@@ -1027,6 +1027,10 @@ void cb_frame(void* user) {
                     impl->has_pending_resize ? 1 : 0);
                 std::fflush(stderr);
             }
+            // Devtools read commands still get answered on quiet frames —
+            // the reads are read-only-never-relayout, so last-laid-out
+            // state is exactly what they want (DESIGN §2.4).
+            if (tools_has_pending()) tools_pump(impl->document);
             if (impl->quit_requested) sapp_request_quit();
             return;
         }
@@ -1153,6 +1157,10 @@ void cb_frame(void* user) {
         if (tools::wants_telemetry()) {
             tools::push_frame(tl);
         }
+        // Service queued devtools read commands at the frame boundary,
+        // after render — blocks/StyleStore hold this frame's laid-out
+        // state (AFFINETOOLS_DESIGN.md §2.1 typed-command pump).
+        if (tools_has_pending()) tools_pump(impl->document);
 
         if (input_trace) {
             const auto now = std::chrono::steady_clock::now();

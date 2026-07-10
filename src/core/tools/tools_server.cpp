@@ -21,6 +21,7 @@
 #include "affineui/log.h"
 #include "affineui/version.h"
 #include "core/log_internal.h"
+#include "core/tools/tools_commands.h"
 // Inbound wire messages are parsed with tiny-json (external/tinyjson) —
 // a ~600 LOC single-header C parser with zero heap allocations. Same
 // code path in modular + amalgamated builds; the parser vendors cleanly
@@ -249,7 +250,18 @@ struct ServerState {
     std::mutex               log_mutex;
     std::deque<QueuedLog>    log_ring;
     std::uint64_t            log_dropped{0};
+
+    // Read-command bridge (DESIGN §2.1): server thread enqueues typed
+    // commands (bounded — overflow answers "busy" immediately); the app
+    // thread drains them in tools_pump and pushes complete response
+    // documents back for the server thread to frame and send.
+    std::mutex                             cmd_mutex;
+    std::deque<detail::ToolsCommand>       cmd_queue;
+    std::atomic<int>                       cmd_pending{0};
+    std::mutex                             resp_mutex;
+    std::deque<std::string>                resp_queue;
 };
+constexpr std::size_t kCommandQueueCapacity = 32;
 
 ServerState& state() {
     static ServerState s;
@@ -333,6 +345,29 @@ double tj_num(json_t const* obj, const char* prop, double fallback) noexcept {
 // fits comfortably on the stack.
 constexpr unsigned kJsonPoolSize = 64;
 
+/// Parse a `"nid":[document_id,node_slot,generation]` param. Returns an
+/// empty (falsy) handle when absent/malformed — commands that require a
+/// node answer a "stale node" error from the pump.
+affineui::DomHandle tj_nid(json_t const* params) noexcept {
+    affineui::DomHandle out{};
+    if (!params) return out;
+    json_t const* arr = json_getProperty(params, "nid");
+    if (!arr || json_getType(arr) != JSON_ARRAY) return out;
+    std::uint32_t vals[3] = {0, 0, 0};
+    int i = 0;
+    for (json_t const* item = json_getChild(arr); item != nullptr && i < 3;
+         item = json_getSibling(item), ++i) {
+        if (json_getType(item) != JSON_INTEGER || !item->u.value) return {};
+        vals[i] = static_cast<std::uint32_t>(
+            std::strtoul(item->u.value, nullptr, 10));
+    }
+    if (i != 3) return {};
+    out.document_id = vals[0];
+    out.node_slot = vals[1];
+    out.generation = vals[2];
+    return out;
+}
+
 }  // namespace
 
 /// Returns false when the connection must be dropped.
@@ -366,7 +401,8 @@ bool handle_message(ServerState& st, Connection& c, std::string_view text) {
         result += ",\"affineui\":\"" AFFINEUI_VERSION_STRING "\"";
         result += ",\"session_id\":\"";
         result += st.session_id;  // hex — no escaping needed
-        result += "\",\"capabilities\":[\"telemetry\",\"log\"],\"t0_wall\":\"";
+        result += "\",\"capabilities\":[\"telemetry\",\"log\",\"dom\","
+                  "\"css\",\"resource\"],\"t0_wall\":\"";
         result += utc_now_iso();
         result += "\"}";
         send_result(c, id, result);
@@ -397,6 +433,52 @@ bool handle_message(ServerState& st, Connection& c, std::string_view text) {
         send_result(c, id, "{}");
         return true;
     }
+
+    // Read commands (dom/css/resource): parse into a typed command and
+    // queue for the app thread; the response is produced by tools_pump
+    // and sent from flush_responses. Bounded queue — overflow answers
+    // "busy" immediately rather than growing with client eagerness.
+    using detail::ToolsCommand;
+    ToolsCommand cmd;
+    cmd.id = id;
+    bool is_read_command = true;
+    json_t const* params = json_getProperty(msg, "params");
+    if (method == "dom.document") {
+        cmd.kind = ToolsCommand::Kind::DomDocument;
+    } else if (method == "dom.children") {
+        cmd.kind = ToolsCommand::Kind::DomChildren;
+        cmd.nid = tj_nid(params);
+    } else if (method == "dom.html") {
+        cmd.kind = ToolsCommand::Kind::DomHtml;
+        cmd.nid = tj_nid(params);  // empty handle = whole document
+    } else if (method == "css.box_model") {
+        cmd.kind = ToolsCommand::Kind::CssBoxModel;
+        cmd.nid = tj_nid(params);
+    } else if (method == "resource.stylesheets") {
+        cmd.kind = ToolsCommand::Kind::ResourceStylesheets;
+    } else if (method == "resource.stylesheet_text") {
+        cmd.kind = ToolsCommand::Kind::ResourceStylesheetText;
+        cmd.index = static_cast<int>(tj_num(params, "index", -1.0));
+    } else {
+        is_read_command = false;
+    }
+    if (is_read_command) {
+        bool queued = false;
+        {
+            const std::lock_guard<std::mutex> lock(st.cmd_mutex);
+            if (st.cmd_queue.size() < kCommandQueueCapacity) {
+                st.cmd_queue.push_back(cmd);
+                queued = true;
+            }
+        }
+        if (queued) {
+            st.cmd_pending.fetch_add(1, std::memory_order_release);
+        } else {
+            send_error(c, id, -32005, "busy");
+        }
+        return true;
+    }
+
     send_error(c, id, -32601, "unknown method");
     return true;
 }
@@ -551,6 +633,26 @@ void flush_log_ring(ServerState& st, Connection& c) {
     }
 }
 
+/// Drain app-thread responses to the client. With no (authed) client the
+/// responses are discarded — they belong to a connection that is gone,
+/// and the one-client policy means the next client must never receive
+/// them.
+void flush_responses(ServerState& st, Connection& c) {
+    std::deque<std::string> batch;
+    {
+        const std::lock_guard<std::mutex> lock(st.resp_mutex);
+        batch.swap(st.resp_queue);
+    }
+    if (batch.empty()) return;
+    if (c.sock == kInvalidSocket || !c.authed) return;  // discard
+    for (const std::string& msg : batch) {
+        if (!send_framed(c.sock, msg)) {
+            drop_connection(st, c);
+            return;
+        }
+    }
+}
+
 void drop_connection(ServerState& st, Connection& c) {
     if (c.sock != kInvalidSocket) {
         close_socket(c.sock);
@@ -560,6 +662,20 @@ void drop_connection(ServerState& st, Connection& c) {
     c.inbuf.clear();
     st.subscribed.store(false, std::memory_order_release);
     st.log_subscribed.store(false, std::memory_order_release);
+    // Commands not yet serviced belong to the dropped client; clear them
+    // (and any responses in flight) so the next client never sees them.
+    {
+        const std::lock_guard<std::mutex> lock(st.cmd_mutex);
+        if (!st.cmd_queue.empty()) {
+            st.cmd_pending.fetch_sub(static_cast<int>(st.cmd_queue.size()),
+                                     std::memory_order_release);
+            st.cmd_queue.clear();
+        }
+    }
+    {
+        const std::lock_guard<std::mutex> lock(st.resp_mutex);
+        st.resp_queue.clear();
+    }
 }
 
 void server_loop(ServerState& st) {
@@ -614,6 +730,7 @@ void server_loop(ServerState& st) {
         }
         flush_ring(st, conn);
         flush_log_ring(st, conn);
+        flush_responses(st, conn);
     }
     drop_connection(st, conn);
 }
@@ -876,6 +993,43 @@ void forward_log(const LogRecord& record) {
         ++st.log_dropped;
     }
     st.log_ring.push_back(std::move(e));
+}
+
+// ── command bridge (tools_commands.h) ────────────────────────────────────
+
+namespace detail {
+
+bool tools_take_commands(std::vector<ToolsCommand>& out) {
+    ServerState& st = state();
+    const std::lock_guard<std::mutex> lock(st.cmd_mutex);
+    if (st.cmd_queue.empty()) return false;
+    out.insert(out.end(), st.cmd_queue.begin(), st.cmd_queue.end());
+    st.cmd_pending.fetch_sub(static_cast<int>(st.cmd_queue.size()),
+                             std::memory_order_release);
+    st.cmd_queue.clear();
+    return true;
+}
+
+void tools_push_response(std::string json) {
+    ServerState& st = state();
+    const std::lock_guard<std::mutex> lock(st.resp_mutex);
+    // Bounded by the command queue: responses only exist for commands
+    // that were accepted (≤ kCommandQueueCapacity in flight).
+    st.resp_queue.push_back(std::move(json));
+}
+
+bool tools_has_pending_commands() noexcept {
+    return state().cmd_pending.load(std::memory_order_relaxed) > 0;
+}
+
+void tools_json_escape(std::string& out, std::string_view s) {
+    json_escape_into(out, s);
+}
+
+}  // namespace detail
+
+bool tools_has_pending() noexcept {
+    return detail::tools_has_pending_commands();
 }
 
 namespace tools {

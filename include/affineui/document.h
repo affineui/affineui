@@ -359,6 +359,9 @@ private:
 
     std::unique_ptr<detail::DocumentImpl> impl_;
     friend class App;
+    // Devtools read pump (tools.h): services queued dom/css/resource
+    // read commands at the frame boundary; read-only-never-relayout.
+    friend void tools_pump(Document& doc);
 };
 
 }  // namespace affineui
