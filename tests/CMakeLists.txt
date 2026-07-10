@@ -26,6 +26,7 @@ add_executable(affineui_tests
     test_cascade.cpp
     test_display_list.cpp
     test_layout.cpp
+    test_lifecycle.cpp
     test_memory.cpp
     test_telemetry.cpp
     test_tools.cpp

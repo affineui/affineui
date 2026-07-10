@@ -207,14 +207,15 @@ ResourceLoader make_asset_resource_loader(std::vector<std::string> folders) {
 }
 
 bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
+    const auto event_handlers = impl.event_handlers;
     // While a native handler holds pointer capture, MouseMove routes to
     // it before DOM hover hit-testing (same contract as Ui::dispatch) so
     // drags don't thrash unrelated :hover state.
     if (impl.pointer_captured && ev.type == EventType::MouseMove &&
-        !impl.event_handlers.empty()) {
+        !event_handlers.empty()) {
         impl.document.hovered_info_chain(impl.hover_chain_scratch);
         bool captured_consumed = false;
-        for (const auto& cb : impl.event_handlers) {
+        for (const auto& cb : event_handlers) {
             captured_consumed =
                 cb(ev, impl.hover_chain_scratch) || captured_consumed;
         }
@@ -250,10 +251,10 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
     // Native event handlers (widget kits) see the event with the fresh
     // hover chain before view click/change bindings. A consuming handler
     // owns the event outright.
-    if (!impl.event_handlers.empty()) {
+    if (!event_handlers.empty()) {
         impl.document.hovered_info_chain(impl.hover_chain_scratch);
         bool native_consumed = false;
-        for (const auto& cb : impl.event_handlers) {
+        for (const auto& cb : event_handlers) {
             native_consumed =
                 cb(ev, impl.hover_chain_scratch) || native_consumed;
         }
@@ -466,6 +467,7 @@ App& App::operator=(App&&) noexcept = default;
 
 void App::load_html(std::string_view html) {
     const auto transient = impl_->document.capture_transient_state();
+    impl_->deferred_widget_changes.clear();
     impl_->view_click_bindings.clear();
     impl_->view_change_bindings.clear();
     impl_->document.clear_scripts();
@@ -535,7 +537,12 @@ void App::rebuild_view() {
         // (head/styles/body attrs, empty <main>), then replay the built
         // tree through the document sink so it owns every node mapping.
         view.begin(static_cast<ViewSink*>(nullptr));
-        impl_->view_builder(view);
+        try {
+            impl_->view_builder(view);
+        } catch (...) {
+            view.end();
+            throw;
+        }
         view.end();
         impl_->config.clear_color = view.background_color();
         impl_->renderer.set_clear_color(impl_->config.clear_color);
@@ -570,10 +577,12 @@ void App::rebuild_view() {
             // then propagate.
             std::fprintf(stderr, "AffineUI view builder failed: %s\n",
                          e.what());
+            view.end();
             impl_->document.end_view_mutations();
             throw;
         } catch (...) {
             std::fprintf(stderr, "AffineUI view builder failed\n");
+            view.end();
             impl_->document.end_view_mutations();
             throw;
         }
@@ -975,7 +984,8 @@ void cb_frame(void* user) {
         // an idle callback that touches nothing costs almost nothing.
         if (!impl->frame_callbacks.empty()) {
             const double dt = sapp_frame_duration_unfiltered();
-            for (const auto& cb : impl->frame_callbacks) {
+            const auto callbacks = impl->frame_callbacks;
+            for (const auto& cb : callbacks) {
                 cb(dt);
             }
         }

@@ -779,6 +779,11 @@ int scroll_offset_y_for(const std::vector<Block>& blocks,
                         int idx);
 
 #if !defined(AFFINEUI_STUB_BUILD)
+void invalidate_dom_weak_slot(detail::DocumentImpl& impl,
+                              lxb_dom_node_t* node);
+void invalidate_dom_subtree_on_destroy(detail::DocumentImpl& impl,
+                                       lxb_dom_node_t* root);
+
 // element / block attribute primitives
 std::string attr_string(lxb_dom_element_t* elem, std::string_view name);
 bool has_attr(lxb_dom_element_t* elem, std::string_view name);
