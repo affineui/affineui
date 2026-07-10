@@ -380,6 +380,11 @@ struct DocumentImpl {
     // the app layer re-bootstraps its retained view instead of incrementally
     // reconciling on top of foreign wrapper elements.
     bool                      dock_structure_dirty{false};
+    // A ViewSink has driven this document at least once (set_view apps).
+    // While dock_structure_dirty is ALSO set, the surgery settle can skip
+    // the full stylesheet rematch: the owner's bootstrap replaces the DOM
+    // before the surgically-styled frame would ever render.
+    bool                      view_managed{false};
     std::vector<Rect>         dirty_rects;
     std::vector<int>          pending_dirty_roots;
 
@@ -562,6 +567,16 @@ struct DocumentImpl {
         bool               switched_on_down{false};
     } tab_drag;
     lxb_dom_element_t* tab_drag_ghost{nullptr};
+    // Ghost compositor state (same pattern as FloatDrag): the ghost's style
+    // anchors it ONCE at the drag's spawn point; per-move updates write only
+    // cur_x/cur_y and the translation is injected in effective_transform_for.
+    // The old per-move style writes cost ~2.8ms each at mouse-poll rate —
+    // most of the drag-time dock jank.
+    int tab_drag_ghost_block_idx{-1};
+    int tab_drag_ghost_spawn_x{0};
+    int tab_drag_ghost_spawn_y{0};
+    int tab_drag_ghost_cur_x{0};
+    int tab_drag_ghost_cur_y{0};
 
     struct PendingTabPress {
         std::string panel_id;

@@ -19,9 +19,6 @@ from .specs import (ADJUSTMENTS, CHANNELS, COMPS, LAYER_BLENDS, SWATCHES,
 if TYPE_CHECKING:
     from .app import PhotoEditApp
 
-Build = Callable[[ui.View], None]
-
-
 def _icon_button(v: ui.View, key: str, icon_html: str, title: str,
                  on_click: Callable[[], None] | None = None,
                  pressed: bool | None = None,
@@ -43,50 +40,51 @@ def _di(icon: str) -> str:
     return f'<i class="di di-{escape(icon)}"></i>'
 
 
-# ── Floating panel shells ────────────────────────────────────────────────────
+# ── Declared floating dock panels ────────────────────────────────────────────
+# Each palette is a DECLARED dockpanel seeded floating (web reference
+# positions, anchored to the workarea's top-right corner) — not raw
+# .dcs-panel--floating chrome. Declared panels are what the docking system
+# can replay: drag one somewhere (dock it beside the stage, tear a tab off)
+# and the arrangement survives every rebuild. Tab groups (Color/Swatches,
+# Layers/Channels/Paths/Comps) are tab().in_(primary) co-panels; the core
+# interaction layer owns tab switching and remembers the active tab.
 
-def floating_panel(v: ui.View, key: str, style: str, header: Build,
-                   body: Build) -> None:
-    def panel(p: ui.View) -> None:
-        head = p.container(classes="dcs-panel__header", key=f"{key}-header",
-                           build=header)
-        head.attr("data-dcs-drag-handle", "")
-        p.container(classes="dcs-panel__body", key=f"{key}-body", build=body)
-
-    ref = v.container(
-        classes="dcs-panel dcs-panel--floating ps-floating ps-float-panel",
-        key=key, build=panel)
-    ref.attr("style", style)
-
-
-def title_header(title: str, icon: str, key: str) -> Build:
-    def build(h: ui.View) -> None:
-        h.container(classes="ps-panel-title", key=f"{key}-title",
-                    build=lambda s: s.html(
-                        f"{_di(icon)}<span>{escape(title)}</span>"))
-        h.container(classes="dcs-panel__tools", key=f"{key}-tools")
-
-    return build
-
-
-def tabs_header(app: "PhotoEditApp", key: str,
-                tabs: tuple[tuple[str, str, str], ...], selected: str,
-                on_select: Callable[[str], None]) -> Build:
-    def build(h: ui.View) -> None:
-        def build_tabs(strip: ui.View) -> None:
-            for tab_id, label, icon in tabs:
-                tab = strip.container(
-                    classes="ps-ptab", key=f"{key}-tab-{tab_id}",
-                    build=lambda t, label=label, icon=icon: t.html(
-                        f"{_di(icon)}<span>{escape(label)}</span>"))
-                tab.attr("role", "tab")
-                tab.attr("aria-selected",
-                         "true" if tab_id == selected else "false")
-                tab.on_click(lambda tab_id=tab_id: on_select(tab_id))
-
-        h.container(classes="ps-ptabs", key=f"{key}-tabs", build=build_tabs)
-
-    return build
+def declare_float_panels(app: "PhotoEditApp", dv: ui.View) -> None:
+    Loc, Corner = ui.DockLocation, ui.DockCorner
+    if app.panels["navigator"]:
+        dv.dockpanel("Navigator",
+                     Loc.floating(Corner.TopRight, (12, 12), (214, 196)),
+                     lambda p: _navigator_body(app, p),
+                     icon="globe", key="navigator")
+    if app.panels["color"]:
+        color = dv.dockpanel(
+            "Color", Loc.floating(Corner.TopRight, (12, 226), (268, 252)),
+            lambda p: _color_tab(app, p), icon="palette", key="color")
+        dv.dockpanel("Swatches", Loc.tab().in_(color),
+                     lambda p: _swatches_tab(app, p), icon="grid",
+                     key="swatches")
+    if app.panels["layers"]:
+        layers = dv.dockpanel(
+            "Layers", Loc.floating(Corner.TopRight, (12, 486), (300, 230)),
+            lambda p: _layers_tab(app, p), icon="layers", key="layers")
+        dv.dockpanel("Channels", Loc.tab().in_(layers),
+                     lambda p: _channels_tab(app, p), icon="eq",
+                     key="channels")
+        dv.dockpanel("Paths", Loc.tab().in_(layers),
+                     lambda p: _paths_tab(app, p), icon="spline", key="paths")
+        dv.dockpanel("Comps", Loc.tab().in_(layers),
+                     lambda p: _comps_tab(app, p), icon="filmstrip",
+                     key="comps")
+    if app.panels["adjust"]:
+        dv.dockpanel("Adjustments",
+                     Loc.floating(Corner.TopRight, (324, 12), (236, 128)),
+                     lambda p: _adjust_grid(app, p), icon="color-grade",
+                     key="adjust")
+    if app.panels["history"]:
+        dv.dockpanel("History",
+                     Loc.floating(Corner.TopRight, (324, 152), (236, 330)),
+                     lambda p: _history_list(app, p), icon="history-brush",
+                     key="history")
 
 
 # ── Tool strip ───────────────────────────────────────────────────────────────
@@ -140,12 +138,6 @@ def _build_color_chips(app: "PhotoEditApp", v: ui.View) -> None:
 
 
 # ── Navigator ────────────────────────────────────────────────────────────────
-
-def build_navigator(app: "PhotoEditApp", v: ui.View) -> None:
-    floating_panel(v, "ps-navigator", "right:12px;top:12px;width:214px",
-                   title_header("Navigator", "globe", "ps-navigator"),
-                   lambda b: _navigator_body(app, b))
-
 
 def _navigator_body(app: "PhotoEditApp", v: ui.View) -> None:
     def body(p: ui.View) -> None:
@@ -211,16 +203,6 @@ def _nav_thumb(app: "PhotoEditApp", v: ui.View) -> None:
 
 # ── Color / Swatches ─────────────────────────────────────────────────────────
 
-def build_color_panel(app: "PhotoEditApp", v: ui.View) -> None:
-    tabs = (("color", "Color", "palette"), ("swatches", "Swatches", "grid"))
-    floating_panel(
-        v, "panel-color", "right:12px;top:226px;width:268px",
-        tabs_header(app, "panel-color", tabs, app.color_tab,
-                    app.set_color_tab),
-        lambda b: (_color_tab(app, b) if app.color_tab == "color"
-                   else _swatches_tab(app, b)))
-
-
 def _color_tab(app: "PhotoEditApp", v: ui.View) -> None:
     def body(p: ui.View) -> None:
         h, s, val = app.hsv
@@ -273,22 +255,6 @@ def _swatches_tab(app: "PhotoEditApp", v: ui.View) -> None:
 
 
 # ── Layers / Channels / Paths / Comps ────────────────────────────────────────
-
-def build_layers_panel(app: "PhotoEditApp", v: ui.View) -> None:
-    tabs = (("layers", "Layers", "layers"), ("channels", "Channels", "eq"),
-            ("paths", "Paths", "spline"), ("comps", "Comps", "filmstrip"))
-    builders = {
-        "layers": _layers_tab,
-        "channels": _channels_tab,
-        "paths": _paths_tab,
-        "comps": _comps_tab,
-    }
-    floating_panel(
-        v, "panel-layers", "right:12px;top:486px;bottom:12px;width:300px",
-        tabs_header(app, "panel-layers", tabs, app.layers_tab,
-                    app.set_layers_tab),
-        lambda b: builders[app.layers_tab](app, b))
-
 
 def _layers_tab(app: "PhotoEditApp", v: ui.View) -> None:
     def body(p: ui.View) -> None:
@@ -490,12 +456,6 @@ def _comps_tab(app: "PhotoEditApp", v: ui.View) -> None:
 
 # ── Adjustments ──────────────────────────────────────────────────────────────
 
-def build_adjustments(app: "PhotoEditApp", v: ui.View) -> None:
-    floating_panel(v, "panel-adjust", "right:324px;top:12px;width:236px",
-                   title_header("Adjustments", "color-grade", "panel-adjust"),
-                   lambda b: _adjust_grid(app, b))
-
-
 def _adjust_grid(app: "PhotoEditApp", v: ui.View) -> None:
     def grid(g: ui.View) -> None:
         for icon, label, action in ADJUSTMENTS:
@@ -508,13 +468,6 @@ def _adjust_grid(app: "PhotoEditApp", v: ui.View) -> None:
 
 
 # ── History ──────────────────────────────────────────────────────────────────
-
-def build_history(app: "PhotoEditApp", v: ui.View) -> None:
-    floating_panel(v, "panel-history",
-                   "right:324px;top:152px;bottom:12px;width:236px",
-                   title_header("History", "history-brush", "panel-history"),
-                   lambda b: _history_list(app, b))
-
 
 def _history_list(app: "PhotoEditApp", v: ui.View) -> None:
     current = app.doc.history_index()

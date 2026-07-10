@@ -161,6 +161,12 @@ public:
     [[nodiscard]] std::vector<std::pair<std::string, DockPlacement>>
     dock_overrides() const;
 
+    /// Forget every runtime dock override and remembered active tab (a
+    /// "Reset workspace" action). The app should then rebuild WITHOUT wiring
+    /// the dock-layout/placement providers for that one pass, so the declared
+    /// seed layout wins over the live DOM arrangement.
+    void reset_dock_state();
+
     /// The current dock arrangement, read live from the DOM (see DockLayout).
     /// Wire into View::set_dock_layout_provider so view rebuilds re-emit the
     /// user's arrangement instead of the declared seed.

@@ -388,7 +388,99 @@ PYBIND11_MODULE(_affineui, m) {
              &affineui::Document::hovered_cursor,
              "Cursor the OS should display under the hovered element "
              "(0=default 1=pointer 2=text 3=crosshair 4=move 5=not-allowed "
-             "6=ew-resize 7=ns-resize 8=nwse-resize).");
+             "6=ew-resize 7=ns-resize 8=nwse-resize).")
+        .def("dock_layout", &affineui::Document::dock_layout,
+             "Snapshot of the CURRENT dock arrangement, read live from the "
+             "DOM. Opaque: pass it back via View.set_dock_layout_provider so "
+             "rebuilds replay the user's arrangement (tearoffs, splits) "
+             "instead of the declared seed.")
+        .def("dock_overrides", &affineui::Document::dock_overrides,
+             "Runtime placement overrides recorded by dock gestures, as a "
+             "list of (panel_id, DockPlacement) pairs. Feed them back via "
+             "View.set_dock_placement_provider.")
+        .def("take_dock_structure_changed",
+             &affineui::Document::take_dock_structure_changed,
+             "True once (consumes the flag) after a dock gesture "
+             "restructured the DOM. Apps driving their own rebuild loop "
+             "should rebuild the whole view when this fires.")
+        .def("reset_dock_state", &affineui::Document::reset_dock_state,
+             "Forget all runtime dock overrides and remembered active tabs "
+             "(Reset Workspace). Rebuild once WITHOUT wiring the dock "
+             "providers so the declared seed layout wins.");
+
+    // ── Declarative docking (document_view / dockpanel) ─────────────────
+    py::enum_<affineui::Dock>(m, "Dock")
+        .value("Left", affineui::Dock::Left)
+        .value("Right", affineui::Dock::Right)
+        .value("Top", affineui::Dock::Top)
+        .value("Bottom", affineui::Dock::Bottom)
+        .value("Tab", affineui::Dock::Tab);
+
+    py::enum_<affineui::DockCorner>(m, "DockCorner")
+        .value("TopLeft", affineui::DockCorner::TopLeft)
+        .value("TopRight", affineui::DockCorner::TopRight)
+        .value("BottomLeft", affineui::DockCorner::BottomLeft)
+        .value("BottomRight", affineui::DockCorner::BottomRight);
+
+    py::class_<affineui::Document::DockPlacement>(m, "DockPlacement")
+        .def(py::init<>())
+        .def_readwrite("present", &affineui::Document::DockPlacement::present)
+        .def_readwrite("floating",
+                       &affineui::Document::DockPlacement::floating)
+        .def_readwrite("parent", &affineui::Document::DockPlacement::parent)
+        .def_readwrite("side", &affineui::Document::DockPlacement::side)
+        .def_readwrite("size", &affineui::Document::DockPlacement::size)
+        .def_readwrite("x", &affineui::Document::DockPlacement::x)
+        .def_readwrite("y", &affineui::Document::DockPlacement::y)
+        .def_readwrite("w", &affineui::Document::DockPlacement::w)
+        .def_readwrite("h", &affineui::Document::DockPlacement::h);
+
+    // Opaque: harvested from Document.dock_layout(), handed back verbatim to
+    // View.set_dock_layout_provider. Apps never inspect the tree from Python.
+    py::class_<affineui::Document::DockLayout>(m, "DockLayout")
+        .def(py::init<>())
+        .def_readonly("present", &affineui::Document::DockLayout::present);
+
+    py::class_<affineui::DockHandle>(m, "DockHandle")
+        .def_readonly("id", &affineui::DockHandle::id)
+        .def("__bool__",
+             [](const affineui::DockHandle& h) { return bool(h); })
+        .def("toolbar",
+             [](affineui::DockHandle& h, py::function build) {
+                 auto cb = keep_python_function(std::move(build));
+                 h.toolbar([cb = std::move(cb)](affineui::View& v) {
+                     py::gil_scoped_acquire gil;
+                     (*cb)(&v);
+                 });
+                 return h;
+             },
+             py::arg("build"),
+             "Declare this pane's tab toolbar; build fills the strip.");
+
+    py::class_<affineui::DockLocation>(m, "DockLocation")
+        .def(py::init<>())
+        .def_static("docked", &affineui::DockLocation::docked,
+                    py::arg("side"), py::arg("px") = 0,
+                    "Docked on a side of the document (or of .in_(panel)).")
+        .def_static("tab", &affineui::DockLocation::tab,
+                    "A tab sharing another panel's pane (chain .in_(panel)).")
+        .def_static("floating", &affineui::DockLocation::floating,
+                    py::arg("anchor"), py::arg("pos"), py::arg("size"),
+                    "Floating, anchored to a corner; pos counts inward from "
+                    "that corner, size is (w, h) px.")
+        .def_static("tearoff", &affineui::DockLocation::tearoff,
+                    py::arg("anchor"), py::arg("pos"), py::arg("size"))
+        // `in` is a Python keyword — bind the fluent setter as in_().
+        .def("in_",
+             [](affineui::DockLocation& l, const affineui::DockHandle& h) {
+                 return l.in(h);
+             },
+             py::arg("panel"), py::return_value_policy::reference_internal,
+             "Place relative to another declared panel (chainable).")
+        .def("sized", &affineui::DockLocation::sized, py::arg("px"),
+             py::return_value_policy::reference_internal)
+        .def("tearout_size", &affineui::DockLocation::tearout_size,
+             py::arg("px"), py::return_value_policy::reference_internal);
 
     py::enum_<affineui::ViewTheme>(m, "ViewTheme")
         .value("Plain", affineui::ViewTheme::Plain)
@@ -1078,6 +1170,103 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("key") = "", py::arg("build") = py::none(),
              py::keep_alive<0, 1>(),
              "Add a dockable panel (titled tab + body); fill the body via build.")
+        // ── Declarative docking workspace ────────────────────────────────
+        .def("document_view",
+             [](affineui::View& view, const std::string& key,
+                py::function build) {
+                 auto cb = keep_python_function(std::move(build));
+                 return view.document_view(
+                     key, [cb = std::move(cb)](affineui::View& dv) {
+                         py::gil_scoped_acquire gil;
+                         (*cb)(&dv);
+                     });
+             },
+             py::arg("key"), py::arg("build"), py::keep_alive<0, 1>(),
+             "The docking workspace: declare the document and dockpanels "
+             "inside build; the layout resolves from the declared seed, or "
+             "replays the live arrangement when a dock-layout provider is "
+             "wired.")
+        .def("document",
+             [](affineui::View& view, py::function content,
+                const std::string& title, const std::string& icon) {
+                 auto cb = keep_python_function(std::move(content));
+                 return view.document(
+                     [cb = std::move(cb)](affineui::View& p) {
+                         py::gil_scoped_acquire gil;
+                         (*cb)(&p);
+                     },
+                     title, icon);
+             },
+             py::arg("content"), py::arg("title") = "",
+             py::arg("icon") = "", py::keep_alive<0, 1>(),
+             "Declare the center document of a document_view.")
+        .def("dockpanel",
+             [](affineui::View& view, const std::string& title,
+                const affineui::DockLocation& where, py::function content,
+                const std::string& icon, const std::string& key) {
+                 auto cb = keep_python_function(std::move(content));
+                 return view.dockpanel(
+                     title, where,
+                     [cb = std::move(cb)](affineui::View& p) {
+                         py::gil_scoped_acquire gil;
+                         (*cb)(&p);
+                     },
+                     icon, key);
+             },
+             py::arg("title"), py::arg("where"), py::arg("content"),
+             py::arg("icon") = "", py::arg("key") = "",
+             py::keep_alive<0, 1>(),
+             "Declare a dockable panel at a DockLocation; returns a "
+             "DockHandle usable as another panel's parent.")
+        .def("set_dock_layout_provider",
+             [](affineui::View& view, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 view.set_dock_layout_provider(
+                     [cb = std::move(cb)]() -> affineui::Document::DockLayout {
+                         py::gil_scoped_acquire gil;
+                         return (*cb)().cast<affineui::Document::DockLayout>();
+                     });
+             },
+             py::arg("fn"),
+             "Wire () -> DockLayout (usually app.document().dock_layout) so "
+             "rebuilds replay the live arrangement.")
+        .def("set_dock_placement_provider",
+             [](affineui::View& view, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 view.set_dock_placement_provider(
+                     [cb = std::move(cb)](std::string_view id)
+                         -> affineui::Document::DockPlacement {
+                         py::gil_scoped_acquire gil;
+                         return (*cb)(std::string(id))
+                             .cast<affineui::Document::DockPlacement>();
+                     });
+             },
+             py::arg("fn"),
+             "Wire (panel_id) -> DockPlacement runtime overrides (tearoffs / "
+             "drag-to-dock) that win over the declared DockLocation.")
+        .def("set_dock_size_provider",
+             [](affineui::View& view, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 view.set_dock_size_provider(
+                     [cb = std::move(cb)](std::string_view id) -> int {
+                         py::gil_scoped_acquire gil;
+                         return (*cb)(std::string(id)).cast<int>();
+                     });
+             },
+             py::arg("fn"),
+             "Wire (panel_id) -> saved px size (0 = none); a saved size wins "
+             "over the declared seed.")
+        .def("set_dock_active_tab_provider",
+             [](affineui::View& view, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 view.set_dock_active_tab_provider(
+                     [cb = std::move(cb)](std::string_view id) -> std::string {
+                         py::gil_scoped_acquire gil;
+                         return (*cb)(std::string(id)).cast<std::string>();
+                     });
+             },
+             py::arg("fn"),
+             "Wire (pane_id) -> active tab panel id (empty = primary).")
         .def("splitter",
              [](affineui::View& view, bool horizontal, const std::string& key) {
                  return view.splitter(horizontal, key);

@@ -620,6 +620,63 @@ bool starts_with(std::string_view value, std::string_view prefix) {
            value.substr(0, prefix.size()) == prefix;
 }
 
+bool ascii_iequals(std::string_view a, std::string_view b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        const char ca = a[i] >= 'A' && a[i] <= 'Z' ? char(a[i] + 32) : a[i];
+        if (ca != b[i]) return false;
+    }
+    return true;
+}
+
+// True when EVERY declaration in an inline style text is "descendant
+// inert": a non-inherited box/paint property that cannot change any
+// descendant's computed style. Inline styles never affect selector
+// matching, so a style write whose old AND new text pass this check only
+// needs the element's own block restyled — not its whole subtree (a
+// splitter drag was restyling a 465-block pane at mouse-move rate for a
+// flex-basis change). Fails closed: custom properties (`--x` inherits),
+// inherited text properties, `display` (subtree reveal semantics), and
+// anything unrecognized all fall back to the subtree walk.
+bool inline_style_is_descendant_inert(std::string_view css) {
+    static constexpr std::string_view kInert[] = {
+        "flex", "flex-grow", "flex-shrink", "flex-basis",
+        "width", "height", "min-width", "min-height",
+        "max-width", "max-height",
+        "left", "top", "right", "bottom", "inset",
+        "position", "z-index", "order", "align-self",
+        "margin", "margin-top", "margin-right", "margin-bottom",
+        "margin-left",
+        "padding", "padding-top", "padding-right", "padding-bottom",
+        "padding-left",
+        "overflow", "overflow-x", "overflow-y",
+        "opacity", "transform", "pointer-events",
+        "background", "background-color",
+        "border", "border-top", "border-right", "border-bottom",
+        "border-left", "border-color", "border-width", "border-radius",
+        "box-shadow", "gap",
+    };
+    std::size_t pos = 0;
+    while (pos < css.size()) {
+        const std::size_t end = css.find(';', pos);
+        const std::string_view decl = css.substr(
+            pos, end == std::string_view::npos ? css.size() - pos
+                                               : end - pos);
+        pos = end == std::string_view::npos ? css.size() : end + 1;
+        const std::size_t colon = decl.find(':');
+        const std::string_view prop = detail::trim_css_ws(
+            colon == std::string_view::npos ? decl : decl.substr(0, colon));
+        if (prop.empty()) continue;  // stray ';' or trailing whitespace
+        if (colon == std::string_view::npos) return false;  // malformed
+        bool known = false;
+        for (const auto inert : kInert) {
+            if (ascii_iequals(prop, inert)) { known = true; break; }
+        }
+        if (!known) return false;
+    }
+    return true;
+}
+
 bool attribute_can_affect_selector_matching(std::string_view name) {
     // Inline style changes are parsed as declarations on the element and
     // SVG geometry attrs (e.g. path "d") should stay on the cheap paint path.
@@ -1871,15 +1928,33 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
     if (already_present && old_value == value) return false;
     detail::MutationTraceTimer trace_timer{"set", name};
 
+    // Sub-phase lap clock for the PRE-branch section (block lookups,
+    // predicates, dirty-rect snapshot, generated-content scan): the branch
+    // phases below are already traced, so an expensive write with NO
+    // breakdown line means the time hides up here.
+    const bool mt_on = detail::MutationTraceTimer::enabled();
+    auto mt_last = mt_on ? std::chrono::steady_clock::now()
+                         : std::chrono::steady_clock::time_point{};
+    auto mt_lap = [&]() -> double {
+        if (!mt_on) return 0.0;
+        const auto now = std::chrono::steady_clock::now();
+        const double ms =
+            std::chrono::duration<double, std::milli>(now - mt_last).count();
+        mt_last = now;
+        return ms;
+    };
+
     const int target_idx = detail::block_index_for_exact_element(impl, elem);
     const int dirty_root_idx =
         target_idx >= 0 ? target_idx
                         : detail::block_index_for_element_or_ancestor(impl, elem);
+    const double mt_idx_ms = mt_lap();
     const bool selector_affecting =
         attribute_can_affect_selector_matching(name);
     const bool subtree_local_selectors =
         !selector_affecting ||
         stylesheet_dependencies_stay_in_mutated_subtree(impl, name);
+    const double mt_pred_ms = mt_lap();
     const int mutation_dirty_root_idx =
         selector_affecting && !subtree_local_selectors && target_idx >= 0 &&
                 impl.blocks[static_cast<std::size_t>(target_idx)].parent_idx >= 0
@@ -1888,14 +1963,28 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
     const Rect old_rect = mutation_dirty_root_idx >= 0
                               ? detail::subtree_visual_rect(impl, mutation_dirty_root_idx)
                               : detail::document_visual_rect(impl);
+    const double mt_rect_ms = mt_lap();
     const bool recollect_generated_subtree =
         selector_affecting &&
         generated_content_depends_on_attribute(impl, name, elem, old_value,
                                                value);
+    const double mt_gen_ms = mt_lap();
+    if (mt_on && mt_idx_ms + mt_pred_ms + mt_rect_ms + mt_gen_ms >= 2.0) {
+        std::fprintf(stderr,
+                     "[attr]   set '%s' PRE idx=%.2f pred=%.2f rect=%.2f "
+                     "gen=%.2f ms\n",
+                     std::string(name).c_str(), mt_idx_ms, mt_pred_ms,
+                     mt_rect_ms, mt_gen_ms);
+    }
 
     if (!lxb_dom_element_set_attribute(elem, detail::as_lxb(name), name.size(),
                                        detail::as_lxb(value), value.size())) {
         return false;
+    }
+    const double mt_lxb_ms = mt_lap();
+    if (mt_on && mt_lxb_ms >= 2.0) {
+        std::fprintf(stderr, "[attr]   set '%s' LXB set_attribute=%.2f ms\n",
+                     std::string(name).c_str(), mt_lxb_ms);
     }
 
     // Batched contract: inside a view batch EVERY attr write does only the
@@ -1917,8 +2006,16 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
                 // Element-local rematch is cheap — run it now so batch end
                 // only re-matches subtrees for attrs whose rules escape the
                 // subject.
+                (void) mt_lap();
                 (void) lxb_html_document_element_styles_rematch(
                     lxb_html_interface_element(lxb_dom_interface_node(elem)));
+                const double mt_el_rematch_ms = mt_lap();
+                if (mt_on && mt_el_rematch_ms >= 2.0) {
+                    std::fprintf(stderr,
+                                 "[attr]   set '%s' BATCH element-rematch"
+                                 "=%.2f ms\n",
+                                 std::string(name).c_str(), mt_el_rematch_ms);
+                }
                 needs_subtree_rematch = false;
             }
         }
@@ -1982,7 +2079,7 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
             return true;
         }
 
-        phase();
+        const double clear_ms = phase();
         needs_layout = mutation_dirty_root_idx >= 0
                            ? detail::restyle_subtree(impl, mutation_dirty_root_idx)
                            : detail::restyle_all_blocks(impl);
@@ -2005,12 +2102,12 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
         }
         const double reveal_ms = phase();
         if (detail::MutationTraceTimer::enabled() &&
-            rematch_ms + restyle_ms + reveal_ms >= 1.0) {
+            rematch_ms + clear_ms + restyle_ms + reveal_ms >= 1.0) {
             std::fprintf(stderr,
-                         "[attr]   set '%s' root=%d rematch=%.2f "
+                         "[attr]   set '%s' root=%d rematch=%.2f clear=%.2f "
                          "restyle=%.2f reveal=%.2f\n",
                          std::string(name).c_str(), mutation_dirty_root_idx,
-                         rematch_ms, restyle_ms, reveal_ms);
+                         rematch_ms, clear_ms, restyle_ms, reveal_ms);
         }
         detail::mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
                                  needs_layout);
@@ -2021,7 +2118,27 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
         if (impl.resolver) impl.resolver->invalidate(elem);
         auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
         detail::refresh_block_metadata_from_element(block, elem);
-        needs_layout = detail::restyle_subtree(impl, target_idx);
+        (void) mt_lap();  // reset the lap so the print isolates the restyle
+        // A style write that is descendant-inert on BOTH sides (old and new
+        // text: only non-inherited box/paint props, no `--x`, no `display`)
+        // cannot change any descendant's computed style — restyle just this
+        // block. Splitter/float/ghost gestures live on this path at
+        // mouse-move rate.
+        const bool style_local =
+            name == "style" &&
+            inline_style_is_descendant_inert(old_value) &&
+            inline_style_is_descendant_inert(value);
+        needs_layout = style_local
+                           ? detail::restyle_block(impl, target_idx)
+                           : detail::restyle_subtree(impl, target_idx);
+        const double tail_restyle_ms = mt_lap();
+        if (mt_on && tail_restyle_ms >= 1.0) {
+            std::fprintf(stderr,
+                         "[attr]   set '%s' TAIL restyle_%s(%d)=%.2f ms\n",
+                         std::string(name).c_str(),
+                         style_local ? "block" : "subtree", target_idx,
+                         tail_restyle_ms);
+        }
         if (block.tag == "img" && name == "src") needs_layout = true;
     }
     detail::mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
