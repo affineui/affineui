@@ -4334,6 +4334,12 @@ void View::unregister_tree(const WidgetNode& node) {
                 return entry.first == node.id;
             }),
         change_handlers_.end());
+    commit_handlers_.erase(
+        std::remove_if(commit_handlers_.begin(), commit_handlers_.end(),
+            [&](const auto& entry) {
+                return entry.first == node.id;
+            }),
+        commit_handlers_.end());
     if (!node.widget_name.empty()) {
         widget_names_.erase(
             std::remove_if(widget_names_.begin(), widget_names_.end(),

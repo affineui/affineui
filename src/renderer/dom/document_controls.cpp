@@ -1267,7 +1267,10 @@ bool finish_dcs_colorfield_drag(detail::DocumentImpl& impl, const Event& ev) {
     using Kind = detail::DocumentImpl::ColorfieldDrag::Kind;
     if (drag.kind == Kind::None || !drag.field) return false;
     const std::string start_hex = hex_from_hsv({drag.h, drag.s, drag.v});
-    const bool changed = update_dcs_colorfield_drag(impl, ev);
+    // Apply the final position WITHOUT emitting a live change — this is the
+    // terminal update, so only the single committed change below should fire
+    // (otherwise a stationary click produced a spurious live change + commit).
+    const bool changed = update_dcs_colorfield_drag(impl, ev, /*emit=*/false);
     // One committed change per gesture, with the final colour (the
     // moves emitted live changes only). A press with no colour change
     // (a plain chip click) commits nothing.

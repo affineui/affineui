@@ -87,12 +87,14 @@ void raycast_line(const Raycaster& rc, Line& line, std::vector<RayHit>& out) {
 
 void Raycaster::intersect_object(Object3D& object, bool recursive,
                                  std::vector<RayHit>& out) const {
-    if (include_invisible || object.visible) {
-        if (object.kind() == ObjectKind::Mesh) {
-            raycast_mesh(*this, static_cast<Mesh&>(object), out);
-        } else if (object.is_line()) {
-            raycast_line(*this, static_cast<Line&>(object), out);
-        }
+    // An invisible object hides its whole subtree from picking (three.js
+    // Raycaster): skip the object AND its descendants, so a hidden group
+    // can't be selected through a visible child.
+    if (!include_invisible && !object.visible) return;
+    if (object.kind() == ObjectKind::Mesh) {
+        raycast_mesh(*this, static_cast<Mesh&>(object), out);
+    } else if (object.is_line()) {
+        raycast_line(*this, static_cast<Line&>(object), out);
     }
     if (recursive) {
         for (const auto& c : object.children()) {

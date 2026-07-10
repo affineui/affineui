@@ -1,6 +1,8 @@
 #include "dender_scene.h"
 
+#include <cctype>
 #include <cerrno>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -105,7 +107,16 @@ double parse_double_or(std::string_view value, double fallback) noexcept {
     char* end = nullptr;
     errno = 0;
     double out = std::strtod(tmp.c_str(), &end);
-    return (end != tmp.c_str() && errno != ERANGE) ? out : fallback;
+    // Require a complete, finite parse: reject trailing garbage ("12oops"),
+    // out-of-range (errno==ERANGE), and non-finite ("nan"/"inf") — none should
+    // reach a transform or mesh-generation parameter.
+    while (end != nullptr && *end != '\0' &&
+           std::isspace(static_cast<unsigned char>(*end))) {
+        ++end;
+    }
+    const bool ok = end != tmp.c_str() && end != nullptr && *end == '\0' &&
+                    errno != ERANGE && std::isfinite(out);
+    return ok ? out : fallback;
 }
 
 }  // namespace dender

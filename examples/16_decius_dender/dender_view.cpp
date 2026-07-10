@@ -706,10 +706,10 @@ void DenderView::build_npanel_item_body(View& v) const {
     //   Location   — mirrors the object's world position (live, editable;
     //                the same node position the inspector's Location edits).
     //   Dimensions — the object's BASE CREATION size: the mesh geometry's
-    //                bounding-box extents at scale 1. Editing Dimensions is
-    //                conceptually a mesh REGENERATION (rebuild the geometry at
-    //                the new size), not a scale — so it is shown read-only
-    //                here; the regenerate path is a separate feature.
+    //                bounding-box extents at scale 1. Editing Dimensions is a
+    //                mesh REGENERATION (rebuild the geometry at the new size),
+    //                not a scale — preview swaps geometry live during a scrub,
+    //                commit pushes one undoable resize at the gesture's end.
     const std::string id(app_.ctx().selection().active());
     e3d::Object3D* node = id.empty() ? nullptr : app_.viewport().node_of(id);
 

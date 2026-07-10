@@ -15,10 +15,13 @@
 // an empty Config gets identical behavior.
 
 #include <array>
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <utility>
 
 #include "affineui_app.h"
 #include "e3d.h"

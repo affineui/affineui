@@ -33,6 +33,7 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <cerrno>
 #include <charconv>
 #include <chrono>
 #include <cmath>
@@ -1614,8 +1615,18 @@ bool Document::set_widget_value(std::string_view name,
     if (kind != LiveControlKind::None) {
         char* end = nullptr;
         const std::string text(value);
+        errno = 0;
         const double v = std::strtod(text.c_str(), &end);
-        if (end == text.c_str()) return false;  // not a number
+        // Require a complete, finite parse: reject "" / "12oops" / nan / inf
+        // (trailing whitespace is tolerated) so garbage can't drive a control.
+        while (end != nullptr && *end != '\0' &&
+               std::isspace(static_cast<unsigned char>(*end))) {
+            ++end;
+        }
+        if (end == text.c_str() || end == nullptr || *end != '\0' ||
+            errno == ERANGE || !std::isfinite(v)) {
+            return false;  // not a valid finite number
+        }
         const double vmin = detail::element_attr_double(
             widget, "data-min",
             detail::element_attr_double(control, "min", v - 1.0e9));

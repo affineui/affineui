@@ -454,6 +454,17 @@ void ensure_targets(Renderer::Impl& im) {
     im.width = im.req_width;
     im.height = im.req_height;
 
+    // Release the painter's adopted-image wrapper BEFORE destroying the sokol
+    // images it references (the wrapper is NVG_IMAGE_NODELETE — it points at
+    // im.color_resolve/color_msaa). Destroying the image first would leave the
+    // wrapper releasing a stale native handle.
+    if (im.painter && im.painter_handle) {
+        im.painter->release_native_image(im.painter_handle);
+        im.painter_handle = 0;
+        im.painter_image_id = 0;
+        im.painter = nullptr;
+    }
+
     if (im.color_att.id) sg_destroy_view(im.color_att);
     if (im.resolve_att.id) sg_destroy_view(im.resolve_att);
     if (im.depth_att.id) sg_destroy_view(im.depth_att);
@@ -501,14 +512,8 @@ void ensure_targets(Renderer::Impl& im) {
     sg_view_desc dv{};
     dv.depth_stencil_attachment.image = im.depth;
     im.depth_att = sg_make_view(&dv);
-
-    // Target changed: any painter wrapper is stale.
-    if (im.painter && im.painter_handle) {
-        im.painter->release_native_image(im.painter_handle);
-        im.painter_handle = 0;
-        im.painter_image_id = 0;
-        im.painter = nullptr;
-    }
+    // (The stale painter wrapper was released above, before the old images
+    // it referenced were destroyed.)
 }
 
 void ensure_shadow_map(Renderer::Impl& im, int size) {

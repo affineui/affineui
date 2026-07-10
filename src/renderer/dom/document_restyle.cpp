@@ -2645,11 +2645,14 @@ bool update_live_control_value(detail::DocumentImpl& impl,
     if (step > 0.0) {
         clamped = std::clamp(std::round(clamped / step) * step, min, max);
         // Decimal places to show = those the step itself needs (step 1 →
-        // 0, 0.1 → 1, 0.01 → 2), so an integer editor prints integers.
+        // 0, 0.1 → 1, 0.01 → 2), so an integer editor prints integers. The
+        // cap of 9 matches float32 significant-digit precision — a step
+        // finer than a nanounit can't be rendered distinctly anyway, so we
+        // stop rather than print noise digits.
         decimals = 0;
         double frac = step;
-        while (decimals < 6 &&
-               std::abs(frac - std::round(frac)) > 1e-9) {
+        while (decimals < 9 &&
+               std::abs(frac - std::round(frac)) > 1e-12) {
             frac *= 10.0;
             ++decimals;
         }

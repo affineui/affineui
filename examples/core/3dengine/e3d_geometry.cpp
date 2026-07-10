@@ -233,6 +233,7 @@ namespace {
 GeometryPtr make_polyhedron(const float* verts, const int* faces,
                             std::size_t face_index_count, float radius,
                             int detail) {
+    detail = std::max(0, detail);  // negative would produce cols <= 0
     auto g = new_geometry();
     const auto vertex_at = [&](int i) {
         return Vec3{verts[i * 3], verts[i * 3 + 1], verts[i * 3 + 2]};
@@ -337,6 +338,9 @@ GeometryPtr make_cylinder(float radius_top, float radius_bottom, float height,
     auto g = new_geometry();
     radial_segments = std::max(3, radial_segments);
     height_segments = std::max(1, height_segments);
+    // A zero height would divide by zero in the torso slope below; a
+    // degenerate cylinder isn't meaningful, so floor it to a tiny extent.
+    if (std::abs(height) < 1e-6f) height = height < 0.0f ? -1e-6f : 1e-6f;
     const float half_height = height / 2.0f;
     std::uint32_t index = 0;
 
@@ -425,6 +429,8 @@ GeometryPtr make_cone(float radius, float height, int radial_segments,
 
 GeometryPtr make_torus(float radius, float tube, int radial_segments,
                        int tubular_segments, float arc) {
+    radial_segments = std::max(3, radial_segments);
+    tubular_segments = std::max(3, tubular_segments);
     auto g = new_geometry();
     for (int j = 0; j <= radial_segments; ++j) {
         for (int i = 0; i <= tubular_segments; ++i) {
