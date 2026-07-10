@@ -39,6 +39,14 @@ private:
     void build_inspector_object_tab(affineui::View& v) const;
     void build_inspector_static_tab(affineui::View& v,
                                     std::string_view id) const;
+    /// Live Location/Rotation/Scale vecs over the active object's e3d node,
+    /// shared by the main inspector and the Item N-panel. `key_prefix`
+    /// disambiguates widget names between the two hosts.
+    void build_transform_vecs(affineui::View& v, std::string_view id,
+                              std::string_view key_prefix) const;
+    /// The Item N-panel mini-inspector: live Transform + base (unscaled)
+    /// Dimensions.
+    void build_npanel_item_body(affineui::View& v) const;
 
     void build_timeline_toolbar(affineui::View& v) const;
     void build_timeline_body(affineui::View& v) const;
@@ -48,7 +56,7 @@ private:
     void build_tweaks_popover(affineui::View& v) const;
 
     DenderApp& app_;
-    const DenderDocument& doc_;
+    const app::Document& doc_;
     const UiState& ui_;
 };
 

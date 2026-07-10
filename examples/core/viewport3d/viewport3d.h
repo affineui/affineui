@@ -1,13 +1,21 @@
 #pragma once
 
-// Real 3D viewport for the game editor, built on the e3d example engine
-// (examples/core/3dengine). Replaces the CSS-transform "faux cube":
-// the scene renders through sokol_gfx into an offscreen target that the
-// custom-paint canvas composites, with orbit camera, click picking and
-// a translate/rotate/scale gizmo wired into the app's selection and
-// undo stack.
+// Reusable DCC 3D viewport, built on the e3d example engine
+// (examples/core/3dengine) and the affineui_app template. The scene renders
+// through sokol_gfx into an offscreen target that a custom-paint canvas
+// composites, with an orbit camera, click picking and a translate/rotate/
+// scale gizmo wired into an app::Context's selection and undo stack.
+//
+// This is the generalized form of the game editor's original GeViewport:
+// the couplings a host hard-codes (custom-paint handler names, the canvas
+// class handle_event claims, and how a document object maps to an e3d node)
+// are parameterized through a Config so a second host (DENDER) can reuse the
+// same viewport with its own DOM classes and primitive catalog. The Config
+// defaults reproduce the game editor's exact values, so a host that passes
+// an empty Config gets identical behavior.
 
 #include <array>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -15,12 +23,48 @@
 #include "affineui_app.h"
 #include "e3d.h"
 
-namespace ge {
+namespace viewport3d {
 
-class GeViewport : public affineui::Trackable {
+class Viewport3D : public affineui::Trackable {
 public:
-    GeViewport();
-    ~GeViewport() override;
+    /// Factory turning a document object into its 3D node (or nullptr for
+    /// objects that live only in the outliner, e.g. groups). Injected via
+    /// Config so each host maps its own object types / primitive catalog.
+    /// `index` is the object's position in the document's object list —
+    /// hosts can use it for deterministic default placement.
+    using NodeFactory =
+        std::function<e3d::ObjectPtr(const app::Object& obj, std::size_t index)>;
+
+    /// Host-specific couplings. Defaults match the game editor exactly, so a
+    /// host passing `{}` keeps today's game-editor behavior.
+    struct Config {
+        std::string scene_paint  = "ge.scene";     // scene canvas paint name
+        std::string nav_paint    = "ge.navball";   // nav axis-ball paint name
+        std::string canvas_class = "ge-vp-canvas"; // host class handle_event claims
+        std::string stats_class  = "ge-vp-stats";  // overlay that declines events
+        // Classes/keys emitted on the two canvas ELEMENTS build() declares.
+        // (canvas_class above is the host's float-host CONTAINER, emitted by
+        // the host and only read back in handle_event — not put on a canvas.)
+        std::string scene_canvas_class = "ge-vp-3dcanvas";
+        std::string scene_canvas_key   = "ge-vp-3d";
+        std::string nav_canvas_class   = "ge-vp-navball";
+        std::string nav_canvas_key     = "ge-vp-nav";
+        // Document-object -> e3d node mapping. Empty = the built-in 3-type
+        // fallback (mesh / light / spline) the game editor originally used.
+        NodeFactory make_node{};
+    };
+
+    // Default arg spelled `Config{}` not `{}`: GCC rejects converting a bare
+    // `{}` default argument to this aggregate (string members with default
+    // initializers + a std::function member); the explicit type name is fine.
+    explicit Viewport3D(Config config = Config{});
+    ~Viewport3D() override;
+
+    /// Install/replace the node factory after construction (alternative to
+    /// setting it in the Config).
+    void set_node_factory(NodeFactory factory) {
+        cfg_.make_node = std::move(factory);
+    }
 
     /// Register the paint handler, the per-frame tick, and remember the
     /// context whose document/selection drive the scene. Call once,
@@ -46,11 +90,35 @@ public:
     /// app selection.
     void sync_selection();
 
+    // ── Camera ops (nav buttons / keys) — never undoable ────────────────
+    /// Multiply the orbit distance (zoom): factor < 1 dollies in.
+    void dolly(double factor);
+    /// Fit the camera to the selected node's bounds (or a default framing
+    /// of the current selection box when nothing definite is selected).
+    void frame_selected();
+    /// Flip the orbit left-button between Rotate and Pan ("Move View").
+    void toggle_pan_mode();
+    [[nodiscard]] bool pan_mode() const noexcept { return pan_mode_; }
+    /// Snap the camera down a world axis: 0..5 = +X +Y +Z -X -Y -Z.
+    void snap_to_axis(int axis);
+
     // ── Inspector bridge ────────────────────────────────────────────
     /// The 3D node mirroring a document object (nullptr when the object
     /// has no node, e.g. groups). Inspect it through its reflection
     /// class: `get_class(*node)` — see e3d_scene.h.
     [[nodiscard]] e3d::Object3D* node_of(std::string_view id) const;
+
+    /// The object's BASE (unscaled) dimensions: the size of its mesh
+    /// geometry's bounding box, ignoring the node's scale transform.
+    /// {0,0,0} when the object has no node or no mesh geometry.
+    [[nodiscard]] e3d::Vec3 base_dimensions(std::string_view id) const;
+
+    /// Swap the object's mesh geometry (a mesh REGENERATION — e.g. the Item
+    /// panel's Dimensions edit rebuilds the primitive at a new size). The
+    /// caller owns type-specific regeneration (it knows a box from a sphere);
+    /// this just installs the new geometry so the renderer re-uploads it.
+    /// No-op if the object has no mesh node.
+    void set_node_geometry(std::string_view id, e3d::GeometryPtr geometry);
     /// Live-preview one reflected property (by its ObjectClass name,
     /// e.g. "position.x") during a continuous gesture: applies the
     /// value and remembers the pre-gesture value, but pushes NO undo
@@ -74,9 +142,6 @@ public:
     /// The inspector listens to track edits live.
     std::function<void(const std::string& id)> on_node_changed;
 
-    static constexpr const char* kPaintName = "ge.scene";
-    static constexpr const char* kNavPaintName = "ge.navball";
-
 private:
     void frame(double dt);
     void paint(affineui::Painter& p, const affineui::Rect& r);
@@ -85,6 +150,7 @@ private:
     void mark_dirty();
     e3d::Vec2 to_ndc(double x, double y) const;
     e3d::ObjectPtr make_node(const app::Object& obj, std::size_t index);
+    e3d::ObjectPtr make_default_node(const app::Object& obj, std::size_t index);
     void pick(double mx, double my, bool additive);
     void push_transform_command();
     void apply_transform_command(const e3d::ObjectPtr& node,
@@ -92,6 +158,7 @@ private:
                                  const e3d::Quat& old_q,
                                  const e3d::Vec3& old_s);
 
+    Config         cfg_;
     affineui::App* app_{nullptr};
     app::Context*  ctx_{nullptr};
 
@@ -109,6 +176,8 @@ private:
 
     affineui::Rect canvas_rect_{};
     bool           dirty_{true};
+    // "Move View": orbit left-button flips between Rotate and Pan.
+    bool           pan_mode_{false};
 
     // Navigation gizmo (axis ball): nub centers in the web gizmo's
     // 72x72 local space, refreshed by paint_navball for click
@@ -138,4 +207,4 @@ private:
     std::unordered_map<std::string, affineui::PropertyValue> gesture_old_;
 };
 
-}  // namespace ge
+}  // namespace viewport3d

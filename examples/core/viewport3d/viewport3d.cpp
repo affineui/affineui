@@ -1,12 +1,13 @@
-#include "ge_viewport.h"
+#include "viewport3d.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <vector>
 
 #include "sokol_app.h"  // sapp_dpi_scale for crisp high-DPI targets
 
-namespace ge {
+namespace viewport3d {
 
 using affineui::Rect;
 using namespace e3d;
@@ -25,7 +26,7 @@ constexpr double kClickSlopPx = 4.0;
 
 }  // namespace
 
-GeViewport::GeViewport() {
+Viewport3D::Viewport3D(Config config) : cfg_(std::move(config)) {
     scene_ = std::make_shared<Scene>();
     scene_->background = Color(0x232529);
 
@@ -69,18 +70,18 @@ GeViewport::GeViewport() {
     scene_->add(floor);
 }
 
-GeViewport::~GeViewport() = default;
+Viewport3D::~Viewport3D() = default;
 
-void GeViewport::attach(affineui::App& app, app::Context& ctx) {
+void Viewport3D::attach(affineui::App& app, app::Context& ctx) {
     app_ = &app;
     ctx_ = &ctx;
     renderer_ = std::make_unique<Renderer>();
 
-    app.set_custom_paint(kPaintName,
+    app.set_custom_paint(cfg_.scene_paint,
                          [this](affineui::Painter& p, const Rect& r) {
                              paint(p, r);
                          });
-    app.set_custom_paint(kNavPaintName,
+    app.set_custom_paint(cfg_.nav_paint,
                          [this](affineui::Painter& p, const Rect& r) {
                              paint_navball(p, r);
                          });
@@ -112,19 +113,27 @@ void GeViewport::attach(affineui::App& app, app::Context& ctx) {
     sync_selection();
 }
 
-void GeViewport::build(affineui::View& v) {
-    v.canvas(kPaintName, "ge-vp-3dcanvas", "ge-vp-3d");
+void Viewport3D::build(affineui::View& v) {
+    v.canvas(cfg_.scene_paint, cfg_.scene_canvas_class, cfg_.scene_canvas_key);
     // Navigation axis ball (the web samples' orientation gizmo):
     // painter-drawn, repainted with the scene on camera moves; nub
     // clicks snap the camera down that axis.
-    v.canvas(kNavPaintName, "ge-vp-navball", "ge-vp-nav");
+    v.canvas(cfg_.nav_paint, cfg_.nav_canvas_class, cfg_.nav_canvas_key);
 }
 
 // ── Scene <-> app document ──────────────────────────────────────────
 
-ObjectPtr GeViewport::make_node(const app::Object& obj, std::size_t index) {
+ObjectPtr Viewport3D::make_node(const app::Object& obj, std::size_t index) {
+    if (cfg_.make_node) return cfg_.make_node(obj, index);
+    return make_default_node(obj, index);
+}
+
+ObjectPtr Viewport3D::make_default_node(const app::Object& obj,
+                                        std::size_t index) {
     // Deterministic primitive + placement per object type. Objects the
-    // user adds later land on a ring so they never stack.
+    // user adds later land on a ring so they never stack. This is the
+    // game editor's original mapping, kept as the fallback for a host
+    // that installs no factory.
     const float ring = 2.6f;
     const float angle =
         static_cast<float>(index) * (2.0f * kPi / 8.0f) + 0.7f;
@@ -170,7 +179,7 @@ ObjectPtr GeViewport::make_node(const app::Object& obj, std::size_t index) {
     return node;
 }
 
-void GeViewport::sync_document() {
+void Viewport3D::sync_document() {
     if (ctx_ == nullptr) return;
     const auto& objects = ctx_->document().objects();
 
@@ -218,7 +227,7 @@ void GeViewport::sync_document() {
     mark_dirty();
 }
 
-void GeViewport::sync_selection() {
+void Viewport3D::sync_selection() {
     if (ctx_ == nullptr) return;
     ObjectPtr target;
     // The box + gizmo follow the ACTIVE object — the one the user last
@@ -241,7 +250,7 @@ void GeViewport::sync_selection() {
     mark_dirty();
 }
 
-void GeViewport::set_tool(std::string_view tool) {
+void Viewport3D::set_tool(std::string_view tool) {
     tool_ = tool;
     if (tool == "move") {
         gizmo_->set_mode(TransformControls::Mode::Translate);
@@ -253,9 +262,66 @@ void GeViewport::set_tool(std::string_view tool) {
     sync_selection();  // attaches for gizmo tools, detaches for select
 }
 
+// ── Camera ops ──────────────────────────────────────────────────────
+
+void Viewport3D::dolly(double factor) {
+    // Advance the orbit distance by scaling the eye offset from the
+    // target (the wheel path's effect), then let update() re-clamp and
+    // re-aim like a wheel notch would.
+    const Vec3 offset = camera_->position - orbit_->target;
+    camera_->position = orbit_->target + offset * static_cast<float>(factor);
+    orbit_->update();
+    mark_dirty();
+}
+
+void Viewport3D::toggle_pan_mode() {
+    pan_mode_ = !pan_mode_;
+    orbit_->button_left = pan_mode_ ? OrbitControls::Action::Pan
+                                    : OrbitControls::Action::Rotate;
+}
+
+void Viewport3D::frame_selected() {
+    // Fit the camera to the active node's world bounds; fall back to a
+    // reasonable framing of the whole document when nothing is selected.
+    Box3 box;
+    auto expand_from = [&](const ObjectPtr& node) {
+        if (!node) return;
+        node->update_world_matrix(true, true);
+        node->traverse([&](Object3D& n) {
+            if (n.kind() == ObjectKind::Mesh) {
+                if (const auto& geo = static_cast<Mesh&>(n).geometry) {
+                    box.union_with(
+                        geo->bounding_box().transformed(n.matrix_world));
+                }
+            }
+        });
+    };
+    if (selected_node_) {
+        expand_from(selected_node_);
+    } else {
+        for (const auto& [id, node] : nodes_) expand_from(node);
+    }
+
+    if (box.empty()) {
+        orbit_->target = {0.0f, 0.6f, 0.0f};
+    } else {
+        orbit_->target = box.center();
+        const float radius = box.size().length() * 0.5f;
+        const float dist = std::max(2.0f, radius * 2.6f);
+        const Vec3 dir = (camera_->position - orbit_->target).length() > 1e-4f
+                             ? (camera_->position - orbit_->target).normalized()
+                             : Vec3{0.6f, 0.4f, 0.7f}.normalized();
+        camera_->position = orbit_->target + dir * dist;
+    }
+    orbit_->update();
+    mark_dirty();
+}
+
+void Viewport3D::snap_to_axis(int axis) { snap_camera_to_axis(axis); }
+
 // ── Undo ────────────────────────────────────────────────────────────
 
-void GeViewport::apply_transform_command(const ObjectPtr& node,
+void Viewport3D::apply_transform_command(const ObjectPtr& node,
                                          const Vec3& old_p,
                                          const Quat& old_q,
                                          const Vec3& old_s) {
@@ -269,7 +335,7 @@ void GeViewport::apply_transform_command(const ObjectPtr& node,
     }
     // The node is captured by shared_ptr so undo stays valid even after
     // the object is removed and re-added; `this` outlives the stack
-    // (both are owned by the GameEditor controller).
+    // (both are owned by the host controller).
     auto apply = [this, node](const Vec3& p, const Quat& q, const Vec3& s) {
         node->position = p;
         node->set_quaternion(q);
@@ -286,14 +352,14 @@ void GeViewport::apply_transform_command(const ObjectPtr& node,
         }));
 }
 
-void GeViewport::push_transform_command() {
+void Viewport3D::push_transform_command() {
     apply_transform_command(gizmo_->object(), start_position_,
                             start_quaternion_, start_scale_);
 }
 
 // ── Inspector bridge ────────────────────────────────────────────────
 
-Object3D* GeViewport::node_of(std::string_view id) const {
+Object3D* Viewport3D::node_of(std::string_view id) const {
     const auto it = nodes_.find(std::string(id));
     return it != nodes_.end() ? it->second.get() : nullptr;
 }
@@ -307,7 +373,7 @@ std::string gesture_key(std::string_view id, std::string_view prop) {
 }
 }  // namespace
 
-void GeViewport::preview_node_property(std::string_view id,
+void Viewport3D::preview_node_property(std::string_view id,
                                        std::string_view prop,
                                        const affineui::PropertyValue& value) {
     const auto it = nodes_.find(std::string(id));
@@ -322,7 +388,7 @@ void GeViewport::preview_node_property(std::string_view id,
     mark_dirty();
 }
 
-void GeViewport::commit_node_property(std::string_view id,
+void Viewport3D::commit_node_property(std::string_view id,
                                       std::string_view prop,
                                       const affineui::PropertyValue& value) {
     const auto it = nodes_.find(std::string(id));
@@ -388,7 +454,7 @@ bool parse_hex_rgb(std::string_view s, std::uint32_t& out) {
 }
 }  // namespace
 
-void GeViewport::set_material_tint(std::string_view id,
+void Viewport3D::set_material_tint(std::string_view id,
                                    std::string_view hex) {
     Mesh* mesh = first_mesh(node_of(id));
     std::uint32_t rgb = 0;
@@ -399,7 +465,7 @@ void GeViewport::set_material_tint(std::string_view id,
     mark_dirty();
 }
 
-void GeViewport::set_material_roughness(std::string_view id,
+void Viewport3D::set_material_roughness(std::string_view id,
                                         double roughness) {
     Mesh* mesh = first_mesh(node_of(id));
     if (mesh == nullptr || !mesh->material) return;
@@ -408,14 +474,29 @@ void GeViewport::set_material_roughness(std::string_view id,
     mark_dirty();
 }
 
-// ── Frame / paint ───────────────────────────────────────────────────
-
-void GeViewport::mark_dirty() {
-    dirty_ = true;
-    if (app_ != nullptr) app_->request_custom_repaint(kPaintName);
+Vec3 Viewport3D::base_dimensions(std::string_view id) const {
+    // The mesh geometry's bounding-box size, at scale 1 — the object's
+    // intrinsic dimensions independent of its node scale transform.
+    Mesh* mesh = first_mesh(node_of(id));
+    if (mesh == nullptr || !mesh->geometry) return Vec3{};
+    return mesh->geometry->bounding_box().size();
 }
 
-void GeViewport::frame(double /*dt*/) {
+void Viewport3D::set_node_geometry(std::string_view id, GeometryPtr geometry) {
+    Mesh* mesh = first_mesh(node_of(id));
+    if (mesh == nullptr || !geometry) return;
+    mesh->geometry = std::move(geometry);  // new ptr → renderer re-uploads
+    mark_dirty();
+}
+
+// ── Frame / paint ───────────────────────────────────────────────────
+
+void Viewport3D::mark_dirty() {
+    dirty_ = true;
+    if (app_ != nullptr) app_->request_custom_repaint(cfg_.scene_paint);
+}
+
+void Viewport3D::frame(double /*dt*/) {
     if (renderer_ == nullptr) return;
     if (orbit_->update()) dirty_ = true;
     if (canvas_rect_.w <= 0 || canvas_rect_.h <= 0 || !dirty_) return;
@@ -431,13 +512,13 @@ void GeViewport::frame(double /*dt*/) {
     renderer_->render(*scene_, *camera_);
     dirty_ = false;
     if (app_ != nullptr) {
-        app_->request_custom_repaint(kPaintName);
+        app_->request_custom_repaint(cfg_.scene_paint);
         // The axis ball tracks the camera; repaint it with the scene.
-        app_->request_custom_repaint(kNavPaintName);
+        app_->request_custom_repaint(cfg_.nav_paint);
     }
 }
 
-void GeViewport::paint(affineui::Painter& p, const Rect& r) {
+void Viewport3D::paint(affineui::Painter& p, const Rect& r) {
     if (r.w != canvas_rect_.w || r.h != canvas_rect_.h) dirty_ = true;
     canvas_rect_ = r;
     if (renderer_ == nullptr) return;
@@ -470,7 +551,7 @@ constexpr e3d::Vec3 kNavDirs[6] = {{1, 0, 0},  {0, 1, 0},  {0, 0, 1},
 
 }  // namespace
 
-void GeViewport::paint_navball(affineui::Painter& p, const Rect& r) {
+void Viewport3D::paint_navball(affineui::Painter& p, const Rect& r) {
     nav_rect_ = r;
     if (r.w <= 0 || r.h <= 0) return;
     // Drawn in the web gizmo's 72x72 local space, scaled to the block.
@@ -562,7 +643,7 @@ void GeViewport::paint_navball(affineui::Painter& p, const Rect& r) {
     }
 }
 
-void GeViewport::snap_camera_to_axis(int axis) {
+void Viewport3D::snap_camera_to_axis(int axis) {
     if (axis < 0 || axis > 5) return;
     // Web snap(): put the camera `dist` down the axis from the orbit
     // target; OrbitControls.update() re-aims it and its pole clamp
@@ -577,14 +658,14 @@ void GeViewport::snap_camera_to_axis(int axis) {
 
 // ── Input ───────────────────────────────────────────────────────────
 
-Vec2 GeViewport::to_ndc(double x, double y) const {
+Vec2 Viewport3D::to_ndc(double x, double y) const {
     const double w = std::max(1, canvas_rect_.w);
     const double h = std::max(1, canvas_rect_.h);
     return {static_cast<float>((x - canvas_rect_.x) / w * 2.0 - 1.0),
             static_cast<float>(-((y - canvas_rect_.y) / h * 2.0 - 1.0))};
 }
 
-void GeViewport::pick(double mx, double my, bool additive) {
+void Viewport3D::pick(double mx, double my, bool additive) {
     Raycaster rc;
     rc.set_from_camera(to_ndc(mx, my), *camera_);
     std::vector<ObjectPtr> roots;
@@ -614,7 +695,7 @@ void GeViewport::pick(double mx, double my, bool additive) {
     }
 }
 
-bool GeViewport::handle_event(
+bool Viewport3D::handle_event(
     const affineui::Event& ev,
     const std::vector<affineui::Document::HoverInfo>& chain) {
     using ET = affineui::EventType;
@@ -662,12 +743,12 @@ bool GeViewport::handle_event(
     // carries element CLASSES (deepest first), not widget keys.
     bool over_scene = false;
     for (const auto& info : chain) {
-        if (chain_entry_has(info, "ge-vp-stats")) continue;
+        if (chain_entry_has(info, cfg_.stats_class)) continue;
         if (chain_entry_has(info, "dcs-btn") ||
             chain_entry_has(info, "dcs-toolbar")) {
             break;
         }
-        if (chain_entry_has(info, "ge-vp-canvas")) {
+        if (chain_entry_has(info, cfg_.canvas_class)) {
             over_scene = true;
             break;
         }
@@ -736,4 +817,4 @@ bool GeViewport::handle_event(
     return false;
 }
 
-}  // namespace ge
+}  // namespace viewport3d

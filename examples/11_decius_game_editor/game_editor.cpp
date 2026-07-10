@@ -117,7 +117,10 @@ GameEditor::GameEditor() : app_(config()) {
     // The real 3D viewport: an e3d scene mirrored from the document,
     // orbit camera, click picking and the transform gizmo (driven by
     // the tool rail).
-    viewport_ = std::make_unique<GeViewport>();
+    // The Config defaults reproduce this app's paint names, canvas/stats
+    // classes and the 3-type (mesh/light/spline) node mapping exactly, so
+    // an empty Config keeps game-editor output identical.
+    viewport_ = std::make_unique<viewport3d::Viewport3D>();
     viewport_->attach(app_, ctx_);
     viewport_->set_tool(tool_);
     app_.on_event([this](const affineui::Event& ev,
@@ -543,7 +546,8 @@ void GameEditor::build_viewport(View& v) {
     // Fills the center document pane body (the dock engine emits the pane and
     // marks it a data-dcs-float-host). The scene itself is a real 3D render:
     // the e3d engine draws into an offscreen GPU target that the custom-paint
-    // canvas below composites (orbit camera, picking, gizmo — see GeViewport).
+    // canvas below composites (orbit camera, picking, gizmo — see
+    // viewport3d::Viewport3D).
     auto canvas = v.container("ge-vp-canvas", "vp-canvas");
     canvas.attr("data-dcs-float-host", "");
     if (viewport_) viewport_->build(v);

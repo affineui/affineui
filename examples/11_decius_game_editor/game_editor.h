@@ -11,8 +11,9 @@
 // AffineUI library itself, so this is the only include the controller needs.
 #include "affineui_app.h"
 
-// The real 3D viewport (e3d engine + orbit camera + transform gizmo).
-#include "ge_viewport.h"
+// The real 3D viewport (e3d engine + orbit camera + transform gizmo),
+// now the shared reusable module.
+#include "viewport3d.h"
 
 namespace ge {
 
@@ -81,7 +82,7 @@ private:
 
     app::Context    ctx_;
     affineui::App   app_;
-    std::unique_ptr<GeViewport> viewport_;  // real 3D scene view
+    std::unique_ptr<viewport3d::Viewport3D> viewport_;  // real 3D scene view
     app::Preferences prefs_;   // durable: accent + density
     app::Workspace   ws_;      // ephemeral: last tool, panel layout
     bool          playing_{false};
