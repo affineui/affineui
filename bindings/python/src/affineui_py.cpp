@@ -1159,8 +1159,8 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("key"), py::arg("items"), py::arg("item_size") = 24.0,
              py::arg("selection") = nullptr, py::arg("checked") = nullptr,
              py::arg("classes") = "",
-             py::keep_alive<0, 1>(), py::keep_alive<1, 4>(),
-             py::keep_alive<1, 5>(),
+             py::keep_alive<0, 1>(), py::keep_alive<1, 5>(),
+             py::keep_alive<1, 6>(),
              "Display an array of strings as a virtual list. Pass a selection "
              "IndexSelection for click selection, or checked for checkboxes.")
         .def("slider",

@@ -347,7 +347,9 @@ int resolve_position_edge(std::int16_t value, bool is_pct, int basis) {
                     (static_cast<double>(value) / 10000.0)));
 }
 
-int resolved_outer_length(std::int16_t px,
+// px is int32: ComputedStyle sizing fields widened past int16 (virtual-list
+// spacers reach millions of px); narrowing here would re-wrap them.
+int resolved_outer_length(std::int32_t px,
                           std::int16_t pct_x100,
                           int basis,
                           int fallback,
