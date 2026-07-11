@@ -48,10 +48,23 @@ def _framework_asset_roots() -> list[str]:
     return roots
 
 
-_ACCENTS = ("blue", "orange", "green", "purple", "teal")
+# Fit-to-screen mark: four corner brackets (a video-player "fit" frame).
+# fill/stroke are set on the path itself — the renderer doesn't inherit SVG
+# presentation attributes from the <svg> element down to its shapes.
+_SVG_FIT = (
+    '<span class="ps-fit-mark">'
+    '<svg viewBox="0 0 16 16">'
+    '<path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" fill="none" '
+    'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" '
+    'stroke-linejoin="round"/></svg></span>')
+
+# Only accents the Decius bundle actually defines — a name with no
+# [data-dcs-accent=…] rule (the old default "blue" was one) sets the attribute
+# but never redefines --dcs-accent, so picking it did nothing.
+_ACCENTS = ("cyan", "violet", "orange", "green", "purple", "teal")
 _ACCENT_DOTS = {
-    "blue": "#4d9fff", "orange": "#ff9f4d", "green": "#4dd97b",
-    "purple": "#b48cff", "teal": "#2dd4bf",
+    "cyan": "#00b8d4", "violet": "#7c6cff", "orange": "#ff9f4d",
+    "green": "#4dd97b", "purple": "#b48cff", "teal": "#2f9c93",
 }
 
 # Web per-tool CSS cursors, restricted to what the native renderer maps.
@@ -103,7 +116,7 @@ class PhotoEditApp:
         self.snap = True
         self.density = "comfortable"
         self.visual_style = "flat"
-        self.accent = "blue"
+        self.accent = "cyan"
         self.tweaks_open = False
         # Decius framework bundle, read once and cached; the stylesheet is
         # installed once (not re-parsed on every reload — see reload()).
@@ -151,6 +164,11 @@ class PhotoEditApp:
         return self.doc.zoom()
 
     def tool_cursor(self) -> str:
+        # A pan in progress (right-drag, space-drag, or the Hand tool) owns the
+        # cursor regardless of which tool is selected. Space-held shows it
+        # before the drag starts, as a hint that the click will pan.
+        if (self._drag or {}).get("kind") == "pan" or self._space_down:
+            return "move"
         return _TOOL_CURSORS.get(self.tool, "crosshair")
 
     def _populate_view(self, view: ui.View) -> None:
@@ -302,7 +320,8 @@ class PhotoEditApp:
         v.container(classes="dcs-divider dcs-divider--v",
                     key="ps-menubar-divider")
         cog = v.container(
-            classes="dcs-btn dcs-btn--icon dcs-btn--ghost ps-settings",
+            classes="dcs-btn dcs-btn--icon dcs-btn--ghost ps-settings "
+                    "ps-toolbtn",
             key="ps-settings", build=lambda h: h.html(
                 '<i class="di di-cog"></i>'))
         cog.attr("role", "button").attr("title", "Theme tweaks")
@@ -397,8 +416,15 @@ class PhotoEditApp:
                     build=lambda slot: options.build(self, slot))
         v.container(classes="dcs-divider dcs-divider--v",
                     key="ps-opt-divider-b")
-        fit = v.button("Fit", key="ps-btn-reset-view")
-        fit.cls("dcs-btn dcs-btn--ghost dcs-btn--sm")
+        # Fit-to-screen: the four-corner frame mark (like a video player's
+        # fit control) beside the label. Drawn as SVG — the icon font has no
+        # matching glyph at this size — with fill/stroke set per shape (the
+        # renderer doesn't inherit SVG presentation attributes).
+        fit = v.container(
+            classes="dcs-btn dcs-btn--ghost dcs-btn--sm ps-toolbtn ps-fitbtn",
+            key="ps-btn-reset-view",
+            build=lambda h: h.html(_SVG_FIT + '<span>Fit</span>'))
+        fit.attr("role", "button").attr("title", "Fit on screen")
         fit.on_click(self.fit_to_screen)
 
     def _build_statusbar(self, v: ui.View) -> None:
@@ -476,8 +502,17 @@ class PhotoEditApp:
             self.reload()
             return
         # Wheel zoom/pan has no release event to reload on; refresh the
-        # readouts next frame. Drags defer to their mouse-up reload.
-        if self._needs_reload and self._drag is None:
+        # readouts next frame.
+        #
+        # View-transform drags (pan / navigator pan) reload EVERY frame too:
+        # the rulers are DOM, so unlike the canvas — which the core repaints
+        # itself — their ticks only move when the view is rebuilt. Deferring
+        # that to mouse-up left them frozen while the image slid underneath.
+        # This is the reconcile fast path: rebuilding mid-drag diffs to just
+        # the tick spans. Content drags (strokes, marquees) still defer —
+        # they don't move the view, so the rulers don't change.
+        drag_kind = self._drag["kind"] if self._drag else None
+        if self._needs_reload and drag_kind in (None, "pan", "navpan"):
             self.reload()
 
     def _on_event(self, ev: ui.Event, hover) -> bool:
@@ -493,8 +528,9 @@ class PhotoEditApp:
         if et == ui.EventType.KeyDown:
             return self._key_down(ev)
         if et == ui.EventType.KeyUp:
-            if ev.key == ui.Key.Space:
+            if ev.key == ui.Key.Space and self._space_down:
                 self._space_down = False
+                self.reload()  # restore the tool cursor
             return False
         return False
 
@@ -529,9 +565,20 @@ class PhotoEditApp:
         if self.app is not None:
             self.app.capture_pointer()
 
+    def _begin_pan(self, ev: ui.Event) -> bool:
+        self._drag = {"kind": "pan", "sx": ev.pos.x, "sy": ev.pos.y,
+                      "px": self.doc.pan_x(), "py": self.doc.pan_y()}
+        self._capture()
+        self.reload()  # swap the stage cursor to the panning one
+        return True
+
     def _mouse_down(self, ev: ui.Event, hover) -> bool:
         if self.dialog is not None:
             return False
+        # Right-drag anywhere on the stage pans, whatever the active tool —
+        # the DCC convention, and it saves reaching for space/Hand mid-stroke.
+        if ev.button == ui.MouseButton.Right and self._over_stage(hover):
+            return self._begin_pan(ev)
         # Snappy activation: layer selection and history jumps fire on
         # mousedown, not the framework's mouseup on_click. The row carries
         # its id/index as a data attribute so the router can act immediately.
@@ -552,10 +599,7 @@ class PhotoEditApp:
             else self.tool
 
         if tool == "hand":
-            self._drag = {"kind": "pan", "sx": ev.pos.x, "sy": ev.pos.y,
-                          "px": self.doc.pan_x(), "py": self.doc.pan_y()}
-            self._capture()
-            return True
+            return self._begin_pan(ev)
         if tool == "zoom":
             factor = (1 / 1.4) if ev.alt else 1.4
             self.doc.set_zoom_at(self.zoom * factor, float(ev.pos.x),
@@ -855,23 +899,16 @@ class PhotoEditApp:
         else:
             self.doc.set_pan(self.doc.pan_x() + ev.wheel_dx * 32,
                              self.doc.pan_y() + ev.wheel_dy * 32)
-        # Update the zoom readouts in place (statusbar/title/rulers/nav) so a
-        # wheel burst stays snappy without a full DOM reload — reloading
-        # between wheel events staled the hover chain and dropped every wheel
-        # after the first. A final reload still lands via _needs_reload once
-        # wheeling settles.
+        # Reconcile to refresh every zoom readout (nav %, statusbar, rulers,
+        # title). The reconcile fast path is ~1ms, so a rebuild per wheel is
+        # cheap AND keeps the DOM the single source of truth — an earlier
+        # attempt to hand-mutate the nav % text with set_text_by_id fought the
+        # reconcile (a directly-mutated node the diff couldn't match, leaving a
+        # duplicate "%%" in the navigator). The stage repaints itself via the
+        # core's request_custom_repaint regardless.
         self._sync_overlays()
-        self._sync_zoom_readouts()
-        self._needs_reload = True
+        self.reload()
         return True
-
-    def _sync_zoom_readouts(self) -> None:
-        # Live-update the visible zoom % (navigator) during a wheel burst;
-        # the statusbar field and rulers refresh on the settle reload.
-        if self.app is None:
-            return
-        self.app.document().set_text_by_id(
-            "ps-nav-pct", f"{round(self.zoom * 100)}%")
 
     # ── Keyboard (web wireKeys) ─────────────────────────────────────────────
 
@@ -888,6 +925,7 @@ class PhotoEditApp:
         if key == K.Space:
             if not self._space_down:
                 self._space_down = True
+                self.reload()  # show the pan cursor while space is held
             return True
         if cmd and key == K.Z:
             self.redo() if ev.shift else self.undo()

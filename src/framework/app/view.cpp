@@ -1515,6 +1515,25 @@ View& View::selector(std::string_view name, std::string_view value) {
 }
 
 void View::begin(ViewSink* sink) {
+    // Nesting guard: the App owns the reconcile lifecycle — it calls
+    // begin(DocumentViewSink)/end() around the whole builder. A builder that
+    // *itself* calls begin()/end() (the common "build_into a fresh view OR the
+    // App's persistent view" body) must not hijack that: replacing sink_ here
+    // would divert every mutation to the inner sink (for the Python no-arg
+    // begin(), a queue-less RemotePatchSink that drops everything), so the
+    // reconcile diff — correctly computed — would never reach the document.
+    // Keep the outer session's sink; just re-init the pass state (cursor/stack)
+    // so the nested build still records into the same retained tree. The
+    // matching nested end() is deferred to the outer end() (see below).
+    if (begin_depth_ > 0) {
+        ++begin_depth_;
+        root_.cursor = 0;
+        root_app_shell_ = false;
+        stack_.clear();
+        stack_.push_back(&root_);
+        return;
+    }
+    begin_depth_ = 1;
     sink_ = sink;
     reconciling_ = true;
     root_.cursor = 0;
@@ -1524,11 +1543,26 @@ void View::begin(ViewSink* sink) {
 }
 
 void View::begin(RemotePatchQueue* remote_patches) {
+    // A nested begin() (a builder inside the App's reconcile session) keeps the
+    // outer sink — don't install this queue's sink over it.
+    if (begin_depth_ > 0) {
+        begin(static_cast<ViewSink*>(nullptr));  // nesting path preserves sink_
+        return;
+    }
     remote_patch_sink_.reset(remote_patches);
     begin(static_cast<ViewSink*>(&remote_patch_sink_));
 }
 
 void View::end() {
+    // Balance a nested begin(): only the outermost end() settles the pass
+    // (removes trailing children, flushes attr diffs, tears down the session).
+    // An inner end() just returns to the enclosing depth so the outer end()
+    // still runs over the fully-built tree.
+    if (begin_depth_ > 1) {
+        --begin_depth_;
+        return;
+    }
+    begin_depth_ = 0;
     while (stack_.size() > 1) close_node();
     if (!stack_.empty()) {
         auto* root = stack_.back();

@@ -1078,31 +1078,45 @@ void Document::draw(Painter& painter) {
 
         // ── PHASE: text + widget chrome ──────────────────────────────
         if (phase == BlockPaintPhase::Text) {
-        // The dcs-grip drag handle is a dotted texture — widget chrome the
+        // The dcs-grip drag handle is a pixel-art texture — widget chrome the
         // painter draws directly (a peer of the checkbox tick / switch knob
-        // below), not a CSS background. Drawn dots, so there is no image
-        // resource to own or free. Small faint dots on a 4px grid in the
-        // grip's currentColor, centered in the grip so a wide/tall grip
-        // keeps the pattern tight rather than a dense full-bleed block.
+        // below), not a CSS background. Drawn as 1px rects, so there is no
+        // image resource to own or free. The unit is a 5x4 "raised nub" tile
+        // (2px nub body with a top-left highlight and bottom-right shadow over
+        // a dark cell) repeated to fill the grip rect — the classic embossed
+        // grip texture.
         if (detail::block_has_class(b, "dcs-grip") &&
-            eff.w > 0 && eff.h > 0 && (an.color_rgba & 0xFFu) != 0) {
-            Color dot = detail::unpack_rgba(an.color_rgba);
-            dot.a = static_cast<std::uint8_t>(dot.a * 70 / 100);  // faint
-            const int step = 4;
-            const float r = 0.7f;
-            // Center the dot lattice within the grip's box on both axes so
-            // the rows/cols are balanced (no lopsided edge row).
-            const int cols = std::max(1, (eff.w - 2) / step);
-            const int rows = std::max(1, (eff.h - 2) / step);
-            const int used_w = cols * step;
-            const int used_h = rows * step;
-            const int x0 = eff.x + (eff.w - used_w) / 2 + step / 2;
-            const int y0 = eff.y + (eff.h - used_h) / 2 + step / 2;
+            eff.w > 0 && eff.h > 0) {
+            // Exact 5x4 raised-nub tile from the design. Palette (index →
+            // colour): 0 highlight (lightest, top-left), 1 base, 2 shadow,
+            // 3 darkest accent.
+            const Color pal[4] = {
+                {0x96, 0x9b, 0xa6, 0xff},  // 0 highlight
+                {0x6d, 0x74, 0x84, 0xff},  // 1 base
+                {0x4c, 0x52, 0x62, 0xff},  // 2 shadow
+                {0x2d, 0x31, 0x3d, 0xff},  // 3 darkest
+            };
+            static const std::uint8_t kNub[4][5] = {
+                {3, 1, 1, 2, 3},
+                {1, 0, 0, 1, 2},
+                {1, 1, 1, 1, 2},
+                {2, 2, 2, 2, 2},
+            };
+            const int tw = 5, th = 4;
+            const int cols = std::max(1, eff.w / tw);
+            const int rows = std::max(1, eff.h / th);
+            const int x0 = eff.x + (eff.w - cols * tw) / 2;
+            const int y0 = eff.y + (eff.h - rows * th) / 2;
             for (int ry = 0; ry < rows; ++ry) {
                 for (int cx = 0; cx < cols; ++cx) {
-                    painter.fill_circle(
-                        static_cast<float>(x0 + cx * step),
-                        static_cast<float>(y0 + ry * step), r, dot);
+                    for (int py = 0; py < th; ++py) {
+                        for (int px = 0; px < tw; ++px) {
+                            const std::uint8_t idx = kNub[py][px];
+                            painter.fill_rect(
+                                Rect{x0 + cx * tw + px, y0 + ry * th + py,
+                                     1, 1}, pal[idx]);
+                        }
+                    }
                 }
             }
         }
