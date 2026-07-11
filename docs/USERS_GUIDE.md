@@ -167,6 +167,13 @@ deprecated: eager lists get abused and make apps non-performant.)
 
 ## Virtual lists & trees
 
+**Never build a huge list out of plain elements.** A thousand
+`container()`/`text()` rows means a thousand DOM nodes to style, lay out,
+and reconcile on every rebuild — eager lists are the single most common
+way apps go non-performant, and the cost compounds silently as data
+grows. If a collection can ever be large, or you don't control its size,
+reach for a virtual list *first*, not after it gets slow.
+
 Lists and trees in AffineUI are **virtual by design**: the DOM only ever
 holds the rows under the viewport (plus a small overscan), yet the
 scrollbar, wheel, and keyboard behave exactly as if every row were real.
@@ -709,9 +716,14 @@ which path their updates take. In rough order of importance:
   touching DOM, styles, or layout. Don't generate SVG or DOM per frame.
 - **Keep keys stable.** Stable widget keys let the reconciler match nodes
   across rebuilds; unstable keys turn updates into teardown-and-recreate.
-- **Use `virtual_list` / `virtual_tree` for long lists** — providers plus
-  slot-recycled rows build only the visible window; scrolling is
-  attribute-diffs only, at any item count.
+- **Never render a large collection as plain elements — always prefer
+  `virtual_list` / `virtual_tree`.** Providers plus slot-recycled rows
+  build only the visible window; scrolling is attribute-diffs only, at
+  any item count. An eager row-per-item list pays DOM, style, layout,
+  and reconcile cost for every item on every rebuild — fine at 20 rows,
+  ruinous at 2,000, and the row count is rarely yours to control. (The
+  strings-only overload makes the virtual path a one-liner, so there is
+  no convenience argument for the eager form.)
 - **Toggle visibility, don't rebuild.** Showing/hiding subtrees
   (`display:none`, `hidden`) is a restyle, not a structural edit; the
   engine retains the hidden subtree's layout state.
