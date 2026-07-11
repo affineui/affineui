@@ -287,25 +287,46 @@ is deliberately a clean subset of both mobile stacks:
 **Per-glyph font fallback.** Wire `nvgAddFallbackFontId` (exists in our
 nanovg fork, currently unused) behind the painter's font registry:
 
-- Fallback faces load **lazily** — CJK system fonts are 15–25 MB; register the
-  file path eagerly, load + attach on the first codepoint ≥ U+2E80 requested
-  (cheap range scan at shaping time), so Latin-only apps pay nothing.
-- Candidates (first hit wins, system-locale's script ordered first):
-  Windows `msyh.ttc` / `yugothm.ttc`(or `meiryo.ttc`) / `malgun.ttf` /
-  `simsun.ttc`; Linux Noto Sans CJK; macOS Hiragino/PingFang (TTC — verify
-  fontstash's stb_truetype face-index handling; index 0 is acceptable v1).
+- Fallback faces load **lazily** — CJK system fonts are 15–25 MB; load +
+  attach on the first CJK codepoint measured or drawn (a byte-level scan that
+  early-outs on lead bytes < 0xE0), so Latin-only apps pay nothing.
+- Candidates (all that load attach; the **order** — preferred locale first —
+  decides which style Han-unified ideographs render in): Windows `msyh.ttc` /
+  `YuGothM.ttc` / `meiryo.ttc` / `malgun.ttf` / `msjh.ttc` (+ bold variants);
+  Linux Noto Sans CJK ttc (face index picked by locale: 0=JP 1=KR 2=SC 3=TC);
+  macOS PingFang/AppleSDGothicNeo best-effort.
+- Attach to **every** existing face, not just the four core ones: fontstash
+  hands out dense sequential ids, so all faces created before the fallbacks
+  (embedded Roboto, the platform alias families like `Segoe UI` / `Arial` /
+  `monospace`, CSS `@font-face` registrations) are `0..first_cjk_id-1`. The
+  original design attached only the core faces and rendered nothing, because
+  the resolved UI face was a platform alias. Faces registered later get the
+  chain at registration time.
 - Embedded-Roboto determinism (see `embedded-fonts` decision) is preserved for
   Latin UI; CJK metrics are system-dependent by necessity — documented
   limitation until we consider an optional embedded Noto CJK subset.
+- **MSVC needs `/utf-8`** (set in the top-level CMakeLists): without it MSVC
+  compiles UTF-8 string literals through the system ANSI codepage, mangling
+  CJK text before lexbor ever parses it — the symptom is silently missing
+  text, not tofu. Embedding hosts must set the flag in their own builds.
 
-**CJK line breaking.** Extend the text-control wrapper (`document_text.cpp`)
-with break opportunities between CJK codepoints (Han, Kana, Hangul, full-width
-forms), with a minimal kinsoku rule: no break *before* closing
-punctuation/small kana (。、」』ぁっー等), no break *after* opening brackets.
-Full UAX #14 is out of scope. The block-flow (paragraph) breaker is a separate
-code path — audit it with a conformance case (`conformance/`, A/B vs Chrome
-with CJK text) and fix in the same style; if it balloons, it splits into its
-own PR rather than blocking IME.
+**CJK line breaking.** Two code paths must agree or carets drift off glyphs:
+
+- *Painted text* wraps inside the painter (`nvgTextBreakLines`). The fork
+  patch (marked `affineui:` in `external/nanovg/src/nanovg.c`) widens the
+  `NVG_CJK_CHAR` ranges and adds minimal kinsoku via `nvg__cjkNoBreakBefore`
+  / `nvg__cjkNoBreakAfter`: no break *before* closing punctuation/small
+  kana (。、」』ぁっー等), no break *after* opening brackets.
+- *The text-control caret table* (`ensure_text_layout_entry`,
+  `document_text.cpp`) mirrors the identical classes and kinsoku sets
+  (`is_cjk_break_class`, `kinsoku_no_break_before/after`) — a break is
+  allowed directly before any CJK codepoint, kinsoku permitting, and
+  consumes nothing (unlike space breaks). Keep both sides in sync.
+
+Full UAX #14 is out of scope. One subtlety: a soft CJK wrap shares its byte
+offset between end-of-line-N and start-of-line-N+1; the caret table keeps the
+next-line-start entry (no caret affinity yet), so clicking past a wrapped
+line's end lands the caret at the start of the next line.
 
 ## 5. Testing strategy
 

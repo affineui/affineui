@@ -13,11 +13,24 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#if defined(_WIN32)
+// GetUserDefaultUILanguage — orders the lazy CJK fallback chain by the
+// user's UI language (Han-unified glyph style preference).
+#    if !defined(WIN32_LEAN_AND_MEAN)
+#        define WIN32_LEAN_AND_MEAN
+#    endif
+#    if !defined(NOMINMAX)
+#        define NOMINMAX
+#    endif
+#    include <windows.h>
+#endif
 
 #if !defined(AFFINEUI_STUB_BUILD)
 #    include "nanovg.h"
@@ -324,6 +337,77 @@ bool is_unavailable_platform_alias(std::string_view family) {
 int create_font_if_absent(NVGcontext* vg, const char* name, const char* path) {
     if (!name || !path || nvgFindFont(vg, name) >= 0) return nvgFindFont(vg, name);
     return nvgCreateFont(vg, name, path);
+}
+
+// CJK detection for the lazy fallback-font load. Covers the ranges an
+// East Asian IME (or pasted CJK text) can produce: Hangul Jamo/syllables,
+// CJK radicals through the unified block (incl. kana + CJK punctuation),
+// compatibility ideographs, full-width forms, and the supplementary
+// ideographic planes.
+bool is_cjk_codepoint(std::uint32_t cp) {
+    return (cp >= 0x1100u && cp <= 0x11FFu) ||
+           (cp >= 0x2E80u && cp <= 0x9FFFu) ||
+           (cp >= 0xAC00u && cp <= 0xD7FFu) ||
+           (cp >= 0xF900u && cp <= 0xFAFFu) ||
+           (cp >= 0xFF00u && cp <= 0xFFEFu) ||
+           (cp >= 0x20000u && cp <= 0x3FFFFu);
+}
+
+// Byte-level fast path: every CJK codepoint is 3+ bytes in UTF-8 with a
+// lead byte >= 0xE0, so pure-ASCII/Latin text scans without decoding.
+bool text_contains_cjk(std::string_view text) {
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const auto b = static_cast<unsigned char>(text[i]);
+        if (b < 0xE0u) continue;
+        std::uint32_t cp = 0;
+        if ((b & 0xF0u) == 0xE0u && i + 2 < text.size()) {
+            cp = (static_cast<std::uint32_t>(b & 0x0Fu) << 12) |
+                 ((static_cast<unsigned char>(text[i + 1]) & 0x3Fu) << 6) |
+                 (static_cast<unsigned char>(text[i + 2]) & 0x3Fu);
+        } else if ((b & 0xF8u) == 0xF0u && i + 3 < text.size()) {
+            cp = (static_cast<std::uint32_t>(b & 0x07u) << 18) |
+                 ((static_cast<unsigned char>(text[i + 1]) & 0x3Fu) << 12) |
+                 ((static_cast<unsigned char>(text[i + 2]) & 0x3Fu) << 6) |
+                 (static_cast<unsigned char>(text[i + 3]) & 0x3Fu);
+        }
+        if (is_cjk_codepoint(cp)) return true;
+    }
+    return false;
+}
+
+// Which East Asian script the user's UI language prefers — decides the
+// ORDER of the fallback chain (Han-unified ideographs render in the style
+// of the first face that covers them), never the coverage (all available
+// scripts load).
+enum class CjkLocale { SimplifiedChinese, TraditionalChinese, Japanese, Korean };
+
+CjkLocale preferred_cjk_locale() {
+#if defined(_WIN32)
+    const LANGID lang = GetUserDefaultUILanguage();
+    switch (PRIMARYLANGID(lang)) {
+        case LANG_JAPANESE: return CjkLocale::Japanese;
+        case LANG_KOREAN:   return CjkLocale::Korean;
+        case LANG_CHINESE: {
+            const auto sub = SUBLANGID(lang);
+            return (sub == SUBLANG_CHINESE_TRADITIONAL ||
+                    sub == SUBLANG_CHINESE_HONGKONG ||
+                    sub == SUBLANG_CHINESE_MACAU)
+                ? CjkLocale::TraditionalChinese
+                : CjkLocale::SimplifiedChinese;
+        }
+        default: return CjkLocale::SimplifiedChinese;
+    }
+#else
+    const char* env = std::getenv("LC_ALL");
+    if (!env || !*env) env = std::getenv("LANG");
+    const std::string lang = env ? env : "";
+    if (lang.rfind("ja", 0) == 0) return CjkLocale::Japanese;
+    if (lang.rfind("ko", 0) == 0) return CjkLocale::Korean;
+    if (lang.rfind("zh_TW", 0) == 0 || lang.rfind("zh_HK", 0) == 0) {
+        return CjkLocale::TraditionalChinese;
+    }
+    return CjkLocale::SimplifiedChinese;
+#endif
 }
 
 void register_font_alias_family(NVGcontext* vg,
@@ -1496,11 +1580,13 @@ public:
         registered_face_ids_[key] = id;
         registered_faces_.push_back(
             RegisteredFontFace{std::string(family), weight, italic, id});
+        if (cjk_fallback_attempted_) attach_cjk_fallbacks(id, weight >= 600);
         return true;
     }
 
     int measure_text(std::uint32_t handle, std::string_view text) override {
         if (handle == 0) return 0;
+        ensure_cjk_fallback(text);
         apply_handle(handle);
         float bounds[4] = {0, 0, 0, 0};
         const float advance = nvgTextBounds(vg_, 0.0f, 0.0f,
@@ -1528,6 +1614,7 @@ public:
                    std::string_view text,
                    Color           color) override {
         if (handle == 0) return;
+        ensure_cjk_fallback(text);
         apply_handle(handle);
         nvgFillColor(vg_, to_nvg(color));
         const float fx = static_cast<float>(pos.x);
@@ -1541,6 +1628,7 @@ public:
                           float line_height_mult,
                           float letter_spacing_px) override {
         if (handle == 0 || text.empty()) return {};
+        ensure_cjk_fallback(text);
         apply_handle(handle);
         nvgTextLetterSpacing(vg_, letter_spacing_px);
         const float natural_line_h = natural_line_height_px(handle);
@@ -1649,6 +1737,7 @@ public:
                        float         letter_spacing_px,
                        TextAlign     align) override {
         if (handle == 0 || text.empty()) return;
+        ensure_cjk_fallback(text);
         apply_handle(handle);
         nvgTextLetterSpacing(vg_, letter_spacing_px);
         const float natural_line_h = natural_line_height_px(handle);
@@ -2059,6 +2148,134 @@ private:
     // agreement about row counts.
     static constexpr float kWrapEpsilonPx = 0.75f;
 
+    // ── Lazy CJK fallback ───────────────────────────────────────────
+    // The primary UI faces (embedded Roboto / system sans) carry no CJK
+    // glyphs; the first time CJK text is measured or drawn, load the
+    // platform's CJK system fonts and attach them to every known face as
+    // fontstash per-glyph fallbacks. Lazy because CJK faces are 15–25 MB
+    // each — Latin-only apps never pay for them. The pre-load per-call
+    // cost is a byte scan that early-outs on the first lead byte < 0xE0.
+    void ensure_cjk_fallback(std::string_view text) {
+        if (cjk_fallback_attempted_ || !text_contains_cjk(text)) return;
+        cjk_fallback_attempted_ = true;
+        load_cjk_fallback_faces();
+        // fontstash hands out dense sequential font ids, so every face
+        // created before the fallback faces — embedded defaults, the
+        // platform alias families (Segoe UI, Arial, monospace, ...), CSS
+        // @font-face registrations — is id 0..first_cjk-1. Attach the
+        // fallback chain to all of them; faces registered later are
+        // handled at registration time.
+        int first_cjk = std::numeric_limits<int>::max();
+        for (int id : cjk_fallback_faces_) first_cjk = std::min(first_cjk, id);
+        for (int id : cjk_fallback_bold_faces_) first_cjk = std::min(first_cjk, id);
+        if (first_cjk == std::numeric_limits<int>::max()) return;
+        const auto is_bold_base = [&](int face) {
+            if (face == bold_face_ || face == bold_italic_face_) return true;
+            for (const auto& f : registered_faces_) {
+                if (f.face == face) return f.weight >= 600;
+            }
+            return false;
+        };
+        for (int base = 0; base < first_cjk; ++base) {
+            attach_cjk_fallbacks(base, is_bold_base(base));
+        }
+    }
+
+    void load_cjk_fallback_faces() {
+        struct Candidate { const char* path; int index; CjkLocale locale; };
+        // Coverage is the union of everything that loads; the chain ORDER
+        // (preferred locale first) decides which Han style unified
+        // ideographs render in. Kana rides the JP faces, Hangul the KR
+        // face; YaHei/JhengHei carry kana too, so any one hit gives
+        // usable-if-not-ideal coverage.
+        static constexpr Candidate kRegular[] = {
+#if defined(_WIN32)
+            {"C:/Windows/Fonts/msyh.ttc",     0, CjkLocale::SimplifiedChinese},
+            {"C:/Windows/Fonts/msyh.ttf",     0, CjkLocale::SimplifiedChinese},
+            {"C:/Windows/Fonts/YuGothM.ttc",  0, CjkLocale::Japanese},
+            {"C:/Windows/Fonts/meiryo.ttc",   0, CjkLocale::Japanese},
+            {"C:/Windows/Fonts/malgun.ttf",   0, CjkLocale::Korean},
+            {"C:/Windows/Fonts/msjh.ttc",     0, CjkLocale::TraditionalChinese},
+#elif defined(__APPLE__)
+            {"/System/Library/Fonts/PingFang.ttc",          0, CjkLocale::SimplifiedChinese},
+            {"/System/Library/Fonts/AppleSDGothicNeo.ttc",  0, CjkLocale::Korean},
+            {"/System/Library/Fonts/Hiragino Sans GB.ttc",  0, CjkLocale::SimplifiedChinese},
+#else
+            // Noto Sans CJK bundles JP/KR/SC/TC as ttc faces 0..3; one
+            // locale-picked face covers Han + kana + Hangul.
+            {"/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", -1, CjkLocale::SimplifiedChinese},
+            {"/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",      -1, CjkLocale::SimplifiedChinese},
+#endif
+        };
+        static constexpr Candidate kBold[] = {
+#if defined(_WIN32)
+            {"C:/Windows/Fonts/msyhbd.ttc",   0, CjkLocale::SimplifiedChinese},
+            {"C:/Windows/Fonts/msyhbd.ttf",   0, CjkLocale::SimplifiedChinese},
+            {"C:/Windows/Fonts/YuGothB.ttc",  0, CjkLocale::Japanese},
+            {"C:/Windows/Fonts/meiryob.ttc",  0, CjkLocale::Japanese},
+            {"C:/Windows/Fonts/malgunbd.ttf", 0, CjkLocale::Korean},
+            {"C:/Windows/Fonts/msjhbd.ttc",   0, CjkLocale::TraditionalChinese},
+#elif defined(__APPLE__)
+            // No standalone bold CJK files on macOS (weights live inside
+            // PingFang.ttc at unstable indices) — bold bases fall through
+            // to the regular chain. Null path keeps the array non-empty.
+            {nullptr, 0, CjkLocale::SimplifiedChinese},
+#else
+            {"/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", -1, CjkLocale::SimplifiedChinese},
+            {"/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc",      -1, CjkLocale::SimplifiedChinese},
+#endif
+        };
+        const CjkLocale preferred = preferred_cjk_locale();
+        // Noto ttc face order: 0=JP 1=KR 2=SC 3=TC (index -1 sentinel).
+        const auto resolve_index = [&](int index) {
+            if (index >= 0) return index;
+            switch (preferred) {
+                case CjkLocale::Japanese:           return 0;
+                case CjkLocale::Korean:             return 1;
+                case CjkLocale::TraditionalChinese: return 3;
+                case CjkLocale::SimplifiedChinese:  return 2;
+            }
+            return 2;
+        };
+        int serial = 0;
+        const auto load_list = [&](const Candidate* list, std::size_t count,
+                                   std::vector<int>& out) {
+            // Preferred locale's candidates first, then the rest.
+            for (int pass = 0; pass < 2; ++pass) {
+                for (std::size_t i = 0; i < count; ++i) {
+                    if (!list[i].path) continue;
+                    const bool wanted =
+                        (pass == 0) == (list[i].locale == preferred);
+                    if (!wanted) continue;
+                    char name[32];
+                    std::snprintf(name, sizeof(name), "__aui_cjk_%d",
+                                  serial++);
+                    const int idx = resolve_index(list[i].index);
+                    const int id = idx == 0
+                        ? nvgCreateFont(vg_, name, list[i].path)
+                        : nvgCreateFontAtIndex(vg_, name, list[i].path, idx);
+                    if (id >= 0) out.push_back(id);
+                }
+            }
+        };
+        load_list(kRegular, std::size(kRegular), cjk_fallback_faces_);
+        load_list(kBold, std::size(kBold), cjk_fallback_bold_faces_);
+    }
+
+    void attach_cjk_fallbacks(int base_face, bool bold) {
+        if (base_face < 0) return;
+        // Bold bases prefer the bold CJK chain, then the regular chain as
+        // coverage backstop; regular bases get the regular chain only.
+        if (bold) {
+            for (int id : cjk_fallback_bold_faces_) {
+                nvgAddFallbackFontId(vg_, base_face, id);
+            }
+        }
+        for (int id : cjk_fallback_faces_) {
+            nvgAddFallbackFontId(vg_, base_face, id);
+        }
+    }
+
     NVGcontext*                                  vg_{nullptr};
     int                                          width_{0};
     int                                          height_{0};
@@ -2066,6 +2283,9 @@ private:
     int                                          bold_face_{-1};
     int                                          italic_face_{-1};
     int                                          bold_italic_face_{-1};
+    bool                                         cjk_fallback_attempted_{false};
+    std::vector<int>                             cjk_fallback_faces_;
+    std::vector<int>                             cjk_fallback_bold_faces_;
     std::unordered_map<std::string, int>         image_cache_;
     std::unordered_map<std::uint64_t, int>       stripe_cache_;
     std::unordered_map<std::uint64_t, int>       gradient_luts_;
