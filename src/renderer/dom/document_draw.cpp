@@ -1103,18 +1103,27 @@ void Document::draw(Painter& painter) {
                 {2, 2, 2, 2, 2},
             };
             const int tw = 5, th = 4;
-            const int cols = std::max(1, eff.w / tw);
-            const int rows = std::max(1, eff.h / th);
+            // CEIL the tile counts and clip each pixel to `eff`: flooring left
+            // a remainder strip unpainted on sizes that aren't a whole number
+            // of tiles (16px wide → 3 tiles → a dead 1px column), while the
+            // max(1,…) floor painted a whole tile OUTSIDE a grip smaller than
+            // one tile. Ceil covers the box; the clip keeps the overhang in.
+            const int cols = std::max(1, (eff.w + tw - 1) / tw);
+            const int rows = std::max(1, (eff.h + th - 1) / th);
             const int x0 = eff.x + (eff.w - cols * tw) / 2;
             const int y0 = eff.y + (eff.h - rows * th) / 2;
+            const int x1 = eff.x + eff.w;
+            const int y1 = eff.y + eff.h;
             for (int ry = 0; ry < rows; ++ry) {
                 for (int cx = 0; cx < cols; ++cx) {
                     for (int py = 0; py < th; ++py) {
+                        const int y = y0 + ry * th + py;
+                        if (y < eff.y || y >= y1) continue;
                         for (int px = 0; px < tw; ++px) {
-                            const std::uint8_t idx = kNub[py][px];
-                            painter.fill_rect(
-                                Rect{x0 + cx * tw + px, y0 + ry * th + py,
-                                     1, 1}, pal[idx]);
+                            const int x = x0 + cx * tw + px;
+                            if (x < eff.x || x >= x1) continue;
+                            painter.fill_rect(Rect{x, y, 1, 1},
+                                              pal[kNub[py][px]]);
                         }
                     }
                 }
