@@ -34,6 +34,10 @@ opaque!(affineui_app);
 opaque!(affineui_document);
 opaque!(affineui_view);
 opaque!(affineui_widget);
+opaque!(affineui_index_selection);
+opaque!(affineui_vlist_provider);
+opaque!(affineui_vtree_provider);
+opaque!(affineui_tree_flattener);
 
 // ── Shared enums (values locked to the C header) ─────────────────────
 
@@ -235,6 +239,42 @@ pub type affineui_ui_click_fn = Option<unsafe extern "C" fn(user: *mut c_void)>;
 pub type affineui_click_fn = Option<unsafe extern "C" fn(user: *mut c_void)>;
 pub type affineui_change_fn = Option<unsafe extern "C" fn(user: *mut c_void, value: *const c_char)>;
 pub type affineui_build_fn = Option<unsafe extern "C" fn(user: *mut c_void, view: *mut affineui_view)>;
+
+// -- Virtual lists & trees --------------------------------------------
+
+pub const AFFINEUI_SELECT_REPLACE: c_int = 0;
+pub const AFFINEUI_SELECT_TOGGLE: c_int = 1;
+pub const AFFINEUI_SELECT_RANGE: c_int = 2;
+
+pub const AFFINEUI_AXIS_VERTICAL: c_int = 0;
+pub const AFFINEUI_AXIS_HORIZONTAL: c_int = 1;
+
+pub type affineui_notify_fn = Option<unsafe extern "C" fn(user: *mut c_void)>;
+pub type affineui_item_count_fn = Option<unsafe extern "C" fn(user: *mut c_void) -> usize>;
+pub type affineui_item_size_fn =
+    Option<unsafe extern "C" fn(user: *mut c_void, index: usize) -> f64>;
+pub type affineui_item_text_fn =
+    Option<unsafe extern "C" fn(user: *mut c_void, index: usize) -> *const c_char>;
+pub type affineui_item_flag_fn =
+    Option<unsafe extern "C" fn(user: *mut c_void, index: usize) -> c_int>;
+pub type affineui_item_build_fn =
+    Option<unsafe extern "C" fn(user: *mut c_void, view: *mut affineui_view, index: usize)>;
+pub type affineui_item_activate_fn =
+    Option<unsafe extern "C" fn(user: *mut c_void, index: usize, select_mod: c_int)>;
+pub type affineui_item_toggle_fn =
+    Option<unsafe extern "C" fn(user: *mut c_void, index: usize)>;
+pub type affineui_item_checked_fn =
+    Option<unsafe extern "C" fn(user: *mut c_void, index: usize, checked: c_int)>;
+pub type affineui_item_depth_fn =
+    Option<unsafe extern "C" fn(user: *mut c_void, index: usize) -> c_int>;
+pub type affineui_tree_emit_fn = Option<unsafe extern "C" fn(ctx: *mut c_void, child: u64)>;
+pub type affineui_tree_children_fn = Option<
+    unsafe extern "C" fn(user: *mut c_void, parent: u64, emit: affineui_tree_emit_fn, ctx: *mut c_void),
+>;
+pub type affineui_tree_label_fn =
+    Option<unsafe extern "C" fn(user: *mut c_void, handle: u64) -> *const c_char>;
+pub type affineui_tree_flag_fn =
+    Option<unsafe extern "C" fn(user: *mut c_void, handle: u64) -> c_int>;
 
 // ── Functions ────────────────────────────────────────────────────────
 
@@ -606,4 +646,214 @@ extern "C" {
     pub fn affineui_widget_append(w: *mut affineui_widget, build: affineui_build_fn, user: *mut c_void);
     pub fn affineui_widget_replace(w: *mut affineui_widget, build: affineui_build_fn, user: *mut c_void);
     pub fn affineui_widget_find_widget(w: *const affineui_widget, name: *const c_char) -> *mut affineui_widget;
+
+    // -- Virtual lists & trees ------------------------------------------
+
+    pub fn affineui_index_selection_create() -> *mut affineui_index_selection;
+    pub fn affineui_index_selection_destroy(sel: *mut affineui_index_selection);
+    pub fn affineui_index_selection_apply(
+        sel: *mut affineui_index_selection,
+        index: usize,
+        select_mod: c_int,
+        item_count: usize,
+    );
+    pub fn affineui_index_selection_contains(sel: *const affineui_index_selection, index: usize) -> c_int;
+    pub fn affineui_index_selection_clear(sel: *mut affineui_index_selection);
+    pub fn affineui_index_selection_size(sel: *const affineui_index_selection) -> usize;
+    pub fn affineui_index_selection_anchor(sel: *const affineui_index_selection) -> usize;
+    pub fn affineui_index_selection_on_change(
+        sel: *mut affineui_index_selection,
+        fn_: affineui_notify_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+
+    pub fn affineui_vlist_provider_create() -> *mut affineui_vlist_provider;
+    pub fn affineui_vlist_provider_destroy(p: *mut affineui_vlist_provider);
+    pub fn affineui_vlist_provider_on_item_count(
+        p: *mut affineui_vlist_provider,
+        fn_: affineui_item_count_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vlist_provider_on_item_size(
+        p: *mut affineui_vlist_provider,
+        fn_: affineui_item_size_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vlist_provider_on_item_text(
+        p: *mut affineui_vlist_provider,
+        fn_: affineui_item_text_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vlist_provider_on_build_item(
+        p: *mut affineui_vlist_provider,
+        fn_: affineui_item_build_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vlist_provider_on_is_selected(
+        p: *mut affineui_vlist_provider,
+        fn_: affineui_item_flag_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vlist_provider_on_activate(
+        p: *mut affineui_vlist_provider,
+        fn_: affineui_item_activate_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vlist_provider_on_is_checked(
+        p: *mut affineui_vlist_provider,
+        fn_: affineui_item_flag_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vlist_provider_on_set_checked(
+        p: *mut affineui_vlist_provider,
+        fn_: affineui_item_checked_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vlist_provider_set_checkboxes(p: *mut affineui_vlist_provider, on: c_int);
+    pub fn affineui_vlist_provider_set_default_item_size(p: *mut affineui_vlist_provider, px: f64);
+
+    pub fn affineui_vtree_provider_create() -> *mut affineui_vtree_provider;
+    pub fn affineui_vtree_provider_destroy(p: *mut affineui_vtree_provider);
+    pub fn affineui_vtree_provider_on_item_count(
+        p: *mut affineui_vtree_provider,
+        fn_: affineui_item_count_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vtree_provider_on_item_size(
+        p: *mut affineui_vtree_provider,
+        fn_: affineui_item_size_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vtree_provider_on_item_text(
+        p: *mut affineui_vtree_provider,
+        fn_: affineui_item_text_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vtree_provider_on_build_item(
+        p: *mut affineui_vtree_provider,
+        fn_: affineui_item_build_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vtree_provider_on_is_selected(
+        p: *mut affineui_vtree_provider,
+        fn_: affineui_item_flag_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vtree_provider_on_activate(
+        p: *mut affineui_vtree_provider,
+        fn_: affineui_item_activate_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vtree_provider_on_is_checked(
+        p: *mut affineui_vtree_provider,
+        fn_: affineui_item_flag_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vtree_provider_on_set_checked(
+        p: *mut affineui_vtree_provider,
+        fn_: affineui_item_checked_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vtree_provider_on_depth(
+        p: *mut affineui_vtree_provider,
+        fn_: affineui_item_depth_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vtree_provider_on_is_expandable(
+        p: *mut affineui_vtree_provider,
+        fn_: affineui_item_flag_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vtree_provider_on_is_expanded(
+        p: *mut affineui_vtree_provider,
+        fn_: affineui_item_flag_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vtree_provider_on_toggle(
+        p: *mut affineui_vtree_provider,
+        fn_: affineui_item_toggle_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_vtree_provider_set_checkboxes(p: *mut affineui_vtree_provider, on: c_int);
+    pub fn affineui_vtree_provider_set_default_item_size(p: *mut affineui_vtree_provider, px: f64);
+
+    pub fn affineui_tree_flattener_create(
+        children: affineui_tree_children_fn,
+        label: affineui_tree_label_fn,
+        has_children: affineui_tree_flag_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    ) -> *mut affineui_tree_flattener;
+    pub fn affineui_tree_flattener_destroy(f: *mut affineui_tree_flattener);
+    pub fn affineui_tree_flattener_wire(f: *mut affineui_tree_flattener, p: *mut affineui_vtree_provider);
+    pub fn affineui_tree_flattener_rebuild(f: *mut affineui_tree_flattener);
+    pub fn affineui_tree_flattener_on_changed(
+        f: *mut affineui_tree_flattener,
+        fn_: affineui_notify_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_tree_flattener_set_expanded(f: *mut affineui_tree_flattener, handle: u64, open: c_int);
+    pub fn affineui_tree_flattener_is_expanded(f: *const affineui_tree_flattener, handle: u64) -> c_int;
+    pub fn affineui_tree_flattener_set_selected(f: *mut affineui_tree_flattener, handle: u64, on: c_int);
+    pub fn affineui_tree_flattener_selected_contains(f: *const affineui_tree_flattener, handle: u64) -> c_int;
+    pub fn affineui_tree_flattener_clear_selection(f: *mut affineui_tree_flattener);
+    pub fn affineui_tree_flattener_set_checked(f: *mut affineui_tree_flattener, handle: u64, on: c_int);
+    pub fn affineui_tree_flattener_checked_contains(f: *const affineui_tree_flattener, handle: u64) -> c_int;
+    pub fn affineui_tree_flattener_size(f: *const affineui_tree_flattener) -> usize;
+    pub fn affineui_tree_flattener_handle_at(f: *const affineui_tree_flattener, index: usize) -> u64;
+    pub fn affineui_tree_flattener_index_of(f: *const affineui_tree_flattener, handle: u64) -> usize;
+
+    pub fn affineui_view_virtual_list(
+        view: *mut affineui_view,
+        key: *const c_char,
+        provider: *mut affineui_vlist_provider,
+        axis: c_int,
+        classes: *const c_char,
+    ) -> *mut affineui_widget;
+    pub fn affineui_view_virtual_tree(
+        view: *mut affineui_view,
+        key: *const c_char,
+        provider: *mut affineui_vtree_provider,
+        classes: *const c_char,
+    ) -> *mut affineui_widget;
+    pub fn affineui_view_virtual_string_list(
+        view: *mut affineui_view,
+        key: *const c_char,
+        items: *const *const c_char,
+        item_count: usize,
+        item_size: f64,
+        selection: *mut affineui_index_selection,
+        checked: *mut affineui_index_selection,
+        classes: *const c_char,
+    ) -> *mut affineui_widget;
+
+    pub fn affineui_app_set_view(
+        app: *mut affineui_app,
+        build: affineui_build_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_app_rebuild_view(app: *mut affineui_app);
 }

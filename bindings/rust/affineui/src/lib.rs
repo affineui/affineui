@@ -40,6 +40,7 @@ mod event;
 pub mod embedded;
 mod util;
 mod view;
+mod virtual_list;
 
 pub use app::{App, Config};
 pub use components::{
@@ -48,6 +49,10 @@ pub use components::{
 pub use document::{DispatchResult, Document, DocumentScript};
 pub use event::{Color, Event, EventType, Key, MouseButton};
 pub use view::{Theme, View, Widget, WidgetKind};
+pub use virtual_list::{
+    Axis, IndexSelection, SelectMod, TreeFlattener, TreeSource, VirtualListProvider,
+    VirtualTreeProvider, INDEX_NONE,
+};
 
 /// The AffineUI core version string (e.g. `"0.0.1"`).
 pub fn version() -> String {

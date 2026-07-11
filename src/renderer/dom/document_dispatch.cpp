@@ -283,7 +283,17 @@ DispatchResult Document::dispatch(const Event& ev) {
                 }
                 break;
             }
-            const int new_hover = detail::hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
+            int new_hover = detail::hit_test_blocks(*impl_, ev.pos.x, ev.pos.y);
+            {
+                // A scrollbar is browser UI, not content: hovering its
+                // track/thumb must not :hover the row painted beneath it.
+                int sb_idx = -1;
+                ScrollbarGeometry sb{};
+                if (detail::find_vertical_scrollbar_at(*impl_, ev.pos, sb_idx,
+                                                       sb)) {
+                    new_hover = -1;
+                }
+            }
             if (new_hover != impl_->hovered_idx) {
                 impl_->hovered_idx      = new_hover;
                 result.redraw_requested = true;
@@ -348,6 +358,16 @@ DispatchResult Document::dispatch(const Event& ev) {
                             ev.pos.y -
                                 impl_->scrollbar_drag.thumb_offset_y)) {
                         result.redraw_requested = true;
+                    }
+                    // Grabbing the scrollbar un-hovers content for the whole
+                    // drag: the pointer is on browser UI, and the rows
+                    // scrolling by underneath must not keep a stale :hover.
+                    if (impl_->hovered_idx >= 0) {
+                        impl_->hovered_idx = -1;
+                        bool reveal = false;
+                        if (detail::refresh_hover_chain(*impl_, &reveal)) {
+                            result.redraw_requested = true;
+                        }
                     }
                     break;
                 }
@@ -490,6 +510,7 @@ DispatchResult Document::dispatch(const Event& ev) {
             // pointerdown — waiting for the release reads as sluggish). The
             // release path only claims the click for checkbox-like targets so
             // the same gesture can't also activate a menu/dropdown beneath.
+            bool press_consumed_by_checkbox = false;
             if (impl_->ui_control_script_attached &&
                 ev.button == MouseButton::Left && !has_pending_live_drag) {
                 int check_idx = -1;
@@ -498,6 +519,20 @@ DispatchResult Document::dispatch(const Event& ev) {
                                              check_idx, check_elem) &&
                     detail::toggle_checkbox_control(*impl_, check_idx, check_elem)) {
                     result.redraw_requested = true;
+                    // A checkbox inside a virtual-list row (a checklist) owns the
+                    // click — it must not also select the row underneath it.
+                    press_consumed_by_checkbox = true;
+                    // Virtual rows recycle: their checkbox has no widget name,
+                    // so the wrapper-level change event cannot route. Emit the
+                    // toggled state on the data-aui-virtual BOX instead
+                    // ("check:<row>:<0|1>", same rail as activate/toggle) so
+                    // the provider's checked MODEL updates.
+                    const bool now_checked =
+                        detail::attr_string(check_elem, "aria-checked") ==
+                            "true" ||
+                        detail::has_attr(check_elem, "checked");
+                    detail::emit_virtual_row_check(*impl_, check_idx,
+                                                   now_checked);
                 }
             }
             // Collapsibles (foldout/subpanel headers), tree chevrons, and
@@ -508,11 +543,12 @@ DispatchResult Document::dispatch(const Event& ev) {
             if (impl_->ui_control_script_attached &&
                 ev.button == MouseButton::Left && !has_pending_live_drag) {
                 if (detail::toggle_decius_collapse_control(*impl_, impl_->hovered_idx) ||
-                    detail::toggle_dcs_tree_chevron_control(*impl_, impl_->hovered_idx)) {
+                    detail::toggle_dcs_tree_chevron_control(*impl_, impl_->hovered_idx) ||
+                    detail::toggle_virtual_tree_chevron(*impl_, impl_->hovered_idx)) {
                     result.redraw_requested = true;
                     press_consumed_by_collapse = true;
                 }
-                if (!press_consumed_by_collapse) {
+                if (!press_consumed_by_collapse && !press_consumed_by_checkbox) {
                     lxb_dom_element_t* tree = nullptr;
                     lxb_dom_element_t* row = nullptr;
                     const bool draggable_tree_row =
@@ -1151,7 +1187,41 @@ DispatchResult Document::dispatch(const Event& ev) {
             }
 
             Block* control = nullptr;
-            if (!detail::focused_text_control(*impl_, control)) break;
+            if (!detail::focused_text_control(*impl_, control)) {
+                // No text control has focus: Home/End and the vertical arrows
+                // scroll the nearest scrollable-Y container under the pointer
+                // (a virtual list re-windows off the new offset via
+                // set_block_scroll_y's scroll-change emit). Ctrl/Cmd combos are
+                // left for app shortcuts. (PageUp/PageDown await a Key-enum +
+                // C-ABI addition — see the keyboard/horizontal-scroll PR.)
+                if (!detail::command_modifier(ev)) {
+                    const int target = detail::find_scrollable_y_ancestor(
+                        *impl_, impl_->hovered_idx);
+                    if (target >= 0) {
+                        auto& sb = impl_->blocks[static_cast<std::size_t>(target)];
+                        const int max_scroll =
+                            std::max(0, sb.content_h - sb.bounds.h);
+                        constexpr int kLineStep = 48;
+                        bool handled = true;
+                        int next = sb.scroll_y;
+                        switch (ev.key) {
+                            case Key::Home:      next = 0; break;
+                            case Key::End:       next = max_scroll; break;
+                            case Key::ArrowDown: next += kLineStep; break;
+                            case Key::ArrowUp:   next -= kLineStep; break;
+                            default: handled = false; break;
+                        }
+                        if (handled) {
+                            next = std::clamp(next, 0, max_scroll);
+                            if (detail::set_block_scroll_y(*impl_, target, next)) {
+                                result.redraw_requested = true;
+                            }
+                            break;
+                        }
+                    }
+                }
+                break;
+            }
             const int idx = impl_->focused_idx;
             const auto text = detail::emitted_text_control_value(*control);
             const bool command = detail::command_modifier(ev);
@@ -1269,11 +1339,17 @@ DispatchResult Document::dispatch(const Event& ev) {
             if (target < 0) break;
             auto& sb = impl_->blocks[static_cast<std::size_t>(target)];
             constexpr int kPxPerWheelStep = 24;
-            const int delta = static_cast<int>(
-                -ev.wheel_dy * kPxPerWheelStep);
-            const int max_scroll = std::max(0, sb.content_h - sb.bounds.h);
-            const int next       = std::clamp(sb.scroll_y + delta,
-                                              0, max_scroll);
+            // 64-bit intermediates: a large fling delta overflows the
+            // float->int cast (UB — lands at INT_MIN and clamps to the TOP
+            // instead of the bottom), and scroll_y + delta can overflow int
+            // against multi-million-px virtual-list extents.
+            const auto delta = static_cast<std::int64_t>(
+                static_cast<double>(-ev.wheel_dy) * kPxPerWheelStep);
+            const auto max_scroll = std::max<std::int64_t>(
+                0, static_cast<std::int64_t>(sb.content_h) - sb.bounds.h);
+            const int next = static_cast<int>(std::clamp<std::int64_t>(
+                static_cast<std::int64_t>(sb.scroll_y) + delta, 0,
+                max_scroll));
             if (detail::set_block_scroll_y(*impl_, target, next)) {
                 result.redraw_requested = true;
             }

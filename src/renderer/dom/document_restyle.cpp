@@ -347,7 +347,9 @@ int resolve_position_edge(std::int16_t value, bool is_pct, int basis) {
                     (static_cast<double>(value) / 10000.0)));
 }
 
-int resolved_outer_length(std::int16_t px,
+// px is int32: ComputedStyle sizing fields widened past int16 (virtual-list
+// spacers reach millions of px); narrowing here would re-wrap them.
+int resolved_outer_length(std::int32_t px,
                           std::int16_t pct_x100,
                           int basis,
                           int fallback,
@@ -1304,6 +1306,18 @@ bool set_block_scroll_y(detail::DocumentImpl& impl, int idx, int scroll_y) {
     detail::add_dirty_rect(impl, detail::block_visual_rect(impl, idx));
     block.scroll_y = next;
     detail::add_dirty_rect(impl, detail::block_visual_rect(impl, idx));
+
+    // A virtual list re-windows its rows from the container's live scroll
+    // offset. Emit a scroll-change so the app rebuilds the view: the next build
+    // reads this offset back (via the scroll provider) and renders the rows now
+    // under the viewport. Keyed by the container's widget name; the value is the
+    // new pixel offset. Only virtual-list containers opt in (data-aui-virtual),
+    // so ordinary scroll boxes cost nothing.
+    if (auto* elem = detail::element_for_block(impl, idx)) {
+        if (detail::has_attr(elem, "data-aui-virtual")) {
+            detail::emit_widget_scroll(impl, elem, next);
+        }
+    }
     return true;
 }
 }  // namespace detail
@@ -1919,6 +1933,11 @@ namespace {
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
+bool is_body_element(detail::DocumentImpl& impl, lxb_dom_element_t* elem) {
+    auto* body = lxb_html_document_body_element(impl.doc);
+    return body != nullptr && elem == lxb_dom_interface_element(body);
+}
+
 bool set_attribute_on_element(detail::DocumentImpl& impl,
                               lxb_dom_element_t* elem,
                               std::string_view name,
@@ -2003,7 +2022,13 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
         bool needs_subtree_rematch = false;
         if (selector_affecting) {
             needs_subtree_rematch = true;
-            if (lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
+            if (detail::is_body_element(impl, elem)) {
+                // Body-level flip: the root_style baseline (inherited custom
+                // properties) must re-resolve at settle.
+                impl.view_batch_root_style_dirty = true;
+            }
+            if (!detail::is_body_element(impl, elem) &&
+                lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
                 attribute_matches_confined_to_subject(impl, name)) {
                 // Element-local rematch is cheap — run it now so batch end
                 // only re-matches subtrees for attrs whose rules escape the
@@ -2047,7 +2072,8 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
         // other element's match set can change — rematch just this element
         // instead of the whole dirty subtree (the dominant cost of menu
         // hidden-toggles on large documents).
-        if (lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
+        if (!detail::is_body_element(impl, elem) &&
+            lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
             attribute_matches_confined_to_subject(impl, name)) {
             if (lxb_html_document_element_styles_rematch(
                     lxb_html_interface_element(lxb_dom_interface_node(elem)))
@@ -2060,6 +2086,11 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
         }
         const double rematch_ms = phase();
         if (impl.resolver) impl.resolver->clear();
+        if (detail::is_body_element(impl, elem)) {
+            // Body-level flip: re-resolve the root_style baseline so every
+            // descendant restyles against the NEW custom properties.
+            detail::refresh_root_style(impl);
+        }
 
         if (target_idx >= 0) {
             auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
@@ -2192,7 +2223,13 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
         bool needs_subtree_rematch = false;
         if (selector_affecting) {
             needs_subtree_rematch = true;
-            if (lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
+            if (detail::is_body_element(impl, elem)) {
+                // Body-level flip: the root_style baseline (inherited custom
+                // properties) must re-resolve at settle.
+                impl.view_batch_root_style_dirty = true;
+            }
+            if (!detail::is_body_element(impl, elem) &&
+                lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
                 attribute_matches_confined_to_subject(impl, name)) {
                 (void) lxb_html_document_element_styles_rematch(
                     lxb_html_interface_element(lxb_dom_interface_node(elem)));
@@ -2221,7 +2258,8 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
         };
         // Subject-confined attribute: rematch only the mutated element
         // (see set_attribute_on_element).
-        if (lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
+        if (!detail::is_body_element(impl, elem) &&
+            lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
             attribute_matches_confined_to_subject(impl, name)) {
             if (lxb_html_document_element_styles_rematch(
                     lxb_html_interface_element(lxb_dom_interface_node(elem)))
@@ -2234,6 +2272,11 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
         }
         const double rematch_ms = phase();
         if (impl.resolver) impl.resolver->clear();
+        if (detail::is_body_element(impl, elem)) {
+            // Body-level flip: re-resolve the root_style baseline so every
+            // descendant restyles against the NEW custom properties.
+            detail::refresh_root_style(impl);
+        }
 
         if (target_idx >= 0) {
             auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
@@ -2422,6 +2465,13 @@ void emit_widget_change(detail::DocumentImpl& impl,
     auto name = widget_event_name(elem);
     if (name.empty()) return;
     impl.changed_widgets.push_back({std::move(name), std::string(value), live});
+}
+void emit_widget_scroll(detail::DocumentImpl& impl,
+                        lxb_dom_element_t* elem,
+                        std::int64_t offset) {
+    auto name = widget_event_name(elem);
+    if (name.empty()) return;
+    impl.scrolled_widgets.push_back({std::move(name), std::to_string(offset)});
 }
 }  // namespace detail
 

@@ -71,6 +71,7 @@ PUBLIC_HEADERS = [
     "include/affineui/display_list.h",
     "include/affineui/document.h",
     "include/affineui/object.h",        # ObjectBase; needed by view + inspector
+    "include/affineui/virtual_list.h",  # providers/flattener; fwd-declares View
     "include/affineui/view.h",          # depends on callback + document + types
     "include/affineui/components.h",    # depends on view
     "include/affineui/inspector.h",     # depends on object + view

@@ -50,7 +50,7 @@ docker run --rm \
             libx11-dev libxi-dev libxcursor-dev \
             libgl1-mesa-dev libasound2-dev \
             xvfb >/dev/null
-        cmake -S . -B ${BUILD_DIR} -G Ninja -DCMAKE_BUILD_TYPE=Release
+        cmake -S . -B ${BUILD_DIR} -G Ninja -DCMAKE_BUILD_TYPE=Release -DAFFINEUI_BUILD_C_SHARED=ON
         cmake --build ${BUILD_DIR} --parallel
         # Wrap ctest in xvfb-run so any test that touches sokol_app's X
         # connection has a display server. Headless layout / DOM tests

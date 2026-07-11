@@ -443,6 +443,213 @@ AFFINEUI_C_API void affineui_widget_replace(affineui_widget* w,
 AFFINEUI_C_API affineui_widget* affineui_widget_find_widget(const affineui_widget* w,
                                                             const char* name);
 
+// == Virtual lists & trees (recycling; see include/affineui/virtual_list.h) ==
+//
+// Providers are STATELESS bridges of callbacks between an app-owned model
+// and the recycling widget: they store no items. Every (fn, user, user_free)
+// triple follows the standard contract -- user_free runs exactly once when
+// the provider drops the handler. The provider object must outlive every
+// view that references it (the widget holds a weak reference and degrades
+// to an empty list if it dies first -- never a crash).
+
+// Mirrors affineui::SelectMod (values must match).
+typedef enum affineui_select_mod {
+    AFFINEUI_SELECT_REPLACE = 0,
+    AFFINEUI_SELECT_TOGGLE  = 1,
+    AFFINEUI_SELECT_RANGE   = 2
+} affineui_select_mod;
+
+// Mirrors affineui::Axis (values must match).
+typedef enum affineui_axis {
+    AFFINEUI_AXIS_VERTICAL   = 0,
+    AFFINEUI_AXIS_HORIZONTAL = 1
+} affineui_axis;
+
+typedef struct affineui_index_selection affineui_index_selection;
+typedef struct affineui_vlist_provider  affineui_vlist_provider;
+typedef struct affineui_vtree_provider  affineui_vtree_provider;
+typedef struct affineui_tree_flattener  affineui_tree_flattener;
+
+typedef void        (*affineui_notify_fn)      (void* user);
+typedef size_t      (*affineui_item_count_fn)  (void* user);
+typedef double      (*affineui_item_size_fn)   (void* user, size_t index);
+// Returned string must stay valid until the callback returns (it is copied
+// immediately). Return NULL for an empty row.
+typedef const char* (*affineui_item_text_fn)   (void* user, size_t index);
+typedef int         (*affineui_item_flag_fn)   (void* user, size_t index);
+typedef void        (*affineui_item_build_fn)  (void* user, affineui_view* view,
+                                                size_t index);
+typedef void        (*affineui_item_activate_fn)(void* user, size_t index,
+                                                 int select_mod);
+typedef void        (*affineui_item_toggle_fn) (void* user, size_t index);
+typedef void        (*affineui_item_checked_fn)(void* user, size_t index,
+                                                int checked);
+typedef int         (*affineui_item_depth_fn)  (void* user, size_t index);
+
+// -- IndexSelection: replace / Ctrl-toggle / Shift-range with an index
+// anchor. Suits flat lists whose indices are stable identities; trees
+// should key selection by HANDLE (see the tree flattener below).
+AFFINEUI_C_API affineui_index_selection* affineui_index_selection_create(void);
+AFFINEUI_C_API void affineui_index_selection_destroy(affineui_index_selection* sel);
+AFFINEUI_C_API void affineui_index_selection_apply(affineui_index_selection* sel,
+                                                   size_t index,
+                                                   int select_mod,
+                                                   size_t item_count);
+AFFINEUI_C_API int    affineui_index_selection_contains(const affineui_index_selection* sel,
+                                                        size_t index);
+AFFINEUI_C_API void   affineui_index_selection_clear(affineui_index_selection* sel);
+AFFINEUI_C_API size_t affineui_index_selection_size(const affineui_index_selection* sel);
+AFFINEUI_C_API size_t affineui_index_selection_anchor(const affineui_index_selection* sel);
+AFFINEUI_C_API void   affineui_index_selection_on_change(affineui_index_selection* sel,
+                                                         affineui_notify_fn fn,
+                                                         void* user,
+                                                         affineui_user_free_fn user_free);
+
+// -- List provider ----------------------------------------------------
+AFFINEUI_C_API affineui_vlist_provider* affineui_vlist_provider_create(void);
+AFFINEUI_C_API void affineui_vlist_provider_destroy(affineui_vlist_provider* p);
+AFFINEUI_C_API void affineui_vlist_provider_on_item_count(affineui_vlist_provider* p,
+    affineui_item_count_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vlist_provider_on_item_size(affineui_vlist_provider* p,
+    affineui_item_size_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vlist_provider_on_item_text(affineui_vlist_provider* p,
+    affineui_item_text_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vlist_provider_on_build_item(affineui_vlist_provider* p,
+    affineui_item_build_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vlist_provider_on_is_selected(affineui_vlist_provider* p,
+    affineui_item_flag_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vlist_provider_on_activate(affineui_vlist_provider* p,
+    affineui_item_activate_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vlist_provider_on_is_checked(affineui_vlist_provider* p,
+    affineui_item_flag_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vlist_provider_on_set_checked(affineui_vlist_provider* p,
+    affineui_item_checked_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vlist_provider_set_checkboxes(affineui_vlist_provider* p,
+                                                           int on);
+AFFINEUI_C_API void affineui_vlist_provider_set_default_item_size(
+    affineui_vlist_provider* p, double px);
+
+// -- Tree provider (a virtual list over the flattened-expanded rows) --
+AFFINEUI_C_API affineui_vtree_provider* affineui_vtree_provider_create(void);
+AFFINEUI_C_API void affineui_vtree_provider_destroy(affineui_vtree_provider* p);
+AFFINEUI_C_API void affineui_vtree_provider_on_item_count(affineui_vtree_provider* p,
+    affineui_item_count_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vtree_provider_on_item_size(affineui_vtree_provider* p,
+    affineui_item_size_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vtree_provider_on_item_text(affineui_vtree_provider* p,
+    affineui_item_text_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vtree_provider_on_build_item(affineui_vtree_provider* p,
+    affineui_item_build_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vtree_provider_on_is_selected(affineui_vtree_provider* p,
+    affineui_item_flag_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vtree_provider_on_activate(affineui_vtree_provider* p,
+    affineui_item_activate_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vtree_provider_on_is_checked(affineui_vtree_provider* p,
+    affineui_item_flag_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vtree_provider_on_set_checked(affineui_vtree_provider* p,
+    affineui_item_checked_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vtree_provider_on_depth(affineui_vtree_provider* p,
+    affineui_item_depth_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vtree_provider_on_is_expandable(affineui_vtree_provider* p,
+    affineui_item_flag_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vtree_provider_on_is_expanded(affineui_vtree_provider* p,
+    affineui_item_flag_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vtree_provider_on_toggle(affineui_vtree_provider* p,
+    affineui_item_toggle_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_vtree_provider_set_checkboxes(affineui_vtree_provider* p,
+                                                           int on);
+AFFINEUI_C_API void affineui_vtree_provider_set_default_item_size(
+    affineui_vtree_provider* p, double px);
+
+// -- Tree flattener: opaque uint64 HANDLES -> flattened rows ----------
+// The app supplies the walk (children of a handle; parent 0 = roots) and
+// per-node label/has-children; the flattener owns the expanded set plus
+// HANDLE-keyed selection and checked state, so both survive expand/
+// collapse renumbering. A handle must be UNIQUE TO THE ITEM for its
+// lifetime (id, stable pointer, map key) -- never recycled onto another
+// item, and never 0 (reserved for "roots"). Wire it to a tree provider
+// and every tree question is answered from the flattened view.
+typedef void (*affineui_tree_emit_fn)(void* ctx, uint64_t child);
+// Enumerate children of `parent` (0 = roots) by calling emit(ctx, child)
+// once per child, in order.
+typedef void (*affineui_tree_children_fn)(void* user, uint64_t parent,
+                                          affineui_tree_emit_fn emit, void* ctx);
+// Returned string must stay valid until the callback returns (copied).
+typedef const char* (*affineui_tree_label_fn)(void* user, uint64_t handle);
+typedef int (*affineui_tree_flag_fn)(void* user, uint64_t handle);
+
+AFFINEUI_C_API affineui_tree_flattener* affineui_tree_flattener_create(
+    affineui_tree_children_fn children,
+    affineui_tree_label_fn    label,
+    affineui_tree_flag_fn     has_children,
+    void* user,
+    affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_tree_flattener_destroy(affineui_tree_flattener* f);
+// Point a tree provider at this flattener (item_count/depth/expand/
+// selection/checked all delegate). Call once, after creating both.
+AFFINEUI_C_API void affineui_tree_flattener_wire(affineui_tree_flattener* f,
+                                                 affineui_vtree_provider* p);
+// Re-flatten after the underlying tree STRUCTURE changed.
+AFFINEUI_C_API void affineui_tree_flattener_rebuild(affineui_tree_flattener* f);
+AFFINEUI_C_API void affineui_tree_flattener_on_changed(affineui_tree_flattener* f,
+    affineui_notify_fn fn, void* user, affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_tree_flattener_set_expanded(affineui_tree_flattener* f,
+                                                         uint64_t handle, int open);
+AFFINEUI_C_API int  affineui_tree_flattener_is_expanded(const affineui_tree_flattener* f,
+                                                        uint64_t handle);
+AFFINEUI_C_API void affineui_tree_flattener_set_selected(affineui_tree_flattener* f,
+                                                         uint64_t handle, int on);
+AFFINEUI_C_API int  affineui_tree_flattener_selected_contains(
+    const affineui_tree_flattener* f, uint64_t handle);
+AFFINEUI_C_API void affineui_tree_flattener_clear_selection(affineui_tree_flattener* f);
+AFFINEUI_C_API void affineui_tree_flattener_set_checked(affineui_tree_flattener* f,
+                                                        uint64_t handle, int on);
+AFFINEUI_C_API int  affineui_tree_flattener_checked_contains(
+    const affineui_tree_flattener* f, uint64_t handle);
+AFFINEUI_C_API size_t   affineui_tree_flattener_size(const affineui_tree_flattener* f);
+AFFINEUI_C_API uint64_t affineui_tree_flattener_handle_at(
+    const affineui_tree_flattener* f, size_t index);
+// SIZE_MAX when the handle is not currently visible.
+AFFINEUI_C_API size_t   affineui_tree_flattener_index_of(
+    const affineui_tree_flattener* f, uint64_t handle);
+
+// -- View builders -----------------------------------------------------
+// The provider is held WEAKLY by the widget; the caller keeps it alive
+// (destroying it while views reference it degrades to an empty list).
+AFFINEUI_C_API affineui_widget* affineui_view_virtual_list(affineui_view* view,
+                                                           const char* key,
+                                                           affineui_vlist_provider* provider,
+                                                           int axis,
+                                                           const char* classes);
+AFFINEUI_C_API affineui_widget* affineui_view_virtual_tree(affineui_view* view,
+                                                           const char* key,
+                                                           affineui_vtree_provider* provider,
+                                                           const char* classes);
+// Convenience: an ALL-VIRTUAL list of strings. `selection` / `checked`
+// (both optional, may be NULL) must outlive the view.
+AFFINEUI_C_API affineui_widget* affineui_view_virtual_string_list(
+    affineui_view* view,
+    const char* key,
+    const char* const* items,
+    size_t item_count,
+    double item_size,
+    affineui_index_selection* selection,
+    affineui_index_selection* checked,
+    const char* classes);
+
+// -- Retained-view rebuild loop -----------------------------------------
+// Install a persistent builder: the app owns a retained View, re-runs the
+// builder on every rebuild, and reconciles only the diff into the live
+// document. REQUIRED for virtual lists to follow the scrollbar (the
+// framework re-windows by rebuilding). Follow state changes with
+// affineui_app_invalidate() (coalesced, from the frame loop) or
+// affineui_app_rebuild_view() (synchronous).
+AFFINEUI_C_API void affineui_app_set_view(affineui_app* app,
+                                          affineui_build_fn build,
+                                          void* user,
+                                          affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_app_rebuild_view(affineui_app* app);
+
 // ─── bundled Decius CSS framework ─────────────────────────────────────
 // Compile-time embedded CSS bundle so the component API ships with a
 // working default look and no on-disk asset copying. Present only when

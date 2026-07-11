@@ -290,6 +290,35 @@ Document::~Document() = default;
 Document::Document(Document&&) noexcept            = default;
 Document& Document::operator=(Document&&) noexcept = default;
 
+namespace detail {
+// Resolve the document's inheritance baseline: implicit-root defaults, then
+// <html> (:root custom properties), then <body>. root_style is the parent of
+// every top-level block AND the custom-property source every descendant
+// inherits, so it must be re-resolved whenever a body-level attribute flip
+// (theme / density / accent selector) changes which var-carrying rules match.
+void refresh_root_style(detail::DocumentImpl& impl) {
+    impl.root_style                       = detail::ResolvedStyle{};
+    impl.root_style.animated.color_rgba   = 0xDCDCE6FFu;
+    impl.root_style.computed.font_size_px = 16;
+    impl.root_style.computed.font_weight  = 400;
+    auto* body = lxb_html_document_body_element(impl.doc);
+    if (body == nullptr || impl.resolver == nullptr) return;
+    detail::ResolvedStyle html_style = impl.root_style;
+    auto* body_node = lxb_dom_interface_node(body);
+    if (body_node->parent != nullptr &&
+        body_node->parent->type == LXB_DOM_NODE_TYPE_ELEMENT) {
+        html_style = impl.resolver->resolve(
+            lxb_dom_interface_element(body_node->parent), impl.root_style);
+    }
+    auto* body_elem = lxb_dom_interface_element(body_node);
+    impl.root_style = impl.resolver->resolve(body_elem, html_style);
+    detail::apply_font_family_fills(
+        impl, "body", detail::attr_string(body_elem, "id"),
+        detail::split_classes(detail::attr_string(body_elem, "class")),
+        /*parent_idx=*/-1, /*state_bits=*/0, impl.root_style);
+}
+}  // namespace detail
+
 void Document::set_html(std::string_view html) {
     const auto previous_scroll =
         detail::snapshot_scroll_state(*impl_, /*include_elements=*/false);
@@ -406,44 +435,10 @@ void Document::set_html(std::string_view html) {
     impl_->media_match_signature =
         detail::media_match_signature(*impl_, impl_->media_viewport_width_px);
 
-    // Establish a root inheritance baseline. Reasonable initial values
-    // for the implicit document root Ã¢â‚¬â€ anything not overridden by CSS
-    // gets these. AnimatedStyle's foreground defaults to near-white
-    // (#dcdce6) so unstyled docs are readable on the dark clear color.
-    impl_->root_style                       = detail::ResolvedStyle{};
-    impl_->root_style.animated.color_rgba   = 0xDCDCE6FFu;
-    impl_->root_style.computed.font_size_px = 16;
-    impl_->root_style.computed.font_weight  = 400;
-
-    // Use <body>'s resolved style as the parent for all blocks so
-    // body-level CSS (e.g. `body { color: ... }`) inherits down.
-    // Store the resolved body style BACK into root_style so the
-    // dispatch-time restyle path (parent_resolved for parent_idx=-1)
-    // sees the same parent the initial collect used. Without this,
-    // hover-triggered restyles silently reset top-level blocks to
-    // the placeholder root color, leaking grey into things like h1
-    // that should be inheriting body's color.
+    // Establish the root inheritance baseline (implicit root -> <html>
+    // :root vars -> <body>) — shared with the live body-attr flip path.
+    detail::refresh_root_style(*impl_);
     auto* body = lxb_html_document_body_element(impl_->doc);
-    if (body) {
-        // Resolve <html> first so `:root { --custom: ... }` properties
-        // (e.g. Bootstrap's whole --bs-* palette) are collected and
-        // inherited down through <body> into every block. <html> is
-        // <body>'s parent node.
-        detail::ResolvedStyle html_style = impl_->root_style;
-        auto* body_node = lxb_dom_interface_node(body);
-        if (body_node->parent != nullptr &&
-            body_node->parent->type == LXB_DOM_NODE_TYPE_ELEMENT) {
-            html_style = impl_->resolver->resolve(
-                lxb_dom_interface_element(body_node->parent), impl_->root_style);
-        }
-        auto* body_elem = lxb_dom_interface_element(body_node);
-        impl_->root_style = impl_->resolver->resolve(body_elem, html_style);
-        detail::apply_font_family_fills(*impl_, "body", detail::attr_string(body_elem, "id"),
-                                detail::split_classes(detail::attr_string(body_elem, "class")),
-                                /*parent_idx=*/-1,
-                                /*state_bits=*/0,
-                                impl_->root_style);
-    }
     detail::collect_blocks(*impl_,
                    body ? lxb_dom_interface_node(body)
                         : lxb_dom_interface_node(impl_->doc),
@@ -498,6 +493,41 @@ std::vector<Document::WidgetChange> Document::take_widget_changes() {
     auto out = std::move(impl_->changed_widgets);
     impl_->changed_widgets.clear();
     return out;
+}
+
+std::vector<Document::WidgetChange> Document::take_widget_scrolls() {
+    auto out = std::move(impl_->scrolled_widgets);
+    impl_->scrolled_widgets.clear();
+    return out;
+}
+
+bool Document::set_body_attribute(std::string_view name,
+                                  std::string_view value) {
+    auto* body = lxb_html_document_body_element(impl_->doc);
+    if (body == nullptr) return false;
+    return detail::set_attribute_on_element(
+        *impl_, lxb_dom_interface_element(body), name, value);
+}
+
+Document::ScrollGeometry Document::virtual_scroll_geometry(
+    std::string_view name, bool horizontal) const {
+    ScrollGeometry geo;
+    for (const auto& b : impl_->blocks) {
+        std::string_view block_name;
+        for (const auto& a : b.attrs) {
+            if (a.first == "data-aui-name") { block_name = a.second; break; }
+        }
+        if (block_name != name) continue;
+        geo.known = true;
+        // Vertical scroll is the only engine axis today; the X offset is always
+        // 0 until the horizontal-scroll facility lands. Viewport is the visible
+        // extent along the requested axis.
+        geo.offset   = horizontal ? 0 : static_cast<std::int64_t>(b.scroll_y);
+        geo.viewport = horizontal ? static_cast<double>(b.bounds.w)
+                                  : static_cast<double>(b.bounds.h);
+        break;
+    }
+    return geo;
 }
 
 std::vector<std::pair<std::string, int>> Document::dock_pane_sizes() const {
@@ -1448,6 +1478,10 @@ void settle_view_batch(detail::DocumentImpl& impl) {
             }
         }
         if (impl.resolver) impl.resolver->clear();
+        if (impl.view_batch_root_style_dirty) {
+            impl.view_batch_root_style_dirty = false;
+            detail::refresh_root_style(impl);
+        }
         for (auto& k : kept) {
             const bool restyle_layout =
                 k.root_idx >= 0 ? detail::restyle_subtree(impl, k.root_idx)
