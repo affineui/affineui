@@ -48,10 +48,22 @@ def _framework_asset_roots() -> list[str]:
     return roots
 
 
-_ACCENTS = ("blue", "orange", "green", "purple", "teal")
+# Fit-to-screen mark: four corner brackets (a video-player "fit" frame).
+# fill/stroke are set on the path itself — the renderer doesn't inherit SVG
+# presentation attributes from the <svg> element down to its shapes.
+_SVG_FIT = (
+    '<svg class="ps-fit-icon" viewBox="0 0 16 16" width="14" height="14">'
+    '<path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" fill="none" '
+    'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" '
+    'stroke-linejoin="round"/></svg>')
+
+# Only accents the Decius bundle actually defines — a name with no
+# [data-dcs-accent=…] rule (the old default "blue" was one) sets the attribute
+# but never redefines --dcs-accent, so picking it did nothing.
+_ACCENTS = ("cyan", "violet", "orange", "green", "purple", "teal")
 _ACCENT_DOTS = {
-    "blue": "#4d9fff", "orange": "#ff9f4d", "green": "#4dd97b",
-    "purple": "#b48cff", "teal": "#2dd4bf",
+    "cyan": "#00b8d4", "violet": "#7c6cff", "orange": "#ff9f4d",
+    "green": "#4dd97b", "purple": "#b48cff", "teal": "#2f9c93",
 }
 
 # Web per-tool CSS cursors, restricted to what the native renderer maps.
@@ -103,7 +115,7 @@ class PhotoEditApp:
         self.snap = True
         self.density = "comfortable"
         self.visual_style = "flat"
-        self.accent = "blue"
+        self.accent = "cyan"
         self.tweaks_open = False
         # Decius framework bundle, read once and cached; the stylesheet is
         # installed once (not re-parsed on every reload — see reload()).
@@ -302,7 +314,8 @@ class PhotoEditApp:
         v.container(classes="dcs-divider dcs-divider--v",
                     key="ps-menubar-divider")
         cog = v.container(
-            classes="dcs-btn dcs-btn--icon dcs-btn--ghost ps-settings",
+            classes="dcs-btn dcs-btn--icon dcs-btn--ghost ps-settings "
+                    "ps-toolbtn",
             key="ps-settings", build=lambda h: h.html(
                 '<i class="di di-cog"></i>'))
         cog.attr("role", "button").attr("title", "Theme tweaks")
@@ -397,8 +410,15 @@ class PhotoEditApp:
                     build=lambda slot: options.build(self, slot))
         v.container(classes="dcs-divider dcs-divider--v",
                     key="ps-opt-divider-b")
-        fit = v.button("Fit", key="ps-btn-reset-view")
-        fit.cls("dcs-btn dcs-btn--ghost dcs-btn--sm")
+        # Fit-to-screen: the four-corner frame mark (like a video player's
+        # fit control) beside the label. Drawn as SVG — the icon font has no
+        # matching glyph at this size — with fill/stroke set per shape (the
+        # renderer doesn't inherit SVG presentation attributes).
+        fit = v.container(
+            classes="dcs-btn dcs-btn--ghost dcs-btn--sm ps-toolbtn ps-fitbtn",
+            key="ps-btn-reset-view",
+            build=lambda h: h.html(_SVG_FIT + '<span>Fit</span>'))
+        fit.attr("role", "button").attr("title", "Fit on screen")
         fit.on_click(self.fit_to_screen)
 
     def _build_statusbar(self, v: ui.View) -> None:

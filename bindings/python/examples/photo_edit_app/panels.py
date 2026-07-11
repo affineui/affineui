@@ -25,7 +25,10 @@ def _icon_button(v: ui.View, key: str, icon_html: str, title: str,
                  on_click: Callable[[], None] | None = None,
                  pressed: bool | None = None,
                  extra_classes: str = "") -> ui.WidgetRef:
-    classes = "dcs-btn dcs-btn--icon dcs-btn--sm dcs-btn--ghost"
+    # ps-toolbtn: every icon button in the app (layers panel, footer,
+    # adjustments, floatbar, …) uses the same borderless toolbar styling —
+    # no chrome at rest, a surface highlight on hover, brighter while pressed.
+    classes = "dcs-btn dcs-btn--icon dcs-btn--sm dcs-btn--ghost ps-toolbtn"
     if extra_classes:
         classes += " " + extra_classes
     ref = v.container(classes=classes, key=key,
@@ -101,9 +104,21 @@ def build_toolstrip(app: "PhotoEditApp", v: ui.View) -> None:
     # flex-wrap orphan behavior or grid-column placement (which the layout
     # engine doesn't support).
     def make_tool(g: ui.View, tool) -> None:
+        # Grouped tools get a bottom-right corner nib. The nib is a small SVG
+        # triangle inside a CSS-sized wrapper span (.ps-tool-nib) — a bare
+        # inline <svg> stretched to fill the button, a CSS border-triangle
+        # rendered as a flat dash, and a gradient box rendered as a solid
+        # square, so an explicitly-sized wrapper holding an SVG <polygon> is
+        # what actually paints a real tiny triangle here. currentColor lets it
+        # inherit the tool colour (muted normally, accent when selected).
+        icon = tool_icon_html(tool)
+        if tool.group:
+            icon += ('<span class="ps-tool-nib">'
+                     '<svg viewBox="0 0 6 6" preserveAspectRatio="none">'
+                     '<polygon points="6,0 6,6 0,6" fill="currentColor"/>'
+                     '</svg></span>')
         ref = g.container(classes="ps-tool", key=f"tool-{tool.id}",
-                          build=lambda h, tool=tool: h.html(
-                              tool_icon_html(tool)))
+                          build=lambda h, icon=icon: h.html(icon))
         ref.attr("role", "button")
         ref.attr("title", f"{tool.name}  ({tool.key})")
         ref.attr("aria-pressed", "true" if app.tool == tool.id else "false")
@@ -143,20 +158,28 @@ def build_toolstrip(app: "PhotoEditApp", v: ui.View) -> None:
     qm.on_click(app.toggle_quickmask)
 
 
-# The swap (⇄) and reset (⬚) markers are drawn as inline SVG rather than raw
-# unicode: the embedded UI font doesn't carry those code points, so the web's
-# literal glyphs render as tofu/blank. Small stroked SVGs match the reference
-# and render regardless of font coverage (static art → SVG per house policy).
+# The swap (⇄) and reset (⬚) markers are inline SVG — the embedded UI font
+# doesn't carry those code points, so the web's literal glyphs render as tofu.
+# fill/stroke are set on EACH shape rather than inherited from <svg>: the
+# renderer doesn't inherit presentation attributes down the SVG tree, so a
+# rect relying on the parent's fill="none" comes out solid black.
+# Swap: two ordinary arrows — top points right, bottom points left.
 _SVG_SWAP = (
-    '<svg viewBox="0 0 12 12" width="11" height="11" fill="none" '
-    'stroke="currentColor" stroke-width="1.2" stroke-linecap="round" '
-    'stroke-linejoin="round">'
-    '<path d="M2 3.5h7M7 1.5l2 2-2 2"/>'
-    '<path d="M10 8.5H3M5 6.5l-2 2 2 2"/></svg>')
+    '<svg viewBox="0 0 12 12" width="11" height="11">'
+    '<path d="M1 3.5h8.5" fill="none" stroke="currentColor" '
+    'stroke-width="1.1" stroke-linecap="round"/>'
+    '<path d="M7.5 1.5 10 3.5 7.5 5.5" fill="none" stroke="currentColor" '
+    'stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>'
+    '<path d="M11 8.5H2.5" fill="none" stroke="currentColor" '
+    'stroke-width="1.1" stroke-linecap="round"/>'
+    '<path d="M4.5 6.5 2 8.5 4.5 10.5" fill="none" stroke="currentColor" '
+    'stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>'
+    '</svg>')
+# Reset: a thin outline square (NOT filled) — the default fg/bg swatches.
 _SVG_RESET = (
-    '<svg viewBox="0 0 12 12" width="12" height="12" fill="none" '
-    'stroke="currentColor" stroke-width="1" stroke-dasharray="2 1.4">'
-    '<rect x="1.5" y="1.5" width="9" height="9" rx="1"/></svg>')
+    '<svg viewBox="0 0 12 12" width="11" height="11">'
+    '<rect x="1.5" y="1.5" width="9" height="9" fill="none" '
+    'stroke="currentColor" stroke-width="1"/></svg>')
 
 
 def _build_color_chips(app: "PhotoEditApp", v: ui.View) -> None:
@@ -532,17 +555,22 @@ def build_floatbar(app: "PhotoEditApp", v: ui.View) -> None:
         # dragged (the container carries data-dcs-drag below).
         b.container(classes="dcs-grip", key="float-grip").attr(
             "data-dcs-drag-handle", "")
+        # ps-toolbtn gives the floatbar buttons the SAME styling as the tool
+        # strip: borderless until active, then a bright-blue border + blue icon
+        # over a dark-blue fill (see .ps-toolbtn in styles.py).
         _icon_button(b, "float-undo", _di("undo"), "Undo",
-                     on_click=app.undo)
+                     on_click=app.undo, extra_classes="ps-toolbtn")
         _icon_button(b, "float-redo", _di("redo"), "Redo",
-                     on_click=app.redo)
+                     on_click=app.redo, extra_classes="ps-toolbtn")
         b.container(classes="dcs-toolbar__sep", key="float-sep")
         _icon_button(b, "float-zoom-out", _di("zoom-out"), "Zoom out",
-                     on_click=lambda: app.zoom_step(1 / 1.4))
+                     on_click=lambda: app.zoom_step(1 / 1.4),
+                     extra_classes="ps-toolbtn")
         _icon_button(b, "float-fit", _di("fit"), "Fit on screen",
-                     on_click=app.fit_to_screen)
+                     on_click=app.fit_to_screen, extra_classes="ps-toolbtn")
         _icon_button(b, "float-zoom-in", _di("zoom-in"), "Zoom in",
-                     on_click=lambda: app.zoom_step(1.4))
+                     on_click=lambda: app.zoom_step(1.4),
+                     extra_classes="ps-toolbtn")
 
     bar_ref = v.container(
         classes="dcs-toolbar dcs-toolbar--floating ps-floatbar",

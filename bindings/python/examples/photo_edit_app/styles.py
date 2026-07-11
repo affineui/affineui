@@ -59,7 +59,10 @@ PHOTO_CSS = r"""
 /* ── Shell ─────────────────────────────────────────────────────────────── */
 .aui-root>.ps-app{margin:-24px;height:100vh;min-height:100vh;width:calc(100% + 48px)}
 .ps-app{position:relative;display:flex;flex-direction:column;min-height:100vh;background:var(--dcs-bg-app,#1f222a);color:var(--dcs-text,#e7e9ee);overflow:hidden}
-.ps-menubar{flex:0 0 auto;min-height:var(--dcs-h-lg,32px);height:var(--dcs-h-lg,32px);overflow:visible}
+/* The framework menubar has horizontal padding; the brand block should sit
+   flush against the left edge (its dark background runs to the corner), so
+   drop the left padding — otherwise there's a gap before the logo. */
+.ps-menubar{flex:0 0 auto;min-height:var(--dcs-h-lg,32px);height:var(--dcs-h-lg,32px);overflow:visible;padding-left:0}
 .ps-brand{display:inline-flex;align-items:center;align-self:stretch;gap:7px;padding:0 12px;margin:0 8px 0 0;background:#0d0f14;color:#e7e9ee;line-height:1}
 .ps-brand__mark{color:var(--dcs-accent,#4f86d6);font-size:14px}
 .ps-brand__name{font-weight:700;font-size:12px;white-space:nowrap}
@@ -104,7 +107,7 @@ PHOTO_CSS = r"""
 .ps-stage-badge--tr{right:8px;top:8px}
 
 /* ── Tool strip ────────────────────────────────────────────────────────── */
-.ps-toolstrip{position:absolute;left:12px;top:12px;display:flex;flex-direction:column;align-items:center;gap:2px;max-height:calc(100% - 24px);overflow:auto;z-index:15}
+.ps-toolstrip{position:absolute;left:37px;top:47px;display:flex;flex-direction:column;align-items:center;gap:2px;max-height:calc(100% - 59px);overflow:auto;z-index:15}
 /* Two-column tool strip built as explicit rows (ps-toolrow) of up to two
    tools, with each separator as its own full-width row. Deterministic — no
    reliance on flex-wrap orphan behavior or grid-column placement. */
@@ -113,23 +116,39 @@ PHOTO_CSS = r"""
 .ps-tool{position:relative;width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:3px;color:var(--dcs-text-dim,#a6adbb);cursor:pointer;border:1px solid transparent;font-size:17px}
 .ps-tool:hover{background:var(--dcs-surface-2,#303642);color:var(--dcs-text,#e7e9ee)}
 .ps-tool[aria-pressed=true]{background:var(--dcs-accent-dim,#263f64);color:var(--dcs-accent-hi,#b9d5ff);border-color:var(--dcs-accent-lo,#3b6ba8)}
-.ps-tool[data-group=true]::after{content:"";position:absolute;right:3px;bottom:3px;border-left:4px solid transparent;border-bottom:4px solid var(--dcs-text-mute,#8c93a3)}
-/* Selected grouped tool: the corner triangle picks up the accent (web parity). */
-.ps-tool[aria-pressed=true][data-group=true]::after{border-bottom-color:var(--dcs-accent-hi,#b9d5ff)}
-.ps-toolsep{width:28px;height:1px;background:var(--dcs-line-soft,#3a3f4c);margin:5px 0}
+/* A selected tool keeps its blue icon even while hovered (hover must not
+   repaint a pressed tool white). */
+.ps-tool[aria-pressed=true]:hover{color:var(--dcs-accent-hi,#b9d5ff);background:var(--dcs-accent-dim,#263f64)}
+/* Bottom-right corner nib on grouped tools: a small SVG triangle inside a
+   CSS-sized wrapper. The wrapper's fixed 6x6 box (and overflow:hidden) keeps
+   the SVG tiny in the corner — a bare inline <svg> otherwise stretches to
+   fill the button. currentColor inherits the tool colour. */
+.ps-tool-nib{position:absolute;right:2px;bottom:2px;width:6px;height:6px;overflow:hidden;color:var(--dcs-text-mute,#8c93a3);line-height:0}
+.ps-tool-nib svg{display:block;width:6px;height:6px}
+.ps-tool[aria-pressed=true] .ps-tool-nib{color:var(--dcs-accent-hi,#b9d5ff)}
+.ps-toolsep{width:28px;height:1px;background:#4b5262;margin:5px 0}
 .ps-colorchips{position:relative;width:38px;height:38px;margin:8px 0 2px}
 .ps-colorchip{position:absolute;width:24px;height:24px;border:1px solid var(--dcs-line-strong,#4b5262);border-radius:3px;box-shadow:0 3px 8px rgba(0,0,0,.32);cursor:pointer}
 .ps-colorchip--bg{right:0;bottom:0;z-index:1}
 .ps-colorchip--fg{left:0;top:0;z-index:2}
-.ps-chip-mini{position:absolute;color:var(--dcs-text-mute,#8c93a3);font-size:11px;cursor:pointer;line-height:1}
-.ps-chip-mini:hover{color:var(--dcs-text,#e7e9ee)}
-.ps-swap{right:0;top:-2px}
-.ps-reset{left:-1px;bottom:-1px}
+/* The swap/reset markers hold an inline SVG, which stretches to fill its box
+   unless the box is fixed-size and clipping (same as the tool nib). Give the
+   mini chips an explicit box and size the SVG in CSS. */
+/* Same look as the tool-strip buttons (icon colour + hover), but these are
+   momentary actions, not toggles — no selected/blue state. */
+.ps-chip-mini{position:absolute;width:14px;height:14px;display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--dcs-text-dim,#a6adbb);cursor:pointer;line-height:0;border-radius:3px;border:1px solid transparent}
+.ps-chip-mini svg{display:block;width:11px;height:11px}
+.ps-chip-mini:hover{background:var(--dcs-surface-2,#303642);color:var(--dcs-text,#e7e9ee)}
+.ps-chip-mini:active{background:var(--dcs-surface-3,#3a4150)}
+.ps-swap{right:-2px;top:-3px}
+.ps-reset{left:-3px;bottom:-3px}
 
 /* ── Floating panels ───────────────────────────────────────────────────── */
 /* The palettes are DECLARED dockpanels (dcs-panel--floating > dcs-dockpane
    chrome emitted by the framework); only their tabpanel content is ours.
-   Make each tabpanel fill and scroll within the pane body. */
+   The tabpanel fills the pane body and is the panel's SINGLE scroll region —
+   panel content must NOT add its own nested scroll area, or you get two
+   scrollbars (see .ps-layer-list, which is deliberately overflow:visible). */
 .dcs-panel--floating .dcs-dockpane__body>[data-dcs-tabpanel]{height:100%;overflow:auto}
 
 /* ── Navigator ─────────────────────────────────────────────────────────── */
@@ -166,16 +185,14 @@ PHOTO_CSS = r"""
    against a flex-basis'd body overflowed by a hair, triggering the body's own
    overflow:auto ON TOP of the inner .ps-layer-list scroll — two scrollbars.
    flex:1 + min-height:0 makes ps-layers fit exactly so only the list scrolls. */
-.ps-layers{display:flex;flex-direction:column;min-height:0;flex:1 1 0;height:100%}
-/* The dock body is an overflow:auto BLOCK (not flex); its tabpanel is a plain
-   block, so a flex child inside gets no bounded height and BOTH the body and
-   the inner .ps-layer-list end up scrollable (two scrollbars). Make the
-   layers tabpanel fill the body as an absolutely-positioned flex column so
-   ps-layers has a definite height, only .ps-layer-list scrolls, and the body
-   never overflows. */
-#layers-body{position:absolute;inset:0;display:flex;flex-direction:column;
-             min-height:0;overflow:hidden}
-.ps-layer-filter,.ps-layer-bo,.ps-layer-lock-row,.ps-layer-footer{display:flex;align-items:center;gap:3px;padding:6px 8px;border-bottom:1px solid var(--dcs-line-soft,#303642)}
+/* Fills its tabpanel (which the floating-panel rule above makes a flex column
+   that clips), so .ps-layer-list is the panel's single scroll region. */
+.ps-layers{display:flex;flex-direction:column;min-height:0;flex:1 1 0}
+/* The layers panel is a flex column whose list takes the slack; without an
+   explicit basis these header/footer rows get squeezed when the panel is
+   short. Pin them: never grow, never shrink, and keep a minimum height so the
+   filter/blend controls stay legible. */
+.ps-layer-filter,.ps-layer-bo,.ps-layer-lock-row,.ps-layer-footer{display:flex;align-items:center;gap:3px;padding:6px 8px;border-bottom:1px solid var(--dcs-line-soft,#303642);flex:0 0 auto;min-height:36px}
 .ps-layer-footer{border-top:1px solid var(--dcs-line,#343946);border-bottom:0;margin-top:auto}
 .ps-layer-filter>.dcs-field,.ps-layer-bo>.dcs-field{height:24px;min-height:24px}
 .ps-layer-filter .dcs-field__label:empty,.ps-layer-bo .dcs-field__label:empty{display:none}
@@ -188,7 +205,12 @@ PHOTO_CSS = r"""
 .ps-amt-field .dcs-field__label:empty{display:none}
 .ps-tcap{font-weight:700;font-size:11px}
 .ps-fx{font-style:italic;font-family:Georgia,serif}
-.ps-layer-list{overflow:auto;min-height:112px;flex:1 1 auto}
+/* The list is the flexible region — it must be allowed to SHRINK (min-height:0),
+   otherwise its minimum plus the pinned header/footer rows exceeds a short
+   panel, the dock body starts scrolling too, and you get two scrollbars. */
+/* NOT overflow:auto — the tabpanel above is this panel's single scroll region.
+   A scroll here would nest inside it and show a second scrollbar. */
+.ps-layer-list{overflow:visible;min-height:0;flex:1 1 auto}
 .ps-layer{display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--dcs-line,#343946);cursor:pointer;min-height:48px}
 .ps-layer:hover{background:var(--dcs-surface-1,#252a34)}
 .ps-layer.is-active{background:var(--dcs-accent-dim,#263f64);box-shadow:inset 2px 0 0 var(--dcs-accent,#4f86d6)}
@@ -212,6 +234,20 @@ PHOTO_CSS = r"""
 .ps-history-item.is-current{background:var(--dcs-accent-dim,#263f64);color:var(--dcs-text,#e7e9ee)}
 .ps-history-item.is-future{opacity:.4}
 .ps-floatbar{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);display:flex;align-items:center;gap:2px;z-index:16}
+/* Shared flat button style for both toolbars' momentary buttons: no border
+   or fill at rest, a subtle surface highlight on hover, and a brighter grey
+   while pressed (:active). These floatbar buttons are NOT toggles, so they
+   never set aria-pressed and never take the blue selected state — that stays
+   exclusive to the selectable tools. Overrides the framework dcs-btn chrome. */
+.ps-toolbtn.dcs-btn{height:28px;min-height:28px;padding:0 8px;display:inline-flex;align-items:center;justify-content:center;border:1px solid transparent;border-radius:3px;background:transparent;color:var(--dcs-text-dim,#a6adbb);box-shadow:none}
+/* Icon-only variants are square and unpadded. */
+.ps-toolbtn.dcs-btn--icon{width:28px;padding:0}
+/* Fit button: the four-corner frame mark beside its label. Size the SVG in
+   CSS — a bare inline <svg> otherwise stretches to fill its box. */
+.ps-fitbtn{gap:5px;white-space:nowrap}
+.ps-fit-icon{display:block;width:14px;height:14px;flex:0 0 auto}
+.ps-toolbtn.dcs-btn:hover{background:var(--dcs-surface-2,#303642);color:var(--dcs-text,#e7e9ee)}
+.ps-toolbtn.dcs-btn:active{background:var(--dcs-surface-3,#3a4150);color:var(--dcs-text,#e7e9ee)}
 
 /* ── Statusbar ─────────────────────────────────────────────────────────── */
 .ps-statusbar{display:flex;align-items:center;gap:8px;min-height:28px;padding:0 8px;background:var(--dcs-surface-1,#252a34);border-top:1px solid var(--dcs-line,#343946);font-size:12px;flex:0 0 auto}
@@ -228,7 +264,9 @@ PHOTO_CSS = r"""
 .ps-panel-note{margin:0;padding:12px;color:var(--dcs-text-mute,#8c93a3);font-size:12px;line-height:1.5}
 
 /* ── Theme tweaks popover ──────────────────────────────────────────────── */
-.ps-tweaks{position:absolute;right:8px;top:38px;width:248px;z-index:600;display:flex;flex-direction:column}
+/* Wide enough that the Density button group (Compact/Comfortable/Spacious)
+   isn't clipped. */
+.ps-tweaks{position:absolute;right:8px;top:38px;width:340px;z-index:600;display:flex;flex-direction:column}
 .ps-tweaks .dcs-panel__body{display:flex;flex-direction:column;gap:10px;padding:12px}
 .ps-accent-dots{display:flex;gap:8px}
 .ps-accent-dot{width:20px;height:20px;border-radius:50%;cursor:pointer;border:2px solid transparent}
