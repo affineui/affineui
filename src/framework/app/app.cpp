@@ -693,6 +693,13 @@ void App::rebuild_view() {
             std::rethrow_exception(failure);
         }
         impl_->document.end_view_mutations();
+        // Document-level selector attributes (density / accent / theme) only
+        // reach the DOM through the bootstrap shell; a retained-view rebuild
+        // must re-stamp them on the live <body> or selector() flips are
+        // silent no-ops. set_body_attribute no-ops when unchanged.
+        for (const auto& attr : view.resolved_document_attrs()) {
+            impl_->document.set_body_attribute(attr.name, attr.value);
+        }
     }
 
     // Builder-misuse diagnostics (undeclared dock panels, bad selectors, …)

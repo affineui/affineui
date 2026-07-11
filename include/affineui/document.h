@@ -170,6 +170,13 @@ public:
     [[nodiscard]] ScrollGeometry virtual_scroll_geometry(
         std::string_view name, bool horizontal = false) const;
 
+    /// Set an attribute on the live <body> element. Used by retained-view
+    /// rebuilds to re-stamp document-level selector attributes (density /
+    /// accent / theme) that otherwise only reach the DOM through the
+    /// bootstrap shell. Returns true when the value actually changed (the
+    /// mutation schedules its own restyle).
+    bool set_body_attribute(std::string_view name, std::string_view value);
+
     /// The current fixed pixel size of every dock pane that has one, keyed by
     /// the pane id (the dockpanel key). Reads the live flex-basis, so it
     /// reflects splitter drags — the app persists this to restore the layout.

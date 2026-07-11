@@ -1094,6 +1094,11 @@ public:
     /// built tree through the document sink, so every element is known
     /// to the sink from birth and no HTML reparse ever happens again.
     [[nodiscard]] std::string to_html_shell() const;
+    /// The document-level attributes (theme + selector() stamps) this view
+    /// emits on the shell <body>. Retained-view rebuilds re-stamp them onto
+    /// the live body so selector() flips (density/accent/theme) take effect
+    /// without a shell reload.
+    [[nodiscard]] std::vector<WidgetAttribute> resolved_document_attrs() const;
 
 private:
     friend class WidgetRef;

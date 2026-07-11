@@ -74,7 +74,10 @@ class ComponentGalleryApp:
         self.list_selection = ui.IndexSelection()
         self.list_selection.on_change(self.reload)
         self.list_provider = ui.VirtualListProvider()
-        self.list_provider.default_item_size(40.0)
+        # Row height tracks the UI density mode (decius --dcs-h). Row height
+        # is exact now (inline flex-basis pins it), so this is the height
+        # rows RENDER at; set_density() re-applies it.
+        self.list_provider.default_item_size(self.dcs_row_height())
         self.list_provider.on_item_count(lambda: self.row_count)
         self.list_provider.on_item_text(
             lambda i: f"Frame {i:05d} - event routed"
@@ -109,7 +112,7 @@ class ComponentGalleryApp:
         self._tree_selected: set[str] = set()
         self._tree_sel_anchor: str | None = None
         self.tree_provider = ui.VirtualTreeProvider()
-        self.tree_provider.default_item_size(28.0)
+        self.tree_provider.default_item_size(self.dcs_row_height() + 2.0)
         self.tree_provider.on_item_count(lambda: len(self._tree_flat))
         self.tree_provider.on_item_text(lambda i: self._tree_flat[i]["label"])
         self.tree_provider.on_depth(lambda i: self._tree_flat[i]["depth"])
@@ -575,12 +578,20 @@ class ComponentGalleryApp:
         self.visual_style = normalized
         self.reload()
 
+    def dcs_row_height(self) -> float:
+        """List/tree row height for the active density (decius --dcs-h)."""
+        return {"compact": 20.0, "comfortable": 24.0, "spacious": 28.0}.get(
+            self.density, 24.0)
+
     def set_density(self, density: str) -> None:
         if density == "comfort":
             density = "comfortable"
         if density not in ("compact", "comfortable", "spacious"):
             return
         self.density = density
+        # Virtual rows are exact-height; keep them in step with --dcs-h.
+        self.list_provider.default_item_size(self.dcs_row_height())
+        self.tree_provider.default_item_size(self.dcs_row_height() + 2.0)
         self.reload()
 
     def set_accent(self, accent: str) -> None:

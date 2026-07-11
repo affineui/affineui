@@ -506,6 +506,14 @@ std::vector<Document::WidgetChange> Document::take_widget_scrolls() {
     return out;
 }
 
+bool Document::set_body_attribute(std::string_view name,
+                                  std::string_view value) {
+    auto* body = lxb_html_document_body_element(impl_->doc);
+    if (body == nullptr) return false;
+    return detail::set_attribute_on_element(
+        *impl_, lxb_dom_interface_element(body), name, value);
+}
+
 Document::ScrollGeometry Document::virtual_scroll_geometry(
     std::string_view name, bool horizontal) const {
     ScrollGeometry geo;

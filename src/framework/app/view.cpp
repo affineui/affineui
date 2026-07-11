@@ -978,6 +978,9 @@ body{margin:0}
 .photo-hybrid-status p{margin:0}
 .photo-hybrid-inspector{display:flex;flex:0 0 260px;flex-direction:column;gap:8px;padding:10px;box-sizing:border-box;border-left:1px solid var(--dcs-line,rgba(128,128,128,.25));background:var(--dcs-surface-1,#20242e);overflow:auto}
 .photo-hybrid-inspector h2{margin:4px 0 2px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dcs-text-mute,#888)}
+@media (max-width:1280px){
+  .aui-test-topbar{padding-right:16px}
+}
 @media (max-width:1120px){
   .aui-test-control-label{display:none}
   .aui-test-control{padding-left:7px;padding-right:7px}
@@ -4396,6 +4399,10 @@ std::string View::to_html_document() const {
     out += to_html_fragment();
     out += "</main></body></html>";
     return out;
+}
+
+std::vector<WidgetAttribute> View::resolved_document_attrs() const {
+    return document_attrs(theme_, framework_version_, document_attrs_);
 }
 
 std::string View::to_html_shell() const {
