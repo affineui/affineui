@@ -262,7 +262,8 @@ PYBIND11_MODULE(_affineui, m) {
         .value("TextInput", affineui::EventType::TextInput)
         .value("Resize", affineui::EventType::Resize)
         .value("FocusLost", affineui::EventType::FocusLost)
-        .value("FocusGained", affineui::EventType::FocusGained);
+        .value("FocusGained", affineui::EventType::FocusGained)
+        .value("Composition", affineui::EventType::Composition);
 
     py::class_<affineui::Event>(
             m,
@@ -278,6 +279,12 @@ PYBIND11_MODULE(_affineui, m) {
         .def_readwrite("key", &affineui::Event::key)
         .def_readwrite("key_code", &affineui::Event::key_code)
         .def_readwrite("text", &affineui::Event::text)
+        .def_readwrite("composition_cursor",
+                       &affineui::Event::composition_cursor)
+        .def_readwrite("composition_clause_begin",
+                       &affineui::Event::composition_clause_begin)
+        .def_readwrite("composition_clause_end",
+                       &affineui::Event::composition_clause_end)
         .def_readwrite("shift", &affineui::Event::shift)
         .def_readwrite("ctrl", &affineui::Event::ctrl)
         .def_readwrite("alt", &affineui::Event::alt)
@@ -392,6 +399,16 @@ PYBIND11_MODULE(_affineui, m) {
              "Cursor the OS should display under the hovered element "
              "(0=default 1=pointer 2=text 3=crosshair 4=move 5=not-allowed "
              "6=ew-resize 7=ns-resize 8=nwse-resize).")
+        .def("text_input_active",
+             &affineui::Document::text_input_active,
+             "True while an editable text control is focused; the host "
+             "should enable platform text input / IME while this holds "
+             "(see docs/IME_ARCHITECTURE.md).")
+        .def("caret_rect",
+             &affineui::Document::caret_rect,
+             "Caret rectangle of the focused text control in document CSS "
+             "points, for IME candidate-window placement (w<=0 when no "
+             "text control is focused).")
         .def("text_editing_active",
              &affineui::Document::text_editing_active,
              "True while a text control has keyboard focus — app-level "

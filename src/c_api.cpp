@@ -214,6 +214,22 @@ int affineui_ui_hovered_cursor(const affineui_ui* ui) {
     return reinterpret_cast<const affineui::Ui*>(ui)->hovered_cursor();
 }
 
+int affineui_ui_text_input_active(const affineui_ui* ui) {
+    if (!ui) return 0;
+    return reinterpret_cast<const affineui::Ui*>(ui)->text_input_active() ? 1 : 0;
+}
+
+void affineui_ui_caret_rect(const affineui_ui* ui,
+                            int* out_x, int* out_y,
+                            int* out_w, int* out_h) {
+    affineui::Rect r{};
+    if (ui) r = reinterpret_cast<const affineui::Ui*>(ui)->caret_rect();
+    if (out_x) *out_x = r.x;
+    if (out_y) *out_y = r.y;
+    if (out_w) *out_w = r.w;
+    if (out_h) *out_h = r.h;
+}
+
 int affineui_ui_set_attr(affineui_ui* ui, const char* elem_id,
                          const char* name, const char* value) {
     if (!ui || !elem_id || !name) return 0;

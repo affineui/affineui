@@ -711,6 +711,7 @@ void collect_blocks(detail::DocumentImpl& impl,
                         leaf.text = leaf.placeholder;
                         leaf.placeholder_visible = true;
                     }
+                    detail::splice_composition_display(impl, elem_node, leaf);
                 }
             } else if (leaf.tag == "select") {
                 leaf.text = detail::select_display_text(elem);
@@ -742,6 +743,7 @@ void collect_blocks(detail::DocumentImpl& impl,
                     leaf.text = leaf.placeholder;
                     leaf.placeholder_visible = true;
                 }
+                detail::splice_composition_display(impl, elem_node, leaf);
             } else if (leaf.tag != "img") {
                 leaf.text = detail::apply_text_transform(
                     detail::node_text(child, rs.computed.white_space),

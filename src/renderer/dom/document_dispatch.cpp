@@ -1173,6 +1173,19 @@ DispatchResult Document::dispatch(const Event& ev) {
         }
 #if !defined(AFFINEUI_STUB_BUILD)
         case EventType::KeyDown: {
+            // While an IME composition is active the IME owns the keyboard
+            // (Esc cancels the preedit, Backspace edits it, arrows move
+            // inside it); the outcome arrives as Composition / TextInput
+            // events. Platforms mostly swallow these keys anyway
+            // (VK_PROCESSKEY) — this guard is defensive.
+            {
+                Block* composing = nullptr;
+                if (detail::focused_text_control(*impl_, composing) &&
+                    detail::text_composition_active(
+                        *impl_, impl_->focused_idx, *composing)) {
+                    break;
+                }
+            }
             // ESC clears focus, matching the convention browsers use for
             // dismissing a focused control.
             if (ev.key == Key::Escape) {
@@ -1320,9 +1333,32 @@ DispatchResult Document::dispatch(const Event& ev) {
         case EventType::TextInput: {
             Block* control = nullptr;
             if (detail::focused_text_control(*impl_, control) && !ev.text.empty()) {
-                result.redraw_requested =
-                    detail::replace_text_selection_or_insert(
-                        *impl_, impl_->focused_idx, *control, ev.text);
+                // Committed text first drops any preedit display; a
+                // continuing composition re-establishes it with the next
+                // Composition event (see docs/IME_ARCHITECTURE.md §4.1).
+                if (detail::clear_text_composition(*impl_)) {
+                    result.redraw_requested = true;
+                }
+                if (detail::replace_text_selection_or_insert(
+                        *impl_, impl_->focused_idx, *control, ev.text)) {
+                    result.redraw_requested = true;
+                }
+            }
+            break;
+        }
+        case EventType::Composition: {
+            Block* control = nullptr;
+            if (!detail::focused_text_control(*impl_, control)) break;
+            const auto offset = [&ev](int v) {
+                if (v < 0) return ev.text.size();  // "end of preedit"
+                return std::min(static_cast<std::size_t>(v), ev.text.size());
+            };
+            if (detail::update_text_composition(
+                    *impl_, impl_->focused_idx, *control, ev.text,
+                    offset(ev.composition_cursor),
+                    offset(ev.composition_clause_begin),
+                    offset(ev.composition_clause_end))) {
+                result.redraw_requested = true;
             }
             break;
         }

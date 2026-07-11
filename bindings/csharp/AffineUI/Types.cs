@@ -51,6 +51,11 @@ public enum EventType
     Resize = 8,
     FocusLost = 9,
     FocusGained = 10,
+    /// <summary>IME preedit update: <see cref="Event.Text"/> carries the
+    /// uncommitted composition string (empty = composition ended), shown
+    /// inline at the caret but never written to the control's value.
+    /// Committed text still arrives as <see cref="TextInput"/>.</summary>
+    Composition = 11,
 }
 
 /// <summary>Mirrors <c>affineui_mouse_button</c>.</summary>
@@ -166,8 +171,15 @@ public struct Event
     public Key Key;
     /// <summary>Platform-native scancode (debug / passthrough).</summary>
     public int KeyCode;
-    /// <summary>UTF-8 text; only read for <see cref="EventType.TextInput"/>.</summary>
+    /// <summary>UTF-8 text; read for <see cref="EventType.TextInput"/>
+    /// (committed) and <see cref="EventType.Composition"/> (preedit).</summary>
     public string? Text;
+    /// <summary>Composition only — IME caret as a byte offset into
+    /// <see cref="Text"/> (negative = end of preedit).</summary>
+    public int CompositionCursor;
+    /// <summary>Composition only — the IME's active clause as byte offsets
+    /// into <see cref="Text"/> (equal = none reported).</summary>
+    public int CompositionClauseBegin, CompositionClauseEnd;
     public bool Shift, Ctrl, Alt, Super;
 
     public static Event MouseMove(int x, int y) =>
@@ -192,6 +204,11 @@ public struct Event
 
     public static Event TextInput(string text) =>
         new() { Type = EventType.TextInput, Text = text };
+
+    /// <summary>IME preedit update; <paramref name="cursor"/> is a byte
+    /// offset into <paramref name="preedit"/> (negative = end).</summary>
+    public static Event Composition(string preedit, int cursor = -1) =>
+        new() { Type = EventType.Composition, Text = preedit, CompositionCursor = cursor };
 
     public static Event Resize() => new() { Type = EventType.Resize };
     public static Event FocusLost() => new() { Type = EventType.FocusLost };
@@ -220,6 +237,9 @@ public struct Event
             Ctrl = Ctrl ? 1 : 0,
             Alt = Alt ? 1 : 0,
             SuperKey = Super ? 1 : 0,
+            CompositionCursor = CompositionCursor,
+            CompositionClauseBegin = CompositionClauseBegin,
+            CompositionClauseEnd = CompositionClauseEnd,
         };
     }
 }

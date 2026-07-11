@@ -726,6 +726,17 @@ struct DocumentImpl {
     std::unordered_map<lxb_dom_node_t*,
                        std::pair<std::size_t, std::size_t>>
         live_text_selections;
+    // Active IME composition (preedit). At most one exists — it belongs to
+    // the focused text control, keyed by DOM node so it survives block
+    // recollection. Display-only state: the preedit is spliced into
+    // Block::text and the text layout, but never enters text_value /
+    // live_text_values and never fires widget change callbacks.
+    lxb_dom_node_t* composition_node{nullptr};
+    std::string     composition_text;        // empty ⇒ no active composition
+    std::size_t     composition_cursor{0};   // byte offset in composition_text
+    std::size_t     composition_clause_begin{0};  // IME active clause range,
+    std::size_t     composition_clause_end{0};    // begin==end ⇒ none
+    std::string     composition_composed;    // text_value + preedit at caret
     std::unordered_map<std::uint64_t, TextLayoutEntry> text_layout_cache;
     std::unordered_map<lxb_dom_node_t*, std::uint64_t> text_layout_signatures;
     Painter* last_measurer{nullptr};
@@ -1105,6 +1116,36 @@ Rect float_resize_rect(const detail::DocumentImpl::FloatResize& d,
                        const Event& ev);
 bool focused_text_control(detail::DocumentImpl& impl, Block*& out);
 bool focused_text_control(detail::DocumentImpl&, Block*&);
+// IME composition (preedit) state — see docs/IME_ARCHITECTURE.md §4.2.
+// `composed_*` accessors return the effective (value + spliced preedit)
+// view that text layout, painting, and caret geometry operate on.
+bool clear_text_composition(detail::DocumentImpl& impl);
+std::size_t composed_caret_offset(const detail::DocumentImpl& impl,
+                                  int idx,
+                                  const Block& block);
+const std::string& composed_text_value(const detail::DocumentImpl& impl,
+                                       int idx,
+                                       const Block& block);
+std::pair<std::size_t, std::size_t> composition_display_range(
+    const detail::DocumentImpl& impl, int idx, const Block& block);
+bool text_composition_active(const detail::DocumentImpl& impl,
+                             int idx,
+                             const Block& block);
+bool update_text_composition(detail::DocumentImpl& impl,
+                             int idx,
+                             Block& block,
+                             std::string_view preedit,
+                             std::size_t cursor,
+                             std::size_t clause_begin,
+                             std::size_t clause_end);
+// Caret rectangle of the focused text control in document coordinates
+// (for IME candidate-window placement). w<=0 when unavailable.
+Rect text_caret_rect(detail::DocumentImpl& impl, int idx, Painter& painter);
+// Re-splice the active preedit into a freshly collected leaf's display
+// text (composition state survives recollection via the DOM node key).
+void splice_composition_display(detail::DocumentImpl& impl,
+                                lxb_dom_node_t* node,
+                                Block& leaf);
 LiveControlKind live_control_kind_for_block(const Block& block);
 bool move_text_caret(detail::DocumentImpl& impl,
                      int idx,

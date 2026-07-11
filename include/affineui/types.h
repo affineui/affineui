@@ -85,6 +85,11 @@ enum class EventType : std::uint8_t {
     Resize,
     FocusLost,
     FocusGained,
+    // IME preedit update: `text` holds the uncommitted composition string
+    // (empty = composition ended/cancelled), shown inline at the caret but
+    // never written to the control's value. Committed text still arrives
+    // as TextInput. Appended so C-ABI numeric values stay stable.
+    Composition,
 };
 
 struct Event {
@@ -95,7 +100,13 @@ struct Event {
     float       wheel_dy{0.0f};
     Key         key{Key::Unknown};
     int         key_code{0};  // platform-native scancode (debug / passthrough)
-    std::string text;  // valid for TextInput
+    std::string text;  // valid for TextInput (committed) / Composition (preedit)
+    // Composition only — byte offsets into `text` (clamped to UTF-8
+    // boundaries on dispatch). The clause range marks the IME's active
+    // segment (the one being converted); begin==end means none reported.
+    int         composition_cursor{0};
+    int         composition_clause_begin{0};
+    int         composition_clause_end{0};
     bool        shift{false};
     bool        ctrl{false};
     bool        alt{false};

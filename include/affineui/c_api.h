@@ -127,7 +127,12 @@ typedef enum affineui_event_type {
     AFFINEUI_EVENT_TEXT_INPUT   = 7,
     AFFINEUI_EVENT_RESIZE       = 8,
     AFFINEUI_EVENT_FOCUS_LOST   = 9,
-    AFFINEUI_EVENT_FOCUS_GAINED = 10
+    AFFINEUI_EVENT_FOCUS_GAINED = 10,
+    // IME preedit update: `text` carries the uncommitted composition
+    // string (empty/null = composition ended), displayed inline at the
+    // caret but never written to the control's value. Committed text
+    // still arrives as AFFINEUI_EVENT_TEXT_INPUT.
+    AFFINEUI_EVENT_COMPOSITION  = 11
 } affineui_event_type;
 
 // Mirrors affineui::MouseButton (values must match).
@@ -181,8 +186,15 @@ typedef struct affineui_event {
     float       wheel_dy;
     int         key;       // affineui_key
     int         key_code;  // platform-native scancode (debug / passthrough)
-    const char* text;      // UTF-8 text for TEXT_INPUT (may be null)
+    const char* text;      // UTF-8 text for TEXT_INPUT / COMPOSITION (may be null)
     int         shift, ctrl, alt, super_key;  // modifier flags (0/1)
+    // COMPOSITION only — byte offsets into `text`. cursor: IME caret in
+    // the preedit (negative = end); clause begin/end: the IME's active
+    // segment (equal = none). Fields grow at the tail only, so binding
+    // wrappers stay layout-compatible within a release.
+    int         composition_cursor;
+    int         composition_clause_begin;
+    int         composition_clause_end;
 } affineui_event;
 
 // Frees a string returned by any affineui_* function documented as
@@ -225,6 +237,17 @@ AFFINEUI_C_API void affineui_ui_on_click(affineui_ui* ui,
 // (0=default 1=pointer 2=text 3=crosshair 4=move 5=not-allowed
 //  6=ew-resize 7=ns-resize 8=nwse-resize).
 AFFINEUI_C_API int  affineui_ui_hovered_cursor(const affineui_ui* ui);
+
+// ── Text input / IME intents (see docs/IME_ARCHITECTURE.md) ─────────
+// 1 while an editable text control is focused: the host should enable
+// platform text input / IME while this holds and disable it when clear.
+AFFINEUI_C_API int  affineui_ui_text_input_active(const affineui_ui* ui);
+// Caret rectangle of the focused text control in panel-local CSS points,
+// for IME candidate-window placement / soft-keyboard avoidance. Writes
+// zeros when no text control is focused. Out params may be null.
+AFFINEUI_C_API void affineui_ui_caret_rect(const affineui_ui* ui,
+                                           int* out_x, int* out_y,
+                                           int* out_w, int* out_h);
 
 // ── Live DOM mutation (embedded) ─────────────────────────────────────
 // Return 1 only when the document actually changed.

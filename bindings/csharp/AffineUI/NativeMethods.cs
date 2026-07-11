@@ -36,6 +36,10 @@ internal struct NativeEvent
     public int KeyCode;
     public IntPtr Text;    // const char* (UTF-8, may be null)
     public int Shift, Ctrl, Alt, SuperKey;
+    // COMPOSITION only — byte offsets into Text (see c_api.h).
+    public int CompositionCursor;
+    public int CompositionClauseBegin;
+    public int CompositionClauseEnd;
 }
 
 /// <summary>Mirrors <c>affineui_dispatch_result</c>.</summary>
@@ -166,6 +170,14 @@ internal static partial class NativeMethods
 
     [LibraryImport(Lib)]
     internal static partial int affineui_ui_hovered_cursor(IntPtr ui);
+
+    [LibraryImport(Lib)]
+    internal static partial int affineui_ui_text_input_active(IntPtr ui);
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_ui_caret_rect(IntPtr ui,
+                                                        out int outX, out int outY,
+                                                        out int outW, out int outH);
 
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial int affineui_ui_set_attr(IntPtr ui, string? elemId, string? name, string? value);

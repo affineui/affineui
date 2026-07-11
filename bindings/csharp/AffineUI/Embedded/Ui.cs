@@ -206,6 +206,33 @@ public sealed class Ui : IDisposable
         }
     }
 
+    /// <summary>True while an editable text control is focused — the host
+    /// should enable platform text input / IME while this holds and disable
+    /// it when it clears (see docs/IME_ARCHITECTURE.md).</summary>
+    public bool TextInputActive
+    {
+        get
+        {
+            bool active = NativeMethods.affineui_ui_text_input_active(Handle) != 0;
+            GC.KeepAlive(this);
+            return active;
+        }
+    }
+
+    /// <summary>Caret rectangle of the focused text control in panel-local
+    /// CSS points, for IME candidate-window placement. Width is 0 when no
+    /// text control is focused.</summary>
+    public (int X, int Y, int Width, int Height) CaretRect
+    {
+        get
+        {
+            NativeMethods.affineui_ui_caret_rect(Handle, out int x, out int y,
+                                                 out int w, out int h);
+            GC.KeepAlive(this);
+            return (x, y, w, h);
+        }
+    }
+
     // ── Live DOM mutation (return true only when the document changed) ───
 
     public bool SetAttr(string elementId, string name, string value)

@@ -1508,8 +1508,14 @@ void Document::draw(Painter& painter) {
                         *impl_, static_cast<int>(i), g, b, painter);
                 }
 
-                const auto caret_offset =
-                    std::min(b.caret_offset, b.text_value.size());
+                // Composed space: with an active IME preedit the layout's
+                // caret table indexes text_value + spliced preedit, and the
+                // visible caret sits at the IME's cursor inside it.
+                const auto caret_offset = std::min(
+                    detail::composed_caret_offset(
+                        *impl_, static_cast<int>(i), b),
+                    detail::composed_text_value(
+                        *impl_, static_cast<int>(i), b).size());
                 auto it = std::lower_bound(
                     caret_layout->caret_offsets.begin(),
                     caret_layout->caret_offsets.end(), caret_offset);
@@ -1539,6 +1545,69 @@ void Document::draw(Painter& painter) {
                 painter.stroke_line(caret_x, y0, caret_x, y1,
                                     detail::unpack_rgba(an.color_rgba),
                                     1.0f);
+
+                // IME preedit decoration: a thin underline across the whole
+                // preedit and a thick one under the IME's active clause —
+                // the conventional composition rendering on every platform.
+                const auto [pre_begin, pre_end] =
+                    detail::composition_display_range(
+                        *impl_, static_cast<int>(i), b);
+                if (pre_end > pre_begin &&
+                    !caret_layout->caret_offsets.empty()) {
+                    const auto index_of = [&](std::size_t offset) {
+                        auto iter = std::lower_bound(
+                            caret_layout->caret_offsets.begin(),
+                            caret_layout->caret_offsets.end(), offset);
+                        std::size_t k =
+                            iter == caret_layout->caret_offsets.end()
+                                ? caret_layout->caret_offsets.size() - 1
+                                : static_cast<std::size_t>(std::distance(
+                                      caret_layout->caret_offsets.begin(),
+                                      iter));
+                        if (caret_layout->caret_offsets[k] != offset && k > 0) {
+                            --k;
+                        }
+                        return k;
+                    };
+                    const Color underline = detail::unpack_rgba(an.color_rgba);
+                    const auto draw_span = [&](std::size_t span_begin,
+                                               std::size_t span_end,
+                                               float thickness) {
+                        if (span_end <= span_begin) return;
+                        const std::size_t bi = index_of(span_begin);
+                        const std::size_t ei = index_of(span_end);
+                        const int first_line = caret_layout->caret_lines[bi];
+                        const int last_line = caret_layout->caret_lines[ei];
+                        for (int ln = first_line; ln <= last_line; ++ln) {
+                            const float sx = ln == first_line
+                                ? caret_layout->caret_x[bi] : 0.0f;
+                            const float ex = ln == last_line
+                                ? caret_layout->caret_x[ei]
+                                : (static_cast<std::size_t>(ln) <
+                                           caret_layout->line_widths.size()
+                                       ? caret_layout->line_widths
+                                             [static_cast<std::size_t>(ln)]
+                                       : 0.0f);
+                            if (ex <= sx) continue;
+                            const float origin = detail::aligned_line_origin_x(
+                                *caret_layout, static_cast<std::uint16_t>(ln));
+                            const float ln_top =
+                                static_cast<float>(text_y) +
+                                static_cast<float>(ln) * css_line_h +
+                                (css_line_h - natural_line_h) * 0.5f;
+                            const float uy =
+                                std::ceil(ln_top + natural_line_h - 1.5f) +
+                                0.5f;
+                            painter.stroke_line(origin + sx, uy,
+                                                origin + ex, uy,
+                                                underline, thickness);
+                        }
+                    };
+                    draw_span(pre_begin, pre_end, 1.0f);
+                    draw_span(pre_begin + impl_->composition_clause_begin,
+                              pre_begin + impl_->composition_clause_end,
+                              2.0f);
+                }
             }
             if (cs.text_decoration_line != detail::ComputedStyle::DecorationNone) {
                 const auto metrics = painter.text_metrics(font);
