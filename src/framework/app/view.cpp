@@ -2221,11 +2221,21 @@ WidgetRef View::virtual_list(std::string_view key,
         set_attr(row, "data-index", std::to_string(i));
         set_attr(row, "aria-selected",
                  provider.is_selected(i) ? "true" : "false");
-        if (axis == Axis::Horizontal) {
-            set_attr(row, "style", "width:" + px(provider.item_size(i)) +
-                                       ";flex:0 0 auto");
-        } else {
-            set_attr(row, "style", "height:" + px(provider.item_size(i)));
+        // Pin the row's MAIN-AXIS size with an inline flex-basis, not just
+        // height/width: theme CSS may set its own basis on themed rows
+        // (decius: .dcs-list__item{flex:0 0 var(--dcs-h)}), and in flex
+        // layout basis beats height — the rendered rows then disagree with
+        // the window math (underfilled box, scroll/modulus desync). Inline
+        // style outranks any sheet.
+        {
+            const std::string size_px = px(provider.item_size(i));
+            if (axis == Axis::Horizontal) {
+                set_attr(row, "style", "width:" + size_px + ";flex:0 0 " +
+                                           size_px);
+            } else {
+                set_attr(row, "style", "height:" + size_px + ";flex:0 0 " +
+                                           size_px);
+            }
         }
 
         // Checkbox mode: a leading checkbox slot on every row (structurally
@@ -2314,8 +2324,11 @@ WidgetRef View::virtual_tree(std::string_view key,
         set_attr(row, "data-depth", std::to_string(depth));
         // Indent inline (definite px) so depth reads correctly under any
         // theme; --depth is still published for theme CSS that wants it.
+        // flex-basis pinned inline for the same reason as list rows: theme
+        // CSS (dcs-tree__row) sets its own basis, and basis beats height.
+        const std::string row_px = px(provider.item_size(i));
         set_attr(row, "style",
-                 "height:" + px(provider.item_size(i)) +
+                 "height:" + row_px + ";flex:0 0 " + row_px +
                      ";padding-left:" + px(8.0 + 14.0 * depth) +
                      ";--depth:" + std::to_string(depth));
 
