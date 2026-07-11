@@ -13247,7 +13247,13 @@ _SOKOL_PRIVATE void _sapp_x11_ime_init(void) {
             }
         }
         if (!_sapp.x11.xic) {
-            /* over-the-spot creation failed — retry as root style */
+            /* over-the-spot creation failed — drop the font set (root style has
+               no preedit attributes for sapp_ime_set_rect to anchor) and retry
+               as root style */
+            if (_sapp.x11.ime_fontset) {
+                XFreeFontSet(_sapp.x11.display, _sapp.x11.ime_fontset);
+                _sapp.x11.ime_fontset = 0;
+            }
             chosen = style_root;
         }
     }
@@ -13671,14 +13677,23 @@ _SOKOL_PRIVATE void _sapp_x11_on_keypress(XEvent* event) {
        codepoints become CHAR events (matching the legacy keysym path: control
        keys like Return/Tab/Backspace stay KEY_DOWN-only). */
     if (_sapp.x11.xic) {
-        char buf[64];
+        char stackbuf[64];
+        char* buf = stackbuf;
+        char* heapbuf = 0;
         KeySym keysym = 0;
         Status status = 0;
-        int len = Xutf8LookupString(_sapp.x11.xic, &event->xkey, buf, (int)sizeof(buf) - 1, &keysym, &status);
+        int len = Xutf8LookupString(_sapp.x11.xic, &event->xkey, buf, (int)sizeof(stackbuf) - 1, &keysym, &status);
         if (status == XBufferOverflow) {
-            /* candidate/commit strings are short; truncate rather than grow */
-            len = (int)sizeof(buf) - 1;
-            status = XLookupChars;
+            /* the stack buffer was left untouched; `len` is the size required.
+               Retry into a buffer that fits rather than decode stale bytes. */
+            heapbuf = (char*)_sapp_malloc((size_t)len + 1);
+            if (heapbuf) {
+                buf = heapbuf;
+                len = Xutf8LookupString(_sapp.x11.xic, &event->xkey, buf, len, &keysym, &status);
+            } else {
+                status = XLookupNone;   /* out of memory: drop this commit */
+                len = 0;
+            }
         }
         if (((status == XLookupChars) || (status == XLookupBoth)) && (len > 0)) {
             buf[len] = 0;
@@ -13699,6 +13714,9 @@ _SOKOL_PRIVATE void _sapp_x11_on_keypress(XEvent* event) {
                     _sapp_x11_char_event(cp, repeat, mods);
                 }
             }
+        }
+        if (heapbuf) {
+            _sapp_free(heapbuf);
         }
     } else {
         KeySym keysym;
