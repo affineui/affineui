@@ -52,10 +52,11 @@ def _framework_asset_roots() -> list[str]:
 # fill/stroke are set on the path itself — the renderer doesn't inherit SVG
 # presentation attributes from the <svg> element down to its shapes.
 _SVG_FIT = (
-    '<svg class="ps-fit-icon" viewBox="0 0 16 16" width="14" height="14">'
+    '<span class="ps-fit-mark">'
+    '<svg viewBox="0 0 16 16">'
     '<path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" fill="none" '
-    'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" '
-    'stroke-linejoin="round"/></svg>')
+    'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" '
+    'stroke-linejoin="round"/></svg></span>')
 
 # Only accents the Decius bundle actually defines — a name with no
 # [data-dcs-accent=…] rule (the old default "blue" was one) sets the attribute
@@ -163,6 +164,11 @@ class PhotoEditApp:
         return self.doc.zoom()
 
     def tool_cursor(self) -> str:
+        # A pan in progress (right-drag, space-drag, or the Hand tool) owns the
+        # cursor regardless of which tool is selected. Space-held shows it
+        # before the drag starts, as a hint that the click will pan.
+        if (self._drag or {}).get("kind") == "pan" or self._space_down:
+            return "move"
         return _TOOL_CURSORS.get(self.tool, "crosshair")
 
     def _populate_view(self, view: ui.View) -> None:
@@ -496,8 +502,17 @@ class PhotoEditApp:
             self.reload()
             return
         # Wheel zoom/pan has no release event to reload on; refresh the
-        # readouts next frame. Drags defer to their mouse-up reload.
-        if self._needs_reload and self._drag is None:
+        # readouts next frame.
+        #
+        # View-transform drags (pan / navigator pan) reload EVERY frame too:
+        # the rulers are DOM, so unlike the canvas — which the core repaints
+        # itself — their ticks only move when the view is rebuilt. Deferring
+        # that to mouse-up left them frozen while the image slid underneath.
+        # This is the reconcile fast path: rebuilding mid-drag diffs to just
+        # the tick spans. Content drags (strokes, marquees) still defer —
+        # they don't move the view, so the rulers don't change.
+        drag_kind = self._drag["kind"] if self._drag else None
+        if self._needs_reload and drag_kind in (None, "pan", "navpan"):
             self.reload()
 
     def _on_event(self, ev: ui.Event, hover) -> bool:
@@ -513,8 +528,9 @@ class PhotoEditApp:
         if et == ui.EventType.KeyDown:
             return self._key_down(ev)
         if et == ui.EventType.KeyUp:
-            if ev.key == ui.Key.Space:
+            if ev.key == ui.Key.Space and self._space_down:
                 self._space_down = False
+                self.reload()  # restore the tool cursor
             return False
         return False
 
@@ -549,9 +565,20 @@ class PhotoEditApp:
         if self.app is not None:
             self.app.capture_pointer()
 
+    def _begin_pan(self, ev: ui.Event) -> bool:
+        self._drag = {"kind": "pan", "sx": ev.pos.x, "sy": ev.pos.y,
+                      "px": self.doc.pan_x(), "py": self.doc.pan_y()}
+        self._capture()
+        self.reload()  # swap the stage cursor to the panning one
+        return True
+
     def _mouse_down(self, ev: ui.Event, hover) -> bool:
         if self.dialog is not None:
             return False
+        # Right-drag anywhere on the stage pans, whatever the active tool —
+        # the DCC convention, and it saves reaching for space/Hand mid-stroke.
+        if ev.button == ui.MouseButton.Right and self._over_stage(hover):
+            return self._begin_pan(ev)
         # Snappy activation: layer selection and history jumps fire on
         # mousedown, not the framework's mouseup on_click. The row carries
         # its id/index as a data attribute so the router can act immediately.
@@ -572,10 +599,7 @@ class PhotoEditApp:
             else self.tool
 
         if tool == "hand":
-            self._drag = {"kind": "pan", "sx": ev.pos.x, "sy": ev.pos.y,
-                          "px": self.doc.pan_x(), "py": self.doc.pan_y()}
-            self._capture()
-            return True
+            return self._begin_pan(ev)
         if tool == "zoom":
             factor = (1 / 1.4) if ev.alt else 1.4
             self.doc.set_zoom_at(self.zoom * factor, float(ev.pos.x),
@@ -901,6 +925,7 @@ class PhotoEditApp:
         if key == K.Space:
             if not self._space_down:
                 self._space_down = True
+                self.reload()  # show the pan cursor while space is held
             return True
         if cmd and key == K.Z:
             self.redo() if ev.shift else self.undo()

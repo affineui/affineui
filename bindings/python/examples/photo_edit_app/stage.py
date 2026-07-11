@@ -14,6 +14,7 @@ reload happens on discrete state changes.
 
 from __future__ import annotations
 
+import math
 from html import escape
 from typing import TYPE_CHECKING
 
@@ -59,7 +60,19 @@ def grid_style(app: "PhotoEditApp") -> str:
 
 
 def _ruler_ticks(app: "PhotoEditApp", horizontal: bool) -> str:
-    """Absolutely-positioned tick spans tracking the core view transform."""
+    """Absolutely-positioned tick spans tracking the core view transform.
+
+    `origin` is where document coordinate 0 falls in ruler-local pixels, so
+    every tick is `origin + d * zoom` — the ticks slide and re-space as the
+    core's pan/zoom changes (the view rebuild that redraws them runs each
+    frame of a pan drag; see PhotoEditApp._on_frame).
+
+    The ruler measures the whole visible STAGE, not just the image: document
+    coordinates run negative left of / above the image and past its far edge,
+    exactly like the web reference. Clamping ticks to 0..doc_len left the
+    ruler blank wherever the canvas showed empty stage — which, zoomed in, is
+    most of it.
+    """
     z = max(1e-6, app.doc.zoom())
     step = next((s for s in _TICK_STEPS if s * z >= 48), 1000)
     rect = app.doc.stage_rect()
@@ -70,22 +83,18 @@ def _ruler_ticks(app: "PhotoEditApp", horizontal: bool) -> str:
         ox, oy = app.doc.doc_origin()
         origin = (ox - rect[0]) if horizontal else (oy - rect[1])
         length = float(rect[2] if horizontal else rect[3])
-    doc_len = app.doc.width() if horizontal else app.doc.height()
-    first = int((-origin) / z // step) * step
+    # First tick at or before the ruler's left/top edge, snapped to `step`.
+    first = math.floor(-origin / z / step) * step
     spans = []
     d = first
     while True:
         sx = origin + d * z
         if sx > length:
             break
-        if 0 <= d <= doc_len and sx >= 0:
-            if horizontal:
-                spans.append(f'<span style="left:{sx:.1f}px">{d}</span>')
-            else:
-                spans.append(f'<span style="top:{sx:.1f}px">{d}</span>')
+        if sx >= 0:
+            edge = "left" if horizontal else "top"
+            spans.append(f'<span style="{edge}:{sx:.1f}px">{d}</span>')
         d += step
-        if d > doc_len + step:
-            break
     return f'<div class="ps-ruler-ticks">{"".join(spans)}</div>'
 
 
