@@ -44,6 +44,8 @@ def _ensure_photo_core() -> None:
         ext_dir = Path(affineui_ext.__file__).resolve().parent
 
     def _load_from(directory: Path) -> bool:
+        if not directory or not directory.is_dir():
+            return False
         for cand in sorted(directory.glob("photo_core*"),
                            key=lambda p: p.stat().st_mtime, reverse=True):
             if cand.suffix.lower() not in (".pyd", ".so"):
@@ -57,16 +59,24 @@ def _ensure_photo_core() -> None:
             return True
         return False
 
-    # 1) Same dir as _affineui (the ABI-matched build).
-    if ext_dir is not None and _load_from(ext_dir):
-        return
-    # 2) A plain ``import photo_core`` (installed / on sys.path).
+    # Search, in order: (1) the exact dir _affineui loaded from — the surest
+    # ABI match; (2) the editable build tree's config dirs; (3) a plain import.
+    # …/photo_edit_app → …/examples → …/bindings/python
+    py_root = Path(__file__).resolve().parents[2]
+    search_dirs = [ext_dir] if ext_dir is not None else []
+    build = py_root / "build"
+    if build.is_dir():
+        for cfg in ("Release", "RelWithDebInfo", "Debug"):
+            search_dirs.extend(build.glob(f"*/{cfg}"))
+        search_dirs.extend(build.glob("*"))  # per-config-less generators
+    for d in search_dirs:
+        if _load_from(d):
+            return
     try:
         import photo_core  # noqa: F401
         return
     except ModuleNotFoundError:
         pass
-    # 3) Fall through with a build hint.
     raise ModuleNotFoundError(
         "No module named 'photo_core'. Build it with:\n"
         "    cd bindings/python && pip install -e . --no-build-isolation\n"

@@ -160,7 +160,19 @@ PHOTO_CSS = r"""
 .ps-swatch-chip:hover{outline:1px solid var(--dcs-accent,#4f86d6);outline-offset:1px}
 
 /* ── Layers panel ──────────────────────────────────────────────────────── */
-.ps-layers{display:flex;flex-direction:column;min-height:0;height:100%}
+/* Fill the dock body via flex (like the web), NOT height:100%. height:100%
+   against a flex-basis'd body overflowed by a hair, triggering the body's own
+   overflow:auto ON TOP of the inner .ps-layer-list scroll — two scrollbars.
+   flex:1 + min-height:0 makes ps-layers fit exactly so only the list scrolls. */
+.ps-layers{display:flex;flex-direction:column;min-height:0;flex:1 1 0;height:100%}
+/* The dock body is an overflow:auto BLOCK (not flex); its tabpanel is a plain
+   block, so a flex child inside gets no bounded height and BOTH the body and
+   the inner .ps-layer-list end up scrollable (two scrollbars). Make the
+   layers tabpanel fill the body as an absolutely-positioned flex column so
+   ps-layers has a definite height, only .ps-layer-list scrolls, and the body
+   never overflows. */
+#layers-body{position:absolute;inset:0;display:flex;flex-direction:column;
+             min-height:0;overflow:hidden}
 .ps-layer-filter,.ps-layer-bo,.ps-layer-lock-row,.ps-layer-footer{display:flex;align-items:center;gap:3px;padding:6px 8px;border-bottom:1px solid var(--dcs-line-soft,#303642)}
 .ps-layer-footer{border-top:1px solid var(--dcs-line,#343946);border-bottom:0;margin-top:auto}
 .ps-layer-filter>.dcs-field,.ps-layer-bo>.dcs-field{height:24px;min-height:24px}

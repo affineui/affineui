@@ -26,20 +26,35 @@ def _ensure_photo_core() -> None:
 
     import affineui  # noqa: F401  (loads _affineui via its own locator)
     ext = sys.modules.get("affineui._affineui")
-    if ext is None or not getattr(ext, "__file__", None):
-        return  # let the real ImportError surface in the test module
-    ext_dir = Path(ext.__file__).resolve().parent
-    for cand in sorted(ext_dir.glob("photo_core*"),
-                       key=lambda p: p.stat().st_mtime, reverse=True):
-        if cand.suffix.lower() not in (".pyd", ".so"):
-            continue
-        spec = util.spec_from_file_location("photo_core", cand)
-        if spec is None or spec.loader is None:
-            continue
-        module = util.module_from_spec(spec)
-        sys.modules["photo_core"] = module
-        spec.loader.exec_module(module)
-        return
+
+    def _load_from(directory: Path) -> bool:
+        if not directory or not directory.is_dir():
+            return False
+        for cand in sorted(directory.glob("photo_core*"),
+                           key=lambda p: p.stat().st_mtime, reverse=True):
+            if cand.suffix.lower() not in (".pyd", ".so"):
+                continue
+            spec = util.spec_from_file_location("photo_core", cand)
+            if spec is None or spec.loader is None:
+                continue
+            module = util.module_from_spec(spec)
+            sys.modules["photo_core"] = module
+            spec.loader.exec_module(module)
+            return True
+        return False
+
+    dirs = []
+    if ext is not None and getattr(ext, "__file__", None):
+        dirs.append(Path(ext.__file__).resolve().parent)  # ABI-matched build
+    build = Path(__file__).resolve().parents[1] / "build"  # …/bindings/python
+    if build.is_dir():
+        for cfg in ("Release", "RelWithDebInfo", "Debug"):
+            dirs.extend(build.glob(f"*/{cfg}"))
+        dirs.extend(build.glob("*"))
+    for d in dirs:
+        if _load_from(d):
+            return
+    # let the real ImportError surface in the test module otherwise
 
 
 _ensure_photo_core()
