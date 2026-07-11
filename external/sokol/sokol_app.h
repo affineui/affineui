@@ -1366,6 +1366,7 @@ enum {
     SAPP_MAX_MOUSEBUTTONS = 3,
     SAPP_MAX_KEYCODES = 512,
     SAPP_MAX_ICONIMAGES = 8,
+    SAPP_MAX_IME_COMPOSITION_SIZE = 512,    /* AFFINEUI PATCH (ime) */
 };
 
 /*
@@ -1401,6 +1402,7 @@ typedef enum sapp_event_type {
     SAPP_EVENTTYPE_QUIT_REQUESTED,
     SAPP_EVENTTYPE_CLIPBOARD_PASTED,
     SAPP_EVENTTYPE_FILES_DROPPED,
+    SAPP_EVENTTYPE_IME_COMPOSITION,     /* AFFINEUI PATCH (ime): preedit update */
     _SAPP_EVENTTYPE_NUM,
     _SAPP_EVENTTYPE_FORCE_U32 = 0x7FFFFFFF
 } sapp_event_type;
@@ -1627,6 +1629,15 @@ typedef struct sapp_event {
     int window_height;
     int framebuffer_width;              // = window_width * dpi_scale
     int framebuffer_height;             // = window_height * dpi_scale
+    /* AFFINEUI PATCH (ime): IME composition preedit, valid in IME_COMPOSITION
+       events. UTF-8; empty string means the composition ended/cancelled.
+       Offsets are bytes into ime_composition; ime_composition_cursor is the
+       IME caret (-1 = end); the clause range marks the IME's active segment
+       (equal = none reported). */
+    char ime_composition[SAPP_MAX_IME_COMPOSITION_SIZE];
+    int ime_composition_cursor;
+    int ime_composition_clause_begin;
+    int ime_composition_clause_end;
 } sapp_event;
 
 /*
@@ -2205,6 +2216,12 @@ SOKOL_APP_API_DECL void sapp_set_icon(const sapp_icon_desc* icon_desc);
 SOKOL_APP_API_DECL int sapp_get_num_dropped_files(void);
 /* gets the dropped file paths */
 SOKOL_APP_API_DECL const char* sapp_get_dropped_file_path(int index);
+/* AFFINEUI PATCH (ime): anchor rect for the IME candidate window / composition
+   UI, in client-area pixels (the focused text field's caret rect). */
+SOKOL_APP_API_DECL void sapp_ime_set_rect(int x, int y, int w, int h);
+/* AFFINEUI PATCH (ime): enable/disable the input method for the window (call
+   with false while no text field is focused so the IME doesn't swallow keys). */
+SOKOL_APP_API_DECL void sapp_ime_set_enabled(bool enabled);
 
 /* special run-function for SOKOL_NO_ENTRY (in standard mode this is an empty stub) */
 SOKOL_APP_API_DECL void sapp_run(const sapp_desc* desc);
@@ -2463,6 +2480,7 @@ inline void sapp_run(const sapp_desc& desc) { return sapp_run(&desc); }
     #endif
     #include <windows.h>
     #include <windowsx.h>
+    #include <imm.h>    /* AFFINEUI PATCH (ime): WIN32_LEAN_AND_MEAN drops imm.h */
     #include <shellapi.h>
 
     #if defined(__GNUC__)
@@ -2487,6 +2505,7 @@ inline void sapp_run(const sapp_desc& desc) { return sapp_run(&desc); }
     #pragma comment (lib, "user32")
     #pragma comment (lib, "shell32")    /* CommandLineToArgvW, DragQueryFileW, DragFinished */
     #pragma comment (lib, "gdi32")
+    #pragma comment (lib, "imm32")      /* AFFINEUI PATCH (ime) */
     #if defined(SOKOL_D3D11)
         #pragma comment (lib, "dxgi")
         #pragma comment (lib, "d3d11")
@@ -2945,6 +2964,14 @@ typedef struct {
         size_t size;
         void* ptr;
     } raw_input_data;
+    /* AFFINEUI PATCH (ime): win32 IME composition state */
+    struct {
+        RECT rect;              // caret rect in client px (candidate anchor)
+        bool rect_valid;
+        bool composing;
+        bool disabled;          // sapp_ime_set_enabled(false) active
+        HIMC stored_himc;       // context parked while disabled
+    } ime;
 } _sapp_win32_t;
 
 #if defined(SOKOL_GLCORE)
@@ -9422,6 +9449,124 @@ _SOKOL_PRIVATE void _sapp_win32_char_event(uint32_t c, bool repeat) {
     }
 }
 
+/* AFFINEUI PATCH (ime): win32 IMM composition handling. The default IME
+   composition window is suppressed (the app draws the preedit inline);
+   preedit updates surface as SAPP_EVENTTYPE_IME_COMPOSITION and committed
+   text flows through the normal CHAR event path. */
+_SOKOL_PRIVATE int _sapp_win32_ime_get_str(HIMC himc, DWORD what, WCHAR* buf, int max_wchars) {
+    LONG num_bytes = ImmGetCompositionStringW(himc, what, NULL, 0);
+    if (num_bytes <= 0) {
+        return 0;
+    }
+    int num_wchars = (int)num_bytes / (int)sizeof(WCHAR);
+    if (num_wchars > (max_wchars - 1)) {
+        num_wchars = max_wchars - 1;
+    }
+    ImmGetCompositionStringW(himc, what, buf, (DWORD)(num_wchars * (int)sizeof(WCHAR)));
+    buf[num_wchars] = 0;
+    return num_wchars;
+}
+
+/* UTF-16 code-unit offset -> UTF-8 byte offset within the same string */
+_SOKOL_PRIVATE int _sapp_win32_ime_utf8_offset(const WCHAR* wstr, int num_wchars, int woff) {
+    if (woff <= 0) {
+        return 0;
+    }
+    if (woff > num_wchars) {
+        woff = num_wchars;
+    }
+    int num_bytes = WideCharToMultiByte(CP_UTF8, 0, wstr, woff, NULL, 0, NULL, NULL);
+    return (num_bytes > 0) ? num_bytes : 0;
+}
+
+_SOKOL_PRIVATE void _sapp_win32_ime_apply_rect(void) {
+    if (!_sapp.win32.ime.rect_valid) {
+        return;
+    }
+    HIMC himc = ImmGetContext(_sapp.win32.hwnd);
+    if (!himc) {
+        return;
+    }
+    CANDIDATEFORM cand;
+    _sapp_clear(&cand, sizeof(cand));
+    cand.dwIndex = 0;
+    cand.dwStyle = CFS_EXCLUDE;
+    cand.ptCurrentPos.x = _sapp.win32.ime.rect.left;
+    cand.ptCurrentPos.y = _sapp.win32.ime.rect.bottom;
+    cand.rcArea = _sapp.win32.ime.rect;
+    ImmSetCandidateWindow(himc, &cand);
+    /* legacy IMEs anchor their own composition UI on this */
+    COMPOSITIONFORM comp;
+    _sapp_clear(&comp, sizeof(comp));
+    comp.dwStyle = CFS_POINT;
+    comp.ptCurrentPos.x = _sapp.win32.ime.rect.left;
+    comp.ptCurrentPos.y = _sapp.win32.ime.rect.top;
+    ImmSetCompositionWindow(himc, &comp);
+    ImmReleaseContext(_sapp.win32.hwnd, himc);
+}
+
+_SOKOL_PRIVATE void _sapp_win32_ime_composition_event(HIMC himc) {
+    if (!_sapp_events_enabled()) {
+        return;
+    }
+    WCHAR wbuf[SAPP_MAX_IME_COMPOSITION_SIZE];
+    const int num_wchars = _sapp_win32_ime_get_str(himc, GCS_COMPSTR, wbuf, SAPP_MAX_IME_COMPOSITION_SIZE);
+    _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
+    _sapp.event.modifiers = _sapp_win32_mods();
+    if (num_wchars > 0) {
+        if (!_sapp_win32_wide_to_utf8(wbuf, _sapp.event.ime_composition, sizeof(_sapp.event.ime_composition))) {
+            _sapp.event.ime_composition[0] = 0;
+        }
+        const LONG cursor_pos = ImmGetCompositionStringW(himc, GCS_CURSORPOS, NULL, 0);
+        _sapp.event.ime_composition_cursor = (cursor_pos >= 0)
+            ? _sapp_win32_ime_utf8_offset(wbuf, num_wchars, (int)cursor_pos)
+            : -1;
+        /* GCS_COMPATTR: one attribute byte per UTF-16 code unit; the
+           ATTR_TARGET_* range is the clause the user is converting */
+        BYTE attrs[SAPP_MAX_IME_COMPOSITION_SIZE];
+        const LONG num_attrs = ImmGetCompositionStringW(himc, GCS_COMPATTR, attrs, sizeof(attrs));
+        int target_begin = -1;
+        int target_end = -1;
+        int n = (int)num_attrs;
+        if (n > num_wchars) {
+            n = num_wchars;
+        }
+        for (int i = 0; i < n; i++) {
+            if ((attrs[i] == ATTR_TARGET_CONVERTED) || (attrs[i] == ATTR_TARGET_NOTCONVERTED)) {
+                if (target_begin < 0) {
+                    target_begin = i;
+                }
+                target_end = i + 1;
+            }
+        }
+        if (target_begin >= 0) {
+            _sapp.event.ime_composition_clause_begin = _sapp_win32_ime_utf8_offset(wbuf, num_wchars, target_begin);
+            _sapp.event.ime_composition_clause_end = _sapp_win32_ime_utf8_offset(wbuf, num_wchars, target_end);
+        }
+    }
+    _sapp_call_event(&_sapp.event);
+}
+
+_SOKOL_PRIVATE void _sapp_win32_ime_result(HIMC himc) {
+    WCHAR wbuf[SAPP_MAX_IME_COMPOSITION_SIZE];
+    const int num_wchars = _sapp_win32_ime_get_str(himc, GCS_RESULTSTR, wbuf, SAPP_MAX_IME_COMPOSITION_SIZE);
+    for (int i = 0; i < num_wchars; i++) {
+        /* surrogate pairs recombine inside _sapp_win32_char_event */
+        _sapp_win32_char_event((uint32_t)wbuf[i], false);
+    }
+}
+
+_SOKOL_PRIVATE void _sapp_win32_ime_commit(void) {
+    if (!_sapp.win32.ime.composing) {
+        return;
+    }
+    HIMC himc = ImmGetContext(_sapp.win32.hwnd);
+    if (himc) {
+        ImmNotifyIME(himc, NI_COMPOSITIONSTR, CPS_COMPLETE, 0);
+        ImmReleaseContext(_sapp.win32.hwnd, himc);
+    }
+}
+
 _SOKOL_PRIVATE void _sapp_win32_dpi_changed(HWND hWnd, LPRECT proposed_win_rect) {
     if (!_sapp.win32.dpi.aware) {
         return;
@@ -9603,6 +9748,10 @@ _SOKOL_PRIVATE LRESULT CALLBACK _sapp_win32_wndproc(HWND hWnd, UINT uMsg, WPARAM
                 break;
             }
             case WM_LBUTTONDOWN:
+                /* AFFINEUI PATCH (ime): a click commits any active composition
+                   (result + end arrive as IME messages before the app sees
+                   further text input) */
+                _sapp_win32_ime_commit();
                 _sapp_win32_mouse_update(lParam);
                 _sapp_win32_mouse_event(SAPP_EVENTTYPE_MOUSE_DOWN, SAPP_MOUSEBUTTON_LEFT);
                 _sapp_win32_capture_mouse(1<<SAPP_MOUSEBUTTON_LEFT);
@@ -9706,6 +9855,43 @@ _SOKOL_PRIVATE LRESULT CALLBACK _sapp_win32_wndproc(HWND hWnd, UINT uMsg, WPARAM
                 break;
             case WM_CHAR:
                 _sapp_win32_char_event((uint32_t)wParam, !!(lParam&0x40000000));
+                break;
+            /* AFFINEUI PATCH (ime): inline composition — the app draws the
+               preedit, so the IME's own composition window is suppressed */
+            case WM_IME_SETCONTEXT:
+                lParam &= ~((LPARAM)ISC_SHOWUICOMPOSITIONWINDOW);
+                return DefWindowProcW(hWnd, uMsg, wParam, lParam);
+            case WM_IME_STARTCOMPOSITION:
+                _sapp.win32.ime.composing = true;
+                _sapp_win32_ime_apply_rect();
+                return 0;   /* consume: no default composition window */
+            case WM_IME_COMPOSITION: {
+                HIMC himc = ImmGetContext(hWnd);
+                if (himc) {
+                    if (lParam & GCS_RESULTSTR) {
+                        _sapp_win32_ime_result(himc);
+                    }
+                    if (lParam & GCS_COMPSTR) {
+                        _sapp_win32_ime_composition_event(himc);
+                    }
+                    ImmReleaseContext(hWnd, himc);
+                }
+                return 0;   /* consume: no WM_IME_CHAR fallback */
+            }
+            case WM_IME_ENDCOMPOSITION:
+                if (_sapp.win32.ime.composing) {
+                    _sapp.win32.ime.composing = false;
+                    if (_sapp_events_enabled()) {
+                        /* empty preedit = composition ended/cancelled */
+                        _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
+                        _sapp_call_event(&_sapp.event);
+                    }
+                }
+                break;
+            case WM_IME_NOTIFY:
+                if (wParam == IMN_OPENCANDIDATE) {
+                    _sapp_win32_ime_apply_rect();
+                }
                 break;
             case WM_KEYDOWN:
             case WM_SYSKEYDOWN:
@@ -14213,6 +14399,42 @@ SOKOL_API_IMPL void sapp_set_clipboard_string(const char* str) {
         /* not implemented */
     #endif
     _sapp_strcpy(str, _sapp.clipboard.buffer, (size_t)_sapp.clipboard.buf_size);
+}
+
+/* AFFINEUI PATCH (ime): candidate-window anchor + IME enable, win32 only for
+   now (macOS needs an NSTextInputClient view patch, X11 an XIM input context;
+   both are documented follow-ups in docs/IME_ARCHITECTURE.md). */
+SOKOL_API_IMPL void sapp_ime_set_rect(int x, int y, int w, int h) {
+    #if defined(_SAPP_WIN32)
+        _sapp.win32.ime.rect.left = x;
+        _sapp.win32.ime.rect.top = y;
+        _sapp.win32.ime.rect.right = x + w;
+        _sapp.win32.ime.rect.bottom = y + h;
+        _sapp.win32.ime.rect_valid = true;
+        if (_sapp.win32.ime.composing) {
+            _sapp_win32_ime_apply_rect();
+        }
+    #else
+        _SOKOL_UNUSED(x); _SOKOL_UNUSED(y); _SOKOL_UNUSED(w); _SOKOL_UNUSED(h);
+    #endif
+}
+
+SOKOL_API_IMPL void sapp_ime_set_enabled(bool enabled) {
+    #if defined(_SAPP_WIN32)
+        if (enabled != _sapp.win32.ime.disabled) {
+            return;     /* already in the requested state */
+        }
+        _sapp.win32.ime.disabled = !enabled;
+        if (!enabled) {
+            _sapp.win32.ime.composing = false;
+            _sapp.win32.ime.stored_himc = ImmAssociateContext(_sapp.win32.hwnd, NULL);
+        } else if (_sapp.win32.ime.stored_himc) {
+            ImmAssociateContext(_sapp.win32.hwnd, _sapp.win32.ime.stored_himc);
+            _sapp.win32.ime.stored_himc = NULL;
+        }
+    #else
+        _SOKOL_UNUSED(enabled);
+    #endif
 }
 
 SOKOL_API_IMPL const char* sapp_get_clipboard_string(void) {

@@ -113,6 +113,8 @@ struct AppImpl {
     bool                  quit_requested{false};
     int                   exit_code{0};
     int                   last_cursor{-1};  // last sapp cursor we set
+    bool                  last_ime_active{false};  // last IME intent pushed
+    Rect                  last_ime_rect{};         // last caret rect pushed
     bool                  dirty{true};
     // View reconcile pending: set by invalidate() when a set_view() builder
     // is installed, so the frame loop re-runs the builder and reconciles the
@@ -1062,6 +1064,31 @@ void sync_hover_cursor(detail::AppImpl& impl) {
     impl.last_cursor = cur;
 }
 
+// Push the document's text-input intent to the platform IME: keep the
+// input method enabled only while a text control is focused, and anchor
+// the candidate window on the caret (converted to physical client px).
+// Push-on-change — called after any event that can move focus or caret.
+void sync_ime_state(detail::AppImpl& impl) {
+    const bool active = impl.document.text_input_active();
+    if (active != impl.last_ime_active) {
+        impl.last_ime_active = active;
+        sapp_ime_set_enabled(active);
+    }
+    if (!active) return;
+    const Rect caret = impl.document.caret_rect();
+    if (caret.w <= 0 || caret.h <= 0) return;
+    if (caret.x == impl.last_ime_rect.x && caret.y == impl.last_ime_rect.y &&
+        caret.w == impl.last_ime_rect.w && caret.h == impl.last_ime_rect.h) {
+        return;
+    }
+    impl.last_ime_rect = caret;
+    const float dpi = current_dpi_scale(impl);
+    sapp_ime_set_rect(static_cast<int>(static_cast<float>(caret.x) * dpi),
+                      static_cast<int>(static_cast<float>(caret.y) * dpi),
+                      static_cast<int>(static_cast<float>(caret.w) * dpi),
+                      static_cast<int>(static_cast<float>(caret.h) * dpi));
+}
+
 void cb_frame(void* user) {
     auto* impl = static_cast<detail::AppImpl*>(user);
     try {
@@ -1459,6 +1486,7 @@ void cb_event(const sapp_event* ev, void* user) {
             aui_ev.key_code = static_cast<int>(ev->key_code);
             aui_ev.key      = key_to_affine(ev->key_code);
             (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
+            sync_ime_state(*impl);
             return;
         }
         case SAPP_EVENTTYPE_KEY_UP:
@@ -1472,7 +1500,17 @@ void cb_event(const sapp_event* ev, void* user) {
             aui_ev.text = utf8_from_codepoint(ev->char_code);
             if (!aui_ev.text.empty()) {
                 (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
+                sync_ime_state(*impl);
             }
+            return;
+        case SAPP_EVENTTYPE_IME_COMPOSITION:
+            aui_ev.type = EventType::Composition;
+            aui_ev.text = ev->ime_composition;
+            aui_ev.composition_cursor = ev->ime_composition_cursor;
+            aui_ev.composition_clause_begin = ev->ime_composition_clause_begin;
+            aui_ev.composition_clause_end = ev->ime_composition_clause_end;
+            (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
+            sync_ime_state(*impl);
             return;
         case SAPP_EVENTTYPE_RESIZED:
             impl->has_pending_resize = true;  // coalesced: ≤1 per frame
@@ -1555,6 +1593,10 @@ void cb_event(const sapp_event* ev, void* user) {
     const bool consumed = detail::dispatch_loaded_view_event(*impl, aui_ev);
     (void) consumed;
     if (aui_ev.type == EventType::MouseMove) sync_hover_cursor(*impl);
+    if (aui_ev.type == EventType::MouseDown ||
+        aui_ev.type == EventType::MouseUp) {
+        sync_ime_state(*impl);  // click may have moved focus / caret
+    }
     } catch (const std::exception& e) {
         detail::log_event_loop_exception("event callback", e);
         impl->exit_code = 1;
