@@ -43,18 +43,13 @@ def _ensure_photo_core() -> None:
             return True
         return False
 
-    dirs = []
+    # ONLY from the exact directory _affineui loaded from. The two modules
+    # share process-global pybind11 state and must come from the SAME build —
+    # pulling photo_core from anywhere else (e.g. the build tree while
+    # _affineui came from site-packages) segfaults when a type crosses the
+    # boundary. If it isn't there, let the ImportError surface.
     if ext is not None and getattr(ext, "__file__", None):
-        dirs.append(Path(ext.__file__).resolve().parent)  # ABI-matched build
-    build = Path(__file__).resolve().parents[1] / "build"  # …/bindings/python
-    if build.is_dir():
-        for cfg in ("Release", "RelWithDebInfo", "Debug"):
-            dirs.extend(build.glob(f"*/{cfg}"))
-        dirs.extend(build.glob("*"))
-    for d in dirs:
-        if _load_from(d):
-            return
-    # let the real ImportError surface in the test module otherwise
+        _load_from(Path(ext.__file__).resolve().parent)
 
 
 _ensure_photo_core()

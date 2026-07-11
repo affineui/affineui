@@ -59,28 +59,22 @@ def _ensure_photo_core() -> None:
             return True
         return False
 
-    # Search, in order: (1) the exact dir _affineui loaded from — the surest
-    # ABI match; (2) the editable build tree's config dirs; (3) a plain import.
-    # …/photo_edit_app → …/examples → …/bindings/python
-    py_root = Path(__file__).resolve().parents[2]
-    search_dirs = [ext_dir] if ext_dir is not None else []
-    build = py_root / "build"
-    if build.is_dir():
-        for cfg in ("Release", "RelWithDebInfo", "Debug"):
-            search_dirs.extend(build.glob(f"*/{cfg}"))
-        search_dirs.extend(build.glob("*"))  # per-config-less generators
-    for d in search_dirs:
-        if _load_from(d):
-            return
-    try:
-        import photo_core  # noqa: F401
+    # ONLY load photo_core from the exact directory _affineui loaded from.
+    # Searching elsewhere (e.g. the build tree while _affineui came from
+    # site-packages) can hand back a photo_core from a DIFFERENT build — the
+    # two share process-global pybind11 internals, so that pair segfaults the
+    # moment a type crosses the boundary (attach()). Better to fail loudly with
+    # a rebuild hint than to load a mismatched pair.
+    if ext_dir is not None and _load_from(ext_dir):
         return
-    except ModuleNotFoundError:
-        pass
     raise ModuleNotFoundError(
-        "No module named 'photo_core'. Build it with:\n"
-        "    cd bindings/python && pip install -e . --no-build-isolation\n"
-        "(the Decius Photo Edit sample's C++ raster core).")
+        "photo_core (the Decius Photo Edit sample's C++ raster core) was not "
+        "found next to the affineui extension that is loaded:\n"
+        f"    _affineui: {getattr(affineui_ext, '__file__', '<not loaded>')}\n"
+        "The two are pybind11 modules that share process-global state and must "
+        "come from the SAME build — loading a photo_core from anywhere else "
+        "would crash. Rebuild both:\n"
+        "    cd bindings/python && pip install -e . --no-build-isolation")
 
 
 _ensure_photo_core()
