@@ -214,13 +214,13 @@ marked `// AFFINEUI PATCH (ime)` for future upstream syncs).
 New sokol surface (minimal, GLFW/SDL-informed):
 
 ```c
-SAPP_EVENTTYPE_COMPOSITION            // new event
+SAPP_EVENTTYPE_IME_COMPOSITION        // new event
 // sapp_event additions:
-char composition[SAPP_MAX_COMPOSITION_SIZE];  // UTF-8 preedit (512 bytes)
-int  composition_cursor;                       // byte offset
-int  composition_clause_begin, composition_clause_end;
+char ime_composition[SAPP_MAX_IME_COMPOSITION_SIZE]; // UTF-8 preedit (512 B)
+int  ime_composition_cursor;                         // byte offset (-1 = end)
+int  ime_composition_clause_begin, ime_composition_clause_end;
 // new functions:
-void sapp_ime_set_rect(int x, int y, int w, int h); // caret rect, physical px
+void sapp_ime_set_rect(int x, int y, int w, int h); // caret rect, client px
 void sapp_ime_set_enabled(bool enabled);            // ImmAssociateContext et al.
 ```
 
