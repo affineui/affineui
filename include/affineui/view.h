@@ -566,6 +566,12 @@ public:
     void begin(ViewSink* sink = nullptr);
     void begin(RemotePatchQueue* remote_patches);
     void end();
+    // Collapse any nested begin()/end() depth back to the session-owner level so
+    // the next end() fully tears the session down. The App calls this on a
+    // builder exception: the builder may have thrown between its own begin() and
+    // end(), leaving the nested depth unbalanced — without this the owner's
+    // end() would only decrement, never settle. No-op when no session is open.
+    void collapse_reconcile_nesting() noexcept { if (begin_depth_ > 1) begin_depth_ = 1; }
     [[nodiscard]] const std::vector<std::string>& diagnostics() const noexcept {
         return diagnostics_;
     }
@@ -1061,6 +1067,10 @@ private:
     ViewSink* sink_{nullptr};
     ViewSink* mutation_sink_{nullptr};
     bool reconciling_{false};
+    // Re-entrancy depth for begin()/end(). The App wraps the builder in its own
+    // begin(sink)/end(); a builder that also calls begin()/end() nests inside
+    // that session instead of replacing its sink. 0 = no active session.
+    int begin_depth_{0};
     RemotePatchSink remote_patch_sink_{};
 
     // Active dock-container recorder (set for the duration of a document_view

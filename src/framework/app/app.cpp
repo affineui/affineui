@@ -635,6 +635,11 @@ void App::rebuild_view() {
             // then propagate.
             if (!view_end_attempted) {
                 view_end_attempted = true;
+                // The builder may have thrown between its own begin()/end();
+                // collapse that nesting so this end() actually settles the
+                // session (removes trailing children, flushes, tears down)
+                // rather than merely unwinding one nested level.
+                view.collapse_reconcile_nesting();
                 try {
                     view.end();
                 } catch (const std::exception& e) {
