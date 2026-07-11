@@ -7,6 +7,7 @@
 #                               (uses the committed dist/; does NOT regenerate)
 #   ./build.sh codefiles        (re)generate dist/affineui.{h,cpp}  (REQUIRES clang)
 #   ./build.sh examples         build every example app
+#   ./build.sh list             list every runnable example in this build
 #   ./build.sh run [name]       build + run one example  (default: hello)
 #   ./build.sh test             build + run the unit tests (ctest)
 #   ./build.sh configure        cmake configure (Ninja) into ./build
@@ -25,9 +26,11 @@ BUILD="${ROOT}/build"
 DIST="${ROOT}/dist"
 SMOKE="${ROOT}/build/smoke"
 
-# Primary example (what `run` launches with no name) + the full set.
+# Primary example (what `run` launches with no name). The full set is NOT
+# hardcoded — it's read from the manifest CMake writes at configure time
+# (examples/CMakeLists.txt), so it can't drift out of date as examples are
+# added, and optional ones only appear when their deps were actually found.
 PRIMARY="hello"
-EXAMPLES=(hello bootstrap hello_sdl media imm_counter imm_todo text_flow forms_focus bootstrap_kitchen embed_d3d11)
 
 py()    { command -v python3 || command -v python; }
 
@@ -85,15 +88,15 @@ smoke() {
     echo "smoke: OK"
 }
 
-# Example targets that actually exist in the configured build (some are
-# optional, e.g. hello_sdl is skipped when SDL2 isn't found).
+# Example targets that actually exist in the configured build, straight from
+# the manifest CMake wrote at configure time. Optional examples (hello_sdl,
+# embed_d3d11) are absent from it when their deps weren't found, so whatever
+# this prints is genuinely runnable.
 example_targets() {
     ensure_configured
-    local present; present="$(ninja -C "$BUILD" -t targets all 2>/dev/null | sed 's/:.*//')"
-    local e
-    for e in "${EXAMPLES[@]}"; do
-        printf '%s\n' "$present" | grep -qx "$e" && echo "$e"
-    done
+    local manifest="$BUILD/examples/examples.txt"
+    [ -f "$manifest" ] || return 0
+    grep -v '^[[:space:]]*$' "$manifest"
 }
 
 build_examples() {
@@ -105,13 +108,10 @@ build_examples() {
 
 run_example() {
     local name="${1:-$PRIMARY}"
-    if [[ ! " ${EXAMPLES[*]} " == *" $name "* ]]; then
-        echo "unknown example '$name'." >&2
-        echo "available: ${EXAMPLES[*]}" >&2
-        exit 1
-    fi
     if ! example_targets | grep -qx "$name"; then
-        echo "example '$name' isn't available in this build (an optional dep, e.g. SDL2, wasn't found at configure)." >&2
+        echo "unknown example '$name'." >&2
+        echo "available:" >&2
+        example_targets | sed 's/^/  /' >&2
         exit 1
     fi
     cmake --build "$BUILD" --target "$name" --parallel
@@ -146,6 +146,7 @@ case "$cmd" in
     "")          smoke ;;
     codefiles)   codefiles ;;
     examples)    build_examples ;;
+    list)        example_targets ;;
     run)         run_example "${1:-}" ;;
     test)        run_tests ;;
     conformance) echo "conformance harness is Windows/D3D11-only for now — use build.ps1 conformance (see docs/CONFORMANCE.md)" >&2; exit 1 ;;
