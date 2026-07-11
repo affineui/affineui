@@ -2553,6 +2553,7 @@ inline void sapp_run(const sapp_desc& desc) { return sapp_run(&desc); }
     #include <X11/Xcursor/Xcursor.h>
     #include <X11/cursorfont.h> /* XC_* font cursors */
     #include <X11/Xmd.h> /* CARD32 */
+    #include <locale.h> /* AFFINEUI PATCH (ime): setlocale() for XIM/Xutf8 */
     #if defined(_SAPP_EGL)
         #include <EGL/egl.h>
     #endif
@@ -3190,6 +3191,16 @@ typedef struct {
     // XLib manual says keycodes are in the range [8, 255] inclusive.
     // https://tronche.com/gui/x/xlib/input/keyboard-encoding.html
     bool key_repeat[_SAPP_X11_MAX_X11_KEYCODES];
+    /* AFFINEUI PATCH (ime): XIM input context. Committed (CJK) text arrives
+       through Xutf8LookupString on the IC; over-the-spot preedit + candidate
+       window are anchored via XNSpotLocation (sapp_ime_set_rect), and the IC
+       is focused/unfocused with the text-field intent (sapp_ime_set_enabled). */
+    XIM xim;
+    XIC xic;
+    XFontSet ime_fontset;   // owned by us (over-the-spot requires one)
+    bool ime_focused;       // XSetICFocus currently applied
+    XPoint ime_spot;        // caret spot in window px (XNSpotLocation)
+    bool ime_spot_valid;
 } _sapp_x11_t;
 
 #if defined(_SAPP_GLX)
@@ -13160,6 +13171,133 @@ _SOKOL_PRIVATE void _sapp_x11_destroy_window(void) {
     XFlush(_sapp.x11.display);
 }
 
+/* AFFINEUI PATCH (ime): bring up an XIM input context on the window. Uses
+   over-the-spot preedit (XIMPreeditPosition) when the input method supports
+   it — the IME draws the preedit + candidate list at the caret spot we push
+   via sapp_ime_set_rect — and falls back to the root style otherwise. In
+   both styles committed text (including CJK) is delivered through
+   Xutf8LookupString in _sapp_x11_on_keypress. Best-effort: if no IM is
+   available the window keeps working with the legacy XLookupString path. */
+_SOKOL_PRIVATE void _sapp_x11_ime_init(void) {
+    _sapp.x11.xim = 0;
+    _sapp.x11.xic = 0;
+    _sapp.x11.ime_fontset = 0;
+    _sapp.x11.ime_focused = false;
+    _sapp.x11.ime_spot_valid = false;
+    /* Xutf8LookupString and XIM need the C library locale to be established;
+       sokol never sets it, so do it here (LC_CTYPE only, to avoid perturbing
+       the host app's numeric/collation formatting). */
+    setlocale(LC_CTYPE, "");
+    if (!XSupportsLocale()) {
+        return;
+    }
+    /* empty modifier => honour the XMODIFIERS env (ibus/fcitx/etc.) */
+    XSetLocaleModifiers("");
+    _sapp.x11.xim = XOpenIM(_sapp.x11.display, 0, 0, 0);
+    if (!_sapp.x11.xim) {
+        /* no IM server running (or misconfigured XMODIFIERS): fall back to the
+           built-in "none" method so Latin/compose input still routes through
+           the IC path consistently. */
+        XSetLocaleModifiers("@im=none");
+        _sapp.x11.xim = XOpenIM(_sapp.x11.display, 0, 0, 0);
+    }
+    if (!_sapp.x11.xim) {
+        return;
+    }
+
+    /* pick over-the-spot if offered, else root style */
+    const XIMStyle style_ots  = XIMPreeditPosition | XIMStatusNothing;
+    const XIMStyle style_root = XIMPreeditNothing  | XIMStatusNothing;
+    XIMStyle chosen = style_root;
+    XIMStyles* styles = 0;
+    if ((XGetIMValues(_sapp.x11.xim, XNQueryInputStyle, &styles, (void*)0) == 0) && styles) {
+        bool has_ots = false, has_root = false;
+        for (unsigned short i = 0; i < styles->count_styles; i++) {
+            if (styles->supported_styles[i] == style_ots)  { has_ots = true; }
+            if (styles->supported_styles[i] == style_root) { has_root = true; }
+        }
+        if (has_ots)       { chosen = style_ots; }
+        else if (has_root) { chosen = style_root; }
+        XFree(styles);
+    }
+
+    if (chosen == style_ots) {
+        /* over-the-spot mandates a font set for the IME's preedit rendering */
+        char** missing = 0; int num_missing = 0; char* def_str = 0;
+        _sapp.x11.ime_fontset = XCreateFontSet(_sapp.x11.display,
+            "-*-*-*-*-*-*-*-*-*-*-*-*-*-*,*", &missing, &num_missing, &def_str);
+        if (missing) {
+            XFreeStringList(missing);
+        }
+        if (_sapp.x11.ime_fontset) {
+            _sapp.x11.ime_spot.x = 0;
+            _sapp.x11.ime_spot.y = 0;
+            XVaNestedList preedit = XVaCreateNestedList(0,
+                XNSpotLocation, &_sapp.x11.ime_spot,
+                XNFontSet, _sapp.x11.ime_fontset,
+                (void*)0);
+            _sapp.x11.xic = XCreateIC(_sapp.x11.xim,
+                XNInputStyle,   chosen,
+                XNClientWindow, _sapp.x11.window,
+                XNFocusWindow,  _sapp.x11.window,
+                XNPreeditAttributes, preedit,
+                (void*)0);
+            if (preedit) {
+                XFree(preedit);
+            }
+        }
+        if (!_sapp.x11.xic) {
+            /* over-the-spot creation failed — retry as root style */
+            chosen = style_root;
+        }
+    }
+    if (!_sapp.x11.xic) {
+        _sapp.x11.xic = XCreateIC(_sapp.x11.xim,
+            XNInputStyle,   style_root,
+            XNClientWindow, _sapp.x11.window,
+            XNFocusWindow,  _sapp.x11.window,
+            (void*)0);
+    }
+    if (!_sapp.x11.xic) {
+        XCloseIM(_sapp.x11.xim);
+        _sapp.x11.xim = 0;
+        if (_sapp.x11.ime_fontset) {
+            XFreeFontSet(_sapp.x11.display, _sapp.x11.ime_fontset);
+            _sapp.x11.ime_fontset = 0;
+        }
+        return;
+    }
+
+    /* some IMs require extra event-mask bits on the focus window */
+    unsigned long im_mask = 0;
+    if ((XGetICValues(_sapp.x11.xic, XNFilterEvents, &im_mask, (void*)0) == 0) && im_mask) {
+        XWindowAttributes attr;
+        if (XGetWindowAttributes(_sapp.x11.display, _sapp.x11.window, &attr)) {
+            XSelectInput(_sapp.x11.display, _sapp.x11.window, attr.your_event_mask | (long)im_mask);
+        }
+    }
+    /* IC starts unfocused: focus follows the text-field intent
+       (sapp_ime_set_enabled), so game-style shortcuts aren't swallowed while
+       no field is active. */
+}
+
+_SOKOL_PRIVATE void _sapp_x11_ime_shutdown(void) {
+    if (_sapp.x11.xic) {
+        XDestroyIC(_sapp.x11.xic);
+        _sapp.x11.xic = 0;
+    }
+    if (_sapp.x11.xim) {
+        XCloseIM(_sapp.x11.xim);
+        _sapp.x11.xim = 0;
+    }
+    if (_sapp.x11.ime_fontset) {
+        XFreeFontSet(_sapp.x11.display, _sapp.x11.ime_fontset);
+        _sapp.x11.ime_fontset = 0;
+    }
+    _sapp.x11.ime_focused = false;
+    _sapp.x11.ime_spot_valid = false;
+}
+
 _SOKOL_PRIVATE bool _sapp_x11_window_visible(void) {
     XWindowAttributes wa;
     XGetWindowAttributes(_sapp.x11.display, _sapp.x11.window, &wa);
@@ -13525,11 +13663,50 @@ _SOKOL_PRIVATE void _sapp_x11_on_keypress(XEvent* event) {
     if (key != SAPP_KEYCODE_INVALID) {
         _sapp_x11_key_event(SAPP_EVENTTYPE_KEY_DOWN, key, repeat, mods);
     }
-    KeySym keysym;
-    XLookupString(&event->xkey, NULL, 0, &keysym, NULL);
-    int32_t chr = _sapp_x11_keysym_to_unicode(keysym);
-    if (chr > 0) {
-        _sapp_x11_char_event((uint32_t)chr, repeat, mods);
+    /* AFFINEUI PATCH (ime): when an input context exists, commit text through
+       Xutf8LookupString so IME-composed (CJK) strings — which can be several
+       codepoints per key — arrive as CHAR events. Events the IME wants for
+       composition were already consumed by XFilterEvent in the run loop, so
+       anything reaching here is real committed input. Only printable
+       codepoints become CHAR events (matching the legacy keysym path: control
+       keys like Return/Tab/Backspace stay KEY_DOWN-only). */
+    if (_sapp.x11.xic) {
+        char buf[64];
+        KeySym keysym = 0;
+        Status status = 0;
+        int len = Xutf8LookupString(_sapp.x11.xic, &event->xkey, buf, (int)sizeof(buf) - 1, &keysym, &status);
+        if (status == XBufferOverflow) {
+            /* candidate/commit strings are short; truncate rather than grow */
+            len = (int)sizeof(buf) - 1;
+            status = XLookupChars;
+        }
+        if (((status == XLookupChars) || (status == XLookupBoth)) && (len > 0)) {
+            buf[len] = 0;
+            const unsigned char* p = (const unsigned char*)buf;
+            const unsigned char* end = p + len;
+            while (p < end) {
+                uint32_t cp = 0; int n = 1;
+                const unsigned char c = *p;
+                if (c < 0x80)             { cp = c;          n = 1; }
+                else if ((c & 0xE0) == 0xC0) { cp = c & 0x1F; n = 2; }
+                else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F; n = 3; }
+                else if ((c & 0xF8) == 0xF0) { cp = c & 0x07; n = 4; }
+                else { p++; continue; }  /* stray continuation byte */
+                if (p + n > end) { break; }
+                for (int i = 1; i < n; i++) { cp = (cp << 6) | ((uint32_t)p[i] & 0x3F); }
+                p += n;
+                if ((cp >= 0x20) && (cp != 0x7f)) {
+                    _sapp_x11_char_event(cp, repeat, mods);
+                }
+            }
+        }
+    } else {
+        KeySym keysym;
+        XLookupString(&event->xkey, NULL, 0, &keysym, NULL);
+        int32_t chr = _sapp_x11_keysym_to_unicode(keysym);
+        if (chr > 0) {
+            _sapp_x11_char_event((uint32_t)chr, repeat, mods);
+        }
     }
 }
 
@@ -14022,6 +14199,7 @@ _SOKOL_PRIVATE void _sapp_linux_run(const sapp_desc* desc) {
         _sapp_vk_init();
     #endif
     sapp_set_icon(&desc->icon);
+    _sapp_x11_ime_init();   /* AFFINEUI PATCH (ime): XIM on the created window */
     _sapp.valid = true;
     _sapp_x11_show_window();
     if (_sapp.fullscreen) {
@@ -14035,6 +14213,12 @@ _SOKOL_PRIVATE void _sapp_linux_run(const sapp_desc* desc) {
         while (count--) {
             XEvent event;
             XNextEvent(_sapp.x11.display, &event);
+            /* AFFINEUI PATCH (ime): give the input method first crack at the
+               event (composition keystrokes, candidate navigation). A filtered
+               event is fully consumed by the IME and must not be processed. */
+            if (_sapp.x11.xic && XFilterEvent(&event, None)) {
+                continue;
+            }
             _sapp_x11_process_event(&event);
         }
         _sapp_linux_frame();
@@ -14059,6 +14243,7 @@ _SOKOL_PRIVATE void _sapp_linux_run(const sapp_desc* desc) {
     #elif defined(SOKOL_VULKAN)
         _sapp_vk_discard();
     #endif
+    _sapp_x11_ime_shutdown();   /* AFFINEUI PATCH (ime): before the window dies */
     _sapp_x11_destroy_window();
     _sapp_x11_destroy_standard_cursors();
     XCloseDisplay(_sapp.x11.display);
@@ -14401,9 +14586,10 @@ SOKOL_API_IMPL void sapp_set_clipboard_string(const char* str) {
     _sapp_strcpy(str, _sapp.clipboard.buffer, (size_t)_sapp.clipboard.buf_size);
 }
 
-/* AFFINEUI PATCH (ime): candidate-window anchor + IME enable, win32 only for
-   now (macOS needs an NSTextInputClient view patch, X11 an XIM input context;
-   both are documented follow-ups in docs/IME_ARCHITECTURE.md). */
+/* AFFINEUI PATCH (ime): candidate-window anchor + IME enable. Win32 uses
+   IMM32; Linux/X11 anchors over-the-spot preedit via XNSpotLocation and
+   focuses the XIC. macOS still needs an NSTextInputClient view patch
+   (documented follow-up in docs/IME_ARCHITECTURE.md). */
 SOKOL_API_IMPL void sapp_ime_set_rect(int x, int y, int w, int h) {
     #if defined(_SAPP_WIN32)
         _sapp.win32.ime.rect.left = x;
@@ -14413,6 +14599,22 @@ SOKOL_API_IMPL void sapp_ime_set_rect(int x, int y, int w, int h) {
         _sapp.win32.ime.rect_valid = true;
         if (_sapp.win32.ime.composing) {
             _sapp_win32_ime_apply_rect();
+        }
+    #elif defined(_SAPP_LINUX)
+        _SOKOL_UNUSED(w);
+        /* XNSpotLocation is the preedit baseline: bottom-left of the caret box,
+           so the IME's preedit/candidate window sits just under the caret. */
+        _sapp.x11.ime_spot.x = (short)x;
+        _sapp.x11.ime_spot.y = (short)(y + h);
+        _sapp.x11.ime_spot_valid = true;
+        if (_sapp.x11.xic && _sapp.x11.ime_fontset) {
+            XVaNestedList preedit = XVaCreateNestedList(0,
+                XNSpotLocation, &_sapp.x11.ime_spot,
+                (void*)0);
+            if (preedit) {
+                XSetICValues(_sapp.x11.xic, XNPreeditAttributes, preedit, (void*)0);
+                XFree(preedit);
+            }
         }
     #else
         _SOKOL_UNUSED(x); _SOKOL_UNUSED(y); _SOKOL_UNUSED(w); _SOKOL_UNUSED(h);
@@ -14431,6 +14633,18 @@ SOKOL_API_IMPL void sapp_ime_set_enabled(bool enabled) {
         } else if (_sapp.win32.ime.stored_himc) {
             ImmAssociateContext(_sapp.win32.hwnd, _sapp.win32.ime.stored_himc);
             _sapp.win32.ime.stored_himc = NULL;
+        }
+    #elif defined(_SAPP_LINUX)
+        /* Focus the input context only while a text field is active so the IME
+           hotkeys don't swallow game-style shortcuts elsewhere. */
+        if (!_sapp.x11.xic || (enabled == _sapp.x11.ime_focused)) {
+            return;
+        }
+        _sapp.x11.ime_focused = enabled;
+        if (enabled) {
+            XSetICFocus(_sapp.x11.xic);
+        } else {
+            XUnsetICFocus(_sapp.x11.xic);
         }
     #else
         _SOKOL_UNUSED(enabled);
