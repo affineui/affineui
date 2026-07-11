@@ -630,6 +630,10 @@ void App::rebuild_view() {
         try {
             impl_->view_builder(view);
         } catch (...) {
+            // The builder may have opened its own nested reconcile session
+            // before throwing. Collapse it so this owner-level end() fully
+            // settles and tears down the bootstrap pass.
+            view.collapse_reconcile_nesting();
             view.end();
             throw;
         }
