@@ -56,7 +56,7 @@ public sealed class AppConfig
 /// <see cref="Run"/> blocks the calling thread until the app quits.
 /// Single-threaded: create and use on one thread.
 /// </summary>
-public sealed class App : IDisposable
+public sealed partial class App : IDisposable
 {
     internal sealed class AppSafeHandle : SafeHandle
     {
@@ -128,7 +128,7 @@ public sealed class App : IDisposable
     }
 
     internal bool IsDisposed => _handle.IsClosed;
-    private IntPtr Handle => _handle.IsClosed ? IntPtr.Zero : _handle.DangerousGetHandle();
+    internal IntPtr Handle => _handle.IsClosed ? IntPtr.Zero : _handle.DangerousGetHandle();
 
     public void Dispose() => _handle.Dispose();
 

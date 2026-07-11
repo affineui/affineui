@@ -13,7 +13,7 @@ namespace AffineUI;
 /// <see cref="Begin"/>/<see cref="End"/> directly); rebuild any time — the
 /// tree is diffed, and <see cref="Widget"/> handles re-find their node by key.
 /// </summary>
-public sealed class View : IDisposable
+public sealed partial class View : IDisposable
 {
     internal sealed class ViewSafeHandle : SafeHandle
     {

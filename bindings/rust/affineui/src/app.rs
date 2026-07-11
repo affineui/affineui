@@ -132,6 +132,35 @@ impl App {
         App { inner: Rc::new(AppInner { raw, _not_send: NotThreadSafe::default() }) }
     }
 
+    /// Install a persistent view builder: the app retains a View, re-runs
+    /// the builder on every rebuild, and reconciles only the diff into the
+    /// live document. REQUIRED for recycling virtual lists to follow the
+    /// scrollbar. Follow state changes with [`App::invalidate`] (coalesced)
+    /// or [`App::rebuild_view`] (synchronous).
+    pub fn set_view(&self, mut builder: impl FnMut(&crate::View) + 'static) {
+        use std::ffi::c_void;
+        unsafe extern "C" fn build_trampoline(user: *mut c_void, view: *mut sys::affineui_view) {
+            let cb = &mut *(user as *mut Box<dyn FnMut(&crate::View)>);
+            let view = crate::View::borrowed(view);
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cb(&view))).is_err() {
+                eprintln!("affineui: panic in set_view builder (suppressed)");
+            }
+        }
+        unsafe extern "C" fn build_free(user: *mut c_void) {
+            drop(Box::from_raw(user as *mut Box<dyn FnMut(&crate::View)>));
+        }
+        let boxed: Box<dyn FnMut(&crate::View)> = Box::new(move |v| builder(v));
+        let user = Box::into_raw(Box::new(boxed)) as *mut c_void;
+        unsafe {
+            sys::affineui_app_set_view(self.raw(), Some(build_trampoline), user, Some(build_free))
+        };
+    }
+
+    /// Re-run the installed set_view builder and reconcile synchronously.
+    pub fn rebuild_view(&self) {
+        unsafe { sys::affineui_app_rebuild_view(self.raw()) };
+    }
+
     fn raw(&self) -> *mut sys::affineui_app {
         self.inner.raw
     }

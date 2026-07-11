@@ -78,12 +78,18 @@ impl WidgetKind {
 
 pub(crate) struct ViewInner {
     raw: *mut sys::affineui_view,
+    // Borrowed views (callback-provided pointers owned by the framework,
+    // e.g. App::set_view builders and provider on_build_item) must not
+    // destroy the underlying view.
+    owned: bool,
     _not_send: NotThreadSafe,
 }
 
 impl Drop for ViewInner {
     fn drop(&mut self) {
-        unsafe { sys::affineui_view_destroy(self.raw) };
+        if self.owned {
+            unsafe { sys::affineui_view_destroy(self.raw) };
+        }
     }
 }
 
@@ -148,11 +154,25 @@ impl View {
     pub fn new(theme: Theme) -> View {
         ensure_abi();
         let raw = unsafe { sys::affineui_view_create(theme as i32) };
-        View { inner: Rc::new(ViewInner { raw, _not_send: NotThreadSafe::default() }) }
+        View {
+            inner: Rc::new(ViewInner { raw, owned: true, _not_send: NotThreadSafe::default() }),
+        }
+    }
+
+    /// Wrap a framework-owned view pointer handed to a callback. The
+    /// wrapper borrows: dropping it does not destroy the view.
+    pub(crate) fn borrowed(raw: *mut sys::affineui_view) -> View {
+        View {
+            inner: Rc::new(ViewInner { raw, owned: false, _not_send: NotThreadSafe::default() }),
+        }
     }
 
     pub(crate) fn raw(&self) -> *mut sys::affineui_view {
         self.inner.raw
+    }
+
+    pub(crate) fn wrap_widget(&self, raw: *mut sys::affineui_widget) -> Widget {
+        self.wrap(raw)
     }
 
     fn wrap(&self, raw: *mut sys::affineui_widget) -> Widget {

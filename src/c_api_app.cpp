@@ -11,6 +11,7 @@
 #include "affineui/document.h"
 #include "affineui/types.h"
 #include "affineui/view.h"
+#include "affineui/virtual_list.h"
 
 #include "c_api_util.h"
 
@@ -71,6 +72,11 @@ static_assert(AFFINEUI_WIDGET_HEADING == static_cast<int>(affineui::WidgetKind::
 static_assert(AFFINEUI_WIDGET_BUTTON == static_cast<int>(affineui::WidgetKind::Button));
 static_assert(AFFINEUI_WIDGET_TEXT_INPUT == static_cast<int>(affineui::WidgetKind::TextInput));
 static_assert(AFFINEUI_WIDGET_CARD == static_cast<int>(affineui::WidgetKind::Card));
+static_assert(AFFINEUI_SELECT_REPLACE == static_cast<int>(affineui::SelectMod::Replace));
+static_assert(AFFINEUI_SELECT_TOGGLE == static_cast<int>(affineui::SelectMod::Toggle));
+static_assert(AFFINEUI_SELECT_RANGE == static_cast<int>(affineui::SelectMod::Range));
+static_assert(AFFINEUI_AXIS_VERTICAL == static_cast<int>(affineui::Axis::Vertical));
+static_assert(AFFINEUI_AXIS_HORIZONTAL == static_cast<int>(affineui::Axis::Horizontal));
 
 }  // namespace
 
@@ -739,6 +745,444 @@ int affineui_decius_apply(affineui_app* app) {
     affineui::decius::apply(*to_app(app));
     return 0;
 #endif
+}
+
+}  // extern "C"
+
+// == Virtual lists & trees ==============================================
+//
+// Handle structs own the C++ objects; providers are Trackable (widget-side
+// weak references), so they live on the heap behind stable addresses. Every
+// callback holds its UserData via shared_ptr — user_free runs exactly once
+// when the provider drops (or replaces) the handler.
+
+struct affineui_index_selection { affineui::IndexSelection sel; };
+struct affineui_vlist_provider  { affineui::VirtualListProvider p; };
+struct affineui_vtree_provider  { affineui::VirtualTreeProvider p; };
+
+namespace {
+
+affineui::SelectMod to_select_mod(int m) {
+    switch (m) {
+        case AFFINEUI_SELECT_TOGGLE: return affineui::SelectMod::Toggle;
+        case AFFINEUI_SELECT_RANGE:  return affineui::SelectMod::Range;
+        default:                     return affineui::SelectMod::Replace;
+    }
+}
+
+// Setter templates shared by both providers (CRTP base has the fluent
+// setters; these adapt the C (fn,user,user_free) triple).
+template <typename P>
+void set_item_count(P& p, affineui_item_count_fn fn, void* user,
+                    affineui_user_free_fn user_free) {
+    auto data = hold_user(user, user_free);
+    if (!fn) { p.on_item_count({}); return; }
+    p.on_item_count([fn, data] { return fn(data->user); });
+}
+template <typename P>
+void set_item_size(P& p, affineui_item_size_fn fn, void* user,
+                   affineui_user_free_fn user_free) {
+    auto data = hold_user(user, user_free);
+    if (!fn) { p.on_item_size({}); return; }
+    p.on_item_size([fn, data](std::size_t i) { return fn(data->user, i); });
+}
+template <typename P>
+void set_item_text(P& p, affineui_item_text_fn fn, void* user,
+                   affineui_user_free_fn user_free) {
+    auto data = hold_user(user, user_free);
+    if (!fn) { p.on_item_text({}); return; }
+    p.on_item_text([fn, data](std::size_t i) {
+        const char* text = fn(data->user, i);
+        return std::string(text ? text : "");
+    });
+}
+template <typename P>
+void set_build_item(P& p, affineui_item_build_fn fn, void* user,
+                    affineui_user_free_fn user_free) {
+    auto data = hold_user(user, user_free);
+    if (!fn) { p.on_build_item({}); return; }
+    p.on_build_item([fn, data](affineui::View& v, std::size_t i) {
+        fn(data->user, view_handle(v), i);
+    });
+}
+template <typename P>
+void set_is_selected(P& p, affineui_item_flag_fn fn, void* user,
+                     affineui_user_free_fn user_free) {
+    auto data = hold_user(user, user_free);
+    if (!fn) { p.on_is_selected({}); return; }
+    p.on_is_selected(
+        [fn, data](std::size_t i) { return fn(data->user, i) != 0; });
+}
+template <typename P>
+void set_activate(P& p, affineui_item_activate_fn fn, void* user,
+                  affineui_user_free_fn user_free) {
+    auto data = hold_user(user, user_free);
+    if (!fn) { p.on_activate({}); return; }
+    p.on_activate([fn, data](std::size_t i, affineui::SelectMod m) {
+        fn(data->user, i, static_cast<int>(m));
+    });
+}
+template <typename P>
+void set_is_checked(P& p, affineui_item_flag_fn fn, void* user,
+                    affineui_user_free_fn user_free) {
+    auto data = hold_user(user, user_free);
+    if (!fn) { p.on_is_checked({}); return; }
+    p.on_is_checked(
+        [fn, data](std::size_t i) { return fn(data->user, i) != 0; });
+}
+template <typename P>
+void set_set_checked(P& p, affineui_item_checked_fn fn, void* user,
+                     affineui_user_free_fn user_free) {
+    auto data = hold_user(user, user_free);
+    if (!fn) { p.on_set_checked({}); return; }
+    p.on_set_checked([fn, data](std::size_t i, bool on) {
+        fn(data->user, i, on ? 1 : 0);
+    });
+}
+
+// The C tree source: a Trackable wrapper over the walk callbacks so the
+// TreeFlattener's WeakRef guard works exactly as it does for C++ data.
+struct CTreeSource : affineui::Trackable {
+    affineui_tree_children_fn children{nullptr};
+    affineui_tree_label_fn    label{nullptr};
+    affineui_tree_flag_fn     has_children{nullptr};
+    std::shared_ptr<affineui_c::UserData> data;
+};
+
+}  // namespace
+
+struct affineui_tree_flattener {
+    CTreeSource source;
+    affineui::TreeFlattener<CTreeSource, void, std::uint64_t> flat;
+    affineui_tree_flattener() : flat(affineui::to_weak_ref(&source)) {}
+};
+
+extern "C" {
+
+// -- IndexSelection ----------------------------------------------------
+
+affineui_index_selection* affineui_index_selection_create(void) {
+    return new affineui_index_selection{};
+}
+void affineui_index_selection_destroy(affineui_index_selection* sel) {
+    delete sel;
+}
+void affineui_index_selection_apply(affineui_index_selection* sel, size_t index,
+                                    int select_mod, size_t item_count) {
+    if (sel) sel->sel.apply(index, to_select_mod(select_mod), item_count);
+}
+int affineui_index_selection_contains(const affineui_index_selection* sel,
+                                      size_t index) {
+    return sel && sel->sel.contains(index) ? 1 : 0;
+}
+void affineui_index_selection_clear(affineui_index_selection* sel) {
+    if (sel) sel->sel.clear();
+}
+size_t affineui_index_selection_size(const affineui_index_selection* sel) {
+    return sel ? sel->sel.size() : 0;
+}
+size_t affineui_index_selection_anchor(const affineui_index_selection* sel) {
+    return sel ? sel->sel.anchor() : 0;
+}
+void affineui_index_selection_on_change(affineui_index_selection* sel,
+                                        affineui_notify_fn fn, void* user,
+                                        affineui_user_free_fn user_free) {
+    if (!sel) {
+        if (user_free) user_free(user);
+        return;
+    }
+    auto data = hold_user(user, user_free);
+    if (!fn) { sel->sel.on_change({}); return; }
+    sel->sel.on_change([fn, data] { fn(data->user); });
+}
+
+// -- List provider ------------------------------------------------------
+
+affineui_vlist_provider* affineui_vlist_provider_create(void) {
+    return new affineui_vlist_provider{};
+}
+void affineui_vlist_provider_destroy(affineui_vlist_provider* p) { delete p; }
+
+#define AFFINEUI_GUARD_PROVIDER(p)          \
+    if (!(p)) {                             \
+        if (user_free) user_free(user);     \
+        return;                             \
+    }
+
+void affineui_vlist_provider_on_item_count(affineui_vlist_provider* p,
+    affineui_item_count_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p) set_item_count(p->p, fn, user, user_free);
+}
+void affineui_vlist_provider_on_item_size(affineui_vlist_provider* p,
+    affineui_item_size_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p) set_item_size(p->p, fn, user, user_free);
+}
+void affineui_vlist_provider_on_item_text(affineui_vlist_provider* p,
+    affineui_item_text_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p) set_item_text(p->p, fn, user, user_free);
+}
+void affineui_vlist_provider_on_build_item(affineui_vlist_provider* p,
+    affineui_item_build_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p) set_build_item(p->p, fn, user, user_free);
+}
+void affineui_vlist_provider_on_is_selected(affineui_vlist_provider* p,
+    affineui_item_flag_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p) set_is_selected(p->p, fn, user, user_free);
+}
+void affineui_vlist_provider_on_activate(affineui_vlist_provider* p,
+    affineui_item_activate_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p) set_activate(p->p, fn, user, user_free);
+}
+void affineui_vlist_provider_on_is_checked(affineui_vlist_provider* p,
+    affineui_item_flag_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p) set_is_checked(p->p, fn, user, user_free);
+}
+void affineui_vlist_provider_on_set_checked(affineui_vlist_provider* p,
+    affineui_item_checked_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p) set_set_checked(p->p, fn, user, user_free);
+}
+void affineui_vlist_provider_set_checkboxes(affineui_vlist_provider* p, int on) {
+    if (p) p->p.checkboxes(on != 0);
+}
+void affineui_vlist_provider_set_default_item_size(affineui_vlist_provider* p,
+                                                   double px) {
+    if (p) p->p.default_item_size(px);
+}
+
+// -- Tree provider --------------------------------------------------------
+
+affineui_vtree_provider* affineui_vtree_provider_create(void) {
+    return new affineui_vtree_provider{};
+}
+void affineui_vtree_provider_destroy(affineui_vtree_provider* p) { delete p; }
+
+void affineui_vtree_provider_on_item_count(affineui_vtree_provider* p,
+    affineui_item_count_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p) set_item_count(p->p, fn, user, user_free);
+}
+void affineui_vtree_provider_on_item_size(affineui_vtree_provider* p,
+    affineui_item_size_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p) set_item_size(p->p, fn, user, user_free);
+}
+void affineui_vtree_provider_on_item_text(affineui_vtree_provider* p,
+    affineui_item_text_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p) set_item_text(p->p, fn, user, user_free);
+}
+void affineui_vtree_provider_on_build_item(affineui_vtree_provider* p,
+    affineui_item_build_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p) set_build_item(p->p, fn, user, user_free);
+}
+void affineui_vtree_provider_on_is_selected(affineui_vtree_provider* p,
+    affineui_item_flag_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p) set_is_selected(p->p, fn, user, user_free);
+}
+void affineui_vtree_provider_on_activate(affineui_vtree_provider* p,
+    affineui_item_activate_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p) set_activate(p->p, fn, user, user_free);
+}
+void affineui_vtree_provider_on_is_checked(affineui_vtree_provider* p,
+    affineui_item_flag_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p) set_is_checked(p->p, fn, user, user_free);
+}
+void affineui_vtree_provider_on_set_checked(affineui_vtree_provider* p,
+    affineui_item_checked_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p) set_set_checked(p->p, fn, user, user_free);
+}
+void affineui_vtree_provider_on_depth(affineui_vtree_provider* p,
+    affineui_item_depth_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p)
+    auto data = hold_user(user, user_free);
+    if (!fn) { p->p.on_depth({}); return; }
+    p->p.on_depth([fn, data](std::size_t i) { return fn(data->user, i); });
+}
+void affineui_vtree_provider_on_is_expandable(affineui_vtree_provider* p,
+    affineui_item_flag_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p)
+    auto data = hold_user(user, user_free);
+    if (!fn) { p->p.on_is_expandable({}); return; }
+    p->p.on_is_expandable(
+        [fn, data](std::size_t i) { return fn(data->user, i) != 0; });
+}
+void affineui_vtree_provider_on_is_expanded(affineui_vtree_provider* p,
+    affineui_item_flag_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p)
+    auto data = hold_user(user, user_free);
+    if (!fn) { p->p.on_is_expanded({}); return; }
+    p->p.on_is_expanded(
+        [fn, data](std::size_t i) { return fn(data->user, i) != 0; });
+}
+void affineui_vtree_provider_on_toggle(affineui_vtree_provider* p,
+    affineui_item_toggle_fn fn, void* user, affineui_user_free_fn user_free) {
+    AFFINEUI_GUARD_PROVIDER(p)
+    auto data = hold_user(user, user_free);
+    if (!fn) { p->p.on_toggle({}); return; }
+    p->p.on_toggle([fn, data](std::size_t i) { fn(data->user, i); });
+}
+void affineui_vtree_provider_set_checkboxes(affineui_vtree_provider* p, int on) {
+    if (p) p->p.checkboxes(on != 0);
+}
+void affineui_vtree_provider_set_default_item_size(affineui_vtree_provider* p,
+                                                   double px) {
+    if (p) p->p.default_item_size(px);
+}
+
+#undef AFFINEUI_GUARD_PROVIDER
+
+// -- Tree flattener --------------------------------------------------------
+
+affineui_tree_flattener* affineui_tree_flattener_create(
+    affineui_tree_children_fn children,
+    affineui_tree_label_fn label,
+    affineui_tree_flag_fn has_children,
+    void* user,
+    affineui_user_free_fn user_free) {
+    auto* f = new affineui_tree_flattener{};
+    f->source.children     = children;
+    f->source.label        = label;
+    f->source.has_children = has_children;
+    f->source.data         = hold_user(user, user_free);
+    f->flat
+        .on_roots([](CTreeSource* s, std::vector<std::uint64_t>& out) {
+            if (!s->children) return;
+            s->children(
+                s->data->user, 0,
+                [](void* ctx, std::uint64_t child) {
+                    static_cast<std::vector<std::uint64_t>*>(ctx)->push_back(
+                        child);
+                },
+                &out);
+        })
+        .on_children([](CTreeSource* s, std::uint64_t parent,
+                        std::vector<std::uint64_t>& out) {
+            if (!s->children) return;
+            s->children(
+                s->data->user, parent,
+                [](void* ctx, std::uint64_t child) {
+                    static_cast<std::vector<std::uint64_t>*>(ctx)->push_back(
+                        child);
+                },
+                &out);
+        })
+        .on_label([](CTreeSource* s, std::uint64_t handle) {
+            const char* text =
+                s->label ? s->label(s->data->user, handle) : nullptr;
+            return std::string(text ? text : "");
+        })
+        .on_has_children([](CTreeSource* s, std::uint64_t handle) {
+            return s->has_children &&
+                   s->has_children(s->data->user, handle) != 0;
+        });
+    return f;
+}
+void affineui_tree_flattener_destroy(affineui_tree_flattener* f) { delete f; }
+void affineui_tree_flattener_wire(affineui_tree_flattener* f,
+                                  affineui_vtree_provider* p) {
+    if (f && p) f->flat.wire(p->p);
+}
+void affineui_tree_flattener_rebuild(affineui_tree_flattener* f) {
+    if (f) f->flat.rebuild();
+}
+void affineui_tree_flattener_on_changed(affineui_tree_flattener* f,
+                                        affineui_notify_fn fn, void* user,
+                                        affineui_user_free_fn user_free) {
+    if (!f) {
+        if (user_free) user_free(user);
+        return;
+    }
+    auto data = hold_user(user, user_free);
+    if (!fn) { f->flat.on_changed({}); return; }
+    f->flat.on_changed([fn, data] { fn(data->user); });
+}
+void affineui_tree_flattener_set_expanded(affineui_tree_flattener* f,
+                                          uint64_t handle, int open) {
+    if (f) f->flat.set_expanded(handle, open != 0);
+}
+int affineui_tree_flattener_is_expanded(const affineui_tree_flattener* f,
+                                        uint64_t handle) {
+    return f && f->flat.is_expanded(handle) ? 1 : 0;
+}
+void affineui_tree_flattener_set_selected(affineui_tree_flattener* f,
+                                          uint64_t handle, int on) {
+    if (f) f->flat.set_selected(handle, on != 0);
+}
+int affineui_tree_flattener_selected_contains(const affineui_tree_flattener* f,
+                                              uint64_t handle) {
+    return f && f->flat.selected_contains(handle) ? 1 : 0;
+}
+void affineui_tree_flattener_clear_selection(affineui_tree_flattener* f) {
+    if (f) f->flat.clear_selection();
+}
+void affineui_tree_flattener_set_checked(affineui_tree_flattener* f,
+                                         uint64_t handle, int on) {
+    if (f) f->flat.set_checked(handle, on != 0);
+}
+int affineui_tree_flattener_checked_contains(const affineui_tree_flattener* f,
+                                             uint64_t handle) {
+    return f && f->flat.checked_contains(handle) ? 1 : 0;
+}
+size_t affineui_tree_flattener_size(const affineui_tree_flattener* f) {
+    return f ? f->flat.size() : 0;
+}
+uint64_t affineui_tree_flattener_handle_at(const affineui_tree_flattener* f,
+                                           size_t index) {
+    return f ? f->flat.handle_at(index) : 0;
+}
+size_t affineui_tree_flattener_index_of(const affineui_tree_flattener* f,
+                                        uint64_t handle) {
+    if (!f) return static_cast<size_t>(-1);
+    return f->flat.index_of(handle);
+}
+
+// -- View builders -----------------------------------------------------
+
+affineui_widget* affineui_view_virtual_list(affineui_view* view,
+                                            const char* key,
+                                            affineui_vlist_provider* provider,
+                                            int axis,
+                                            const char* classes) {
+    if (!view || !provider) return wrap(affineui::WidgetRef{});
+    return wrap(to_view(view)->virtual_list(
+        sv(key), provider->p,
+        axis == AFFINEUI_AXIS_HORIZONTAL ? affineui::Axis::Horizontal
+                                         : affineui::Axis::Vertical,
+        sv(classes)));
+}
+affineui_widget* affineui_view_virtual_tree(affineui_view* view,
+                                            const char* key,
+                                            affineui_vtree_provider* provider,
+                                            const char* classes) {
+    if (!view || !provider) return wrap(affineui::WidgetRef{});
+    return wrap(to_view(view)->virtual_tree(sv(key), provider->p, sv(classes)));
+}
+affineui_widget* affineui_view_virtual_string_list(
+    affineui_view* view, const char* key, const char* const* items,
+    size_t item_count, double item_size, affineui_index_selection* selection,
+    affineui_index_selection* checked, const char* classes) {
+    if (!view) return wrap(affineui::WidgetRef{});
+    const auto strings = to_strings(items, item_count);
+    affineui::View::StringListOptions options;
+    if (item_size > 0.0) options.item_size = item_size;
+    options.selection = selection ? &selection->sel : nullptr;
+    options.checked   = checked ? &checked->sel : nullptr;
+    options.classes   = sv(classes);
+    return wrap(to_view(view)->virtual_list(sv(key), strings, options));
+}
+
+// -- Retained-view rebuild loop -----------------------------------------
+
+void affineui_app_set_view(affineui_app* app, affineui_build_fn build,
+                           void* user, affineui_user_free_fn user_free) {
+    if (!app || !build) {
+        if (user_free) user_free(user);
+        return;
+    }
+    auto data = hold_user(user, user_free);
+    to_app(app)->set_view([build, data](affineui::View& v) {
+        build(data->user, view_handle(v));
+    });
+}
+void affineui_app_rebuild_view(affineui_app* app) {
+    if (app) to_app(app)->rebuild_view();
 }
 
 }  // extern "C"
