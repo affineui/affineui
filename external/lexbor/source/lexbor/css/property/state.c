@@ -3444,6 +3444,8 @@ lxb_css_property_state_gradient_args(lxb_css_parser_t *parser,
     gradient->has_stop1_pos_pct = false;
     gradient->stop0.type = LXB_CSS_VALUE__UNDEF;
     gradient->stop1.type = LXB_CSS_VALUE__UNDEF;
+    gradient->stop_count = 0;
+    memset(gradient->stops, 0, sizeof(gradient->stops));
 
     token = lxb_css_syntax_parser_token_wo_ws(parser);
     if (token == NULL) return false;
@@ -3540,7 +3542,8 @@ lxb_css_property_state_gradient_args(lxb_css_parser_t *parser,
         }
     }
 
-    /* Parse stop 0 */
+    /* Parse stop 0. `stop0` (first) and `stop1` (last) are kept as legacy
+     * aliases while every parsed stop is also appended to `stops[]`. */
     if (!lxb_css_property_state_color_handler(parser, token,
                                                &gradient->stop0, &status)) {
         return false;
@@ -3548,6 +3551,11 @@ lxb_css_property_state_gradient_args(lxb_css_parser_t *parser,
     gradient->has_stop0_pos_pct =
         lxb_css_property_state_take_gradient_stop_pct(
             parser, &gradient->stop0_pos_pct);
+
+    gradient->stops[0].color       = gradient->stop0;
+    gradient->stops[0].pos_pct     = gradient->stop0_pos_pct;
+    gradient->stops[0].has_pos_pct = gradient->has_stop0_pos_pct;
+    gradient->stop_count = 1;
 
     /* Expect comma */
     token = lxb_css_syntax_parser_token_wo_ws(parser);
@@ -3558,59 +3566,83 @@ lxb_css_property_state_gradient_args(lxb_css_parser_t *parser,
     token = lxb_css_syntax_parser_token_wo_ws(parser);
     if (token == NULL) return false;
 
-    /* Parse stop 1 */
-    if (!lxb_css_property_state_color_handler(parser, token,
-                                               &gradient->stop1, &status)) {
-        return false;
-    }
-    gradient->has_stop1_pos_pct =
-        lxb_css_property_state_take_gradient_stop_pct(
-            parser, &gradient->stop1_pos_pct);
+    /* Parse stop 1 (the second, mandatory stop). */
+    {
+        lxb_css_value_color_t stop_color;
+        double stop_pos = 0.0;
+        bool   has_pos;
 
-    /* Expect `)` */
+        stop_color.type = LXB_CSS_VALUE__UNDEF;
+        if (!lxb_css_property_state_color_handler(parser, token,
+                                                   &stop_color, &status)) {
+            return false;
+        }
+        has_pos = lxb_css_property_state_take_gradient_stop_pct(
+                      parser, &stop_pos);
+
+        /* stop1 alias = last stop parsed so far. */
+        gradient->stop1 = stop_color;
+        gradient->stop1_pos_pct = stop_pos;
+        gradient->has_stop1_pos_pct = has_pos;
+        gradient->stops[1].color       = stop_color;
+        gradient->stops[1].pos_pct     = stop_pos;
+        gradient->stops[1].has_pos_pct = has_pos;
+        gradient->stop_count = 2;
+    }
+
+    /* `repeating`-style two-coincident-stop pattern is detected as a
+     * stripe tile fill; keep the existing special case for linear. */
     token = lxb_css_syntax_parser_token_wo_ws(parser);
     if (kind == LXB_CSS_GRADIENT_LINEAR
-        && token != NULL && token->type == LXB_CSS_SYNTAX_TOKEN_COMMA)
+        && token != NULL && token->type == LXB_CSS_SYNTAX_TOKEN_COMMA
+        && gradient->has_stop0_pos_pct && gradient->has_stop1_pos_pct
+        && gradient->stop0_pos_pct == gradient->stop1_pos_pct)
     {
-        if (gradient->has_stop0_pos_pct && gradient->has_stop1_pos_pct
-            && gradient->stop0_pos_pct == gradient->stop1_pos_pct)
-        {
-            gradient->kind = LXB_CSS_GRADIENT_LINEAR_STRIPES;
-            lxb_css_property_state_skip_to_r_paren(parser);
-            return true;
-        }
-
-        while (token != NULL && token->type == LXB_CSS_SYNTAX_TOKEN_COMMA) {
-            lxb_css_syntax_parser_consume(parser);
-            token = lxb_css_syntax_parser_token_wo_ws(parser);
-            if (token == NULL) return false;
-
-            if (!lxb_css_property_state_color_handler(parser, token,
-                                                       &gradient->stop1, &status)) {
-                return false;
-            }
-            gradient->has_stop1_pos_pct =
-                lxb_css_property_state_take_gradient_stop_pct(
-                    parser, &gradient->stop1_pos_pct);
-            token = lxb_css_syntax_parser_token_wo_ws(parser);
-        }
+        gradient->kind = LXB_CSS_GRADIENT_LINEAR_STRIPES;
+        lxb_css_property_state_skip_to_r_paren(parser);
+        return true;
     }
 
-    if (kind == LXB_CSS_GRADIENT_RADIAL) {
-        while (token != NULL && token->type == LXB_CSS_SYNTAX_TOKEN_COMMA) {
-            lxb_css_syntax_parser_consume(parser);
-            token = lxb_css_syntax_parser_token_wo_ws(parser);
-            if (token == NULL) return false;
+    /* Append every remaining `,<color>` stop into the ordered list.
+     * `stop1` continues to track the LAST stop for 2-stop consumers. */
+    while (token != NULL && token->type == LXB_CSS_SYNTAX_TOKEN_COMMA) {
+        lxb_css_value_color_t stop_color;
+        double stop_pos = 0.0;
+        bool   has_pos;
 
-            if (!lxb_css_property_state_color_handler(parser, token,
-                                                       &gradient->stop1, &status)) {
-                return false;
-            }
-            gradient->has_stop1_pos_pct =
-                lxb_css_property_state_take_gradient_stop_pct(
-                    parser, &gradient->stop1_pos_pct);
-            token = lxb_css_syntax_parser_token_wo_ws(parser);
+        lxb_css_syntax_parser_consume(parser);
+        token = lxb_css_syntax_parser_token_wo_ws(parser);
+        if (token == NULL) return false;
+
+        stop_color.type = LXB_CSS_VALUE__UNDEF;
+        if (!lxb_css_property_state_color_handler(parser, token,
+                                                   &stop_color, &status)) {
+            return false;
         }
+        has_pos = lxb_css_property_state_take_gradient_stop_pct(
+                      parser, &stop_pos);
+
+        gradient->stop1 = stop_color;
+        gradient->stop1_pos_pct = stop_pos;
+        gradient->has_stop1_pos_pct = has_pos;
+
+        if (gradient->stop_count < LXB_CSS_GRADIENT_MAX_STOPS) {
+            const unsigned int i = gradient->stop_count;
+            gradient->stops[i].color       = stop_color;
+            gradient->stops[i].pos_pct     = stop_pos;
+            gradient->stops[i].has_pos_pct = has_pos;
+            gradient->stop_count = i + 1;
+        }
+        else {
+            /* Overflow: keep the LAST stop in the final slot so the
+             * gradient still ends on the author's final color. */
+            const unsigned int last = LXB_CSS_GRADIENT_MAX_STOPS - 1;
+            gradient->stops[last].color       = stop_color;
+            gradient->stops[last].pos_pct     = stop_pos;
+            gradient->stops[last].has_pos_pct = has_pos;
+        }
+
+        token = lxb_css_syntax_parser_token_wo_ws(parser);
     }
 
     if (token == NULL || token->type != LXB_CSS_SYNTAX_TOKEN_R_PARENTHESIS) {

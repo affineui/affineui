@@ -437,9 +437,11 @@ affineui_widget* affineui_view_knob(affineui_view* view, const char* label,
 }
 
 affineui_widget* affineui_view_combo(affineui_view* view, const char* label,
-                                     double value, double step, const char* key) {
+                                     double value, double step, const char* key,
+                                     int linear) {
     if (!view) return nullptr;
-    return wrap(to_view(view)->combo(sv(label), value, step, sv(key)));
+    return wrap(to_view(view)->combo(sv(label), value, step, sv(key),
+                                     linear != 0));
 }
 
 affineui_widget* affineui_view_color_field(affineui_view* view, const char* label,

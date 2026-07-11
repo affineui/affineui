@@ -12,11 +12,13 @@ from typing import TYPE_CHECKING, Callable
 
 import affineui as ui
 
-from . import colors, stage
+from . import colors
 from .specs import (ADJUSTMENTS, CHANNELS, COMPS, LAYER_BLENDS, SWATCHES,
                     TOOLS, tool_icon_html)
 
 if TYPE_CHECKING:
+    import photo_core
+
     from .app import PhotoEditApp
 
 def _icon_button(v: ui.View, key: str, icon_html: str, title: str,
@@ -93,19 +95,42 @@ def build_toolstrip(app: "PhotoEditApp", v: ui.View) -> None:
     v.container(classes="dcs-grip", key="ps-tools-grip").attr(
         "data-dcs-drag-handle", "")
 
+    # Deterministic layout: group tools into explicit rows of up to two,
+    # breaking at every separator. Each separator is its own full-width row.
+    # This gives the web's clean two-column strip without depending on
+    # flex-wrap orphan behavior or grid-column placement (which the layout
+    # engine doesn't support).
+    def make_tool(g: ui.View, tool) -> None:
+        ref = g.container(classes="ps-tool", key=f"tool-{tool.id}",
+                          build=lambda h, tool=tool: h.html(
+                              tool_icon_html(tool)))
+        ref.attr("role", "button")
+        ref.attr("title", f"{tool.name}  ({tool.key})")
+        ref.attr("aria-pressed", "true" if app.tool == tool.id else "false")
+        ref.attr("data-group", "true" if tool.group else "false")
+        ref.on_click(lambda tool_id=tool.id: app.set_tool(tool_id))
+
+    # Partition TOOLS into segments separated by sep_after boundaries.
+    segments: list[list] = [[]]
+    for tool in TOOLS:
+        segments[-1].append(tool)
+        if tool.sep_after:
+            segments.append([])
+    segments = [s for s in segments if s]
+
     def grid(g: ui.View) -> None:
-        for tool in TOOLS:
-            ref = g.container(classes="ps-tool", key=f"tool-{tool.id}",
-                              build=lambda h, tool=tool: h.html(
-                                  tool_icon_html(tool)))
-            ref.attr("role", "button")
-            ref.attr("title", f"{tool.name}  ({tool.key})")
-            ref.attr("aria-pressed",
-                     "true" if app.tool == tool.id else "false")
-            ref.attr("data-group", "true" if tool.group else "false")
-            ref.on_click(lambda tool_id=tool.id: app.set_tool(tool_id))
-            if tool.sep_after:
-                g.container(classes="ps-toolsep", key=f"sep-{tool.id}")
+        for si, seg in enumerate(segments):
+            if si > 0:
+                g.container(classes="ps-toolsep", key=f"toolsep-{si}")
+            for ri in range(0, len(seg), 2):
+                pair = seg[ri:ri + 2]
+
+                def row(r: ui.View, pair=pair) -> None:
+                    for tool in pair:
+                        make_tool(r, tool)
+
+                g.container(classes="ps-toolrow",
+                            key=f"toolrow-{si}-{ri}", build=row)
 
     v.container(classes="ps-toolgrid", key="ps-tools", build=grid)
     v.container(classes="ps-colorchips", key="ps-colorchips",
@@ -128,10 +153,12 @@ def _build_color_chips(app: "PhotoEditApp", v: ui.View) -> None:
     swap.attr("role", "button").attr("title", "Swap colors (X)")
     swap.on_click(app.swap_colors)
     bg = v.container(classes="ps-colorchip ps-colorchip--bg", key="ps-chip-bg")
+    bg.attr("id", "ps-chip-bg")
     bg.attr("style", f"background:{app.bg}")
     bg.attr("role", "button").attr("title", f"Background color {app.bg}")
     bg.on_click(app.open_background_picker)
     fg = v.container(classes="ps-colorchip ps-colorchip--fg", key="ps-chip-fg")
+    fg.attr("id", "ps-chip-fg")
     fg.attr("style", f"background:{app.fg}")
     fg.attr("role", "button").attr("title", f"Foreground color {app.fg}")
     fg.on_click(app.open_foreground_picker)
@@ -144,61 +171,43 @@ def _navigator_body(app: "PhotoEditApp", v: ui.View) -> None:
         p.container(classes="ps-nav-thumb", key="ps-nav-thumb",
                     build=lambda n: _nav_thumb(app, n))
 
+        # Web-parity zoom row: a dcs-row (align-items:center) with a muted
+        # zoom-out icon, a growing dcs-slider, a zoom-in icon, and a
+        # fixed-width percentage readout. The icons are clickable steppers
+        # (an enhancement over the web's static icons).
         def zoom_row(row: ui.View) -> None:
             out = row.container(classes="ps-nav-zbtn", key="ps-nav-zoom-out",
                                 build=lambda h: h.html(_di("zoom-out")))
-            out.attr("role", "button")
+            out.attr("role", "button").attr("title", "Zoom out")
             out.on_click(lambda: app.zoom_step(1 / 1.4))
+            # Keep the slider's own dcs-field wrapper (do NOT .cls() it to
+            # dcs-slider — that collides with the inner slider div and the
+            # empty label shoves the thumb sideways). It grows to fill the
+            # row via the .ps-nav-zoomrow .dcs-field rule in styles.py.
             row.slider("", app.zoom * 100, 5, 800,
                        key="ps-nav-zoom").on_change(
                 lambda text: app.set_zoom_percent_text(text))
             zin = row.container(classes="ps-nav-zbtn", key="ps-nav-zoom-in",
                                 build=lambda h: h.html(_di("zoom-in")))
-            zin.attr("role", "button")
+            zin.attr("role", "button").attr("title", "Zoom in")
             zin.on_click(lambda: app.zoom_step(1.4))
-            row.container(classes="ps-nav-pct", key="ps-nav-pct",
-                          build=lambda h: h.html(
-                              f"{round(app.zoom * 100)}%"))
+            pct = row.container(classes="ps-nav-pct ps-prop-val",
+                                key="ps-nav-pct",
+                                build=lambda h: h.html(
+                                    f"{round(app.zoom * 100)}%"))
+            pct.attr("id", "ps-nav-pct").attr("style", "width:42px")
 
-        p.container(classes="ps-nav-zoomrow", key="ps-nav-zoomrow",
+        p.container(classes="ps-nav-zoomrow dcs-row", key="ps-nav-zoomrow",
                     build=zoom_row)
 
     v.container(classes="ps-nav-body", key="ps-nav-panel", build=body)
 
 
 def _nav_thumb(app: "PhotoEditApp", v: ui.View) -> None:
-    doc_w, doc_h = max(1, app.doc.width()), max(1, app.doc.height())
-    box_w, box_h = 174.0, 100.0  # thumb interior minus margins
-    scale = min(box_w / doc_w, box_h / doc_h)
-    nav_w, nav_h = doc_w * scale, doc_h * scale
-
-    def mini_doc(m: ui.View) -> None:
-        inner = m.container(classes="ps-nav-scale", key="ps-nav-scale",
-                            build=lambda s: stage.render_layer_stack(
-                                app, s, "nav"))
-        inner.attr("style",
-                   f"position:absolute;left:0;top:0;width:{doc_w}px;"
-                   f"height:{doc_h}px;transform:scale({scale:.5f});"
-                   "transform-origin:0 0")
-
-    doc_box = v.container(classes="ps-nav-doc", key="ps-nav-doc",
-                          build=mini_doc)
-    doc_box.attr("style",
-                 f"left:50%;top:50%;width:{nav_w:.1f}px;"
-                 f"height:{nav_h:.1f}px;margin-left:{-nav_w / 2:.1f}px;"
-                 f"margin-top:{-nav_h / 2:.1f}px")
-
-    # Red viewport rectangle: visible fraction of the doc at current zoom.
-    stage_w, stage_h = app.stage_size()
-    fx = min(1.0, stage_w / (doc_w * app.zoom))
-    fy = min(1.0, stage_h / (doc_h * app.zoom))
-    cx = min(max(0.5 - app.pan_x / (app.zoom * doc_w), fx / 2), 1 - fx / 2)
-    cy = min(max(0.5 - app.pan_y / (app.zoom * doc_h), fy / 2), 1 - fy / 2)
-    view = v.container(classes="ps-nav-view", key="ps-nav-view")
-    view.attr("style",
-              f"left:calc(50% + {((cx - fx / 2) - 0.5) * nav_w:.1f}px);"
-              f"top:calc(50% + {((cy - fy / 2) - 0.5) * nav_h:.1f}px);"
-              f"width:{fx * nav_w:.1f}px;height:{fy * nav_h:.1f}px")
+    # The raster core paints the live composite (and the viewport
+    # rectangle) into this canvas each frame. Click/drag-to-pan routes
+    # through App.on_event (web panels.js Navigator behavior).
+    v.canvas("ps-nav", classes="ps-nav-canvas", key="ps-nav-canvas")
 
 
 # ── Color / Swatches ─────────────────────────────────────────────────────────
@@ -206,35 +215,53 @@ def _nav_thumb(app: "PhotoEditApp", v: ui.View) -> None:
 def _color_tab(app: "PhotoEditApp", v: ui.View) -> None:
     def body(p: ui.View) -> None:
         h, s, val = app.hsv
-        # SV square + hue bar reflect the foreground; pointer-precise picking
-        # inside the square is Phase-B (no pointer coordinates on click). The
-        # hex + RGB fields below are the committing editors.
-        sv = p.container(classes="ps-sv", key="ps-sv",
-                         build=lambda box: box.container(
-                             classes="ps-sv-dot", key="ps-sv-dot").attr(
-                             "style",
-                             f"left:{s * 100:.1f}%;"
-                             f"top:{(1 - val) * 100:.1f}%"))
-        sv.attr("style",
-                "background:linear-gradient(to top,#000,transparent),"
-                f"linear-gradient(to right,#fff,hsl({h:.0f},100%,50%))")
-        p.container(classes="ps-hue", key="ps-hue",
-                    build=lambda bar: bar.container(
-                        classes="ps-hue-dot", key="ps-hue-dot").attr(
-                        "style", f"left:{h / 360 * 100:.1f}%"))
+        hue_hex = colors.hsv_to_hex(h, 1.0, 1.0)
+        # SV square + hue bar use the framework's own dcs-color-square /
+        # dcs-hue-bar (which carry the correct gradients — the square's
+        # white→hue ramp reads --hue, the bar is the rainbow); we only add
+        # ps-* hooks so App.on_event can hit-test them. Pointer-precise
+        # picking routes through App.on_event (web initPicker drag), which
+        # updates the dots/chips live via DOM style mutations.
+        def sv_body(box: ui.View) -> None:
+            dot = box.container(classes="ps-sv-dot", key="ps-sv-dot")
+            dot.attr("id", "ps-sv-dot")
+            dot.attr("style", f"left:{s * 100:.1f}%;"
+                              f"top:{(1 - val) * 100:.1f}%")
+
+        sv = p.container(classes="dcs-color-square ps-sv", key="ps-sv",
+                         build=sv_body)
+        sv.attr("id", "ps-sv")
+        sv.attr("style", f"--hue:{hue_hex}")
+
+        def hue_body(bar: ui.View) -> None:
+            dot = bar.container(classes="ps-hue-dot", key="ps-hue-dot")
+            dot.attr("id", "ps-hue-dot")
+            dot.attr("style", f"left:{h / 360 * 100:.1f}%")
+
+        hue = p.container(classes="dcs-hue-bar ps-hue", key="ps-hue",
+                          build=hue_body)
+        hue.attr("id", "ps-hue")
         hexfield = p.input("Hex", app.fg, key="ps-hex")
         hexfield.cls("ps-hex-field")
         hexfield.on_change(app.set_foreground_hex)
 
+        # R/G/B use the framework's own labeled text field (v.input →
+        # dcs-field > dcs-field__label + dcs-input, the web's structure),
+        # styled as a row with tabular-num digits. A number input would
+        # instead build the heavy dcs-combo spinbutton, which is the wrong
+        # control here.
         def rgb_row(row: ui.View) -> None:
             r, g, b = colors.hex_to_rgb(app.fg)
             for channel, value in (("r", r), ("g", g), ("b", b)):
-                row.input(channel.upper(), str(value), type="number",
-                          key=f"ps-{channel}").on_change(
+                field = row.input(channel.upper(), str(value),
+                                  key=f"ps-{channel}")
+                field.cls("dcs-field dcs-field--row ps-rgb-field")
+                field.on_change(
                     lambda text, channel=channel:
                     app.set_foreground_channel(channel, text))
 
-        p.container(classes="ps-rgb-row", key="ps-rgb-row", build=rgb_row)
+        p.container(classes="ps-rgb-row dcs-row", key="ps-rgb-row",
+                    build=rgb_row)
 
     v.container(classes="ps-colorpanel", key="ps-colorpanel", build=body)
 
@@ -291,15 +318,14 @@ def _layer_filter_bar(app: "PhotoEditApp", v: ui.View) -> None:
 
 def _layer_blend_row(app: "PhotoEditApp", v: ui.View) -> None:
     layer = app.current_layer()
-    blend = v.dropdown("", list(LAYER_BLENDS),
-                       layer.blend if layer.blend in LAYER_BLENDS
-                       else "Normal", key="ps-blend")
+    blend = v.dropdown("", list(LAYER_BLENDS), app.current_blend_name(),
+                       key="ps-blend")
     blend.cls("ps-blend-select")
     blend.on_change(app.set_layer_blend)
     v.container(classes="ps-row-spacer", key="ps-bo-spacer")
     v.container(classes="ps-amt-label", key="ps-op-label",
                 build=lambda h: h.html("Opacity:"))
-    v.input("", f"{round(layer.opacity)}", type="number",
+    v.input("", f"{round(layer.opacity * 100)}", type="number",
             key="ps-op-amt").cls("ps-amt-field").on_change(
         app.set_layer_opacity)
 
@@ -321,7 +347,7 @@ def _layer_lock_row(app: "PhotoEditApp", v: ui.View) -> None:
     v.container(classes="ps-row-spacer", key="ps-lock-spacer")
     v.container(classes="ps-amt-label", key="ps-fill-label",
                 build=lambda h: h.html("Fill:"))
-    v.input("", f"{round(layer.fill)}", type="number",
+    v.input("", f"{round(layer.fill * 100)}", type="number",
             key="ps-fill-amt").cls("ps-amt-field").on_change(
         app.set_layer_fill)
 
@@ -332,8 +358,8 @@ def _layer_rows(app: "PhotoEditApp", v: ui.View) -> None:
 
 
 def _layer_row(app: "PhotoEditApp", v: ui.View,
-               layer: ui.PhotoLayerSnapshot) -> None:
-    is_active = layer.id == app.doc.active_layer_id()
+               layer: "photo_core.PhotoLayer") -> None:
+    is_active = layer.id == app.doc.active_id()
 
     def row(r: ui.View) -> None:
         eye = r.container(
@@ -344,19 +370,12 @@ def _layer_row(app: "PhotoEditApp", v: ui.View,
         eye.attr("role", "button").attr("title", "Toggle visibility")
         eye.on_click(lambda: app.toggle_layer_visible(layer.id))
 
-        def thumb(t: ui.View) -> None:
-            if layer.kind == "text":
-                t.html('<span class="ps-tcap" style="position:absolute;'
-                       'inset:0;display:flex;align-items:center;'
-                       'justify-content:center;color:#333">T</span>',
-                       key=f"thumb-t-{layer.id}")
-            else:
-                t.container(classes="ps-layer-thumb-fill",
-                            key=f"thumb-fill-{layer.id}").attr(
-                    "style", layer.style)
-
+        # Live pixel thumbnail, painted by the raster core.
         r.container(classes="ps-layer-thumb", key=f"thumb-{layer.id}",
-                    build=thumb)
+                    build=lambda t: t.canvas(
+                        app.doc.thumb_paint_name(layer.id),
+                        classes="ps-layer-thumb-fill",
+                        key=f"thumb-canvas-{layer.id}"))
 
         if app.renaming_layer_id == layer.id:
             rename = r.input("", layer.name, key=f"rename-{layer.id}")
@@ -390,7 +409,10 @@ def _layer_row(app: "PhotoEditApp", v: ui.View,
                       key=f"layer-{layer.id}", build=row)
     ref.attr("role", "button")
     ref.attr("aria-selected", "true" if is_active else "false")
-    ref.on_click(lambda: app.set_layer(layer.id))
+    # Selection fires on mousedown via App.on_event (see app._mouse_down);
+    # the id rides in a data attribute the router reads. No on_click — that
+    # would be a redundant mouseup activation.
+    ref.attr("data-layer-id", str(layer.id))
 
 
 def _layer_footer(app: "PhotoEditApp", v: ui.View) -> None:
@@ -471,28 +493,34 @@ def _adjust_grid(app: "PhotoEditApp", v: ui.View) -> None:
 
 def _history_list(app: "PhotoEditApp", v: ui.View) -> None:
     current = app.doc.history_index()
-    for index, (label, icon) in enumerate(app.doc.history_entries()):
+    for index, entry in enumerate(app.doc.history_entries()):
         classes = "ps-history-item"
         if index == current:
             classes += " is-current"
         elif index > current:
             classes += " is-future"
-        item = v.container(classes=classes, key=f"history-{index}",
-                           build=lambda h, label=label, icon=icon: h.html(
-                               f"{_di(icon)}<span>{escape(label)}</span>"))
+        item = v.container(
+            classes=classes, key=f"history-{index}",
+            build=lambda h, label=entry.name, icon=entry.icon: h.html(
+                f"{_di(icon)}<span>{escape(label)}</span>"))
         item.attr("role", "button")
-        item.on_click(lambda index=index: app.jump_history(index))
+        # Jump on mousedown via App.on_event (see app._mouse_down) for snap.
+        item.attr("data-history-index", str(index))
 
 
 # ── Quick floatbar ───────────────────────────────────────────────────────────
 
 def build_floatbar(app: "PhotoEditApp", v: ui.View) -> None:
     def bar(b: ui.View) -> None:
+        # Grip drag-handle first, like the web — this is what lets the bar be
+        # dragged (the container carries data-dcs-drag below).
+        b.container(classes="dcs-grip", key="float-grip").attr(
+            "data-dcs-drag-handle", "")
         _icon_button(b, "float-undo", _di("undo"), "Undo",
                      on_click=app.undo)
         _icon_button(b, "float-redo", _di("redo"), "Redo",
                      on_click=app.redo)
-        b.container(classes="dcs-divider dcs-divider--v", key="float-sep")
+        b.container(classes="dcs-toolbar__sep", key="float-sep")
         _icon_button(b, "float-zoom-out", _di("zoom-out"), "Zoom out",
                      on_click=lambda: app.zoom_step(1 / 1.4))
         _icon_button(b, "float-fit", _di("fit"), "Fit on screen",
@@ -500,5 +528,7 @@ def build_floatbar(app: "PhotoEditApp", v: ui.View) -> None:
         _icon_button(b, "float-zoom-in", _di("zoom-in"), "Zoom in",
                      on_click=lambda: app.zoom_step(1.4))
 
-    v.container(classes="dcs-toolbar dcs-toolbar--floating ps-floatbar",
-                key="ps-floatbar", build=bar)
+    bar_ref = v.container(
+        classes="dcs-toolbar dcs-toolbar--floating ps-floatbar",
+        key="ps-floatbar", build=bar)
+    bar_ref.attr("data-dcs-drag", "")

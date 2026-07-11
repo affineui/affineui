@@ -831,6 +831,51 @@ TEST_CASE("App dispatch invokes command widget change callbacks") {
     CHECK(value == "true");
 }
 
+TEST_CASE("App tree row click emits the selected value via the tree's on_change") {
+    // A v.tree() is a data-dcs-select box: clicking a row is a SELECTION
+    // (emits a widget change on the tree with the row's data-dcs-value),
+    // NOT a button click. The app binds on_change on the tree — a per-row
+    // on_click never fires. Pins the hierarchy-selection wiring the game
+    // editor relies on.
+    affineui::View view{affineui::ViewTheme::Decius};
+    std::string selected;
+
+    view.begin();
+    {
+        auto tree = view.tree("scene-tree");
+        tree.ref().on_change([&](std::string_view v) {
+            selected = std::string(v);
+        });
+        affineui::TreeRowOptions opts;
+        view.tree_row("Hero", opts, "row-hero").attr("data-dcs-value", "hero");
+        view.tree_row("Light", opts, "row-light").attr("data-dcs-value", "light");
+    }
+    view.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    app.load_view(view);
+    app.document().layout(280, 160);
+
+    // Click the second row.
+    const auto row = find_hovered_tag_attr(app, "div", "data-dcs-value",
+                                           "light", 280, 160);
+    REQUIRE(row.x >= 0);
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = row;
+    app.dispatch(down);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = row;
+    app.dispatch(up);
+
+    CHECK(selected == "light");
+}
+
 TEST_CASE("App dispatch toggles Decius checkboxes on the first click") {
     affineui::View view{affineui::ViewTheme::Decius};
     std::string value;
@@ -2340,7 +2385,13 @@ TEST_CASE("App dispatch supports numeric input horizontal drag") {
         const auto input = find_hovered_tag_attr(app, "input", "data-aui-name",
                                                  "gain", 320, 160);
         REQUIRE(input.x >= 0);
-        CHECK(app.document().hovered_cursor() == 6);
+        // Hover cursor depends on whether a range fill bar shows: the
+        // Decius standalone number combo paints one (reads as a slider →
+        // ↔), the bare Bootstrap number input has none (reads as a value
+        // → pointer). Either way the ↔ only-on-scrub rule is checked
+        // after the drag engages below.
+        CHECK(app.document().hovered_cursor() ==
+              (theme == affineui::ViewTheme::Decius ? 6 : 1));
 
         affineui::Event down{};
         down.type = affineui::EventType::MouseDown;
@@ -2358,6 +2409,8 @@ TEST_CASE("App dispatch supports numeric input horizontal drag") {
             drag.pos = {input.x + 40, input.y};
         }
         CHECK(app.dispatch(drag));
+        // Scrub engaged (moved past threshold): now the ↔ cursor.
+        CHECK(app.document().hovered_cursor() == 6);
 
         affineui::Event up{};
         up.type = affineui::EventType::MouseUp;
@@ -2368,6 +2421,60 @@ TEST_CASE("App dispatch supports numeric input horizontal drag") {
         REQUIRE_FALSE(value.empty());
         CHECK(std::stod(value) > 1.0);
     }
+}
+
+TEST_CASE("Rangeless numeric field: pointer→scrub→place-caret cursor states") {
+    // A vec channel (.dcs-vec hides the combo fill) has no visible range,
+    // so it reads as a plain value field, and its cursor tracks the
+    // edit state machine the user asked for:
+    //   unfocused hover      → pointer  (looks clickable, not a slider)
+    //   drag left/right      → ↔ scrub  (slider mode engaged)
+    //   focused (post-click) → text     (placing a caret to edit)
+    affineui::View view{affineui::ViewTheme::Decius};
+
+    view.begin();
+    view.vec("Location", {"X", "Y", "Z"}, {1.0, 2.0, 3.0}, "loc");
+    view.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    app.load_view(view);
+    app.document().layout(360, 160);
+
+    // The channel name lands on the combo container div; click at its
+    // center so the press lands on the inner input.
+    const auto combo = app.document().find_element_rect("loc-0");
+    REQUIRE(combo.w > 0);
+    const affineui::Point center{combo.x + combo.w / 2,
+                                 combo.y + combo.h / 2};
+
+    // Unfocused hover over a rangeless field: plain pointer.
+    affineui::Event pre{};
+    pre.type = affineui::EventType::MouseMove;
+    pre.pos = center;
+    app.dispatch(pre);
+    CHECK(app.document().hovered_cursor() == 1);
+
+    // Click without moving → select-all + focus (two-stage caret).
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = center;
+    app.dispatch(down);
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = center;
+    app.dispatch(up);
+
+    // Re-hover the now-focused field: place-caret (text) cursor, since
+    // the user is positioning a caret to edit rather than scrubbing.
+    affineui::Event hover{};
+    hover.type = affineui::EventType::MouseMove;
+    hover.pos = center;
+    app.dispatch(hover);
+    CHECK(app.document().hovered_cursor() == 2);
 }
 
 TEST_CASE("App dispatch edits and resizes command textareas") {
@@ -2823,8 +2930,12 @@ TEST_CASE("App Decius colorfield picker survives model-backed rebuilds") {
     build_view = [&]() {
         affineui::View view{affineui::ViewTheme::Decius};
         view.begin();
+        // Gesture model: on_commit does the model write + rebuild (once,
+        // at the gesture's end); a live drag streams on_change previews
+        // that must NOT rebuild. So the picker survives the whole drag
+        // (rebuilds stays 0) and rebuilds exactly once on release.
         view.input("Tint", tint, "color", "tint")
-            .on_change([&](std::string_view next) {
+            .on_commit([&](std::string_view next) {
                 tint = std::string(next);
                 ++rebuilds;
                 app.load_view(build_view());
@@ -2892,6 +3003,65 @@ TEST_CASE("App Decius colorfield picker survives model-backed rebuilds") {
     CHECK(tint != "#3bb7ff");
     CHECK(app.document().find_element_rect("#aui-cf-tint-picker").w ==
           picker.w);
+}
+
+TEST_CASE("App load_view drops deferred widget changes from the old DOM") {
+    affineui::View first{affineui::ViewTheme::Decius};
+    int old_callbacks = 0;
+    first.begin();
+    first.input("Tint", "#3bb7ff", "color", "tint")
+        .on_change([&](std::string_view) { ++old_callbacks; });
+    first.end();
+
+    affineui::App::Config cfg;
+    cfg.asset_folders = test_asset_folders();
+    affineui::App app{cfg};
+    app.load_view(first);
+    app.document().layout(360, 180);
+
+    auto click_at = [&](affineui::Point p) {
+        affineui::Event down{};
+        down.type = affineui::EventType::MouseDown;
+        down.button = affineui::MouseButton::Left;
+        down.pos = p;
+        app.dispatch(down);
+        affineui::Event up{};
+        up.type = affineui::EventType::MouseUp;
+        up.button = affineui::MouseButton::Left;
+        up.pos = p;
+        app.dispatch(up);
+    };
+
+    const auto caret = find_hovered_tag_attr(app, "span", "data-dcs-target",
+                                             "#aui-cf-tint-picker", 360, 180);
+    REQUIRE(caret.x >= 0);
+    click_at(caret);
+    app.document().layout(360, 260);
+    const auto sv = app.document().find_element_rect("#aui-cf-tint-picker-sv");
+    REQUIRE(sv.w > 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {sv.x + 1, sv.y + 1};
+    CHECK(app.dispatch(down));
+    CHECK(old_callbacks == 0);
+
+    affineui::View replacement{affineui::ViewTheme::Decius};
+    int replacement_callbacks = 0;
+    replacement.begin();
+    replacement.input("Tint", "#ff0000", "color", "tint")
+        .on_change([&](std::string_view) { ++replacement_callbacks; });
+    replacement.end();
+    app.load_view(replacement);
+    app.document().layout(360, 180);
+
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = {0, 0};
+    app.dispatch(up);
+    CHECK(replacement_callbacks == 0);
 }
 
 TEST_CASE("App Decius colorfield pickers stay anchored in scrolled panels") {

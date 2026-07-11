@@ -4,26 +4,50 @@
 
 #include "renderer/style/style_store.h"
 
+#include <limits>
+
 namespace affineui::detail {
 
 namespace {
 const std::string kEmptyString{};
+constexpr std::uint8_t kAllDirty =
+    StyleStore::DirtyStyle | StyleStore::DirtyLayout |
+    StyleStore::DirtyPaint | StyleStore::DirtyRasterize |
+    StyleStore::DirtyComposite;
+
+std::uint16_t next_generation(std::uint16_t generation) {
+    // release() retires UINT16_MAX slots instead of adding them to the free
+    // list, so every reusable slot has a strictly advancing generation.
+    return static_cast<std::uint16_t>(generation + 1);
+}
 }
 
 ElementId StyleStore::acquire(lxb_dom_element_t* element) {
     if (auto it = by_element_.find(element); it != by_element_.end()) {
         // Already tracked. Bump dirty so the next pass refreshes.
-        dirty_[it->second] = DirtyStyle | DirtyLayout | DirtyPaint
-                           | DirtyRasterize | DirtyComposite;
+        dirty_[it->second] = kAllDirty;
         return ElementId{it->second, generations_[it->second]};
+    }
+
+    if (!free_slots_.empty()) {
+        const auto free = free_slots_.back();
+        free_slots_.pop_back();
+        const auto generation = next_generation(free.generation);
+        computed_[free.index] = ComputedStyle{};
+        animated_[free.index] = AnimatedStyle{};
+        state_bits_[free.index] = 0;
+        dirty_[free.index] = kAllDirty;
+        generations_[free.index] = generation;
+        elements_[free.index] = element;
+        by_element_.emplace(element, free.index);
+        return ElementId{free.index, generation};
     }
 
     const std::uint32_t index = static_cast<std::uint32_t>(computed_.size());
     computed_.emplace_back();
     animated_.emplace_back();
     state_bits_.push_back(0);
-    dirty_.push_back(DirtyStyle | DirtyLayout | DirtyPaint
-                   | DirtyRasterize | DirtyComposite);
+    dirty_.push_back(kAllDirty);
     // Generation starts at 1; 0 means "freed slot."
     generations_.push_back(1);
     elements_.push_back(element);
@@ -36,12 +60,32 @@ ElementId StyleStore::acquire_synthetic() {
     computed_.emplace_back();
     animated_.emplace_back();
     state_bits_.push_back(0);
-    dirty_.push_back(DirtyStyle | DirtyLayout | DirtyPaint
-                   | DirtyRasterize | DirtyComposite);
+    dirty_.push_back(kAllDirty);
     generations_.push_back(1);
     elements_.push_back(nullptr);
     // No by_element_ entry — synthetic slots aren't reverse-lookupable.
     return ElementId{index, 1};
+}
+
+void StyleStore::release(lxb_dom_element_t* element) {
+    const auto it = by_element_.find(element);
+    if (it == by_element_.end()) return;
+
+    const std::uint32_t index = it->second;
+    const std::uint16_t generation = generations_[index];
+    by_element_.erase(it);
+    computed_[index] = ComputedStyle{};
+    animated_[index] = AnimatedStyle{};
+    state_bits_[index] = 0;
+    dirty_[index] = 0;
+    generations_[index] = 0;
+    elements_[index] = nullptr;
+    // Never wrap to generation 1: that would make an ancient ElementId for
+    // this index valid again. A saturated slot stays freed/retired, and the
+    // next acquire appends a fresh slot instead.
+    if (generation != std::numeric_limits<std::uint16_t>::max()) {
+        free_slots_.push_back({index, generation});
+    }
 }
 
 void StyleStore::reset() {
@@ -52,6 +96,7 @@ void StyleStore::reset() {
     generations_.clear();
     elements_.clear();
     by_element_.clear();
+    free_slots_.clear();
     font_families_.clear();
     font_families_.emplace_back("sans");
 }

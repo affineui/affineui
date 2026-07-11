@@ -53,7 +53,7 @@
 // Either way:
 //
 //   affineui::WeakRef<Editor> ref = affineui::to_weak_ref(&editor);
-//   if (Editor* e = ref.lock()) e->save();       // null once editor dies
+//   if (Editor* e = ref.get()) e->save();        // null once editor dies
 //
 // Threading: the registry is single-threaded (UI thread), like the rest of
 // AffineUI's UI layer. Create, resolve, and destroy trackable objects on it.
@@ -240,14 +240,25 @@ public:
     WeakRef(std::uint32_t slot, std::uint32_t generation) noexcept
         : slot_(slot), generation_(generation) {}
 
-    /// The live object, or null if it has been destroyed.
-    [[nodiscard]] T* lock() const noexcept {
+    /// A non-owning pointer to the live object, or null if it has been
+    /// destroyed. This is a borrowed snapshot: it does not retain, pin, or
+    /// synchronize access to the object. Resolve again after any re-entrant
+    /// operation that could destroy the object, and do not store the returned
+    /// pointer beyond a lifetime the caller independently knows is safe.
+    [[nodiscard]] T* get() const noexcept {
         return static_cast<T*>(
             detail::weak_registry().resolve(slot_, generation_));
     }
 
+    /// Compatibility alias for get(). Despite its historical name, this does
+    /// not lock or extend the object's lifetime.
+    [[deprecated("WeakRef::lock() does not extend lifetime; use get() for a non-owning pointer")]]
+    [[nodiscard]] T* lock() const noexcept {
+        return get();
+    }
+
     /// True while the referenced object is still alive.
-    [[nodiscard]] bool alive() const noexcept { return lock() != nullptr; }
+    [[nodiscard]] bool alive() const noexcept { return get() != nullptr; }
 
     /// True when this reference was ever bound to an object (vs default).
     [[nodiscard]] bool bound() const noexcept { return slot_ != 0; }

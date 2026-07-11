@@ -91,8 +91,8 @@ public:
 
     Renderer(const Renderer&)            = delete;
     Renderer& operator=(const Renderer&) = delete;
-    Renderer(Renderer&&) noexcept;
-    Renderer& operator=(Renderer&&) noexcept;
+    Renderer(Renderer&&) = delete;
+    Renderer& operator=(Renderer&&) = delete;
 
     /// True once GPU resources are live. Becomes true after the first
     /// render() (or an explicit init_gl()) and false again after

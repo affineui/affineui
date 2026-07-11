@@ -23,7 +23,6 @@ endif()
 
 pybind11_add_module(_affineui MODULE
     src/affineui_py.cpp
-    src/photo_core_py.cpp
 )
 
 target_link_libraries(_affineui PRIVATE affineui::affineui)
@@ -35,6 +34,22 @@ target_compile_definitions(_affineui PRIVATE
 install(TARGETS _affineui
     LIBRARY DESTINATION affineui
     RUNTIME DESTINATION affineui
+)
+
+# ── photo_core: example-support extension module (NOT part of affineui) ──────
+# The Decius Photo Edit sample's raster core lives with the other C++ example
+# sidecars in examples/core/. Building it here (where pybind11 is already in
+# scope) yields a standalone `photo_core` module the sample imports alongside
+# `affineui`. It is not shipped inside the affineui package.
+add_subdirectory(
+    "${CMAKE_CURRENT_LIST_DIR}/../../examples/core/photoedit"
+    "${CMAKE_CURRENT_BINARY_DIR}/photoedit"
+)
+affineui_photoedit_python_module()
+
+install(TARGETS photo_core
+    LIBRARY DESTINATION .
+    RUNTIME DESTINATION .
 )
 
 install(FILES

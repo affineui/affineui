@@ -331,10 +331,15 @@ impl View {
     }
 
     /// Bare drag-scrub numeric combo (no field/label wrapper).
-    pub fn combo(&self, label: &str, value: f64, step: f64, key: &str) -> Widget {
+    /// Bare drag-scrub numeric combo. `linear` scrubs at a constant
+    /// step/pixel (rotation degrees etc.); when false the scrub
+    /// accelerates with the value's magnitude.
+    pub fn combo(&self, label: &str, value: f64, step: f64, key: &str, linear: bool) -> Widget {
         let (label, key) = (cstring(label), cstring(key));
         self.wrap(unsafe {
-            sys::affineui_view_combo(self.raw(), label.as_ptr(), value, step, key.as_ptr())
+            sys::affineui_view_combo(
+                self.raw(), label.as_ptr(), value, step, key.as_ptr(), linear as i32,
+            )
         })
     }
 

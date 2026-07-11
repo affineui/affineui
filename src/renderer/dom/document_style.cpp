@@ -638,8 +638,12 @@ std::string compact_number(double value, int places) {
     char buf[64]{};
     std::snprintf(buf, sizeof(buf), "%.*f", places, value);
     std::string out{buf};
-    while (out.size() > 1 && out.back() == '0') out.pop_back();
-    if (!out.empty() && out.back() == '.') out.pop_back();
+    // Trim trailing zeros only in the FRACTIONAL part — otherwise
+    // "50" (0 decimals) would lose its trailing zero and read "5".
+    if (out.find('.') != std::string::npos) {
+        while (out.size() > 1 && out.back() == '0') out.pop_back();
+        if (!out.empty() && out.back() == '.') out.pop_back();
+    }
     return out;
 }
 

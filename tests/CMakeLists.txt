@@ -27,11 +27,13 @@ add_executable(affineui_tests
     test_cascade.cpp
     test_display_list.cpp
     test_layout.cpp
+    test_lifecycle.cpp
     test_memory.cpp
     test_telemetry.cpp
     test_tools.cpp
     test_tools_client.cpp
     test_reconcile_bench.cpp
+    test_engine3d.cpp
 )
 target_link_libraries(affineui_tests PRIVATE
     affineui::affineui
@@ -44,12 +46,17 @@ target_link_libraries(affineui_tests PRIVATE
 if(TARGET affineui::app)
     target_link_libraries(affineui_tests PRIVATE affineui::app)
 endif()
+# Same deal for the example 3D engine (examples/core/3dengine).
+if(TARGET affineui::engine3d)
+    target_link_libraries(affineui_tests PRIVATE affineui::engine3d)
+endif()
 # Cascade test pokes at internal headers (StyleStore, ResolvedStyle).
 # That's the appropriate level of intimacy for a cascade test — the
 # public API doesn't expose ComputedStyle by design.
 target_include_directories(affineui_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/examples/common
+    ${CMAKE_SOURCE_DIR}/examples/core/3dengine
     ${CMAKE_SOURCE_DIR}/extras/browser_server
 )
 target_compile_definitions(affineui_tests PRIVATE

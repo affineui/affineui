@@ -635,7 +635,7 @@ Opting into weak tracking (required for `bind`'s guard, structural — the
 |---|---|
 | `class Trackable` (base) | The default for long-lived controllers/models. Non-copyable/movable; virtual dtor. |
 | `AFFINEUI_WEAK_TRACKABLE()` (macro) | One-line retrofit inside any class body; adds one 32-bit slot. |
-| `WeakRef<T>` | Typed copyable weak reference: `lock()` → `T*` or null, `alive()`, `bound()`. `to_weak_ref(obj)` from a pointer. |
+| `WeakRef<T>` | Typed copyable weak reference: `get()` → a non-owning `T*` or null, `alive()`, `bound()`. `to_weak_ref(obj)` from a pointer. The borrow does not pin the target; resolve again after re-entrant work that could destroy it. `lock()` is a deprecated compatibility alias. |
 
 The mechanism is a process-wide versioned slot table (the game-engine
 handle pattern) — the same idiom `DomHandle` uses for DOM nodes. Only make

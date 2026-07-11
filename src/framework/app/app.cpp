@@ -33,6 +33,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -78,12 +79,18 @@ std::pair<std::uint64_t, double> app_log_frame_source() {
 constexpr int kSwapchainSettleFrames = 3;
 
 struct AppImpl {
+    // Owning App, so the free-function frame loop (which holds only an
+    // AppImpl*) can drive App::rebuild_view() — a member with the friend
+    // access load_html()/reconcile need. Repointed on App move (see the
+    // move ctor/assignment, which are NOT =default for this reason).
+    App*                  owner{nullptr};
     App::Config           config;
     Document              document;
     Renderer              renderer;
     std::function<void()> view_fn;
     std::vector<WidgetClickBinding> view_click_bindings;
     std::vector<WidgetChangeBinding> view_change_bindings;
+    std::vector<WidgetChangeBinding> view_commit_bindings;
     std::vector<Document::WidgetChange> deferred_widget_changes;
     std::vector<App::EventHandler> event_handlers;
     std::vector<std::function<void(double)>> frame_callbacks;
@@ -113,6 +120,13 @@ struct AppImpl {
     int                   exit_code{0};
     int                   last_cursor{-1};  // last sapp cursor we set
     bool                  dirty{true};
+    // View reconcile pending: set by invalidate() when a set_view() builder
+    // is installed, so the frame loop re-runs the builder and reconciles the
+    // diff into the live document BEFORE painting. Distinct from `dirty`
+    // (needs paint): rebuild_view() itself sets `dirty`, so keying the
+    // rebuild off `dirty` would loop forever, and animation frames set
+    // `dirty` every frame without any state change to reconcile.
+    bool                  view_dirty{false};
     bool                  animations_active{false};
     int                   last_w{-1};
     int                   last_h{-1};
@@ -220,14 +234,15 @@ ResourceLoader make_asset_resource_loader(std::vector<std::string> folders) {
 }
 
 bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
+    const auto event_handlers = impl.event_handlers;
     // While a native handler holds pointer capture, MouseMove routes to
     // it before DOM hover hit-testing (same contract as Ui::dispatch) so
     // drags don't thrash unrelated :hover state.
     if (impl.pointer_captured && ev.type == EventType::MouseMove &&
-        !impl.event_handlers.empty()) {
+        !event_handlers.empty()) {
         impl.document.hovered_info_chain(impl.hover_chain_scratch);
         bool captured_consumed = false;
-        for (const auto& cb : impl.event_handlers) {
+        for (const auto& cb : event_handlers) {
             captured_consumed =
                 cb(ev, impl.hover_chain_scratch) || captured_consumed;
         }
@@ -263,10 +278,10 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
     // Native event handlers (widget kits) see the event with the fresh
     // hover chain before view click/change bindings. A consuming handler
     // owns the event outright.
-    if (!impl.event_handlers.empty()) {
+    if (!event_handlers.empty()) {
         impl.document.hovered_info_chain(impl.hover_chain_scratch);
         bool native_consumed = false;
-        for (const auto& cb : impl.event_handlers) {
+        for (const auto& cb : event_handlers) {
             native_consumed =
                 cb(ev, impl.hover_chain_scratch) || native_consumed;
         }
@@ -311,17 +326,32 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
 
     auto changes = impl.document.take_widget_changes();
     if (result.defer_widget_changes) {
-        if (!changes.empty()) {
+        // Deferral coalesces a gesture's rebuild to its end. But LIVE
+        // changes are previews (on_change is bound to cheap preview work
+        // that must not rebuild) — they have to dispatch every frame or
+        // there is no realtime feedback (the colour picker not recolouring
+        // the material as you drag). So split: live changes fall through
+        // to immediate dispatch below; only committed changes defer.
+        std::vector<Document::WidgetChange> live_now;
+        std::vector<Document::WidgetChange> deferred;
+        for (auto& change : changes) {
+            if (change.live) {
+                live_now.push_back(std::move(change));
+            } else {
+                deferred.push_back(std::move(change));
+            }
+        }
+        if (!deferred.empty()) {
             impl.deferred_widget_changes.insert(
                 impl.deferred_widget_changes.end(),
-                std::make_move_iterator(changes.begin()),
-                std::make_move_iterator(changes.end()));
+                std::make_move_iterator(deferred.begin()),
+                std::make_move_iterator(deferred.end()));
             consumed = true;
             impl.dirty = true;
         }
-        return consumed;
-    }
-    if (!impl.deferred_widget_changes.empty()) {
+        if (live_now.empty()) return consumed;
+        changes = std::move(live_now);  // dispatch these now (on_change only)
+    } else if (!impl.deferred_widget_changes.empty()) {
         impl.deferred_widget_changes.insert(
             impl.deferred_widget_changes.end(),
             std::make_move_iterator(changes.begin()),
@@ -340,7 +370,12 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
             if (it == coalesced.end()) {
                 coalesced.push_back(std::move(change));
             } else {
+                // Per widget, the newest value wins; a committed change
+                // absorbs the live previews before it (the gesture is
+                // over by the time deferred changes flush), so apps see
+                // one change AND one commit — never a stale preview.
                 it->value = std::move(change.value);
+                it->live = it->live && change.live;
             }
         }
         changes = std::move(coalesced);
@@ -355,6 +390,15 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
             for (const auto& binding : impl.view_change_bindings) {
                 if (binding.name == change.name && binding.handler) {
                     callbacks.push_back({binding.handler, change.value});
+                }
+            }
+            // Committed changes additionally fire the commit bindings
+            // (the end of a gesture / a discrete edit).
+            if (!change.live) {
+                for (const auto& binding : impl.view_commit_bindings) {
+                    if (binding.name == change.name && binding.handler) {
+                        callbacks.push_back({binding.handler, change.value});
+                    }
                 }
             }
         }
@@ -484,16 +528,28 @@ App::App(Config cfg) : impl_{std::make_unique<detail::AppImpl>()} {
             affineui::decius::css_bundle(), "frameworks/css/");
     }
 #endif
+    // Back-pointer for the free-function frame loop (see AppImpl::owner).
+    impl_->owner = this;
 }
 
 App::~App() = default;
-App::App(App&&) noexcept            = default;
-App& App::operator=(App&&) noexcept = default;
+App::App(App&& other) noexcept : impl_{std::move(other.impl_)} {
+    // The moved-in impl still carries the source App's owner pointer; repoint
+    // it at this App so the frame loop drives the right instance.
+    if (impl_) impl_->owner = this;
+}
+App& App::operator=(App&& other) noexcept {
+    impl_ = std::move(other.impl_);
+    if (impl_) impl_->owner = this;
+    return *this;
+}
 
 void App::load_html(std::string_view html) {
     const auto transient = impl_->document.capture_transient_state();
+    impl_->deferred_widget_changes.clear();
     impl_->view_click_bindings.clear();
     impl_->view_change_bindings.clear();
+    impl_->view_commit_bindings.clear();
     impl_->document.clear_scripts();
     impl_->document.set_html(html);
     impl_->document.restore_transient_state(transient);
@@ -508,6 +564,7 @@ void App::load_view(const View& view) {
     impl_->document.attach_script(DocumentScript::UiControls);
     impl_->view_click_bindings = view.click_bindings();
     impl_->view_change_bindings = view.change_bindings();
+    impl_->view_commit_bindings = view.commit_bindings();
 }
 
 namespace detail {
@@ -577,7 +634,12 @@ void App::rebuild_view() {
         // (head/styles/body attrs, empty <main>), then replay the built
         // tree through the document sink so it owns every node mapping.
         view.begin(static_cast<ViewSink*>(nullptr));
-        impl_->view_builder(view);
+        try {
+            impl_->view_builder(view);
+        } catch (...) {
+            view.end();
+            throw;
+        }
         view.end();
         impl_->config.clear_color = view.background_color();
         impl_->renderer.set_clear_color(impl_->config.clear_color);
@@ -598,10 +660,13 @@ void App::rebuild_view() {
         // the cheap path; structural edits settle in one restyle).
         auto* sink = impl_->document.begin_view_mutations();
         view.begin(sink);
+        bool view_end_attempted = false;
         try {
             impl_->view_builder(view);
+            view_end_attempted = true;
             view.end();
-        } catch (const std::exception& e) {
+        } catch (...) {
+            const auto failure = std::current_exception();
             // A builder exception mid-batch must not leave the mutation
             // window open: ev_insert stays suppressed, recorded work never
             // settles, and blocks keep pointing at elements the batch
@@ -610,14 +675,29 @@ void App::rebuild_view() {
             // swallows the resulting faults, so the app limps on corrupt).
             // Close the window so the document settles what was applied,
             // then propagate.
-            std::fprintf(stderr, "AffineUI view builder failed: %s\n",
-                         e.what());
+            if (!view_end_attempted) {
+                view_end_attempted = true;
+                try {
+                    view.end();
+                } catch (const std::exception& e) {
+                    std::fprintf(stderr,
+                                 "AffineUI view cleanup failed: %s\n",
+                                 e.what());
+                } catch (...) {
+                    std::fprintf(stderr,
+                                 "AffineUI view cleanup failed\n");
+                }
+            }
             impl_->document.end_view_mutations();
-            throw;
-        } catch (...) {
-            std::fprintf(stderr, "AffineUI view builder failed\n");
-            impl_->document.end_view_mutations();
-            throw;
+            try {
+                std::rethrow_exception(failure);
+            } catch (const std::exception& e) {
+                std::fprintf(stderr, "AffineUI view builder failed: %s\n",
+                             e.what());
+            } catch (...) {
+                std::fprintf(stderr, "AffineUI view builder failed\n");
+            }
+            std::rethrow_exception(failure);
         }
         impl_->document.end_view_mutations();
     }
@@ -634,8 +714,13 @@ void App::rebuild_view() {
 
     impl_->view_click_bindings = view.click_bindings();
     impl_->view_change_bindings = view.change_bindings();
+    impl_->view_commit_bindings = view.commit_bindings();
     impl_->dirty = true;
     impl_->animations_active = false;
+    // The reconcile has landed; nothing further to rebuild until the next
+    // invalidate(). Clearing here also covers the direct App::rebuild_view()
+    // and set_view() entry points, so a subsequent frame won't rebuild again.
+    impl_->view_dirty = false;
 }
 bool App::load_html_file(std::string_view)     { return false; }
 void App::set_stylesheet(std::string_view css) {
@@ -654,7 +739,16 @@ void App::set_stylesheet(std::string_view css, std::string_view base_url) {
     }
 }
 void App::mount(std::function<void()> view_fn) { impl_->view_fn = std::move(view_fn); impl_->dirty = true; impl_->animations_active = false; }
-void App::invalidate() { impl_->dirty = true; impl_->animations_active = false; }
+void App::invalidate() {
+    impl_->dirty = true;
+    impl_->animations_active = false;
+    // When the app is driven by a set_view() builder, an invalidate() means
+    // "state changed, re-run the builder and reconcile" — flag it so the
+    // frame loop rebuilds before the next paint. Many invalidate() calls in
+    // one frame coalesce into a single reconcile. No builder installed =>
+    // legacy load_view/load_html path, nothing to rebuild.
+    if (impl_->view_builder) impl_->view_dirty = true;
+}
 
 void App::set_custom_paint(std::string_view name,
                            Document::CustomPaintFn fn) {
@@ -665,6 +759,12 @@ void App::request_custom_repaint(std::string_view name) {
     if (impl_->document.request_custom_repaint(name)) {
         impl_->dirty = true;
     }
+}
+
+bool App::set_widget_value(std::string_view name, std::string_view value) {
+    const bool changed = impl_->document.set_widget_value(name, value);
+    if (changed) impl_->dirty = true;
+    return changed;
 }
 
 void App::set_min_frame_time(double ms) {
@@ -1045,7 +1145,8 @@ void cb_frame(void* user) {
         // an idle callback that touches nothing costs almost nothing.
         if (!impl->frame_callbacks.empty()) {
             const double dt = sapp_frame_duration_unfiltered();
-            for (const auto& cb : impl->frame_callbacks) {
+            const auto callbacks = impl->frame_callbacks;
+            for (const auto& cb : callbacks) {
                 cb(dt);
             }
         }
@@ -1103,6 +1204,29 @@ void cb_frame(void* user) {
             if (tools_has_pending()) tools_pump(impl->document);
             if (impl->quit_requested) sapp_request_quit();
             return;
+        }
+        // Reconcile pending view work BEFORE painting. invalidate() (from a
+        // widget callback, the on_frame tick, or host code) sets view_dirty
+        // when a set_view() builder is installed; re-run the builder here so
+        // only the diff reaches the document (the cheap paint-only mutation
+        // path) instead of the full serialize+reparse load_view() pays. Many
+        // invalidate()s in one frame coalesce into a single reconcile. Guard
+        // re-entrancy: rebuild_view() sets dirty (schedules this paint) but
+        // must not re-arm view_dirty, so clear the flag first. A builder
+        // exception is reported and swallowed here — the frame must still
+        // present so the app stays responsive rather than tearing down.
+        if (impl->view_dirty && impl->view_builder && impl->owner) {
+            impl->view_dirty = false;
+            try {
+                impl->owner->rebuild_view();
+            } catch (const std::exception& e) {
+                std::fprintf(stderr,
+                             "AffineUI frame-loop rebuild_view failed: %s\n",
+                             e.what());
+            } catch (...) {
+                std::fprintf(stderr,
+                             "AffineUI frame-loop rebuild_view failed\n");
+            }
         }
         // Min-frame-time gate (App::set_min_frame_time). Distinct from the
         // idle short-circuit above: here the app IS dirty (there IS work to

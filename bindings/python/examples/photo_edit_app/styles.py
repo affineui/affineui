@@ -89,31 +89,32 @@ PHOTO_CSS = r"""
 .ps-ruler{position:absolute;background:var(--dcs-surface-1,#252a34);color:var(--dcs-text-mute,#8c93a3);font:8px var(--dcs-font-mono,monospace);overflow:hidden;z-index:1}
 .ps-ruler--h{left:18px;right:0;top:0;height:18px;border-bottom:1px solid var(--dcs-line,#343946)}
 .ps-ruler--v{left:0;top:18px;bottom:0;width:18px;border-right:1px solid var(--dcs-line,#343946)}
-.ps-ruler-ticks{display:flex;height:100%;align-items:flex-end}
-.ps-ruler-ticks span{flex:none;border-left:1px solid var(--dcs-line-strong,#4b5262);height:8px;padding-left:2px;overflow:hidden;white-space:nowrap}
-.ps-ruler--v .ps-ruler-ticks{flex-direction:column;align-items:flex-start;width:100%}
-.ps-ruler--v .ps-ruler-ticks span{border-left:0;border-top:1px solid var(--dcs-line-strong,#4b5262);width:8px;height:auto;padding-left:0;padding-top:2px}
+.ps-ruler-ticks{position:relative;width:100%;height:100%}
+.ps-ruler--h .ps-ruler-ticks span{position:absolute;top:0;height:100%;border-left:1px solid var(--dcs-line-strong,#4b5262);padding-left:2px;overflow:hidden;white-space:nowrap}
+.ps-ruler--v .ps-ruler-ticks span{position:absolute;left:0;width:100%;border-top:1px solid var(--dcs-line-strong,#4b5262);padding-top:1px;overflow:hidden;white-space:nowrap}
 .ps-stage{position:absolute;left:18px;right:0;top:18px;bottom:0;overflow:hidden;cursor:crosshair}
-.ps-doc{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) translate(var(--px,0),var(--py,0)) scale(var(--z,.67));transform-origin:center;box-shadow:0 0 0 1px #0008,0 24px 60px rgba(0,0,0,.45);background-image:repeating-conic-gradient(#cfcfcf 0 90deg,#fff 90deg 180deg);background-size:16px 16px;overflow:hidden}
-.ps-layer-canvas{position:absolute;inset:0}
-.ps-layer-text{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-size:120px;color:#fff}
-.ps-layer-title{font-weight:700;font-size:1em;line-height:1;text-shadow:0 4px 20px rgba(0,0,0,.5);letter-spacing:2px}
-.ps-layer-subtitle{font-family:var(--dcs-font-mono,monospace);font-weight:500;font-size:.25em;color:rgba(255,255,255,.82)}
-.ps-marquee{position:absolute;outline:1px dashed #fff;box-shadow:0 0 0 1px #000;pointer-events:none;animation:ps-ants .6s linear infinite}
+/* The raster core paints the zoomed/panned document (checkerboard,
+   composite, pen preview) into this custom-paint canvas each frame. */
+.ps-stage-canvas{position:absolute;inset:0}
+.ps-marquee{position:absolute;outline:1px dashed #fff;box-shadow:0 0 0 1px #000;pointer-events:none;animation:ps-ants .6s linear infinite;z-index:900}
 @keyframes ps-ants{0%{outline-offset:0}100%{outline-offset:-4px}}
-.ps-grid-overlay{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.12) 1px,transparent 1px);background-size:64px 64px;pointer-events:none;opacity:.5}
+.ps-grid-overlay{position:absolute;background-image:linear-gradient(rgba(255,255,255,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.12) 1px,transparent 1px);background-size:64px 64px;pointer-events:none;opacity:.5}
 .ps-stage-badge{position:absolute;z-index:5}
 .ps-stage-badge--bl{left:8px;bottom:8px}
 .ps-stage-badge--tr{right:8px;top:8px}
 
 /* ── Tool strip ────────────────────────────────────────────────────────── */
 .ps-toolstrip{position:absolute;left:12px;top:12px;display:flex;flex-direction:column;align-items:center;gap:2px;max-height:calc(100% - 24px);overflow:auto;z-index:15}
-.ps-toolgrid{display:flex;flex-wrap:wrap;width:69px;gap:1px}
+/* Two-column tool strip built as explicit rows (ps-toolrow) of up to two
+   tools, with each separator as its own full-width row. Deterministic — no
+   reliance on flex-wrap orphan behavior or grid-column placement. */
+.ps-toolgrid{display:flex;flex-direction:column;width:69px;gap:1px;align-items:center}
+.ps-toolrow{display:flex;gap:1px;justify-content:flex-start;width:69px}
 .ps-tool{position:relative;width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:3px;color:var(--dcs-text-dim,#a6adbb);cursor:pointer;border:1px solid transparent;font-size:17px}
 .ps-tool:hover{background:var(--dcs-surface-2,#303642);color:var(--dcs-text,#e7e9ee)}
 .ps-tool[aria-pressed=true]{background:var(--dcs-accent-dim,#263f64);color:var(--dcs-accent-hi,#b9d5ff);border-color:var(--dcs-accent-lo,#3b6ba8)}
 .ps-tool[data-group=true]::after{content:"";position:absolute;right:3px;bottom:3px;border-left:4px solid transparent;border-bottom:4px solid var(--dcs-text-mute,#8c93a3)}
-.ps-toolsep{width:28px;height:1px;background:var(--dcs-line-soft,#303642);margin:5px auto;flex:0 0 auto}
+.ps-toolsep{width:28px;height:1px;background:var(--dcs-line-soft,#3a3f4c);margin:5px 0}
 .ps-colorchips{position:relative;width:38px;height:38px;margin:8px 0 2px}
 .ps-colorchip{position:absolute;width:24px;height:24px;border:1px solid var(--dcs-line-strong,#4b5262);border-radius:3px;box-shadow:0 3px 8px rgba(0,0,0,.32);cursor:pointer}
 .ps-colorchip--bg{right:0;bottom:0;z-index:1}
@@ -131,11 +132,14 @@ PHOTO_CSS = r"""
 
 /* ── Navigator ─────────────────────────────────────────────────────────── */
 .ps-nav-body{display:flex;flex-direction:column;gap:8px;padding:10px}
-.ps-nav-thumb{position:relative;height:116px;border:1px solid var(--dcs-line,#343946);border-radius:3px;overflow:hidden;background-image:repeating-conic-gradient(#cfcfcf 0 90deg,#fff 90deg 180deg);background-size:10px 10px;cursor:move}
-.ps-nav-doc{position:absolute;overflow:hidden;background:#0b1437}
-.ps-nav-view{position:absolute;border:1.5px solid var(--dcs-danger,#ff5b6a);box-shadow:0 0 0 1px #0008;pointer-events:none}
+.ps-nav-thumb{position:relative;height:116px;border:1px solid var(--dcs-line,#343946);border-radius:3px;overflow:hidden;background:var(--dcs-well,#171a21);cursor:move}
+.ps-nav-canvas{position:absolute;inset:0}
 .ps-nav-zoomrow{display:flex;align-items:center;gap:7px;color:var(--dcs-text-dim,#a6adbb);font-size:13px}
-.ps-nav-zoomrow>.dcs-field{flex:1 1 auto;min-width:0;height:22px;min-height:22px}
+.ps-nav-zoomrow>.dcs-field{flex:1 1 auto;min-width:0;height:22px;min-height:22px;display:flex;align-items:center}
+/* The slider's labeled field has an empty label span — collapse it so the
+   track fills the row instead of being shoved right. */
+.ps-nav-zoomrow>.dcs-field>.dcs-field__label{display:none}
+.ps-nav-zoomrow>.dcs-field>.dcs-slider{flex:1 1 auto;min-width:0}
 .ps-nav-zoomrow i{cursor:pointer}
 .ps-nav-zoomrow i:hover{color:var(--dcs-text,#e7e9ee)}
 .ps-nav-pct{font-family:var(--dcs-font-mono,monospace);font-size:11px;min-width:34px;text-align:right}
@@ -149,6 +153,7 @@ PHOTO_CSS = r"""
 .ps-rgb-row{display:flex;gap:6px}
 .ps-rgb-row>.dcs-field{flex:1 1 0;min-width:0}
 .ps-rgb-row input,.ps-rgb-row .aui-input{width:100%;min-width:0}
+.ps-rgb-field input{font-variant-numeric:tabular-nums lining-nums;text-align:right}
 .ps-hex-field input,.ps-hex-field .aui-input{font-family:var(--dcs-font-mono,monospace)}
 .ps-swatches{display:grid;grid-template-columns:repeat(10,1fr);gap:3px;padding:10px}
 .ps-swatch-chip{aspect-ratio:1;min-height:20px;border-radius:3px;border:1px solid var(--dcs-line,#343946);cursor:pointer}

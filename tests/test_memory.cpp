@@ -8,7 +8,11 @@
 #if !defined(AFFINEUI_STUB_BUILD)
 
 #    include "affineui/document.h"
+#    include "affineui/app.h"
 #    include "affineui/memory.h"
+#    include "affineui/view.h"
+
+#    include <string>
 
 namespace {
 constexpr const char* kDocHtml =
@@ -51,6 +55,40 @@ TEST_CASE("mem: a Document frees ALL its allocations on destruction") {
     // Sanity: the scope really did exercise the allocator.
     CHECK(after.total_allocs > before.total_allocs);
     CHECK(after.total_frees > before.total_frees);
+}
+
+TEST_CASE("mem: repeated raw-html replacement stays flat and frees on shutdown") {
+    // Warm process-global lexbor state before taking the outer balance point.
+    { affineui::Document warm; warm.set_html(kDocHtml); }
+    const auto before_app = affineui::mem::stats();
+
+    {
+        affineui::App app;
+        std::string markup = "<span>0</span>";
+        app.set_view([&](affineui::View& view) {
+            view.html(markup, "raw-html-lifecycle");
+        });
+
+        auto rebuilds = [&](int begin, int end) {
+            for (int i = begin; i < end; ++i) {
+                markup[6] = static_cast<char>('0' + (i % 10));
+                app.rebuild_view();
+            }
+        };
+
+        // Populate every reusable lexbor pool before measuring the long-run
+        // steady state. A leaked document-fragment root grows live_blocks here.
+        rebuilds(0, 64);
+        const auto steady = affineui::mem::stats();
+        rebuilds(64, 576);
+        const auto after_soak = affineui::mem::stats();
+        CHECK(after_soak.live_blocks == steady.live_blocks);
+        CHECK(after_soak.live_bytes == steady.live_bytes);
+    }
+
+    const auto after_app = affineui::mem::stats();
+    CHECK(after_app.live_blocks == before_app.live_blocks);
+    CHECK(after_app.live_bytes == before_app.live_bytes);
 }
 
 TEST_CASE("mem: counters are self-consistent") {
