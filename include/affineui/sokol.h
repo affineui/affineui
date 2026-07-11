@@ -195,6 +195,13 @@ inline Event translate(const sapp_event* ev) {
             out.type = EventType::TextInput;
             out.text = utf8_from_codepoint(ev->char_code);
             return out;
+        case SAPP_EVENTTYPE_IME_COMPOSITION:
+            out.type = EventType::Composition;
+            out.text = ev->ime_composition;
+            out.composition_cursor       = ev->ime_composition_cursor;
+            out.composition_clause_begin = ev->ime_composition_clause_begin;
+            out.composition_clause_end   = ev->ime_composition_clause_end;
+            return out;
         case SAPP_EVENTTYPE_RESIZED:
             out.type = EventType::Resize;
             return out;
@@ -221,6 +228,24 @@ inline Event translate(const sapp_event* ev) {
     return out;
 }
 
+/// Push the UI's text-input intent to sokol_app's IME hooks: keep the
+/// input method enabled only while a text control is focused, and anchor
+/// the candidate window on the caret (CSS points → client pixels). The
+/// reference wiring for docs/IME_ARCHITECTURE.md on the sokol path.
+inline void sync_text_input(Ui& ui) {
+    const bool active = ui.text_input_active();
+    sapp_ime_set_enabled(active);
+    if (!active) return;
+    const Rect caret = ui.caret_rect();
+    if (caret.w <= 0 || caret.h <= 0) return;
+    const float dpi = sapp_dpi_scale();
+    const float d   = dpi > 0.0f ? dpi : 1.0f;
+    sapp_ime_set_rect(static_cast<int>(static_cast<float>(caret.x) * d),
+                      static_cast<int>(static_cast<float>(caret.y) * d),
+                      static_cast<int>(static_cast<float>(caret.w) * d),
+                      static_cast<int>(static_cast<float>(caret.h) * d));
+}
+
 /// Forward a sokol_app event to the Ui's dispatch pipeline. Applies
 /// the OS cursor synchronously (required on macOS — `[NSCursor set]`
 /// must happen inside the mouseMoved: handler). Returns true if the
@@ -233,6 +258,12 @@ inline bool dispatch(Ui& ui, const sapp_event* ev) {
     const bool consumed = ui.dispatch(e);
     if (e.type == EventType::MouseMove) {
         sapp_set_mouse_cursor(cursor_to_sokol(ui.hovered_cursor()));
+    }
+    // Focus / caret / preedit may have moved — retarget the platform IME.
+    if (e.type == EventType::MouseDown || e.type == EventType::MouseUp ||
+        e.type == EventType::KeyDown || e.type == EventType::TextInput ||
+        e.type == EventType::Composition) {
+        sync_text_input(ui);
     }
     return consumed;
 }
