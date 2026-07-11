@@ -150,6 +150,31 @@ TEST_CASE("App rebuild recovers after a throwing retained-view builder") {
     CHECK(app.document().find_element_rect("#recovered").w > 0);
 }
 
+TEST_CASE("App bootstrap recovers after a nested view builder throws") {
+    affineui::App app;
+    bool fail = true;
+    auto builder = [&](affineui::View& view) {
+        view.begin();
+        if (fail) {
+            auto stale = view.paragraph("stale", {}, "bootstrap-stale");
+            stale.attr("id", "bootstrap-stale");
+            throw std::runtime_error("expected bootstrap failure");
+        }
+        auto recovered =
+            view.paragraph("recovered", {}, "bootstrap-recovered");
+        recovered.attr("id", "bootstrap-recovered");
+        view.end();
+    };
+
+    CHECK_THROWS_AS(app.set_view(builder), std::runtime_error);
+
+    fail = false;
+    CHECK_NOTHROW(app.rebuild_view());
+    app.document().layout(160, 80);
+    CHECK(app.document().find_element_rect("#bootstrap-recovered").w > 0);
+    CHECK(app.document().find_element_rect("#bootstrap-stale").w == 0);
+}
+
 #if !defined(AFFINEUI_STUB_BUILD)
 
 TEST_CASE("StyleStore release invalidates and safely recycles a slot") {
