@@ -17,21 +17,26 @@ inline void prepare_replay_metadata(DisplayList& list);
 // ── Vector path blob ────────────────────────────────────────────────
 // FillPath / StrokePath store their command stream + paint in the
 // text_pool as a blob:
-//   u32 paint kind, f32 x0 y0 x1 y1 r0 r1, u32 stop_count,
+//   u32 paint kind, f32 x0 y0 x1 y1 r0 r1 r1y, u32 stop_count,
 //   f32 offset × n, u32 rgba × n, then the raw float command stream.
+// The 7 geo floats are the contiguous x0..r1y run of PathPaint, copied
+// as a block — keep them adjacent in the struct if you add more.
 // Blobs are 4-byte aligned in the pool so the float stream can be
 // read in place.
+inline constexpr std::size_t kPathBlobGeoFloats = 7;  // x0 y0 x1 y1 r0 r1 r1y
+
 inline bool path_blob_decode(std::string_view blob, PathPaint& paint,
                              const float*& cmds, std::size_t& count) {
-    constexpr std::size_t kFixedWords = 8;  // kind + 6 geo floats + count
+    // kind + geo floats + stop_count
+    constexpr std::size_t kFixedWords = 2 + kPathBlobGeoFloats;
     if (blob.size() < kFixedWords * 4) return false;
     std::uint32_t fixed[kFixedWords];
     std::memcpy(fixed, blob.data(), sizeof(fixed));
     paint = PathPaint{};
     paint.kind = static_cast<PathPaint::Kind>(fixed[0]);
-    std::memcpy(&paint.x0, &fixed[1], 6 * sizeof(float));
-    const std::uint32_t n =
-        std::min<std::uint32_t>(fixed[7], PathPaint::kMaxStops);
+    std::memcpy(&paint.x0, &fixed[1], kPathBlobGeoFloats * sizeof(float));
+    const std::uint32_t n = std::min<std::uint32_t>(
+        fixed[1 + kPathBlobGeoFloats], PathPaint::kMaxStops);
     paint.stop_count = static_cast<std::uint8_t>(n);
     const std::size_t header_bytes = (kFixedWords + 2u * n) * 4;
     if (blob.size() < header_bytes) return false;
@@ -626,17 +631,19 @@ private:
         while (list_.text_pool.size() % 4 != 0) {
             list_.text_pool.push_back('\0');
         }
+        constexpr std::size_t kFixedWords = 2 + kPathBlobGeoFloats;
         const std::uint32_t n = std::min<std::uint32_t>(
             paint.stop_count, PathPaint::kMaxStops);
-        std::uint32_t header[8 + 2 * PathPaint::kMaxStops] = {};
+        std::uint32_t header[kFixedWords + 2 * PathPaint::kMaxStops] = {};
         header[0] = static_cast<std::uint32_t>(paint.kind);
-        std::memcpy(&header[1], &paint.x0, 6 * sizeof(float));
-        header[7] = n;
-        std::memcpy(&header[8], paint.offsets, n * sizeof(float));
+        std::memcpy(&header[1], &paint.x0,
+                    kPathBlobGeoFloats * sizeof(float));
+        header[1 + kPathBlobGeoFloats] = n;
+        std::memcpy(&header[kFixedWords], paint.offsets, n * sizeof(float));
         for (std::uint32_t s = 0; s < n; ++s) {
-            header[8 + n + s] = pack(paint.colors[s]);
+            header[kFixedWords + n + s] = pack(paint.colors[s]);
         }
-        const std::size_t header_bytes = (8 + 2u * n) * 4;
+        const std::size_t header_bytes = (kFixedWords + 2u * n) * 4;
         const auto [off, hlen] = list_.intern_bytes(header, header_bytes);
         (void)hlen;
         list_.intern_bytes(cmds, count * sizeof(float));

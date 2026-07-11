@@ -671,24 +671,62 @@ void Document::draw(Painter& painter) {
                 clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
         }
 
-        // Overlay gradient layer (CSS `background` top layer) — painted
-        // over the bottom gradient. The color-picker square's black->
-        // transparent value shade rides on top of the white->hue ramp.
-        if (b.overlay_gradient && b.overlay_gradient->kind != 0 &&
-            bg_rect.w > 0 && bg_rect.h > 0) {
-            const auto& ov = *b.overlay_gradient;
-            const Color o0 = detail::unpack_rgba(ov.stop0_rgba);
-            const Color o1 = detail::unpack_rgba(ov.stop1_rgba);
-            if (ov.kind == 1) {  // linear
-                painter.fill_linear_gradient_rect(
-                    bg_rect, static_cast<float>(ov.angle_deg),
-                    o0, o1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
-            } else {  // radial
-                painter.fill_radial_gradient_rect(
-                    bg_rect, o0, o1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
-                    static_cast<float>(ov.center_x_pct),
-                    static_cast<float>(ov.center_y_pct),
-                    static_cast<float>(ov.stop1_pos_pct));
+        // The rest of the CSS `background` stack — every layer ABOVE the
+        // bottom one, painted back-to-front. `background_layers` is stored
+        // in CSS source order (topmost first), so walk it in REVERSE: the
+        // last entry is the layer immediately above the bottom gradient and
+        // must go down first.
+        //
+        // Each layer carries its own full N-stop ramp, so a 6-stop specular
+        // highlight over a 3-stop base (the Decius skeuo panels) renders as
+        // authored. The predecessor of this loop collapsed the top layer to
+        // its first and last stop, which turned that highlight's steep
+        // falloff into a flat white wash across the whole panel.
+        if (b.background_layers && bg_rect.w > 0 && bg_rect.h > 0) {
+            using LK = detail::BackgroundLayer::Kind;
+            std::array<Painter::GradientStop, PathPaint::kMaxStops> gs{};
+            for (auto it = b.background_layers->rbegin();
+                 it != b.background_layers->rend(); ++it) {
+                const auto& layer = *it;
+                if (layer.kind == LK::None || layer.stops.empty()) continue;
+
+                const std::size_t n = std::min<std::size_t>(
+                    layer.stops.size(), PathPaint::kMaxStops);
+                for (std::size_t i = 0; i < n; ++i) {
+                    gs[i].offset = layer.stops[i].offset;
+                    gs[i].color  = detail::unpack_rgba(layer.stops[i].rgba);
+                }
+
+                switch (layer.kind) {
+                    case LK::Linear:
+                        painter.fill_linear_gradient_rect_n(
+                            bg_rect, static_cast<float>(layer.angle_deg),
+                            gs.data(), n,
+                            clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
+                        break;
+                    case LK::Radial:
+                        painter.fill_radial_gradient_rect_n(
+                            bg_rect, gs.data(), n,
+                            clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
+                            static_cast<float>(layer.center_x_pct),
+                            static_cast<float>(layer.center_y_pct),
+                            /*stop1_pos_pct=*/100.0f,
+                            static_cast<float>(layer.radius_x_pct),
+                            static_cast<float>(layer.radius_y_pct));
+                        break;
+                    case LK::LinearStripes:
+                        // repeating-linear-gradient: approximated as a tiled
+                        // stripe fill in the ramp's first colour, the same
+                        // primitive the bottom layer uses for it.
+                        painter.fill_linear_stripes_rect(
+                            bg_rect, static_cast<float>(layer.angle_deg),
+                            gs[0].color,
+                            static_cast<float>(std::max(1, bg_rect.h)),
+                            clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
+                        break;
+                    case LK::None:
+                        break;
+                }
             }
         }
 

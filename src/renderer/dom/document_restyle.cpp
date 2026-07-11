@@ -555,7 +555,7 @@ bool restyle_block(detail::DocumentImpl& impl, int idx) {
     block.custom_props = rs.custom_props;
     block.box_shadows = rs.box_shadows;
     block.gradient_stops = rs.gradient_stops;
-    block.overlay_gradient = rs.overlay_gradient;
+    block.background_layers = rs.background_layers;
     block.grid_columns = grid_columns;
     block.grid_column_count = grid_column_count;
     block.base_animated = rs.animated;
