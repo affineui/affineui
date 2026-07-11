@@ -855,23 +855,16 @@ class PhotoEditApp:
         else:
             self.doc.set_pan(self.doc.pan_x() + ev.wheel_dx * 32,
                              self.doc.pan_y() + ev.wheel_dy * 32)
-        # Update the zoom readouts in place (statusbar/title/rulers/nav) so a
-        # wheel burst stays snappy without a full DOM reload — reloading
-        # between wheel events staled the hover chain and dropped every wheel
-        # after the first. A final reload still lands via _needs_reload once
-        # wheeling settles.
+        # Reconcile to refresh every zoom readout (nav %, statusbar, rulers,
+        # title). The reconcile fast path is ~1ms, so a rebuild per wheel is
+        # cheap AND keeps the DOM the single source of truth — an earlier
+        # attempt to hand-mutate the nav % text with set_text_by_id fought the
+        # reconcile (a directly-mutated node the diff couldn't match, leaving a
+        # duplicate "%%" in the navigator). The stage repaints itself via the
+        # core's request_custom_repaint regardless.
         self._sync_overlays()
-        self._sync_zoom_readouts()
-        self._needs_reload = True
+        self.reload()
         return True
-
-    def _sync_zoom_readouts(self) -> None:
-        # Live-update the visible zoom % (navigator) during a wheel burst;
-        # the statusbar field and rulers refresh on the settle reload.
-        if self.app is None:
-            return
-        self.app.document().set_text_by_id(
-            "ps-nav-pct", f"{round(self.zoom * 100)}%")
 
     # ── Keyboard (web wireKeys) ─────────────────────────────────────────────
 
