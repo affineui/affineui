@@ -91,15 +91,19 @@ struct ComputedStyle {
     std::int16_t border_radius_bot_right{0};
     std::int16_t border_radius_bot_left {0};
 
-    // ── Layout sizing (10 bytes) ──────────────────────────────────
-    std::int16_t width     {-1};  // -1 = auto
-    std::int16_t height    {-1};
+    // ── Layout sizing (24 bytes) ──────────────────────────────────
+    // int32, NOT int16: virtual-list spacers legitimately reach millions of
+    // px (200k rows × 26px ≈ 5.2M), and an int16 store truncates mod 65536 —
+    // the scroll extent silently lies. Sizing is the one style group where
+    // real documents exceed 32767px.
+    std::int32_t width     {-1};  // -1 = auto
+    std::int32_t height    {-1};
     // -1 = CSS `auto`. For ordinary block flow that resolves like 0, but
     // flex items use it for the spec's automatic minimum size.
-    std::int16_t min_width {-1};
-    std::int16_t max_width {-1};
-    std::int16_t min_height{0};
-    std::int16_t max_height{-1};
+    std::int32_t min_width {-1};
+    std::int32_t max_width {-1};
+    std::int32_t min_height{0};
+    std::int32_t max_height{-1};
 
     // ── Positioned-layout insets (8 bytes) ────────────────────────
     // CSS `top` / `right` / `bottom` / `left`. Only meaningful when
@@ -395,7 +399,11 @@ struct ComputedStyle {
     // thing. The assert is a budget that tells us when we've grown large.
 };
 
-static_assert(sizeof(ComputedStyle) <= 96,
+// Budget bumped 96 → 112 when the six sizing fields widened to int32:
+// virtual-list spacers legitimately reach millions of px and int16 storage
+// truncated them mod 65536 (a silent, catastrophic layout lie). 16 bytes of
+// budget bought correctness; hot loops still read only a few fields per node.
+static_assert(sizeof(ComputedStyle) <= 112,
               "ComputedStyle exceeded its size budget — re-pack before bumping further");
 static_assert(std::is_trivially_copyable_v<ComputedStyle>,
               "ComputedStyle must be trivially copyable");

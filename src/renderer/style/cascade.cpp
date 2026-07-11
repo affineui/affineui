@@ -858,8 +858,8 @@ void apply_flex_basis_value(const lxb_css_property_flex_basis_t& basis,
 // to `auto_value` (-1) when a percentage is applied so yoga_adapter
 // can tell at a glance which field governs.
 void apply_width_value(const lxb_css_property_width_t& width,
-                       std::int16_t& out,
-                       std::int16_t auto_value,
+                       std::int32_t& out,
+                       std::int32_t auto_value,
                        std::int16_t* pct_out = nullptr,
                        double em_px = 16.0,
                        double viewport_w = 0.0,
@@ -888,7 +888,7 @@ void apply_width_value(const lxb_css_property_width_t& width,
     }
     if (parse_length_px(&width, px, em_px, viewport_w, viewport_h,
                         dependency) && px >= 0) {
-        out = static_cast<std::int16_t>(px);
+        out = px;  // int32 — multi-million-px virtual extents must survive
     }
 }
 
@@ -1451,8 +1451,8 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s,
         return parse_radius(c, o, em_px, viewport_w, viewport_h, dependency);
     };
     auto awv = [em_px, viewport_w, viewport_h, dependency](
-                   const lxb_css_property_width_t& w, std::int16_t& o,
-                   std::int16_t av, std::int16_t* po = nullptr) {
+                   const lxb_css_property_width_t& w, std::int32_t& o,
+                   std::int32_t av, std::int16_t* po = nullptr) {
         return apply_width_value(w, o, av, po, em_px, viewport_w,
                                  viewport_h, dependency);
     };

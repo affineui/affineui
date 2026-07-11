@@ -1302,6 +1302,18 @@ bool set_block_scroll_y(detail::DocumentImpl& impl, int idx, int scroll_y) {
     detail::add_dirty_rect(impl, detail::block_visual_rect(impl, idx));
     block.scroll_y = next;
     detail::add_dirty_rect(impl, detail::block_visual_rect(impl, idx));
+
+    // A virtual list re-windows its rows from the container's live scroll
+    // offset. Emit a scroll-change so the app rebuilds the view: the next build
+    // reads this offset back (via the scroll provider) and renders the rows now
+    // under the viewport. Keyed by the container's widget name; the value is the
+    // new pixel offset. Only virtual-list containers opt in (data-aui-virtual),
+    // so ordinary scroll boxes cost nothing.
+    if (auto* elem = detail::element_for_block(impl, idx)) {
+        if (detail::has_attr(elem, "data-aui-virtual")) {
+            detail::emit_widget_scroll(impl, elem, next);
+        }
+    }
     return true;
 }
 }  // namespace detail
@@ -2407,6 +2419,13 @@ void emit_widget_change(detail::DocumentImpl& impl,
     auto name = widget_event_name(elem);
     if (name.empty()) return;
     impl.changed_widgets.push_back({std::move(name), std::string(value)});
+}
+void emit_widget_scroll(detail::DocumentImpl& impl,
+                        lxb_dom_element_t* elem,
+                        std::int64_t offset) {
+    auto name = widget_event_name(elem);
+    if (name.empty()) return;
+    impl.scrolled_widgets.push_back({std::move(name), std::to_string(offset)});
 }
 }  // namespace detail
 

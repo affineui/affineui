@@ -145,6 +145,24 @@ public:
     /// transports can forward them without ABI-specific variant machinery.
     std::vector<WidgetChange> take_widget_changes();
 
+    /// Drain virtual-list scroll changes: `name` is the list container's widget
+    /// name, `value` its new pixel scroll offset (an int64 rendered as a string,
+    /// so extents of hundreds of thousands of rows carry losslessly). The app
+    /// rebuilds the affected list's window from this offset.
+    std::vector<WidgetChange> take_widget_scrolls();
+
+    /// The live scroll geometry of a virtual-list container by widget name:
+    /// `offset` is its current scroll position (px) on the given axis, `viewport`
+    /// its visible extent (px), `known` false when no such block exists yet (the
+    /// first build, before layout). `horizontal` selects the X axis.
+    struct ScrollGeometry {
+        std::int64_t offset{0};
+        double       viewport{0.0};
+        bool         known{false};
+    };
+    [[nodiscard]] ScrollGeometry virtual_scroll_geometry(
+        std::string_view name, bool horizontal = false) const;
+
     /// The current fixed pixel size of every dock pane that has one, keyed by
     /// the pane id (the dockpanel key). Reads the live flex-basis, so it
     /// reflects splitter drags — the app persists this to restore the layout.

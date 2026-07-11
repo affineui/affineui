@@ -436,6 +436,33 @@ std::vector<Document::WidgetChange> Document::take_widget_changes() {
     return out;
 }
 
+std::vector<Document::WidgetChange> Document::take_widget_scrolls() {
+    auto out = std::move(impl_->scrolled_widgets);
+    impl_->scrolled_widgets.clear();
+    return out;
+}
+
+Document::ScrollGeometry Document::virtual_scroll_geometry(
+    std::string_view name, bool horizontal) const {
+    ScrollGeometry geo;
+    for (const auto& b : impl_->blocks) {
+        std::string_view block_name;
+        for (const auto& a : b.attrs) {
+            if (a.first == "data-aui-name") { block_name = a.second; break; }
+        }
+        if (block_name != name) continue;
+        geo.known = true;
+        // Vertical scroll is the only engine axis today; the X offset is always
+        // 0 until the horizontal-scroll facility lands. Viewport is the visible
+        // extent along the requested axis.
+        geo.offset   = horizontal ? 0 : static_cast<std::int64_t>(b.scroll_y);
+        geo.viewport = horizontal ? static_cast<double>(b.bounds.w)
+                                  : static_cast<double>(b.bounds.h);
+        break;
+    }
+    return geo;
+}
+
 std::vector<std::pair<std::string, int>> Document::dock_pane_sizes() const {
     std::vector<std::pair<std::string, int>> out;
     for (const auto& b : impl_->blocks) {

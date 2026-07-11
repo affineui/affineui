@@ -6,6 +6,7 @@
 #include <affineui/types.h>
 #include <affineui/view.h>
 #include <affineui/version.h>
+#include <affineui/virtual_list.h>
 
 #include "photo_core_py.h"
 
@@ -534,6 +535,257 @@ PYBIND11_MODULE(_affineui, m) {
              py::return_value_policy::reference_internal)
         .def("to_json", &affineui::RemotePatchQueue::to_json);
 
+    // ── Virtual list / tree providers ──────────────────────────────────────
+    py::enum_<affineui::Axis>(m, "Axis")
+        .value("Vertical", affineui::Axis::Vertical)
+        .value("Horizontal", affineui::Axis::Horizontal);
+
+    py::enum_<affineui::SelectMod>(m, "SelectMod")
+        .value("Replace", affineui::SelectMod::Replace)
+        .value("Toggle", affineui::SelectMod::Toggle)
+        .value("Range", affineui::SelectMod::Range);
+
+    py::enum_<affineui::DropPos>(m, "DropPos")
+        .value("Before", affineui::DropPos::Before)
+        .value("Into", affineui::DropPos::Into)
+        .value("After", affineui::DropPos::After);
+
+    py::class_<affineui::IndexSelection>(m, "IndexSelection")
+        .def(py::init<>())
+        .def("apply", &affineui::IndexSelection::apply, py::arg("index"),
+             py::arg("mod"), py::arg("count") = 0)
+        .def("clear", &affineui::IndexSelection::clear)
+        .def("contains", &affineui::IndexSelection::contains)
+        .def("size", &affineui::IndexSelection::size)
+        .def("anchor", &affineui::IndexSelection::anchor)
+        .def("on_change",
+             [](affineui::IndexSelection& s, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 s.on_change([cb] { call_python_function("on_change", cb); });
+             });
+
+    // Providers are Trackable (non-copyable, non-movable): Python owns the
+    // instance and must keep it alive as long as the widget uses it. Fluent
+    // setters return the provider itself (reference) so chaining works from
+    // Python too.
+    py::class_<affineui::VirtualListProvider>(m, "VirtualListProvider")
+        .def(py::init<>())
+        .def("on_item_count",
+             [](affineui::VirtualListProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_item_count([cb]() -> std::size_t {
+                     py::gil_scoped_acquire gil;
+                     try { return (*cb)().cast<std::size_t>(); }
+                     catch (py::error_already_set& e) {
+                         e.discard_as_unraisable("on_item_count"); return 0;
+                     }
+                 });
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("on_item_size",
+             [](affineui::VirtualListProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_item_size([cb](std::size_t i) -> double {
+                     py::gil_scoped_acquire gil;
+                     try { return (*cb)(i).cast<double>(); }
+                     catch (py::error_already_set& e) {
+                         e.discard_as_unraisable("on_item_size"); return 0.0;
+                     }
+                 });
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("on_item_text",
+             [](affineui::VirtualListProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_item_text([cb](std::size_t i) -> std::string {
+                     py::gil_scoped_acquire gil;
+                     try { return (*cb)(i).cast<std::string>(); }
+                     catch (py::error_already_set& e) {
+                         e.discard_as_unraisable("on_item_text"); return {};
+                     }
+                 });
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("on_build_item",
+             [](affineui::VirtualListProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_build_item([cb](affineui::View& v, std::size_t i) {
+                     call_python_function("on_build_item", cb, &v, i);
+                 });
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("on_is_selected",
+             [](affineui::VirtualListProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_is_selected([cb](std::size_t i) -> bool {
+                     py::gil_scoped_acquire gil;
+                     try { return (*cb)(i).cast<bool>(); }
+                     catch (py::error_already_set& e) {
+                         e.discard_as_unraisable("on_is_selected"); return false;
+                     }
+                 });
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("on_activate",
+             [](affineui::VirtualListProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_activate([cb](std::size_t i, affineui::SelectMod m) {
+                     call_python_function("on_activate", cb, i, m);
+                 });
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("default_item_size",
+             [](affineui::VirtualListProvider& p, double px) {
+                 p.default_item_size(px);
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("checkboxes",
+             [](affineui::VirtualListProvider& p, bool on) {
+                 p.checkboxes(on);
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("on_is_checked",
+             [](affineui::VirtualListProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_is_checked([cb](std::size_t i) -> bool {
+                     py::gil_scoped_acquire gil;
+                     try { return (*cb)(i).cast<bool>(); }
+                     catch (py::error_already_set& e) {
+                         e.discard_as_unraisable("on_is_checked"); return false;
+                     }
+                 });
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("on_set_checked",
+             [](affineui::VirtualListProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_set_checked([cb](std::size_t i, bool on) {
+                     call_python_function("on_set_checked", cb, i, on);
+                 });
+                 return &p;
+             }, py::return_value_policy::reference);
+
+    py::class_<affineui::VirtualTreeProvider>(m, "VirtualTreeProvider")
+        .def(py::init<>())
+        .def("on_item_count",
+             [](affineui::VirtualTreeProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_item_count([cb]() -> std::size_t {
+                     py::gil_scoped_acquire gil;
+                     try { return (*cb)().cast<std::size_t>(); }
+                     catch (py::error_already_set& e) {
+                         e.discard_as_unraisable("on_item_count"); return 0;
+                     }
+                 });
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("on_item_text",
+             [](affineui::VirtualTreeProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_item_text([cb](std::size_t i) -> std::string {
+                     py::gil_scoped_acquire gil;
+                     try { return (*cb)(i).cast<std::string>(); }
+                     catch (py::error_already_set& e) {
+                         e.discard_as_unraisable("on_item_text"); return {};
+                     }
+                 });
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("on_depth",
+             [](affineui::VirtualTreeProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_depth([cb](std::size_t i) -> int {
+                     py::gil_scoped_acquire gil;
+                     try { return (*cb)(i).cast<int>(); }
+                     catch (py::error_already_set& e) {
+                         e.discard_as_unraisable("on_depth"); return 0;
+                     }
+                 });
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("on_is_expandable",
+             [](affineui::VirtualTreeProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_is_expandable([cb](std::size_t i) -> bool {
+                     py::gil_scoped_acquire gil;
+                     try { return (*cb)(i).cast<bool>(); }
+                     catch (py::error_already_set& e) {
+                         e.discard_as_unraisable("on_is_expandable"); return false;
+                     }
+                 });
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("on_is_expanded",
+             [](affineui::VirtualTreeProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_is_expanded([cb](std::size_t i) -> bool {
+                     py::gil_scoped_acquire gil;
+                     try { return (*cb)(i).cast<bool>(); }
+                     catch (py::error_already_set& e) {
+                         e.discard_as_unraisable("on_is_expanded"); return false;
+                     }
+                 });
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("on_toggle",
+             [](affineui::VirtualTreeProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_toggle([cb](std::size_t i) {
+                     call_python_function("on_toggle", cb, i);
+                 });
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("on_is_selected",
+             [](affineui::VirtualTreeProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_is_selected([cb](std::size_t i) -> bool {
+                     py::gil_scoped_acquire gil;
+                     try { return (*cb)(i).cast<bool>(); }
+                     catch (py::error_already_set& e) {
+                         e.discard_as_unraisable("on_is_selected"); return false;
+                     }
+                 });
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("on_activate",
+             [](affineui::VirtualTreeProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_activate([cb](std::size_t i, affineui::SelectMod m) {
+                     call_python_function("on_activate", cb, i, m);
+                 });
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("default_item_size",
+             [](affineui::VirtualTreeProvider& p, double px) {
+                 p.default_item_size(px);
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("checkboxes",
+             [](affineui::VirtualTreeProvider& p, bool on) {
+                 p.checkboxes(on);
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("on_is_checked",
+             [](affineui::VirtualTreeProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_is_checked([cb](std::size_t i) -> bool {
+                     py::gil_scoped_acquire gil;
+                     try { return (*cb)(i).cast<bool>(); }
+                     catch (py::error_already_set& e) {
+                         e.discard_as_unraisable("on_is_checked"); return false;
+                     }
+                 });
+                 return &p;
+             }, py::return_value_policy::reference)
+        .def("on_set_checked",
+             [](affineui::VirtualTreeProvider& p, py::function fn) {
+                 auto cb = keep_python_function(std::move(fn));
+                 p.on_set_checked([cb](std::size_t i, bool on) {
+                     call_python_function("on_set_checked", cb, i, on);
+                 });
+                 return &p;
+             }, py::return_value_policy::reference);
+
     py::class_<affineui::VirtualListOptions>(m, "VirtualListOptions")
         .def(py::init<>())
         .def_readwrite("item_count", &affineui::VirtualListOptions::item_count)
@@ -858,46 +1110,48 @@ PYBIND11_MODULE(_affineui, m) {
              py::keep_alive<0, 1>(),
              "Add a mutually-exclusive button group and return a WidgetRef.")
         .def("virtual_list",
-             [](affineui::View& view,
-                const std::string& key,
-                std::size_t item_count,
-                py::function build,
-                double item_size,
-                std::size_t first_item,
-                std::size_t visible_items,
-                std::size_t overscan,
-                const std::vector<double>& item_sizes,
+             [](affineui::View& view, const std::string& key,
+                affineui::VirtualListProvider& provider, affineui::Axis axis,
                 const std::string& classes) {
-                 affineui::VirtualListOptions options{};
-                 options.item_count = item_count;
-                 options.first_item = first_item;
-                 options.visible_items = visible_items;
-                 options.overscan = overscan;
-                 options.item_size = item_size;
-                 options.item_sizes = item_sizes;
-                 auto callback = keep_python_function(std::move(build));
-                 return view.virtual_list(
-                     key,
-                     options,
-                     [callback = std::move(callback)](affineui::View& child_view,
-                                                       std::size_t index) {
-                         py::gil_scoped_acquire gil;
-                         (*callback)(&child_view, index);
-                     },
-                     classes);
+                 return view.virtual_list(key, provider, axis, classes);
              },
-             py::arg("key"),
-             py::arg("item_count"),
-             py::arg("build"),
-             py::arg("item_size") = 24.0,
-             py::arg("first_item") = 0,
-             py::arg("visible_items") = 16,
-             py::arg("overscan") = 2,
-             py::arg("item_sizes") = std::vector<double>{},
+             py::arg("key"), py::arg("provider"),
+             py::arg("axis") = affineui::Axis::Vertical,
              py::arg("classes") = "",
-             py::keep_alive<0, 1>(),
-             "Add a virtualized fixed-size list. build(view, index) is called "
-             "only for the materialized rows.")
+             py::keep_alive<0, 1>(),  // widget kept with the view
+             py::keep_alive<1, 3>(),  // provider kept alive by the view
+             "Add a recycling virtual list bridged to a VirtualListProvider. "
+             "Only the rows under the viewport (plus overscan) are built; the "
+             "list follows the scrollbar/wheel/keyboard automatically.")
+        .def("virtual_tree",
+             [](affineui::View& view, const std::string& key,
+                affineui::VirtualTreeProvider& provider,
+                const std::string& classes) {
+                 return view.virtual_tree(key, provider, classes);
+             },
+             py::arg("key"), py::arg("provider"), py::arg("classes") = "",
+             py::keep_alive<0, 1>(), py::keep_alive<1, 3>(),
+             "Add a recycling virtual tree over a VirtualTreeProvider's "
+             "flattened, currently-expanded nodes.")
+        .def("virtual_string_list",
+             [](affineui::View& view, const std::string& key,
+                const std::vector<std::string>& items, double item_size,
+                affineui::IndexSelection* selection,
+                affineui::IndexSelection* checked, const std::string& classes) {
+                 affineui::View::StringListOptions opts;
+                 opts.item_size = item_size;
+                 opts.selection = selection;
+                 opts.checked = checked;
+                 opts.classes = classes;
+                 return view.virtual_list(key, items, opts);
+             },
+             py::arg("key"), py::arg("items"), py::arg("item_size") = 24.0,
+             py::arg("selection") = nullptr, py::arg("checked") = nullptr,
+             py::arg("classes") = "",
+             py::keep_alive<0, 1>(), py::keep_alive<1, 4>(),
+             py::keep_alive<1, 5>(),
+             "Display an array of strings as a virtual list. Pass a selection "
+             "IndexSelection for click selection, or checked for checkboxes.")
         .def("slider",
              [](affineui::View& view,
                 const std::string& label,
@@ -1531,6 +1785,21 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("view"),
              "Copy a View into the native App. The App copies callbacks and "
              "does not borrow the Python View object.")
+        .def("set_view",
+             [](affineui::App& app, py::function builder) {
+                 auto cb = keep_python_function(std::move(builder));
+                 app.set_view([cb](affineui::View& v) {
+                     call_python_function("set_view builder", cb, &v);
+                 });
+             },
+             py::arg("builder"),
+             "Register a persistent view builder(view). The App reconciles "
+             "rebuilds against a retained View — required for recycling virtual "
+             "lists to follow the scrollbar. Call rebuild_view() after state "
+             "changes.")
+        .def("rebuild_view", &affineui::App::rebuild_view,
+             "Re-run the set_view builder and reconcile the differences into the "
+             "document (cheap; only actual changes reach the DOM).")
         .def("load_html_file",
              [](affineui::App& app, const std::string& path) {
                  return app.load_html_file(path);

@@ -68,9 +68,69 @@ class ComponentGalleryApp:
         self.visual_style = "flat"
         self.density = "compact"
         self.accent = "cyan"
-        self.rows = [f"Frame {index:02d} - event routed" for index in range(1, 49)]
-        self.selected_row = 0
-        self.selected_tree = "tree-camera"
+        # A large synthetic list to exercise the recycling virtual list: only
+        # the visible rows are ever built, so 50k rows scroll smoothly.
+        self.row_count = 50000
+        self.list_selection = ui.IndexSelection()
+        self.list_selection.on_change(self.reload)
+        self.list_provider = ui.VirtualListProvider()
+        self.list_provider.default_item_size(40.0)
+        self.list_provider.on_item_count(lambda: self.row_count)
+        self.list_provider.on_item_text(
+            lambda i: f"Frame {i:05d} - event routed"
+        )
+        self.list_provider.on_is_selected(
+            lambda i: self.list_selection.contains(i)
+        )
+        self.list_provider.on_activate(
+            lambda i, mod: self.list_selection.apply(i, mod, self.row_count)
+        )
+        # Checked is a SECOND, independent row state (list indices are stable
+        # identities here, so an index set is fine; trees key by node id).
+        self.collections_checkboxes = False
+        self._list_checked: set[int] = set()
+        self.list_provider.on_is_checked(lambda i: i in self._list_checked)
+        self.list_provider.on_set_checked(self._set_list_checked)
+
+        # A virtual tree over a small scene graph. Nodes carry (label, depth,
+        # id); `_tree_expanded` holds the ids of open branches. The provider
+        # answers everything from the flattened-visible view, which is recomputed
+        # whenever a branch opens/closes.
+        self._tree_nodes = self._build_scene_nodes()
+        self._tree_expanded = {
+            n["id"] for n in self._tree_nodes if n["branch"]
+        }
+        self._tree_flat: list[dict] = []
+        self._reflatten_tree()
+        # Tree selection is keyed by node ID (the handle), NEVER by flattened
+        # index: expanding/collapsing renumbers rows, and an index-keyed
+        # selection would silently migrate onto different items. IDs are
+        # stable identities unique to each node.
+        self._tree_selected: set[str] = set()
+        self._tree_sel_anchor: str | None = None
+        self.tree_provider = ui.VirtualTreeProvider()
+        self.tree_provider.default_item_size(28.0)
+        self.tree_provider.on_item_count(lambda: len(self._tree_flat))
+        self.tree_provider.on_item_text(lambda i: self._tree_flat[i]["label"])
+        self.tree_provider.on_depth(lambda i: self._tree_flat[i]["depth"])
+        self.tree_provider.on_is_expandable(
+            lambda i: self._tree_flat[i]["branch"]
+        )
+        self.tree_provider.on_is_expanded(
+            lambda i: self._tree_flat[i]["id"] in self._tree_expanded
+        )
+        self.tree_provider.on_toggle(self._toggle_tree_node)
+        self.tree_provider.on_is_selected(
+            lambda i: self._tree_flat[i]["id"] in self._tree_selected
+        )
+        self.tree_provider.on_activate(self._activate_tree_row)
+        # Checked state keyed by node ID — like selection, it must survive
+        # expand/collapse renumbering.
+        self._tree_checked: set[str] = set()
+        self.tree_provider.on_is_checked(
+            lambda i: self._tree_flat[i]["id"] in self._tree_checked
+        )
+        self.tree_provider.on_set_checked(self._set_tree_checked)
         self.photo_tool = "brush"
         self.photo_layer = "layer-hero"
         self.nav_groups: tuple[NavGroup, ...] = (
@@ -479,24 +539,24 @@ class ComponentGalleryApp:
             build=self._build_body,
         )
 
-    def build_view(self) -> ui.View:
-        view = ui.View(self.theme)
+    def build_into(self, view: ui.View) -> None:
+        """Fill a framework-owned view. Used with App.set_view so the
+        reconcile fast path drives rebuilds — required for the virtual list/
+        tree to follow the scrollbar as the user scrolls."""
+        view.set_theme(self.theme)
         if self.is_decius():
             view.selector(ui.decius.selector.style, self.visual_style)
             view.selector(ui.decius.selector.density, self.density)
             view.selector(ui.decius.selector.accent, self.accent)
-        view.begin()
         view.container(
             classes="aui-test-shell",
             key="test-shell",
             build=self._build_shell,
         )
-        view.end()
-        return view
 
     def reload(self) -> None:
         if self.app is not None:
-            self.app.load_view(self.build_view())
+            self.app.rebuild_view()
 
     def select_page(self, page: str) -> None:
         if page not in {item.key for item in self.pages}:
@@ -529,14 +589,7 @@ class ComponentGalleryApp:
         self.accent = accent
         self.reload()
 
-    def select_row(self, index: int) -> None:
-        self.selected_row = index
-        self.reload()
-
-    def append_row(self) -> None:
-        self.rows.append(f"Generated row {len(self.rows) + 1:02d}")
-        self.selected_row = len(self.rows) - 1
-        self.reload()
+    # ── Virtual list panel (provider-backed) ────────────────────────────────
 
     def build_list_rows(self, v: ui.View) -> None:
         list_classes = (
@@ -544,34 +597,11 @@ class ComponentGalleryApp:
             if self.is_decius()
             else ui.bootstrap.class_name.list
         )
-        v.virtual_list(
-            key="event-list",
-            item_count=len(self.rows),
-            item_size=28.0 if self.is_decius() else 40.0,
-            visible_items=10,
-            overscan=2,
-            classes=list_classes,
-            build=self.build_row,
-        )
-
-    def build_row(self, v: ui.View, index: int) -> None:
-        title = self.rows[index]
-        selected = index == self.selected_row
-        row = v.button(title, primary=selected, key=f"log-row-{index}")
-        row.on_click(lambda current_index=index: self.select_row(current_index))
-        if self.is_decius():
-            row.cls(ui.decius.class_name.list_item).attr(
-                "aria-selected", "true" if selected else "false"
-            )
-        else:
-            row.cls(
-                f"{ui.bootstrap.class_name.list_item} list-group-item-action"
-                + (" active" if selected else "")
-            )
-
-    def select_tree(self, key: str) -> None:
-        self.selected_tree = key
-        self.reload()
+        # Recycling virtual list: only the visible rows are built, so the 50k
+        # rows scroll smoothly and selection is re-derived from the model each
+        # rebuild. Ctrl/Cmd toggles, Shift extends the range.
+        v.virtual_list(key="event-list", provider=self.list_provider,
+                       classes=list_classes)
 
     def set_photo_tool(self, tool: str) -> None:
         self.photo_tool = tool
@@ -581,54 +611,121 @@ class ComponentGalleryApp:
         self.photo_layer = layer
         self.reload()
 
-    def tree_row(
-        self,
-        v: ui.View,
-        label: str,
-        key: str,
-        depth: int = 0,
-        branch: bool = False,
-        expanded: bool = True,
-    ) -> None:
-        selected = self.selected_tree == key
-        row = v.button(label, primary=selected, key=key)
-        row.on_click(lambda current_key=key: self.select_tree(current_key))
-        indent = 12 + depth * 18
-        tree_state_class = "aui-tree-branch" if branch else "aui-tree-leaf"
-        if self.is_decius():
-            row.cls(
-                f"aui-tree-row {tree_state_class} {ui.decius.class_name.tree_row}"
-            ).attr("aria-selected", "true" if selected else "false")
+    # ── Virtual tree panel (provider-backed) ────────────────────────────────
+
+    @staticmethod
+    def _build_scene_nodes() -> list[dict]:
+        """A small scene graph as a flat list of (id, label, depth, branch)."""
+        spec = [
+            ("scene", "Scene", 0, True),
+            ("camera", "Camera", 1, False),
+            ("light", "Key Light", 1, False),
+            ("player", "Player", 1, True),
+            ("player-mesh", "Mesh", 2, False),
+            ("player-controller", "Controller", 2, False),
+            ("environment", "Environment", 1, True),
+            ("collision", "Collision", 2, False),
+            ("audio", "Audio", 1, True),
+            ("music", "Music", 2, False),
+            ("foley", "Foley", 2, False),
+            ("ui", "UI", 1, True),
+            ("hud", "HUD", 2, False),
+            ("inventory", "Inventory", 2, False),
+            ("simulation", "Simulation", 1, True),
+            ("navigation", "Navigation", 2, False),
+            ("physics", "Physics", 2, False),
+            ("networking", "Networking", 1, True),
+            ("replication", "Replication", 2, False),
+        ]
+        return [
+            {"id": nid, "label": label, "depth": depth, "branch": branch}
+            for nid, label, depth, branch in spec
+        ]
+
+    def _reflatten_tree(self) -> None:
+        """Recompute the visible node list: a node is shown when every ancestor
+        branch is expanded. (Depth encodes the tree shape for this flat spec.)"""
+        flat: list[dict] = []
+        # Track, per depth, whether the current branch chain is fully open.
+        open_at_depth = [True]
+        for node in self._tree_nodes:
+            depth = node["depth"]
+            # Trim the open-chain stack to this node's parent depth.
+            del open_at_depth[depth + 1 :]
+            parent_open = open_at_depth[depth]
+            if parent_open:
+                flat.append(node)
+            expanded = parent_open and (node["id"] in self._tree_expanded)
+            # Push this node's open state for its children.
+            if len(open_at_depth) == depth + 1:
+                open_at_depth.append(expanded)
+            else:
+                open_at_depth[depth + 1] = expanded
+        self._tree_flat = flat
+
+    def _set_list_checked(self, index: int, on: bool) -> None:
+        if on:
+            self._list_checked.add(index)
         else:
-            row.cls(
-                f"aui-tree-row {tree_state_class} "
-                f"{ui.bootstrap.class_name.tree_row} list-group-item-action"
-                + (" active" if selected else "")
-            )
-        if branch:
-            row.attr("aria-expanded", "true" if expanded else "false")
-        row.attr("style", f"width:100%;padding-left:{indent}px")
+            self._list_checked.discard(index)
+        self.reload()
+
+    def _set_tree_checked(self, index: int, on: bool) -> None:
+        nid = self._tree_flat[index]["id"]
+        if on:
+            self._tree_checked.add(nid)
+        else:
+            self._tree_checked.discard(nid)
+        self.reload()
+
+    def toggle_collections_checkboxes(self) -> None:
+        """Flip checkbox mode for both the virtual list and the virtual tree."""
+        self.collections_checkboxes = not self.collections_checkboxes
+        self.list_provider.checkboxes(self.collections_checkboxes)
+        self.tree_provider.checkboxes(self.collections_checkboxes)
+        self.reload()
+
+    def _activate_tree_row(self, index: int, mod: "ui.SelectMod") -> None:
+        """Plain / Ctrl (toggle) / Shift (range) selection, keyed by node ID.
+        Range selects the IDs currently visible between the anchor and the
+        clicked row."""
+        nid = self._tree_flat[index]["id"]
+        if mod == ui.SelectMod.Toggle:
+            if nid in self._tree_selected:
+                self._tree_selected.discard(nid)
+            else:
+                self._tree_selected.add(nid)
+            self._tree_sel_anchor = nid
+        elif mod == ui.SelectMod.Range:
+            anchor_index = index
+            if self._tree_sel_anchor is not None:
+                for k, node in enumerate(self._tree_flat):
+                    if node["id"] == self._tree_sel_anchor:
+                        anchor_index = k
+                        break
+            lo, hi = sorted((anchor_index, index))
+            self._tree_selected = {
+                node["id"] for node in self._tree_flat[lo : hi + 1]
+            }
+            if self._tree_sel_anchor is None:
+                self._tree_sel_anchor = nid
+        else:  # Replace
+            self._tree_selected = {nid}
+            self._tree_sel_anchor = nid
+        self.reload()
+
+    def _toggle_tree_node(self, index: int) -> None:
+        node = self._tree_flat[index]
+        nid = node["id"]
+        if nid in self._tree_expanded:
+            self._tree_expanded.discard(nid)
+        else:
+            self._tree_expanded.add(nid)
+        self._reflatten_tree()
+        self.reload()
 
     def build_tree_rows(self, v: ui.View) -> None:
-        self.tree_row(v, "Scene", "tree-scene", 0, branch=True)
-        self.tree_row(v, "Camera", "tree-camera", 1)
-        self.tree_row(v, "Key Light", "tree-light", 1)
-        self.tree_row(v, "Player", "tree-player", 1, branch=True)
-        self.tree_row(v, "Mesh", "tree-player-mesh", 2)
-        self.tree_row(v, "Controller", "tree-player-controller", 2)
-        self.tree_row(v, "Environment", "tree-environment", 1, branch=True)
-        self.tree_row(v, "Collision", "tree-collision", 2)
-        self.tree_row(v, "Audio", "tree-audio", 1, branch=True)
-        self.tree_row(v, "Music", "tree-music", 2)
-        self.tree_row(v, "Foley", "tree-foley", 2)
-        self.tree_row(v, "UI", "tree-ui", 1, branch=True)
-        self.tree_row(v, "HUD", "tree-hud", 2)
-        self.tree_row(v, "Inventory", "tree-inventory", 2)
-        self.tree_row(v, "Simulation", "tree-simulation", 1, branch=True)
-        self.tree_row(v, "Navigation", "tree-navigation", 2)
-        self.tree_row(v, "Physics", "tree-physics", 2)
-        self.tree_row(v, "Networking", "tree-networking", 1, branch=True)
-        self.tree_row(v, "Replication", "tree-replication", 2)
+        v.virtual_tree(key="scene-tree", provider=self.tree_provider)
 
 
 AffineUITestApp = ComponentGalleryApp
@@ -636,7 +733,15 @@ HelloPanel = ComponentGalleryApp
 
 
 def build_view(theme: ui.ViewTheme) -> ui.View:
-    return ComponentGalleryApp(theme).build_view()
+    """Build a one-shot View (for headless/snapshot callers). Interactive use
+    should prefer App.set_view(controller.build_into) so virtual lists follow
+    the scrollbar."""
+    controller = ComponentGalleryApp(theme)
+    view = ui.View(theme)
+    view.begin()
+    controller.build_into(view)
+    view.end()
+    return view
 
 
 def main() -> None:
@@ -687,7 +792,9 @@ def main() -> None:
         high_dpi=args.dpi == "retina",
     )
     controller.app = app
-    app.load_view(controller.build_view())
+    # set_view registers a persistent builder and uses the reconcile fast path,
+    # so recycling virtual lists/trees follow the scrollbar automatically.
+    app.set_view(controller.build_into)
 
     if args.headless:
         app.document().layout(1024, 680)

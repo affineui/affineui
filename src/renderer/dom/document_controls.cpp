@@ -2963,6 +2963,29 @@ bool find_dcs_select_row_at(detail::DocumentImpl& impl,
     out_row = nullptr;
     return false;
 }
+
+// A click on a virtual-tree chevron toggles the node's expansion. Walk up from
+// the hovered block: if we cross an element carrying data-aui-chevron (the row
+// index) before reaching the data-aui-virtual tree box, emit "toggle:<index>"
+// on the box and report consumed so row selection does not also fire.
+bool toggle_virtual_tree_chevron(detail::DocumentImpl& impl, int from_idx) {
+    std::string index;
+    for (int idx = from_idx;
+         idx >= 0 && idx < static_cast<int>(impl.blocks.size());
+         idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        auto* elem = detail::element_for_block(impl, idx);
+        if (!elem) continue;
+        if (index.empty() && detail::has_attr(elem, "data-aui-chevron")) {
+            index = detail::attr_string(elem, "data-aui-chevron");
+        }
+        if (!index.empty() &&
+            detail::attr_string(elem, "data-aui-virtual") == "tree") {
+            detail::emit_widget_change(impl, elem, "toggle:" + index);
+            return true;
+        }
+    }
+    return false;
+}
 }  // namespace detail
 namespace {
 
@@ -3011,6 +3034,24 @@ bool update_dcs_select_control(detail::DocumentImpl& impl,
                                lxb_dom_element_t* row,
                                const Event& ev) {
     if (!box || !row) return false;
+
+    // A virtual list's selection lives in the app model, not the (recycled)
+    // DOM. Rather than mutate aria-selected on live rows — which would be lost
+    // when rows recycle and whose anchor pointer would dangle — emit a model
+    // activation carrying the clicked row's logical index and the modifier
+    // intent. The framework routes it to the provider's on_activate, the model
+    // updates, and the next rebuild re-stamps aria-selected from the model.
+    if (detail::has_attr(box, "data-aui-virtual")) {
+        const std::string index = detail::attr_string(row, "data-index");
+        if (index.empty()) return false;
+        const char* mod = (ev.ctrl || ev.super) ? "toggle"
+                        : ev.shift                ? "range"
+                                                  : "replace";
+        detail::emit_widget_change(impl, box,
+                                   "activate:" + index + ":" + mod);
+        return true;
+    }
+
     std::vector<lxb_dom_element_t*> rows;
     collect_dcs_select_rows(box, rows);
     if (rows.empty()) return false;

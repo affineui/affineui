@@ -404,6 +404,7 @@ struct DocumentImpl {
     bool                      ui_control_script_attached{false};
     std::vector<std::string>  activated_widgets;
     std::vector<Document::WidgetChange> changed_widgets;
+    std::vector<Document::WidgetChange> scrolled_widgets;
     bool                      mouse_down_consumed_release{false};
     // Runtime dock-placement overrides (panel id -> placement) produced by
     // drag-to-dock / tearoff interactions. Survives view reloads (the app reads
@@ -902,6 +903,7 @@ bool find_dcs_select_row_at(detail::DocumentImpl& impl,
                             int from_idx,
                             lxb_dom_element_t*& out_box,
                             lxb_dom_element_t*& out_row);
+bool toggle_virtual_tree_chevron(detail::DocumentImpl& impl, int from_idx);
 bool find_dcs_tree_row_at(detail::DocumentImpl& impl,
                           int from_idx,
                           lxb_dom_element_t*& out_tree,
@@ -1276,6 +1278,9 @@ lxb_dom_node_t* document_dom_root(detail::DocumentImpl& impl);
 void emit_widget_change(detail::DocumentImpl& impl,
                         lxb_dom_element_t* elem,
                         std::string_view value);
+void emit_widget_scroll(detail::DocumentImpl& impl,
+                        lxb_dom_element_t* elem,
+                        std::int64_t offset);
 lxb_dom_element_t* find_trigger_for_target(detail::DocumentImpl& impl,
                                            std::string_view target_selector);
 bool is_descendant_of_or_self(const std::vector<Block>& blocks,

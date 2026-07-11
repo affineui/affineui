@@ -54,7 +54,7 @@ $Smoke = Join-Path $Root 'build\smoke'
 $Primary  = 'hello'
 $Examples = @('hello', 'bootstrap', 'hello_sdl', 'media', 'imm_counter',
               'imm_todo', 'text_flow', 'forms_focus', 'bootstrap_kitchen',
-              'embed_d3d11', 'affine_2600')
+              'embed_d3d11', 'affine_2600', 'virtual_list')
 
 # ── MSVC environment ─────────────────────────────────────────────────────────
 function Initialize-Msvc {
