@@ -2070,6 +2070,25 @@ std::string spacer_style(Axis axis, double extent) {
     return "height:" + px(extent);
 }
 
+// Parse "check:<index>:<0|1>" (a row checkbox toggled natively — rows
+// recycle, so the state routes through the box to the app's checked model).
+// Returns true when handled.
+template <typename Provider>
+bool handle_virtual_row_check(Provider& p, std::string_view value) {
+    constexpr std::string_view prefix = "check:";
+    if (value.substr(0, prefix.size()) != prefix) return false;
+    value.remove_prefix(prefix.size());
+    const auto colon = value.find(':');
+    if (colon == std::string_view::npos) return true;
+    std::size_t index = 0;
+    const char* first = value.data();
+    if (std::from_chars(first, first + colon, index).ec != std::errc{}) {
+        return true;
+    }
+    p.set_checked(index, value.substr(colon + 1) == "1");
+    return true;
+}
+
 // Parse a row-activation value ("activate:<index>:<mod>") and dispatch it to
 // the provider's on_activate. The provider is held weakly, so a dead provider
 // makes this a safe no-op (the whole hard-to-crash contract at the widget edge).
@@ -2079,6 +2098,7 @@ std::function<void(std::string_view)> virtual_activation_handler(
     return [weak](std::string_view value) {
         auto* p = weak.lock();
         if (!p) return;
+        if (handle_virtual_row_check(*p, value)) return;
         constexpr std::string_view prefix = "activate:";
         if (value.substr(0, prefix.size()) != prefix) return;
         value.remove_prefix(prefix.size());
@@ -2107,6 +2127,7 @@ std::function<void(std::string_view)> virtual_tree_handler(
     return [weak](std::string_view value) {
         auto* p = weak.lock();
         if (!p) return;
+        if (handle_virtual_row_check(*p, value)) return;
         auto parse_index = [](std::string_view sv, std::size_t& out) {
             const char* first = sv.data();
             return std::from_chars(first, first + sv.size(), out).ec ==
@@ -2209,16 +2230,13 @@ WidgetRef View::virtual_list(std::string_view key,
 
         // Checkbox mode: a leading checkbox slot on every row (structurally
         // uniform → rows keep recycling). Checked is a SECOND row state,
-        // independent of selection; the press-consumed gate keeps a checkbox
-        // click from also selecting the row.
+        // independent of selection. The toggle routes NATIVELY: the press is
+        // consumed by the checkbox (no row select) and the document emits
+        // "check:<row>:<0|1>" on the box, which the change handler forwards
+        // to the provider's checked model (recycled rows have no widget
+        // names, so per-widget events could not route).
         if (provider.has_checkboxes()) {
-            WeakRef<VirtualListProvider> weak = to_weak_ref(&provider);
-            checkbox("", provider.is_checked(i), "__cb")
-                .on_click([weak, i] {
-                    if (auto* p = weak.lock()) {
-                        p->set_checked(i, !p->is_checked(i));
-                    }
-                });
+            checkbox("", provider.is_checked(i), "__cb");
         }
 
         const auto stack_size = stack_.size();
@@ -2323,15 +2341,10 @@ WidgetRef View::virtual_tree(std::string_view key,
         }
 
         // Checkbox mode: same leading-slot contract as the list (uniform
-        // shape, checked independent of selection, press consumed).
+        // shape, checked independent of selection, press consumed, state
+        // routed natively as "check:<row>:<0|1>" on the box).
         if (provider.has_checkboxes()) {
-            WeakRef<VirtualTreeProvider> weak = to_weak_ref(&provider);
-            checkbox("", provider.is_checked(i), "__cb")
-                .on_click([weak, i] {
-                    if (auto* p = weak.lock()) {
-                        p->set_checked(i, !p->is_checked(i));
-                    }
-                });
+            checkbox("", provider.is_checked(i), "__cb");
         }
 
         auto& content = open_node(WidgetKind::Container, "div",

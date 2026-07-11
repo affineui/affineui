@@ -126,13 +126,16 @@ public:
             // selected and checked. Flipping the mode is one structural
             // rebuild; scrolling stays attribute-only either way. Pin the
             // themed checkbox group compact so it doesn't inflate the bar.
+            // on_change, not on_click: a checkbox click is consumed by the
+            // native toggle and emits a CHANGE ("true"/"false") — click
+            // activations never fire for checkbox widgets.
             v.checkbox("Row checkboxes (list + tree)", checks_enabled_,
                        "cb-mode")
                 .attr("style",
                       "margin:0;padding:0;min-height:0;height:auto;"
                       "display:inline-flex;align-items:center;gap:6px")
-                .on_click([this] {
-                    checks_enabled_ = !checks_enabled_;
+                .on_change([this](std::string_view value) {
+                    checks_enabled_ = value == "true";
                     tree_->checkboxes(checks_enabled_);
                     app_.rebuild_view();
                 });

@@ -522,6 +522,17 @@ DispatchResult Document::dispatch(const Event& ev) {
                     // A checkbox inside a virtual-list row (a checklist) owns the
                     // click — it must not also select the row underneath it.
                     press_consumed_by_checkbox = true;
+                    // Virtual rows recycle: their checkbox has no widget name,
+                    // so the wrapper-level change event cannot route. Emit the
+                    // toggled state on the data-aui-virtual BOX instead
+                    // ("check:<row>:<0|1>", same rail as activate/toggle) so
+                    // the provider's checked MODEL updates.
+                    const bool now_checked =
+                        detail::attr_string(check_elem, "aria-checked") ==
+                            "true" ||
+                        detail::has_attr(check_elem, "checked");
+                    detail::emit_virtual_row_check(*impl_, check_idx,
+                                                   now_checked);
                 }
             }
             // Collapsibles (foldout/subpanel headers), tree chevrons, and

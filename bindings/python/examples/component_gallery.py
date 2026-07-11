@@ -678,11 +678,11 @@ class ComponentGalleryApp:
             self._tree_checked.discard(nid)
         self.reload()
 
-    def toggle_collections_checkboxes(self) -> None:
-        """Flip checkbox mode for both the virtual list and the virtual tree."""
-        self.collections_checkboxes = not self.collections_checkboxes
-        self.list_provider.checkboxes(self.collections_checkboxes)
-        self.tree_provider.checkboxes(self.collections_checkboxes)
+    def set_collections_checkboxes(self, on: bool) -> None:
+        """Set checkbox mode for both the virtual list and the virtual tree."""
+        self.collections_checkboxes = on
+        self.list_provider.checkboxes(on)
+        self.tree_provider.checkboxes(on)
         self.reload()
 
     def _activate_tree_row(self, index: int, mod: "ui.SelectMod") -> None:

@@ -100,16 +100,10 @@ struct AppImpl {
     std::function<void(View&)> view_builder;
     std::unique_ptr<View>      retained_view;
     bool                       view_bootstrapped{false};
-    // Bound to App::rebuild_view so document-driven interactions that require a
-    // view rebuild — a virtual list re-windowing after a scroll — can request
-    // one without the app author wiring a callback.
-    std::function<void()>      rebuild_view_fn;
-    // Scroll events request a re-window; the rebuild itself is coalesced to
-    // once per frame (wheel/trackpad events arrive far faster than frames).
-    bool                       view_rebuild_pending{false};
-    // Last pointer position (logical px) so a re-window can refresh the hover
-    // chain: rows recycle under a stationary cursor, and :hover only updates
-    // on real MouseMove events otherwise.
+    // A scroll re-window recycles rows under a stationary cursor: after the
+    // frame-loop reconcile, replay a MouseMove from the last pointer position
+    // so :hover tracks what is actually under the cursor (browser semantics).
+    bool                       hover_refresh_pending{false};
     int                        last_mouse_x{0};
     int                        last_mouse_y{0};
     bool                       has_last_mouse{false};
@@ -420,13 +414,15 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
 
     // A virtual list that scrolled needs its window re-windowed so the builder
     // reads the new scroll offset back and renders the rows now under the
-    // viewport. Only MARK it here: wheel/trackpad events arrive far faster
-    // than frames, and rebuilding per event (reconcile + settle each time) is
-    // what turns smooth native scrolling jerky. The frame pulse runs at most
-    // one rebuild per frame with the latest offsets; the scroll itself was
-    // already applied natively, so nothing lags visually.
-    if (!impl.document.take_widget_scrolls().empty() && impl.rebuild_view_fn) {
-        impl.view_rebuild_pending = true;
+    // viewport. Only MARK it here (view_dirty — the same coalescing rail as
+    // App::invalidate()): wheel/trackpad events arrive far faster than
+    // frames, and rebuilding per event (reconcile + settle each time) is what
+    // turns smooth native scrolling jerky. The frame pulse reconciles at most
+    // once per frame with the latest offsets; the scroll itself was already
+    // applied natively, so nothing lags visually.
+    if (!impl.document.take_widget_scrolls().empty() && impl.view_builder) {
+        impl.view_dirty = true;
+        impl.hover_refresh_pending = true;
         consumed = true;
         impl.dirty = true;
     }
@@ -594,9 +590,6 @@ void replay_view_node(ViewSink& sink, const WidgetNode& node,
 void App::set_view(std::function<void(View&)> builder) {
     impl_->view_builder = std::move(builder);
     impl_->view_bootstrapped = false;
-    if (!impl_->rebuild_view_fn) {
-        impl_->rebuild_view_fn = [this] { rebuild_view(); };
-    }
     rebuild_view();
 }
 
@@ -1088,34 +1081,6 @@ void cb_frame(void* user) {
             resize_ev.type = EventType::Resize;
             (void) detail::dispatch_loaded_view_event(*impl, resize_ev);
         }
-        // Coalesced virtual-list re-window: scroll events since the last
-        // frame marked the view pending — run ONE rebuild reading the
-        // latest scroll offsets, however many wheel ticks arrived.
-        if (impl->view_rebuild_pending && impl->rebuild_view_fn) {
-            impl->view_rebuild_pending = false;
-            try {
-                impl->rebuild_view_fn();
-                impl->dirty = true;
-                // Rows recycled under a stationary cursor: refresh the hover
-                // chain from the last pointer position, exactly as a browser
-                // re-hit-tests on scroll — otherwise :hover sticks to stale
-                // content until the mouse physically moves.
-                if (impl->has_last_mouse) {
-                    Event hover_ev{};
-                    hover_ev.type = EventType::MouseMove;
-                    hover_ev.pos.x = impl->last_mouse_x;
-                    hover_ev.pos.y = impl->last_mouse_y;
-                    (void) detail::dispatch_loaded_view_event(*impl, hover_ev);
-                }
-            } catch (const std::exception& e) {
-                std::fprintf(stderr,
-                             "AffineUI virtual-list rewindow failed: %s\n",
-                             e.what());
-            } catch (...) {
-                std::fprintf(stderr,
-                             "AffineUI virtual-list rewindow failed\n");
-            }
-        }
         static const bool input_trace =
             std::getenv("AFFINEUI_INPUT_TRACE") != nullptr;
         // Pulse start: drain any OS input events queued behind AppKit's
@@ -1219,6 +1184,21 @@ void cb_frame(void* user) {
             impl->view_dirty = false;
             try {
                 impl->owner->rebuild_view();
+                // A scroll-driven re-window recycled rows under a stationary
+                // cursor: replay a MouseMove from the last pointer position
+                // (a browser re-hit-tests hover on scroll the same way) so
+                // :hover follows what is actually under the cursor.
+                if (impl->hover_refresh_pending) {
+                    impl->hover_refresh_pending = false;
+                    if (impl->has_last_mouse) {
+                        Event hover_ev{};
+                        hover_ev.type = EventType::MouseMove;
+                        hover_ev.pos.x = impl->last_mouse_x;
+                        hover_ev.pos.y = impl->last_mouse_y;
+                        (void) detail::dispatch_loaded_view_event(*impl,
+                                                                  hover_ev);
+                    }
+                }
             } catch (const std::exception& e) {
                 std::fprintf(stderr,
                              "AffineUI frame-loop rebuild_view failed: %s\n",

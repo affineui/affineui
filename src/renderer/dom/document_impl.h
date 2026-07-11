@@ -920,6 +920,8 @@ bool find_dcs_select_row_at(detail::DocumentImpl& impl,
                             lxb_dom_element_t*& out_box,
                             lxb_dom_element_t*& out_row);
 bool toggle_virtual_tree_chevron(detail::DocumentImpl& impl, int from_idx);
+void emit_virtual_row_check(detail::DocumentImpl& impl, int from_idx,
+                            bool checked);
 bool find_dcs_tree_row_at(detail::DocumentImpl& impl,
                           int from_idx,
                           lxb_dom_element_t*& out_tree,

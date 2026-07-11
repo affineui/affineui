@@ -3026,6 +3026,32 @@ bool toggle_virtual_tree_chevron(detail::DocumentImpl& impl, int from_idx) {
     }
     return false;
 }
+
+// A checkbox inside a virtual-list/tree row: rows recycle and carry only a
+// visual aria-checked stamp; the CHECKED MODEL lives in the app. Route the
+// toggled state to it through the box (same rail as row activation and the
+// chevron): walk up from the toggled checkbox to the row (data-index) and the
+// data-aui-virtual container, and emit "check:<row-index>:<0|1>". `checked`
+// is the state the native toggle just applied.
+void emit_virtual_row_check(detail::DocumentImpl& impl, int from_idx,
+                            bool checked) {
+    std::string index;
+    for (int idx = from_idx;
+         idx >= 0 && idx < static_cast<int>(impl.blocks.size());
+         idx = impl.blocks[static_cast<std::size_t>(idx)].parent_idx) {
+        auto* elem = detail::element_for_block(impl, idx);
+        if (!elem) continue;
+        if (index.empty() && detail::has_attr(elem, "data-index")) {
+            index = detail::attr_string(elem, "data-index");
+        }
+        if (!index.empty() && detail::has_attr(elem, "data-aui-virtual")) {
+            detail::emit_widget_change(
+                impl, elem,
+                "check:" + index + (checked ? ":1" : ":0"));
+            return;
+        }
+    }
+}
 }  // namespace detail
 namespace {
 

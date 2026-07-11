@@ -21,11 +21,13 @@ def build(ctx, v):
 
     # Checkbox MODE: rows carry two independent states — selected and
     # checked. The toggle applies to both the list and the tree.
+    # on_change, not on_click: checkbox clicks are consumed by the native
+    # toggle and emit a CHANGE ("true"/"false") — click never fires.
     v.checkbox(
         "Row checkboxes (list + tree)",
         ctx.collections_checkboxes,
         key="collections-cb-mode",
-    ).on_click(ctx.toggle_collections_checkboxes)
+    ).on_change(lambda value: ctx.set_collections_checkboxes(value == "true"))
 
     # The virtual list/tree element is itself the scroll box (the scroll ->
     # re-window seam listens on it), so the host must NOT scroll: it just gives
