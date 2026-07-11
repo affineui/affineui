@@ -95,3 +95,131 @@ jobs:
             -DSOKOL_METAL -DSOKOL_NO_ENTRY -DAFFINEUI_BACKEND_METAL -DAFFINEUI_WITH_SOKOL \
             -I build/release/dist \
             -c build/release/dist/affineui.cpp -o /tmp/amalg_metal_adapter.o
+
+  amalgamate_gcc:
+    name: Amalgamation (gcc consumes the two-file SDK)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Generating needs clang (amalgamate.py compiles the staged Lexbor tree
+      # to repair it and to scan objects for unprefixed globals, with
+      # clang-only flags). CONSUMING must work on gcc too — and until this job
+      # existed, nothing ever compiled the amalgamation with anything but
+      # clang-on-macOS, so gcc-only breakage (e.g. Lexbor's C99 designated
+      # initializers, which C++ rejects) shipped silently.
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang \
+            libx11-dev libxi-dev libxcursor-dev libgl1-mesa-dev libasound2-dev
+      - name: Configure + generate amalgamation
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target amalgamate
+      - name: Compile amalgamation with g++ (GL)
+        run: |
+          g++ -std=c++20 \
+            -DSOKOL_GLCORE -DSOKOL_NO_ENTRY -DAFFINEUI_BACKEND_GL \
+            -I build/dist -c build/dist/affineui.cpp -o /tmp/amalg_gcc.o
+      - name: Compile amalgamation with g++ (adapter, AFFINEUI_WITH_SOKOL)
+        run: |
+          g++ -std=c++20 \
+            -DSOKOL_GLCORE -DSOKOL_NO_ENTRY -DAFFINEUI_BACKEND_GL -DAFFINEUI_WITH_SOKOL \
+            -I build/dist -c build/dist/affineui.cpp -o /tmp/amalg_gcc_adapter.o
+
+  bindings:
+    name: Bindings (Python / Rust / C#)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install X11 / GL / ALSA dev packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build xvfb \
+            libx11-dev libxi-dev libxcursor-dev libgl1-mesa-dev libasound2-dev
+
+      # affineui_c is the C ABI shared library that BOTH the Rust and C#
+      # bindings link against. No other CI job builds it (they all leave
+      # AFFINEUI_BUILD_C_SHARED at its OFF default), so until this job existed
+      # a change could break the ABI contract and every check stayed green.
+      - name: Build affineui_c (the shared C ABI)
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DAFFINEUI_BUILD_C_SHARED=ON
+          cmake --build build --target affineui_c --parallel
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # Python builds its own extension (scikit-build-core compiles the core
+      # in-tree), so it doesn't consume affineui_c. Constructing ui.App() opens
+      # an X connection even headless, hence xvfb.
+      - name: Python — build + pytest
+        run: |
+          pip install -e ./bindings/python
+          xvfb-run -a python -m pytest bindings/python/tests -q
+
+      # `system` links the affineui_c built above instead of re-running cmake
+      # through build.rs — but build.rs only takes that path when `vendored` is
+      # OFF (it's a default feature), so --no-default-features is required or
+      # this silently rebuilds the whole C++ core again.
+      # --test-threads=1: the bindings hold process-global state, so the suite
+      # is not parallel-safe.
+      - name: Rust — cargo test
+        working-directory: bindings/rust
+        env:
+          AFFINEUI_LIB_DIR: ${{ github.workspace }}/build
+        run: |
+          xvfb-run -a cargo test --no-default-features --features system \
+            -- --test-threads=1
+
+      # There is no C# test project yet; Hello --headless IS the assertion —
+      # it returns 1 if the headless layout produces no content, and checks
+      # that every callback holder is released on view dispose.
+      - name: C# — build + Hello --headless
+        env:
+          AFFINEUI_NATIVE_DIR: ${{ github.workspace }}/build
+        run: |
+          xvfb-run -a dotnet run --project bindings/csharp/examples/Hello \
+            -c Release -- --headless
+
+  examples:
+    name: Examples (build every sample)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install X11 / GL / ALSA dev packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build \
+            libx11-dev libxi-dev libxcursor-dev libgl1-mesa-dev libasound2-dev
+      # No CI job built the examples before this one, so a sample could break
+      # (or stop compiling entirely) without a single check going red. Building
+      # them is cheap; running them mostly is not — only the two that support a
+      # headless dump are exercised below.
+      - name: Configure + build all examples
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+
+      # The only two samples with a non-interactive path. DENDER dumps the view
+      # diagnostics to stderr: a non-empty diagnostics block means the view tree
+      # failed to build, so an empty stderr is a real assertion, not a smoke test.
+      - name: Headless samples (DENDER + game editor)
+        run: |
+          set -euo pipefail
+          AFFINEUI_DUMP_HTML=1 ./build/examples/decius_dender/decius_dender \
+            > /tmp/dender.html 2> /tmp/dender.err
+          test -s /tmp/dender.html
+          if [ -s /tmp/dender.err ]; then
+            echo "DENDER reported view diagnostics:"; cat /tmp/dender.err; exit 1
+          fi
+          ./build/examples/decius_dender/decius_dender --probe
+          AFFINEUI_DUMP_HTML=1 ./build/examples/decius_game_editor/decius_game_editor \
+            > /tmp/ge.html
+          test -s /tmp/ge.html
