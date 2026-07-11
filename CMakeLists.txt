@@ -98,6 +98,14 @@ endif()
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# MSVC defaults to the system ANSI codepage for both source and execution
+# charsets, silently mangling UTF-8 string literals (e.g. CJK text in an
+# app's HTML). /utf-8 makes both UTF-8, matching GCC/Clang. Applies to the
+# whole build tree — embedding hosts must set it in their own build.
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 # ─── Helper modules ──────────────────────────────────────────────────────────
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerWarnings)

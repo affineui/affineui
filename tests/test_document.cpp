@@ -11754,6 +11754,114 @@ TEST_CASE("IME preedit survives a relayout") {
     CHECK(any_text_run_contains(painter, "ab\xE3\x81\x8B\xE3\x82\x93"));
 }
 
+// ── CJK line breaking in text controls — IME_ARCHITECTURE.md §4.7 ──────
+
+namespace {
+
+// Textarea whose CSS content width fits `chars` CJK codepoints per line:
+// RecordingPainter measures 8px/byte, a CJK codepoint is 3 bytes (24px),
+// and box-sizing:border-box loses 14px to border+padding.
+void set_cjk_textarea(affineui::Document& doc,
+                      RecordingPainter& painter,
+                      int chars,
+                      std::string_view value) {
+    std::string html{R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        textarea {
+          display: block;
+          box-sizing: border-box;
+          width: )HTML"};
+    html += std::to_string(chars * 24 + 14);
+    html += R"HTML(px;
+          height: 80px;
+          border: 1px solid #000;
+          padding: 2px 6px;
+          font-size: 12px;
+          line-height: 18px;
+        }
+        </style>
+        <textarea>)HTML";
+    html += value;
+    html += "</textarea>";
+    doc.set_html(html);
+    doc.layout(320, 0, &painter);
+    doc.draw(painter);
+}
+
+}  // namespace
+
+// The painted glyphs are wrapped by the painter itself (draw_text_box /
+// nvgTextBreakLines), so the observable for the wrap loop is caret
+// geometry: the visual-line table must break where the glyphs do, or the
+// caret paints on the wrong line. Clicking a y on visual line N and
+// reading caret_rect() exposes the table through the public API.
+
+namespace {
+
+affineui::Rect click_caret(affineui::Document& doc, int x, int y) {
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {x, y};
+    doc.dispatch(down);
+    return doc.caret_rect();
+}
+
+}  // namespace
+
+TEST_CASE("CJK text without spaces wraps in a textarea caret table") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    // 8 × 字 (U+5B57), 4 per line -> two visual lines.
+    const std::string ji = "\xE5\xAD\x97";
+    std::string value;
+    for (int i = 0; i < 8; ++i) value += ji;
+    set_cjk_textarea(doc, painter, 4, value);
+    const auto textarea_pos = find_hovered_tag(doc, "textarea");
+    REQUIRE(textarea_pos.x >= 0);
+    const auto bounds = doc.hovered_info().bounds;
+
+    // Text content starts at border+padding (1+6, 1+2); lines are 18px.
+    const int text_x = bounds.x + 8;
+    const int line1_y = bounds.y + 3 + 9;
+    const auto line1 = click_caret(doc, text_x, line1_y);
+    const auto line2 = click_caret(doc, text_x, line1_y + 18);
+    CHECK(line2.y - line1.y == 18);
+
+    // A y below the last visual line clamps to it — there is no line 3.
+    const auto below = click_caret(doc, text_x, line1_y + 36);
+    CHECK(below.y == line2.y);
+}
+
+TEST_CASE("kinsoku keeps closing punctuation off the line start") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    // 字字。字 at 2 codepoints per line. The 。 (U+3002) overflows line 1,
+    // but breaking before it is prohibited, so the break falls back to
+    // 字|字: lines are 字 / 字。 / 字. Without kinsoku the table would
+    // read 字字 / 。字 — only two lines.
+    const std::string ji = "\xE5\xAD\x97";
+    const std::string maru = "\xE3\x80\x82";
+    set_cjk_textarea(doc, painter, 2, ji + ji + maru + ji);
+    const auto textarea_pos = find_hovered_tag(doc, "textarea");
+    REQUIRE(textarea_pos.x >= 0);
+    const auto bounds = doc.hovered_info().bounds;
+
+    const int text_x = bounds.x + 8;
+    const int line1_y = bounds.y + 3 + 9;
+    const auto line1 = click_caret(doc, text_x, line1_y);
+    const auto line3 = click_caret(doc, text_x, line1_y + 36);
+    CHECK(line3.y - line1.y == 36);
+
+    // Clicking past the glyphs on line 3 (still inside the 62px box)
+    // puts the caret after its single 字 (24px) — the 。 travelled with
+    // line 2, it never leads line 3.
+    const auto line3_end =
+        click_caret(doc, bounds.x + 55, line1_y + 36);
+    CHECK(line3_end.x - (bounds.x + 7) == 24);
+}
+
 TEST_CASE("Inline style: a descendant-inert write restyles only the target "
           "block yet stays layout-live; an inherited-prop write still "
           "reaches descendants") {
