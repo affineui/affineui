@@ -100,6 +100,13 @@ struct AppImpl {
     std::function<void(View&)> view_builder;
     std::unique_ptr<View>      retained_view;
     bool                       view_bootstrapped{false};
+    // A scroll re-window recycles rows under a stationary cursor: after the
+    // frame-loop reconcile, replay a MouseMove from the last pointer position
+    // so :hover tracks what is actually under the cursor (browser semantics).
+    bool                       hover_refresh_pending{false};
+    int                        last_mouse_x{0};
+    int                        last_mouse_y{0};
+    bool                       has_last_mouse{false};
     // View diagnostics already printed to stderr (each distinct message once).
     std::set<std::string>      reported_view_diagnostics;
     bool                  pointer_captured{false};
@@ -405,6 +412,21 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
         }
     }
 
+    // A virtual list that scrolled needs its window re-windowed so the builder
+    // reads the new scroll offset back and renders the rows now under the
+    // viewport. Only MARK it here (view_dirty — the same coalescing rail as
+    // App::invalidate()): wheel/trackpad events arrive far faster than
+    // frames, and rebuilding per event (reconcile + settle each time) is what
+    // turns smooth native scrolling jerky. The frame pulse reconciles at most
+    // once per frame with the latest offsets; the scroll itself was already
+    // applied natively, so nothing lags visually.
+    if (!impl.document.take_widget_scrolls().empty() && impl.view_builder) {
+        impl.view_dirty = true;
+        impl.hover_refresh_pending = true;
+        consumed = true;
+        impl.dirty = true;
+    }
+
     return consumed;
 }
 
@@ -587,6 +609,19 @@ void App::rebuild_view() {
     }
     View& view = *impl_->retained_view;
 
+    // Feed each virtual list its container's live scroll geometry so the build
+    // renders the window currently under the viewport. Set every rebuild (the
+    // View is reused) before the builder runs.
+    {
+        Document* doc = &impl_->document;
+        view.set_scroll_provider(
+            [doc](std::string_view name, Axis axis) -> View::ScrollGeometry {
+                const auto g = doc->virtual_scroll_geometry(
+                    name, axis == Axis::Horizontal);
+                return {g.offset, g.viewport, g.known};
+            });
+    }
+
     if (!impl_->view_bootstrapped) {
         // Bootstrap: build without a sink, load only the document SHELL
         // (head/styles/body attrs, empty <main>), then replay the built
@@ -656,6 +691,14 @@ void App::rebuild_view() {
                 std::fprintf(stderr, "AffineUI view builder failed\n");
             }
             std::rethrow_exception(failure);
+        }
+        // Document-level selector attributes (density / accent / theme) only
+        // reach the DOM through the bootstrap shell; a retained-view rebuild
+        // must re-stamp them on the live <body> or selector() flips are
+        // silent no-ops. Stamped INSIDE the mutation window so the flip and
+        // the reconcile settle once, together. No-op when unchanged.
+        for (const auto& attr : view.resolved_document_attrs()) {
+            impl_->document.set_body_attribute(attr.name, attr.value);
         }
         impl_->document.end_view_mutations();
     }
@@ -1149,6 +1192,21 @@ void cb_frame(void* user) {
             impl->view_dirty = false;
             try {
                 impl->owner->rebuild_view();
+                // A scroll-driven re-window recycled rows under a stationary
+                // cursor: replay a MouseMove from the last pointer position
+                // (a browser re-hit-tests hover on scroll the same way) so
+                // :hover follows what is actually under the cursor.
+                if (impl->hover_refresh_pending) {
+                    impl->hover_refresh_pending = false;
+                    if (impl->has_last_mouse) {
+                        Event hover_ev{};
+                        hover_ev.type = EventType::MouseMove;
+                        hover_ev.pos.x = impl->last_mouse_x;
+                        hover_ev.pos.y = impl->last_mouse_y;
+                        (void) detail::dispatch_loaded_view_event(*impl,
+                                                                  hover_ev);
+                    }
+                }
             } catch (const std::exception& e) {
                 std::fprintf(stderr,
                              "AffineUI frame-loop rebuild_view failed: %s\n",
@@ -1474,6 +1532,12 @@ void cb_event(const sapp_event* ev, void* user) {
         ++impl->moves_dispatched_since_frame;
         impl->last_move_stamp = std::chrono::steady_clock::now();
         impl->has_last_move_stamp = true;
+    }
+    if (aui_ev.type == EventType::MouseMove ||
+        aui_ev.type == EventType::MouseWheel) {
+        impl->last_mouse_x = aui_ev.pos.x;
+        impl->last_mouse_y = aui_ev.pos.y;
+        impl->has_last_mouse = true;
     }
     // Every input event dispatches immediately. Callers who want
     // per-frame semantics can accumulate inside their own handler; the

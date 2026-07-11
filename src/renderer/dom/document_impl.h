@@ -406,6 +406,7 @@ struct DocumentImpl {
     bool                      ui_control_script_attached{false};
     std::vector<std::string>  activated_widgets;
     std::vector<Document::WidgetChange> changed_widgets;
+    std::vector<Document::WidgetChange> scrolled_widgets;
     bool                      mouse_down_consumed_release{false};
     // Runtime dock-placement overrides (panel id -> placement) produced by
     // drag-to-dock / tearoff interactions. Survives view reloads (the app reads
@@ -432,6 +433,9 @@ struct DocumentImpl {
         bool force_layout;
     };
     std::vector<ViewBatchAttrRoot> view_batch_attr_roots;
+    // A body-level selector attr changed inside the batch: root_style (the
+    // inheritance/custom-prop baseline) must re-resolve at settle.
+    bool view_batch_root_style_dirty{false};
 
     // Structural changes recorded per-op by the view sink: the nearest
     // block ancestor of each insert/remove/text/raw-html splice. The
@@ -918,6 +922,10 @@ bool find_dcs_select_row_at(detail::DocumentImpl& impl,
                             int from_idx,
                             lxb_dom_element_t*& out_box,
                             lxb_dom_element_t*& out_row);
+bool toggle_virtual_tree_chevron(detail::DocumentImpl& impl, int from_idx);
+void refresh_root_style(detail::DocumentImpl& impl);
+void emit_virtual_row_check(detail::DocumentImpl& impl, int from_idx,
+                            bool checked);
 bool find_dcs_tree_row_at(detail::DocumentImpl& impl,
                           int from_idx,
                           lxb_dom_element_t*& out_tree,
@@ -1295,6 +1303,9 @@ void emit_widget_change(detail::DocumentImpl& impl,
                         lxb_dom_element_t* elem,
                         std::string_view value,
                         bool live = false);
+void emit_widget_scroll(detail::DocumentImpl& impl,
+                        lxb_dom_element_t* elem,
+                        std::int64_t offset);
 lxb_dom_element_t* find_trigger_for_target(detail::DocumentImpl& impl,
                                            std::string_view target_selector);
 bool is_descendant_of_or_self(const std::vector<Block>& blocks,

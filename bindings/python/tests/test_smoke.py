@@ -328,30 +328,61 @@ def test_stable_ref_replaces_tab_body_content():
 
 
 def test_virtual_list_materializes_visible_window():
-    view = ui.View(ui.ViewTheme.Bootstrap)
+    # Provider-driven recycling list: without live scroll geometry the
+    # builder renders the default window from the top; only those rows
+    # exist in the DOM, and the trailing spacer carries the rest of the
+    # honest extent.
+    provider = ui.VirtualListProvider()
+    provider.on_item_count(lambda: 100_000)
+    provider.on_item_text(lambda i: f"Row {i}")
+    provider.default_item_size(20.0)
 
+    view = ui.View(ui.ViewTheme.Bootstrap)
     view.begin()
-    view.virtual_list(
-        key="events",
-        item_count=100,
-        first_item=40,
-        visible_items=5,
-        overscan=2,
-        item_size=20.0,
-        build=lambda v, index: v.button(f"Row {index}", key=f"row-{index}"),
-    )
+    view.virtual_list(key="events", provider=provider)
     view.end()
 
     html = view.to_html_fragment()
     assert 'data-aui-widget="virtual-list"' in html
-    assert "height:760px" in html
-    assert "height:1060px" in html
-    assert "Row 37" not in html
-    assert "Row 38" in html
-    assert "Row 46" in html
-    assert "Row 47" not in html
-    assert view.find_widget("row-38")
-    assert not view.find_widget("row-47")
+    assert 'data-aui-virtual="list"' in html
+    assert "Row 0" in html
+    assert "Row 99999" not in html          # far tail never materializes
+    assert html.count('role="listitem"') < 200  # window, not 100k rows
+    assert "e+" not in html                  # spacer px stays exact
+
+
+def test_virtual_tree_selection_is_handle_keyed():
+    flat = ["a", "b", "c"]
+    expanded: set[str] = set()
+    selected: set[str] = set()
+
+    provider = ui.VirtualTreeProvider()
+    provider.on_item_count(lambda: len(flat))
+    provider.on_item_text(lambda i: flat[i])
+    provider.on_depth(lambda i: 0)
+    provider.on_is_expandable(lambda i: False)
+    provider.on_is_expanded(lambda i: flat[i] in expanded)
+    provider.on_is_selected(lambda i: flat[i] in selected)
+    provider.on_activate(lambda i, mod: selected.add(flat[i]))
+
+    view = ui.View(ui.ViewTheme.Bootstrap)
+    view.begin()
+    view.virtual_tree(key="tree", provider=provider)
+    view.end()
+
+    html = view.to_html_fragment()
+    assert 'data-aui-virtual="tree"' in html
+    assert 'role="treeitem"' in html
+    assert "b" in html
+
+
+def test_index_selection_range_semantics():
+    sel = ui.IndexSelection()
+    sel.apply(5, ui.SelectMod.Replace, 100)
+    sel.apply(8, ui.SelectMod.Range, 100)
+    assert sel.contains(5) and sel.contains(6) and sel.contains(8)
+    assert not sel.contains(9)
+    assert sel.size() == 4
 
 
 def test_append_is_illegal_during_generation():

@@ -159,9 +159,97 @@ open for children and closes it when the scope ends:
 
 Structural builders: `container(classes)`, `element(tag, classes)`,
 `panel()`, `card(title)`, `foldout(title, expanded)` (collapsible section),
-`tree()` + `tree_row(label, opts)`, `virtual_list(key, opts, build_item)`
-(windowed lists), `toolbar()`, `floating_toolbar(opts)`, `menu_bar()`,
-`status_bar()`, `splitter()`.
+`virtual_list(key, provider)` / `virtual_tree(key, provider)` (recycling
+lists & trees — see the next section), `toolbar()`,
+`floating_toolbar(opts)`, `menu_bar()`, `status_bar()`, `splitter()`.
+(The eager `tree()`/`tree_row()` and options-based `virtual_list` are
+deprecated: eager lists get abused and make apps non-performant.)
+
+## Virtual lists & trees
+
+**Never build a huge list out of plain elements.** A thousand
+`container()`/`text()` rows means a thousand DOM nodes to style, lay out,
+and reconcile on every rebuild — eager lists are the single most common
+way apps go non-performant, and the cost compounds silently as data
+grows. If a collection can ever be large, or you don't control its size,
+reach for a virtual list *first*, not after it gets slow.
+
+Lists and trees in AffineUI are **virtual by design**: the DOM only ever
+holds the rows under the viewport (plus a small overscan), yet the
+scrollbar, wheel, and keyboard behave exactly as if every row were real.
+Scroll a 200,000-row list and the same handful of row widgets are recycled
+in place — the reconciler diffs only text and attributes, never structure.
+
+You drive a list with a **provider** — a stateless bridge of callbacks
+between your model and the widget. Providers store no items: every
+question (count, text, selection…) is re-asked from your model on each
+rebuild. The widget holds the provider weakly, so a destroyed provider
+degrades to an empty list, never a crash.
+
+```cpp
+affineui::VirtualListProvider rows;      // owned by your controller
+affineui::IndexSelection selection;      // plain / Ctrl / Shift selection
+
+rows.default_item_size(24.0)
+    .on_item_count([&] { return model.size(); })
+    .on_item_text([&](std::size_t i) { return model.label(i); })
+    .on_is_selected([&](std::size_t i) { return selection.contains(i); })
+    .on_activate([&](std::size_t i, affineui::SelectMod m) {
+        selection.apply(i, m, model.size());
+    });
+selection.on_change([&] { app.rebuild_view(); });
+
+// In the builder — the list element is ITSELF the scroll box; give it a
+// definite height (flex:1 1 0 in a sized column) and never wrap it in
+// another overflow:auto container.
+v.virtual_list("rows", rows);
+```
+
+Requirements and conveniences:
+
+- **`App::set_view` is required.** Virtual widgets re-window by rebuilding:
+  the app owns a retained `View`, re-runs your builder, and reconciles the
+  diff. `load_view` snapshots can't follow the scrollbar.
+- **Strings-only lists** have a one-liner:
+  `v.virtual_list("k", items, StringListOptions{.item_size = 24,
+  .selection = &sel, .checked = &checks})`.
+- **Checkbox mode** (`provider.checkboxes(true)` + `on_is_checked` /
+  `on_set_checked`, or `StringListOptions::checked`) renders a compact
+  per-row checkbox. Checked is a *second, independent* row state — a
+  checkbox press toggles it without selecting the row.
+- **Rich rows** use `on_build_item(View&, i)`. Rows must stay
+  *structurally uniform* (same widget shape every row, varying only text
+  and attributes) so recycling holds.
+
+A **tree is just a list** whose flattened index resets when nodes open or
+close, plus indentation and chevrons. `VirtualTreeProvider` adds the tree
+questions (`on_depth`, `on_is_expandable`, `on_is_expanded`, `on_toggle`)
+over the flattened-expanded rows — and `TreeFlattener` answers all of them
+for you from an app data source held by weak reference:
+
+```cpp
+affineui::TreeFlattener<Scene, void, std::uint64_t> flat{
+    affineui::to_weak_ref(&scene)};
+flat.on_roots([](Scene* s, std::vector<std::uint64_t>& out) { … })
+    .on_children([](Scene* s, std::uint64_t id, auto& out) { … })
+    .on_label([](Scene* s, std::uint64_t id) { return s->name(id); })
+    .on_has_children([](Scene* s, std::uint64_t id) { … })
+    .on_changed([&] { app.rebuild_view(); });
+flat.wire(tree_provider);   // every tree question now answered
+```
+
+The flattener works in opaque **handles** (a `std::uint64_t` id, a stable
+pointer, or a map key — anything unique to the item for its lifetime, and
+never recycled onto another item). Handles are only *stored*, never
+dereferenced; the row resolves handle → live item at render time through
+the weak-ref'd source, so a deleted node draws empty instead of dangling.
+Selection and checked state live in the flattener **keyed by handle**, so
+they survive expand/collapse renumbering — select a node, collapse its
+sibling's parent, and the same node stays selected.
+
+The same surface ships in every binding: Python
+(`ui.VirtualListProvider`…), the C ABI (`affineui_vlist_provider_*`,
+`affineui_tree_flattener_*`), Rust, and C#.
 
 Declaring a `menu_bar`, `toolbar`, `status_bar`, or `document_view` at the
 root automatically switches the window from a padded content page to an
@@ -628,8 +716,14 @@ which path their updates take. In rough order of importance:
   touching DOM, styles, or layout. Don't generate SVG or DOM per frame.
 - **Keep keys stable.** Stable widget keys let the reconciler match nodes
   across rebuilds; unstable keys turn updates into teardown-and-recreate.
-- **Use `virtual_list` for long lists** — it builds only the visible
-  window.
+- **Never render a large collection as plain elements — always prefer
+  `virtual_list` / `virtual_tree`.** Providers plus slot-recycled rows
+  build only the visible window; scrolling is attribute-diffs only, at
+  any item count. An eager row-per-item list pays DOM, style, layout,
+  and reconcile cost for every item on every rebuild — fine at 20 rows,
+  ruinous at 2,000, and the row count is rarely yours to control. (The
+  strings-only overload makes the virtual path a one-liner, so there is
+  no convenience argument for the eager form.)
 - **Toggle visibility, don't rebuild.** Showing/hiding subtrees
   (`display:none`, `hidden`) is a restyle, not a structural edit; the
   engine retains the hidden subtree's layout state.

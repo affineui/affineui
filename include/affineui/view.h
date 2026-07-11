@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <source_location>
 #include <string>
@@ -20,8 +21,15 @@
 #include "affineui/callback.h"
 #include "affineui/document.h"  // Document::DockPlacement (dock override readback)
 #include "affineui/types.h"
+#include "affineui/virtual_list.h"  // VirtualListProvider / VirtualTreeProvider
 
 namespace affineui {
+
+/// The scroll/stacking axis of a virtual list. Trees are always Vertical.
+enum class Axis {
+    Vertical,    ///< rows stack top-to-bottom; scrolls on Y
+    Horizontal,  ///< items stack left-to-right; scrolls on X
+};
 
 struct StableId {
     std::uint64_t value{0};
@@ -559,6 +567,16 @@ public:
     // with zero explicit configuration. Pass `ViewTheme::Bootstrap` etc.
     // to opt into a different framework's class-name style.
     explicit View(ViewTheme theme = ViewTheme::Decius);
+    ~View();
+    // Move-only: the string-list backing holds non-copyable providers (unique
+    // weak slots), so a View cannot be copied — but it moves (build helpers
+    // return a View by value; the unique_ptr-held state moves cleanly). Deleting
+    // copy keeps an accidental copy a clear error rather than a deep-STL
+    // diagnostic. Defined out-of-line where StringListState is complete.
+    View(const View&) = delete;
+    View& operator=(const View&) = delete;
+    View(View&&) noexcept;
+    View& operator=(View&&) noexcept;
 
     void clear();
     View& selector(std::string_view name, std::string_view value);
@@ -657,10 +675,71 @@ public:
                            std::string_view selected,
                            std::string_view key = {},
                            std::source_location here = std::source_location::current());
+    /// DEPRECATED — prefer the VirtualListProvider overload below. The options
+    /// form takes a caller-computed window (first_item/visible_items) and does
+    /// not follow the scrollbar, recycle rows, or drive selection; it is kept
+    /// only for existing callers and is slated for removal.
+    [[deprecated("use virtual_list(key, VirtualListProvider&) — the options "
+                 "form does not follow scroll/recycle/select and will be "
+                 "removed")]]
     WidgetRef virtual_list(std::string_view key,
                            const VirtualListOptions& options,
                            const std::function<void(View&, std::size_t)>& build_item,
                            std::string_view classes = {},
+                           std::source_location here = std::source_location::current());
+
+    /// A recycling virtual list bridged to an app-owned VirtualListProvider.
+    /// Renders only the rows that cover the viewport (plus overscan) while
+    /// presenting the full scroll extent, so a list of hundreds of thousands of
+    /// items scrolls at display refresh with flat memory and behaves as if every
+    /// row were real. The window follows the container's live scroll offset
+    /// (read via the scroll provider), so scrolling the scrollbar/wheel/keyboard
+    /// re-windows automatically. `axis` is Vertical (default) or Horizontal.
+    ///
+    /// The provider is held weakly: if it is destroyed the list renders empty
+    /// rather than crashing. Rows are keyed by SLOT and must be structurally
+    /// uniform (same widget shape, varying only content) so the reconciler
+    /// recycles the row DOM instead of rebuilding it.
+    WidgetRef virtual_list(std::string_view key,
+                           VirtualListProvider& provider,
+                           Axis axis = Axis::Vertical,
+                           std::string_view classes = {},
+                           std::source_location here = std::source_location::current());
+
+    /// A recycling virtual tree — a virtual list over the provider's flattened,
+    /// currently-expanded nodes, with per-row indentation and an expand/collapse
+    /// chevron. Always vertical. Opening/closing a node is just a change in the
+    /// flattened count plus a redraw (the app toggles its model in on_toggle).
+    WidgetRef virtual_tree(std::string_view key,
+                           VirtualTreeProvider& provider,
+                           std::string_view classes = {},
+                           std::source_location here = std::source_location::current());
+
+    /// Options for the string-list convenience overload.
+    struct StringListOptions {
+        double item_size{24.0};                 // uniform row height (px)
+        Axis   axis{Axis::Vertical};
+        IndexSelection* selection{nullptr};     // if set, rows are selectable
+        IndexSelection* checked{nullptr};       // if set, each row gets a checkbox
+        std::string_view classes{};
+    };
+
+    /// The easy case: display an array of strings as a virtual list. Still fully
+    /// virtualized (only the visible rows are built), so it stays performant for
+    /// huge arrays — there is deliberately no eager string-list. `items` is
+    /// borrowed for the build (the caller owns it and re-supplies it each frame).
+    ///
+    /// Pass `selection` to make rows selectable (plain / Ctrl-toggle / Shift-
+    /// range, driven by the shared IndexSelection); pass `checked` to render a
+    /// checkbox per row backed by a second IndexSelection (a checklist). Both are
+    /// caller-owned so state survives across rebuilds and row recycling.
+    WidgetRef virtual_list(std::string_view key,
+                           const std::vector<std::string>& items,
+                           const StringListOptions& options,
+                           std::source_location here = std::source_location::current());
+    /// Convenience: a plain display-only string list (no selection/checkboxes).
+    WidgetRef virtual_list(std::string_view key,
+                           const std::vector<std::string>& items,
                            std::source_location here = std::source_location::current());
     WidgetRef slider(std::string_view label,
                      double value,
@@ -820,6 +899,23 @@ public:
     /// over the declared seed.
     void set_dock_size_provider(std::function<int(std::string_view pane_id)> fn);
 
+    /// The live scroll geometry of a virtual-list container, read back from the
+    /// document during a build. `offset` is the current scroll position (px)
+    /// along the list's axis; `viewport` is the container's extent (px) along
+    /// that axis — how much is visible. `known` is false before layout exists
+    /// (first build), in which case the builder falls back to a default window.
+    struct ScrollGeometry {
+        std::int64_t offset{0};
+        double       viewport{0.0};
+        bool         known{false};
+    };
+
+    /// Supply the live scroll geometry of a block by its widget name and axis.
+    /// The recycling virtual_list consults it during a build to compute which
+    /// item window to render from the container's live scroll position and size.
+    void set_scroll_provider(
+        std::function<ScrollGeometry(std::string_view name, Axis axis)> fn);
+
     /// Supply the dock engine's SAVED structure — per-panel placement overrides
     /// (docked side/parent or floating rect) produced by drag-to-dock / tearoff
     /// interactions and read back from the Document. The resolver consults it
@@ -887,20 +983,31 @@ public:
                        std::string_view key = {},
                        std::source_location here = std::source_location::current());
 
+    /// DEPRECATED — prefer virtual_tree(key, VirtualTreeProvider&). The eager
+    /// tree() / tree_row() builders materialize every row, which does not scale
+    /// (large trees jank the app) and is the footgun the virtual tree exists to
+    /// remove. Kept for existing callers pending migration; slated for removal.
+    ///
     /// A tree container (selection via the interaction layer). Fill with
     /// tree_row()s.
+    [[deprecated("use virtual_tree(key, VirtualTreeProvider&) — the eager tree "
+                 "materializes every row and will be removed")]]
     Scope tree(std::string_view key = {},
                std::source_location here = std::source_location::current());
+    /// DEPRECATED with tree() above — prefer virtual_tree.
     /// A selectable tree row at `depth`. The component generates the canonical
     /// row substructure (chevron / icon / label / meta). Returns the row ref;
     /// wire on_click for selection (the core `data-dcs-select` handler also
     /// tracks it) and, for an expandable row, on_click on whatever drives
     /// expand at the app level. Label-only rows can use the short overload.
+    [[deprecated("use virtual_tree(key, VirtualTreeProvider&)")]]
     WidgetRef tree_row(std::string_view label,
                        const TreeRowOptions& opts,
                        std::string_view key = {},
                        std::source_location here = std::source_location::current());
+    /// DEPRECATED with tree() above — prefer virtual_tree.
     /// Convenience: a label-only selectable row at `depth`.
+    [[deprecated("use virtual_tree(key, VirtualTreeProvider&)")]]
     WidgetRef tree_row(std::string_view label,
                        bool selected = false,
                        int depth = 0,
@@ -987,6 +1094,11 @@ public:
     /// built tree through the document sink, so every element is known
     /// to the sink from birth and no HTML reparse ever happens again.
     [[nodiscard]] std::string to_html_shell() const;
+    /// The document-level attributes (theme + selector() stamps) this view
+    /// emits on the shell <body>. Retained-view rebuilds re-stamp them onto
+    /// the live body so selector() flips (density/accent/theme) take effect
+    /// without a shell reload.
+    [[nodiscard]] std::vector<WidgetAttribute> resolved_document_attrs() const;
 
 private:
     friend class WidgetRef;
@@ -1070,6 +1182,24 @@ private:
     struct DockNode;
     DockRecorder* dock_recorder_{nullptr};
     std::function<int(std::string_view)> dock_size_provider_;
+    std::function<ScrollGeometry(std::string_view, Axis)> scroll_provider_;
+
+    // Persistent backing for the string-list convenience overload. Providers are
+    // non-movable and their change handler holds a WeakRef, so a per-call stack
+    // provider would be dead by the time a click fires. Instead the View owns a
+    // provider per string-list key, its items snapshotted each build (the
+    // caller's vector is only borrowed for the call). Held by unique_ptr so the
+    // provider's address — and the weak slot bound to it — stays stable.
+    struct StringListState {
+        VirtualListProvider      provider;
+        std::vector<std::string> items;
+        IndexSelection*          selection{nullptr};
+        IndexSelection*          checked{nullptr};
+        bool                     wired{false};
+    };
+    std::vector<std::pair<std::string, std::unique_ptr<StringListState>>>
+        string_lists_;
+    StringListState& string_list_state(std::string_view key);
     std::function<Document::DockPlacement(std::string_view)>
         dock_placement_provider_;
     std::function<std::string(std::string_view)> dock_active_tab_provider_;

@@ -259,7 +259,18 @@ std::string percent(double fraction) {
 }
 
 std::string px(double value) {
-    return number(std::max(0.0, value)) + "px";
+    // NOT number()/%g: virtual-list spacers reach millions of px, and %g
+    // renders those as scientific notation ("5.2e+06") which the CSS parser
+    // rejects — the spacer collapses and the scroll extent lies. Fixed-point,
+    // trailing zeros trimmed, is exact at any magnitude.
+    const double v = std::max(0.0, value);
+    char buf[64]{};
+    int n = std::snprintf(buf, sizeof(buf), "%.3f", v);
+    if (n <= 0 || n >= static_cast<int>(sizeof(buf))) return "0px";
+    std::string s(buf, static_cast<std::size_t>(n));
+    while (!s.empty() && s.back() == '0') s.pop_back();
+    if (!s.empty() && s.back() == '.') s.pop_back();
+    return s + "px";
 }
 
 double virtual_item_size(const VirtualListOptions& options,
@@ -828,9 +839,27 @@ body{margin:0}
 .aui-root .aui-color-option__swatch{display:inline-block;width:14px;height:14px;border-radius:2px;background:var(--c,#fff);box-shadow:inset 0 0 0 1px rgba(0,0,0,.35)}
 .aui-virtual-list{position:relative;display:flex;flex-direction:column;min-height:0;overflow:auto}
 .aui-virtual-list__spacer{flex:0 0 auto;min-height:0;pointer-events:none}
-.aui-virtual-list__row{flex:0 0 auto;display:flex;min-width:0}
+.aui-virtual-list__row{flex:0 0 auto;display:flex;align-items:center;min-width:0;min-height:0;overflow:hidden;padding:0 8px;box-sizing:border-box}
+.aui-virtual-list__row:hover{background:rgba(128,160,255,.10)}
+.aui-virtual-list__row[aria-selected=true]{background:rgba(77,159,255,.30)}
+.aui-virtual-list__row [data-aui-widget=checkbox]{flex:0 0 auto;display:inline-flex;align-items:center;width:auto;min-width:0;height:auto;min-height:0;margin:0 6px 0 0;padding:0;gap:0}
+.aui-virtual-list__row [data-aui-widget=checkbox] label,.aui-virtual-list__row [data-aui-widget=checkbox] .dcs-field__label,.aui-virtual-list__row [data-aui-widget=checkbox] .form-check-label{display:none}
+.aui-virtual-list__row [data-aui-widget=checkbox] .dcs-check{width:12px;height:12px;min-height:0;padding:0}
+.aui-virtual-list__row [data-aui-widget=checkbox] .dcs-check__box{width:12px;height:12px}
+.aui-virtual-list__row [data-aui-widget=checkbox] .dcs-check__box .di{font-size:9px;line-height:1}
+.aui-virtual-list__row [data-aui-widget=checkbox] input[type=checkbox]{position:static;width:12px;height:12px;margin:0}
+.aui-virtual-list__row .form-check{padding:0;margin:0;min-height:0}
 .aui-virtual-list__row>.list-group-item{width:100%;border-left-width:1px;border-right-width:1px}
 .aui-virtual-list__row>.dcs-card,.aui-virtual-list__row>.dcs-list__item{display:flex;align-items:center;justify-content:flex-start;width:100%;min-width:100%;box-sizing:border-box;text-align:left}
+.aui-virtual-tree__chevron{display:inline-flex;align-items:center;justify-content:center;flex:0 0 1.15em;width:1.15em;margin-right:.15em;opacity:.8}
+.aui-virtual-tree__chevron::before{content:"\203a";font-size:1.25em;line-height:1;font-weight:700}
+.aui-virtual-tree__chevron[data-state=leaf]::before{content:""}
+.aui-virtual-tree__chevron[data-state=open]{transform:rotate(90deg)}
+.aui-virtual-tree__chevron[data-state=open]{cursor:pointer}
+.aui-virtual-tree__chevron[data-state=closed]{cursor:pointer}
+.aui-virtual-tree__content{display:flex;flex:1 1 auto;min-width:0;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aui-virtual-host{display:flex;flex-direction:column;width:100%;height:340px;min-height:0;overflow:hidden;border:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));border-radius:4px;box-sizing:border-box;background:rgba(0,0,0,.03)}
+.aui-virtual-host>.aui-virtual-list{flex:1 1 auto;min-height:0}
 .aui-scroll{overflow:auto;min-height:0}
 .aui-tree-list{display:flex;flex-direction:column;align-items:stretch;width:100%;max-height:220px;overflow:auto}
 .aui-tree-list .list-group-item,.aui-tree-list .dcs-tree__row,.aui-tree-list .aui-tree-row,.aui-scroll-tree .list-group-item,.aui-scroll-tree .dcs-tree__row,.aui-scroll-tree .aui-tree-row{display:flex;align-items:center;justify-content:flex-start;width:100%;min-width:100%;box-sizing:border-box;text-align:left}
@@ -949,6 +978,9 @@ body{margin:0}
 .photo-hybrid-status p{margin:0}
 .photo-hybrid-inspector{display:flex;flex:0 0 260px;flex-direction:column;gap:8px;padding:10px;box-sizing:border-box;border-left:1px solid var(--dcs-line,rgba(128,128,128,.25));background:var(--dcs-surface-1,#20242e);overflow:auto}
 .photo-hybrid-inspector h2{margin:4px 0 2px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dcs-text-mute,#888)}
+@media (max-width:1280px){
+  .aui-test-topbar{padding-right:16px}
+}
 @media (max-width:1120px){
   .aui-test-control-label{display:none}
   .aui-test-control{padding-left:7px;padding-right:7px}
@@ -1454,6 +1486,12 @@ View::View(ViewTheme theme) : theme_(theme) {
     root_.tag = "#root";
     root_.remote_id = "aui-root";
 }
+
+// Out-of-line so unique_ptr<StringListState> (incomplete in the header) is
+// destroyed where StringListState is complete.
+View::~View() = default;
+View::View(View&&) noexcept = default;
+View& View::operator=(View&&) noexcept = default;
 
 void View::clear() {
     root_.children.clear();
@@ -2020,6 +2058,390 @@ WidgetRef View::virtual_list(
 
     close_node();
     return ref_for_node(list, current_panel_id(stack_));
+}
+
+namespace {
+
+// The main-axis leading spacer for a virtual list: on the vertical axis it is a
+// full-width block of the given height; on the horizontal axis a full-height
+// block of the given width. A single class + an axis-driven style keeps the row
+// structure identical across axes so recycling holds.
+std::string spacer_style(Axis axis, double extent) {
+    if (axis == Axis::Horizontal) {
+        return "width:" + px(extent) + ";flex:0 0 auto";
+    }
+    return "height:" + px(extent);
+}
+
+// Parse "check:<index>:<0|1>" (a row checkbox toggled natively — rows
+// recycle, so the state routes through the box to the app's checked model).
+// Returns true when handled.
+template <typename Provider>
+bool handle_virtual_row_check(Provider& p, std::string_view value) {
+    constexpr std::string_view prefix = "check:";
+    if (value.substr(0, prefix.size()) != prefix) return false;
+    value.remove_prefix(prefix.size());
+    const auto colon = value.find(':');
+    if (colon == std::string_view::npos) return true;
+    std::size_t index = 0;
+    const char* first = value.data();
+    if (std::from_chars(first, first + colon, index).ec != std::errc{}) {
+        return true;
+    }
+    p.set_checked(index, value.substr(colon + 1) == "1");
+    return true;
+}
+
+// Parse a row-activation value ("activate:<index>:<mod>") and dispatch it to
+// the provider's on_activate. The provider is held weakly, so a dead provider
+// makes this a safe no-op (the whole hard-to-crash contract at the widget edge).
+std::function<void(std::string_view)> virtual_activation_handler(
+    VirtualListProvider& provider) {
+    WeakRef<VirtualListProvider> weak = to_weak_ref(&provider);
+    return [weak](std::string_view value) {
+        auto* p = weak.lock();
+        if (!p) return;
+        if (handle_virtual_row_check(*p, value)) return;
+        constexpr std::string_view prefix = "activate:";
+        if (value.substr(0, prefix.size()) != prefix) return;
+        value.remove_prefix(prefix.size());
+        const auto colon = value.find(':');
+        if (colon == std::string_view::npos) return;
+        const std::string_view index_sv = value.substr(0, colon);
+        const std::string_view mod_sv = value.substr(colon + 1);
+
+        std::size_t index = 0;
+        const char* first = index_sv.data();
+        const char* last = first + index_sv.size();
+        if (std::from_chars(first, last, index).ec != std::errc{}) return;
+
+        SelectMod mod = SelectMod::Replace;
+        if (mod_sv == "toggle") mod = SelectMod::Toggle;
+        else if (mod_sv == "range") mod = SelectMod::Range;
+        p->activate(index, mod);
+    };
+}
+
+// Tree handler: routes both row activation ("activate:<i>:<mod>") and chevron
+// expand/collapse ("toggle:<i>") to the tree provider. Held weakly.
+std::function<void(std::string_view)> virtual_tree_handler(
+    VirtualTreeProvider& provider) {
+    WeakRef<VirtualTreeProvider> weak = to_weak_ref(&provider);
+    return [weak](std::string_view value) {
+        auto* p = weak.lock();
+        if (!p) return;
+        if (handle_virtual_row_check(*p, value)) return;
+        auto parse_index = [](std::string_view sv, std::size_t& out) {
+            const char* first = sv.data();
+            return std::from_chars(first, first + sv.size(), out).ec ==
+                   std::errc{};
+        };
+        constexpr std::string_view toggle = "toggle:";
+        if (value.substr(0, toggle.size()) == toggle) {
+            std::size_t index = 0;
+            if (parse_index(value.substr(toggle.size()), index)) {
+                p->toggle(index);
+            }
+            return;
+        }
+        constexpr std::string_view activate = "activate:";
+        if (value.substr(0, activate.size()) == activate) {
+            value.remove_prefix(activate.size());
+            const auto colon = value.find(':');
+            if (colon == std::string_view::npos) return;
+            std::size_t index = 0;
+            if (!parse_index(value.substr(0, colon), index)) return;
+            const std::string_view mod_sv = value.substr(colon + 1);
+            SelectMod mod = SelectMod::Replace;
+            if (mod_sv == "toggle") mod = SelectMod::Toggle;
+            else if (mod_sv == "range") mod = SelectMod::Range;
+            p->activate(index, mod);
+        }
+    };
+}
+
+}  // namespace
+
+WidgetRef View::virtual_list(std::string_view key,
+                             VirtualListProvider& provider,
+                             Axis axis,
+                             std::string_view classes,
+                             std::source_location here) {
+    std::string list_classes{"aui-virtual-list"};
+    list_classes += axis == Axis::Horizontal
+        ? " aui-virtual-list--horizontal"
+        : " aui-virtual-list--vertical";
+    if (!classes.empty()) {
+        list_classes += ' ';
+        list_classes += classes;
+    }
+
+    // open_node auto-names public keys, so the container carries `key` as its
+    // data-aui-name — the scroll provider and scroll-change binding find it by
+    // that name across rebuilds.
+    auto& list = open_node(WidgetKind::VirtualList, "div", list_classes,
+                           key, here, true);
+    set_attr(list, "data-aui-widget", "virtual-list");
+    set_attr(list, "data-aui-virtual", "list");
+    set_attr(list, "role", "list");
+    // Row clicks route through the native dcs-select detector, which — because
+    // this box is data-aui-virtual — emits a model activation ("activate:<i>:
+    // <mod>") rather than mutating aria-selected on recycled rows.
+    set_attr(list, "data-dcs-select", "multi");
+    set_change_handler(list, virtual_activation_handler(provider));
+
+    // Resolve the window from the container's live scroll geometry. Before
+    // layout exists (first build) fall back to a default window at the top.
+    constexpr std::size_t kOverscan = 2;
+    constexpr std::size_t kDefaultVisible = 96;  // covers tall viewports pre-layout
+    ScrollGeometry geom{};
+    if (scroll_provider_) geom = scroll_provider_(key, axis);
+    const VirtualWindow win = compute_window(
+        provider, geom.known ? geom.offset : 0,
+        geom.known ? geom.viewport : 0.0, kOverscan, kDefaultVisible);
+
+    set_attr(list, "data-item-count", std::to_string(provider.item_count()));
+    set_attr(list, "data-first-item", std::to_string(win.first));
+
+    // Leading spacer — pushes the built block to its true offset. Native scroll
+    // then translates it into view, giving the sub-row-precise smooth scroll.
+    auto& before = open_node(WidgetKind::Container, "div",
+                             "aui-virtual-list__spacer", "__lead", here, false);
+    set_attr(before, "style", spacer_style(axis, win.lead_px));
+
+    // The recycled rows: keyed by SLOT (constant key set at constant position)
+    // so the reconciler reuses row DOM every scroll tick — only content/attrs
+    // diff. data-index carries the logical item so clicks/drops map back.
+    std::size_t slot = 0;
+    for (std::size_t i = win.begin; i < win.end; ++i, ++slot) {
+        const std::string row_key = "__slot-" + std::to_string(slot);
+        // dcs-list__item makes the row recognized by the native selection
+        // detector (which then emits a model activation for this virtual box).
+        auto& row = open_node(WidgetKind::Container, "div",
+                              "aui-virtual-list__row dcs-list__item", row_key,
+                              here, true);
+        set_attr(row, "role", "listitem");
+        set_attr(row, "data-index", std::to_string(i));
+        set_attr(row, "aria-selected",
+                 provider.is_selected(i) ? "true" : "false");
+        // Pin the row's MAIN-AXIS size with an inline flex-basis, not just
+        // height/width: theme CSS may set its own basis on themed rows
+        // (decius: .dcs-list__item{flex:0 0 var(--dcs-h)}), and in flex
+        // layout basis beats height — the rendered rows then disagree with
+        // the window math (underfilled box, scroll/modulus desync). Inline
+        // style outranks any sheet.
+        {
+            const std::string size_px = px(provider.item_size(i));
+            if (axis == Axis::Horizontal) {
+                set_attr(row, "style", "width:" + size_px + ";flex:0 0 " +
+                                           size_px);
+            } else {
+                set_attr(row, "style", "height:" + size_px + ";flex:0 0 " +
+                                           size_px);
+            }
+        }
+
+        // Checkbox mode: a leading checkbox slot on every row (structurally
+        // uniform → rows keep recycling). Checked is a SECOND row state,
+        // independent of selection. The toggle routes NATIVELY: the press is
+        // consumed by the checkbox (no row select) and the document emits
+        // "check:<row>:<0|1>" on the box, which the change handler forwards
+        // to the provider's checked model (recycled rows have no widget
+        // names, so per-widget events could not route).
+        if (provider.has_checkboxes()) {
+            checkbox("", provider.is_checked(i), "__cb");
+        }
+
+        const auto stack_size = stack_.size();
+        if (provider.build_item()) {
+            provider.build_item()(*this, i);
+        } else if (provider.item_text()) {
+            text(provider.item_text()(i));
+        }
+        while (stack_.size() > stack_size) close_node();
+        close_node();
+    }
+
+    // Trailing spacer — the remaining extent below/right of the built block.
+    auto& after = open_node(WidgetKind::Container, "div",
+                            "aui-virtual-list__spacer", "__trail", here, false);
+    set_attr(after, "style", spacer_style(axis, win.trail_px));
+
+    close_node();
+    return ref_for_node(list, current_panel_id(stack_), key);
+}
+
+WidgetRef View::virtual_tree(std::string_view key,
+                             VirtualTreeProvider& provider,
+                             std::string_view classes,
+                             std::source_location here) {
+    // The tree IS a virtual list: the base class carries the container's
+    // layout contract (flex column, overflow:auto scroller, min-height:0).
+    std::string tree_classes{"aui-virtual-list aui-virtual-tree"};
+    if (!classes.empty()) {
+        tree_classes += ' ';
+        tree_classes += classes;
+    }
+
+    auto& tree = open_node(WidgetKind::VirtualList, "div", tree_classes,
+                           key, here, true);
+    set_attr(tree, "data-aui-widget", "virtual-list");
+    set_attr(tree, "data-aui-virtual", "tree");
+    set_attr(tree, "role", "tree");
+    set_attr(tree, "data-dcs-select", "single");
+    set_change_handler(tree, virtual_tree_handler(provider));
+
+    constexpr std::size_t kOverscan = 2;
+    constexpr std::size_t kDefaultVisible = 96;  // covers tall viewports pre-layout
+    ScrollGeometry geom{};
+    if (scroll_provider_) geom = scroll_provider_(key, Axis::Vertical);
+    const VirtualWindow win = compute_window(
+        provider, geom.known ? geom.offset : 0,
+        geom.known ? geom.viewport : 0.0, kOverscan, kDefaultVisible);
+
+    set_attr(tree, "data-item-count", std::to_string(provider.item_count()));
+    set_attr(tree, "data-first-item", std::to_string(win.first));
+
+    auto& before = open_node(WidgetKind::Container, "div",
+                             "aui-virtual-list__spacer", "__lead", here, false);
+    set_attr(before, "style", spacer_style(Axis::Vertical, win.lead_px));
+
+    std::size_t slot = 0;
+    for (std::size_t i = win.begin; i < win.end; ++i, ++slot) {
+        const std::string row_key = "__slot-" + std::to_string(slot);
+        // dcs-tree__row makes the row recognized by the native selection
+        // detector (same contract as dcs-list__item on list rows).
+        auto& row = open_node(
+            WidgetKind::Container, "div",
+            "aui-virtual-tree__row aui-virtual-list__row dcs-tree__row",
+            row_key, here, true);
+        set_attr(row, "role", "treeitem");
+        set_attr(row, "data-index", std::to_string(i));
+        set_attr(row, "aria-selected",
+                 provider.is_selected(i) ? "true" : "false");
+
+        // Structurally-uniform tree shell: indent + chevron + content. The
+        // chevron and indent are always present (varying by attribute only) so
+        // depth/expand changes and scrolling stay attribute diffs — rows recycle.
+        const int depth = provider.depth(i);
+        set_attr(row, "data-depth", std::to_string(depth));
+        // Indent inline (definite px) so depth reads correctly under any
+        // theme; --depth is still published for theme CSS that wants it.
+        // flex-basis pinned inline for the same reason as list rows: theme
+        // CSS (dcs-tree__row) sets its own basis, and basis beats height.
+        const std::string row_px = px(provider.item_size(i));
+        set_attr(row, "style",
+                 "height:" + row_px + ";flex:0 0 " + row_px +
+                     ";padding-left:" + px(8.0 + 14.0 * depth) +
+                     ";--depth:" + std::to_string(depth));
+
+        const bool expandable = provider.is_expandable(i);
+        const bool expanded   = expandable && provider.is_expanded(i);
+        set_attr(row, "aria-expanded",
+                 !expandable ? "" : (expanded ? "true" : "false"));
+
+        // Leaf (push_scope=false): open_node does NOT push the stack, so no
+        // close_node() — closing here would pop the ROW and unwind every
+        // following row one ancestor higher (rows escaping their box).
+        auto& chevron = open_node(WidgetKind::Container, "div",
+                                  "aui-virtual-tree__chevron", "__chev", here,
+                                  false);
+        set_attr(chevron, "data-state",
+                 !expandable ? "leaf" : (expanded ? "open" : "closed"));
+        // Mark expandable chevrons so a click on one toggles the node (via the
+        // tree's change handler) instead of selecting the row.
+        if (expandable) {
+            set_attr(chevron, "data-aui-chevron", std::to_string(i));
+        } else {
+            remove_attr(chevron, "data-aui-chevron");
+        }
+
+        // Checkbox mode: same leading-slot contract as the list (uniform
+        // shape, checked independent of selection, press consumed, state
+        // routed natively as "check:<row>:<0|1>" on the box).
+        if (provider.has_checkboxes()) {
+            checkbox("", provider.is_checked(i), "__cb");
+        }
+
+        auto& content = open_node(WidgetKind::Container, "div",
+                                  "aui-virtual-tree__content", "__content",
+                                  here, true);
+        const auto stack_size = stack_.size();
+        if (provider.build_item()) {
+            provider.build_item()(*this, i);
+        } else if (provider.item_text()) {
+            text(provider.item_text()(i));
+        }
+        while (stack_.size() > stack_size) close_node();
+        close_node();  // content
+        (void)content;
+
+        close_node();  // row
+    }
+
+    auto& after = open_node(WidgetKind::Container, "div",
+                            "aui-virtual-list__spacer", "__trail", here, false);
+    set_attr(after, "style", spacer_style(Axis::Vertical, win.trail_px));
+
+    close_node();
+    return ref_for_node(tree, current_panel_id(stack_), key);
+}
+
+View::StringListState& View::string_list_state(std::string_view key) {
+    for (auto& [k, state] : string_lists_) {
+        if (k == key) return *state;
+    }
+    string_lists_.emplace_back(std::string(key),
+                               std::make_unique<StringListState>());
+    return *string_lists_.back().second;
+}
+
+WidgetRef View::virtual_list(std::string_view key,
+                             const std::vector<std::string>& items,
+                             std::source_location here) {
+    return virtual_list(key, items, StringListOptions{}, here);
+}
+
+WidgetRef View::virtual_list(std::string_view key,
+                             const std::vector<std::string>& items,
+                             const StringListOptions& options,
+                             std::source_location here) {
+    StringListState& st = string_list_state(key);
+    // Snapshot the borrowed items (they may be a temporary) — but only when
+    // they actually changed: a virtual list rebuilds on every scroll tick, and
+    // unconditionally copying a 200k-string vector per tick is the difference
+    // between smooth and jerky. The equality check early-exits on the first
+    // difference and allocates nothing.
+    if (st.items != items) st.items = items;
+    st.selection = options.selection;
+    st.checked = options.checked;
+
+    if (!st.wired) {
+        // Wire the provider once — its callbacks read the persistent state, so
+        // they stay valid as items/selection are refreshed each build.
+        st.provider.default_item_size(options.item_size)
+            .on_item_count([&st] { return st.items.size(); })
+            .on_item_text([&st](std::size_t i) { return st.items[i]; })
+            .on_is_selected([&st](std::size_t i) {
+                return st.selection && st.selection->contains(i);
+            })
+            .on_activate([&st](std::size_t i, SelectMod m) {
+                if (st.selection) st.selection->apply(i, m, st.items.size());
+            })
+            .on_is_checked([&st](std::size_t i) {
+                return st.checked && st.checked->contains(i);
+            })
+            .on_set_checked([&st](std::size_t i, bool) {
+                if (st.checked)
+                    st.checked->apply(i, SelectMod::Toggle, st.items.size());
+            });
+        st.wired = true;
+    }
+    // Checkbox MODE follows the per-call options (the widget's leading
+    // checkbox slot renders only while a checked model is supplied).
+    st.provider.checkboxes(options.checked != nullptr);
+
+    return virtual_list(key, st.provider, options.axis, options.classes, here);
 }
 
 WidgetRef View::slider(std::string_view label,
@@ -3422,6 +3844,11 @@ void View::set_dock_size_provider(std::function<int(std::string_view)> fn) {
     dock_size_provider_ = std::move(fn);
 }
 
+void View::set_scroll_provider(
+    std::function<ScrollGeometry(std::string_view, Axis)> fn) {
+    scroll_provider_ = std::move(fn);
+}
+
 void View::set_dock_placement_provider(
     std::function<Document::DockPlacement(std::string_view)> fn) {
     dock_placement_provider_ = std::move(fn);
@@ -3972,6 +4399,10 @@ std::string View::to_html_document() const {
     out += to_html_fragment();
     out += "</main></body></html>";
     return out;
+}
+
+std::vector<WidgetAttribute> View::resolved_document_attrs() const {
+    return document_attrs(theme_, framework_version_, document_attrs_);
 }
 
 std::string View::to_html_shell() const {

@@ -1085,13 +1085,11 @@ void apply_user_textarea_size(detail::DocumentImpl& impl,
     const auto it = impl.user_textarea_sizes.find(elem_node);
     if (it == impl.user_textarea_sizes.end()) return;
     if (it->second.width > 0) {
-        rs.computed.width = static_cast<std::int16_t>(
-            std::min(it->second.width, 32767));
+        rs.computed.width = it->second.width;
         rs.computed.width_pct_x100 = -1;
     }
     if (it->second.height > 0) {
-        rs.computed.height = static_cast<std::int16_t>(
-            std::min(it->second.height, 32767));
+        rs.computed.height = it->second.height;
         rs.computed.height_pct = -1;
     }
 }
