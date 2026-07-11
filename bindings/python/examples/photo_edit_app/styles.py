@@ -114,6 +114,8 @@ PHOTO_CSS = r"""
 .ps-tool:hover{background:var(--dcs-surface-2,#303642);color:var(--dcs-text,#e7e9ee)}
 .ps-tool[aria-pressed=true]{background:var(--dcs-accent-dim,#263f64);color:var(--dcs-accent-hi,#b9d5ff);border-color:var(--dcs-accent-lo,#3b6ba8)}
 .ps-tool[data-group=true]::after{content:"";position:absolute;right:3px;bottom:3px;border-left:4px solid transparent;border-bottom:4px solid var(--dcs-text-mute,#8c93a3)}
+/* Selected grouped tool: the corner triangle picks up the accent (web parity). */
+.ps-tool[aria-pressed=true][data-group=true]::after{border-bottom-color:var(--dcs-accent-hi,#b9d5ff)}
 .ps-toolsep{width:28px;height:1px;background:var(--dcs-line-soft,#3a3f4c);margin:5px 0}
 .ps-colorchips{position:relative;width:38px;height:38px;margin:8px 0 2px}
 .ps-colorchip{position:absolute;width:24px;height:24px;border:1px solid var(--dcs-line-strong,#4b5262);border-radius:3px;box-shadow:0 3px 8px rgba(0,0,0,.32);cursor:pointer}
