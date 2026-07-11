@@ -1931,6 +1931,11 @@ namespace {
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
+bool is_body_element(detail::DocumentImpl& impl, lxb_dom_element_t* elem) {
+    auto* body = lxb_html_document_body_element(impl.doc);
+    return body != nullptr && elem == lxb_dom_interface_element(body);
+}
+
 bool set_attribute_on_element(detail::DocumentImpl& impl,
                               lxb_dom_element_t* elem,
                               std::string_view name,
@@ -2015,7 +2020,13 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
         bool needs_subtree_rematch = false;
         if (selector_affecting) {
             needs_subtree_rematch = true;
-            if (lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
+            if (detail::is_body_element(impl, elem)) {
+                // Body-level flip: the root_style baseline (inherited custom
+                // properties) must re-resolve at settle.
+                impl.view_batch_root_style_dirty = true;
+            }
+            if (!detail::is_body_element(impl, elem) &&
+                lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
                 attribute_matches_confined_to_subject(impl, name)) {
                 // Element-local rematch is cheap — run it now so batch end
                 // only re-matches subtrees for attrs whose rules escape the
@@ -2059,7 +2070,8 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
         // other element's match set can change — rematch just this element
         // instead of the whole dirty subtree (the dominant cost of menu
         // hidden-toggles on large documents).
-        if (lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
+        if (!detail::is_body_element(impl, elem) &&
+            lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
             attribute_matches_confined_to_subject(impl, name)) {
             if (lxb_html_document_element_styles_rematch(
                     lxb_html_interface_element(lxb_dom_interface_node(elem)))
@@ -2072,6 +2084,11 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
         }
         const double rematch_ms = phase();
         if (impl.resolver) impl.resolver->clear();
+        if (detail::is_body_element(impl, elem)) {
+            // Body-level flip: re-resolve the root_style baseline so every
+            // descendant restyles against the NEW custom properties.
+            detail::refresh_root_style(impl);
+        }
 
         if (target_idx >= 0) {
             auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
@@ -2204,7 +2221,13 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
         bool needs_subtree_rematch = false;
         if (selector_affecting) {
             needs_subtree_rematch = true;
-            if (lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
+            if (detail::is_body_element(impl, elem)) {
+                // Body-level flip: the root_style baseline (inherited custom
+                // properties) must re-resolve at settle.
+                impl.view_batch_root_style_dirty = true;
+            }
+            if (!detail::is_body_element(impl, elem) &&
+                lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
                 attribute_matches_confined_to_subject(impl, name)) {
                 (void) lxb_html_document_element_styles_rematch(
                     lxb_html_interface_element(lxb_dom_interface_node(elem)));
@@ -2233,7 +2256,8 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
         };
         // Subject-confined attribute: rematch only the mutated element
         // (see set_attribute_on_element).
-        if (lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
+        if (!detail::is_body_element(impl, elem) &&
+            lxb_dom_interface_node(elem)->ns == LXB_NS_HTML &&
             attribute_matches_confined_to_subject(impl, name)) {
             if (lxb_html_document_element_styles_rematch(
                     lxb_html_interface_element(lxb_dom_interface_node(elem)))
@@ -2246,6 +2270,11 @@ bool remove_attribute_on_element(detail::DocumentImpl& impl,
         }
         const double rematch_ms = phase();
         if (impl.resolver) impl.resolver->clear();
+        if (detail::is_body_element(impl, elem)) {
+            // Body-level flip: re-resolve the root_style baseline so every
+            // descendant restyles against the NEW custom properties.
+            detail::refresh_root_style(impl);
+        }
 
         if (target_idx >= 0) {
             auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];

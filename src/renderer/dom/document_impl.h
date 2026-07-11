@@ -433,6 +433,9 @@ struct DocumentImpl {
         bool force_layout;
     };
     std::vector<ViewBatchAttrRoot> view_batch_attr_roots;
+    // A body-level selector attr changed inside the batch: root_style (the
+    // inheritance/custom-prop baseline) must re-resolve at settle.
+    bool view_batch_root_style_dirty{false};
 
     // Structural changes recorded per-op by the view sink: the nearest
     // block ancestor of each insert/remove/text/raw-html splice. The
@@ -920,6 +923,7 @@ bool find_dcs_select_row_at(detail::DocumentImpl& impl,
                             lxb_dom_element_t*& out_box,
                             lxb_dom_element_t*& out_row);
 bool toggle_virtual_tree_chevron(detail::DocumentImpl& impl, int from_idx);
+void refresh_root_style(detail::DocumentImpl& impl);
 void emit_virtual_row_check(detail::DocumentImpl& impl, int from_idx,
                             bool checked);
 bool find_dcs_tree_row_at(detail::DocumentImpl& impl,
