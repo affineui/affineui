@@ -36,7 +36,23 @@ endif()
 
 find_package(Python3 COMPONENTS Interpreter)
 
-if(Python3_Interpreter_FOUND)
+# The generator stages Lexbor as C++ and repairs it from compiler diagnostics,
+# which means clang specifically: it parses clang's diagnostic wording and
+# passes clang-only flags. That has nothing to do with the compiler configured
+# for *this* build — passing ${CMAKE_CXX_COMPILER} through hands the generator
+# cl.exe on an MSVC configure and g++ on a GCC one, and it dies partway. Find a
+# real clang instead, and say so plainly when there isn't one. (The *generated*
+# affineui.cpp compiles under MSVC, GCC and clang alike; only the generator is
+# clang-only, and it only ever runs on a release machine.)
+find_program(AFFINEUI_AMALGAMATE_CLANG NAMES clang++ clang)
+
+if(Python3_Interpreter_FOUND AND NOT AFFINEUI_AMALGAMATE_CLANG)
+    message(STATUS
+        "clang not found; `amalgamate` target disabled "
+        "(the two-file SDK generator requires clang — install LLVM to enable it)")
+endif()
+
+if(Python3_Interpreter_FOUND AND AFFINEUI_AMALGAMATE_CLANG)
     set(_amalg_script "${CMAKE_CURRENT_SOURCE_DIR}/amalgamate.py")
     set(_amalg_outdir "${CMAKE_BINARY_DIR}/dist")
     set(_amalg_h      "${_amalg_outdir}/affineui.h")
@@ -66,7 +82,7 @@ if(Python3_Interpreter_FOUND)
         COMMAND "${Python3_EXECUTABLE}" "${_amalg_script}"
                 --root "${CMAKE_SOURCE_DIR}"
                 --out  "${_amalg_outdir}"
-                --cxx "${CMAKE_CXX_COMPILER}"
+                --cxx  "${AFFINEUI_AMALGAMATE_CLANG}"
         DEPENDS "${_amalg_script}" "${_lexbor_cpp_script}" ${_amalg_inputs}
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
         COMMENT "Producing affineui.h + affineui.cpp two-file release"
@@ -80,12 +96,12 @@ if(Python3_Interpreter_FOUND)
                 --root "${CMAKE_SOURCE_DIR}"
                 --out  "${_lexbor_cpp_outdir}"
                 --check
-                --cxx "${CMAKE_CXX_COMPILER}"
+                --cxx  "${AFFINEUI_AMALGAMATE_CLANG}"
         DEPENDS "${_lexbor_cpp_script}"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
         COMMENT "Generating Lexbor C++ compatibility tree and compiling it"
         VERBATIM
     )
-else()
+elseif(NOT Python3_Interpreter_FOUND)
     message(STATUS "Python3 interpreter not found; `amalgamate` target disabled")
 endif()

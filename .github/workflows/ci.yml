@@ -161,6 +161,7 @@ jobs:
       # an X connection even headless, hence xvfb.
       - name: Python — build + pytest
         run: |
+          pip install pytest
           pip install -e ./bindings/python
           xvfb-run -a python -m pytest bindings/python/tests -q
 
