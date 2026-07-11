@@ -143,13 +143,29 @@ def build_toolstrip(app: "PhotoEditApp", v: ui.View) -> None:
     qm.on_click(app.toggle_quickmask)
 
 
+# The swap (⇄) and reset (⬚) markers are drawn as inline SVG rather than raw
+# unicode: the embedded UI font doesn't carry those code points, so the web's
+# literal glyphs render as tofu/blank. Small stroked SVGs match the reference
+# and render regardless of font coverage (static art → SVG per house policy).
+_SVG_SWAP = (
+    '<svg viewBox="0 0 12 12" width="11" height="11" fill="none" '
+    'stroke="currentColor" stroke-width="1.2" stroke-linecap="round" '
+    'stroke-linejoin="round">'
+    '<path d="M2 3.5h7M7 1.5l2 2-2 2"/>'
+    '<path d="M10 8.5H3M5 6.5l-2 2 2 2"/></svg>')
+_SVG_RESET = (
+    '<svg viewBox="0 0 12 12" width="12" height="12" fill="none" '
+    'stroke="currentColor" stroke-width="1" stroke-dasharray="2 1.4">'
+    '<rect x="1.5" y="1.5" width="9" height="9" rx="1"/></svg>')
+
+
 def _build_color_chips(app: "PhotoEditApp", v: ui.View) -> None:
     reset = v.container(classes="ps-chip-mini ps-reset", key="ps-color-reset",
-                        build=lambda h: h.html("⬚"))
+                        build=lambda h: h.html(_SVG_RESET))
     reset.attr("role", "button").attr("title", "Default colors (D)")
     reset.on_click(app.reset_colors)
     swap = v.container(classes="ps-chip-mini ps-swap", key="ps-color-swap",
-                       build=lambda h: h.html("⇄"))
+                       build=lambda h: h.html(_SVG_SWAP))
     swap.attr("role", "button").attr("title", "Swap colors (X)")
     swap.on_click(app.swap_colors)
     bg = v.container(classes="ps-colorchip ps-colorchip--bg", key="ps-chip-bg")
