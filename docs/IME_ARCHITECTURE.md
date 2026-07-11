@@ -251,8 +251,23 @@ mapping for embedders who drive sokol themselves.
 `setMarkedText:` → composition event, `firstRectForCharacterRange:` returns
 the rect from `sapp_ime_set_rect`. This *changes the existing key event flow*
 (dead keys start working properly too) and needs mac hardware to validate —
-kept out of the Windows PR. Linux/X11 (XIM, likely over-the-spot
-`XIMPreeditPosition` first) trails that.
+kept out of the Windows PR.
+
+**Linux/X11 (landed).** An XIM input context is created on the sokol window
+(`_sapp_x11_ime_init`), preferring the **over-the-spot** style
+(`XIMPreeditPosition | XIMStatusNothing`) and falling back to root style when
+the input method doesn't offer it. The IME (ibus/fcitx/uim over XIM) draws the
+preedit and candidate list itself at the caret spot pushed via
+`sapp_ime_set_rect` → `XNSpotLocation`; committed text — including multi-
+codepoint CJK strings — is read with `Xutf8LookupString` in the KeyPress
+handler and flows through the existing `SAPP_EVENTTYPE_CHAR` → `TextInput`
+path. `XFilterEvent` in the run loop hands composition keystrokes to the IME
+first; `sapp_ime_set_enabled` maps to `XSetICFocus`/`XUnsetICFocus` so the IME
+is only active while a text field is focused. No new link dependencies (XIM is
+part of libX11). Because over-the-spot lets the IME render the preedit, X11
+does **not** emit `SAPP_EVENTTYPE_IME_COMPOSITION` — app-drawn inline preedit
+(on-the-spot `XIMPreeditCallbacks` → `Composition` events, matching win32) is
+the natural follow-up on top of this.
 
 ### 4.5 SDL adapter (`include/affineui/sdl.h`) — free reference platform
 
@@ -353,8 +368,9 @@ line's end lands the caret at the start of the next line.
 | **PR A — core composition** | `EventType::Composition` + protocol; preedit state/splice/underline; KeyDown guard; `text_input_active()`/`caret_rect()`; C ABI; SDL adapter mapping; unit tests; `EMBEDDING_DESIGN.md` status flip | doctest headless + SDL smoke |
 | **PR B — win32 shell** | vendored-sokol IME patch (events + `sapp_ime_*`); `app.cpp` + `sokol.h` adapter wiring; DPI handling | **user IME test** on Windows |
 | **PR C — CJK rendering** | lazy per-glyph fallback fonts; text-control CJK breaks + minimal kinsoku; conformance case for paragraph CJK wrap | doctest + conformance + visual |
+| **PR D — Linux XIM shell** | vendored-sokol X11 IME patch: over-the-spot XIC (`XIMPreeditPosition`, root fallback); `Xutf8LookupString` commit; `XFilterEvent` in the run loop; `sapp_ime_set_rect`→`XNSpotLocation`, `sapp_ime_set_enabled`→`XSetICFocus`. No app.cpp changes (shell wiring is platform-neutral) | **user IME test** on Linux (ibus/fcitx) |
 | later | macOS `NSTextInputClient` sokol patch | user test on mac |
-| later | Linux XIM; surrounding-text query; mobile shims (with the port) | — |
+| later | Linux on-the-spot preedit (`XIMPreeditCallbacks` → `Composition`); surrounding-text query; mobile shims (with the port) | — |
 
 A, B, C are independent enough to review separately; C is visible value even
 without B (pasted/programmatic CJK stops rendering as tofu).
