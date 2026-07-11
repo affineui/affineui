@@ -47,6 +47,13 @@ add_subdirectory(
 )
 affineui_photoedit_python_module()
 
+# photo_core installs as a top-level module at the wheel root so both the
+# sample (`import photo_core`) and the test suite import it the normal way.
+# It shares process-global pybind11 internals with affineui's _affineui, so
+# the two MUST come from the same build — a clean editable reinstall keeps
+# them in lockstep; the sample additionally carries a self-locator fallback
+# that loads an ABI-matched photo_core from _affineui's own directory if the
+# top-level import ever misses (partial/edited trees).
 install(TARGETS photo_core
     LIBRARY DESTINATION .
     RUNTIME DESTINATION .
