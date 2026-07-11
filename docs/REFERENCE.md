@@ -226,9 +226,13 @@ optional `key` for identity/lookup.
 | `Scope element(std::string_view tag, std::string_view classes = {}, std::string_view key = {})` | Arbitrary tag. |
 | `Scope panel(std::string_view key = {})` / `Scope card(std::string_view title, std::string_view classes = {}, std::string_view key = {})` | Themed panel / titled card. |
 | `Scope foldout(std::string_view title, bool expanded = true, std::string_view key = {})` | Collapsible section; header click toggles. |
-| `Scope tree(std::string_view key = {})` | Tree container; fill with `tree_row()`s (flat-list model — rows are siblings, `depth` gives visual nesting). |
-| `WidgetRef tree_row(std::string_view label, const TreeRowOptions&, std::string_view key = {})` (+ label/selected/depth convenience overload) | |
-| `WidgetRef virtual_list(std::string_view key, const VirtualListOptions&, const std::function<void(View&, std::size_t)>& build_item, std::string_view classes = {})` | Windowed list. |
+| `Scope tree(std::string_view key = {})` | **Deprecated** — use `virtual_tree`. |
+| `WidgetRef tree_row(std::string_view label, const TreeRowOptions&, std::string_view key = {})` | **Deprecated** — use `virtual_tree`. |
+| `WidgetRef virtual_list(std::string_view key, const VirtualListOptions&, const std::function<void(View&, std::size_t)>& build_item, std::string_view classes = {})` | **Deprecated** eager form — use the provider overload below. |
+| `WidgetRef virtual_list(std::string_view key, VirtualListProvider&, Axis axis = Axis::Vertical, std::string_view classes = {})` | Recycling virtual list driven by a provider (held weakly). The list element is itself the scroll box. |
+| `WidgetRef virtual_tree(std::string_view key, VirtualTreeProvider&, std::string_view classes = {})` | Recycling virtual tree over the flattened-expanded rows. |
+| `WidgetRef virtual_list(std::string_view key, const std::vector<std::string>& items)` / `(…, const StringListOptions&)` | All-virtual list of strings; options carry `item_size`, `axis`, optional `IndexSelection* selection` / `* checked` (checkbox column). |
+| `void set_scroll_provider(std::function<ScrollGeometry(std::string_view, Axis)>)` | Feeds virtual widgets their live scroll geometry; `App::set_view` wires it automatically. |
 | `WidgetRef container_ref(...)` / `element_ref(...)` / `panel_ref(...)` | Leaf variants returned as refs (no open scope). |
 | `Scope status_bar(std::string_view key = {})` | |
 | `WidgetRef splitter(bool horizontal = false, std::string_view key = {})` | Drag splitter between docked regions. |
@@ -311,6 +315,33 @@ fallback and **every mutator no-ops**.
 | `WidgetRef& on_click(std::function<void()>)` / `on_change(std::function<void(std::string_view)>)` | Handlers. Register before `App::load_view` (it copies the view, callbacks included). |
 | `WidgetRef& append(const std::function<void(View&)>&)` / `replace(...)` | Build children into the node. |
 | `WidgetRef find_widget(std::string_view name) const` | Named descendant. |
+
+## Virtual lists & trees (`affineui/virtual_list.h`)
+
+Recycling virtual widgets: the DOM holds only the visible rows + overscan
+(slot-keyed, structurally uniform, recycled in place), while spacers carry
+the honest scroll extent. Requires the `App::set_view` retained-view loop.
+
+| Type / member | Notes |
+|---|---|
+| `enum class SelectMod { Replace, Toggle, Range }` | Modifier intent of a row activation (plain / Ctrl / Shift). |
+| `enum class Axis { Vertical, Horizontal }` | List orientation (trees are vertical). |
+| `enum class DropPos { Before, Into, After }` | Row drag-and-drop target position (reserved; DnD lands in a follow-up). |
+| `class IndexSelection` | Replace/toggle/range selection with an INDEX anchor: `apply(i, mod, count)`, `contains(i)`, `clear()`, `size()`, `anchor()`, `indices()`, `on_change(fn)`. For flat lists whose indices are stable identities; trees key by handle via `TreeFlattener`. |
+| `class VirtualListProvider` | Stateless bridge of callbacks (Trackable; the widget holds a `WeakRef`). Fluent setters return the derived type: `on_item_count`, `on_item_size` (variable heights), `on_item_text`, `on_build_item(View&, i)` (rows must stay structurally uniform), `on_is_selected`, `on_activate(i, SelectMod)`, `on_is_checked`, `on_set_checked(i, bool)`, `checkboxes(bool)`, `default_item_size(px)`, `on_drop` (reserved). |
+| `class VirtualTreeProvider` | Everything above plus the tree questions over the flattened-expanded rows: `on_depth`, `on_is_expandable`, `on_is_expanded`, `on_toggle`. |
+| `template <class Data, class Item = void, class Handle = std::uintptr_t> class TreeFlattener` | Flattens a weak-ref'd data source into visible rows by opaque HANDLE (uint64 id / stable pointer / map key — unique to the item for its lifetime, never recycled). `on_roots` / `on_children` / `on_label` / `on_has_children` / optional `on_resolve` + `on_render` (handle → live item at render; null draws empty) / `on_changed`. `wire(provider)` answers every provider question. Owns the expanded set plus HANDLE-keyed selection (`activate(i, mod)`, `row_selected(i)`, `set_selected(h, on)`, `selected()`, `clear_selection()`, `index_of(h)`, `handle_at(i)`) and HANDLE-keyed checked state (`set_checked(h, on)`, `checked_contains(h)`, `checked()`), all of which survive expand/collapse renumbering. |
+| `struct View::StringListOptions` | `item_size`, `axis`, `IndexSelection* selection`, `IndexSelection* checked`, `classes` — for the strings-only `virtual_list` overload. |
+| Windowing math (`compute_window`, `virtual_offset`, `virtual_item_at`) | Header-level helpers used by the builders; unit-testable. |
+
+**C ABI / bindings:** the full surface ships as
+`affineui_vlist_provider_*`, `affineui_vtree_provider_*`,
+`affineui_index_selection_*`, `affineui_tree_flattener_*`,
+`affineui_view_virtual_*`, and `affineui_app_set_view` /
+`affineui_app_rebuild_view` in `c_api_app.h`, with idiomatic wrappers in
+Python (`ui.VirtualListProvider`…), Rust
+(`affineui::VirtualListProvider`, `TreeFlattener` + `TreeSource`), and C#
+(`AffineUI.VirtualListProvider`, `TreeFlattener` + `TreeSource`).
 
 ## Typed components (`affineui/components.h`)
 
