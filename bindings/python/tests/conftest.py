@@ -38,8 +38,16 @@ def _ensure_photo_core() -> None:
             if spec is None or spec.loader is None:
                 continue
             module = util.module_from_spec(spec)
+            # Registered BEFORE exec (the import protocol). If exec raises,
+            # unregister it — a half-initialized photo_core left behind would
+            # satisfy the `"photo_core" in sys.modules` fast path above and be
+            # handed out as if it had loaded cleanly.
             sys.modules["photo_core"] = module
-            spec.loader.exec_module(module)
+            try:
+                spec.loader.exec_module(module)
+            except BaseException:
+                sys.modules.pop("photo_core", None)
+                raise
             return True
         return False
 
