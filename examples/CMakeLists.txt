@@ -64,8 +64,20 @@ endfunction()
 
 # Example apps. Each subdirectory builds one executable.
 
+# Every example registers itself here, so the runner scripts (build.ps1 /
+# build.sh) never carry a hand-maintained list that can drift out of date.
+# The manifest is written at the bottom of this file.
+define_property(GLOBAL PROPERTY AFFINEUI_EXAMPLE_TARGETS
+    BRIEF_DOCS "Example executables registered in this configure"
+    FULL_DOCS  "Consumed by build.ps1 / build.sh to enumerate runnable examples")
+
+function(affineui_register_example name)
+    set_property(GLOBAL APPEND PROPERTY AFFINEUI_EXAMPLE_TARGETS "${name}")
+endfunction()
+
 function(affineui_add_example name)
     add_executable(${name} ${ARGN})
+    affineui_register_example(${name})
     target_link_libraries(${name} PRIVATE affineui::affineui)
     target_include_directories(${name} PRIVATE "${AFFINEUI_EXAMPLES_ROOT}/common")
     target_compile_definitions(${name} PRIVATE
@@ -86,6 +98,7 @@ endfunction()
 # adapter (gets AFFINEUI_WITH_SOKOL + sokol_app.h include path).
 function(affineui_add_sokol_example name)
     add_executable(${name} ${ARGN})
+    affineui_register_example(${name})
     target_link_libraries(${name} PRIVATE affineui::sokol)
     target_include_directories(${name} PRIVATE "${AFFINEUI_EXAMPLES_ROOT}/common")
     target_compile_definitions(${name} PRIVATE
@@ -105,10 +118,14 @@ endfunction()
 # SDL2 example. Skipped silently when SDL2 isn't available so the
 # rest of the build still works.
 function(affineui_add_sdl_example name)
+    # Skipped silently when SDL2 isn't available — and because the registration
+    # below is after this guard, a skipped example never lands in the manifest,
+    # so the runner won't offer an example that wasn't built.
     if(NOT TARGET affineui::sdl)
         return()
     endif()
     add_executable(${name} ${ARGN})
+    affineui_register_example(${name})
     target_link_libraries(${name} PRIVATE affineui::sdl)
     set_target_properties(${name} PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/examples/${name}")
@@ -154,3 +171,19 @@ add_subdirectory(15_command_panel)
 add_subdirectory(16_decius_dender)
 add_subdirectory(17_affine_2600)
 add_subdirectory(18_virtual_list)
+add_subdirectory(19_ime_lab)
+
+# Manifest of every example that this configure actually produced, in
+# declaration order. build.ps1 / build.sh read it so `run <name>` always
+# offers exactly what got built — including optional ones (hello_sdl,
+# embed_d3d11) only when their deps were found.
+#
+# Written with explicit LF endings: build.sh reads this on Linux/macOS/WSL and
+# on Windows `file(WRITE)` would otherwise emit CRLF, leaving a stray \r on the
+# end of every name (which then silently fails to match a target).
+get_property(_affineui_examples GLOBAL PROPERTY AFFINEUI_EXAMPLE_TARGETS)
+list(JOIN _affineui_examples "\n" _affineui_examples_lines)
+file(CONFIGURE
+     OUTPUT "${AFFINEUI_EXAMPLES_BINARY_ROOT}/examples.txt"
+     CONTENT "${_affineui_examples_lines}\n"
+     NEWLINE_STYLE LF)

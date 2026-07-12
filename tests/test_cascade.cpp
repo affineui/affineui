@@ -932,12 +932,16 @@ TEST_CASE("color-picker square: --hue bottom ramp + black->transparent overlay")
     CHECK(rs.animated.gradient_stop0_rgba == rgba(0xFF, 0xFF, 0xFF));
     CHECK(rs.animated.gradient_stop1_rgba == rgba(0x00, 0xFF, 0x00));
 
-    // Overlay: black -> transparent, `to top` = 0deg.
-    REQUIRE(rs.overlay_gradient != nullptr);
-    CHECK(rs.overlay_gradient->kind == 1);  // linear
-    CHECK(rs.overlay_gradient->angle_deg == 0);
-    CHECK(rs.overlay_gradient->stop0_rgba == rgba(0x00, 0x00, 0x00));
-    CHECK((rs.overlay_gradient->stop1_rgba & 0xFFu) == 0x00);  // transparent
+    // The one layer stacked above it: black -> transparent, `to top` = 0deg.
+    using LK = affineui::detail::BackgroundLayer::Kind;
+    REQUIRE(rs.background_layers != nullptr);
+    REQUIRE(rs.background_layers->size() == 1);
+    const auto& ov = (*rs.background_layers)[0];
+    CHECK(ov.kind == LK::Linear);
+    CHECK(ov.angle_deg == 0);
+    REQUIRE(ov.stops.size() == 2);
+    CHECK(ov.stops[0].rgba == rgba(0x00, 0x00, 0x00));
+    CHECK((ov.stops[1].rgba & 0xFFu) == 0x00);  // transparent
 }
 
 TEST_CASE("a longhand reset overrides an equal-specificity shorthand") {
@@ -1968,6 +1972,153 @@ TEST_CASE("lexbor parses content strings and preserves var content declarations"
     CHECK(after_decl->type == LXB_CSS_PROPERTY__UNDEF);
     REQUIRE(after_decl->u.undef != nullptr);
     CHECK(after_decl->u.undef->type == LXB_CSS_PROPERTY_CONTENT);
+}
+
+// ── Multi-layer CSS background stacks ───────────────────────────────
+// The Decius skeuomorphic hardware panels (`.dcs-hw*`) are the real-world
+// stress case: a specular highlight with a long N-stop falloff stacked
+// over a multi-stop base ramp. The declarations below are copied VERBATIM
+// from examples/frameworks/css/decius-css-0.6.2.bundle.min.css.
+
+// Alpha channel of a packed RGBA (AnimatedStyle layout: r<<24|g<<16|b<<8|a).
+constexpr std::uint8_t alpha_of(std::uint32_t v) {
+    return static_cast<std::uint8_t>(v & 0xFFu);
+}
+
+TEST_CASE(".dcs-hw--lacquer: 6-stop specular over a 3-stop base") {
+    CssEnv env("<div></div>");
+    env.attach(
+        "div{background:radial-gradient(ellipse 100% 80% at 50% -10%,"
+        "hsla(0,0%,100%,.42) 0,hsla(0,0%,100%,.22) 4%,hsla(0,0%,100%,.09) 14%,"
+        "hsla(0,0%,100%,.04) 38%,hsla(0,0%,100%,.015) 70%,transparent 100%),"
+        "linear-gradient(180deg,#262b38,#1e222c 60%,#161922)}");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+    using LK = affineui::detail::BackgroundLayer::Kind;
+
+    // BOTTOM layer (last in source order) keeps its inline home + N-stop
+    // side list: the dark base ramp.
+    CHECK(rs.animated.gradient_kind ==
+          affineui::detail::AnimatedStyle::GradientKind::Linear);
+    CHECK(rs.animated.gradient_angle_deg == 180);
+    REQUIRE(rs.gradient_stops != nullptr);
+    REQUIRE(rs.gradient_stops->size() == 3);
+    CHECK((*rs.gradient_stops)[0].rgba == rgba(0x26, 0x2b, 0x38));
+    CHECK((*rs.gradient_stops)[1].rgba == rgba(0x1e, 0x22, 0x2c));
+    CHECK((*rs.gradient_stops)[1].offset == doctest::Approx(0.60f));
+    CHECK((*rs.gradient_stops)[2].rgba == rgba(0x16, 0x19, 0x22));
+
+    // ONE layer above it: the specular highlight.
+    REQUIRE(rs.background_layers != nullptr);
+    REQUIRE(rs.background_layers->size() == 1);
+    const auto& hi = (*rs.background_layers)[0];
+    CHECK(hi.kind == LK::Radial);
+
+    // REGRESSION GUARD. All SIX stops must survive. The previous
+    // representation (`OverlayGradient`) held exactly two, so this ramp
+    // was truncated to its first stop (42% white) and its last
+    // (transparent) — a linear fade of near-half-opacity white across the
+    // entire panel instead of a highlight that has already decayed to 1.5%
+    // by 70% of the radius. That is what blew the skeuo panels out white.
+    REQUIRE(hi.stops.size() == 6);
+    CHECK(alpha_of(hi.stops[0].rgba) == 107);  // .42 * 255
+    CHECK(alpha_of(hi.stops[1].rgba) == 56);   // .22
+    CHECK(alpha_of(hi.stops[2].rgba) == 23);   // .09
+    CHECK(alpha_of(hi.stops[3].rgba) == 10);   // .04
+    CHECK(alpha_of(hi.stops[4].rgba) == 4);    // .015
+    CHECK(alpha_of(hi.stops[5].rgba) == 0);    // transparent
+    // The steep early falloff is the whole point — assert the shape, not
+    // just the count.
+    CHECK(hi.stops[0].offset == doctest::Approx(0.00f));
+    CHECK(hi.stops[1].offset == doctest::Approx(0.04f));
+    CHECK(hi.stops[2].offset == doctest::Approx(0.14f));
+    CHECK(hi.stops[3].offset == doctest::Approx(0.38f));
+    CHECK(hi.stops[4].offset == doctest::Approx(0.70f));
+    CHECK(hi.stops[5].offset == doctest::Approx(1.00f));
+
+    // `at 50% -10%` — the centre sits ABOVE the box. It must stay signed;
+    // clamping it to 0 drags the hot core onto the panel's top edge.
+    CHECK(hi.center_x_pct == 50);
+    CHECK(hi.center_y_pct == -10);
+    // `ellipse 100% 80%` — the ending shape, not a farthest-corner circle.
+    CHECK(hi.radius_x_pct == 100);
+    CHECK(hi.radius_y_pct == 80);
+}
+
+TEST_CASE(".dcs-hw--brushed: three stacked layers survive in order") {
+    CssEnv env("<div></div>");
+    env.attach(
+        "div{background:repeating-linear-gradient(90deg,"
+        "hsla(0,0%,100%,.02) 0 1px,rgba(0,0,0,.015) 1px 2px),"
+        "radial-gradient(ellipse 110% 90% at 50% -10%,hsla(0,0%,100%,.3) 0,"
+        "hsla(0,0%,100%,.15) 4%,hsla(0,0%,100%,.07) 14%,"
+        "hsla(0,0%,100%,.03) 40%,hsla(0,0%,100%,.01) 70%,transparent 100%),"
+        "linear-gradient(180deg,#333845,#2c3140 60%,#242834)}");
+    env.build_resolver();
+
+    auto* div = env.find("div");
+    REQUIRE(div != nullptr);
+    const affineui::detail::ResolvedStyle parent{};
+    const auto rs = env.resolver->resolve(div, parent);
+    using LK = affineui::detail::BackgroundLayer::Kind;
+
+    // Bottom: the base ramp.
+    CHECK(rs.animated.gradient_kind ==
+          affineui::detail::AnimatedStyle::GradientKind::Linear);
+    REQUIRE(rs.gradient_stops != nullptr);
+    REQUIRE(rs.gradient_stops->size() == 3);
+    CHECK((*rs.gradient_stops)[0].rgba == rgba(0x33, 0x38, 0x45));
+    CHECK((*rs.gradient_stops)[2].rgba == rgba(0x24, 0x28, 0x34));
+
+    // TWO layers above it, topmost first. The old code required EXACTLY
+    // two layers total and skipped a repeating-linear top layer outright,
+    // so a three-layer value lost both of its upper layers and collapsed
+    // to the flat base ramp.
+    REQUIRE(rs.background_layers != nullptr);
+    REQUIRE(rs.background_layers->size() == 2);
+
+    // [0] topmost: the brushed-metal micro-texture.
+    const auto& tex = (*rs.background_layers)[0];
+    CHECK(tex.kind == LK::LinearStripes);
+    CHECK(tex.angle_deg == 90);
+
+    // [1] the specular highlight, with its full 6-stop falloff.
+    const auto& hi = (*rs.background_layers)[1];
+    CHECK(hi.kind == LK::Radial);
+    REQUIRE(hi.stops.size() == 6);
+    CHECK(alpha_of(hi.stops[0].rgba) == 77);  // .3 * 255, rounded
+    CHECK(alpha_of(hi.stops[5].rgba) == 0);   // transparent
+    CHECK(hi.center_y_pct == -10);
+    CHECK(hi.radius_x_pct == 110);
+    CHECK(hi.radius_y_pct == 90);
+}
+
+TEST_CASE("single-layer background allocates no layer list (fast path)") {
+    // The overwhelmingly common case. A lone gradient must stay entirely on
+    // the inline AnimatedStyle fields — no side-table lookup, and for two
+    // stops no allocation at all.
+    CssEnv env("<div></div><section></section>");
+    env.attach(
+        "div{background:linear-gradient(90deg,red,blue)}"
+        "section{background:radial-gradient(circle at 50% 50%,#fff,#000)}");
+    env.build_resolver();
+    const affineui::detail::ResolvedStyle parent{};
+
+    const auto d = env.resolver->resolve(env.find("div"), parent);
+    CHECK(d.animated.gradient_kind ==
+          affineui::detail::AnimatedStyle::GradientKind::Linear);
+    CHECK(d.gradient_stops == nullptr);     // 2 stops -> inline
+    CHECK(d.background_layers == nullptr);  // 1 layer  -> no list
+
+    const auto s = env.resolver->resolve(env.find("section"), parent);
+    CHECK(s.animated.gradient_kind ==
+          affineui::detail::AnimatedStyle::GradientKind::Radial);
+    CHECK(s.gradient_stops == nullptr);
+    CHECK(s.background_layers == nullptr);
 }
 
 #endif  // !AFFINEUI_STUB_BUILD

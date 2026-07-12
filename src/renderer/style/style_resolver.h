@@ -55,24 +55,66 @@ struct GradientStop {
 /// it out-of-line, exactly like `BoxShadowList`.
 using GradientStopList = std::vector<GradientStop>;
 
-/// A second gradient background layer painted OVER the bottom gradient.
-/// CSS `background` is a back-to-front stack of image layers; the bottom
-/// layer lives in AnimatedStyle's inline gradient fields, and this
-/// carries a single 2-stop overlay layer for the few widgets that need
-/// one (the color-picker square: a `to top, #000, transparent` value
-/// shade over the `to right, #fff, hue` saturation ramp). Kept out-of-
-/// line (like box_shadows) because almost no element has an overlay, so
-/// AnimatedStyle stays compact. kind: 1 = linear, 2 = radial.
-struct OverlayGradient {
-    std::uint8_t  kind{0};
-    std::uint8_t  center_x_pct{50};
-    std::uint8_t  center_y_pct{50};
-    std::uint8_t  stop1_pos_pct{100};
-    std::int16_t  angle_deg{0};
-    std::uint16_t pad{0};
-    std::uint32_t stop0_rgba{0};
-    std::uint32_t stop1_rgba{0};
+/// One gradient background layer painted OVER the bottom layer.
+///
+/// CSS `background` / `background-image` is a comma-separated, back-to-
+/// front stack of image layers: the LAST value in the list is the bottom-
+/// most and the FIRST is on top. We split that stack in two:
+///
+///   - The BOTTOM layer keeps the legacy inline home it has always had —
+///     AnimatedStyle's gradient_kind/angle/center/stop0/stop1 fields,
+///     plus `gradient_stops` when it has 3+ stops. That is the case for
+///     virtually every element in a real UI, and it costs zero side-table
+///     lookups and (at 2 stops) zero allocations. Do not regress it.
+///   - Every layer ABOVE the bottom lands in `background_layers`, one
+///     entry each, in CSS source order (index 0 = topmost). Null for the
+///     single-layer case, exactly like `box_shadows`.
+///
+/// This replaced an earlier `OverlayGradient` that hardcoded exactly two
+/// stops and only ever held ONE layer. It was written for the color-
+/// picker square (a genuinely 2-stop, 2-layer value) and silently
+/// truncated anything richer: the Decius skeuomorphic panels
+/// (`.dcs-hw--lacquer` / `--brushed`) stack a 6-stop specular highlight
+/// over a 3-stop base, and truncating that highlight to its first and
+/// last stop turns a subtle sheen into a blown-out white wash — the CSS
+/// ramp falls from 42% white to 1.5% by 70% of the radius, while a 2-stop
+/// approximation carries 42% white linearly across the whole panel.
+/// Layers therefore carry their own full stop list.
+struct BackgroundLayer {
+    enum class Kind : std::uint8_t {
+        None = 0,
+        Linear,          ///< linear-gradient()
+        Radial,          ///< radial-gradient()
+        LinearStripes,   ///< repeating-linear-gradient() tile approximation
+    };
+
+    Kind kind{Kind::None};
+    /// Linear: CSS gradient angle, degrees, 0 = upward, clockwise.
+    std::int16_t angle_deg{0};
+    /// Radial: gradient centre as a percentage of the box. SIGNED and
+    /// unclamped on purpose — CSS routinely places a specular highlight
+    /// just OUTSIDE the box (`at 50% -10%`) so only the bottom edge of
+    /// the falloff lands on it. Clamping that to 0 pulls the hot centre
+    /// onto the panel's top edge and is exactly the sort of blow-out this
+    /// struct exists to avoid.
+    std::int16_t center_x_pct{50};
+    std::int16_t center_y_pct{50};
+    /// Radial: the ending shape's radii, as a percentage of the box's
+    /// half-width / half-height (`ellipse 110% 90%` → 110 / 90). 0 means
+    /// "no explicit size" — use the CSS default, farthest-corner.
+    std::uint16_t radius_x_pct{0};
+    std::uint16_t radius_y_pct{0};
+    /// The layer's full ordered ramp. Always populated (2+ stops for any
+    /// kind other than None); offsets have already had CSS stop-placement
+    /// applied, so they are ascending in 0–1.
+    GradientStopList stops;
 };
+
+/// The above-the-bottom part of an element's background stack, topmost
+/// first (CSS source order). Carried out-of-line behind a shared_ptr and
+/// left null for the overwhelmingly common single-layer case — the same
+/// "most elements have none" idiom as `BoxShadowList`.
+using BackgroundLayerList = std::vector<BackgroundLayer>;
 
 /// The two-struct bundle the cascade resolves into. Splitting them
 /// pays off downstream: layout reads ComputedStyle only, paint reads
@@ -118,9 +160,9 @@ struct ResolvedStyle {
     /// Ordered by ascending offset; the offsets have already had CSS
     /// stop-placement (even distribution / monotonic clamping) applied.
     std::shared_ptr<const GradientStopList> gradient_stops;
-    /// Optional second (overlay) gradient background layer. Null for the
-    /// common single-layer case.
-    std::shared_ptr<const OverlayGradient> overlay_gradient;
+    /// Optional background layers stacked ABOVE the bottom one, topmost
+    /// first. Null for the common single-layer case — see BackgroundLayer.
+    std::shared_ptr<const BackgroundLayerList> background_layers;
 };
 
 struct ViewportDependency {

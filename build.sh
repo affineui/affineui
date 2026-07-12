@@ -7,6 +7,7 @@
 #                               (uses the committed dist/; does NOT regenerate)
 #   ./build.sh codefiles        (re)generate dist/affineui.{h,cpp}  (REQUIRES clang)
 #   ./build.sh examples         build every example app
+#   ./build.sh list             list every runnable example in this build
 #   ./build.sh run [name]       build + run one example  (default: hello)
 #   ./build.sh test             build + run the unit tests (ctest)
 #   ./build.sh configure        cmake configure (Ninja) into ./build
@@ -25,9 +26,11 @@ BUILD="${ROOT}/build"
 DIST="${ROOT}/dist"
 SMOKE="${ROOT}/build/smoke"
 
-# Primary example (what `run` launches with no name) + the full set.
+# Primary example (what `run` launches with no name). The full set is NOT
+# hardcoded — it's read from the manifest CMake writes at configure time
+# (examples/CMakeLists.txt), so it can't drift out of date as examples are
+# added, and optional ones only appear when their deps were actually found.
 PRIMARY="hello"
-EXAMPLES=(hello bootstrap hello_sdl media imm_counter imm_todo text_flow forms_focus bootstrap_kitchen embed_d3d11 bootstrap_dashboard decius_game_editor decius_video_editor decius_synth_dark decius_synth_skeuo command_panel decius_dender affine_2600 virtual_list)
 
 py()    { command -v python3 || command -v python; }
 
@@ -85,24 +88,18 @@ smoke() {
     echo "smoke: OK"
 }
 
-# Example targets that actually exist in the configured build (some are
-# optional, e.g. hello_sdl is skipped when SDL2 isn't found).
+# Example targets that actually exist in the configured build, straight from
+# the manifest CMake wrote at configure time. Optional examples (hello_sdl,
+# embed_d3d11) are absent from it when their deps weren't found, so whatever
+# this prints is genuinely runnable.
 example_targets() {
     ensure_configured
-    # NB: feed grep from a here-string, not a pipe. `grep -q` exits on
-    # first match and closes stdin, which SIGPIPEs the upstream printf;
-    # combined with `set -o pipefail` that used to make the `&&` branch
-    # silently skip and mark the target as "not available".
-    local present; present="$(ninja -C "$BUILD" -t targets all 2>/dev/null | sed 's/:.*//')"
-    local e
-    for e in "${EXAMPLES[@]}"; do
-        # `if`, not `&&`: the loop's status is its last command's, so a final
-        # example that ISN'T present would leave the function returning 1 and
-        # `set -e` would kill the caller mid-assignment — silently.
-        if grep -qx "$e" <<< "$present"; then
-            echo "$e"
-        fi
-    done
+    local manifest="$BUILD/examples/examples.txt"
+    [ -f "$manifest" ] || return 0
+    # `return 0`, not the grep's status: a manifest with nothing to strip makes
+    # grep exit 1, and under `set -e` that would kill the caller mid-assignment
+    # — silently. (Same trap origin/main hit from the other direction.)
+    grep -v '^[[:space:]]*$' "$manifest" || true
     return 0
 }
 
@@ -115,17 +112,14 @@ build_examples() {
 
 run_example() {
     local name="${1:-$PRIMARY}"
-    if [[ ! " ${EXAMPLES[*]} " == *" $name "* ]]; then
-        echo "unknown example '$name'." >&2
-        echo "available: ${EXAMPLES[*]}" >&2
-        exit 1
-    fi
-    # Materialize the target list first, then grep the string — piping
-    # into `grep -q` short-circuits `example_targets`, which trips
-    # `pipefail` and makes valid targets read as "not available".
+    # Materialize the list first, then grep the string — piping into `grep -q`
+    # short-circuits `example_targets` (grep closes stdin on first match), which
+    # trips `pipefail` and makes valid targets read as "not available".
     local available; available="$(example_targets)"
     if ! grep -qx "$name" <<< "$available"; then
-        echo "example '$name' isn't available in this build (an optional dep, e.g. SDL2, wasn't found at configure)." >&2
+        echo "unknown example '$name'." >&2
+        echo "available:" >&2
+        sed 's/^/  /' <<< "$available" >&2
         exit 1
     fi
     cmake --build "$BUILD" --target "$name" --parallel
@@ -160,6 +154,7 @@ case "$cmd" in
     "")          smoke ;;
     codefiles)   codefiles ;;
     examples)    build_examples ;;
+    list)        example_targets ;;
     run)         run_example "${1:-}" ;;
     test)        run_tests ;;
     conformance) echo "conformance harness is Windows/D3D11-only for now — use build.ps1 conformance (see docs/CONFORMANCE.md)" >&2; exit 1 ;;

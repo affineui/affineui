@@ -50,11 +50,12 @@ $Build = Join-Path $Root 'build\ninja'
 $Dist  = Join-Path $Root 'dist'
 $Smoke = Join-Path $Root 'build\smoke'
 
-# Primary example (what `run` launches with no name) + the full set.
-$Primary  = 'hello'
-$Examples = @('hello', 'bootstrap', 'hello_sdl', 'media', 'imm_counter',
-              'imm_todo', 'text_flow', 'forms_focus', 'bootstrap_kitchen',
-              'embed_d3d11', 'affine_2600', 'virtual_list')
+# Primary example (what `run` launches with no name). The full set is NOT
+# hardcoded — it's read from the manifest CMake writes at configure time
+# (examples/CMakeLists.txt), so it can't drift out of date as examples are
+# added, and optional ones (hello_sdl, embed_d3d11) only appear when their
+# deps were actually found.
+$Primary = 'hello'
 
 # ── MSVC environment ─────────────────────────────────────────────────────────
 function Initialize-Msvc {
@@ -176,16 +177,19 @@ int main() { affineui::Ui ui; (void)ui; return 0; }
     Write-Host "smoke: OK" -ForegroundColor Green
 }
 
-# Example targets that actually exist in the configured build (some are
-# optional, e.g. hello_sdl is skipped when SDL2 isn't found).
+# Example targets that actually exist in the configured build, straight from
+# the manifest CMake wrote at configure time. Optional examples (hello_sdl,
+# embed_d3d11) are absent from it when their deps weren't found, so whatever
+# this returns is genuinely runnable.
 function Get-ExampleTargets {
-    Invoke-Configure
-    $present = @{}
-    foreach ($line in (ninja -C $Build -t targets all 2>$null)) {
-        $t = ($line -split ':')[0].Trim()
-        if ($t) { $present[$t] = $true }
-    }
-    return @($Examples | Where-Object { $present.ContainsKey($_) })
+    # Out-Null, or cmake's configure output joins the pipeline and gets returned
+    # as if it were example names — which only shows up on a FRESH checkout,
+    # where the configure actually runs.
+    Invoke-Configure | Out-Null
+    $manifest = Join-Path $Build 'examples\examples.txt'
+    if (-not (Test-Path $manifest)) { return @() }
+    return @(Get-Content $manifest | ForEach-Object { $_.Trim() } |
+             Where-Object { $_ })
 }
 
 function Invoke-Examples {
@@ -197,13 +201,11 @@ function Invoke-Examples {
 
 function Invoke-Run([string]$name) {
     if (-not $name) { $name = $Primary }
-    if ($Examples -notcontains $name) {
+    $targets = Get-ExampleTargets
+    if ($targets -notcontains $name) {
         Write-Host "unknown example '$name'." -ForegroundColor Red
-        Write-Host "available: $($Examples -join ', ')"
-        exit 1
-    }
-    if ((Get-ExampleTargets) -notcontains $name) {
-        Write-Host "example '$name' isn't available in this build (an optional dep, e.g. SDL2, wasn't found at configure)." -ForegroundColor Red
+        Write-Host "available:"
+        foreach ($t in $targets) { Write-Host "  $t" }
         exit 1
     }
     cmake --build $Build --target $name --parallel
@@ -257,6 +259,7 @@ AffineUI task runner (Windows / PowerShell). Unix/macOS: use ./build.sh
                                (uses the committed dist/; does NOT regenerate)
   .\build.ps1 codefiles        (re)generate dist/affineui.{h,cpp}  (REQUIRES clang)
   .\build.ps1 examples         build every example app (MSVC / D3D11)
+  .\build.ps1 list             list every runnable example in this build
   .\build.ps1 run [name]       build + run one example  (default: hello)
   .\build.ps1 test             build + run the unit tests (ctest)
   .\build.ps1 conformance      A/B render every test in a browser vs AffineUI,
@@ -268,8 +271,9 @@ AffineUI task runner (Windows / PowerShell). Unix/macOS: use ./build.sh
   .\build.ps1 sync-yoga        vendor the affineui_yoga fork  (needs bash+rsync)
   .\build.ps1 help             this help
 
-  examples: hello (primary), bootstrap, hello_sdl, media, imm_counter,
-            imm_todo, text_flow, forms_focus, bootstrap_kitchen
+Example names come from the build itself (`.\build.ps1 list`) — no hardcoded
+list to go stale, and optional examples (hello_sdl, embed_d3d11) only show up
+when their dependencies were found at configure time.
 
 'codefiles' (the amalgamator) stages Lexbor as C++ and depends on clang's
 diagnostics; MSVC is NOT supported for that step, so it fails fast if clang is
@@ -282,6 +286,7 @@ switch ($Verb) {
     ''            { Invoke-Smoke }
     'codefiles'   { Invoke-Codefiles }
     'examples'    { Invoke-Examples }
+    'list'        { Get-ExampleTargets | ForEach-Object { Write-Host $_ } }
     'run'         { Invoke-Run $Name }
     'test'        { Invoke-Test }
     'conformance' { Invoke-Conformance }

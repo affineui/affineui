@@ -43,6 +43,21 @@ struct PathPaint {
     float x0{0.0f}, y0{0.0f};
     float x1{0.0f}, y1{0.0f};
     float r0{0.0f}, r1{0.0f};
+    /// Radial only: the outer radius along Y, when the ending shape is an
+    /// ELLIPSE rather than a circle (CSS `radial-gradient(ellipse 110% 90%
+    /// …)`). 0 means "circular" — use r1 on both axes, which is what every
+    /// pre-existing caller wants and gets by default.
+    ///
+    /// Only the N-stop (>2) route honours this. That route already renders
+    /// through a normalised 2D LUT stretched over a pattern rect, so a
+    /// non-square rect gives a true ellipse for free. The 2-stop route maps
+    /// to the backend's analytic circular radial paint and stays circular —
+    /// no CSS in play needs a 2-stop ellipse, and faking one there would
+    /// mean giving up the analytic fast path.
+    float r1y{0.0f};
+
+    /// The outer radius along Y, falling back to the circular r1.
+    float outer_ry() const { return r1y > 0.0f ? r1y : r1; }
 
     static PathPaint solid(Color c) {
         PathPaint p;
@@ -105,6 +120,17 @@ struct PathPaint {
         return colors[stop_count - 1];
     }
 };
+
+// The display-list path blob serializes PathPaint's geometry as one
+// contiguous run of floats starting at x0 (see kPathBlobGeoFloats in
+// display_list_painter.h). Lock that in: reordering or padding these
+// fields would silently corrupt every recorded gradient.
+static_assert(offsetof(PathPaint, y0)  == offsetof(PathPaint, x0) + 4);
+static_assert(offsetof(PathPaint, x1)  == offsetof(PathPaint, x0) + 8);
+static_assert(offsetof(PathPaint, y1)  == offsetof(PathPaint, x0) + 12);
+static_assert(offsetof(PathPaint, r0)  == offsetof(PathPaint, x0) + 16);
+static_assert(offsetof(PathPaint, r1)  == offsetof(PathPaint, x0) + 20);
+static_assert(offsetof(PathPaint, r1y) == offsetof(PathPaint, x0) + 24);
 
 /// Stroke end-cap / join styles (SVG stroke-linecap / stroke-linejoin).
 enum class LineCap  : std::uint8_t { Butt, Round, Square };
@@ -206,6 +232,11 @@ public:
                                              std::size_t stop_count,
                                              float tl = 0, float tr = 0,
                                              float br = 0, float bl = 0);
+    /// `center_*_pct` may be negative or exceed 100 — CSS routinely puts a
+    /// specular highlight's centre outside the box (`at 50% -10%`).
+    /// `radius_*_pct` size the ending shape as a percentage of the box's
+    /// half-width / half-height (CSS `ellipse 110% 90%`); 0 selects the
+    /// CSS default of farthest-corner, scaled by `stop1_pos_pct`.
     virtual void fill_radial_gradient_rect_n(const Rect& r,
                                              const GradientStop* stops,
                                              std::size_t stop_count,
@@ -213,7 +244,9 @@ public:
                                              float br = 0, float bl = 0,
                                              float center_x_pct = 50,
                                              float center_y_pct = 50,
-                                             float stop1_pos_pct = 100);
+                                             float stop1_pos_pct = 100,
+                                             float radius_x_pct = 0,
+                                             float radius_y_pct = 0);
     virtual void fill_linear_stripes_rect(const Rect& r,
                                           float angle_deg,
                                           Color stripe,
@@ -558,9 +591,15 @@ inline void Painter::fill_radial_gradient_rect_n(const Rect& r,
                                                  float br, float bl,
                                                  float center_x_pct,
                                                  float center_y_pct,
-                                                 float stop1_pos_pct) {
+                                                 float stop1_pos_pct,
+                                                 float radius_x_pct,
+                                                 float radius_y_pct) {
     if (r.w <= 0 || r.h <= 0 || stops == nullptr || stop_count == 0) return;
     if (stop_count <= 2) {
+        // 2 stops map to the backend's analytic circular radial paint, which
+        // has no ellipse and clamps the centre into the box. That is fine for
+        // every 2-stop radial we render; a sized/offset ellipse only ever
+        // shows up with a multi-stop falloff.
         const Color c0 = stops[0].color;
         const Color c1 = stops[stop_count - 1].color;
         fill_radial_gradient_rect(r, c0, c1, tl, tr, br, bl,
@@ -572,18 +611,37 @@ inline void Painter::fill_radial_gradient_rect_n(const Rect& r,
     const float fy = static_cast<float>(r.y);
     const float fw = static_cast<float>(r.w);
     const float fh = static_cast<float>(r.h);
-    const float cx = fx + fw * (std::clamp(center_x_pct, 0.0f, 100.0f) / 100.0f);
-    const float cy = fy + fh * (std::clamp(center_y_pct, 0.0f, 100.0f) / 100.0f);
-    const float ddx = std::max(cx - fx, fx + fw - cx);
-    const float ddy = std::max(cy - fy, fy + fh - cy);
-    const float farthest_r = std::sqrt(ddx * ddx + ddy * ddy);
-    const float outer_r = farthest_r *
-        (std::clamp(stop1_pos_pct, 1.0f, 100.0f) / 100.0f);
+    // NOT clamped to the box: `at 50% -10%` centres the ramp above the box
+    // so only the tail of the falloff lands on it. Clamping to 0% would drag
+    // the hot centre onto the top edge and wash the box out.
+    const float cx = fx + fw * (center_x_pct / 100.0f);
+    const float cy = fy + fh * (center_y_pct / 100.0f);
+
+    float outer_rx, outer_ry;
+    if (radius_x_pct > 0.0f || radius_y_pct > 0.0f) {
+        // Explicit ending shape. CSS sizes an ellipse's radii against the
+        // box's half-extents, so `100%` reaches the box edge from a centred
+        // origin.
+        const float rx = radius_x_pct > 0.0f ? radius_x_pct : radius_y_pct;
+        const float ry = radius_y_pct > 0.0f ? radius_y_pct : radius_x_pct;
+        outer_rx = fw * 0.5f * (rx / 100.0f);
+        outer_ry = fh * 0.5f * (ry / 100.0f);
+    } else {
+        // CSS default: farthest-corner, a circle through the corner most
+        // distant from the centre.
+        const float ddx = std::max(cx - fx, fx + fw - cx);
+        const float ddy = std::max(cy - fy, fy + fh - cy);
+        outer_rx = outer_ry = std::sqrt(ddx * ddx + ddy * ddy);
+    }
+    const float scale = std::clamp(stop1_pos_pct, 1.0f, 100.0f) / 100.0f;
+    outer_rx *= scale;
+    outer_ry *= scale;
 
     PathPaint p;
     p.kind = PathPaint::Kind::Radial;
     p.x0 = cx; p.y0 = cy;
-    p.r0 = 0.0f; p.r1 = outer_r;
+    p.r0 = 0.0f; p.r1 = outer_rx;
+    p.r1y = (outer_ry != outer_rx) ? outer_ry : 0.0f;
     detail::fill_pathpaint_stops(p, stops, stop_count);
 
     std::vector<float> cmds;

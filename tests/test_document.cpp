@@ -235,6 +235,15 @@ public:
                                    float = 50, float = 50, float = 100) override {
         fill_colors.push_back(c0);
     }
+    // repeating-linear-gradient tiles. Counted so a background stack can
+    // assert its texture layer actually reached the painter.
+    int stripe_draws{0};
+    void fill_linear_stripes_rect(const affineui::Rect&, float,
+                                  affineui::Color stripe, float,
+                                  float, float, float, float) override {
+        ++stripe_draws;
+        fill_colors.push_back(stripe);
+    }
     void fill_box_shadow(const affineui::Rect& rect, float radius,
                          affineui::Color c, float offset_x, float offset_y,
                          float blur, float spread, bool inset) override {
@@ -11921,4 +11930,79 @@ TEST_CASE("Inline style: a descendant-inert write restyles only the target "
         }
     }
     CHECK_FALSE(label_still_green);
+}
+
+TEST_CASE("skeuo hardware panel paints its whole CSS background stack") {
+    // The Decius `.dcs-hw--brushed` panel: a repeating-linear micro-texture
+    // over a 6-stop specular highlight over a 3-stop base ramp. Declaration
+    // copied verbatim from decius-css-0.6.2.
+    //
+    // Every layer must reach the painter, back-to-front. The previous
+    // single-`OverlayGradient` representation dropped both upper layers of a
+    // three-layer value (it only handled a two-layer stack) and truncated any
+    // upper ramp to two stops — so this panel painted as one flat fill, and a
+    // two-layer panel painted a blown-out 2-stop white wash.
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        #panel { display: block; width: 200px; height: 100px;
+                 background: repeating-linear-gradient(90deg,
+                     hsla(0,0%,100%,.02) 0 1px, rgba(0,0,0,.015) 1px 2px),
+                   radial-gradient(ellipse 110% 90% at 50% -10%,
+                     hsla(0,0%,100%,.3) 0, hsla(0,0%,100%,.15) 4%,
+                     hsla(0,0%,100%,.07) 14%, hsla(0,0%,100%,.03) 40%,
+                     hsla(0,0%,100%,.01) 70%, transparent 100%),
+                   linear-gradient(180deg,#333845,#2c3140 60%,#242834); }
+        </style>
+        <div id="panel"></div>
+    )HTML");
+    doc.layout(240, 140, &painter);
+
+    const auto panel = doc.find_element_rect("#panel");
+    REQUIRE(panel.w == 200);
+    REQUIRE(panel.h == 100);
+
+    painter.path_draws.clear();
+    doc.draw(painter);
+
+    // Both N-stop ramps lower to vector fill_paths carrying their full
+    // PathPaint. Find them by kind + stop count over the panel's box.
+    int base_ramps = 0;      // 3-stop linear base
+    int specular_ramps = 0;  // 6-stop radial highlight
+    for (const auto& d : painter.path_draws) {
+        if (d.stroked) continue;
+        if (d.paint.kind == affineui::PathPaint::Kind::Linear &&
+            d.paint.stop_count == 3) {
+            ++base_ramps;
+            CHECK(same_color(d.paint.colors[0],
+                             affineui::Color::rgb(0x33, 0x38, 0x45)));
+            CHECK(same_color(d.paint.colors[2],
+                             affineui::Color::rgb(0x24, 0x28, 0x34)));
+        }
+        if (d.paint.kind == affineui::PathPaint::Kind::Radial &&
+            d.paint.stop_count == 6) {
+            ++specular_ramps;
+            // The steep falloff survives — this is the stop list whose
+            // truncation to 2 stops produced the white blow-out.
+            CHECK(d.paint.colors[0].a == 77);  // hsla(...,.3)
+            CHECK(d.paint.colors[4].a == 3);   // hsla(...,.01)
+            CHECK(d.paint.colors[5].a == 0);   // transparent
+            // `ellipse 110% 90%` -> a genuinely elliptical ending shape,
+            // sized off the box's half-extents (not a farthest-corner
+            // circle). r1 = 200/2 * 1.10, r1y = 100/2 * 0.90.
+            CHECK(d.paint.r1 == doctest::Approx(110.0f));
+            CHECK(d.paint.r1y == doctest::Approx(45.0f));
+            // `at 50% -10%` — the centre sits ABOVE the panel.
+            CHECK(d.paint.y0 == doctest::Approx(panel.y - 10.0f));
+        }
+    }
+    CHECK(base_ramps == 1);
+    CHECK(specular_ramps == 1);
+
+    // And the topmost repeating-linear texture layer reaches the painter too
+    // (it lands on the stripe primitive, not a gradient ramp).
+    CHECK(painter.stripe_draws >= 1);
 }

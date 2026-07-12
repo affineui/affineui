@@ -703,8 +703,14 @@ public:
                                                1.0f);
                     }
                 } else if (p.r1 > 0.0f) {
-                    return nvgImagePattern(vg_, p.x0 - p.r1, p.y0 - p.r1,
-                                           p.r1 * 2.0f, p.r1 * 2.0f, 0.0f,
+                    // The radial LUT is a disc normalised to [-1,1] on both
+                    // axes, so stretching it over a NON-square pattern rect
+                    // renders a true ellipse (CSS `ellipse 110% 90%`) at no
+                    // extra cost. r1y == 0 keeps the rect square (a circle),
+                    // which is what every other caller wants.
+                    const float ry = p.outer_ry();
+                    return nvgImagePattern(vg_, p.x0 - p.r1, p.y0 - ry,
+                                           p.r1 * 2.0f, ry * 2.0f, 0.0f,
                                            image, 1.0f);
                 }
             }
