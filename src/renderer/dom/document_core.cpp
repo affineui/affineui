@@ -363,6 +363,7 @@ void Document::set_html(std::string_view html) {
     impl_->sheets.clear();
     impl_->attr_subtree_local_cache.clear();
     impl_->attr_subject_confined_cache.clear();
+    impl_->attr_referenced_cache.clear();
     // Every element in the old document is destroyed here, so the
     // pointer-keyed SVG geometry cache must go with them.
     impl_->svg_path_cache.clear();

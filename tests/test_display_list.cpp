@@ -266,6 +266,21 @@ TEST_CASE("display list diff bounds reject changed text without exact bounds") {
     CHECK_FALSE(diff.known);
 }
 
+TEST_CASE("display list equality ignores shifted text-pool offsets") {
+    affineui::detail::DisplayList old_list;
+    old_list.ops.push_back(draw_text_box(old_list, 10, 10, "0.52"));
+    old_list.ops.push_back(draw_text_box(old_list, 80, 10, "FREQ"));
+
+    affineui::detail::DisplayList new_list;
+    new_list.ops.push_back(draw_text_box(new_list, 10, 10, "1"));
+    new_list.ops.push_back(draw_text_box(new_list, 80, 10, "FREQ"));
+
+    REQUIRE(old_list.ops[1].p.draw_text_box.text_offset !=
+            new_list.ops[1].p.draw_text_box.text_offset);
+    CHECK(affineui::detail::replay_paint_ops_equal(
+        old_list, old_list.ops[1], new_list, new_list.ops[1]));
+}
+
 TEST_CASE("clipped replay still handles unprepared clip ranges") {
     affineui::detail::DisplayList list;
     list.ops.push_back(push_clip(1000, 0, 20, 20));

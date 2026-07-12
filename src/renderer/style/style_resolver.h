@@ -100,7 +100,7 @@ struct BackgroundLayer {
     std::int16_t center_x_pct{50};
     std::int16_t center_y_pct{50};
     /// Radial: the ending shape's radii, as a percentage of the box's
-    /// half-width / half-height (`ellipse 110% 90%` → 110 / 90). 0 means
+    /// full width / height (`ellipse 110% 90%` → 110 / 90). 0 means
     /// "no explicit size" — use the CSS default, farthest-corner.
     std::uint16_t radius_x_pct{0};
     std::uint16_t radius_y_pct{0};

@@ -9843,10 +9843,28 @@ _SOKOL_PRIVATE void _sapp_win32_ime_composition_event(HIMC himc) {
         if (!_sapp_win32_wide_to_utf8(wbuf, _sapp.event.ime_composition, sizeof(_sapp.event.ime_composition))) {
             _sapp.event.ime_composition[0] = 0;
         }
-        const LONG cursor_pos = ImmGetCompositionStringW(himc, GCS_CURSORPOS, NULL, 0);
-        _sapp.event.ime_composition_cursor = (cursor_pos >= 0)
-            ? _sapp_win32_ime_utf8_offset(wbuf, num_wchars, (int)cursor_pos)
-            : -1;
+        /* GCS_CURSORPOS returns the caret position in the LOW 16 BITS of the
+           return value (it writes nothing to a buffer, hence NULL/0), so mask
+           it — the high word carries a delta the docs tell you to ignore.
+
+           Then: a 0 cursor on a NON-EMPTY preedit means the IME has not placed
+           a caret inside the composition, which is what the Japanese IME reports
+           for freshly-typed unconverted kana. Taken literally that parks our
+           caret to the LEFT of the glyph the user just typed; every native
+           Windows app (and our own macOS path, which reads
+           NSTextInputClient's selectedRange) shows it at the END. -1 is the
+           core's "caret at end of preedit" convention, so hand it that. A
+           cursor the IME genuinely places mid-preedit (arrow keys during
+           conversion) is > 0 and passes through untouched. */
+        const LONG cursor_raw = ImmGetCompositionStringW(himc, GCS_CURSORPOS, NULL, 0);
+        if (cursor_raw < 0) {
+            _sapp.event.ime_composition_cursor = -1;   /* IME reported none */
+        } else {
+            const int cursor_wchars = (int)(cursor_raw & 0xFFFF);
+            _sapp.event.ime_composition_cursor = (cursor_wchars <= 0)
+                ? -1   /* no caret inside the preedit => end of it */
+                : _sapp_win32_ime_utf8_offset(wbuf, num_wchars, cursor_wchars);
+        }
         /* GCS_COMPATTR: one attribute byte per UTF-16 code unit; the
            ATTR_TARGET_* range is the clause the user is converting */
         BYTE attrs[SAPP_MAX_IME_COMPOSITION_SIZE];

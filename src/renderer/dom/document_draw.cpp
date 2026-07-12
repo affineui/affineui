@@ -646,7 +646,16 @@ void Document::draw(Painter& painter) {
                         clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
                         static_cast<float>(an.gradient_center_x_pct),
                         static_cast<float>(an.gradient_center_y_pct),
-                        static_cast<float>(an.gradient_stop1_pos_pct));
+                        // 100, NOT gradient_stop1_pos_pct. That field means
+                        // "where the ramp ends" and only makes sense for a
+                        // TWO-stop gradient, where it scales the outer radius.
+                        // In an N-stop ramp every stop carries its own offset
+                        // (they are in `gs`), and stop *1* is merely the second
+                        // one — 4% in `.dcs-hw--lacquer`. Feeding that in scaled
+                        // the radius to 4% of its proper size and collapsed the
+                        // gradient into an invisible dot. The stacked-layer call
+                        // below has always passed 100 for the same reason.
+                        /*stop1_pos_pct=*/100.0f);
                 } else {
                     painter.fill_radial_gradient_rect(
                         bg_rect, s0, s1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
@@ -715,14 +724,26 @@ void Document::draw(Painter& painter) {
                             static_cast<float>(layer.radius_y_pct));
                         break;
                     case LK::LinearStripes:
-                        // repeating-linear-gradient: approximated as a tiled
-                        // stripe fill in the ramp's first colour, the same
-                        // primitive the bottom layer uses for it.
-                        painter.fill_linear_stripes_rect(
-                            bg_rect, static_cast<float>(layer.angle_deg),
-                            gs[0].color,
-                            static_cast<float>(std::max(1, bg_rect.h)),
-                            clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
+                        // repeating-linear-gradient: NOT painted, which is the
+                        // behavior these panels had before stacked layers
+                        // existed (a `layer_count == 2` guard used to drop it),
+                        // and it is the look the samples are designed around —
+                        // the synth modules are smooth gradients, not striped.
+                        //
+                        // We also cannot render it faithfully: the period lives
+                        // in the stops' PIXEL offsets (`0 1px, 1px 2px` — a 2px
+                        // repeat) and lexbor's descriptor stores stop positions
+                        // as percentages, so it never survives the parse; and the
+                        // stripe primitive paints one flat colour, not a
+                        // two-colour ramp. Approximating it with the box height
+                        // as a tile size clamps to 128 and bands the panel in
+                        // 128px light/dark stripes over the specular highlight.
+                        //
+                        // The one repeating-linear-gradient in the Decius bundle
+                        // is .dcs-hw--brushed's metal texture at 2% alpha —
+                        // imperceptible when absent. Rendering it properly needs
+                        // pixel stop offsets carried through the lexbor fork and
+                        // a real repeating-ramp primitive.
                         break;
                     case LK::None:
                         break;
