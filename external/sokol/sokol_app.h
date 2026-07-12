@@ -6148,6 +6148,14 @@ _SOKOL_PRIVATE int _sapp_macos_ime_utf8_offset(NSString* str, NSUInteger utf16_i
     return (int)[prefix lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
 }
 
+_SOKOL_PRIVATE void _sapp_macos_ime_emit_char(uint32_t codepoint) {
+    _sapp_init_event(SAPP_EVENTTYPE_CHAR);
+    _sapp.event.modifiers = _sapp.macos.ime.key_mods;
+    _sapp.event.char_code = codepoint;
+    _sapp.event.key_repeat = _sapp.macos.ime.key_repeat;
+    _sapp_call_event(&_sapp.event);
+}
+
 /* Emit one SAPP_EVENTTYPE_CHAR per Unicode codepoint (surrogate pairs are
    recombined, so non-BMP input arrives as a single codepoint). */
 _SOKOL_PRIVATE void _sapp_macos_ime_emit_chars(NSString* str) {
@@ -6166,11 +6174,7 @@ _SOKOL_PRIVATE void _sapp_macos_ime_emit_chars(NSString* str) {
         if ((codepoint & 0xFFFFFF00) == 0xF700) {
             continue;
         }
-        _sapp_init_event(SAPP_EVENTTYPE_CHAR);
-        _sapp.event.modifiers = _sapp.macos.ime.key_mods;
-        _sapp.event.char_code = codepoint;
-        _sapp.event.key_repeat = _sapp.macos.ime.key_repeat;
-        _sapp_call_event(&_sapp.event);
+        _sapp_macos_ime_emit_char(codepoint);
     }
 }
 
@@ -6498,10 +6502,24 @@ static void _sapp_gl_make_current(void) {
 }
 
 - (void)doCommandBySelector:(SEL)selector {
-    _SOKOL_UNUSED(selector);
-    /* Backspace/arrows/Return already went out as SAPP_EVENTTYPE_KEY_DOWN from
-       keyDown:. Swallow the selector so AppKit doesn't beep at us for not
-       implementing it (and so it can't reach NSResponder's defaults). */
+    /* interpretKeyEvents: routes Return/Tab here instead of insertText:. Before
+       this patch they reached the app as CHAR events (event.characters gives
+       "\r" and "\t"), and the text controls insert CHAR payloads literally —
+       there is no KeyCode::Enter path in the DOM. So these two must keep
+       producing CHARs or Enter/Tab silently stop working in a focused field.
+
+       Everything else (arrows, Backspace, Escape, ...) already went out as
+       SAPP_EVENTTYPE_KEY_DOWN from keyDown:, so it is swallowed here — both to
+       stop AppKit beeping at an unhandled selector, and because inserting their
+       control codes as literal text is not something any caller wants. */
+    if ((selector == @selector(insertNewline:)) ||
+        (selector == @selector(insertLineBreak:)) ||
+        (selector == @selector(insertParagraphSeparator:)))
+    {
+        _sapp_macos_ime_emit_char(0x0D);    /* as event.characters reported it */
+    } else if (selector == @selector(insertTab:)) {
+        _sapp_macos_ime_emit_char(0x09);
+    }
 }
 
 - (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
@@ -14891,7 +14909,10 @@ SOKOL_API_IMPL void sapp_ime_set_enabled(bool enabled) {
                next field), and we clear ours to match. */
             if (_sapp.macos.ime.marked_len > 0) {
                 _sapp.macos.ime.marked_len = 0;
-                [[NSTextInputContext currentInputContext] discardMarkedText];
+                /* the VIEW's context, not +currentInputContext: the latter is
+                   only non-nil while our view is the active first responder,
+                   which is exactly not guaranteed when focus is moving away */
+                [[_sapp.macos.view inputContext] discardMarkedText];
                 if (_sapp_events_enabled()) {
                     _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
                     _sapp_call_event(&_sapp.event);
