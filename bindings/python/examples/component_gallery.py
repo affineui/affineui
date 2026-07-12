@@ -183,6 +183,26 @@ class ComponentGalleryApp:
                 "Planned Coverage",
                 "rocket",
                 (
+                    # Editors and Hardware were live pages under the Decius CSS
+                    # Matrix; their surfaces don't render correctly yet, so they
+                    # sit here (builder=None => listed, not selectable) rather
+                    # than showing broken output in a gallery whose whole job is
+                    # to show what works. Their builders still exist in
+                    # test_panels/decius_reference.py, ready to be moved back.
+                    NavItem(
+                        "decius-editors",
+                        "Editors",
+                        "Color, curve, graph, and texture-editor surfaces",
+                        "curve",
+                        None,
+                    ),
+                    NavItem(
+                        "decius-hardware",
+                        "Hardware",
+                        "Skeuomorphic knobs, silk, meters, and patch rows",
+                        "oscillator",
+                        None,
+                    ),
                     NavItem(
                         "typography",
                         "Typography",

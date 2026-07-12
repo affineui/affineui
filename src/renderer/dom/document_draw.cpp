@@ -1392,6 +1392,18 @@ void Document::draw(Painter& painter) {
                     pushed_text_control_clip = true;
                 }
             }
+            if (b.tag == "select") {
+                // A closed select is a single-line native control. Clip its
+                // value to the edit viewport so an overlong option cannot
+                // paint beneath the indicator or outside the control.
+                painter.push_clip(Rect{
+                    text_x,
+                    eff.y + used_border_top,
+                    std::max(1, static_cast<int>(std::floor(content_w))),
+                    std::max(1, eff.h - used_border_top - used_border_bottom),
+                });
+                pushed_text_control_clip = true;
+            }
 
             // Add 1px slack to wrap width: measure rounds + draw word-
             // break can disagree at the edge (text whose natural width
@@ -1448,7 +1460,11 @@ void Document::draw(Painter& painter) {
                 paint_align = Painter::TextAlign::Left;
             }
 
-            bool force_single_line = is_nowrap;
+            constexpr float kAdvanceTolerancePx = 4.0f;
+            const bool overflowing_closed_select =
+                b.tag == "select" &&
+                natural_text_width() > content_w + kAdvanceTolerancePx;
+            bool force_single_line = is_nowrap || overflowing_closed_select;
             if (!is_nowrap &&
                 !b.text_control &&
                 b.tag != "select" &&
@@ -1456,7 +1472,6 @@ void Document::draw(Painter& painter) {
                 b.text.find('\n') == std::string::npos &&
                 (paint_align == Painter::TextAlign::Center ||
                  paint_align == Painter::TextAlign::Right)) {
-                constexpr float kAdvanceTolerancePx = 4.0f;
                 const float tw = natural_text_width();
                 if (tw <= content_w + kAdvanceTolerancePx) {
                     const float slack = content_w - tw;

@@ -75,20 +75,11 @@ def page_specs():
             "alert",
             build_feedback,
         ),
-        (
-            "decius-editors",
-            "Editors",
-            "Color, curve, graph, and texture-editor surfaces",
-            "curve",
-            build_editors,
-        ),
-        (
-            "decius-hardware",
-            "Hardware",
-            "Skeuomorphic knobs, silk, meters, and patch rows",
-            "oscillator",
-            build_hardware,
-        ),
+        # Editors and Hardware are DISABLED — listed under "Planned Coverage" in
+        # component_gallery.py instead. Their surfaces don't render correctly
+        # yet, and a gallery whose job is to show what works should not be
+        # showing what doesn't. build_editors / build_hardware below are kept so
+        # they can be re-enabled here once the surfaces are fixed.
     )
 
 
@@ -144,6 +135,30 @@ def _build_widget_fields(v):
         "Cycles - Pathtraced",
         key="dec-widget-renderer",
     )
+
+
+def _build_form_layout(v):
+    def build_form(form):
+        form.input("Project", "untitled.dcs", key="dec-form-project")
+        form.textarea(
+            "Notes",
+            "safe to render - caches warm",
+            key="dec-form-notes",
+        )
+        form.dropdown(
+            "Renderer",
+            ["Cycles - Pathtraced", "Eevee - Realtime", "Wireframe only"],
+            "Cycles - Pathtraced",
+            key="dec-form-renderer",
+        )
+        form.colorfield("Color", "#4d9fff", key="dec-form-color")
+        form.button("Apply", primary=True, key="dec-form-apply")
+
+    v.container(
+        classes="dcs-form",
+        key="dec-form-layout-widget",
+        build=build_form,
+    ).attr("style", "max-width:460px")
 
 
 def _build_widget_ranges(v):
@@ -266,20 +281,12 @@ def build_inputs(ctx, v):
         "dec-widget-fields",
         _build_widget_fields,
     )
-    _section(
-        ctx,
+    ctx.section(
         v,
         "Form Layout",
+        "split",
         "dec-form-layout",
-        """
-        <div class="dcs-form" style="max-width:460px">
-          <div class="dcs-field"><label class="dcs-field__label">Project</label><input class="dcs-input" value="untitled.dcs"></div>
-          <div class="dcs-field"><label class="dcs-field__label">Notes</label><textarea class="dcs-textarea">safe to render - caches warm</textarea></div>
-          <div class="dcs-field"><label class="dcs-field__label">Renderer</label><select class="dcs-select"><option>Cycles - Pathtraced</option><option>Eevee - Realtime</option><option>Wireframe only</option></select></div>
-          <div class="dcs-field"><label class="dcs-field__label">Color</label><span class="dcs-colorfield"><span class="dcs-colorfield__chip" style="--c:#4d9fff;background:#4d9fff"></span><span class="dcs-colorfield__hex">#4D9FFF</span></span></div>
-          <button class="dcs-btn dcs-btn--primary">Apply</button>
-        </div>
-        """,
+        _build_form_layout,
     )
     _section(
         ctx,
