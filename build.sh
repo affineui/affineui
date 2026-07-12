@@ -96,8 +96,14 @@ example_targets() {
     local present; present="$(ninja -C "$BUILD" -t targets all 2>/dev/null | sed 's/:.*//')"
     local e
     for e in "${EXAMPLES[@]}"; do
-        grep -qx "$e" <<< "$present" && echo "$e"
+        # `if`, not `&&`: the loop's status is its last command's, so a final
+        # example that ISN'T present would leave the function returning 1 and
+        # `set -e` would kill the caller mid-assignment — silently.
+        if grep -qx "$e" <<< "$present"; then
+            echo "$e"
+        fi
     done
+    return 0
 }
 
 build_examples() {
