@@ -5095,6 +5095,42 @@ TEST_CASE("native select text uses platform inner inset") {
 
     CHECK(value->pos.x == 12);
     CHECK(value->max_width == 273.0f);
+    CHECK(value->clipped);
+    CHECK(value->clip.x == 12);
+    CHECK(value->clip.w == 273);
+}
+
+TEST_CASE("closed select keeps an overflowing value on one clipped line") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        select {
+          display: flex;
+          align-items: center;
+          box-sizing: border-box;
+          width: 96px;
+          height: 22px;
+          border: 1px solid #000;
+          padding: 0 6px;
+          font-size: 12px;
+          line-height: normal;
+        }
+        </style>
+        <select><option>Cycles - Pathtraced</option></select>
+    )HTML");
+    doc.layout(140, 60, &painter);
+    doc.draw(painter);
+
+    const auto* value = find_text_draw(painter, "Cycles - Pathtraced");
+    REQUIRE(value != nullptr);
+    CHECK(value->max_width == 1e6f);
+    CHECK(value->clipped);
+    CHECK(value->clip.x == 12);
+    CHECK(value->clip.w == 77);
+    CHECK(value->clip.h == 20);
 }
 
 TEST_CASE("textarea text starts at the CSS edit viewport padding") {
