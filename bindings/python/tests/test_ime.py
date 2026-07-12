@@ -237,3 +237,7 @@ def test_focus_loss_clears_the_composition():
     app.dispatch(blur)
 
     assert app.document().text_input_active() is False
+    # The point of the test: losing focus must DROP the preedit, not quietly
+    # commit it. Without this the assertion above would pass even if the
+    # composition text had been written into the value on the way out.
+    assert changes == []

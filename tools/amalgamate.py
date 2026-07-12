@@ -1011,12 +1011,20 @@ def resolve_clang(requested: str | None) -> str:
         path = shutil.which(name) or (name if Path(name).is_file() else None)
         if path is None:
             continue
-        result = subprocess.run([path, "--version"], text=True,
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        if result.returncode == 0 and "clang" in result.stdout.lower():
+        # A path can exist and still not be runnable (not executable, wrong
+        # arch, a stub). Treat that as "not a usable clang" and fall through to
+        # the guidance below, rather than letting a traceback out.
+        try:
+            result = subprocess.run(
+                [path, "--version"], text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        except OSError:
+            result = None
+        if (result is not None and result.returncode == 0
+                and "clang" in result.stdout.lower()):
             return path
         if requested:
-            print(f"amalgamate: --cxx '{requested}' is not clang\n",
+            print(f"amalgamate: --cxx '{requested}' is not a usable clang\n",
                   file=sys.stderr)
             break
 

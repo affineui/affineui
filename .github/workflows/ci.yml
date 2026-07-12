@@ -11,6 +11,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Every job here compiles and RUNS repository code (ctest, the examples, the
+# bindings), including from pull_request events. None of it needs to write
+# anything back, so drop the token to read-only rather than leaving the
+# permissive default in place.
+permissions:
+  contents: read
+
 jobs:
   windows:
     name: Windows (D3D11)
@@ -21,6 +28,8 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       # Visual Studio generator => self-contained, no vcvars/Ninja setup needed.
       # The msvc preset resolves the backend to d3d11 on Windows.
       - name: Configure
@@ -35,6 +44,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Install X11 / GL / ALSA dev packages
         run: |
           sudo apt-get update
@@ -54,6 +65,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Install Ninja
         run: brew install ninja
       # Backend auto-resolves to metal on Apple now that nanovg_sokol.h
@@ -71,6 +84,8 @@ jobs:
     needs: macos
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Install Ninja
         run: brew install ninja
       - name: Configure + generate amalgamation
@@ -101,6 +116,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       # Generating needs clang (amalgamate.py compiles the staged Lexbor tree
       # to repair it and to scan objects for unprefixed globals, with
       # clang-only flags). CONSUMING must work on gcc too — and until this job
@@ -132,6 +149,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Install X11 / GL / ALSA dev packages
         run: |
           sudo apt-get update
@@ -194,6 +213,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Install X11 / GL / ALSA dev packages
         run: |
           sudo apt-get update

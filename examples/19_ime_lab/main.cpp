@@ -193,23 +193,39 @@ public:
         (void)page;
     }
 
-    // Observe every composition/commit so the readout above reflects reality
-    // rather than what we hope happened. App::dispatch() has already routed the
-    // event to the document by the time we see it here.
-    void note(const affineui::Event& ev) {
+    // Observe every composition/commit so the readout reflects what the engine
+    // actually saw, not what we hope it saw. Wired through App::on_event, which
+    // hands us the event after the document has already routed it.
+    //
+    // ALWAYS returns false: we are a passive observer. Consuming the event here
+    // would swallow the very IME input we exist to display.
+    //
+    // The rebuild is deferred to the next frame rather than issued from inside
+    // dispatch — rebuilding the view mid-dispatch reenters the reconciler while
+    // it is walking the tree that raised the event.
+    bool note(const affineui::Event& ev) {
         if (ev.type == affineui::EventType::Composition) {
             preedit_ = ev.text;
             cursor_ = ev.composition_cursor;
             clause_begin_ = ev.composition_clause_begin;
             clause_end_ = ev.composition_clause_end;
             if (!preedit_.empty()) ++compositions_;
-            app_.rebuild_view();
+            dirty_ = true;
         } else if (ev.type == affineui::EventType::TextInput) {
             preedit_.clear();
             cursor_ = clause_begin_ = clause_end_ = 0;
             ++commits_;
-            app_.rebuild_view();
+            dirty_ = true;
         }
+        return false;
+    }
+
+    // Rebuild once per frame if an IME event moved the readout. Cheap: the
+    // reconciler diffs, so an unchanged frame emits no patches.
+    void tick() {
+        if (!dirty_) return;
+        dirty_ = false;
+        app_.rebuild_view();
     }
 
 private:
@@ -233,6 +249,7 @@ private:
     int  clause_end_{0};
     int  compositions_{0};
     int  commits_{0};
+    bool dirty_{false};
 };
 
 }  // namespace
@@ -263,6 +280,13 @@ int main(int argc, char** argv) {
 
     ImeLab lab{app, lang};
     app.set_view([&lab](affineui::View& v) { lab.build(v); });
+    // Without these two the readout never updates — and a readout that never
+    // updates is worse than none, because it reads as "the engine saw nothing."
+    app.on_event([&lab](const affineui::Event& ev,
+                        const std::vector<affineui::Document::HoverInfo>&) {
+        return lab.note(ev);
+    });
+    app.on_frame([&lab](double) { lab.tick(); });
 
     std::fputs(kChecklist.data(), stdout);
     std::fflush(stdout);

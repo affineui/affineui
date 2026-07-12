@@ -182,7 +182,10 @@ int main() { affineui::Ui ui; (void)ui; return 0; }
 # embed_d3d11) are absent from it when their deps weren't found, so whatever
 # this returns is genuinely runnable.
 function Get-ExampleTargets {
-    Invoke-Configure
+    # Out-Null, or cmake's configure output joins the pipeline and gets returned
+    # as if it were example names — which only shows up on a FRESH checkout,
+    # where the configure actually runs.
+    Invoke-Configure | Out-Null
     $manifest = Join-Path $Build 'examples\examples.txt'
     if (-not (Test-Path $manifest)) { return @() }
     return @(Get-Content $manifest | ForEach-Object { $_.Trim() } |

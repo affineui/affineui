@@ -38,12 +38,19 @@ fi
 # Keep the generated artifacts out of the Windows/macOS build/ tree.
 OUT_DIR="build-amalg"
 
+# The container runs as root and writes ${OUT_DIR} through the bind mount, so on
+# Linux/macOS it would leave root-owned artifacts the invoking user can't delete.
+# Hand ownership back on the way out. (No-op on Docker Desktop for Windows, where
+# the mount is already remapped — hence the `|| true`.)
+HOST_IDS="$(id -u 2>/dev/null || echo 0):$(id -g 2>/dev/null || echo 0)"
+
 docker run --rm \
     -v "${REPO}:${CONTAINER_WORK}" \
     -w "${CONTAINER_WORK}" \
     -e DEBIAN_FRONTEND=noninteractive \
     "${IMAGE}" bash -lc "
         set -euo pipefail
+        trap 'chown -R ${HOST_IDS} ${OUT_DIR} 2>/dev/null || true' EXIT
         apt-get update -qq
         apt-get install -y --no-install-recommends \
             build-essential clang cmake ninja-build git ca-certificates \
