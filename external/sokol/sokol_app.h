@@ -2789,13 +2789,16 @@ typedef struct {
 @end
 @interface _sapp_macos_window_delegate : NSObject<NSWindowDelegate>
 @end
+/* AFFINEUI PATCH (ime): the view adopts NSTextInputClient so CJK IMEs can
+   compose into it (setMarkedText:/insertText:) and anchor their candidate
+   window at the caret (firstRectForCharacterRange:). */
 #if defined(SOKOL_METAL) || defined(SOKOL_WGPU)
-    @interface _sapp_macos_view : NSView
+    @interface _sapp_macos_view : NSView<NSTextInputClient>
     - (void)displayLinkFired:(id)sender;
     - (void)fallbackTimerFired:(NSTimer*)timer;
     @end
 #elif defined(SOKOL_GLCORE)
-    @interface _sapp_macos_view : NSOpenGLView
+    @interface _sapp_macos_view : NSOpenGLView<NSTextInputClient>
     - (void)timerFired:(id)sender;
     @end
 #endif // SOKOL_GLCORE
@@ -2806,6 +2809,21 @@ typedef struct {
     NSWindow* window;
     NSTrackingArea* tracking_area;
     id keyup_monitor;
+    /* AFFINEUI PATCH (ime): NSTextInputClient state. `marked_len` is the
+       length of the current preedit in UTF-16 units (0 => no composition);
+       `rect` is the caret box in client-area physical px (top-left origin,
+       as sapp_ime_set_rect delivers it) and is converted to screen points
+       on demand in firstRectForCharacterRange:. */
+    struct {
+        NSUInteger marked_len;
+        bool enabled;       /* a text field is focused (sapp_ime_set_enabled) */
+        bool rect_valid;
+        int rect_x, rect_y, rect_w, rect_h;
+        /* carried from keyDown: — the NSTextInputClient callbacks are invoked
+           by interpretKeyEvents: and get no NSEvent of their own */
+        uint32_t key_mods;
+        bool key_repeat;
+    } ime;
     _sapp_macos_app_delegate* app_dlg;
     _sapp_macos_window_delegate* win_dlg;
     _sapp_macos_view* view;
@@ -6114,6 +6132,57 @@ _SOKOL_PRIVATE void _sapp_macos_frame(void) {
 }
 @end
 
+/* AFFINEUI PATCH (ime): helpers shared by the NSTextInputClient callbacks. */
+
+/* Byte offset into the UTF-8 encoding of `str` of the UTF-16 index
+   `utf16_index` — the IME reports its caret and clause bounds in UTF-16
+   units, the sapp/affineui protocol carries UTF-8 byte offsets. */
+_SOKOL_PRIVATE int _sapp_macos_ime_utf8_offset(NSString* str, NSUInteger utf16_index) {
+    if (utf16_index == NSNotFound) {
+        return -1;
+    }
+    if (utf16_index > str.length) {
+        utf16_index = str.length;
+    }
+    NSString* prefix = [str substringToIndex:utf16_index];
+    return (int)[prefix lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+}
+
+/* Emit one SAPP_EVENTTYPE_CHAR per Unicode codepoint (surrogate pairs are
+   recombined, so non-BMP input arrives as a single codepoint). */
+_SOKOL_PRIVATE void _sapp_macos_ime_emit_chars(NSString* str) {
+    const NSUInteger len = str.length;
+    for (NSUInteger i = 0; i < len; i++) {
+        const unichar hi = [str characterAtIndex:i];
+        uint32_t codepoint = hi;
+        if ((hi >= 0xD800) && (hi <= 0xDBFF) && ((i + 1) < len)) {
+            const unichar lo = [str characterAtIndex:i + 1];
+            if ((lo >= 0xDC00) && (lo <= 0xDFFF)) {
+                codepoint = 0x10000 + (((uint32_t)(hi - 0xD800)) << 10) + (uint32_t)(lo - 0xDC00);
+                i++;
+            }
+        }
+        /* private-use block AppKit uses for the function keys */
+        if ((codepoint & 0xFFFFFF00) == 0xF700) {
+            continue;
+        }
+        _sapp_init_event(SAPP_EVENTTYPE_CHAR);
+        _sapp.event.modifiers = _sapp.macos.ime.key_mods;
+        _sapp.event.char_code = codepoint;
+        _sapp.event.key_repeat = _sapp.macos.ime.key_repeat;
+        _sapp_call_event(&_sapp.event);
+    }
+}
+
+/* NSTextInputClient hands marked text as an NSString or an NSAttributedString
+   (attributed when the IME wants clause styling); normalize to a plain string. */
+_SOKOL_PRIVATE NSString* _sapp_macos_ime_plain_string(id string) {
+    if ([string isKindOfClass:[NSAttributedString class]]) {
+        return [(NSAttributedString*)string string];
+    }
+    return (NSString*)string;
+}
+
 @implementation _sapp_macos_view
 #if defined(SOKOL_GLCORE)
 - (void)timerFired:(id)sender {
@@ -6294,19 +6363,34 @@ static void _sapp_gl_make_current(void) {
         const uint32_t mods = _sapp_macos_mods(event);
         const sapp_keycode key_code = _sapp_translate_key(event.keyCode);
         _sapp_macos_key_event(SAPP_EVENTTYPE_KEY_DOWN, key_code, event.isARepeat, mods);
-        const NSString* chars = event.characters;
-        const NSUInteger len = chars.length;
-        if (len > 0) {
-            _sapp_init_event(SAPP_EVENTTYPE_CHAR);
-            _sapp.event.modifiers = mods;
-            for (NSUInteger i = 0; i < len; i++) {
-                const unichar codepoint = [chars characterAtIndex:i];
-                if ((codepoint & 0xFF00) == 0xF700) {
-                    continue;
+        /* AFFINEUI PATCH (ime): with a text field focused, hand the key to the
+           input method rather than reading event.characters ourselves.
+           interpretKeyEvents: calls back into insertText: (committed text) and
+           setMarkedText: (preedit) — the only way CJK composition, and dead
+           keys, can work at all.
+
+           Outside a text field (sapp_ime_set_enabled(false) — games, shortcut
+           handling) the original raw-characters path runs verbatim, so apps
+           that never focus a text field see no change in key behavior. */
+        if (_sapp.macos.ime.enabled) {
+            _sapp.macos.ime.key_mods = mods;
+            _sapp.macos.ime.key_repeat = event.isARepeat;
+            [self interpretKeyEvents:@[event]];
+        } else {
+            const NSString* chars = event.characters;
+            const NSUInteger len = chars.length;
+            if (len > 0) {
+                _sapp_init_event(SAPP_EVENTTYPE_CHAR);
+                _sapp.event.modifiers = mods;
+                for (NSUInteger i = 0; i < len; i++) {
+                    const unichar codepoint = [chars characterAtIndex:i];
+                    if ((codepoint & 0xFF00) == 0xF700) {
+                        continue;
+                    }
+                    _sapp.event.char_code = codepoint;
+                    _sapp.event.key_repeat = event.isARepeat;
+                    _sapp_call_event(&_sapp.event);
                 }
-                _sapp.event.char_code = codepoint;
-                _sapp.event.key_repeat = event.isARepeat;
-                _sapp_call_event(&_sapp.event);
             }
         }
         /* if this is a Cmd+V (paste), also send a CLIPBOARD_PASTE event */
@@ -6315,6 +6399,128 @@ static void _sapp_gl_make_current(void) {
             _sapp_call_event(&_sapp.event);
         }
     }
+}
+
+/* AFFINEUI PATCH (ime): NSTextInputClient. The IME drives these via
+   interpretKeyEvents: in keyDown: above. */
+
+- (BOOL)hasMarkedText {
+    return _sapp.macos.ime.marked_len > 0;
+}
+
+- (NSRange)markedRange {
+    if (_sapp.macos.ime.marked_len > 0) {
+        return NSMakeRange(0, _sapp.macos.ime.marked_len);
+    }
+    return NSMakeRange(NSNotFound, 0);
+}
+
+- (NSRange)selectedRange {
+    /* The document owns the real selection; the IME only needs a well-formed
+       answer here, and NSNotFound is the conventional "don't know". */
+    return NSMakeRange(NSNotFound, 0);
+}
+
+- (NSArray<NSAttributedStringKey>*)validAttributesForMarkedText {
+    return @[];
+}
+
+- (NSAttributedString*)attributedSubstringForProposedRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
+    _SOKOL_UNUSED(range);
+    _SOKOL_UNUSED(actualRange);
+    /* Reconversion / surrounding-text queries aren't supported yet (the core
+       has no surrounding-text API — see docs/IME_ARCHITECTURE.md §4.6). */
+    return nil;
+}
+
+- (NSUInteger)characterIndexForPoint:(NSPoint)point {
+    _SOKOL_UNUSED(point);
+    return 0;
+}
+
+- (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange replacementRange:(NSRange)replacementRange {
+    _SOKOL_UNUSED(replacementRange);
+    NSString* text = _sapp_macos_ime_plain_string(string);
+    _sapp.macos.ime.marked_len = text.length;
+    if (!_sapp_events_enabled()) {
+        return;
+    }
+    _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
+    _sapp.event.modifiers = _sapp.macos.ime.key_mods;
+    const char* utf8 = [text UTF8String];
+    if (utf8) {
+        _sapp_strcpy(utf8, _sapp.event.ime_composition, sizeof(_sapp.event.ime_composition));
+    }
+    _sapp.event.ime_composition_cursor = _sapp_macos_ime_utf8_offset(text, selectedRange.location);
+    /* The clause being converted is the one the IME underlines thickly (the
+       same signal GLFW/SDL key off). No thick run => leave begin==end, which
+       the core reads as "no clause info". */
+    if ([string isKindOfClass:[NSAttributedString class]]) {
+        NSAttributedString* attr = (NSAttributedString*)string;
+        __block NSRange clause = NSMakeRange(NSNotFound, 0);
+        [attr enumerateAttribute:NSUnderlineStyleAttributeName
+                         inRange:NSMakeRange(0, attr.length)
+                         options:0
+                      usingBlock:^(id value, NSRange range, BOOL* stop) {
+            if (value && (([value integerValue] & NSUnderlineStyleThick) == NSUnderlineStyleThick)) {
+                clause = range;
+                *stop = YES;
+            }
+        }];
+        if (clause.location != NSNotFound) {
+            _sapp.event.ime_composition_clause_begin = _sapp_macos_ime_utf8_offset(text, clause.location);
+            _sapp.event.ime_composition_clause_end = _sapp_macos_ime_utf8_offset(text, clause.location + clause.length);
+        }
+    }
+    _sapp_call_event(&_sapp.event);
+}
+
+- (void)unmarkText {
+    _sapp.macos.ime.marked_len = 0;
+    if (!_sapp_events_enabled()) {
+        return;
+    }
+    /* empty composition => preedit cleared (end or cancel) */
+    _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
+    _sapp.event.modifiers = _sapp.macos.ime.key_mods;
+    _sapp_call_event(&_sapp.event);
+}
+
+- (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
+    _SOKOL_UNUSED(replacementRange);
+    /* Commit. The core clears any live preedit on TextInput before inserting,
+       so no explicit composition-end event is needed here. */
+    _sapp.macos.ime.marked_len = 0;
+    if (!_sapp_events_enabled()) {
+        return;
+    }
+    _sapp_macos_ime_emit_chars(_sapp_macos_ime_plain_string(string));
+}
+
+- (void)doCommandBySelector:(SEL)selector {
+    _SOKOL_UNUSED(selector);
+    /* Backspace/arrows/Return already went out as SAPP_EVENTTYPE_KEY_DOWN from
+       keyDown:. Swallow the selector so AppKit doesn't beep at us for not
+       implementing it (and so it can't reach NSResponder's defaults). */
+}
+
+- (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
+    if (actualRange) {
+        *actualRange = range;
+    }
+    if (!_sapp.macos.ime.rect_valid) {
+        return NSMakeRect(0, 0, 0, 0);
+    }
+    /* sapp_ime_set_rect delivers the caret box in client-area PHYSICAL px with
+       a top-left origin; Cocoa wants screen POINTS with a bottom-left origin. */
+    const CGFloat s = (_sapp.dpi_scale > 0.0f) ? (CGFloat)_sapp.dpi_scale : (CGFloat)1.0;
+    const CGFloat x = (CGFloat)_sapp.macos.ime.rect_x / s;
+    const CGFloat w = (CGFloat)_sapp.macos.ime.rect_w / s;
+    const CGFloat h = (CGFloat)_sapp.macos.ime.rect_h / s;
+    const CGFloat top = (CGFloat)_sapp.macos.ime.rect_y / s;
+    NSRect r = NSMakeRect(x, self.bounds.size.height - top - h, w, h);
+    r = [self convertRect:r toView:nil];            /* view -> window */
+    return [self.window convertRectToScreen:r];     /* window -> screen */
 }
 
 - (BOOL)performKeyEquivalent:(NSEvent*)event {
@@ -14634,6 +14840,15 @@ SOKOL_API_IMPL void sapp_ime_set_rect(int x, int y, int w, int h) {
                 XFree(preedit);
             }
         }
+    #elif defined(_SAPP_MACOS)
+        /* Stored as-is (client px, top-left origin); the view converts to
+           screen points in firstRectForCharacterRange:, which is the only
+           place AppKit asks for it — so there is nothing to push eagerly. */
+        _sapp.macos.ime.rect_x = x;
+        _sapp.macos.ime.rect_y = y;
+        _sapp.macos.ime.rect_w = w;
+        _sapp.macos.ime.rect_h = h;
+        _sapp.macos.ime.rect_valid = true;
     #else
         _SOKOL_UNUSED(x); _SOKOL_UNUSED(y); _SOKOL_UNUSED(w); _SOKOL_UNUSED(h);
     #endif
@@ -14663,6 +14878,26 @@ SOKOL_API_IMPL void sapp_ime_set_enabled(bool enabled) {
             XSetICFocus(_sapp.x11.xic);
         } else {
             XUnsetICFocus(_sapp.x11.xic);
+        }
+    #elif defined(_SAPP_MACOS)
+        if (enabled == _sapp.macos.ime.enabled) {
+            return;     /* already in the requested state */
+        }
+        _sapp.macos.ime.enabled = enabled;
+        if (!enabled) {
+            /* Leaving the text field with a composition still open: drop it.
+               discardMarkedText tells the input method to abandon its state
+               without committing (so a half-typed preedit can't leak into the
+               next field), and we clear ours to match. */
+            if (_sapp.macos.ime.marked_len > 0) {
+                _sapp.macos.ime.marked_len = 0;
+                [[NSTextInputContext currentInputContext] discardMarkedText];
+                if (_sapp_events_enabled()) {
+                    _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
+                    _sapp_call_event(&_sapp.event);
+                }
+            }
+            _sapp.macos.ime.rect_valid = false;
         }
     #else
         _SOKOL_UNUSED(enabled);
