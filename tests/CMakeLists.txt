@@ -74,3 +74,13 @@ set_target_properties(affineui_tests PROPERTIES
 
 include("${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake")
 doctest_discover_tests(affineui_tests)
+
+if(APPLE AND AFFINEUI_DEPS_AVAILABLE)
+    add_executable(affineui_macos_input_queue macos_input_queue.mm)
+    target_link_libraries(affineui_macos_input_queue PRIVATE affineui::affineui)
+    add_test(NAME macos_native_input_queue
+             COMMAND affineui_macos_input_queue)
+    set_tests_properties(macos_native_input_queue PROPERTIES
+        RUN_SERIAL TRUE
+        TIMEOUT 10)
+endif()
