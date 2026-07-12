@@ -557,6 +557,57 @@ void refresh_composed_display(detail::DocumentImpl& impl,
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
+bool is_hangul_composition(std::string_view preedit) {
+    // Decode UTF-8 and look for Hangul. A preedit that carries any CJK
+    // ideograph or kana is a Japanese/Chinese composition and keeps its
+    // underline even if some hangul rides along; only an all-Korean preedit
+    // drops it.
+    bool saw_hangul = false;
+    for (std::size_t i = 0; i < preedit.size();) {
+        const auto b0 = static_cast<unsigned char>(preedit[i]);
+        std::uint32_t cp = 0;
+        std::size_t len = 1;
+        if (b0 < 0x80) {
+            cp = b0;
+        } else if ((b0 & 0xE0) == 0xC0 && i + 1 < preedit.size()) {
+            cp = static_cast<std::uint32_t>(b0 & 0x1F);
+            len = 2;
+        } else if ((b0 & 0xF0) == 0xE0 && i + 2 < preedit.size()) {
+            cp = static_cast<std::uint32_t>(b0 & 0x0F);
+            len = 3;
+        } else if ((b0 & 0xF8) == 0xF0 && i + 3 < preedit.size()) {
+            cp = static_cast<std::uint32_t>(b0 & 0x07);
+            len = 4;
+        } else {
+            ++i;  // malformed lead byte — skip it
+            continue;
+        }
+        for (std::size_t k = 1; k < len; ++k) {
+            cp = (cp << 6) | (static_cast<std::uint32_t>(
+                                  static_cast<unsigned char>(preedit[i + k])) &
+                              0x3F);
+        }
+        i += len;
+
+        // Hangul: syllables, Jamo, and the compatibility/extended jamo blocks.
+        if ((cp >= 0xAC00 && cp <= 0xD7AF) ||   // Hangul Syllables
+            (cp >= 0x1100 && cp <= 0x11FF) ||   // Hangul Jamo
+            (cp >= 0x3130 && cp <= 0x318F) ||   // Compatibility Jamo
+            (cp >= 0xA960 && cp <= 0xA97F) ||   // Jamo Extended-A
+            (cp >= 0xD7B0 && cp <= 0xD7FF)) {   // Jamo Extended-B
+            saw_hangul = true;
+            continue;
+        }
+        // Kana or CJK ideographs => this is a Japanese/Chinese composition.
+        if ((cp >= 0x3040 && cp <= 0x30FF) ||   // Hiragana + Katakana
+            (cp >= 0x4E00 && cp <= 0x9FFF) ||   // CJK Unified Ideographs
+            (cp >= 0x3400 && cp <= 0x4DBF)) {   // CJK Extension A
+            return false;
+        }
+    }
+    return saw_hangul;
+}
+
 bool text_composition_active(const detail::DocumentImpl& impl,
                              int idx,
                              const Block& block) {
@@ -1871,6 +1922,7 @@ bool text_composition_active(const detail::DocumentImpl&,
                              const Block&) {
     return false;
 }
+bool is_hangul_composition(std::string_view) { return false; }
 bool update_text_composition(detail::DocumentImpl&,
                              int,
                              Block&,

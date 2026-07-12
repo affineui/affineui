@@ -12167,6 +12167,58 @@ TEST_CASE("IME preedit draws an underline decoration") {
         }));
 }
 
+TEST_CASE("Korean preedit draws NO underline") {
+    // The thin/thick preedit underline is a Japanese/Chinese convention: there
+    // the preedit is a long unconverted phrase and the underline weight marks
+    // WHICH clause is being converted. Korean has no such phase — hangul is
+    // assembled jamo-by-jamo straight into the syllable, with no clause
+    // structure — and Korean text fields do not underline the composing
+    // syllable. Keyed off the script of the preedit, not the platform.
+    affineui::Document doc;
+    RecordingPainter painter;
+    const auto bounds = focus_ime_input(doc, painter);
+
+    // 한 (U+D55C) — a Hangul syllable mid-assembly.
+    doc.dispatch(composition_event("\xED\x95\x9C"));
+    painter.stroke_line_draws.clear();
+    doc.draw(painter);
+
+    // The caret is a VERTICAL stroke and must still be there; what must NOT be
+    // there is a horizontal underline under the text.
+    const bool has_underline = std::any_of(
+        painter.stroke_line_draws.begin(), painter.stroke_line_draws.end(),
+        [&](const auto& line) {
+            return std::abs(line.y0 - line.y1) < 0.01f &&
+                   line.x1 > line.x0 &&
+                   line.y0 > bounds.y + bounds.h / 2 &&
+                   line.y0 < bounds.y + bounds.h;
+        });
+    CHECK_FALSE(has_underline);
+}
+
+TEST_CASE("a preedit mixing hangul with kana keeps its underline") {
+    // Only an all-Korean preedit drops the underline. If any kana or CJK
+    // ideograph rides along it is a Japanese/Chinese composition and the clause
+    // underline still carries information.
+    affineui::Document doc;
+    RecordingPainter painter;
+    const auto bounds = focus_ime_input(doc, painter);
+
+    // 한 + かん — hangul followed by kana.
+    doc.dispatch(composition_event("\xED\x95\x9C\xE3\x81\x8B\xE3\x82\x93"));
+    painter.stroke_line_draws.clear();
+    doc.draw(painter);
+
+    CHECK(std::any_of(
+        painter.stroke_line_draws.begin(), painter.stroke_line_draws.end(),
+        [&](const auto& line) {
+            return std::abs(line.y0 - line.y1) < 0.01f &&
+                   line.x1 > line.x0 &&
+                   line.y0 > bounds.y + bounds.h / 2 &&
+                   line.y0 < bounds.y + bounds.h;
+        }));
+}
+
 TEST_CASE("IME commit replaces the preedit with committed text") {
     affineui::Document doc;
     RecordingPainter painter;

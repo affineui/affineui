@@ -1172,6 +1172,12 @@ std::pair<std::size_t, std::size_t> composition_display_range(
 bool text_composition_active(const detail::DocumentImpl& impl,
                              int idx,
                              const Block& block);
+/// True when a preedit is Korean — i.e. contains Hangul and no CJK ideographs
+/// or kana. Hangul composes jamo-by-jamo straight into the syllable, with no
+/// clause structure, and Korean text fields do not underline the composing
+/// syllable; the thin/thick preedit underline is a Japanese/Chinese convention
+/// where it marks which clause is being converted.
+bool is_hangul_composition(std::string_view preedit);
 bool update_text_composition(detail::DocumentImpl& impl,
                              int idx,
                              Block& block,
