@@ -595,6 +595,12 @@ sg_pipeline ensure_pipeline(Renderer::Impl& im, const PipelineKey& key) {
     p.face_winding = SG_FACEWINDING_CCW;
 
     if (key.program == Program::Depth) {
+        // Depth-only: sokol reads color_count==0 as "unset" and defaults it
+        // back to 1 unless colors[0].pixel_format is explicitly NONE (a
+        // zero-initialized format is _SG_PIXELFORMAT_DEFAULT, not NONE). Without
+        // this the shadow pipeline claims a color attachment the shadow pass
+        // doesn't have, and sg_apply_pipeline trips on it.
+        p.colors[0].pixel_format = SG_PIXELFORMAT_NONE;
         p.color_count = 0;
         p.depth.pixel_format = SG_PIXELFORMAT_DEPTH;
         p.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;

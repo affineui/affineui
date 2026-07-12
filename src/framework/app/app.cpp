@@ -109,6 +109,10 @@ struct AppImpl {
     bool                       has_last_mouse{false};
     // View diagnostics already printed to stderr (each distinct message once).
     std::set<std::string>      reported_view_diagnostics;
+    // Set for the duration of cb_frame. The macOS native-event drain runs a
+    // nested run loop that can re-enter cb_frame; this makes that nested
+    // frame a no-op (see cb_frame).
+    bool                  in_frame{false};
     bool                  pointer_captured{false};
     bool                  quit_requested{false};
     int                   exit_code{0};
@@ -1091,6 +1095,19 @@ void sync_ime_state(detail::AppImpl& impl) {
 
 void cb_frame(void* user) {
     auto* impl = static_cast<detail::AppImpl*>(user);
+    // The macOS drain below pumps NSEvents through a nested run loop, which
+    // services the CADisplayLink source and re-enters this callback from
+    // inside itself. A nested frame would run a second render (and a second
+    // set of frame callbacks) over state the outer frame is halfway through
+    // mutating — on the 3D samples that reads a half-torn viewport and
+    // faults. There is nothing useful a nested frame can do that the outer
+    // one won't; drop it and let the outer frame finish.
+    if (impl->in_frame) return;
+    impl->in_frame = true;
+    struct FrameGuard {
+        detail::AppImpl* impl;
+        ~FrameGuard() { impl->in_frame = false; }
+    } frame_guard{impl};
     try {
         // R0 wall clock: the gap since the previous callback ENTRY is the
         // truth metric — measured before any frame work so a stall anywhere
