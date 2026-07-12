@@ -11,12 +11,14 @@ its name with an enum typedef — hence `affineui_widget_get_kind` /
 `affineui_view_get_theme`.
 
 **Rust wrapper: implemented** (`bindings/rust`, both modes; headless
-contract tests pass — including the exactly-once closure-release test —
-and both examples run; clippy-clean). **C# wrapper: implemented**
-(`bindings/csharp`, both modes; builds warning-free, headless example
-verifies the ABI gate, typed-component validity, layout, and
-exactly-once GCHandle release). Windowed verification of both wrappers
-is pending a user test session.
+contract tests pass — including capture-phase consumption, caret timing,
+`event_consumed`, and exactly-once closure release — and both examples run;
+clippy-clean). **C# wrapper: implemented** (`bindings/csharp`, both modes;
+builds warning-free; the headless example verifies the ABI gate, capture
+callback round-trip, caret timing, typed-component validity, layout, and
+exactly-once GCHandle release). Python's pybind11 suite covers the same
+capture/caret/consumption contract plus synthetic IME composition. Windowed
+verification of Rust and .NET remains a user-tester step.
 
 This document specifies AffineUI's universal language-bindings system —
 one curated C ABI that every wrapper consumes — and the concrete designs
@@ -200,6 +202,22 @@ void affineui_widget_on_click(affineui_widget* w,
 | `affineui_view` | `affineui_view_create(theme)` | `affineui_view_destroy` | `affineui_app_load_view` **copies** the view into the app (same as Python: the app never borrows the caller's view object). |
 | `affineui_widget` | returned by every `affineui_view_*` builder / `find_widget` | `affineui_widget_destroy` | A heap-copied `WidgetRef`. **Must not outlive its view** — the C header documents it; each wrapper *enforces* it (§4.2, §5.2). Operations on a stale-but-in-lifetime ref follow WidgetRef semantics: reads return defaults, writes no-op. |
 
+#### Capture-phase input interception
+
+`affineui_app_on_event_capture` and `affineui_ui_on_event_capture` receive
+every translated event sent through the corresponding dispatcher, including
+mouse move/down/up/wheel, key down/up, text input, and IME composition. A
+non-zero return consumes the event before document/widget dispatch and before
+ordinary event handlers. This lets a host implement global shortcuts, modal
+tools, or an input grab without focused controls also acting on the event.
+
+Consumption is local to AffineUI; it does not cancel the underlying operating
+system event or stop another host subsystem from seeing it. A physical IME
+keystroke can produce later composition and committed-text events, so a host
+that suppresses the complete sequence must consume those events as well. The
+capture callback receives the current **pre-dispatch** hover chain; ordinary
+post-document handlers receive the refreshed chain after hit testing.
+
 ### 3.6 Threading
 
 The whole surface is single-threaded: create, mutate, render, and dispatch
@@ -214,13 +232,14 @@ Mirrors the Python binding's proof-of-concept surface:
 - **App** — create/destroy, `load_html`, `load_html_file`, `load_view`,
   `set_stylesheet(css, base_url /*nullable*/)`, `invalidate`,
   `set_perf_overlay_enabled`/`perf_overlay_enabled`, `dispatch(event)`,
-  `run`, `quit(code)`, `window_size`, `framebuffer_size`, `dpi_scale`,
-  `document` (borrow).
+  `on_event_capture(fn,user,user_free)`, `run`, `quit(code)`, `window_size`,
+  `framebuffer_size`, `dpi_scale`, `document` (borrow).
 - **Document** (headless + via app) — create/destroy, `set_html`,
   `set_user_stylesheet(css, base_url)`, `reload_stylesheets`,
   `layout(w,h)`, `content_size`, `set_attribute_by_id`,
   `remove_attribute_by_id`, `set_text_by_id`, `dispatch(event, out
-  result)`, `attach_script`/`detach_script`, `hovered_cursor`.
+  result)` (`event_consumed` included), caret blink interval get/set/tick,
+  `attach_script`/`detach_script`, `hovered_cursor`.
 - **View** — create/destroy(theme), `clear`, `begin`/`end`, `set_theme`,
   `set_framework_version`, `selector`, `to_html_fragment`,
   `to_html_document`, `find_widget`; builders: heading, paragraph, text,
@@ -256,8 +275,9 @@ framework contract, already shared with the interaction layer.
 Already present: init/render/needs_update/mark_dirty/reset/set_html/css.
 Added for a usable embedded host (all thin over `affineui::Ui`):
 `dispatch(event)`, `on_click(selector, fn, user, user_free)`,
-`hovered_cursor`, `set_attr`/`remove_attr`/`set_text`, `content_size`,
-`load_file`. GPU handles stay opaque `const void*` in
+`on_event_capture(fn, user, user_free)`, `hovered_cursor`, caret blink-rate
+configuration, `set_attr`/`remove_attr`/`set_text`, `content_size`, `load_file`.
+GPU handles stay opaque `const void*` in
 `affineui_gpu_context`/`affineui_frame_target` exactly as designed in
 `EMBEDDING_DESIGN.md` (all-or-nothing ownership; AffineUI opens/ends its
 own pass into host views and never presents).
@@ -269,10 +289,10 @@ own pass into host views and never presents).
   `int affineui_c_abi_version(void)`; each wrapper checks it at load and
   fails fast with a clear message rather than corrupting memory.
 - Additive-only evolution: new functions and appended enum values are
-  fine; struct layouts never change (new config fields go through a new
-  `_v2` struct or a sized-struct pattern if ever needed — config structs
-  carry no size field in slice 1; `_init()` + additive functions cover
-  the near term).
+  fine. A struct-layout change requires an ABI bump and coordinated wrapper
+  update. ABI v2 appends `event_consumed` to `affineui_dispatch_result` and
+  adds event-capture/caret-blink entry points; Rust and .NET both require v2.
+  Future config growth should use a `_v2` or sized-struct pattern.
 
 ---
 
@@ -335,6 +355,11 @@ app.run();
   in `std::panic::catch_unwind` (a panic aborts the callback with a log
   line, never unwinds into C++). `'static` is required because the core
   may hold the handler until the view is destroyed.
+- **Capture:** `App::on_event_capture` and `embedded::Ui::on_event_capture`
+  expose the complete pre-widget event phase. Returning `true` consumes mouse,
+  keyboard, text, or composition input. `Document::dispatch` exposes
+  `DispatchResult::event_consumed`; Document and embedded Ui expose caret blink
+  interval configuration (custom Document drivers also call `tick_caret_blink`).
 - **Builder scopes** are closures (`v.container("cls", "key", |v| …)`) —
   same shape as the Python binding's `build=` parameters; no RAII scope
   object crosses the FFI.
@@ -445,6 +470,11 @@ app.Run();
   `Action<string>` for handlers, `Action<View>` build callbacks, typed
   components with `Validity` enum, `bool` implicit-truth replaced by an
   explicit `IsValid` property.
+- **Capture and editor state:** `App.OnEventCapture` and
+  `Embedded.Ui.OnEventCapture` receive every translated input event and return
+  `bool` to consume it. `DispatchResult.EventConsumed` reports focused-widget
+  handling. `Document.CaretBlinkInterval`/`TickCaretBlink()` and
+  `Embedded.Ui.CaretBlinkInterval` mirror the C++ timing surface.
 
 ### 5.3 The two C# modes (explicit requirement)
 
@@ -510,12 +540,16 @@ Both modes ship in the same assembly; they share `Event`, `View`,
   golden check; register a callback with a counting `user_free` and
   verify exactly-once release on view destroy. These pin the contract
   both wrappers rely on, independent of either language toolchain.
-- **Rust:** `cargo test` — headless document + view goldens, closure
-  drop-count tests (assert `user_free` ran), `!Send`/`!Sync` compile
-  tests. Examples mirror Python's (`hello.rs`, `component_gallery.rs`).
-- **C#:** xUnit — same headless goldens, `GCHandle` release test (force
-  GC after view dispose; assert no leak via a finalizer canary), callback
-  exception containment test.
+- **Rust:** `cargo test -- --test-threads=1` — headless document + view
+  contracts, capture callback payload/consumption, caret interval and
+  `event_consumed`, plus closure drop-count checks (`user_free` exactly once).
+- **C#:** `dotnet run --project bindings/csharp/examples/Hello -- --headless`
+  is the executable contract test: ABI gate, headless layout, typed components,
+  capture callback payload/consumption, caret interval, and exactly-once
+  `GCHandle` release. There is no separate xUnit project yet.
+- **Python:** `pytest bindings/python/tests` builds/loads the pybind11 module
+  and covers capture callback payload/consumption, caret timing,
+  `DispatchResult.event_consumed`, and synthetic UTF-8 IME preedit/commit.
 - **Windowed verification** stays a user-tester step (per project
   practice): the wrapper hello apps opening a native window and
   responding to clicks is the acceptance gate before either wrapper is

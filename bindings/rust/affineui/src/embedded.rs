@@ -246,6 +246,26 @@ unsafe extern "C" fn ui_click_free(user: *mut c_void) {
     drop(Box::from_raw(user as *mut Box<dyn FnMut()>));
 }
 
+unsafe extern "C" fn ui_event_capture_trampoline(
+    user: *mut c_void,
+    ev: *const sys::affineui_event,
+) -> i32 {
+    if ev.is_null() { return 0; }
+    let cb = &mut *(user as *mut Box<dyn FnMut(&Event) -> bool>);
+    let event = Event::from_sys(&*ev);
+    match catch_unwind(AssertUnwindSafe(|| cb(&event))) {
+        Ok(consumed) => consumed as i32,
+        Err(_) => {
+            eprintln!("affineui: panic in on_event_capture callback (suppressed)");
+            0
+        }
+    }
+}
+
+unsafe extern "C" fn ui_event_capture_free(user: *mut c_void) {
+    drop(Box::from_raw(user as *mut Box<dyn FnMut(&Event) -> bool>));
+}
+
 /// An embedded AffineUI instance rendering against host graphics
 /// objects.
 pub struct Ui {
@@ -326,6 +346,22 @@ impl Ui {
         ev.with_sys(|sys_ev| unsafe { sys::affineui_ui_dispatch(self.raw, sys_ev) != 0 })
     }
 
+    /// Register an app-global capture handler that runs before the focused
+    /// widget. Return true to consume the event (for example, to route
+    /// Ctrl/Cmd+Z to a host-wide undo stack instead of the text editor).
+    pub fn on_event_capture(&self, f: impl FnMut(&Event) -> bool + 'static) {
+        let boxed: Box<dyn FnMut(&Event) -> bool> = Box::new(f);
+        let user = Box::into_raw(Box::new(boxed)) as *mut c_void;
+        unsafe {
+            sys::affineui_ui_on_event_capture(
+                self.raw,
+                Some(ui_event_capture_trampoline),
+                user,
+                Some(ui_event_capture_free),
+            );
+        }
+    }
+
     /// Click handler for elements matching a minimal CSS selector
     /// (`"#id"`, `".cls"`, `"tag"`, `"a,b"`).
     pub fn on_click(&self, selector: &str, f: impl FnMut() + 'static) {
@@ -365,6 +401,16 @@ impl Ui {
             sys::affineui_ui_caret_rect(self.raw, &mut x, &mut y, &mut w, &mut h)
         };
         (x, y, w, h)
+    }
+
+    /// Set the caret visibility half-cycle in milliseconds. Zero keeps the
+    /// caret continuously visible.
+    pub fn set_caret_blink_interval(&self, milliseconds: f64) {
+        unsafe { sys::affineui_ui_set_caret_blink_interval(self.raw, milliseconds) };
+    }
+
+    pub fn caret_blink_interval(&self) -> f64 {
+        unsafe { sys::affineui_ui_caret_blink_interval(self.raw) }
     }
 
     // Live DOM mutation; return true only when the document changed.

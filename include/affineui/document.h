@@ -407,6 +407,19 @@ public:
     /// this tracks the IME cursor inside the preedit.
     [[nodiscard]] Rect caret_rect() const;
 
+    /// Set the caret visibility half-cycle in milliseconds. The default is
+    /// 500 ms (visible for 500 ms, hidden for 500 ms). Zero disables blinking
+    /// and keeps the focused caret visible. Editing/caret motion restarts the
+    /// visible phase immediately.
+    void set_caret_blink_interval(double milliseconds);
+    [[nodiscard]] double caret_blink_interval() const noexcept;
+
+    /// Advance timed interaction state. Returns true only when a caret phase
+    /// transition dirtied the focused control. Ui/App host drivers call this
+    /// from their regular frame opportunity; custom Document hosts should do
+    /// the same before deciding whether to paint.
+    bool tick_caret_blink();
+
 private:
     struct TransientState {
         struct Layer {

@@ -193,7 +193,9 @@ inline Event translate(const sapp_event* ev) {
             return out;
         case SAPP_EVENTTYPE_CHAR:
             out.type = EventType::TextInput;
-            out.text = utf8_from_codepoint(ev->char_code);
+            if (is_text_codepoint(ev->char_code)) {
+                out.text = utf8_from_codepoint(ev->char_code);
+            }
             return out;
         case SAPP_EVENTTYPE_IME_COMPOSITION:
             out.type = EventType::Composition;
@@ -234,6 +236,10 @@ inline Event translate(const sapp_event* ev) {
 /// reference wiring for docs/IME_ARCHITECTURE.md on the sokol path.
 inline void sync_text_input(Ui& ui) {
     const bool active = ui.text_input_active();
+    if (std::getenv("AFFINEUI_IME_TRACE")) {
+        std::fprintf(stderr, "[ime] ui sync text_input_active=%d\n",
+                     static_cast<int>(active));
+    }
     sapp_ime_set_enabled(active);
     if (!active) return;
     const Rect caret = ui.caret_rect();
@@ -679,6 +685,13 @@ inline void cb_event_(const sapp_event* ev, void* user) {
     (void)consumed;
     if (e.type == EventType::MouseMove) {
         sapp_set_mouse_cursor(cursor_to_sokol(ui.hovered_cursor()));
+    }
+    // Focus, caret, or preedit may have moved. Keep the platform input method
+    // and candidate-window target synchronized in the turnkey wire() path.
+    if (e.type == EventType::MouseDown || e.type == EventType::MouseUp ||
+        e.type == EventType::KeyDown || e.type == EventType::TextInput ||
+        e.type == EventType::Composition) {
+        sync_text_input(ui);
     }
 }
 inline void cb_cleanup_(void* user) {

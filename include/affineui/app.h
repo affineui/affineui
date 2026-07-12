@@ -149,6 +149,13 @@ public:
     using EventHandler = std::function<bool(
         const Event&, const std::vector<Document::HoverInfo>&)>;
 
+    /// Register a capture-phase handler that runs before the document and its
+    /// focused widget. Returning true consumes the event. This is the explicit
+    /// override point for app-global command systems; ordinary on_event
+    /// handlers run after document/widget dispatch and do not see commands a
+    /// focused editor consumed.
+    void on_event_capture(EventHandler cb);
+
     /// Register a low-level native event handler (same contract as
     /// Ui::on_event): the handler receives the already-hit-tested hover
     /// chain, deepest first, after CSS hover/active state updates.

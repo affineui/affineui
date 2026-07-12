@@ -48,6 +48,27 @@ def test_app_can_load_html_without_running_window():
     assert not missing.set_style("display: none")
 
 
+def test_capture_and_caret_configuration_cross_the_binding():
+    doc = ui.Document()
+    doc.set_caret_blink_interval(0.0)
+    assert doc.caret_blink_interval() == 0.0
+    assert doc.tick_caret_blink() is False
+
+    app = ui.App(title="Capture Smoke")
+    seen = []
+
+    def capture(event, hover):
+        seen.append((event.type, event.pos.x, event.pos.y, len(hover)))
+        return True
+
+    app.on_event_capture(capture)
+    event = ui.Event()
+    event.type = ui.EventType.MouseMove
+    event.pos = ui.Point(12, 34)
+    assert app.dispatch(event) is True
+    assert seen == [(ui.EventType.MouseMove, 12, 34, 0)]
+
+
 def _find_hovered_attr(app, attr_name: str, width: int, height: int):
     ev = ui.Event()
     ev.type = ui.EventType.MouseMove

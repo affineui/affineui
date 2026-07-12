@@ -206,7 +206,22 @@ struct DispatchResult {
     // Set when an interaction changed the dock layout (e.g. a splitter drag
     // finished) so the app can persist the new arrangement.
     bool layout_changed{false};
+    // The focused document target handled this event. App/Ui dispatchers use
+    // this to stop the event before their post-document/global handler phase.
+    // A pre-document capture handler can still override the widget first.
+    bool event_consumed{false};
 };
+
+/// Is a platform character-event codepoint insertable text?
+///
+/// Keyboard backends often report C0 controls and DEL through the same
+/// character channel as printable text (for example macOS Backspace is
+/// U+007F and Ctrl+A..Z are U+0001..U+001A). Those bytes are commands, not
+/// text, and must never enter a control's buffer. Clipboard/programmatic text
+/// does not use this predicate and may legitimately contain newlines or tabs.
+inline bool is_text_codepoint(std::uint32_t cp) noexcept {
+    return cp >= 0x20u && cp != 0x7Fu;
+}
 
 /// Resource loader hook. Given a URL ("app:///main.css", "https://...",
 /// "data:image/png;base64,..."), returns the raw bytes or empty on miss.
@@ -1763,6 +1778,21 @@ struct PathPaint {
     float x0{0.0f}, y0{0.0f};
     float x1{0.0f}, y1{0.0f};
     float r0{0.0f}, r1{0.0f};
+    /// Radial only: the outer radius along Y, when the ending shape is an
+    /// ELLIPSE rather than a circle (CSS `radial-gradient(ellipse 110% 90%
+    /// …)`). 0 means "circular" — use r1 on both axes, which is what every
+    /// pre-existing caller wants and gets by default.
+    ///
+    /// Only the N-stop (>2) route honours this. That route already renders
+    /// through a normalised 2D LUT stretched over a pattern rect, so a
+    /// non-square rect gives a true ellipse for free. The 2-stop route maps
+    /// to the backend's analytic circular radial paint and stays circular —
+    /// no CSS in play needs a 2-stop ellipse, and faking one there would
+    /// mean giving up the analytic fast path.
+    float r1y{0.0f};
+
+    /// The outer radius along Y, falling back to the circular r1.
+    float outer_ry() const { return r1y > 0.0f ? r1y : r1; }
 
     static PathPaint solid(Color c) {
         PathPaint p;
@@ -1825,6 +1855,17 @@ struct PathPaint {
         return colors[stop_count - 1];
     }
 };
+
+// The display-list path blob serializes PathPaint's geometry as one
+// contiguous run of floats starting at x0 (see kPathBlobGeoFloats in
+// display_list_painter.h). Lock that in: reordering or padding these
+// fields would silently corrupt every recorded gradient.
+static_assert(offsetof(PathPaint, y0)  == offsetof(PathPaint, x0) + 4);
+static_assert(offsetof(PathPaint, x1)  == offsetof(PathPaint, x0) + 8);
+static_assert(offsetof(PathPaint, y1)  == offsetof(PathPaint, x0) + 12);
+static_assert(offsetof(PathPaint, r0)  == offsetof(PathPaint, x0) + 16);
+static_assert(offsetof(PathPaint, r1)  == offsetof(PathPaint, x0) + 20);
+static_assert(offsetof(PathPaint, r1y) == offsetof(PathPaint, x0) + 24);
 
 /// Stroke end-cap / join styles (SVG stroke-linecap / stroke-linejoin).
 enum class LineCap  : std::uint8_t { Butt, Round, Square };
@@ -1926,6 +1967,11 @@ public:
                                              std::size_t stop_count,
                                              float tl = 0, float tr = 0,
                                              float br = 0, float bl = 0);
+    /// `center_*_pct` may be negative or exceed 100 — CSS routinely puts a
+    /// specular highlight's centre outside the box (`at 50% -10%`).
+    /// `radius_*_pct` size the ending shape as a percentage of the box's
+    /// half-width / half-height (CSS `ellipse 110% 90%`); 0 selects the
+    /// CSS default of farthest-corner, scaled by `stop1_pos_pct`.
     virtual void fill_radial_gradient_rect_n(const Rect& r,
                                              const GradientStop* stops,
                                              std::size_t stop_count,
@@ -1933,7 +1979,9 @@ public:
                                              float br = 0, float bl = 0,
                                              float center_x_pct = 50,
                                              float center_y_pct = 50,
-                                             float stop1_pos_pct = 100);
+                                             float stop1_pos_pct = 100,
+                                             float radius_x_pct = 0,
+                                             float radius_y_pct = 0);
     virtual void fill_linear_stripes_rect(const Rect& r,
                                           float angle_deg,
                                           Color stripe,
@@ -2278,9 +2326,15 @@ inline void Painter::fill_radial_gradient_rect_n(const Rect& r,
                                                  float br, float bl,
                                                  float center_x_pct,
                                                  float center_y_pct,
-                                                 float stop1_pos_pct) {
+                                                 float stop1_pos_pct,
+                                                 float radius_x_pct,
+                                                 float radius_y_pct) {
     if (r.w <= 0 || r.h <= 0 || stops == nullptr || stop_count == 0) return;
     if (stop_count <= 2) {
+        // 2 stops map to the backend's analytic circular radial paint, which
+        // has no ellipse and clamps the centre into the box. That is fine for
+        // every 2-stop radial we render; a sized/offset ellipse only ever
+        // shows up with a multi-stop falloff.
         const Color c0 = stops[0].color;
         const Color c1 = stops[stop_count - 1].color;
         fill_radial_gradient_rect(r, c0, c1, tl, tr, br, bl,
@@ -2292,18 +2346,37 @@ inline void Painter::fill_radial_gradient_rect_n(const Rect& r,
     const float fy = static_cast<float>(r.y);
     const float fw = static_cast<float>(r.w);
     const float fh = static_cast<float>(r.h);
-    const float cx = fx + fw * (std::clamp(center_x_pct, 0.0f, 100.0f) / 100.0f);
-    const float cy = fy + fh * (std::clamp(center_y_pct, 0.0f, 100.0f) / 100.0f);
-    const float ddx = std::max(cx - fx, fx + fw - cx);
-    const float ddy = std::max(cy - fy, fy + fh - cy);
-    const float farthest_r = std::sqrt(ddx * ddx + ddy * ddy);
-    const float outer_r = farthest_r *
-        (std::clamp(stop1_pos_pct, 1.0f, 100.0f) / 100.0f);
+    // NOT clamped to the box: `at 50% -10%` centres the ramp above the box
+    // so only the tail of the falloff lands on it. Clamping to 0% would drag
+    // the hot centre onto the top edge and wash the box out.
+    const float cx = fx + fw * (center_x_pct / 100.0f);
+    const float cy = fy + fh * (center_y_pct / 100.0f);
+
+    float outer_rx, outer_ry;
+    if (radius_x_pct > 0.0f || radius_y_pct > 0.0f) {
+        // Explicit ending shape. CSS sizes an ellipse's radii against the
+        // box's half-extents, so `100%` reaches the box edge from a centred
+        // origin.
+        const float rx = radius_x_pct > 0.0f ? radius_x_pct : radius_y_pct;
+        const float ry = radius_y_pct > 0.0f ? radius_y_pct : radius_x_pct;
+        outer_rx = fw * 0.5f * (rx / 100.0f);
+        outer_ry = fh * 0.5f * (ry / 100.0f);
+    } else {
+        // CSS default: farthest-corner, a circle through the corner most
+        // distant from the centre.
+        const float ddx = std::max(cx - fx, fx + fw - cx);
+        const float ddy = std::max(cy - fy, fy + fh - cy);
+        outer_rx = outer_ry = std::sqrt(ddx * ddx + ddy * ddy);
+    }
+    const float scale = std::clamp(stop1_pos_pct, 1.0f, 100.0f) / 100.0f;
+    outer_rx *= scale;
+    outer_ry *= scale;
 
     PathPaint p;
     p.kind = PathPaint::Kind::Radial;
     p.x0 = cx; p.y0 = cy;
-    p.r0 = 0.0f; p.r1 = outer_r;
+    p.r0 = 0.0f; p.r1 = outer_rx;
+    p.r1y = (outer_ry != outer_rx) ? outer_ry : 0.0f;
     detail::fill_pathpaint_stops(p, stops, stop_count);
 
     std::vector<float> cmds;
@@ -3104,6 +3177,19 @@ public:
     /// document has not been measured yet. During an active composition
     /// this tracks the IME cursor inside the preedit.
     [[nodiscard]] Rect caret_rect() const;
+
+    /// Set the caret visibility half-cycle in milliseconds. The default is
+    /// 500 ms (visible for 500 ms, hidden for 500 ms). Zero disables blinking
+    /// and keeps the focused caret visible. Editing/caret motion restarts the
+    /// visible phase immediately.
+    void set_caret_blink_interval(double milliseconds);
+    [[nodiscard]] double caret_blink_interval() const noexcept;
+
+    /// Advance timed interaction state. Returns true only when a caret phase
+    /// transition dirtied the focused control. Ui/App host drivers call this
+    /// from their regular frame opportunity; custom Document hosts should do
+    /// the same before deciding whether to paint.
+    bool tick_caret_blink();
 
 private:
     struct TransientState {
@@ -6697,6 +6783,14 @@ public:
     using EventHandler = std::function<bool(
         const Event&, const std::vector<Document::HoverInfo>&)>;
 
+    /// Register a capture-phase handler that runs before Document/widget
+    /// dispatch. Returning true consumes the event outright. Use this when an
+    /// application must override focused-widget commands (for example, force
+    /// Ctrl/Cmd+Z into a global undo system). The hover chain is the current
+    /// pre-dispatch chain; ordinary on_event handlers receive the refreshed
+    /// post-document chain.
+    void on_event_capture(EventHandler cb);
+
     /// Register a low-level native event handler. The handler receives
     /// the already-hit-tested hover chain, deepest first, after CSS
     /// hover/active state has been updated. This is the C++ analog of
@@ -6880,6 +6974,13 @@ public:
 
     using EventHandler = std::function<bool(
         const Event&, const std::vector<Document::HoverInfo>&)>;
+
+    /// Register a capture-phase handler that runs before the document and its
+    /// focused widget. Returning true consumes the event. This is the explicit
+    /// override point for app-global command systems; ordinary on_event
+    /// handlers run after document/widget dispatch and do not see commands a
+    /// focused editor consumed.
+    void on_event_capture(EventHandler cb);
 
     /// Register a low-level native event handler (same contract as
     /// Ui::on_event): the handler receives the already-hit-tested hover
@@ -7445,6 +7546,11 @@ typedef struct affineui_event {
     int         composition_clause_end;
 } affineui_event;
 
+// Capture-phase event callback. Runs synchronously before the focused widget;
+// return non-zero to consume the event. `ev` and its `text` pointer are
+// borrowed for the duration of the callback only.
+typedef int (*affineui_event_capture_fn)(void* user, const affineui_event* ev);
+
 // Frees a string returned by any affineui_* function documented as
 // "caller frees". Null is a safe no-op.
 typedef void (*affineui_user_free_fn)(void* user);
@@ -7471,6 +7577,14 @@ AFFINEUI_C_API void affineui_ui_render(affineui_ui* ui, const affineui_frame_tar
 // own handling of it).
 AFFINEUI_C_API int  affineui_ui_dispatch(affineui_ui* ui, const affineui_event* ev);
 
+// Register an app-global capture handler before focused-widget dispatch.
+// `user_free` is called exactly once when the handler is released.
+AFFINEUI_C_API void affineui_ui_on_event_capture(
+    affineui_ui* ui,
+    affineui_event_capture_fn fn,
+    void* user,
+    affineui_user_free_fn user_free);
+
 // Click callback for elements matching a minimal CSS selector ("#id",
 // ".cls", "tag", "a,b"). `user_free` (optional) is called when the handler
 // is released so bindings can drop their closure state.
@@ -7495,7 +7609,12 @@ AFFINEUI_C_API int  affineui_ui_text_input_active(const affineui_ui* ui);
 // zeros when no text control is focused. Out params may be null.
 AFFINEUI_C_API void affineui_ui_caret_rect(const affineui_ui* ui,
                                            int* out_x, int* out_y,
-                                           int* out_w, int* out_h);
+                                            int* out_w, int* out_h);
+
+// Caret visibility half-cycle in milliseconds. Zero disables blinking.
+AFFINEUI_C_API void   affineui_ui_set_caret_blink_interval(affineui_ui* ui,
+                                                            double milliseconds);
+AFFINEUI_C_API double affineui_ui_caret_blink_interval(const affineui_ui* ui);
 
 // ── Live DOM mutation (embedded) ─────────────────────────────────────
 // Return 1 only when the document actually changed.
@@ -7537,7 +7656,7 @@ AFFINEUI_C_API void affineui_tools_shutdown(void);
 // c_api_app.h (enum meaning, struct layout, function semantics).
 // Additive changes (new functions, appended enum values) do not bump it.
 // Language wrappers check it at load and fail fast on mismatch.
-#define AFFINEUI_C_ABI_VERSION 1
+#define AFFINEUI_C_ABI_VERSION 2
 
 AFFINEUI_C_API int         affineui_c_abi_version(void);
 
@@ -7639,6 +7758,7 @@ typedef struct affineui_dispatch_result {
     int invalidate_view;
     int defer_widget_changes;
     int layout_changed;
+    int event_consumed;
 } affineui_dispatch_result;
 
 // ── Callback shapes ──────────────────────────────────────────────────
@@ -7697,6 +7817,13 @@ AFFINEUI_C_API int  affineui_app_perf_overlay_enabled(const affineui_app* app);
 // document requested a redraw).
 AFFINEUI_C_API int  affineui_app_dispatch(affineui_app* app, const affineui_event* ev);
 
+// Register an app-global capture handler before focused-widget dispatch.
+AFFINEUI_C_API void affineui_app_on_event_capture(
+    affineui_app* app,
+    affineui_event_capture_fn fn,
+    void* user,
+    affineui_user_free_fn user_free);
+
 // Runs the native loop on the calling thread; returns the OS exit code.
 AFFINEUI_C_API int  affineui_app_run(affineui_app* app);
 AFFINEUI_C_API void affineui_app_quit(affineui_app* app, int code);
@@ -7742,6 +7869,15 @@ AFFINEUI_C_API int affineui_document_set_text_by_id(affineui_document* doc,
 AFFINEUI_C_API void affineui_document_dispatch(affineui_document* doc,
                                                const affineui_event* ev,
                                                affineui_dispatch_result* out);
+
+// Caret visibility half-cycle in milliseconds. Zero disables blinking.
+AFFINEUI_C_API void affineui_document_set_caret_blink_interval(
+    affineui_document* doc, double milliseconds);
+AFFINEUI_C_API double affineui_document_caret_blink_interval(
+    const affineui_document* doc);
+// Advance caret timing for headless/custom Document hosts. Ui/App drivers do
+// this automatically. Returns 1 only when a phase transition dirtied paint.
+AFFINEUI_C_API int affineui_document_tick_caret_blink(affineui_document* doc);
 
 // Attach/detach optional behavior scripts (affineui::DocumentScript;
 // 0 = UiControls).
@@ -38267,13 +38403,16 @@ typedef struct {
 @end
 @interface _sapp_macos_window_delegate : NSObject<NSWindowDelegate>
 @end
+/* AFFINEUI PATCH (ime): the view adopts NSTextInputClient so CJK IMEs can
+   compose into it (setMarkedText:/insertText:) and anchor their candidate
+   window at the caret (firstRectForCharacterRange:). */
 #if defined(SOKOL_METAL) || defined(SOKOL_WGPU)
-    @interface _sapp_macos_view : NSView
+    @interface _sapp_macos_view : NSView<NSTextInputClient>
     - (void)displayLinkFired:(id)sender;
     - (void)fallbackTimerFired:(NSTimer*)timer;
     @end
 #elif defined(SOKOL_GLCORE)
-    @interface _sapp_macos_view : NSOpenGLView
+    @interface _sapp_macos_view : NSOpenGLView<NSTextInputClient>
     - (void)timerFired:(id)sender;
     @end
 #endif // SOKOL_GLCORE
@@ -38284,6 +38423,21 @@ typedef struct {
     NSWindow* window;
     NSTrackingArea* tracking_area;
     id keyup_monitor;
+    /* AFFINEUI PATCH (ime): NSTextInputClient state. `marked_len` is the
+       length of the current preedit in UTF-16 units (0 => no composition);
+       `rect` is the caret box in client-area physical px (top-left origin,
+       as sapp_ime_set_rect delivers it) and is converted to screen points
+       on demand in firstRectForCharacterRange:. */
+    struct {
+        NSUInteger marked_len;
+        bool enabled;       /* a text field is focused (sapp_ime_set_enabled) */
+        bool rect_valid;
+        int rect_x, rect_y, rect_w, rect_h;
+        /* carried from keyDown: — the NSTextInputClient callbacks are invoked
+           by interpretKeyEvents: and get no NSEvent of their own */
+        uint32_t key_mods;
+        bool key_repeat;
+    } ime;
     _sapp_macos_app_delegate* app_dlg;
     _sapp_macos_window_delegate* win_dlg;
     _sapp_macos_view* view;
@@ -41592,6 +41746,61 @@ _SOKOL_PRIVATE void _sapp_macos_frame(void) {
 }
 @end
 
+/* AFFINEUI PATCH (ime): helpers shared by the NSTextInputClient callbacks. */
+
+/* Byte offset into the UTF-8 encoding of `str` of the UTF-16 index
+   `utf16_index` — the IME reports its caret and clause bounds in UTF-16
+   units, the sapp/affineui protocol carries UTF-8 byte offsets. */
+_SOKOL_PRIVATE int _sapp_macos_ime_utf8_offset(NSString* str, NSUInteger utf16_index) {
+    if (utf16_index == NSNotFound) {
+        return -1;
+    }
+    if (utf16_index > str.length) {
+        utf16_index = str.length;
+    }
+    NSString* prefix = [str substringToIndex:utf16_index];
+    return (int)[prefix lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+}
+
+_SOKOL_PRIVATE void _sapp_macos_ime_emit_char(uint32_t codepoint) {
+    _sapp_init_event(SAPP_EVENTTYPE_CHAR);
+    _sapp.event.modifiers = _sapp.macos.ime.key_mods;
+    _sapp.event.char_code = codepoint;
+    _sapp.event.key_repeat = _sapp.macos.ime.key_repeat;
+    _sapp_call_event(&_sapp.event);
+}
+
+/* Emit one SAPP_EVENTTYPE_CHAR per Unicode codepoint (surrogate pairs are
+   recombined, so non-BMP input arrives as a single codepoint). */
+_SOKOL_PRIVATE void _sapp_macos_ime_emit_chars(NSString* str) {
+    const NSUInteger len = str.length;
+    for (NSUInteger i = 0; i < len; i++) {
+        const unichar hi = [str characterAtIndex:i];
+        uint32_t codepoint = hi;
+        if ((hi >= 0xD800) && (hi <= 0xDBFF) && ((i + 1) < len)) {
+            const unichar lo = [str characterAtIndex:i + 1];
+            if ((lo >= 0xDC00) && (lo <= 0xDFFF)) {
+                codepoint = 0x10000 + (((uint32_t)(hi - 0xD800)) << 10) + (uint32_t)(lo - 0xDC00);
+                i++;
+            }
+        }
+        /* private-use block AppKit uses for the function keys */
+        if ((codepoint & 0xFFFFFF00) == 0xF700) {
+            continue;
+        }
+        _sapp_macos_ime_emit_char(codepoint);
+    }
+}
+
+/* NSTextInputClient hands marked text as an NSString or an NSAttributedString
+   (attributed when the IME wants clause styling); normalize to a plain string. */
+_SOKOL_PRIVATE NSString* _sapp_macos_ime_plain_string(id string) {
+    if ([string isKindOfClass:[NSAttributedString class]]) {
+        return [(NSAttributedString*)string string];
+    }
+    return (NSString*)string;
+}
+
 @implementation _sapp_macos_view
 #if defined(SOKOL_GLCORE)
 - (void)timerFired:(id)sender {
@@ -41772,19 +41981,40 @@ static void _sapp_gl_make_current(void) {
         const uint32_t mods = _sapp_macos_mods(event);
         const sapp_keycode key_code = _sapp_translate_key(event.keyCode);
         _sapp_macos_key_event(SAPP_EVENTTYPE_KEY_DOWN, key_code, event.isARepeat, mods);
-        const NSString* chars = event.characters;
-        const NSUInteger len = chars.length;
-        if (len > 0) {
-            _sapp_init_event(SAPP_EVENTTYPE_CHAR);
-            _sapp.event.modifiers = mods;
-            for (NSUInteger i = 0; i < len; i++) {
-                const unichar codepoint = [chars characterAtIndex:i];
-                if ((codepoint & 0xFF00) == 0xF700) {
-                    continue;
+        /* AFFINEUI PATCH (ime): with a text field focused, hand the key to the
+           input method rather than reading event.characters ourselves.
+           interpretKeyEvents: calls back into insertText: (committed text) and
+           setMarkedText: (preedit) — the only way CJK composition, and dead
+           keys, can work at all.
+
+           Outside a text field (sapp_ime_set_enabled(false) — games, shortcut
+           handling) the original raw-characters path runs verbatim, so apps
+           that never focus a text field see no change in key behavior. */
+        if (_sapp.macos.ime.enabled) {
+            if (getenv("AFFINEUI_IME_TRACE")) {
+                fprintf(stderr, "[ime] keyDown enabled=1 -> interpretKeyEvents\n");
+            }
+            _sapp.macos.ime.key_mods = mods;
+            _sapp.macos.ime.key_repeat = event.isARepeat;
+            [self interpretKeyEvents:@[event]];
+        } else {
+            if (getenv("AFFINEUI_IME_TRACE")) {
+                fprintf(stderr, "[ime] keyDown enabled=0 -> raw characters\n");
+            }
+            const NSString* chars = event.characters;
+            const NSUInteger len = chars.length;
+            if (len > 0) {
+                _sapp_init_event(SAPP_EVENTTYPE_CHAR);
+                _sapp.event.modifiers = mods;
+                for (NSUInteger i = 0; i < len; i++) {
+                    const unichar codepoint = [chars characterAtIndex:i];
+                    if ((codepoint & 0xFF00) == 0xF700) {
+                        continue;
+                    }
+                    _sapp.event.char_code = codepoint;
+                    _sapp.event.key_repeat = event.isARepeat;
+                    _sapp_call_event(&_sapp.event);
                 }
-                _sapp.event.char_code = codepoint;
-                _sapp.event.key_repeat = event.isARepeat;
-                _sapp_call_event(&_sapp.event);
             }
         }
         /* if this is a Cmd+V (paste), also send a CLIPBOARD_PASTE event */
@@ -41793,6 +42023,143 @@ static void _sapp_gl_make_current(void) {
             _sapp_call_event(&_sapp.event);
         }
     }
+}
+
+/* AFFINEUI PATCH (ime): NSTextInputClient. The IME drives these via
+   interpretKeyEvents: in keyDown: above. */
+
+- (BOOL)hasMarkedText {
+    return _sapp.macos.ime.marked_len > 0;
+}
+
+- (NSRange)markedRange {
+    if (_sapp.macos.ime.marked_len > 0) {
+        return NSMakeRange(0, _sapp.macos.ime.marked_len);
+    }
+    return NSMakeRange(NSNotFound, 0);
+}
+
+- (NSRange)selectedRange {
+    /* The document owns the real selection; the IME only needs a well-formed
+       answer here, and NSNotFound is the conventional "don't know". */
+    return NSMakeRange(NSNotFound, 0);
+}
+
+- (NSArray<NSAttributedStringKey>*)validAttributesForMarkedText {
+    return @[];
+}
+
+- (NSAttributedString*)attributedSubstringForProposedRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
+    _SOKOL_UNUSED(range);
+    _SOKOL_UNUSED(actualRange);
+    /* Reconversion / surrounding-text queries aren't supported yet (the core
+       has no surrounding-text API — see docs/IME_ARCHITECTURE.md §4.6). */
+    return nil;
+}
+
+- (NSUInteger)characterIndexForPoint:(NSPoint)point {
+    _SOKOL_UNUSED(point);
+    return 0;
+}
+
+- (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange replacementRange:(NSRange)replacementRange {
+    _SOKOL_UNUSED(replacementRange);
+    NSString* text = _sapp_macos_ime_plain_string(string);
+    if (getenv("AFFINEUI_IME_TRACE")) {
+        fprintf(stderr, "[ime] setMarkedText text=\"%s\" selected=(%lu,%lu)\n",
+            [text UTF8String] ? [text UTF8String] : "?",
+            (unsigned long)selectedRange.location,
+            (unsigned long)selectedRange.length);
+    }
+    _sapp.macos.ime.marked_len = text.length;
+    if (!_sapp_events_enabled()) {
+        return;
+    }
+    _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
+    _sapp.event.modifiers = _sapp.macos.ime.key_mods;
+    const char* utf8 = [text UTF8String];
+    if (utf8) {
+        _sapp_strcpy(utf8, _sapp.event.ime_composition, sizeof(_sapp.event.ime_composition));
+    }
+    _sapp.event.ime_composition_cursor = _sapp_macos_ime_utf8_offset(text, selectedRange.location);
+    /* The clause being converted is the one the IME underlines thickly (the
+       same signal GLFW/SDL key off). No thick run => leave begin==end, which
+       the core reads as "no clause info". */
+    if ([string isKindOfClass:[NSAttributedString class]]) {
+        NSAttributedString* attr = (NSAttributedString*)string;
+        __block NSRange clause = NSMakeRange(NSNotFound, 0);
+        [attr enumerateAttribute:NSUnderlineStyleAttributeName
+                         inRange:NSMakeRange(0, attr.length)
+                         options:0
+                      usingBlock:^(id value, NSRange range, BOOL* stop) {
+            if (value && (([value integerValue] & NSUnderlineStyleThick) == NSUnderlineStyleThick)) {
+                clause = range;
+                *stop = YES;
+            }
+        }];
+        if (clause.location != NSNotFound) {
+            _sapp.event.ime_composition_clause_begin = _sapp_macos_ime_utf8_offset(text, clause.location);
+            _sapp.event.ime_composition_clause_end = _sapp_macos_ime_utf8_offset(text, clause.location + clause.length);
+        }
+    }
+    _sapp_call_event(&_sapp.event);
+}
+
+- (void)unmarkText {
+    if (getenv("AFFINEUI_IME_TRACE")) {
+        fprintf(stderr, "[ime] unmarkText\n");
+    }
+    _sapp.macos.ime.marked_len = 0;
+    if (!_sapp_events_enabled()) {
+        return;
+    }
+    /* empty composition => preedit cleared (end or cancel) */
+    _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
+    _sapp.event.modifiers = _sapp.macos.ime.key_mods;
+    _sapp_call_event(&_sapp.event);
+}
+
+- (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
+    _SOKOL_UNUSED(replacementRange);
+    /* Commit. The core clears any live preedit on TextInput before inserting,
+       so no explicit composition-end event is needed here. */
+    _sapp.macos.ime.marked_len = 0;
+    if (!_sapp_events_enabled()) {
+        return;
+    }
+    NSString* text = _sapp_macos_ime_plain_string(string);
+    if (getenv("AFFINEUI_IME_TRACE")) {
+        fprintf(stderr, "[ime] insertText text=\"%s\"\n",
+            [text UTF8String] ? [text UTF8String] : "?");
+    }
+    _sapp_macos_ime_emit_chars(text);
+}
+
+- (void)doCommandBySelector:(SEL)selector {
+    /* keyDown: already emitted the physical key before interpretKeyEvents:.
+       Editing commands therefore stay on the KEY_DOWN path; emitting their
+       C0/DEL codes as CHAR text would corrupt the focused field. AffineUI's
+       document handles Enter for textarea and leaves Tab to focus routing. */
+    _SOKOL_UNUSED(selector);
+}
+
+- (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
+    if (actualRange) {
+        *actualRange = range;
+    }
+    if (!_sapp.macos.ime.rect_valid) {
+        return NSMakeRect(0, 0, 0, 0);
+    }
+    /* sapp_ime_set_rect delivers the caret box in client-area PHYSICAL px with
+       a top-left origin; Cocoa wants screen POINTS with a bottom-left origin. */
+    const CGFloat s = (_sapp.dpi_scale > 0.0f) ? (CGFloat)_sapp.dpi_scale : (CGFloat)1.0;
+    const CGFloat x = (CGFloat)_sapp.macos.ime.rect_x / s;
+    const CGFloat w = (CGFloat)_sapp.macos.ime.rect_w / s;
+    const CGFloat h = (CGFloat)_sapp.macos.ime.rect_h / s;
+    const CGFloat top = (CGFloat)_sapp.macos.ime.rect_y / s;
+    NSRect r = NSMakeRect(x, self.bounds.size.height - top - h, w, h);
+    r = [self convertRect:r toView:nil];            /* view -> window */
+    return [self.window convertRectToScreen:r];     /* window -> screen */
 }
 
 - (BOOL)performKeyEquivalent:(NSEvent*)event {
@@ -50112,6 +50479,15 @@ SOKOL_API_IMPL void sapp_ime_set_rect(int x, int y, int w, int h) {
                 XFree(preedit);
             }
         }
+    #elif defined(_SAPP_MACOS)
+        /* Stored as-is (client px, top-left origin); the view converts to
+           screen points in firstRectForCharacterRange:, which is the only
+           place AppKit asks for it — so there is nothing to push eagerly. */
+        _sapp.macos.ime.rect_x = x;
+        _sapp.macos.ime.rect_y = y;
+        _sapp.macos.ime.rect_w = w;
+        _sapp.macos.ime.rect_h = h;
+        _sapp.macos.ime.rect_valid = true;
     #else
         _SOKOL_UNUSED(x); _SOKOL_UNUSED(y); _SOKOL_UNUSED(w); _SOKOL_UNUSED(h);
     #endif
@@ -50141,6 +50517,33 @@ SOKOL_API_IMPL void sapp_ime_set_enabled(bool enabled) {
             XSetICFocus(_sapp.x11.xic);
         } else {
             XUnsetICFocus(_sapp.x11.xic);
+        }
+    #elif defined(_SAPP_MACOS)
+        if (enabled == _sapp.macos.ime.enabled) {
+            return;     /* already in the requested state */
+        }
+        if (getenv("AFFINEUI_IME_TRACE")) {
+            fprintf(stderr, "[ime] sapp_ime_set_enabled %d -> %d\n",
+                (int)_sapp.macos.ime.enabled, (int)enabled);
+        }
+        _sapp.macos.ime.enabled = enabled;
+        if (!enabled) {
+            /* Leaving the text field with a composition still open: drop it.
+               discardMarkedText tells the input method to abandon its state
+               without committing (so a half-typed preedit can't leak into the
+               next field), and we clear ours to match. */
+            if (_sapp.macos.ime.marked_len > 0) {
+                _sapp.macos.ime.marked_len = 0;
+                /* the VIEW's context, not +currentInputContext: the latter is
+                   only non-nil while our view is the active first responder,
+                   which is exactly not guaranteed when focus is moving away */
+                [[_sapp.macos.view inputContext] discardMarkedText];
+                if (_sapp_events_enabled()) {
+                    _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
+                    _sapp_call_event(&_sapp.event);
+                }
+            }
+            _sapp.macos.ime.rect_valid = false;
         }
     #else
         _SOKOL_UNUSED(enabled);
@@ -50875,7 +51278,9 @@ inline Event translate(const sapp_event* ev) {
             return out;
         case SAPP_EVENTTYPE_CHAR:
             out.type = EventType::TextInput;
-            out.text = utf8_from_codepoint(ev->char_code);
+            if (is_text_codepoint(ev->char_code)) {
+                out.text = utf8_from_codepoint(ev->char_code);
+            }
             return out;
         case SAPP_EVENTTYPE_IME_COMPOSITION:
             out.type = EventType::Composition;
@@ -50916,6 +51321,10 @@ inline Event translate(const sapp_event* ev) {
 /// reference wiring for docs/IME_ARCHITECTURE.md on the sokol path.
 inline void sync_text_input(Ui& ui) {
     const bool active = ui.text_input_active();
+    if (std::getenv("AFFINEUI_IME_TRACE")) {
+        std::fprintf(stderr, "[ime] ui sync text_input_active=%d\n",
+                     static_cast<int>(active));
+    }
     sapp_ime_set_enabled(active);
     if (!active) return;
     const Rect caret = ui.caret_rect();
@@ -51361,6 +51770,13 @@ inline void cb_event_(const sapp_event* ev, void* user) {
     (void)consumed;
     if (e.type == EventType::MouseMove) {
         sapp_set_mouse_cursor(cursor_to_sokol(ui.hovered_cursor()));
+    }
+    // Focus, caret, or preedit may have moved. Keep the platform input method
+    // and candidate-window target synchronized in the turnkey wire() path.
+    if (e.type == EventType::MouseDown || e.type == EventType::MouseUp ||
+        e.type == EventType::KeyDown || e.type == EventType::TextInput ||
+        e.type == EventType::Composition) {
+        sync_text_input(ui);
     }
 }
 inline void cb_cleanup_(void* user) {

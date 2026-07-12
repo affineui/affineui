@@ -207,6 +207,18 @@ public sealed partial class App : IDisposable
         }
     }
 
+    /// <summary>Registers an app-global capture handler before focused-widget
+    /// dispatch. Return true to consume the event, for example to route
+    /// Ctrl/Cmd+Z to a global undo stack instead of the active text field.</summary>
+    public void OnEventCapture(Func<Event, bool> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        IntPtr user = GCHandle.ToIntPtr(GCHandle.Alloc(handler));
+        NativeMethods.affineui_app_on_event_capture(
+            Handle, Trampolines.EventCapture, user, Trampolines.FreeUser);
+        GC.KeepAlive(this);
+    }
+
     /// <summary>Runs the native loop on the calling thread; returns the OS
     /// exit code. Blocks until the app quits.</summary>
     public int Run()

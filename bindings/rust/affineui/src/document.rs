@@ -14,6 +14,7 @@ pub struct DispatchResult {
     pub invalidate_view: bool,
     pub defer_widget_changes: bool,
     pub layout_changed: bool,
+    pub event_consumed: bool,
 }
 
 /// Optional native behavior scripts (mirrors `affineui::DocumentScript`).
@@ -129,7 +130,24 @@ impl Document {
             invalidate_view: out.invalidate_view != 0,
             defer_widget_changes: out.defer_widget_changes != 0,
             layout_changed: out.layout_changed != 0,
+            event_consumed: out.event_consumed != 0,
         }
+    }
+
+    /// Set the caret visibility half-cycle in milliseconds. Zero keeps the
+    /// focused caret continuously visible.
+    pub fn set_caret_blink_interval(&self, milliseconds: f64) {
+        unsafe { sys::affineui_document_set_caret_blink_interval(self.raw, milliseconds) };
+    }
+
+    pub fn caret_blink_interval(&self) -> f64 {
+        unsafe { sys::affineui_document_caret_blink_interval(self.raw) }
+    }
+
+    /// Advance caret timing for a custom/headless Document driver. App and Ui
+    /// hosts do this automatically.
+    pub fn tick_caret_blink(&self) -> bool {
+        unsafe { sys::affineui_document_tick_caret_blink(self.raw) != 0 }
     }
 
     pub fn attach_script(&self, script: DocumentScript) {

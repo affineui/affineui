@@ -2,6 +2,7 @@
 
 use crate::sys;
 use crate::util::cstring;
+use std::ffi::CStr;
 
 /// RGBA color, 8 bits per channel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,6 +84,7 @@ pub enum Key {
     S = 30, T = 31, U = 32, V = 33, W = 34, X = 35, Y = 36, Z = 37,
     Digit0 = 38, Digit1 = 39, Digit2 = 40, Digit3 = 41, Digit4 = 42,
     Digit5 = 43, Digit6 = 44, Digit7 = 45, Digit8 = 46, Digit9 = 47,
+    Space = 48, Minus = 49, Equal = 50, BracketLeft = 51, BracketRight = 52,
 }
 
 /// Input event, for driving AffineUI from a host loop, tests, or the
@@ -116,6 +118,32 @@ pub struct Event {
 }
 
 impl Event {
+    /// Copy an event borrowed from a synchronous native callback.
+    pub(crate) unsafe fn from_sys(ev: &sys::affineui_event) -> Event {
+        Event {
+            kind: std::mem::transmute::<i32, EventType>(ev.r#type),
+            x: ev.x,
+            y: ev.y,
+            button: std::mem::transmute::<i32, MouseButton>(ev.button),
+            wheel_dx: ev.wheel_dx,
+            wheel_dy: ev.wheel_dy,
+            key: std::mem::transmute::<i32, Key>(ev.key),
+            key_code: ev.key_code,
+            text: if ev.text.is_null() {
+                String::new()
+            } else {
+                CStr::from_ptr(ev.text).to_string_lossy().into_owned()
+            },
+            composition_cursor: ev.composition_cursor,
+            composition_clause_begin: ev.composition_clause_begin,
+            composition_clause_end: ev.composition_clause_end,
+            shift: ev.shift != 0,
+            ctrl: ev.ctrl != 0,
+            alt: ev.alt != 0,
+            super_key: ev.super_key != 0,
+        }
+    }
+
     pub fn mouse_move(x: i32, y: i32) -> Event {
         Event { kind: EventType::MouseMove, x, y, ..Event::default() }
     }

@@ -6377,10 +6377,16 @@ static void _sapp_gl_make_current(void) {
            handling) the original raw-characters path runs verbatim, so apps
            that never focus a text field see no change in key behavior. */
         if (_sapp.macos.ime.enabled) {
+            if (getenv("AFFINEUI_IME_TRACE")) {
+                fprintf(stderr, "[ime] keyDown enabled=1 -> interpretKeyEvents\n");
+            }
             _sapp.macos.ime.key_mods = mods;
             _sapp.macos.ime.key_repeat = event.isARepeat;
             [self interpretKeyEvents:@[event]];
         } else {
+            if (getenv("AFFINEUI_IME_TRACE")) {
+                fprintf(stderr, "[ime] keyDown enabled=0 -> raw characters\n");
+            }
             const NSString* chars = event.characters;
             const NSUInteger len = chars.length;
             if (len > 0) {
@@ -6445,6 +6451,12 @@ static void _sapp_gl_make_current(void) {
 - (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange replacementRange:(NSRange)replacementRange {
     _SOKOL_UNUSED(replacementRange);
     NSString* text = _sapp_macos_ime_plain_string(string);
+    if (getenv("AFFINEUI_IME_TRACE")) {
+        fprintf(stderr, "[ime] setMarkedText text=\"%s\" selected=(%lu,%lu)\n",
+            [text UTF8String] ? [text UTF8String] : "?",
+            (unsigned long)selectedRange.location,
+            (unsigned long)selectedRange.length);
+    }
     _sapp.macos.ime.marked_len = text.length;
     if (!_sapp_events_enabled()) {
         return;
@@ -6480,6 +6492,9 @@ static void _sapp_gl_make_current(void) {
 }
 
 - (void)unmarkText {
+    if (getenv("AFFINEUI_IME_TRACE")) {
+        fprintf(stderr, "[ime] unmarkText\n");
+    }
     _sapp.macos.ime.marked_len = 0;
     if (!_sapp_events_enabled()) {
         return;
@@ -6498,28 +6513,20 @@ static void _sapp_gl_make_current(void) {
     if (!_sapp_events_enabled()) {
         return;
     }
-    _sapp_macos_ime_emit_chars(_sapp_macos_ime_plain_string(string));
+    NSString* text = _sapp_macos_ime_plain_string(string);
+    if (getenv("AFFINEUI_IME_TRACE")) {
+        fprintf(stderr, "[ime] insertText text=\"%s\"\n",
+            [text UTF8String] ? [text UTF8String] : "?");
+    }
+    _sapp_macos_ime_emit_chars(text);
 }
 
 - (void)doCommandBySelector:(SEL)selector {
-    /* interpretKeyEvents: routes Return/Tab here instead of insertText:. Before
-       this patch they reached the app as CHAR events (event.characters gives
-       "\r" and "\t"), and the text controls insert CHAR payloads literally —
-       there is no KeyCode::Enter path in the DOM. So these two must keep
-       producing CHARs or Enter/Tab silently stop working in a focused field.
-
-       Everything else (arrows, Backspace, Escape, ...) already went out as
-       SAPP_EVENTTYPE_KEY_DOWN from keyDown:, so it is swallowed here — both to
-       stop AppKit beeping at an unhandled selector, and because inserting their
-       control codes as literal text is not something any caller wants. */
-    if ((selector == @selector(insertNewline:)) ||
-        (selector == @selector(insertLineBreak:)) ||
-        (selector == @selector(insertParagraphSeparator:)))
-    {
-        _sapp_macos_ime_emit_char(0x0D);    /* as event.characters reported it */
-    } else if (selector == @selector(insertTab:)) {
-        _sapp_macos_ime_emit_char(0x09);
-    }
+    /* keyDown: already emitted the physical key before interpretKeyEvents:.
+       Editing commands therefore stay on the KEY_DOWN path; emitting their
+       C0/DEL codes as CHAR text would corrupt the focused field. AffineUI's
+       document handles Enter for textarea and leaves Tab to focus routing. */
+    _SOKOL_UNUSED(selector);
 }
 
 - (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
@@ -14900,6 +14907,10 @@ SOKOL_API_IMPL void sapp_ime_set_enabled(bool enabled) {
     #elif defined(_SAPP_MACOS)
         if (enabled == _sapp.macos.ime.enabled) {
             return;     /* already in the requested state */
+        }
+        if (getenv("AFFINEUI_IME_TRACE")) {
+            fprintf(stderr, "[ime] sapp_ime_set_enabled %d -> %d\n",
+                (int)_sapp.macos.ime.enabled, (int)enabled);
         }
         _sapp.macos.ime.enabled = enabled;
         if (!enabled) {

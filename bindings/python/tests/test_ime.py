@@ -195,6 +195,13 @@ def test_commit_fires_a_change_with_the_committed_text():
     assert NIHONGO in changes[-1]
 
 
+def test_focused_editor_reports_text_input_consumed():
+    app = _focused_input_app()
+    result = app.document().dispatch(_text_input("x"))
+    assert result.event_consumed is True
+    assert result.redraw_requested is True
+
+
 def test_composition_cursor_out_of_range_is_survivable():
     """Byte 1 is mid-codepoint (日 is 3 bytes), byte 99 is past the end, and -1
     means "no cursor reported". The engine clamps to UTF-8 boundaries on

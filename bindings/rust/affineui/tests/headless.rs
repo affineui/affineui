@@ -2,7 +2,7 @@
 //! one #[test] because AffineUI is single-threaded by contract and
 //! cargo's default parallel test harness would violate it.
 
-use affineui::{Document, Event, Theme, Validity, View};
+use affineui::{App, Config, Document, Event, Theme, Validity, View};
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -20,7 +20,54 @@ fn headless_contracts() {
     assert!(w > 0 && h > 0, "content size {w}x{h}");
     assert!(doc.set_text_by_id("msg", "updated"));
     assert!(!doc.set_text_by_id("nope", "x"));
-    let _ = doc.dispatch(&Event::mouse_move(10, 10));
+    let dispatch = doc.dispatch(&Event::mouse_move(10, 10));
+    assert!(!dispatch.event_consumed);
+    doc.set_caret_blink_interval(0.0);
+    assert_eq!(doc.caret_blink_interval(), 0.0);
+    assert!(!doc.tick_caret_blink());
+
+    // Capture phase crosses the C ABI in both directions and consumes before
+    // the document/widget phase. Event data must survive the callback copy.
+    let capture_calls = Rc::new(Cell::new(0));
+    let capture_drops = Rc::new(Cell::new(0));
+    struct CaptureDrop(Rc<Cell<u32>>);
+    impl Drop for CaptureDrop {
+        fn drop(&mut self) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+    {
+        let app = App::new(Config::default());
+        let calls = Rc::clone(&capture_calls);
+        let drop_flag = CaptureDrop(Rc::clone(&capture_drops));
+        app.on_event_capture(move |event| {
+            let _ = &drop_flag;
+            assert_eq!(event.kind, affineui::EventType::MouseMove);
+            assert_eq!((event.x, event.y), (12, 34));
+            calls.set(calls.get() + 1);
+            true
+        });
+        assert!(app.dispatch(&Event::mouse_move(12, 34)));
+    }
+    assert_eq!(capture_calls.get(), 1);
+    assert_eq!(capture_drops.get(), 1, "capture closure released on app drop");
+
+    let embedded_calls = Rc::new(Cell::new(0));
+    {
+        let ui = affineui::embedded::Ui::new();
+        ui.set_caret_blink_interval(0.0);
+        assert_eq!(ui.caret_blink_interval(), 0.0);
+        let calls = Rc::clone(&embedded_calls);
+        ui.on_event_capture(move |event| {
+            assert_eq!(event.kind, affineui::EventType::MouseDown);
+            calls.set(calls.get() + 1);
+            true
+        });
+        let mut event = Event::mouse_move(3, 4);
+        event.kind = affineui::EventType::MouseDown;
+        assert!(ui.dispatch(&event));
+    }
+    assert_eq!(embedded_calls.get(), 1);
 
     // View builders + widget handles.
     let view = View::new(Theme::Decius);

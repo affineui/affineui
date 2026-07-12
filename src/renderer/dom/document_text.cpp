@@ -226,8 +226,10 @@ bool set_focus(detail::DocumentImpl& impl, int target_idx) {
     // focus (cleared while focused_idx still points at the old control so
     // the spliced display text is restored).
     detail::clear_text_composition(impl);
+    detail::clear_text_edit_history(impl);
     const int old_idx = impl.focused_idx;
     impl.focused_idx  = target_idx;
+    detail::reset_caret_blink(impl, target_idx);
     if (old_idx >= 0 && old_idx < static_cast<int>(impl.blocks.size())) {
         const Rect old_rect = detail::subtree_visual_rect(impl, old_idx);
         const auto id = impl.blocks[static_cast<std::size_t>(old_idx)].id;
@@ -630,6 +632,7 @@ bool clear_text_composition(detail::DocumentImpl& impl) {
             impl.text_layout_signatures.erase(
                 lxb_dom_interface_node(
                     const_cast<lxb_dom_element_t*>(elem)));
+            detail::reset_caret_blink(impl, idx);
             detail::add_dirty_rect(impl, detail::block_visual_rect(impl, idx));
             return true;
         }
@@ -663,7 +666,8 @@ bool update_text_composition(detail::DocumentImpl& impl,
         // compositionstart semantics) — a real committed edit that happens
         // before any preedit display.
         const auto [begin, end] = detail::normalized_selection(block);
-        changed = detail::delete_text_range(impl, idx, block, begin, end);
+        changed = detail::delete_text_range(
+            impl, idx, block, begin, end, TextEditKind::Composition);
     }
 
     cursor = snap_utf8_boundary(preedit, cursor);
@@ -684,6 +688,7 @@ bool update_text_composition(detail::DocumentImpl& impl,
     impl.composition_clause_begin = clause_begin;
     impl.composition_clause_end = clause_end;
     refresh_composed_display(impl, idx, block);
+    detail::reset_caret_blink(impl, idx);
     detail::add_dirty_rect(impl, detail::block_visual_rect(impl, idx));
     return true;
 }
@@ -1207,6 +1212,8 @@ void set_text_selection(detail::DocumentImpl& impl,
     block.selection_anchor = anchor;
     block.selection_focus = focus;
     block.caret_offset = focus;
+    detail::break_text_edit_coalescing(impl);
+    detail::reset_caret_blink(impl, idx);
     if (auto* elem = detail::element_for_block(impl, idx)) {
         auto* node = lxb_dom_interface_node(elem);
         impl.live_text_carets[node] = focus;
@@ -1475,18 +1482,185 @@ void emit_text_control_change(detail::DocumentImpl& impl, int idx, Block& block)
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
+namespace {
+
+TextEditSnapshot text_edit_snapshot(const Block& block) {
+    return TextEditSnapshot{
+        detail::emitted_text_control_value(block),
+        block.caret_offset,
+        block.selection_anchor,
+        block.selection_focus,
+    };
+}
+
+lxb_dom_node_t* text_edit_node(detail::DocumentImpl& impl, int idx) {
+    auto* elem = detail::element_for_block(impl, idx);
+    return elem ? lxb_dom_interface_node(elem) : nullptr;
+}
+
+bool text_edit_kind_coalesces(TextEditKind kind) {
+    return kind == TextEditKind::Insert ||
+           kind == TextEditKind::Backspace ||
+           kind == TextEditKind::DeleteForward ||
+           kind == TextEditKind::Composition;
+}
+
+bool push_text_edit_snapshot(std::vector<TextEditSnapshot>& history,
+                             std::size_t& history_bytes,
+                             TextEditSnapshot snapshot) {
+    const std::size_t snapshot_bytes =
+        sizeof(TextEditSnapshot) + snapshot.value.size();
+    if (snapshot_bytes > detail::DocumentImpl::kTextEditHistoryByteLimit) {
+        history.clear();
+        history_bytes = 0;
+        return false;
+    }
+    if (history.size() >= detail::DocumentImpl::kTextEditHistoryLimit ||
+        history_bytes + snapshot_bytes >
+            detail::DocumentImpl::kTextEditHistoryByteLimit) {
+        history.clear();
+        history_bytes = 0;
+    }
+    history_bytes += snapshot_bytes;
+    history.push_back(std::move(snapshot));
+    return true;
+}
+
+TextEditSnapshot pop_text_edit_snapshot(
+    std::vector<TextEditSnapshot>& history,
+    std::size_t& history_bytes) {
+    TextEditSnapshot snapshot = std::move(history.back());
+    history_bytes -= sizeof(TextEditSnapshot) + snapshot.value.size();
+    history.pop_back();
+    return snapshot;
+}
+
+void ensure_text_edit_session(detail::DocumentImpl& impl,
+                              int idx,
+                              const Block& block) {
+    auto* node = text_edit_node(impl, idx);
+    const std::string current = detail::emitted_text_control_value(block);
+    if (node != impl.text_edit_history_node ||
+        (impl.text_edit_history_node != nullptr &&
+         current != impl.text_edit_expected_value)) {
+        detail::clear_text_edit_history(impl);
+        impl.text_edit_history_node = node;
+    }
+    if (impl.text_edit_history_node == nullptr) {
+        impl.text_edit_history_node = node;
+    }
+    impl.text_edit_expected_value = current;
+}
+
+void record_text_edit(detail::DocumentImpl& impl,
+                      int idx,
+                      const Block& block,
+                      TextEditKind kind) {
+    ensure_text_edit_session(impl, idx, block);
+    const bool coalesce = text_edit_kind_coalesces(kind) &&
+                          impl.text_edit_last_kind == kind &&
+                          !detail::has_text_selection(block);
+    if (!coalesce) {
+        const bool retained = push_text_edit_snapshot(
+            impl.text_edit_undo, impl.text_edit_undo_bytes,
+            text_edit_snapshot(block));
+        if (!retained) kind = TextEditKind::None;
+    }
+    impl.text_edit_redo.clear();
+    impl.text_edit_redo_bytes = 0;
+    impl.text_edit_last_kind = kind;
+}
+
+void finish_text_edit(detail::DocumentImpl& impl, const Block& block) {
+    impl.text_edit_expected_value = detail::emitted_text_control_value(block);
+}
+
+bool apply_text_edit_snapshot(detail::DocumentImpl& impl,
+                              int idx,
+                              Block& block,
+                              const TextEditSnapshot& snapshot) {
+    const Rect old_rect = detail::subtree_visual_rect(impl, idx);
+    detail::set_live_text_state(
+        impl, idx, block, snapshot.value, snapshot.caret);
+    detail::set_text_selection(
+        impl, idx, block, snapshot.selection_anchor, snapshot.selection_focus);
+    detail::mark_live_mutation_dirty(
+        impl, idx, old_rect, /*needs_layout=*/true);
+    emit_text_control_change(impl, idx, block);
+    impl.text_edit_expected_value = detail::emitted_text_control_value(block);
+    impl.text_edit_last_kind = TextEditKind::None;
+    return true;
+}
+
+}  // namespace
+
+void clear_text_edit_history(detail::DocumentImpl& impl) {
+    impl.text_edit_history_node = nullptr;
+    impl.text_edit_undo.clear();
+    impl.text_edit_redo.clear();
+    impl.text_edit_undo_bytes = 0;
+    impl.text_edit_redo_bytes = 0;
+    impl.text_edit_last_kind = TextEditKind::None;
+    impl.text_edit_expected_value.clear();
+}
+
+void break_text_edit_coalescing(detail::DocumentImpl& impl) {
+    impl.text_edit_last_kind = TextEditKind::None;
+}
+
+void reset_caret_blink(detail::DocumentImpl& impl, int idx) {
+    const bool was_hidden = !impl.caret_blink_visible;
+    impl.caret_blink_visible = true;
+    impl.caret_blink_epoch = std::chrono::steady_clock::now();
+    if (was_hidden && idx >= 0 && idx < static_cast<int>(impl.blocks.size())) {
+        detail::add_dirty_rect(impl, detail::block_visual_rect(impl, idx));
+    }
+}
+
+bool tick_caret_blink(detail::DocumentImpl& impl) {
+    Block* control = nullptr;
+    if (!detail::focused_text_control(impl, control) || control == nullptr ||
+        detail::has_text_selection(*control) ||
+        detail::text_composition_active(
+            impl, impl.focused_idx, *control) ||
+        impl.caret_blink_interval_ms <= 0.0) {
+        if (!impl.caret_blink_visible && control != nullptr) {
+            impl.caret_blink_visible = true;
+            impl.caret_blink_epoch = std::chrono::steady_clock::now();
+            detail::add_dirty_rect(
+                impl, detail::block_visual_rect(impl, impl.focused_idx));
+            return true;
+        }
+        return false;
+    }
+    const double elapsed_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - impl.caret_blink_epoch).count();
+    const auto phase = static_cast<std::uint64_t>(
+        elapsed_ms / impl.caret_blink_interval_ms);
+    const bool visible = (phase % 2u) == 0u;
+    if (visible == impl.caret_blink_visible) return false;
+    impl.caret_blink_visible = visible;
+    detail::add_dirty_rect(
+        impl, detail::block_visual_rect(impl, impl.focused_idx));
+    return true;
+}
+
 bool delete_text_range(detail::DocumentImpl& impl,
                        int idx,
                        Block& block,
                        std::size_t begin,
-                       std::size_t end) {
+                       std::size_t end,
+                       TextEditKind kind) {
     std::string next = detail::emitted_text_control_value(block);
     std::size_t caret = block.caret_offset;
     const std::string old = next;
     next = erase_selected_text(std::move(next), begin, end, caret);
     if (next == old && caret == block.caret_offset) return false;
+    record_text_edit(impl, idx, block, kind);
     const Rect old_rect = detail::subtree_visual_rect(impl, idx);
     detail::set_live_text_state(impl, idx, block, std::move(next), caret);
+    finish_text_edit(impl, block);
+    detail::reset_caret_blink(impl, idx);
     detail::mark_live_mutation_dirty(impl, idx, old_rect, /*needs_layout=*/true);
     emit_text_control_change(impl, idx, block);
     return true;
@@ -1495,7 +1669,8 @@ bool delete_text_range(detail::DocumentImpl& impl,
 bool replace_text_selection_or_insert(detail::DocumentImpl& impl,
                                       int idx,
                                       Block& block,
-                                      std::string_view text) {
+                                      std::string_view text,
+                                      TextEditKind kind) {
     if (text.empty()) return false;
     const Rect old_rect = detail::subtree_visual_rect(impl, idx);
     std::string next = detail::emitted_text_control_value(block);
@@ -1506,10 +1681,35 @@ bool replace_text_selection_or_insert(detail::DocumentImpl& impl,
     } else {
         next = insert_text_at_caret(std::move(next), caret, text);
     }
+    record_text_edit(impl, idx, block, kind);
     detail::set_live_text_state(impl, idx, block, std::move(next), caret);
+    finish_text_edit(impl, block);
+    detail::reset_caret_blink(impl, idx);
     detail::mark_live_mutation_dirty(impl, idx, old_rect, /*needs_layout=*/true);
     emit_text_control_change(impl, idx, block);
     return true;
+}
+
+bool undo_text_edit(detail::DocumentImpl& impl, int idx, Block& block) {
+    ensure_text_edit_session(impl, idx, block);
+    if (impl.text_edit_undo.empty()) return false;
+    push_text_edit_snapshot(
+        impl.text_edit_redo, impl.text_edit_redo_bytes,
+        text_edit_snapshot(block));
+    const TextEditSnapshot snapshot = pop_text_edit_snapshot(
+        impl.text_edit_undo, impl.text_edit_undo_bytes);
+    return apply_text_edit_snapshot(impl, idx, block, snapshot);
+}
+
+bool redo_text_edit(detail::DocumentImpl& impl, int idx, Block& block) {
+    ensure_text_edit_session(impl, idx, block);
+    if (impl.text_edit_redo.empty()) return false;
+    push_text_edit_snapshot(
+        impl.text_edit_undo, impl.text_edit_undo_bytes,
+        text_edit_snapshot(block));
+    const TextEditSnapshot snapshot = pop_text_edit_snapshot(
+        impl.text_edit_redo, impl.text_edit_redo_bytes);
+    return apply_text_edit_snapshot(impl, idx, block, snapshot);
 }
 
 bool move_text_caret(detail::DocumentImpl& impl,
@@ -1546,6 +1746,22 @@ Rect Document::caret_rect() const {
     if (impl_->last_measurer == nullptr) return {};
     return detail::text_caret_rect(*impl_, impl_->focused_idx,
                                    *impl_->last_measurer);
+}
+
+void Document::set_caret_blink_interval(double milliseconds) {
+    if (!std::isfinite(milliseconds) || milliseconds < 0.0) {
+        milliseconds = 0.0;
+    }
+    impl_->caret_blink_interval_ms = milliseconds;
+    detail::reset_caret_blink(*impl_, impl_->focused_idx);
+}
+
+double Document::caret_blink_interval() const noexcept {
+    return impl_->caret_blink_interval_ms;
+}
+
+bool Document::tick_caret_blink() {
+    return detail::tick_caret_blink(*impl_);
 }
 
 namespace detail {
@@ -1672,6 +1888,9 @@ void splice_composition_display(detail::DocumentImpl&,
 
 bool Document::text_input_active() const { return false; }
 Rect Document::caret_rect() const { return {}; }
+void Document::set_caret_blink_interval(double) {}
+double Document::caret_blink_interval() const noexcept { return 0.0; }
+bool Document::tick_caret_blink() { return false; }
 
 namespace {
 

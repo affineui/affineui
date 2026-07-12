@@ -56,7 +56,7 @@ automatically: its `AffineUINativeDir` MSBuild property defaults to
 with `dotnet build -p:AffineUINativeDir=<dir>`.
 
 At first use the wrapper checks `affineui_c_abi_version()` against the version
-it was written for (`AffineUIRuntime.ExpectedAbiVersion` = 1) and throws a
+it was written for (`AffineUIRuntime.ExpectedAbiVersion` = 2) and throws a
 clear exception on mismatch.
 
 ## Running the example

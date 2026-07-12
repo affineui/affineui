@@ -92,6 +92,7 @@ struct AppImpl {
     std::vector<WidgetChangeBinding> view_change_bindings;
     std::vector<WidgetChangeBinding> view_commit_bindings;
     std::vector<Document::WidgetChange> deferred_widget_changes;
+    std::vector<App::EventHandler> event_capture_handlers;
     std::vector<App::EventHandler> event_handlers;
     std::vector<std::function<void(double)>> frame_callbacks;
     std::vector<Document::HoverInfo> hover_chain_scratch;
@@ -234,6 +235,19 @@ ResourceLoader make_asset_resource_loader(std::vector<std::string> folders) {
 }
 
 bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
+    const auto event_capture_handlers = impl.event_capture_handlers;
+    if (!event_capture_handlers.empty()) {
+        impl.document.hovered_info_chain(impl.hover_chain_scratch);
+        bool capture_consumed = false;
+        for (const auto& cb : event_capture_handlers) {
+            capture_consumed =
+                cb(ev, impl.hover_chain_scratch) || capture_consumed;
+        }
+        if (capture_consumed) {
+            impl.dirty = true;
+            return true;
+        }
+    }
     const auto event_handlers = impl.event_handlers;
     // While a native handler holds pointer capture, MouseMove routes to
     // it before DOM hover hit-testing (same contract as Ui::dispatch) so
@@ -278,7 +292,7 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
     // Native event handlers (widget kits) see the event with the fresh
     // hover chain before view click/change bindings. A consuming handler
     // owns the event outright.
-    if (!event_handlers.empty()) {
+    if (!result.event_consumed && !event_handlers.empty()) {
         impl.document.hovered_info_chain(impl.hover_chain_scratch);
         bool native_consumed = false;
         for (const auto& cb : event_handlers) {
@@ -294,7 +308,8 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
         }
     }
 
-    bool consumed = result.redraw_requested || result.invalidate_view;
+    bool consumed = result.event_consumed || result.redraw_requested ||
+                    result.invalidate_view;
     if (ev.type == EventType::MouseUp && ev.button == MouseButton::Left &&
         !impl.view_click_bindings.empty()) {
         const auto activations = impl.document.take_activated_widgets();
@@ -792,6 +807,9 @@ double App::min_frame_time() const noexcept {
 }
 
 bool App::should_render() {
+    if (impl_->document.tick_caret_blink()) {
+        impl_->dirty = true;
+    }
     // Dirty conditions (same set the internal frame path checks). The
     // viewport-change condition needs live swapchain size, which we only
     // check inside the render loop; a host that resizes should invalidate()
@@ -842,6 +860,10 @@ bool App::dispatch(const Event& ev) {
 
 void App::on_event(EventHandler cb) {
     impl_->event_handlers.emplace_back(std::move(cb));
+}
+
+void App::on_event_capture(EventHandler cb) {
+    impl_->event_capture_handlers.emplace_back(std::move(cb));
 }
 
 void App::on_frame(std::function<void(double)> cb) {
@@ -1177,6 +1199,9 @@ void cb_frame(void* user) {
             }
         }
         impl->last_dpi = sapp_dpi_scale();
+        if (impl->document.tick_caret_blink()) {
+            impl->dirty = true;
+        }
         // Size the frame from the REAL swapchain, not sapp_width():
         // sokol_app's win32 high-dpi path can report a framebuffer size
         // scaled by dpi even though the D3D11 swapchain is client-pixel
@@ -1513,6 +1538,7 @@ void cb_event(const sapp_event* ev, void* user) {
             (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
             return;
         case SAPP_EVENTTYPE_CHAR:
+            if (!is_text_codepoint(ev->char_code)) return;
             aui_ev.type = EventType::TextInput;
             aui_ev.text = utf8_from_codepoint(ev->char_code);
             if (!aui_ev.text.empty()) {

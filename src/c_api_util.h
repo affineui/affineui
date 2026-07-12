@@ -68,6 +68,29 @@ inline affineui::Event to_event(const affineui_event& ev) {
     return out;
 }
 
+// Borrowing view of a C++ event for a synchronous C callback. `text` points
+// into `ev` and is valid only until the callback returns.
+inline affineui_event to_c_event(const affineui::Event& ev) {
+    affineui_event out{};
+    out.type     = static_cast<int>(ev.type);
+    out.x        = ev.pos.x;
+    out.y        = ev.pos.y;
+    out.button   = static_cast<int>(ev.button);
+    out.wheel_dx = ev.wheel_dx;
+    out.wheel_dy = ev.wheel_dy;
+    out.key      = static_cast<int>(ev.key);
+    out.key_code = ev.key_code;
+    out.text     = ev.text.empty() ? nullptr : ev.text.c_str();
+    out.shift    = ev.shift ? 1 : 0;
+    out.ctrl     = ev.ctrl ? 1 : 0;
+    out.alt      = ev.alt ? 1 : 0;
+    out.super_key = ev.super ? 1 : 0;
+    out.composition_cursor       = ev.composition_cursor;
+    out.composition_clause_begin = ev.composition_clause_begin;
+    out.composition_clause_end   = ev.composition_clause_end;
+    return out;
+}
+
 // ── ABI locks: the C enum values ARE the C++ enum values ─────────────
 static_assert(AFFINEUI_EVENT_NONE == static_cast<int>(affineui::EventType::None));
 static_assert(AFFINEUI_EVENT_MOUSE_MOVE == static_cast<int>(affineui::EventType::MouseMove));

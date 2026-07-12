@@ -199,6 +199,14 @@ public:
     using EventHandler = std::function<bool(
         const Event&, const std::vector<Document::HoverInfo>&)>;
 
+    /// Register a capture-phase handler that runs before Document/widget
+    /// dispatch. Returning true consumes the event outright. Use this when an
+    /// application must override focused-widget commands (for example, force
+    /// Ctrl/Cmd+Z into a global undo system). The hover chain is the current
+    /// pre-dispatch chain; ordinary on_event handlers receive the refreshed
+    /// post-document chain.
+    void on_event_capture(EventHandler cb);
+
     /// Register a low-level native event handler. The handler receives
     /// the already-hit-tested hover chain, deepest first, after CSS
     /// hover/active state has been updated. This is the C++ analog of
