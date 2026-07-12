@@ -452,17 +452,16 @@ cmake --build build
 | Hello | [`examples/00_hello`](../../examples/00_hello) | सबसे छोटा काम करने वाला program |
 | Bootstrap dashboard | [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard) | असली Bootstrap 4.6 CSS, cards, navbars, tables |
 | Game editor | [`examples/11_decius_game_editor`](../../examples/11_decius_game_editor) | Docked panels, tree view, inspector |
-| Skeuomorphic synth | [`examples/14_decius_synth_skeuo`](../../examples/14_decius_synth_skeuo) | यथार्थवादी textures + animations वाला custom skin |
 | Dender (3D print slicer) | [`examples/16_decius_dender`](../../examples/16_decius_dender) | Viewport सहित पूरे-app का layout |
 | Atari 2600 | [`examples/17_affine_2600`](../../examples/17_affine_2600) | Native window में embedded emulator UI |
 
-इनमें से किसी को भी सीधे build directory से चलाएँ:
+टास्क रनर से कोई भी चलाएँ — यह ज़रूरी चीज़ें बिल्ड करके लॉन्च करता है (`./build.sh list` सभी दिखाता है)। Windows पर `build.ps1` इस्तेमाल करें।
 
 ```bash
-./build/examples/00_hello/hello
-./build/examples/11_decius_game_editor/decius_game_editor
-./build/examples/14_decius_synth_skeuo/decius_synth_skeuo
-./build/examples/16_decius_dender/dender
+./build.sh run hello
+./build.sh run decius_game_editor
+./build.sh run decius_dender
+./build.sh list
 ```
 
 <img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="Game editor demo">
@@ -472,8 +471,8 @@ cmake --build build
 Python और Rust bindings अपने खुद के runnable examples ship करते हैं:
 
 ```bash
-python bindings/python/examples/hello.py
-python bindings/python/examples/component_gallery.py
+./build.sh run py_hello
+./build.sh run py_component_gallery
 
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example hello
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example component_gallery

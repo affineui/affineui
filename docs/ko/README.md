@@ -384,17 +384,16 @@ cmake --build build
 | Hello | [`examples/00_hello`](../../examples/00_hello) | 가장 작은 동작하는 프로그램 |
 | Bootstrap 대시보드 | [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard) | 실제 Bootstrap 4.6 CSS, 카드, 내비바, 테이블 |
 | 게임 에디터 | [`examples/11_decius_game_editor`](../../examples/11_decius_game_editor) | 도킹된 패널, 트리 뷰, 인스펙터 |
-| 스큐어모픽 신디사이저 | [`examples/14_decius_synth_skeuo`](../../examples/14_decius_synth_skeuo) | 사실적인 텍스처와 애니메이션이 있는 커스텀 스킨 |
 | Dender (3D 프린트 슬라이서) | [`examples/16_decius_dender`](../../examples/16_decius_dender) | 뷰포트가 있는 전체 앱 레이아웃 |
 | Atari 2600 | [`examples/17_affine_2600`](../../examples/17_affine_2600) | 네이티브 창에 임베드된 에뮬레이터 UI |
 
-빌드 디렉터리에서 곧바로 실행할 수 있습니다:
+태스크 러너로 실행합니다. 필요한 것을 빌드한 뒤 실행합니다(`./build.sh list` 로 전체 목록 확인). Windows 에서는 `build.ps1` 을 사용하세요.
 
 ```bash
-./build/examples/00_hello/hello
-./build/examples/11_decius_game_editor/decius_game_editor
-./build/examples/14_decius_synth_skeuo/decius_synth_skeuo
-./build/examples/16_decius_dender/dender
+./build.sh run hello
+./build.sh run decius_game_editor
+./build.sh run decius_dender
+./build.sh list
 ```
 
 <img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="게임 에디터 데모">
@@ -404,8 +403,8 @@ cmake --build build
 Python과 Rust 바인딩은 각자의 실행 가능한 예제를 함께 제공합니다:
 
 ```bash
-python bindings/python/examples/hello.py
-python bindings/python/examples/component_gallery.py
+./build.sh run py_hello
+./build.sh run py_component_gallery
 
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example hello
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example component_gallery

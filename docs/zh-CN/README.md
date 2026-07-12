@@ -398,17 +398,16 @@ cmake --build build
 | Hello | [`examples/00_hello`](../../examples/00_hello) | 最小可运行程序 |
 | Bootstrap 仪表盘 | [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard) | 真实的 Bootstrap 4.6 CSS、卡片、导航栏、表格 |
 | 游戏编辑器 | [`examples/11_decius_game_editor`](../../examples/11_decius_game_editor) | 停靠面板、树视图、检查器 |
-| 拟物化合成器 | [`examples/14_decius_synth_skeuo`](../../examples/14_decius_synth_skeuo) | 具有真实纹理和动画的自定义皮肤 |
 | Dender（3D 打印切片器） | [`examples/16_decius_dender`](../../examples/16_decius_dender) | 带视口的完整应用布局 |
 | Atari 2600 | [`examples/17_affine_2600`](../../examples/17_affine_2600) | 嵌入原生窗口中的模拟器 UI |
 
-可以直接从构建目录运行其中任意一个：
+用任务运行器运行任意示例 —— 它会构建所需内容并启动（`./build.sh list` 列出全部）。Windows 上请使用 `build.ps1`。
 
 ```bash
-./build/examples/00_hello/hello
-./build/examples/11_decius_game_editor/decius_game_editor
-./build/examples/14_decius_synth_skeuo/decius_synth_skeuo
-./build/examples/16_decius_dender/dender
+./build.sh run hello
+./build.sh run decius_game_editor
+./build.sh run decius_dender
+./build.sh list
 ```
 
 <img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="游戏编辑器演示">
@@ -418,8 +417,8 @@ cmake --build build
 Python 与 Rust 绑定各自附带可运行示例：
 
 ```bash
-python bindings/python/examples/hello.py
-python bindings/python/examples/component_gallery.py
+./build.sh run py_hello
+./build.sh run py_component_gallery
 
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example hello
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example component_gallery

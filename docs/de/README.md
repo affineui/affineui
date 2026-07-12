@@ -466,17 +466,16 @@ Nennenswerte:
 | Hello | [`examples/00_hello`](../../examples/00_hello) | Das kleinstmögliche funktionierende Programm |
 | Bootstrap-Dashboard | [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard) | Echtes Bootstrap-4.6-CSS, Cards, Navbars, Tabellen |
 | Game-Editor | [`examples/11_decius_game_editor`](../../examples/11_decius_game_editor) | Andockbare Panels, Tree-View, Inspector |
-| Skeuomorpher Synth | [`examples/14_decius_synth_skeuo`](../../examples/14_decius_synth_skeuo) | Eigenes Skin mit realistischen Texturen + Animationen |
 | Dender (3D-Druck-Slicer) | [`examples/16_decius_dender`](../../examples/16_decius_dender) | Komplettes App-Layout mit Viewport |
 | Atari 2600 | [`examples/17_affine_2600`](../../examples/17_affine_2600) | Emulator-UI eingebettet in ein natives Fenster |
 
-Führen Sie eine davon direkt aus dem Build-Verzeichnis aus:
+Mit dem Task-Runner starten – er baut, was die Demo braucht, und führt sie aus (`./build.sh list` zeigt alle). Unter Windows `build.ps1` verwenden.
 
 ```bash
-./build/examples/00_hello/hello
-./build/examples/11_decius_game_editor/decius_game_editor
-./build/examples/14_decius_synth_skeuo/decius_synth_skeuo
-./build/examples/16_decius_dender/dender
+./build.sh run hello
+./build.sh run decius_game_editor
+./build.sh run decius_dender
+./build.sh list
 ```
 
 <img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="Game-Editor-Demo">
@@ -486,8 +485,8 @@ Führen Sie eine davon direkt aus dem Build-Verzeichnis aus:
 Die Python- und Rust-Bindings liefern eigene ausführbare Beispiele:
 
 ```bash
-python bindings/python/examples/hello.py
-python bindings/python/examples/component_gallery.py
+./build.sh run py_hello
+./build.sh run py_component_gallery
 
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example hello
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example component_gallery

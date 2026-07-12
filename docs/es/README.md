@@ -451,17 +451,16 @@ Algunas destacadas:
 | Hello | [`examples/00_hello`](../../examples/00_hello) | El programa funcional más pequeño |
 | Dashboard de Bootstrap | [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard) | CSS real de Bootstrap 4.6, tarjetas, navbars, tablas |
 | Editor de juegos | [`examples/11_decius_game_editor`](../../examples/11_decius_game_editor) | Paneles acoplables, vista de árbol, inspector |
-| Sintetizador skeuomórfico | [`examples/14_decius_synth_skeuo`](../../examples/14_decius_synth_skeuo) | Skin personalizado con texturas realistas y animaciones |
 | Dender (laminador de impresión 3D) | [`examples/16_decius_dender`](../../examples/16_decius_dender) | Layout de aplicación completo con viewport |
 | Atari 2600 | [`examples/17_affine_2600`](../../examples/17_affine_2600) | UI de emulador incrustada en una ventana nativa |
 
-Ejecuta cualquiera de ellas directamente desde el directorio de build:
+Ejecuta cualquiera con el task runner: compila lo necesario y la lanza (`./build.sh list` las muestra todas). En Windows usa `build.ps1`.
 
 ```bash
-./build/examples/00_hello/hello
-./build/examples/11_decius_game_editor/decius_game_editor
-./build/examples/14_decius_synth_skeuo/decius_synth_skeuo
-./build/examples/16_decius_dender/dender
+./build.sh run hello
+./build.sh run decius_game_editor
+./build.sh run decius_dender
+./build.sh list
 ```
 
 <img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="Demo del editor de juegos">
@@ -471,8 +470,8 @@ Ejecuta cualquiera de ellas directamente desde el directorio de build:
 Los bindings de Python y Rust incluyen sus propios ejemplos ejecutables:
 
 ```bash
-python bindings/python/examples/hello.py
-python bindings/python/examples/component_gallery.py
+./build.sh run py_hello
+./build.sh run py_component_gallery
 
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example hello
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example component_gallery

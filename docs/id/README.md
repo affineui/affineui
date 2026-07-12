@@ -457,17 +457,16 @@ Beberapa yang menonjol:
 | Hello | [`examples/00_hello`](../../examples/00_hello) | Program berjalan terkecil |
 | Bootstrap dashboard | [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard) | Bootstrap 4.6 CSS sungguhan, cards, navbar, tabel |
 | Editor game | [`examples/11_decius_game_editor`](../../examples/11_decius_game_editor) | Panel docked, tree view, inspector |
-| Synth skeuomorfik | [`examples/14_decius_synth_skeuo`](../../examples/14_decius_synth_skeuo) | Skin kustom dengan tekstur realistis + animasi |
 | Dender (slicer cetak 3D) | [`examples/16_decius_dender`](../../examples/16_decius_dender) | Tata letak aplikasi penuh dengan viewport |
 | Atari 2600 | [`examples/17_affine_2600`](../../examples/17_affine_2600) | UI emulator disematkan dalam jendela native |
 
-Jalankan salah satunya langsung dari direktori build:
+Jalankan salah satunya dengan task runner — ia membangun yang diperlukan lalu menjalankannya (`./build.sh list` menampilkan semuanya). Di Windows gunakan `build.ps1`.
 
 ```bash
-./build/examples/00_hello/hello
-./build/examples/11_decius_game_editor/decius_game_editor
-./build/examples/14_decius_synth_skeuo/decius_synth_skeuo
-./build/examples/16_decius_dender/dender
+./build.sh run hello
+./build.sh run decius_game_editor
+./build.sh run decius_dender
+./build.sh list
 ```
 
 <img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="Demo editor game">
@@ -477,8 +476,8 @@ Jalankan salah satunya langsung dari direktori build:
 Binding Python dan Rust menyertakan contoh yang dapat dijalankan sendiri:
 
 ```bash
-python bindings/python/examples/hello.py
-python bindings/python/examples/component_gallery.py
+./build.sh run py_hello
+./build.sh run py_component_gallery
 
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example hello
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example component_gallery
