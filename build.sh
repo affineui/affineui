@@ -96,7 +96,11 @@ example_targets() {
     ensure_configured
     local manifest="$BUILD/examples/examples.txt"
     [ -f "$manifest" ] || return 0
-    grep -v '^[[:space:]]*$' "$manifest"
+    # `return 0`, not the grep's status: a manifest with nothing to strip makes
+    # grep exit 1, and under `set -e` that would kill the caller mid-assignment
+    # — silently. (Same trap origin/main hit from the other direction.)
+    grep -v '^[[:space:]]*$' "$manifest" || true
+    return 0
 }
 
 build_examples() {
@@ -108,10 +112,14 @@ build_examples() {
 
 run_example() {
     local name="${1:-$PRIMARY}"
-    if ! example_targets | grep -qx "$name"; then
+    # Materialize the list first, then grep the string — piping into `grep -q`
+    # short-circuits `example_targets` (grep closes stdin on first match), which
+    # trips `pipefail` and makes valid targets read as "not available".
+    local available; available="$(example_targets)"
+    if ! grep -qx "$name" <<< "$available"; then
         echo "unknown example '$name'." >&2
         echo "available:" >&2
-        example_targets | sed 's/^/  /' >&2
+        sed 's/^/  /' <<< "$available" >&2
         exit 1
     fi
     cmake --build "$BUILD" --target "$name" --parallel
