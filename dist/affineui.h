@@ -212,6 +212,30 @@ struct DispatchResult {
 /// "data:image/png;base64,..."), returns the raw bytes or empty on miss.
 using ResourceLoader = std::function<std::string(std::string_view url)>;
 
+/// Is `cp` a codepoint a platform "character" event may insert as text?
+///
+/// A character event is a keystroke reinterpreted as text, and every platform
+/// pushes control codes down that same path: macOS reports Backspace as
+/// U+007F, Escape as U+001B and Ctrl+<letter> as U+0001..U+001A; win32 WM_CHAR
+/// reports Backspace as U+0008. Text controls insert an `EventType::TextInput`
+/// payload literally, so an unfiltered control code lands in the field as
+/// invisible junk that only surfaces once the visible text is deleted. Editing
+/// keys already arrive as `EventType::KeyDown`, which is where they belong.
+///
+/// Tab and the newlines are the exception — they are genuine text, and there is
+/// no KeyCode::Enter insert path in the DOM, so a newline has to come through
+/// the text path or Enter stops working in a textarea.
+///
+/// Platform shells (the App loop, `sokol.h`, engine embedders) must gate a
+/// character event on this before turning it into `TextInput`. It does NOT
+/// apply to `TextInput` from other sources — a paste or a programmatic set may
+/// legitimately carry anything.
+inline bool is_text_codepoint(std::uint32_t cp) {
+    if (cp == 0x09u || cp == 0x0Au || cp == 0x0Du) return true;   // tab, LF, CR
+    if (cp < 0x20u || cp == 0x7Fu) return false;                  // C0 + DEL
+    return true;
+}
+
 }  // namespace affineui
 
 // ────────────────────────────────────────────────────────────────────────
@@ -51131,7 +51155,11 @@ inline Event translate(const sapp_event* ev) {
             return out;
         case SAPP_EVENTTYPE_CHAR:
             out.type = EventType::TextInput;
-            out.text = utf8_from_codepoint(ev->char_code);
+            // Control codes are not text; an empty payload is ignored by the
+            // document's TextInput handler.
+            if (is_text_codepoint(ev->char_code)) {
+                out.text = utf8_from_codepoint(ev->char_code);
+            }
             return out;
         case SAPP_EVENTTYPE_IME_COMPOSITION:
             out.type = EventType::Composition;
@@ -51617,6 +51645,16 @@ inline void cb_event_(const sapp_event* ev, void* user) {
     (void)consumed;
     if (e.type == EventType::MouseMove) {
         sapp_set_mouse_cursor(cursor_to_sokol(ui.hovered_cursor()));
+    }
+    // Focus / caret / preedit may have moved — retarget the platform IME.
+    // MUST stay in step with affineui::sokol::dispatch(): this callback is
+    // what wire() installs, so without it a wired app NEVER enables the input
+    // method and every CJK keystroke falls through as a raw character (no
+    // composition, no candidate window) on every platform.
+    if (e.type == EventType::MouseDown || e.type == EventType::MouseUp ||
+        e.type == EventType::KeyDown || e.type == EventType::TextInput ||
+        e.type == EventType::Composition) {
+        sync_text_input(ui);
     }
 }
 inline void cb_cleanup_(void* user) {
