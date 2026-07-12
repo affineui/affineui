@@ -18,6 +18,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -6723,7 +6724,51 @@ TEST_CASE("focused text input paints a caret") {
 
     painter.stroke_line_draws.clear();
     doc.draw(painter);
-    CHECK_FALSE(painter.stroke_line_draws.empty());
+    const auto caret = std::find_if(
+        painter.stroke_line_draws.begin(), painter.stroke_line_draws.end(),
+        [](const RecordingPainter::StrokeLineDraw& line) {
+            return std::abs(line.x0 - line.x1) < 0.01f;
+        });
+    REQUIRE(caret != painter.stroke_line_draws.end());
+    CHECK(std::abs(caret->y1 - caret->y0) == doctest::Approx(18.0f));
+}
+
+TEST_CASE("focused empty text input paints a full-height caret") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        input {
+            display: block;
+            width: 160px;
+            padding: 4px 8px;
+            border: 0;
+        }
+        </style>
+        <input value="">
+    )HTML");
+    doc.layout(320, 0, &painter);
+
+    const auto input_pos = find_hovered_tag(doc, "input");
+    REQUIRE(input_pos.x >= 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = input_pos;
+    CHECK(doc.dispatch(down).redraw_requested);
+
+    painter.stroke_line_draws.clear();
+    doc.draw(painter);
+    const auto caret = std::find_if(
+        painter.stroke_line_draws.begin(), painter.stroke_line_draws.end(),
+        [](const RecordingPainter::StrokeLineDraw& line) {
+            return std::abs(line.x0 - line.x1) < 0.01f;
+        });
+    REQUIRE(caret != painter.stroke_line_draws.end());
+    CHECK(std::abs(caret->y1 - caret->y0) == doctest::Approx(18.0f));
 }
 
 TEST_CASE("focused input edits at caret and preserves caret across relayout") {
@@ -7031,6 +7076,411 @@ TEST_CASE("focused input supports command selection and clipboard editing") {
     doc.draw(painter);
     REQUIRE_FALSE(painter.text_runs.empty());
     CHECK(painter.text_runs.back() == "alpha beta");
+}
+
+TEST_CASE("focused input undo redo groups typing and clears the redo branch") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>body{margin:0} input{display:block;width:180px;border:0}</style>
+        <input value="A">
+    )HTML");
+    doc.layout(240, 0, &painter);
+    const auto pos = find_hovered_tag(doc, "input");
+    REQUIRE(pos.x >= 0);
+
+    affineui::Event focus{};
+    focus.type = affineui::EventType::MouseDown;
+    focus.button = affineui::MouseButton::Left;
+    focus.pos = pos;
+    doc.dispatch(focus);
+    affineui::Event end{};
+    end.type = affineui::EventType::KeyDown;
+    end.key = affineui::Key::End;
+    doc.dispatch(end);
+
+    affineui::Event text{};
+    text.type = affineui::EventType::TextInput;
+    text.text = "B";
+    CHECK(doc.dispatch(text).event_consumed);
+    text.text = "C";
+    CHECK(doc.dispatch(text).event_consumed);
+
+    affineui::Event undo{};
+    undo.type = affineui::EventType::KeyDown;
+    undo.key = affineui::Key::Z;
+    undo.ctrl = true;
+    auto result = doc.dispatch(undo);
+    CHECK(result.event_consumed);
+    CHECK(result.redraw_requested);
+    painter.text_runs.clear();
+    doc.draw(painter);
+    REQUIRE_FALSE(painter.text_runs.empty());
+    CHECK(painter.text_runs.back() == "A");
+
+    affineui::Event redo = undo;
+    redo.shift = true;
+    result = doc.dispatch(redo);
+    CHECK(result.event_consumed);
+    CHECK(result.redraw_requested);
+    painter.text_runs.clear();
+    doc.draw(painter);
+    CHECK(painter.text_runs.back() == "ABC");
+
+    doc.dispatch(undo);
+    text.text = "X";
+    doc.dispatch(text);
+    affineui::Event redo_y{};
+    redo_y.type = affineui::EventType::KeyDown;
+    redo_y.key = affineui::Key::Y;
+    redo_y.ctrl = true;
+    result = doc.dispatch(redo_y);
+    CHECK(result.event_consumed);
+    CHECK_FALSE(result.redraw_requested);
+    painter.text_runs.clear();
+    doc.draw(painter);
+    CHECK(painter.text_runs.back() == "AX");
+}
+
+TEST_CASE("cut paste and delete participate in focused text history") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    std::string clipboard;
+    doc.set_clipboard([&] { return clipboard; },
+                      [&](std::string_view value) { clipboard = value; });
+    doc.set_html(R"HTML(
+        <style>body{margin:0} input{display:block;width:180px;border:0}</style>
+        <input value="alpha">
+    )HTML");
+    doc.layout(240, 0, &painter);
+    const auto pos = find_hovered_tag(doc, "input");
+    REQUIRE(pos.x >= 0);
+    affineui::Event focus{};
+    focus.type = affineui::EventType::MouseDown;
+    focus.button = affineui::MouseButton::Left;
+    focus.pos = pos;
+    doc.dispatch(focus);
+
+    const auto command = [&](affineui::Key key, bool shift = false) {
+        affineui::Event ev{};
+        ev.type = affineui::EventType::KeyDown;
+        ev.key = key;
+        ev.ctrl = true;
+        ev.shift = shift;
+        return doc.dispatch(ev);
+    };
+    CHECK(command(affineui::Key::A).event_consumed);
+    CHECK(command(affineui::Key::C).event_consumed);
+    CHECK(clipboard == "alpha");
+    CHECK(command(affineui::Key::X).redraw_requested);
+    CHECK(command(affineui::Key::Z).redraw_requested);  // undo cut
+    painter.text_runs.clear();
+    doc.draw(painter);
+    CHECK(painter.text_runs.back() == "alpha");
+
+    CHECK(command(affineui::Key::Z, true).redraw_requested);  // redo cut
+    CHECK(command(affineui::Key::V).redraw_requested);
+    painter.text_runs.clear();
+    doc.draw(painter);
+    CHECK(painter.text_runs.back() == "alpha");
+
+    affineui::Event backspace{};
+    backspace.type = affineui::EventType::KeyDown;
+    backspace.key = affineui::Key::Backspace;
+    CHECK(doc.dispatch(backspace).redraw_requested);
+    CHECK(command(affineui::Key::Z).redraw_requested);  // undo delete
+    painter.text_runs.clear();
+    doc.draw(painter);
+    CHECK(painter.text_runs.back() == "alpha");
+}
+
+TEST_CASE("text edit history clears when focus leaves the control") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>body{margin:0} input{display:block;width:180px;height:24px;border:0}</style>
+        <input id="one" value="one"><input id="two" value="two">
+    )HTML");
+    doc.layout(240, 0, &painter);
+    const auto one = find_hovered_id(doc, "one", 240, 60);
+    const auto two = find_hovered_id(doc, "two", 240, 60);
+    REQUIRE(one.x >= 0);
+    REQUIRE(two.x >= 0);
+    const auto click = [&](affineui::Point pos) {
+        affineui::Event ev{};
+        ev.type = affineui::EventType::MouseDown;
+        ev.button = affineui::MouseButton::Left;
+        ev.pos = pos;
+        doc.dispatch(ev);
+    };
+    click(one);
+    affineui::Event end{};
+    end.type = affineui::EventType::KeyDown;
+    end.key = affineui::Key::End;
+    doc.dispatch(end);
+    affineui::Event text{};
+    text.type = affineui::EventType::TextInput;
+    text.text = "X";
+    doc.dispatch(text);
+    click(two);
+    click(one);
+
+    affineui::Event undo{};
+    undo.type = affineui::EventType::KeyDown;
+    undo.key = affineui::Key::Z;
+    undo.ctrl = true;
+    const auto result = doc.dispatch(undo);
+    CHECK(result.event_consumed);
+    CHECK_FALSE(result.redraw_requested);
+    painter.text_runs.clear();
+    doc.draw(painter);
+    CHECK(std::find(painter.text_runs.begin(), painter.text_runs.end(), "oneX") !=
+          painter.text_runs.end());
+}
+
+TEST_CASE("text edit history resets at its depth and byte limits") {
+    const auto focused_input = [](affineui::Document& doc,
+                                  RecordingPainter& painter) {
+        doc.set_html(R"HTML(
+            <style>body{margin:0} input{display:block;width:180px;border:0}</style>
+            <input value="seed">
+        )HTML");
+        doc.layout(240, 0, &painter);
+        const auto pos = find_hovered_tag(doc, "input");
+        REQUIRE(pos.x >= 0);
+        affineui::Event focus{};
+        focus.type = affineui::EventType::MouseDown;
+        focus.button = affineui::MouseButton::Left;
+        focus.pos = pos;
+        doc.dispatch(focus);
+    };
+    const auto key = [](affineui::Document& doc, affineui::Key value,
+                        bool command = false) {
+        affineui::Event ev{};
+        ev.type = affineui::EventType::KeyDown;
+        ev.key = value;
+        ev.ctrl = command;
+        return doc.dispatch(ev);
+    };
+
+    SUBCASE("depth overflow starts a new small history") {
+        affineui::Document doc;
+        RecordingPainter painter;
+        focused_input(doc, painter);
+        affineui::Event text{};
+        text.type = affineui::EventType::TextInput;
+        text.text = "x";
+        for (int i = 0; i < 129; ++i) {
+            CHECK(doc.dispatch(text).redraw_requested);
+            if (i != 128) {
+                key(doc, affineui::Key::ArrowLeft);
+                key(doc, affineui::Key::ArrowRight);
+            }
+        }
+        CHECK(key(doc, affineui::Key::Z, true).redraw_requested);
+        CHECK_FALSE(key(doc, affineui::Key::Z, true).redraw_requested);
+    }
+
+    SUBCASE("a file-sized snapshot clears local history") {
+        affineui::Document doc;
+        RecordingPainter painter;
+        const std::string large_text(70 * 1024, 'x');
+        doc.set_clipboard([&] { return large_text; },
+                          [](std::string_view) {});
+        focused_input(doc, painter);
+        CHECK(key(doc, affineui::Key::V, true).redraw_requested);
+        affineui::Event text{};
+        text.type = affineui::EventType::TextInput;
+        text.text = "y";
+        CHECK(doc.dispatch(text).redraw_requested);
+        CHECK_FALSE(key(doc, affineui::Key::Z, true).redraw_requested);
+    }
+}
+
+TEST_CASE("character events never insert control bytes") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>body{margin:0} input{display:block;width:180px;height:28px;border:0}</style>
+        <input id="control-input" value="">
+    )HTML");
+    doc.layout(240, 80, &painter);
+    const auto input = find_hovered_id(doc, "control-input", 240, 80);
+    REQUIRE(input.x >= 0);
+    affineui::Event focus{};
+    focus.type = affineui::EventType::MouseDown;
+    focus.button = affineui::MouseButton::Left;
+    focus.pos = input;
+    doc.dispatch(focus);
+
+    affineui::Event control{};
+    control.type = affineui::EventType::TextInput;
+    for (int cp = 0; cp < 0x20; ++cp) {
+        control.text.assign(1, static_cast<char>(cp));
+        const auto result = doc.dispatch(control);
+        CHECK(result.event_consumed);
+        CHECK_FALSE(result.redraw_requested);
+    }
+    control.text.assign(1, static_cast<char>(0x7F));
+    CHECK_FALSE(doc.dispatch(control).redraw_requested);
+    control.text = "OK";
+    CHECK(doc.dispatch(control).redraw_requested);
+    painter.text_runs.clear();
+    doc.draw(painter);
+    CHECK(std::find(painter.text_runs.begin(), painter.text_runs.end(), "OK") !=
+          painter.text_runs.end());
+
+    affineui::Event enter{};
+    enter.type = affineui::EventType::KeyDown;
+    enter.key = affineui::Key::Enter;
+    CHECK(doc.dispatch(enter).event_consumed);
+    painter.text_runs.clear();
+    doc.draw(painter);
+    CHECK(std::find(painter.text_runs.begin(), painter.text_runs.end(), "OK") !=
+          painter.text_runs.end());
+
+    affineui::Document area_doc;
+    RecordingPainter area_painter;
+    area_doc.set_html(R"HTML(
+        <style>body{margin:0} textarea{display:block;width:180px;height:60px;border:0}</style>
+        <textarea id="control-area"></textarea>
+    )HTML");
+    area_doc.layout(240, 80, &area_painter);
+    const auto area = find_hovered_id(area_doc, "control-area", 240, 80);
+    REQUIRE(area.x >= 0);
+    focus.pos = area;
+    area_doc.dispatch(focus);
+    control.text = "A";
+    area_doc.dispatch(control);
+    CHECK(area_doc.dispatch(enter).redraw_requested);
+    control.text = "B";
+    area_doc.dispatch(control);
+    area_painter.text_runs.clear();
+    area_doc.draw(area_painter);
+    CHECK(std::find(area_painter.text_runs.begin(), area_painter.text_runs.end(), "A\nB") !=
+          area_painter.text_runs.end());
+}
+
+TEST_CASE("app capture can override local undo and local undo skips global handlers") {
+    affineui::Ui ui;
+    RecordingPainter painter;
+    ui.document().set_html(R"HTML(
+        <style>body{margin:0} input{display:block;width:180px;border:0}</style>
+        <input value="A">
+    )HTML");
+    ui.document().layout(240, 0, &painter);
+    const auto pos = find_hovered_tag(ui.document(), "input");
+    REQUIRE(pos.x >= 0);
+    affineui::Event focus{};
+    focus.type = affineui::EventType::MouseDown;
+    focus.button = affineui::MouseButton::Left;
+    focus.pos = pos;
+    ui.dispatch(focus);
+    affineui::Event end{};
+    end.type = affineui::EventType::KeyDown;
+    end.key = affineui::Key::End;
+    ui.dispatch(end);
+    affineui::Event text{};
+    text.type = affineui::EventType::TextInput;
+    text.text = "B";
+    ui.dispatch(text);
+
+    bool capture_global_undo = true;
+    int capture_calls = 0;
+    int bubble_calls = 0;
+    ui.on_event_capture(
+        [&](const affineui::Event& ev,
+            const std::vector<affineui::Document::HoverInfo>&) {
+            if (capture_global_undo && ev.type == affineui::EventType::KeyDown &&
+                ev.ctrl && ev.key == affineui::Key::Z) {
+                ++capture_calls;
+                return true;
+            }
+            return false;
+        });
+    ui.on_event(
+        [&](const affineui::Event& ev,
+            const std::vector<affineui::Document::HoverInfo>&) {
+            if (ev.type == affineui::EventType::KeyDown &&
+                ev.ctrl && ev.key == affineui::Key::Z) {
+                ++bubble_calls;
+            }
+            return false;
+        });
+
+    affineui::Event undo{};
+    undo.type = affineui::EventType::KeyDown;
+    undo.key = affineui::Key::Z;
+    undo.ctrl = true;
+    CHECK(ui.dispatch(undo));
+    CHECK(capture_calls == 1);
+    CHECK(bubble_calls == 0);
+    painter.text_runs.clear();
+    ui.document().draw(painter);
+    CHECK(painter.text_runs.back() == "AB");
+
+    capture_global_undo = false;
+    CHECK(ui.dispatch(undo));
+    CHECK(bubble_calls == 0);  // focused editor consumed before global phase
+    painter.text_runs.clear();
+    ui.document().draw(painter);
+    CHECK(painter.text_runs.back() == "A");
+}
+
+TEST_CASE("caret blink invalidates only on phase changes and editing resets it") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    doc.set_html(R"HTML(
+        <style>body{margin:0} input{display:block;width:180px;border:0}</style>
+        <input value="AB">
+    )HTML");
+    doc.layout(240, 0, &painter);
+    const auto pos = find_hovered_tag(doc, "input");
+    REQUIRE(pos.x >= 0);
+    affineui::Event focus{};
+    focus.type = affineui::EventType::MouseDown;
+    focus.button = affineui::MouseButton::Left;
+    focus.pos = pos;
+    doc.dispatch(focus);
+    affineui::Event end{};
+    end.type = affineui::EventType::KeyDown;
+    end.key = affineui::Key::End;
+    doc.dispatch(end);
+    doc.set_caret_blink_interval(4.0);
+    CHECK(doc.caret_blink_interval() == doctest::Approx(4.0));
+
+    const auto has_caret = [&] {
+        painter.stroke_line_draws.clear();
+        doc.draw(painter);
+        return std::any_of(
+            painter.stroke_line_draws.begin(), painter.stroke_line_draws.end(),
+            [](const auto& line) {
+                return std::abs(line.x0 - line.x1) < 0.5f &&
+                       std::abs(line.y1 - line.y0) >= 6.0f;
+            });
+    };
+    CHECK(has_caret());
+    CHECK_FALSE(doc.tick_caret_blink());
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::milliseconds(100);
+    bool phase_changed = false;
+    while (!phase_changed && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        phase_changed = doc.tick_caret_blink();
+    }
+    REQUIRE(phase_changed);
+    CHECK_FALSE(has_caret());
+
+    affineui::Event left{};
+    left.type = affineui::EventType::KeyDown;
+    left.key = affineui::Key::ArrowLeft;
+    CHECK(doc.dispatch(left).event_consumed);
+    CHECK(has_caret());
+
+    doc.set_caret_blink_interval(0.0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(8));
+    CHECK_FALSE(doc.tick_caret_blink());
+    CHECK(has_caret());
 }
 
 TEST_CASE("focused input supports shift selection and word deletion") {

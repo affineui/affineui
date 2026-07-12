@@ -90,6 +90,7 @@ struct UiImpl {
     // multiple handlers if multiple selectors match (mirrors DOM
     // event bubbling intuitively at the registration site).
     std::vector<std::pair<std::string, std::function<void()>>> click_handlers;
+    std::vector<Ui::EventHandler> event_capture_handlers;
     std::vector<Ui::EventHandler> event_handlers;
     std::vector<std::function<void(double)>> frame_callbacks;
     std::vector<Document::HoverInfo> hover_chain_scratch;
@@ -233,6 +234,9 @@ void Ui::render(const FrameTarget& target) {
 // ── Update scheduling ───────────────────────────────────────────────
 
 bool Ui::needs_update() const {
+    if (impl_->document.tick_caret_blink()) {
+        impl_->dirty = true;
+    }
     return impl_->dirty || impl_->document.imm_dirty() ||
            impl_->animations_active;
 }
@@ -287,6 +291,7 @@ void Ui::reset() {
     impl_->document.set_user_stylesheet("");  // clear user CSS
     impl_->document.set_html("");             // clear DOM
     impl_->click_handlers.clear();
+    impl_->event_capture_handlers.clear();
     impl_->event_handlers.clear();
     impl_->frame_callbacks.clear();
     impl_->hover_chain_scratch.clear();
@@ -300,6 +305,16 @@ void Ui::reset() {
 // ── Input ───────────────────────────────────────────────────────────
 
 bool Ui::dispatch(const Event& e) {
+    const auto event_capture_handlers = impl_->event_capture_handlers;
+    if (!event_capture_handlers.empty()) {
+        impl_->document.hovered_info_chain(impl_->hover_chain_scratch);
+        bool capture_consumed = false;
+        for (const auto& cb : event_capture_handlers) {
+            capture_consumed =
+                cb(e, impl_->hover_chain_scratch) || capture_consumed;
+        }
+        if (capture_consumed) return true;
+    }
     const auto event_handlers = impl_->event_handlers;
     if (impl_->pointer_captured && e.type == EventType::MouseMove &&
         !event_handlers.empty()) {
@@ -318,6 +333,7 @@ bool Ui::dispatch(const Event& e) {
     if (result.redraw_requested || result.invalidate_view) {
         impl_->dirty = true;  // a hover/focus/state change needs a repaint
     }
+    if (result.event_consumed) return true;
 
     const bool mouse_up_left =
         e.type == EventType::MouseUp && e.button == MouseButton::Left;
@@ -399,6 +415,10 @@ bool Ui::pointer_captured() const {
 
 void Ui::on_click(std::string_view selector, std::function<void()> cb) {
     impl_->click_handlers.emplace_back(std::string(selector), std::move(cb));
+}
+
+void Ui::on_event_capture(EventHandler cb) {
+    impl_->event_capture_handlers.emplace_back(std::move(cb));
 }
 
 void Ui::on_event(EventHandler cb) {

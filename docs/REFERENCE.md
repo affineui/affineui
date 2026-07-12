@@ -95,7 +95,8 @@ as long as the App). Non-copyable, movable.
 | `int run()` / `int run(std::function<void()> view_fn)` | Start the main loop; returns the OS exit code. |
 | `void quit(int code = 0)` | Clean exit after the current frame. |
 | `bool dispatch(const Event& ev)` | Route a translated input event; true when consumed. |
-| `void on_event(EventHandler cb)` | Low-level handler; receives the hit-tested hover chain, deepest first. `EventHandler = std::function<bool(const Event&, const std::vector<Document::HoverInfo>&)>`. |
+| `void on_event_capture(EventHandler cb)` | Capture phase before document/widgets for every dispatched mouse, key, text, or composition event. Return true to consume, e.g. force Ctrl/Cmd+Z into the app-global undo stack or let a modal host tool own pointer input. The supplied hover chain is the current pre-dispatch chain. |
+| `void on_event(EventHandler cb)` | Post-document low-level handler; receives the refreshed hit-tested hover chain, deepest first. Focused-editor commands consumed by the document do not reach it. `EventHandler = std::function<bool(const Event&, const std::vector<Document::HoverInfo>&)>`. |
 | `void on_frame(std::function<void(double dt_seconds)> cb)` | Per-frame tick (requestAnimationFrame analog). Call `invalidate()` inside to schedule a repaint; do nothing to stay idle. |
 | `void invalidate()` | Force re-evaluation/repaint before the next frame. |
 | `void capture_pointer()` / `release_pointer()` / `bool pointer_captured() const` | While captured, MouseMove reaches `on_event` handlers before DOM hover hit-testing. |
@@ -441,6 +442,9 @@ Non-copyable, movable.
 | `std::vector<std::string> take_activated_widgets()` | Drain named activations from behavior scripts. |
 | `std::vector<WidgetChange> take_widget_changes()` | Drain named value changes (`{name, value}` strings). |
 | `void set_clipboard(ClipboardGet get, ClipboardSet set)` | Clipboard bridge; a deterministic in-document fallback exists without it. |
+| `bool text_input_active() const` / `Rect caret_rect() const` | Platform IME intent and candidate-window anchor for the focused editor. |
+| `void set_caret_blink_interval(double ms)` / `double caret_blink_interval() const` | Caret visibility half-cycle; default 500 ms, zero keeps it visible. |
+| `bool tick_caret_blink()` | Advance caret timing for custom/headless Document drivers; App and Ui call it automatically. |
 | `HoverInfo hovered_info() const` / `std::vector<HoverInfo> hovered_info_chain() const` | Hovered-element identity (chain is deepest-first, for bubbling-style routing). |
 | `int hovered_cursor() const` | Cursor id: 0 default, 1 pointer, 2 text, 3 crosshair, 4 move, 5 not-allowed, 6 ew-resize, 7 ns-resize, 8 nwse-resize. |
 
@@ -491,7 +495,8 @@ integrations and the C ABI wrap. Single-threaded; non-copyable, movable.
 | `void init(const InitDesc& desc)` | Embedded-mode init against host GPU objects. |
 | `bool dispatch(const Event& e)` | True when the UI consumed the event. |
 | `void on_click(std::string_view selector, std::function<void()> cb)` | Click handler for a selector. *(experimental grammar: `#id`, `.cls`, `tag`, comma lists — compound selectors later)* |
-| `void on_event(EventHandler)` / `on_frame(std::function<void(double)>)` / `run_frame_callbacks(double)` | Low-level handlers / frame tick. |
+| `void on_event_capture(EventHandler)` / `on_event(EventHandler)` | Pre-widget interception for mouse, keyboard, text, and composition events / post-document low-level event phase. Returning true from capture prevents AffineUI handling (but does not cancel the underlying OS event). |
+| `on_frame(std::function<void(double)>)` / `run_frame_callbacks(double)` | Frame tick. |
 | `bool needs_update() const` / `void mark_dirty()` | Render-on-demand support (advisory; render is always safe). |
 | `bool set_attr(elem_id, name, value)` / `remove_attr(...)` / `set_text(...)` | Live DOM mutation (as on Document). |
 | `void mount(std::function<void()> view_fn)` / `void invalidate()` | Immediate-mode entry points. |
@@ -632,10 +637,10 @@ destroyed degrades to a no-op instead of dangling.
 | `struct Color { r, g, b, a{255} }` | 8-bit RGBA; `Color::rgb(r,g,b)`, `Color::rgba(r,g,b,a)`. |
 | `struct Size`, `Point`, `Rect` | Integer geometry. |
 | `struct DomHandle` | `{document_id, node_slot, generation}` versioned weak handle to a DOM node. |
-| `enum class Key` | Platform-independent key codes: `Escape, Tab, Enter, Backspace, Delete`, arrows, `Home/End`, `A`–`Z`, `Digit0`–`Digit9`. Printable characters arrive as `TextInput`, not key codes. |
-| `enum class EventType` | `MouseMove, MouseDown, MouseUp, MouseWheel, KeyDown, KeyUp, TextInput, Resize, FocusLost, FocusGained`. |
-| `struct Event` | Translated input event: `type, pos, button, wheel_dx/dy, key, key_code` (native scancode), `text` (TextInput only), modifier flags (`super` = Cmd on macOS). |
-| `struct DispatchResult` | `redraw_requested`, `invalidate_view`, `defer_widget_changes` (a native gesture is mid-flight), `layout_changed` (persist the dock layout). |
+| `enum class Key` | Platform-independent key codes: `Escape, Tab, Enter, Backspace, Delete`, arrows, `Home/End`, `A`–`Z`, `Digit0`–`Digit9`, `Space`, `Minus`, `Equal`, `BracketLeft`, `BracketRight`. Printable glyphs arrive as `TextInput`; these physical-key values exist for shortcut routing. |
+| `enum class EventType` | `MouseMove, MouseDown, MouseUp, MouseWheel, KeyDown, KeyUp, TextInput, Composition, Resize, FocusLost, FocusGained`. |
+| `struct Event` | Translated input event: `type, pos, button, wheel_dx/dy, key, key_code` (native scancode), `text` (`TextInput` commit or `Composition` preedit), UTF-8-byte composition cursor/clause offsets, and modifier flags (`super` = Cmd on macOS). |
+| `struct DispatchResult` | `redraw_requested`, `invalidate_view`, `defer_widget_changes` (a native gesture is mid-flight), `layout_changed` (persist the dock layout), `event_consumed` (the focused document target handled the event). |
 | `enum class MouseButton { Left, Right, Middle }` | |
 | `using ResourceLoader = std::function<std::string(std::string_view url)>` | URL → raw bytes; empty = miss. |
 

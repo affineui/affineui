@@ -7,7 +7,29 @@ use crate::sys;
 use crate::util::{cstring, ensure_abi, NotThreadSafe};
 use crate::view::View;
 use std::os::raw::c_char;
+use std::os::raw::c_void;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
+
+unsafe extern "C" fn app_event_capture_trampoline(
+    user: *mut c_void,
+    ev: *const sys::affineui_event,
+) -> i32 {
+    if ev.is_null() { return 0; }
+    let cb = &mut *(user as *mut Box<dyn FnMut(&Event) -> bool>);
+    let event = Event::from_sys(&*ev);
+    match catch_unwind(AssertUnwindSafe(|| cb(&event))) {
+        Ok(consumed) => consumed as i32,
+        Err(_) => {
+            eprintln!("affineui: panic in on_event_capture callback (suppressed)");
+            0
+        }
+    }
+}
+
+unsafe extern "C" fn app_event_capture_free(user: *mut c_void) {
+    drop(Box::from_raw(user as *mut Box<dyn FnMut(&Event) -> bool>));
+}
 
 /// App configuration (mirrors `affineui::App::Config`). Build with
 /// [`Config::default`] plus the chained setters.
@@ -212,6 +234,21 @@ impl App {
     /// consumed (a command callback fired or a redraw was requested).
     pub fn dispatch(&self, ev: &Event) -> bool {
         ev.with_sys(|sys_ev| unsafe { sys::affineui_app_dispatch(self.raw(), sys_ev) != 0 })
+    }
+
+    /// Register an app-global capture handler before focused-widget dispatch.
+    /// Returning true overrides local editor handling for that event.
+    pub fn on_event_capture(&self, f: impl FnMut(&Event) -> bool + 'static) {
+        let boxed: Box<dyn FnMut(&Event) -> bool> = Box::new(f);
+        let user = Box::into_raw(Box::new(boxed)) as *mut c_void;
+        unsafe {
+            sys::affineui_app_on_event_capture(
+                self.raw(),
+                Some(app_event_capture_trampoline),
+                user,
+                Some(app_event_capture_free),
+            );
+        }
     }
 
     /// Run the native main loop on the calling thread. Returns the OS

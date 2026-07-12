@@ -77,6 +77,7 @@ typedef struct affineui_dispatch_result {
     int invalidate_view;
     int defer_widget_changes;
     int layout_changed;
+    int event_consumed;
 } affineui_dispatch_result;
 
 // ── Callback shapes ──────────────────────────────────────────────────
@@ -135,6 +136,13 @@ AFFINEUI_C_API int  affineui_app_perf_overlay_enabled(const affineui_app* app);
 // document requested a redraw).
 AFFINEUI_C_API int  affineui_app_dispatch(affineui_app* app, const affineui_event* ev);
 
+// Register an app-global capture handler before focused-widget dispatch.
+AFFINEUI_C_API void affineui_app_on_event_capture(
+    affineui_app* app,
+    affineui_event_capture_fn fn,
+    void* user,
+    affineui_user_free_fn user_free);
+
 // Runs the native loop on the calling thread; returns the OS exit code.
 AFFINEUI_C_API int  affineui_app_run(affineui_app* app);
 AFFINEUI_C_API void affineui_app_quit(affineui_app* app, int code);
@@ -180,6 +188,15 @@ AFFINEUI_C_API int affineui_document_set_text_by_id(affineui_document* doc,
 AFFINEUI_C_API void affineui_document_dispatch(affineui_document* doc,
                                                const affineui_event* ev,
                                                affineui_dispatch_result* out);
+
+// Caret visibility half-cycle in milliseconds. Zero disables blinking.
+AFFINEUI_C_API void affineui_document_set_caret_blink_interval(
+    affineui_document* doc, double milliseconds);
+AFFINEUI_C_API double affineui_document_caret_blink_interval(
+    const affineui_document* doc);
+// Advance caret timing for headless/custom Document hosts. Ui/App drivers do
+// this automatically. Returns 1 only when a phase transition dirtied paint.
+AFFINEUI_C_API int affineui_document_tick_caret_blink(affineui_document* doc);
 
 // Attach/detach optional behavior scripts (affineui::DocumentScript;
 // 0 = UiControls).

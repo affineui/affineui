@@ -169,6 +169,24 @@ int affineui_app_dispatch(affineui_app* app, const affineui_event* ev) {
     return to_app(app)->dispatch(affineui_c::to_event(*ev)) ? 1 : 0;
 }
 
+void affineui_app_on_event_capture(affineui_app* app,
+                                   affineui_event_capture_fn fn,
+                                   void* user,
+                                   affineui_user_free_fn user_free) {
+    if (!app || !fn) {
+        if (user_free) user_free(user);
+        return;
+    }
+    auto data = hold_user(user, user_free);
+    to_app(app)->on_event_capture(
+        [fn, data = std::move(data)](
+            const affineui::Event& ev,
+            const std::vector<affineui::Document::HoverInfo>&) {
+            const affineui_event c_ev = affineui_c::to_c_event(ev);
+            return fn(data->user, &c_ev) != 0;
+        });
+}
+
 int affineui_app_run(affineui_app* app) {
     if (!app) return 1;
     return to_app(app)->run();
@@ -282,7 +300,21 @@ void affineui_document_dispatch(affineui_document* doc,
         out->invalidate_view      = result.invalidate_view ? 1 : 0;
         out->defer_widget_changes = result.defer_widget_changes ? 1 : 0;
         out->layout_changed       = result.layout_changed ? 1 : 0;
+        out->event_consumed       = result.event_consumed ? 1 : 0;
     }
+}
+
+void affineui_document_set_caret_blink_interval(affineui_document* doc,
+                                                 double milliseconds) {
+    if (doc) to_doc(doc)->set_caret_blink_interval(milliseconds);
+}
+
+double affineui_document_caret_blink_interval(const affineui_document* doc) {
+    return doc ? to_doc(doc)->caret_blink_interval() : 0.0;
+}
+
+int affineui_document_tick_caret_blink(affineui_document* doc) {
+    return doc && to_doc(doc)->tick_caret_blink() ? 1 : 0;
 }
 
 void affineui_document_attach_script(affineui_document* doc, int script) {

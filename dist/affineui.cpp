@@ -289257,13 +289257,16 @@ typedef struct {
 @end
 @interface _sapp_macos_window_delegate : NSObject<NSWindowDelegate>
 @end
+/* AFFINEUI PATCH (ime): the view adopts NSTextInputClient so CJK IMEs can
+   compose into it (setMarkedText:/insertText:) and anchor their candidate
+   window at the caret (firstRectForCharacterRange:). */
 #if defined(SOKOL_METAL) || defined(SOKOL_WGPU)
-    @interface _sapp_macos_view : NSView
+    @interface _sapp_macos_view : NSView<NSTextInputClient>
     - (void)displayLinkFired:(id)sender;
     - (void)fallbackTimerFired:(NSTimer*)timer;
     @end
 #elif defined(SOKOL_GLCORE)
-    @interface _sapp_macos_view : NSOpenGLView
+    @interface _sapp_macos_view : NSOpenGLView<NSTextInputClient>
     - (void)timerFired:(id)sender;
     @end
 #endif // SOKOL_GLCORE
@@ -289274,6 +289277,21 @@ typedef struct {
     NSWindow* window;
     NSTrackingArea* tracking_area;
     id keyup_monitor;
+    /* AFFINEUI PATCH (ime): NSTextInputClient state. `marked_len` is the
+       length of the current preedit in UTF-16 units (0 => no composition);
+       `rect` is the caret box in client-area physical px (top-left origin,
+       as sapp_ime_set_rect delivers it) and is converted to screen points
+       on demand in firstRectForCharacterRange:. */
+    struct {
+        NSUInteger marked_len;
+        bool enabled;       /* a text field is focused (sapp_ime_set_enabled) */
+        bool rect_valid;
+        int rect_x, rect_y, rect_w, rect_h;
+        /* carried from keyDown: — the NSTextInputClient callbacks are invoked
+           by interpretKeyEvents: and get no NSEvent of their own */
+        uint32_t key_mods;
+        bool key_repeat;
+    } ime;
     /* AFFINEUI PATCH: CADisplayLink only queues a frame opportunity.  The
        marker sits behind native input already waiting in NSApplication's
        event queue, so every input callback runs before the next frame while
@@ -292663,6 +292681,61 @@ _SOKOL_PRIVATE void _sapp_macos_frame(void) {
 }
 @end
 
+/* AFFINEUI PATCH (ime): helpers shared by the NSTextInputClient callbacks. */
+
+/* Byte offset into the UTF-8 encoding of `str` of the UTF-16 index
+   `utf16_index` — the IME reports its caret and clause bounds in UTF-16
+   units, the sapp/affineui protocol carries UTF-8 byte offsets. */
+_SOKOL_PRIVATE int _sapp_macos_ime_utf8_offset(NSString* str, NSUInteger utf16_index) {
+    if (utf16_index == NSNotFound) {
+        return -1;
+    }
+    if (utf16_index > str.length) {
+        utf16_index = str.length;
+    }
+    NSString* prefix = [str substringToIndex:utf16_index];
+    return (int)[prefix lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+}
+
+_SOKOL_PRIVATE void _sapp_macos_ime_emit_char(uint32_t codepoint) {
+    _sapp_init_event(SAPP_EVENTTYPE_CHAR);
+    _sapp.event.modifiers = _sapp.macos.ime.key_mods;
+    _sapp.event.char_code = codepoint;
+    _sapp.event.key_repeat = _sapp.macos.ime.key_repeat;
+    _sapp_call_event(&_sapp.event);
+}
+
+/* Emit one SAPP_EVENTTYPE_CHAR per Unicode codepoint (surrogate pairs are
+   recombined, so non-BMP input arrives as a single codepoint). */
+_SOKOL_PRIVATE void _sapp_macos_ime_emit_chars(NSString* str) {
+    const NSUInteger len = str.length;
+    for (NSUInteger i = 0; i < len; i++) {
+        const unichar hi = [str characterAtIndex:i];
+        uint32_t codepoint = hi;
+        if ((hi >= 0xD800) && (hi <= 0xDBFF) && ((i + 1) < len)) {
+            const unichar lo = [str characterAtIndex:i + 1];
+            if ((lo >= 0xDC00) && (lo <= 0xDFFF)) {
+                codepoint = 0x10000 + (((uint32_t)(hi - 0xD800)) << 10) + (uint32_t)(lo - 0xDC00);
+                i++;
+            }
+        }
+        /* private-use block AppKit uses for the function keys */
+        if ((codepoint & 0xFFFFFF00) == 0xF700) {
+            continue;
+        }
+        _sapp_macos_ime_emit_char(codepoint);
+    }
+}
+
+/* NSTextInputClient hands marked text as an NSString or an NSAttributedString
+   (attributed when the IME wants clause styling); normalize to a plain string. */
+_SOKOL_PRIVATE NSString* _sapp_macos_ime_plain_string(id string) {
+    if ([string isKindOfClass:[NSAttributedString class]]) {
+        return [(NSAttributedString*)string string];
+    }
+    return (NSString*)string;
+}
+
 @implementation _sapp_macos_view
 #if defined(SOKOL_GLCORE)
 - (void)timerFired:(id)sender {
@@ -292846,19 +292919,40 @@ static void _sapp_gl_make_current(void) {
         const uint32_t mods = _sapp_macos_mods(event);
         const sapp_keycode key_code = _sapp_translate_key(event.keyCode);
         _sapp_macos_key_event(SAPP_EVENTTYPE_KEY_DOWN, key_code, event.isARepeat, mods);
-        const NSString* chars = event.characters;
-        const NSUInteger len = chars.length;
-        if (len > 0) {
-            _sapp_init_event(SAPP_EVENTTYPE_CHAR);
-            _sapp.event.modifiers = mods;
-            for (NSUInteger i = 0; i < len; i++) {
-                const unichar codepoint = [chars characterAtIndex:i];
-                if ((codepoint & 0xFF00) == 0xF700) {
-                    continue;
+        /* AFFINEUI PATCH (ime): with a text field focused, hand the key to the
+           input method rather than reading event.characters ourselves.
+           interpretKeyEvents: calls back into insertText: (committed text) and
+           setMarkedText: (preedit) — the only way CJK composition, and dead
+           keys, can work at all.
+
+           Outside a text field (sapp_ime_set_enabled(false) — games, shortcut
+           handling) the original raw-characters path runs verbatim, so apps
+           that never focus a text field see no change in key behavior. */
+        if (_sapp.macos.ime.enabled) {
+            if (getenv("AFFINEUI_IME_TRACE")) {
+                fprintf(stderr, "[ime] keyDown enabled=1 -> interpretKeyEvents\n");
+            }
+            _sapp.macos.ime.key_mods = mods;
+            _sapp.macos.ime.key_repeat = event.isARepeat;
+            [self interpretKeyEvents:@[event]];
+        } else {
+            if (getenv("AFFINEUI_IME_TRACE")) {
+                fprintf(stderr, "[ime] keyDown enabled=0 -> raw characters\n");
+            }
+            const NSString* chars = event.characters;
+            const NSUInteger len = chars.length;
+            if (len > 0) {
+                _sapp_init_event(SAPP_EVENTTYPE_CHAR);
+                _sapp.event.modifiers = mods;
+                for (NSUInteger i = 0; i < len; i++) {
+                    const unichar codepoint = [chars characterAtIndex:i];
+                    if ((codepoint & 0xFF00) == 0xF700) {
+                        continue;
+                    }
+                    _sapp.event.char_code = codepoint;
+                    _sapp.event.key_repeat = event.isARepeat;
+                    _sapp_call_event(&_sapp.event);
                 }
-                _sapp.event.char_code = codepoint;
-                _sapp.event.key_repeat = event.isARepeat;
-                _sapp_call_event(&_sapp.event);
             }
         }
         /* if this is a Cmd+V (paste), also send a CLIPBOARD_PASTE event */
@@ -292867,6 +292961,143 @@ static void _sapp_gl_make_current(void) {
             _sapp_call_event(&_sapp.event);
         }
     }
+}
+
+/* AFFINEUI PATCH (ime): NSTextInputClient. The IME drives these via
+   interpretKeyEvents: in keyDown: above. */
+
+- (BOOL)hasMarkedText {
+    return _sapp.macos.ime.marked_len > 0;
+}
+
+- (NSRange)markedRange {
+    if (_sapp.macos.ime.marked_len > 0) {
+        return NSMakeRange(0, _sapp.macos.ime.marked_len);
+    }
+    return NSMakeRange(NSNotFound, 0);
+}
+
+- (NSRange)selectedRange {
+    /* The document owns the real selection; the IME only needs a well-formed
+       answer here, and NSNotFound is the conventional "don't know". */
+    return NSMakeRange(NSNotFound, 0);
+}
+
+- (NSArray<NSAttributedStringKey>*)validAttributesForMarkedText {
+    return @[];
+}
+
+- (NSAttributedString*)attributedSubstringForProposedRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
+    _SOKOL_UNUSED(range);
+    _SOKOL_UNUSED(actualRange);
+    /* Reconversion / surrounding-text queries aren't supported yet (the core
+       has no surrounding-text API — see docs/IME_ARCHITECTURE.md §4.6). */
+    return nil;
+}
+
+- (NSUInteger)characterIndexForPoint:(NSPoint)point {
+    _SOKOL_UNUSED(point);
+    return 0;
+}
+
+- (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange replacementRange:(NSRange)replacementRange {
+    _SOKOL_UNUSED(replacementRange);
+    NSString* text = _sapp_macos_ime_plain_string(string);
+    if (getenv("AFFINEUI_IME_TRACE")) {
+        fprintf(stderr, "[ime] setMarkedText text=\"%s\" selected=(%lu,%lu)\n",
+            [text UTF8String] ? [text UTF8String] : "?",
+            (unsigned long)selectedRange.location,
+            (unsigned long)selectedRange.length);
+    }
+    _sapp.macos.ime.marked_len = text.length;
+    if (!_sapp_events_enabled()) {
+        return;
+    }
+    _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
+    _sapp.event.modifiers = _sapp.macos.ime.key_mods;
+    const char* utf8 = [text UTF8String];
+    if (utf8) {
+        _sapp_strcpy(utf8, _sapp.event.ime_composition, sizeof(_sapp.event.ime_composition));
+    }
+    _sapp.event.ime_composition_cursor = _sapp_macos_ime_utf8_offset(text, selectedRange.location);
+    /* The clause being converted is the one the IME underlines thickly (the
+       same signal GLFW/SDL key off). No thick run => leave begin==end, which
+       the core reads as "no clause info". */
+    if ([string isKindOfClass:[NSAttributedString class]]) {
+        NSAttributedString* attr = (NSAttributedString*)string;
+        __block NSRange clause = NSMakeRange(NSNotFound, 0);
+        [attr enumerateAttribute:NSUnderlineStyleAttributeName
+                         inRange:NSMakeRange(0, attr.length)
+                         options:0
+                      usingBlock:^(id value, NSRange range, BOOL* stop) {
+            if (value && (([value integerValue] & NSUnderlineStyleThick) == NSUnderlineStyleThick)) {
+                clause = range;
+                *stop = YES;
+            }
+        }];
+        if (clause.location != NSNotFound) {
+            _sapp.event.ime_composition_clause_begin = _sapp_macos_ime_utf8_offset(text, clause.location);
+            _sapp.event.ime_composition_clause_end = _sapp_macos_ime_utf8_offset(text, clause.location + clause.length);
+        }
+    }
+    _sapp_call_event(&_sapp.event);
+}
+
+- (void)unmarkText {
+    if (getenv("AFFINEUI_IME_TRACE")) {
+        fprintf(stderr, "[ime] unmarkText\n");
+    }
+    _sapp.macos.ime.marked_len = 0;
+    if (!_sapp_events_enabled()) {
+        return;
+    }
+    /* empty composition => preedit cleared (end or cancel) */
+    _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
+    _sapp.event.modifiers = _sapp.macos.ime.key_mods;
+    _sapp_call_event(&_sapp.event);
+}
+
+- (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
+    _SOKOL_UNUSED(replacementRange);
+    /* Commit. The core clears any live preedit on TextInput before inserting,
+       so no explicit composition-end event is needed here. */
+    _sapp.macos.ime.marked_len = 0;
+    if (!_sapp_events_enabled()) {
+        return;
+    }
+    NSString* text = _sapp_macos_ime_plain_string(string);
+    if (getenv("AFFINEUI_IME_TRACE")) {
+        fprintf(stderr, "[ime] insertText text=\"%s\"\n",
+            [text UTF8String] ? [text UTF8String] : "?");
+    }
+    _sapp_macos_ime_emit_chars(text);
+}
+
+- (void)doCommandBySelector:(SEL)selector {
+    /* keyDown: already emitted the physical key before interpretKeyEvents:.
+       Editing commands therefore stay on the KEY_DOWN path; emitting their
+       C0/DEL codes as CHAR text would corrupt the focused field. AffineUI's
+       document handles Enter for textarea and leaves Tab to focus routing. */
+    _SOKOL_UNUSED(selector);
+}
+
+- (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
+    if (actualRange) {
+        *actualRange = range;
+    }
+    if (!_sapp.macos.ime.rect_valid) {
+        return NSMakeRect(0, 0, 0, 0);
+    }
+    /* sapp_ime_set_rect delivers the caret box in client-area PHYSICAL px with
+       a top-left origin; Cocoa wants screen POINTS with a bottom-left origin. */
+    const CGFloat s = (_sapp.dpi_scale > 0.0f) ? (CGFloat)_sapp.dpi_scale : (CGFloat)1.0;
+    const CGFloat x = (CGFloat)_sapp.macos.ime.rect_x / s;
+    const CGFloat w = (CGFloat)_sapp.macos.ime.rect_w / s;
+    const CGFloat h = (CGFloat)_sapp.macos.ime.rect_h / s;
+    const CGFloat top = (CGFloat)_sapp.macos.ime.rect_y / s;
+    NSRect r = NSMakeRect(x, self.bounds.size.height - top - h, w, h);
+    r = [self convertRect:r toView:nil];            /* view -> window */
+    return [self.window convertRectToScreen:r];     /* window -> screen */
 }
 
 - (BOOL)performKeyEquivalent:(NSEvent*)event {
@@ -301186,6 +301417,15 @@ SOKOL_API_IMPL void sapp_ime_set_rect(int x, int y, int w, int h) {
                 XFree(preedit);
             }
         }
+    #elif defined(_SAPP_MACOS)
+        /* Stored as-is (client px, top-left origin); the view converts to
+           screen points in firstRectForCharacterRange:, which is the only
+           place AppKit asks for it — so there is nothing to push eagerly. */
+        _sapp.macos.ime.rect_x = x;
+        _sapp.macos.ime.rect_y = y;
+        _sapp.macos.ime.rect_w = w;
+        _sapp.macos.ime.rect_h = h;
+        _sapp.macos.ime.rect_valid = true;
     #else
         _SOKOL_UNUSED(x); _SOKOL_UNUSED(y); _SOKOL_UNUSED(w); _SOKOL_UNUSED(h);
     #endif
@@ -301215,6 +301455,33 @@ SOKOL_API_IMPL void sapp_ime_set_enabled(bool enabled) {
             XSetICFocus(_sapp.x11.xic);
         } else {
             XUnsetICFocus(_sapp.x11.xic);
+        }
+    #elif defined(_SAPP_MACOS)
+        if (enabled == _sapp.macos.ime.enabled) {
+            return;     /* already in the requested state */
+        }
+        if (getenv("AFFINEUI_IME_TRACE")) {
+            fprintf(stderr, "[ime] sapp_ime_set_enabled %d -> %d\n",
+                (int)_sapp.macos.ime.enabled, (int)enabled);
+        }
+        _sapp.macos.ime.enabled = enabled;
+        if (!enabled) {
+            /* Leaving the text field with a composition still open: drop it.
+               discardMarkedText tells the input method to abandon its state
+               without committing (so a half-typed preedit can't leak into the
+               next field), and we clear ours to match. */
+            if (_sapp.macos.ime.marked_len > 0) {
+                _sapp.macos.ime.marked_len = 0;
+                /* the VIEW's context, not +currentInputContext: the latter is
+                   only non-nil while our view is the active first responder,
+                   which is exactly not guaranteed when focus is moving away */
+                [[_sapp.macos.view inputContext] discardMarkedText];
+                if (_sapp_events_enabled()) {
+                    _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
+                    _sapp_call_event(&_sapp.event);
+                }
+            }
+            _sapp.macos.ime.rect_valid = false;
         }
     #else
         _SOKOL_UNUSED(enabled);
@@ -343304,13 +343571,16 @@ typedef struct {
 @end
 @interface _sapp_macos_window_delegate : NSObject<NSWindowDelegate>
 @end
+/* AFFINEUI PATCH (ime): the view adopts NSTextInputClient so CJK IMEs can
+   compose into it (setMarkedText:/insertText:) and anchor their candidate
+   window at the caret (firstRectForCharacterRange:). */
 #if defined(SOKOL_METAL) || defined(SOKOL_WGPU)
-    @interface _sapp_macos_view : NSView
+    @interface _sapp_macos_view : NSView<NSTextInputClient>
     - (void)displayLinkFired:(id)sender;
     - (void)fallbackTimerFired:(NSTimer*)timer;
     @end
 #elif defined(SOKOL_GLCORE)
-    @interface _sapp_macos_view : NSOpenGLView
+    @interface _sapp_macos_view : NSOpenGLView<NSTextInputClient>
     - (void)timerFired:(id)sender;
     @end
 #endif // SOKOL_GLCORE
@@ -343321,6 +343591,21 @@ typedef struct {
     NSWindow* window;
     NSTrackingArea* tracking_area;
     id keyup_monitor;
+    /* AFFINEUI PATCH (ime): NSTextInputClient state. `marked_len` is the
+       length of the current preedit in UTF-16 units (0 => no composition);
+       `rect` is the caret box in client-area physical px (top-left origin,
+       as sapp_ime_set_rect delivers it) and is converted to screen points
+       on demand in firstRectForCharacterRange:. */
+    struct {
+        NSUInteger marked_len;
+        bool enabled;       /* a text field is focused (sapp_ime_set_enabled) */
+        bool rect_valid;
+        int rect_x, rect_y, rect_w, rect_h;
+        /* carried from keyDown: — the NSTextInputClient callbacks are invoked
+           by interpretKeyEvents: and get no NSEvent of their own */
+        uint32_t key_mods;
+        bool key_repeat;
+    } ime;
     /* AFFINEUI PATCH: CADisplayLink only queues a frame opportunity.  The
        marker sits behind native input already waiting in NSApplication's
        event queue, so every input callback runs before the next frame while
@@ -346710,6 +346995,61 @@ _SOKOL_PRIVATE void _sapp_macos_frame(void) {
 }
 @end
 
+/* AFFINEUI PATCH (ime): helpers shared by the NSTextInputClient callbacks. */
+
+/* Byte offset into the UTF-8 encoding of `str` of the UTF-16 index
+   `utf16_index` — the IME reports its caret and clause bounds in UTF-16
+   units, the sapp/affineui protocol carries UTF-8 byte offsets. */
+_SOKOL_PRIVATE int _sapp_macos_ime_utf8_offset(NSString* str, NSUInteger utf16_index) {
+    if (utf16_index == NSNotFound) {
+        return -1;
+    }
+    if (utf16_index > str.length) {
+        utf16_index = str.length;
+    }
+    NSString* prefix = [str substringToIndex:utf16_index];
+    return (int)[prefix lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+}
+
+_SOKOL_PRIVATE void _sapp_macos_ime_emit_char(uint32_t codepoint) {
+    _sapp_init_event(SAPP_EVENTTYPE_CHAR);
+    _sapp.event.modifiers = _sapp.macos.ime.key_mods;
+    _sapp.event.char_code = codepoint;
+    _sapp.event.key_repeat = _sapp.macos.ime.key_repeat;
+    _sapp_call_event(&_sapp.event);
+}
+
+/* Emit one SAPP_EVENTTYPE_CHAR per Unicode codepoint (surrogate pairs are
+   recombined, so non-BMP input arrives as a single codepoint). */
+_SOKOL_PRIVATE void _sapp_macos_ime_emit_chars(NSString* str) {
+    const NSUInteger len = str.length;
+    for (NSUInteger i = 0; i < len; i++) {
+        const unichar hi = [str characterAtIndex:i];
+        uint32_t codepoint = hi;
+        if ((hi >= 0xD800) && (hi <= 0xDBFF) && ((i + 1) < len)) {
+            const unichar lo = [str characterAtIndex:i + 1];
+            if ((lo >= 0xDC00) && (lo <= 0xDFFF)) {
+                codepoint = 0x10000 + (((uint32_t)(hi - 0xD800)) << 10) + (uint32_t)(lo - 0xDC00);
+                i++;
+            }
+        }
+        /* private-use block AppKit uses for the function keys */
+        if ((codepoint & 0xFFFFFF00) == 0xF700) {
+            continue;
+        }
+        _sapp_macos_ime_emit_char(codepoint);
+    }
+}
+
+/* NSTextInputClient hands marked text as an NSString or an NSAttributedString
+   (attributed when the IME wants clause styling); normalize to a plain string. */
+_SOKOL_PRIVATE NSString* _sapp_macos_ime_plain_string(id string) {
+    if ([string isKindOfClass:[NSAttributedString class]]) {
+        return [(NSAttributedString*)string string];
+    }
+    return (NSString*)string;
+}
+
 @implementation _sapp_macos_view
 #if defined(SOKOL_GLCORE)
 - (void)timerFired:(id)sender {
@@ -346893,19 +347233,40 @@ static void _sapp_gl_make_current(void) {
         const uint32_t mods = _sapp_macos_mods(event);
         const sapp_keycode key_code = _sapp_translate_key(event.keyCode);
         _sapp_macos_key_event(SAPP_EVENTTYPE_KEY_DOWN, key_code, event.isARepeat, mods);
-        const NSString* chars = event.characters;
-        const NSUInteger len = chars.length;
-        if (len > 0) {
-            _sapp_init_event(SAPP_EVENTTYPE_CHAR);
-            _sapp.event.modifiers = mods;
-            for (NSUInteger i = 0; i < len; i++) {
-                const unichar codepoint = [chars characterAtIndex:i];
-                if ((codepoint & 0xFF00) == 0xF700) {
-                    continue;
+        /* AFFINEUI PATCH (ime): with a text field focused, hand the key to the
+           input method rather than reading event.characters ourselves.
+           interpretKeyEvents: calls back into insertText: (committed text) and
+           setMarkedText: (preedit) — the only way CJK composition, and dead
+           keys, can work at all.
+
+           Outside a text field (sapp_ime_set_enabled(false) — games, shortcut
+           handling) the original raw-characters path runs verbatim, so apps
+           that never focus a text field see no change in key behavior. */
+        if (_sapp.macos.ime.enabled) {
+            if (getenv("AFFINEUI_IME_TRACE")) {
+                fprintf(stderr, "[ime] keyDown enabled=1 -> interpretKeyEvents\n");
+            }
+            _sapp.macos.ime.key_mods = mods;
+            _sapp.macos.ime.key_repeat = event.isARepeat;
+            [self interpretKeyEvents:@[event]];
+        } else {
+            if (getenv("AFFINEUI_IME_TRACE")) {
+                fprintf(stderr, "[ime] keyDown enabled=0 -> raw characters\n");
+            }
+            const NSString* chars = event.characters;
+            const NSUInteger len = chars.length;
+            if (len > 0) {
+                _sapp_init_event(SAPP_EVENTTYPE_CHAR);
+                _sapp.event.modifiers = mods;
+                for (NSUInteger i = 0; i < len; i++) {
+                    const unichar codepoint = [chars characterAtIndex:i];
+                    if ((codepoint & 0xFF00) == 0xF700) {
+                        continue;
+                    }
+                    _sapp.event.char_code = codepoint;
+                    _sapp.event.key_repeat = event.isARepeat;
+                    _sapp_call_event(&_sapp.event);
                 }
-                _sapp.event.char_code = codepoint;
-                _sapp.event.key_repeat = event.isARepeat;
-                _sapp_call_event(&_sapp.event);
             }
         }
         /* if this is a Cmd+V (paste), also send a CLIPBOARD_PASTE event */
@@ -346914,6 +347275,143 @@ static void _sapp_gl_make_current(void) {
             _sapp_call_event(&_sapp.event);
         }
     }
+}
+
+/* AFFINEUI PATCH (ime): NSTextInputClient. The IME drives these via
+   interpretKeyEvents: in keyDown: above. */
+
+- (BOOL)hasMarkedText {
+    return _sapp.macos.ime.marked_len > 0;
+}
+
+- (NSRange)markedRange {
+    if (_sapp.macos.ime.marked_len > 0) {
+        return NSMakeRange(0, _sapp.macos.ime.marked_len);
+    }
+    return NSMakeRange(NSNotFound, 0);
+}
+
+- (NSRange)selectedRange {
+    /* The document owns the real selection; the IME only needs a well-formed
+       answer here, and NSNotFound is the conventional "don't know". */
+    return NSMakeRange(NSNotFound, 0);
+}
+
+- (NSArray<NSAttributedStringKey>*)validAttributesForMarkedText {
+    return @[];
+}
+
+- (NSAttributedString*)attributedSubstringForProposedRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
+    _SOKOL_UNUSED(range);
+    _SOKOL_UNUSED(actualRange);
+    /* Reconversion / surrounding-text queries aren't supported yet (the core
+       has no surrounding-text API — see docs/IME_ARCHITECTURE.md §4.6). */
+    return nil;
+}
+
+- (NSUInteger)characterIndexForPoint:(NSPoint)point {
+    _SOKOL_UNUSED(point);
+    return 0;
+}
+
+- (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange replacementRange:(NSRange)replacementRange {
+    _SOKOL_UNUSED(replacementRange);
+    NSString* text = _sapp_macos_ime_plain_string(string);
+    if (getenv("AFFINEUI_IME_TRACE")) {
+        fprintf(stderr, "[ime] setMarkedText text=\"%s\" selected=(%lu,%lu)\n",
+            [text UTF8String] ? [text UTF8String] : "?",
+            (unsigned long)selectedRange.location,
+            (unsigned long)selectedRange.length);
+    }
+    _sapp.macos.ime.marked_len = text.length;
+    if (!_sapp_events_enabled()) {
+        return;
+    }
+    _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
+    _sapp.event.modifiers = _sapp.macos.ime.key_mods;
+    const char* utf8 = [text UTF8String];
+    if (utf8) {
+        _sapp_strcpy(utf8, _sapp.event.ime_composition, sizeof(_sapp.event.ime_composition));
+    }
+    _sapp.event.ime_composition_cursor = _sapp_macos_ime_utf8_offset(text, selectedRange.location);
+    /* The clause being converted is the one the IME underlines thickly (the
+       same signal GLFW/SDL key off). No thick run => leave begin==end, which
+       the core reads as "no clause info". */
+    if ([string isKindOfClass:[NSAttributedString class]]) {
+        NSAttributedString* attr = (NSAttributedString*)string;
+        __block NSRange clause = NSMakeRange(NSNotFound, 0);
+        [attr enumerateAttribute:NSUnderlineStyleAttributeName
+                         inRange:NSMakeRange(0, attr.length)
+                         options:0
+                      usingBlock:^(id value, NSRange range, BOOL* stop) {
+            if (value && (([value integerValue] & NSUnderlineStyleThick) == NSUnderlineStyleThick)) {
+                clause = range;
+                *stop = YES;
+            }
+        }];
+        if (clause.location != NSNotFound) {
+            _sapp.event.ime_composition_clause_begin = _sapp_macos_ime_utf8_offset(text, clause.location);
+            _sapp.event.ime_composition_clause_end = _sapp_macos_ime_utf8_offset(text, clause.location + clause.length);
+        }
+    }
+    _sapp_call_event(&_sapp.event);
+}
+
+- (void)unmarkText {
+    if (getenv("AFFINEUI_IME_TRACE")) {
+        fprintf(stderr, "[ime] unmarkText\n");
+    }
+    _sapp.macos.ime.marked_len = 0;
+    if (!_sapp_events_enabled()) {
+        return;
+    }
+    /* empty composition => preedit cleared (end or cancel) */
+    _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
+    _sapp.event.modifiers = _sapp.macos.ime.key_mods;
+    _sapp_call_event(&_sapp.event);
+}
+
+- (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
+    _SOKOL_UNUSED(replacementRange);
+    /* Commit. The core clears any live preedit on TextInput before inserting,
+       so no explicit composition-end event is needed here. */
+    _sapp.macos.ime.marked_len = 0;
+    if (!_sapp_events_enabled()) {
+        return;
+    }
+    NSString* text = _sapp_macos_ime_plain_string(string);
+    if (getenv("AFFINEUI_IME_TRACE")) {
+        fprintf(stderr, "[ime] insertText text=\"%s\"\n",
+            [text UTF8String] ? [text UTF8String] : "?");
+    }
+    _sapp_macos_ime_emit_chars(text);
+}
+
+- (void)doCommandBySelector:(SEL)selector {
+    /* keyDown: already emitted the physical key before interpretKeyEvents:.
+       Editing commands therefore stay on the KEY_DOWN path; emitting their
+       C0/DEL codes as CHAR text would corrupt the focused field. AffineUI's
+       document handles Enter for textarea and leaves Tab to focus routing. */
+    _SOKOL_UNUSED(selector);
+}
+
+- (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
+    if (actualRange) {
+        *actualRange = range;
+    }
+    if (!_sapp.macos.ime.rect_valid) {
+        return NSMakeRect(0, 0, 0, 0);
+    }
+    /* sapp_ime_set_rect delivers the caret box in client-area PHYSICAL px with
+       a top-left origin; Cocoa wants screen POINTS with a bottom-left origin. */
+    const CGFloat s = (_sapp.dpi_scale > 0.0f) ? (CGFloat)_sapp.dpi_scale : (CGFloat)1.0;
+    const CGFloat x = (CGFloat)_sapp.macos.ime.rect_x / s;
+    const CGFloat w = (CGFloat)_sapp.macos.ime.rect_w / s;
+    const CGFloat h = (CGFloat)_sapp.macos.ime.rect_h / s;
+    const CGFloat top = (CGFloat)_sapp.macos.ime.rect_y / s;
+    NSRect r = NSMakeRect(x, self.bounds.size.height - top - h, w, h);
+    r = [self convertRect:r toView:nil];            /* view -> window */
+    return [self.window convertRectToScreen:r];     /* window -> screen */
 }
 
 - (BOOL)performKeyEquivalent:(NSEvent*)event {
@@ -355233,6 +355731,15 @@ SOKOL_API_IMPL void sapp_ime_set_rect(int x, int y, int w, int h) {
                 XFree(preedit);
             }
         }
+    #elif defined(_SAPP_MACOS)
+        /* Stored as-is (client px, top-left origin); the view converts to
+           screen points in firstRectForCharacterRange:, which is the only
+           place AppKit asks for it — so there is nothing to push eagerly. */
+        _sapp.macos.ime.rect_x = x;
+        _sapp.macos.ime.rect_y = y;
+        _sapp.macos.ime.rect_w = w;
+        _sapp.macos.ime.rect_h = h;
+        _sapp.macos.ime.rect_valid = true;
     #else
         _SOKOL_UNUSED(x); _SOKOL_UNUSED(y); _SOKOL_UNUSED(w); _SOKOL_UNUSED(h);
     #endif
@@ -355262,6 +355769,33 @@ SOKOL_API_IMPL void sapp_ime_set_enabled(bool enabled) {
             XSetICFocus(_sapp.x11.xic);
         } else {
             XUnsetICFocus(_sapp.x11.xic);
+        }
+    #elif defined(_SAPP_MACOS)
+        if (enabled == _sapp.macos.ime.enabled) {
+            return;     /* already in the requested state */
+        }
+        if (getenv("AFFINEUI_IME_TRACE")) {
+            fprintf(stderr, "[ime] sapp_ime_set_enabled %d -> %d\n",
+                (int)_sapp.macos.ime.enabled, (int)enabled);
+        }
+        _sapp.macos.ime.enabled = enabled;
+        if (!enabled) {
+            /* Leaving the text field with a composition still open: drop it.
+               discardMarkedText tells the input method to abandon its state
+               without committing (so a half-typed preedit can't leak into the
+               next field), and we clear ours to match. */
+            if (_sapp.macos.ime.marked_len > 0) {
+                _sapp.macos.ime.marked_len = 0;
+                /* the VIEW's context, not +currentInputContext: the latter is
+                   only non-nil while our view is the active first responder,
+                   which is exactly not guaranteed when focus is moving away */
+                [[_sapp.macos.view inputContext] discardMarkedText];
+                if (_sapp_events_enabled()) {
+                    _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
+                    _sapp_call_event(&_sapp.event);
+                }
+            }
+            _sapp.macos.ime.rect_valid = false;
         }
     #else
         _SOKOL_UNUSED(enabled);
@@ -384862,6 +385396,29 @@ inline affineui::Event to_event(const affineui_event& ev) {
     return out;
 }
 
+// Borrowing view of a C++ event for a synchronous C callback. `text` points
+// into `ev` and is valid only until the callback returns.
+inline affineui_event to_c_event(const affineui::Event& ev) {
+    affineui_event out{};
+    out.type     = static_cast<int>(ev.type);
+    out.x        = ev.pos.x;
+    out.y        = ev.pos.y;
+    out.button   = static_cast<int>(ev.button);
+    out.wheel_dx = ev.wheel_dx;
+    out.wheel_dy = ev.wheel_dy;
+    out.key      = static_cast<int>(ev.key);
+    out.key_code = ev.key_code;
+    out.text     = ev.text.empty() ? nullptr : ev.text.c_str();
+    out.shift    = ev.shift ? 1 : 0;
+    out.ctrl     = ev.ctrl ? 1 : 0;
+    out.alt      = ev.alt ? 1 : 0;
+    out.super_key = ev.super ? 1 : 0;
+    out.composition_cursor       = ev.composition_cursor;
+    out.composition_clause_begin = ev.composition_clause_begin;
+    out.composition_clause_end   = ev.composition_clause_end;
+    return out;
+}
+
 // ── ABI locks: the C enum values ARE the C++ enum values ─────────────
 static_assert(AFFINEUI_EVENT_NONE == static_cast<int>(affineui::EventType::None));
 static_assert(AFFINEUI_EVENT_MOUSE_MOVE == static_cast<int>(affineui::EventType::MouseMove));
@@ -389605,6 +390162,24 @@ struct TextVisualLine {
     std::size_t end{0};
 };
 
+enum class TextEditKind : std::uint8_t {
+    None,
+    Insert,
+    Backspace,
+    DeleteForward,
+    Replace,
+    Cut,
+    Paste,
+    Composition,
+};
+
+struct TextEditSnapshot {
+    std::string value;
+    std::size_t caret{0};
+    std::size_t selection_anchor{0};
+    std::size_t selection_focus{0};
+};
+
 struct TextControlGeometry {
     std::uint32_t font{0};
     int text_x{0};
@@ -390204,6 +390779,24 @@ struct DocumentImpl {
     std::unordered_map<lxb_dom_node_t*,
                        std::pair<std::size_t, std::size_t>>
         live_text_selections;
+    // Focus-local text edit history. It intentionally clears whenever focus
+    // moves to a different control: app-global command stacks own model edits,
+    // while this stack owns only the active field's transient editing session.
+    lxb_dom_node_t* text_edit_history_node{nullptr};
+    std::vector<TextEditSnapshot> text_edit_undo;
+    std::vector<TextEditSnapshot> text_edit_redo;
+    std::size_t text_edit_undo_bytes{0};
+    std::size_t text_edit_redo_bytes{0};
+    TextEditKind text_edit_last_kind{TextEditKind::None};
+    std::string text_edit_expected_value;
+    static constexpr std::size_t kTextEditHistoryLimit = 128;
+    static constexpr std::size_t kTextEditHistoryByteLimit = 64 * 1024;
+    // Caret blink is a timed paint invalidation, not a continuously-active CSS
+    // animation. `caret_blink_interval_ms <= 0` keeps the caret always visible.
+    double caret_blink_interval_ms{500.0};
+    std::chrono::steady_clock::time_point caret_blink_epoch{
+        std::chrono::steady_clock::now()};
+    bool caret_blink_visible{true};
     // Active IME composition (preedit). At most one exists — it belongs to
     // the focused text control, keyed by DOM node so it survives block
     // recollection. Display-only state: the preedit is spliced into
@@ -390556,7 +391149,8 @@ bool delete_text_range(detail::DocumentImpl& impl,
                        int idx,
                        Block& block,
                        std::size_t begin,
-                       std::size_t end);
+                       std::size_t end,
+                       TextEditKind kind);
 void dock_cleanup_source(detail::DocumentImpl& impl, lxb_dom_element_t* dock);
 lxb_dom_element_t* dock_create_pane(detail::DocumentImpl& impl,
                                     std::string_view panel_id,
@@ -390645,7 +391239,14 @@ bool remove_tab_drag_ghost(detail::DocumentImpl& impl);
 bool replace_text_selection_or_insert(detail::DocumentImpl& impl,
                                       int idx,
                                       Block& block,
-                                      std::string_view text);
+                                      std::string_view text,
+                                      TextEditKind kind);
+bool undo_text_edit(detail::DocumentImpl& impl, int idx, Block& block);
+bool redo_text_edit(detail::DocumentImpl& impl, int idx, Block& block);
+void break_text_edit_coalescing(detail::DocumentImpl& impl);
+void clear_text_edit_history(detail::DocumentImpl& impl);
+void reset_caret_blink(detail::DocumentImpl& impl, int idx = -1);
+bool tick_caret_blink(detail::DocumentImpl& impl);
 std::string selected_text(const Block& block);
 bool set_block_scroll_y(detail::DocumentImpl& impl, int idx, int scroll_y);
 bool toggle_dcs_popover(detail::DocumentImpl& impl,
@@ -402937,6 +403538,7 @@ struct AppImpl {
     std::vector<WidgetChangeBinding> view_change_bindings;
     std::vector<WidgetChangeBinding> view_commit_bindings;
     std::vector<Document::WidgetChange> deferred_widget_changes;
+    std::vector<App::EventHandler> event_capture_handlers;
     std::vector<App::EventHandler> event_handlers;
     std::vector<std::function<void(double)>> frame_callbacks;
     std::vector<Document::HoverInfo> hover_chain_scratch;
@@ -403081,6 +403683,19 @@ ResourceLoader make_asset_resource_loader(std::vector<std::string> folders) {
 }
 
 bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
+    const auto event_capture_handlers = impl.event_capture_handlers;
+    if (!event_capture_handlers.empty()) {
+        impl.document.hovered_info_chain(impl.hover_chain_scratch);
+        bool capture_consumed = false;
+        for (const auto& cb : event_capture_handlers) {
+            capture_consumed =
+                cb(ev, impl.hover_chain_scratch) || capture_consumed;
+        }
+        if (capture_consumed) {
+            impl.dirty = true;
+            return true;
+        }
+    }
     const auto event_handlers = impl.event_handlers;
     // While a native handler holds pointer capture, MouseMove routes to
     // it before DOM hover hit-testing (same contract as Ui::dispatch) so
@@ -403125,7 +403740,7 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
     // Native event handlers (widget kits) see the event with the fresh
     // hover chain before view click/change bindings. A consuming handler
     // owns the event outright.
-    if (!event_handlers.empty()) {
+    if (!result.event_consumed && !event_handlers.empty()) {
         impl.document.hovered_info_chain(impl.hover_chain_scratch);
         bool native_consumed = false;
         for (const auto& cb : event_handlers) {
@@ -403141,7 +403756,8 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
         }
     }
 
-    bool consumed = result.redraw_requested || result.invalidate_view;
+    bool consumed = result.event_consumed || result.redraw_requested ||
+                    result.invalidate_view;
     if (ev.type == EventType::MouseUp && ev.button == MouseButton::Left &&
         !impl.view_click_bindings.empty()) {
         const auto activations = impl.document.take_activated_widgets();
@@ -403639,6 +404255,9 @@ double App::min_frame_time() const noexcept {
 }
 
 bool App::should_render() {
+    if (impl_->document.tick_caret_blink()) {
+        impl_->dirty = true;
+    }
     // Dirty conditions (same set the internal frame path checks). The
     // viewport-change condition needs live swapchain size, which we only
     // check inside the render loop; a host that resizes should invalidate()
@@ -403689,6 +404308,10 @@ bool App::dispatch(const Event& ev) {
 
 void App::on_event(EventHandler cb) {
     impl_->event_handlers.emplace_back(std::move(cb));
+}
+
+void App::on_event_capture(EventHandler cb) {
+    impl_->event_capture_handlers.emplace_back(std::move(cb));
 }
 
 void App::on_frame(std::function<void(double)> cb) {
@@ -404038,6 +404661,9 @@ void cb_frame(void* user) {
             }
         }
         impl->last_dpi = sapp_dpi_scale();
+        if (impl->document.tick_caret_blink()) {
+            impl->dirty = true;
+        }
         // Size the frame from the REAL swapchain, not sapp_width():
         // sokol_app's win32 high-dpi path can report a framebuffer size
         // scaled by dpi even though the D3D11 swapchain is client-pixel
@@ -404389,6 +405015,7 @@ void cb_event(const sapp_event* ev, void* user) {
             (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
             return;
         case SAPP_EVENTTYPE_CHAR:
+            if (!is_text_codepoint(ev->char_code)) return;
             aui_ev.type = EventType::TextInput;
             aui_ev.text = utf8_from_codepoint(ev->char_code);
             if (!aui_ev.text.empty()) {
@@ -417574,6 +418201,28 @@ Rect Document::find_element_rect(std::string_view target) const {
 
 namespace affineui {
 
+namespace {
+
+bool is_text_producing_key(Key key) {
+    return (key >= Key::A && key <= Key::Z) ||
+           (key >= Key::Digit0 && key <= Key::Digit9) ||
+           key == Key::Space || key == Key::Minus || key == Key::Equal ||
+           key == Key::BracketLeft || key == Key::BracketRight;
+}
+
+std::string filter_character_event_text(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (const char ch : text) {
+        const auto byte = static_cast<unsigned char>(ch);
+        // UTF-8 continuation/lead bytes are >= 0x80 and remain untouched.
+        if (is_text_codepoint(byte)) out.push_back(static_cast<char>(byte));
+    }
+    return out;
+}
+
+}  // namespace
+
 DispatchResult Document::dispatch(const Event& ev) {
     DispatchResult result{};
     auto ensure_interaction_layout = [&]() {
@@ -418701,12 +419350,14 @@ DispatchResult Document::dispatch(const Event& ev) {
                 if (detail::focused_text_control(*impl_, composing) &&
                     detail::text_composition_active(
                         *impl_, impl_->focused_idx, *composing)) {
+                    result.event_consumed = true;
                     break;
                 }
             }
             // ESC clears focus, matching the convention browsers use for
             // dismissing a focused control.
             if (ev.key == Key::Escape) {
+                result.event_consumed = true;
 #if !defined(AFFINEUI_STUB_BUILD)
                 if (impl_->ui_control_script_attached &&
                     detail::close_transient_layers(*impl_)) {
@@ -418757,7 +419408,17 @@ DispatchResult Document::dispatch(const Event& ev) {
             const auto text = detail::emitted_text_control_value(*control);
             const bool command = detail::command_modifier(ev);
 
-            if (command && ev.key == Key::A) {
+            if (command && ev.key == Key::Z) {
+                result.event_consumed = true;
+                result.redraw_requested = ev.shift
+                    ? detail::redo_text_edit(*impl_, idx, *control)
+                    : detail::undo_text_edit(*impl_, idx, *control);
+            } else if (command && ev.key == Key::Y) {
+                result.event_consumed = true;
+                result.redraw_requested =
+                    detail::redo_text_edit(*impl_, idx, *control);
+            } else if (command && ev.key == Key::A) {
+                result.event_consumed = true;
                 if (detail::move_text_caret(*impl_, idx, *control, text.size(), true)) {
                     detail::set_text_selection(*impl_, idx, *control, 0, text.size());
                     detail::add_dirty_rect(*impl_, detail::block_visual_rect(*impl_, idx));
@@ -418768,60 +419429,78 @@ DispatchResult Document::dispatch(const Event& ev) {
                     result.redraw_requested = true;
                 }
             } else if (command && ev.key == Key::C) {
+                result.event_consumed = true;
                 if (detail::has_text_selection(*control)) {
                     detail::clipboard_set_text(*impl_, detail::selected_text(*control));
                 }
             } else if (command && ev.key == Key::X) {
+                result.event_consumed = true;
                 if (detail::has_text_selection(*control)) {
                     detail::clipboard_set_text(*impl_, detail::selected_text(*control));
                     const auto [begin, end] = detail::normalized_selection(*control);
                     result.redraw_requested =
-                        detail::delete_text_range(*impl_, idx, *control, begin, end);
+                        detail::delete_text_range(
+                            *impl_, idx, *control, begin, end,
+                            TextEditKind::Cut);
                 }
             } else if (command && ev.key == Key::V) {
+                result.event_consumed = true;
                 const std::string paste = detail::clipboard_get_text(*impl_);
                 result.redraw_requested =
-                    detail::replace_text_selection_or_insert(*impl_, idx, *control, paste);
+                    detail::replace_text_selection_or_insert(
+                        *impl_, idx, *control, paste,
+                        TextEditKind::Paste);
             } else if (ev.key == Key::Backspace) {
+                result.event_consumed = true;
                 if (detail::has_text_selection(*control)) {
                     const auto [begin, end] = detail::normalized_selection(*control);
                     result.redraw_requested =
-                        detail::delete_text_range(*impl_, idx, *control, begin, end);
+                        detail::delete_text_range(
+                            *impl_, idx, *control, begin, end,
+                            TextEditKind::Replace);
                 } else if (command) {
                     const std::size_t begin =
                         detail::previous_word_boundary(text, control->caret_offset);
                     result.redraw_requested =
                         detail::delete_text_range(*impl_, idx, *control, begin,
-                                          control->caret_offset);
+                                          control->caret_offset,
+                                          TextEditKind::Backspace);
                 } else {
                     std::size_t begin =
                         detail::previous_utf8_boundary(text, control->caret_offset);
                     result.redraw_requested =
                         detail::delete_text_range(*impl_, idx, *control, begin,
-                                          control->caret_offset);
+                                          control->caret_offset,
+                                          TextEditKind::Backspace);
                 }
             } else if (ev.key == Key::Delete) {
+                result.event_consumed = true;
                 if (detail::has_text_selection(*control)) {
                     const auto [begin, end] = detail::normalized_selection(*control);
                     result.redraw_requested =
-                        detail::delete_text_range(*impl_, idx, *control, begin, end);
+                        detail::delete_text_range(
+                            *impl_, idx, *control, begin, end,
+                            TextEditKind::Replace);
                 } else if (command) {
                     const std::size_t end =
                         detail::next_word_boundary(text, control->caret_offset);
                     result.redraw_requested =
                         detail::delete_text_range(*impl_, idx, *control,
-                                          control->caret_offset, end);
+                                          control->caret_offset, end,
+                                          TextEditKind::DeleteForward);
                 } else {
                     const std::size_t end =
                         detail::next_utf8_boundary(text, control->caret_offset);
                     result.redraw_requested =
                         detail::delete_text_range(*impl_, idx, *control,
-                                          control->caret_offset, end);
+                                          control->caret_offset, end,
+                                          TextEditKind::DeleteForward);
                 }
             } else if (ev.key == Key::ArrowLeft ||
                        ev.key == Key::ArrowRight ||
                        ev.key == Key::Home ||
                        ev.key == Key::End) {
+                result.event_consumed = true;
                 std::size_t caret = control->caret_offset;
                 if (!ev.shift && detail::has_text_selection(*control) &&
                     ev.key == Key::ArrowLeft) {
@@ -418845,20 +419524,40 @@ DispatchResult Document::dispatch(const Event& ev) {
                 if (detail::move_text_caret(*impl_, idx, *control, caret, ev.shift)) {
                     result.redraw_requested = true;
                 }
+            } else if (ev.key == Key::Enter) {
+                result.event_consumed = true;
+                if (control->tag == "textarea") {
+                    result.redraw_requested =
+                        detail::replace_text_selection_or_insert(
+                            *impl_, idx, *control, "\n",
+                            TextEditKind::Insert);
+                }
+            } else if (!command && is_text_producing_key(ev.key)) {
+                // The actual glyph arrives through TextInput. Consume this
+                // physical-key half so app-global bare-letter shortcuts do
+                // not fire while the user is typing in a field.
+                result.event_consumed = true;
             }
             break;
         }
         case EventType::TextInput: {
             Block* control = nullptr;
-            if (detail::focused_text_control(*impl_, control) && !ev.text.empty()) {
+            if (detail::focused_text_control(*impl_, control)) {
+                result.event_consumed = true;
+                const std::string insert = filter_character_event_text(ev.text);
+                if (insert.empty()) break;
                 // Committed text first drops any preedit display; a
                 // continuing composition re-establishes it with the next
                 // Composition event (see docs/IME_ARCHITECTURE.md §4.1).
+                const bool was_composing = detail::text_composition_active(
+                    *impl_, impl_->focused_idx, *control);
                 if (detail::clear_text_composition(*impl_)) {
                     result.redraw_requested = true;
                 }
                 if (detail::replace_text_selection_or_insert(
-                        *impl_, impl_->focused_idx, *control, ev.text)) {
+                        *impl_, impl_->focused_idx, *control, insert,
+                        was_composing ? TextEditKind::Composition
+                                      : TextEditKind::Insert)) {
                     result.redraw_requested = true;
                 }
             }
@@ -418867,6 +419566,7 @@ DispatchResult Document::dispatch(const Event& ev) {
         case EventType::Composition: {
             Block* control = nullptr;
             if (!detail::focused_text_control(*impl_, control)) break;
+            result.event_consumed = true;
             const auto offset = [&ev](int v) {
                 if (v < 0) return ev.text.size();  // "end of preedit"
                 return std::min(static_cast<std::size_t>(v), ev.text.size());
@@ -420253,7 +420953,11 @@ void Document::draw(Painter& painter) {
                 }
             }
         }
-        if (!b.text.empty()) {
+        // A focused text control still has a line box and caret when its value
+        // is empty. Keep controls on this path even without a text run; the
+        // empty draw is harmless and the shared layout table supplies offset
+        // zero for caret painting and IME anchoring.
+        if (!b.text.empty() || b.text_control) {
             const auto font = painter.resolve_font(
                 impl_->style_store.font_family_of(cs.font_id), cs.font_size_px, cs.font_weight, cs.font_style != 0);
             const int textarea_idx_for_text = detail::nearest_block_with_tag(
@@ -420625,7 +421329,8 @@ void Document::draw(Painter& painter) {
             // selection is active (the select-all a numeric field does
             // on first focus, or any range drag).
             if (b.text_control && static_cast<int>(i) == impl_->focused_idx &&
-                !detail::has_text_selection(b)) {
+                !detail::has_text_selection(b) &&
+                impl_->caret_blink_visible) {
                 const TextLayoutEntry* caret_layout = cached_text_layout;
                 if (caret_layout == nullptr) {
                     TextControlGeometry g{};
@@ -420672,9 +421377,12 @@ void Document::draw(Painter& painter) {
                     static_cast<float>(text_y) +
                     static_cast<float>(line) * css_line_h +
                     (css_line_h - natural_line_h) * 0.5f;
-                const float y0 = std::floor(line_top + 2.0f) + 0.5f;
+                // Match the font's complete natural line box. The previous
+                // two-pixel inset at each end made an 18px UI font produce a
+                // visibly undersized 14px caret.
+                const float y0 = std::floor(line_top) + 0.5f;
                 const float y1 =
-                    std::ceil(line_top + natural_line_h - 2.0f) + 0.5f;
+                    std::ceil(line_top + natural_line_h) + 0.5f;
                 painter.stroke_line(caret_x, y0, caret_x, y1,
                                     detail::unpack_rgba(an.color_rgba),
                                     1.0f);
@@ -430111,8 +430819,10 @@ bool set_focus(detail::DocumentImpl& impl, int target_idx) {
     // focus (cleared while focused_idx still points at the old control so
     // the spliced display text is restored).
     detail::clear_text_composition(impl);
+    detail::clear_text_edit_history(impl);
     const int old_idx = impl.focused_idx;
     impl.focused_idx  = target_idx;
+    detail::reset_caret_blink(impl, target_idx);
     if (old_idx >= 0 && old_idx < static_cast<int>(impl.blocks.size())) {
         const Rect old_rect = detail::subtree_visual_rect(impl, old_idx);
         const auto id = impl.blocks[static_cast<std::size_t>(old_idx)].id;
@@ -430515,6 +431225,7 @@ bool clear_text_composition(detail::DocumentImpl& impl) {
             impl.text_layout_signatures.erase(
                 lxb_dom_interface_node(
                     const_cast<lxb_dom_element_t*>(elem)));
+            detail::reset_caret_blink(impl, idx);
             detail::add_dirty_rect(impl, detail::block_visual_rect(impl, idx));
             return true;
         }
@@ -430548,7 +431259,8 @@ bool update_text_composition(detail::DocumentImpl& impl,
         // compositionstart semantics) — a real committed edit that happens
         // before any preedit display.
         const auto [begin, end] = detail::normalized_selection(block);
-        changed = detail::delete_text_range(impl, idx, block, begin, end);
+        changed = detail::delete_text_range(
+            impl, idx, block, begin, end, TextEditKind::Composition);
     }
 
     cursor = snap_utf8_boundary(preedit, cursor);
@@ -430569,6 +431281,7 @@ bool update_text_composition(detail::DocumentImpl& impl,
     impl.composition_clause_begin = clause_begin;
     impl.composition_clause_end = clause_end;
     refresh_composed_display(impl, idx, block);
+    detail::reset_caret_blink(impl, idx);
     detail::add_dirty_rect(impl, detail::block_visual_rect(impl, idx));
     return true;
 }
@@ -431092,6 +431805,8 @@ void set_text_selection(detail::DocumentImpl& impl,
     block.selection_anchor = anchor;
     block.selection_focus = focus;
     block.caret_offset = focus;
+    detail::break_text_edit_coalescing(impl);
+    detail::reset_caret_blink(impl, idx);
     if (auto* elem = detail::element_for_block(impl, idx)) {
         auto* node = lxb_dom_interface_node(elem);
         impl.live_text_carets[node] = focus;
@@ -431360,18 +432075,185 @@ void emit_text_control_change(detail::DocumentImpl& impl, int idx, Block& block)
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
+namespace {
+
+TextEditSnapshot text_edit_snapshot(const Block& block) {
+    return TextEditSnapshot{
+        detail::emitted_text_control_value(block),
+        block.caret_offset,
+        block.selection_anchor,
+        block.selection_focus,
+    };
+}
+
+lxb_dom_node_t* text_edit_node(detail::DocumentImpl& impl, int idx) {
+    auto* elem = detail::element_for_block(impl, idx);
+    return elem ? lxb_dom_interface_node(elem) : nullptr;
+}
+
+bool text_edit_kind_coalesces(TextEditKind kind) {
+    return kind == TextEditKind::Insert ||
+           kind == TextEditKind::Backspace ||
+           kind == TextEditKind::DeleteForward ||
+           kind == TextEditKind::Composition;
+}
+
+bool push_text_edit_snapshot(std::vector<TextEditSnapshot>& history,
+                             std::size_t& history_bytes,
+                             TextEditSnapshot snapshot) {
+    const std::size_t snapshot_bytes =
+        sizeof(TextEditSnapshot) + snapshot.value.size();
+    if (snapshot_bytes > detail::DocumentImpl::kTextEditHistoryByteLimit) {
+        history.clear();
+        history_bytes = 0;
+        return false;
+    }
+    if (history.size() >= detail::DocumentImpl::kTextEditHistoryLimit ||
+        history_bytes + snapshot_bytes >
+            detail::DocumentImpl::kTextEditHistoryByteLimit) {
+        history.clear();
+        history_bytes = 0;
+    }
+    history_bytes += snapshot_bytes;
+    history.push_back(std::move(snapshot));
+    return true;
+}
+
+TextEditSnapshot pop_text_edit_snapshot(
+    std::vector<TextEditSnapshot>& history,
+    std::size_t& history_bytes) {
+    TextEditSnapshot snapshot = std::move(history.back());
+    history_bytes -= sizeof(TextEditSnapshot) + snapshot.value.size();
+    history.pop_back();
+    return snapshot;
+}
+
+void ensure_text_edit_session(detail::DocumentImpl& impl,
+                              int idx,
+                              const Block& block) {
+    auto* node = text_edit_node(impl, idx);
+    const std::string current = detail::emitted_text_control_value(block);
+    if (node != impl.text_edit_history_node ||
+        (impl.text_edit_history_node != nullptr &&
+         current != impl.text_edit_expected_value)) {
+        detail::clear_text_edit_history(impl);
+        impl.text_edit_history_node = node;
+    }
+    if (impl.text_edit_history_node == nullptr) {
+        impl.text_edit_history_node = node;
+    }
+    impl.text_edit_expected_value = current;
+}
+
+void record_text_edit(detail::DocumentImpl& impl,
+                      int idx,
+                      const Block& block,
+                      TextEditKind kind) {
+    ensure_text_edit_session(impl, idx, block);
+    const bool coalesce = text_edit_kind_coalesces(kind) &&
+                          impl.text_edit_last_kind == kind &&
+                          !detail::has_text_selection(block);
+    if (!coalesce) {
+        const bool retained = push_text_edit_snapshot(
+            impl.text_edit_undo, impl.text_edit_undo_bytes,
+            text_edit_snapshot(block));
+        if (!retained) kind = TextEditKind::None;
+    }
+    impl.text_edit_redo.clear();
+    impl.text_edit_redo_bytes = 0;
+    impl.text_edit_last_kind = kind;
+}
+
+void finish_text_edit(detail::DocumentImpl& impl, const Block& block) {
+    impl.text_edit_expected_value = detail::emitted_text_control_value(block);
+}
+
+bool apply_text_edit_snapshot(detail::DocumentImpl& impl,
+                              int idx,
+                              Block& block,
+                              const TextEditSnapshot& snapshot) {
+    const Rect old_rect = detail::subtree_visual_rect(impl, idx);
+    detail::set_live_text_state(
+        impl, idx, block, snapshot.value, snapshot.caret);
+    detail::set_text_selection(
+        impl, idx, block, snapshot.selection_anchor, snapshot.selection_focus);
+    detail::mark_live_mutation_dirty(
+        impl, idx, old_rect, /*needs_layout=*/true);
+    emit_text_control_change(impl, idx, block);
+    impl.text_edit_expected_value = detail::emitted_text_control_value(block);
+    impl.text_edit_last_kind = TextEditKind::None;
+    return true;
+}
+
+}  // namespace
+
+void clear_text_edit_history(detail::DocumentImpl& impl) {
+    impl.text_edit_history_node = nullptr;
+    impl.text_edit_undo.clear();
+    impl.text_edit_redo.clear();
+    impl.text_edit_undo_bytes = 0;
+    impl.text_edit_redo_bytes = 0;
+    impl.text_edit_last_kind = TextEditKind::None;
+    impl.text_edit_expected_value.clear();
+}
+
+void break_text_edit_coalescing(detail::DocumentImpl& impl) {
+    impl.text_edit_last_kind = TextEditKind::None;
+}
+
+void reset_caret_blink(detail::DocumentImpl& impl, int idx) {
+    const bool was_hidden = !impl.caret_blink_visible;
+    impl.caret_blink_visible = true;
+    impl.caret_blink_epoch = std::chrono::steady_clock::now();
+    if (was_hidden && idx >= 0 && idx < static_cast<int>(impl.blocks.size())) {
+        detail::add_dirty_rect(impl, detail::block_visual_rect(impl, idx));
+    }
+}
+
+bool tick_caret_blink(detail::DocumentImpl& impl) {
+    Block* control = nullptr;
+    if (!detail::focused_text_control(impl, control) || control == nullptr ||
+        detail::has_text_selection(*control) ||
+        detail::text_composition_active(
+            impl, impl.focused_idx, *control) ||
+        impl.caret_blink_interval_ms <= 0.0) {
+        if (!impl.caret_blink_visible && control != nullptr) {
+            impl.caret_blink_visible = true;
+            impl.caret_blink_epoch = std::chrono::steady_clock::now();
+            detail::add_dirty_rect(
+                impl, detail::block_visual_rect(impl, impl.focused_idx));
+            return true;
+        }
+        return false;
+    }
+    const double elapsed_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - impl.caret_blink_epoch).count();
+    const auto phase = static_cast<std::uint64_t>(
+        elapsed_ms / impl.caret_blink_interval_ms);
+    const bool visible = (phase % 2u) == 0u;
+    if (visible == impl.caret_blink_visible) return false;
+    impl.caret_blink_visible = visible;
+    detail::add_dirty_rect(
+        impl, detail::block_visual_rect(impl, impl.focused_idx));
+    return true;
+}
+
 bool delete_text_range(detail::DocumentImpl& impl,
                        int idx,
                        Block& block,
                        std::size_t begin,
-                       std::size_t end) {
+                       std::size_t end,
+                       TextEditKind kind) {
     std::string next = detail::emitted_text_control_value(block);
     std::size_t caret = block.caret_offset;
     const std::string old = next;
     next = erase_selected_text(std::move(next), begin, end, caret);
     if (next == old && caret == block.caret_offset) return false;
+    record_text_edit(impl, idx, block, kind);
     const Rect old_rect = detail::subtree_visual_rect(impl, idx);
     detail::set_live_text_state(impl, idx, block, std::move(next), caret);
+    finish_text_edit(impl, block);
+    detail::reset_caret_blink(impl, idx);
     detail::mark_live_mutation_dirty(impl, idx, old_rect, /*needs_layout=*/true);
     emit_text_control_change(impl, idx, block);
     return true;
@@ -431380,7 +432262,8 @@ bool delete_text_range(detail::DocumentImpl& impl,
 bool replace_text_selection_or_insert(detail::DocumentImpl& impl,
                                       int idx,
                                       Block& block,
-                                      std::string_view text) {
+                                      std::string_view text,
+                                      TextEditKind kind) {
     if (text.empty()) return false;
     const Rect old_rect = detail::subtree_visual_rect(impl, idx);
     std::string next = detail::emitted_text_control_value(block);
@@ -431391,10 +432274,35 @@ bool replace_text_selection_or_insert(detail::DocumentImpl& impl,
     } else {
         next = insert_text_at_caret(std::move(next), caret, text);
     }
+    record_text_edit(impl, idx, block, kind);
     detail::set_live_text_state(impl, idx, block, std::move(next), caret);
+    finish_text_edit(impl, block);
+    detail::reset_caret_blink(impl, idx);
     detail::mark_live_mutation_dirty(impl, idx, old_rect, /*needs_layout=*/true);
     emit_text_control_change(impl, idx, block);
     return true;
+}
+
+bool undo_text_edit(detail::DocumentImpl& impl, int idx, Block& block) {
+    ensure_text_edit_session(impl, idx, block);
+    if (impl.text_edit_undo.empty()) return false;
+    push_text_edit_snapshot(
+        impl.text_edit_redo, impl.text_edit_redo_bytes,
+        text_edit_snapshot(block));
+    const TextEditSnapshot snapshot = pop_text_edit_snapshot(
+        impl.text_edit_undo, impl.text_edit_undo_bytes);
+    return apply_text_edit_snapshot(impl, idx, block, snapshot);
+}
+
+bool redo_text_edit(detail::DocumentImpl& impl, int idx, Block& block) {
+    ensure_text_edit_session(impl, idx, block);
+    if (impl.text_edit_redo.empty()) return false;
+    push_text_edit_snapshot(
+        impl.text_edit_undo, impl.text_edit_undo_bytes,
+        text_edit_snapshot(block));
+    const TextEditSnapshot snapshot = pop_text_edit_snapshot(
+        impl.text_edit_redo, impl.text_edit_redo_bytes);
+    return apply_text_edit_snapshot(impl, idx, block, snapshot);
 }
 
 bool move_text_caret(detail::DocumentImpl& impl,
@@ -431431,6 +432339,22 @@ Rect Document::caret_rect() const {
     if (impl_->last_measurer == nullptr) return {};
     return detail::text_caret_rect(*impl_, impl_->focused_idx,
                                    *impl_->last_measurer);
+}
+
+void Document::set_caret_blink_interval(double milliseconds) {
+    if (!std::isfinite(milliseconds) || milliseconds < 0.0) {
+        milliseconds = 0.0;
+    }
+    impl_->caret_blink_interval_ms = milliseconds;
+    detail::reset_caret_blink(*impl_, impl_->focused_idx);
+}
+
+double Document::caret_blink_interval() const noexcept {
+    return impl_->caret_blink_interval_ms;
+}
+
+bool Document::tick_caret_blink() {
+    return detail::tick_caret_blink(*impl_);
 }
 
 namespace detail {
@@ -431557,6 +432481,9 @@ void splice_composition_display(detail::DocumentImpl&,
 
 bool Document::text_input_active() const { return false; }
 Rect Document::caret_rect() const { return {}; }
+void Document::set_caret_blink_interval(double) {}
+double Document::caret_blink_interval() const noexcept { return 0.0; }
+bool Document::tick_caret_blink() { return false; }
 
 namespace {
 
@@ -436087,6 +437014,7 @@ struct UiImpl {
     // multiple handlers if multiple selectors match (mirrors DOM
     // event bubbling intuitively at the registration site).
     std::vector<std::pair<std::string, std::function<void()>>> click_handlers;
+    std::vector<Ui::EventHandler> event_capture_handlers;
     std::vector<Ui::EventHandler> event_handlers;
     std::vector<std::function<void(double)>> frame_callbacks;
     std::vector<Document::HoverInfo> hover_chain_scratch;
@@ -436230,6 +437158,9 @@ void Ui::render(const FrameTarget& target) {
 // ── Update scheduling ───────────────────────────────────────────────
 
 bool Ui::needs_update() const {
+    if (impl_->document.tick_caret_blink()) {
+        impl_->dirty = true;
+    }
     return impl_->dirty || impl_->document.imm_dirty() ||
            impl_->animations_active;
 }
@@ -436284,6 +437215,7 @@ void Ui::reset() {
     impl_->document.set_user_stylesheet("");  // clear user CSS
     impl_->document.set_html("");             // clear DOM
     impl_->click_handlers.clear();
+    impl_->event_capture_handlers.clear();
     impl_->event_handlers.clear();
     impl_->frame_callbacks.clear();
     impl_->hover_chain_scratch.clear();
@@ -436297,6 +437229,16 @@ void Ui::reset() {
 // ── Input ───────────────────────────────────────────────────────────
 
 bool Ui::dispatch(const Event& e) {
+    const auto event_capture_handlers = impl_->event_capture_handlers;
+    if (!event_capture_handlers.empty()) {
+        impl_->document.hovered_info_chain(impl_->hover_chain_scratch);
+        bool capture_consumed = false;
+        for (const auto& cb : event_capture_handlers) {
+            capture_consumed =
+                cb(e, impl_->hover_chain_scratch) || capture_consumed;
+        }
+        if (capture_consumed) return true;
+    }
     const auto event_handlers = impl_->event_handlers;
     if (impl_->pointer_captured && e.type == EventType::MouseMove &&
         !event_handlers.empty()) {
@@ -436315,6 +437257,7 @@ bool Ui::dispatch(const Event& e) {
     if (result.redraw_requested || result.invalidate_view) {
         impl_->dirty = true;  // a hover/focus/state change needs a repaint
     }
+    if (result.event_consumed) return true;
 
     const bool mouse_up_left =
         e.type == EventType::MouseUp && e.button == MouseButton::Left;
@@ -436396,6 +437339,10 @@ bool Ui::pointer_captured() const {
 
 void Ui::on_click(std::string_view selector, std::function<void()> cb) {
     impl_->click_handlers.emplace_back(std::string(selector), std::move(cb));
+}
+
+void Ui::on_event_capture(EventHandler cb) {
+    impl_->event_capture_handlers.emplace_back(std::move(cb));
 }
 
 void Ui::on_event(EventHandler cb) {
@@ -442958,6 +443905,24 @@ int affineui_ui_dispatch(affineui_ui* ui, const affineui_event* ev) {
     return reinterpret_cast<affineui::Ui*>(ui)->dispatch(affineui_c::to_event(*ev)) ? 1 : 0;
 }
 
+void affineui_ui_on_event_capture(affineui_ui* ui,
+                                  affineui_event_capture_fn fn,
+                                  void* user,
+                                  affineui_user_free_fn user_free) {
+    if (!ui || !fn) {
+        if (user_free) user_free(user);
+        return;
+    }
+    auto data = affineui_c::hold_user(user, user_free);
+    reinterpret_cast<affineui::Ui*>(ui)->on_event_capture(
+        [fn, data = std::move(data)](
+            const affineui::Event& ev,
+            const std::vector<affineui::Document::HoverInfo>&) {
+            const affineui_event c_ev = affineui_c::to_c_event(ev);
+            return fn(data->user, &c_ev) != 0;
+        });
+}
+
 void affineui_ui_on_click(affineui_ui* ui,
                           const char* selector,
                           affineui_ui_click_fn fn,
@@ -442994,6 +443959,19 @@ void affineui_ui_caret_rect(const affineui_ui* ui,
     if (out_y) *out_y = r.y;
     if (out_w) *out_w = r.w;
     if (out_h) *out_h = r.h;
+}
+
+void affineui_ui_set_caret_blink_interval(affineui_ui* ui,
+                                          double milliseconds) {
+    if (!ui) return;
+    reinterpret_cast<affineui::Ui*>(ui)->document()
+        .set_caret_blink_interval(milliseconds);
+}
+
+double affineui_ui_caret_blink_interval(const affineui_ui* ui) {
+    if (!ui) return 0.0;
+    return reinterpret_cast<const affineui::Ui*>(ui)->document()
+        .caret_blink_interval();
 }
 
 int affineui_ui_set_attr(affineui_ui* ui, const char* elem_id,
@@ -443197,6 +444175,24 @@ int affineui_app_dispatch(affineui_app* app, const affineui_event* ev) {
     return to_app(app)->dispatch(affineui_c::to_event(*ev)) ? 1 : 0;
 }
 
+void affineui_app_on_event_capture(affineui_app* app,
+                                   affineui_event_capture_fn fn,
+                                   void* user,
+                                   affineui_user_free_fn user_free) {
+    if (!app || !fn) {
+        if (user_free) user_free(user);
+        return;
+    }
+    auto data = hold_user(user, user_free);
+    to_app(app)->on_event_capture(
+        [fn, data = std::move(data)](
+            const affineui::Event& ev,
+            const std::vector<affineui::Document::HoverInfo>&) {
+            const affineui_event c_ev = affineui_c::to_c_event(ev);
+            return fn(data->user, &c_ev) != 0;
+        });
+}
+
 int affineui_app_run(affineui_app* app) {
     if (!app) return 1;
     return to_app(app)->run();
@@ -443310,7 +444306,21 @@ void affineui_document_dispatch(affineui_document* doc,
         out->invalidate_view      = result.invalidate_view ? 1 : 0;
         out->defer_widget_changes = result.defer_widget_changes ? 1 : 0;
         out->layout_changed       = result.layout_changed ? 1 : 0;
+        out->event_consumed       = result.event_consumed ? 1 : 0;
     }
+}
+
+void affineui_document_set_caret_blink_interval(affineui_document* doc,
+                                                 double milliseconds) {
+    if (doc) to_doc(doc)->set_caret_blink_interval(milliseconds);
+}
+
+double affineui_document_caret_blink_interval(const affineui_document* doc) {
+    return doc ? to_doc(doc)->caret_blink_interval() : 0.0;
+}
+
+int affineui_document_tick_caret_blink(affineui_document* doc) {
+    return doc && to_doc(doc)->tick_caret_blink() ? 1 : 0;
 }
 
 void affineui_document_attach_script(affineui_document* doc, int script) {

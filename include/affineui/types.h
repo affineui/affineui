@@ -126,7 +126,22 @@ struct DispatchResult {
     // Set when an interaction changed the dock layout (e.g. a splitter drag
     // finished) so the app can persist the new arrangement.
     bool layout_changed{false};
+    // The focused document target handled this event. App/Ui dispatchers use
+    // this to stop the event before their post-document/global handler phase.
+    // A pre-document capture handler can still override the widget first.
+    bool event_consumed{false};
 };
+
+/// Is a platform character-event codepoint insertable text?
+///
+/// Keyboard backends often report C0 controls and DEL through the same
+/// character channel as printable text (for example macOS Backspace is
+/// U+007F and Ctrl+A..Z are U+0001..U+001A). Those bytes are commands, not
+/// text, and must never enter a control's buffer. Clipboard/programmatic text
+/// does not use this predicate and may legitimately contain newlines or tabs.
+inline bool is_text_codepoint(std::uint32_t cp) noexcept {
+    return cp >= 0x20u && cp != 0x7Fu;
+}
 
 /// Resource loader hook. Given a URL ("app:///main.css", "https://...",
 /// "data:image/png;base64,..."), returns the raw bytes or empty on miss.

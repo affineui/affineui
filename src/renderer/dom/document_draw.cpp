@@ -1167,7 +1167,11 @@ void Document::draw(Painter& painter) {
                 }
             }
         }
-        if (!b.text.empty()) {
+        // A focused text control still has a line box and caret when its value
+        // is empty. Keep controls on this path even without a text run; the
+        // empty draw is harmless and the shared layout table supplies offset
+        // zero for caret painting and IME anchoring.
+        if (!b.text.empty() || b.text_control) {
             const auto font = painter.resolve_font(
                 impl_->style_store.font_family_of(cs.font_id), cs.font_size_px, cs.font_weight, cs.font_style != 0);
             const int textarea_idx_for_text = detail::nearest_block_with_tag(
@@ -1539,7 +1543,8 @@ void Document::draw(Painter& painter) {
             // selection is active (the select-all a numeric field does
             // on first focus, or any range drag).
             if (b.text_control && static_cast<int>(i) == impl_->focused_idx &&
-                !detail::has_text_selection(b)) {
+                !detail::has_text_selection(b) &&
+                impl_->caret_blink_visible) {
                 const TextLayoutEntry* caret_layout = cached_text_layout;
                 if (caret_layout == nullptr) {
                     TextControlGeometry g{};
@@ -1586,9 +1591,12 @@ void Document::draw(Painter& painter) {
                     static_cast<float>(text_y) +
                     static_cast<float>(line) * css_line_h +
                     (css_line_h - natural_line_h) * 0.5f;
-                const float y0 = std::floor(line_top + 2.0f) + 0.5f;
+                // Match the font's complete natural line box. The previous
+                // two-pixel inset at each end made an 18px UI font produce a
+                // visibly undersized 14px caret.
+                const float y0 = std::floor(line_top) + 0.5f;
                 const float y1 =
-                    std::ceil(line_top + natural_line_h - 2.0f) + 0.5f;
+                    std::ceil(line_top + natural_line_h) + 0.5f;
                 painter.stroke_line(caret_x, y0, caret_x, y1,
                                     detail::unpack_rgba(an.color_rgba),
                                     1.0f);

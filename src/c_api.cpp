@@ -192,6 +192,24 @@ int affineui_ui_dispatch(affineui_ui* ui, const affineui_event* ev) {
     return reinterpret_cast<affineui::Ui*>(ui)->dispatch(affineui_c::to_event(*ev)) ? 1 : 0;
 }
 
+void affineui_ui_on_event_capture(affineui_ui* ui,
+                                  affineui_event_capture_fn fn,
+                                  void* user,
+                                  affineui_user_free_fn user_free) {
+    if (!ui || !fn) {
+        if (user_free) user_free(user);
+        return;
+    }
+    auto data = affineui_c::hold_user(user, user_free);
+    reinterpret_cast<affineui::Ui*>(ui)->on_event_capture(
+        [fn, data = std::move(data)](
+            const affineui::Event& ev,
+            const std::vector<affineui::Document::HoverInfo>&) {
+            const affineui_event c_ev = affineui_c::to_c_event(ev);
+            return fn(data->user, &c_ev) != 0;
+        });
+}
+
 void affineui_ui_on_click(affineui_ui* ui,
                           const char* selector,
                           affineui_ui_click_fn fn,
@@ -228,6 +246,19 @@ void affineui_ui_caret_rect(const affineui_ui* ui,
     if (out_y) *out_y = r.y;
     if (out_w) *out_w = r.w;
     if (out_h) *out_h = r.h;
+}
+
+void affineui_ui_set_caret_blink_interval(affineui_ui* ui,
+                                          double milliseconds) {
+    if (!ui) return;
+    reinterpret_cast<affineui::Ui*>(ui)->document()
+        .set_caret_blink_interval(milliseconds);
+}
+
+double affineui_ui_caret_blink_interval(const affineui_ui* ui) {
+    if (!ui) return 0.0;
+    return reinterpret_cast<const affineui::Ui*>(ui)->document()
+        .caret_blink_interval();
 }
 
 int affineui_ui_set_attr(affineui_ui* ui, const char* elem_id,

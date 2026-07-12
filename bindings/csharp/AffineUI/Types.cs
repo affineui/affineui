@@ -87,6 +87,7 @@ public enum Key
     S = 30, T = 31, U = 32, V = 33, W = 34, X = 35, Y = 36, Z = 37,
     Digit0 = 38, Digit1 = 39, Digit2 = 40, Digit3 = 41, Digit4 = 42,
     Digit5 = 43, Digit6 = 44, Digit7 = 45, Digit8 = 46, Digit9 = 47,
+    Space = 48, Minus = 49, Equal = 50, BracketLeft = 51, BracketRight = 52,
 }
 
 /// <summary>Cursor the OS should display (mapping documented on
@@ -147,6 +148,7 @@ public readonly struct DispatchResult
     public bool InvalidateView { get; init; }
     public bool DeferWidgetChanges { get; init; }
     public bool LayoutChanged { get; init; }
+    public bool EventConsumed { get; init; }
 
     internal static DispatchResult FromNative(in NativeDispatchResult n) => new()
     {
@@ -154,6 +156,7 @@ public readonly struct DispatchResult
         InvalidateView = n.InvalidateView != 0,
         DeferWidgetChanges = n.DeferWidgetChanges != 0,
         LayoutChanged = n.LayoutChanged != 0,
+        EventConsumed = n.EventConsumed != 0,
     };
 }
 
@@ -242,4 +245,24 @@ public struct Event
             CompositionClauseEnd = CompositionClauseEnd,
         };
     }
+
+    internal static Event FromNative(in NativeEvent ev) => new()
+    {
+        Type = (EventType)ev.Type,
+        X = ev.X,
+        Y = ev.Y,
+        Button = (MouseButton)ev.Button,
+        WheelDx = ev.WheelDx,
+        WheelDy = ev.WheelDy,
+        Key = (Key)ev.Key,
+        KeyCode = ev.KeyCode,
+        Text = ev.Text == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(ev.Text),
+        Shift = ev.Shift != 0,
+        Ctrl = ev.Ctrl != 0,
+        Alt = ev.Alt != 0,
+        Super = ev.SuperKey != 0,
+        CompositionCursor = ev.CompositionCursor,
+        CompositionClauseBegin = ev.CompositionClauseBegin,
+        CompositionClauseEnd = ev.CompositionClauseEnd,
+    };
 }

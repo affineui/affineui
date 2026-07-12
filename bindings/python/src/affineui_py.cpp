@@ -298,7 +298,9 @@ PYBIND11_MODULE(_affineui, m) {
         .def_readonly("redraw_requested",
                       &affineui::DispatchResult::redraw_requested)
         .def_readonly("invalidate_view",
-                      &affineui::DispatchResult::invalidate_view);
+                      &affineui::DispatchResult::invalidate_view)
+        .def_readonly("event_consumed",
+                      &affineui::DispatchResult::event_consumed);
 
     py::class_<affineui::Document::HoverInfo>(
             m,
@@ -409,6 +411,17 @@ PYBIND11_MODULE(_affineui, m) {
              "Caret rectangle of the focused text control in document CSS "
              "points, for IME candidate-window placement (w<=0 when no "
              "text control is focused).")
+        .def("set_caret_blink_interval",
+             &affineui::Document::set_caret_blink_interval,
+             py::arg("milliseconds"),
+             "Set the caret visibility half-cycle in milliseconds; zero "
+             "keeps the caret continuously visible.")
+        .def("caret_blink_interval",
+             &affineui::Document::caret_blink_interval)
+        .def("tick_caret_blink",
+             &affineui::Document::tick_caret_blink,
+             "Advance caret timing for a custom/headless Document driver. "
+             "App hosts do this automatically.")
         .def("text_editing_active",
              &affineui::Document::text_editing_active,
              "True while a text control has keyboard focus — app-level "
@@ -1958,6 +1971,34 @@ PYBIND11_MODULE(_affineui, m) {
              "(same shape as a telemetry.frame JSONL record). Zeroed until "
              "the first frame presents, or when compiled with "
              "AFFINEUI_PERF=0.")
+        .def("on_event_capture",
+             [](affineui::App& app, py::function cb) {
+                 auto callback = keep_python_function(std::move(cb));
+                 app.on_event_capture(
+                     [callback](const affineui::Event& ev,
+                                const std::vector<
+                                    affineui::Document::HoverInfo>& hover)
+                         -> bool {
+                         try {
+                             py::gil_scoped_acquire gil;
+                             py::object result = (*callback)(ev, hover);
+                             return result.is_none() ? false
+                                                     : result.cast<bool>();
+                         } catch (py::error_already_set& e) {
+                             e.discard_as_unraisable("App.on_event_capture");
+                         } catch (const std::exception& e) {
+                             std::fprintf(stderr,
+                                          "AffineUI Python callback failed "
+                                          "(App.on_event_capture): %s\n",
+                                          e.what());
+                         }
+                         return false;
+                     });
+             },
+             py::arg("callback"),
+             "Register a capture handler before focused-widget dispatch. "
+             "Return True to consume the event, for example to override "
+             "local text undo with an app-global undo command.")
         .def("on_event",
              [](affineui::App& app, py::function cb) {
                  auto callback = keep_python_function(std::move(cb));
@@ -1985,9 +2026,9 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("callback"),
              "Register a low-level native event handler. The callback "
              "receives (event, hover_chain) — the hover chain is hit-tested "
-             "deepest-first — and returns True to consume the event before "
-             "the document sees it. The hook native widget kits (and canvas "
-             "tools) build pointer-drag behaviors on.")
+             "deepest-first — after document/widget dispatch. Events consumed "
+             "by a focused editor do not reach this phase. The hook native "
+             "widget kits (and canvas tools) build pointer-drag behaviors on.")
         .def("on_frame",
              [](affineui::App& app, py::function cb) {
                  auto callback = keep_python_function(std::move(cb));

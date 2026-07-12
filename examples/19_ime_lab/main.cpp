@@ -123,17 +123,36 @@ public:
         : app_{app}, lang_{lang} {}
 
     void build(affineui::View& v) {
-        auto page = v.container("ime-lab");
+        v.set_framework_version(affineui::decius::default_version);
+        v.selector(affineui::decius::selector::style,
+                   affineui::decius::style::flat);
+        v.selector(affineui::decius::selector::density,
+                   affineui::decius::density::comfortable);
+        v.selector(affineui::decius::selector::accent, "cyan");
 
-        v.heading(1, std::string{"IME lab — "} + std::string{lang_.name});
-        v.paragraph(std::string{"Type: "} + std::string{lang_.type_this} +
-                    "   \xE2\x86\x92   expect: " + std::string{lang_.expect});
-
-        // --- the fields under test ------------------------------------------
-        // input + textarea, because the single-line and multiline paths have
-        // separate caret tables (docs/IME_ARCHITECTURE.md §4).
+        auto page = v.container(
+            "dcs-panel dcs-panel--bordered dcs-panel--raised ime-lab-page",
+            "ime-lab-page");
         {
-            auto card = v.card("Text fields");
+            auto header = v.container("dcs-panel__header", "ime-page-header");
+            v.text(std::string{"IME lab — "} + std::string{lang_.name},
+                   "ime-title").cls("dcs-panel__title");
+        }
+        auto page_body = v.container("dcs-panel__body dcs-form",
+                                     "ime-page-body");
+
+        v.paragraph(std::string{"Type "} + std::string{lang_.type_this} +
+                        "  \xE2\x86\x92  expect " +
+                        std::string{lang_.expect},
+                    "dcs-note", "ime-instructions");
+
+        // Input + textarea have separate caret tables. Standard form markup
+        // supplies field sizing and density-controlled spacing.
+        {
+            auto card = v.card("Text entry", "aui-demo-section",
+                               "ime-entry-card");
+            auto body = v.container("dcs-panel__body dcs-form",
+                                    "ime-entry-body");
             v.input("Single line", single_, "text", "ime-input")
                 .on_change([this](std::string_view s) {
                     single_ = std::string{s};
@@ -144,53 +163,63 @@ public:
                 });
         }
 
-        // --- live IME state -------------------------------------------------
-        // This is the point of the harness: the tester should not have to guess
-        // what the engine thinks. If what's on screen disagrees with what the
-        // OS IME is showing, this readout says which side is wrong.
+        // Show exactly what reached the document so platform and core failures
+        // remain distinguishable during a manual IME run.
         {
-            auto card = v.card("Live IME state");
+            auto card = v.card("Live IME state", "aui-demo-section",
+                               "ime-state-card");
+            auto body = v.container("dcs-panel__body dcs-form",
+                                    "ime-state-body");
             const auto& doc = app_.document();
             const bool active = doc.text_input_active();
             const auto caret = doc.caret_rect();
 
-            v.paragraph(std::string{"text_input_active: "} +
-                        (active ? "true  (IME enabled)" : "false (IME OFF — check 8)"),
-                        active ? "" : "text-muted");
-            v.paragraph("caret_rect: " + rect_str(caret) +
-                        (caret.w <= 0 ? "   (empty — no focused field)" : ""));
-            v.paragraph("preedit: " + (preedit_.empty()
+            v.paragraph(std::string{"Input method: "} +
+                            (active ? "enabled" : "off — focus a field"),
+                        active ? "" : "dcs-note", "ime-active");
+            v.paragraph("Caret: " + rect_str(caret) +
+                            (caret.w <= 0 ? " (no focused field)" : ""),
+                        {}, "ime-caret");
+            v.paragraph("Preedit: " + (preedit_.empty()
                                            ? std::string{"(none)"}
-                                           : "\"" + preedit_ + "\""));
-            v.paragraph("clause: [" + std::to_string(clause_begin_) + ", " +
-                        std::to_string(clause_end_) + ")   cursor: " +
-                        std::to_string(cursor_));
-            v.paragraph("committed so far: \"" + single_ + "\"");
-            v.paragraph("compositions: " + std::to_string(compositions_) +
-                        "   commits: " + std::to_string(commits_));
+                                           : "\"" + preedit_ + "\""),
+                        {}, "ime-preedit");
+            v.paragraph("Clause: [" + std::to_string(clause_begin_) + ", " +
+                            std::to_string(clause_end_) + ")   cursor: " +
+                            std::to_string(cursor_),
+                        {}, "ime-clause");
+            v.paragraph("Committed: \"" + single_ + "\"",
+                        {}, "ime-committed");
+            v.paragraph("Compositions: " + std::to_string(compositions_) +
+                            "   commits: " + std::to_string(commits_),
+                        "dcs-note", "ime-counts");
         }
 
-        // --- static CJK: fallback + wrap + kinsoku --------------------------
-        // Renders with no IME involvement at all. Tofu here = font fallback
-        // (#51) is broken; mojibake = MSVC /utf-8 is missing.
+        // Static rendering separates font fallback failures from platform IME
+        // failures.
         {
-            auto card = v.card("Static CJK (font fallback + wrap + kinsoku)");
-            v.paragraph(std::string{lang_.sample}, "ime-sample");
-            v.paragraph("No tofu boxes, no mojibake, wraps inside the box, and "
-                        "no line starts with closing punctuation.",
-                        "text-muted");
+            auto card = v.card("Static CJK rendering", "aui-demo-section",
+                               "ime-static-card");
+            auto body = v.container("dcs-panel__body dcs-form",
+                                    "ime-static-body");
+            v.paragraph(std::string{lang_.sample}, "ime-sample",
+                        "ime-static-sample");
+            v.paragraph("Expect real glyphs, normal wrapping, and no line "
+                        "starting with closing punctuation.",
+                        "dcs-note", "ime-static-note");
         }
 
-        // A plain click target: focus it and the IME must switch OFF (check 8).
+        // A standard button is the deliberate non-text focus target.
         {
-            auto card = v.card("Focus sink");
-            v.paragraph("Click here (no field focused) and type — nothing should "
-                        "appear, and text_input_active above must read false.",
-                        "text-muted");
-            v.button("Just a button", false, "ime-sink");
+            auto card = v.card("Focus routing", "aui-demo-section",
+                               "ime-focus-card");
+            auto body = v.container("dcs-panel__body dcs-form",
+                                    "ime-focus-body");
+            v.paragraph("Focus this button, then type. No preedit should "
+                        "appear and the input method status should be off.",
+                        "dcs-note", "ime-focus-note");
+            v.button("Move focus out of text entry", false, "ime-sink");
         }
-
-        (void)page;
     }
 
     // Observe every composition/commit so the readout reflects what the engine
@@ -272,11 +301,13 @@ int main(int argc, char** argv) {
     config.asset_folders = {"examples", "."};
 
     affineui::App app{config};
-    // Give the CJK sample room to wrap so kinsoku is actually exercised, and
-    // make the preedit underline legible at a glance.
+    // Layout and spacing come from the standard Decius panel/form components
+    // and the selected density. The one app-specific rule makes the test page
+    // the window's scroll surface.
     app.set_stylesheet(
-        ".ime-sample{max-width:22em;line-height:1.9;font-size:1.25rem}"
-        ".text-muted{opacity:.65}");
+        ".aui-root{height:100vh;min-height:0}"
+        ".ime-lab-page .dcs-field>.dcs-input{flex:1;min-width:0}"
+        ".ime-sample{max-width:22em;line-height:1.9;font-size:1.25rem}");
 
     ImeLab lab{app, lang};
     app.set_view([&lab](affineui::View& v) { lab.build(v); });

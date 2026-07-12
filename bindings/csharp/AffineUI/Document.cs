@@ -150,6 +150,32 @@ public sealed class Document : IDisposable
         }
     }
 
+    /// <summary>Caret visibility half-cycle in milliseconds. Set to zero to
+    /// keep the focused caret continuously visible.</summary>
+    public double CaretBlinkInterval
+    {
+        get
+        {
+            double value = NativeMethods.affineui_document_caret_blink_interval(Handle);
+            KeepAlive();
+            return value;
+        }
+        set
+        {
+            NativeMethods.affineui_document_set_caret_blink_interval(Handle, value);
+            KeepAlive();
+        }
+    }
+
+    /// <summary>Advances caret timing for a custom/headless document driver.
+    /// App and Embedded.Ui hosts do this automatically.</summary>
+    public bool TickCaretBlink()
+    {
+        bool changed = NativeMethods.affineui_document_tick_caret_blink(Handle) != 0;
+        KeepAlive();
+        return changed;
+    }
+
     /// <summary>Attaches an optional behavior script
     /// (e.g. <see cref="DocumentScript.UiControls"/>).</summary>
     public void AttachScript(DocumentScript script)

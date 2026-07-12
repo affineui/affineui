@@ -82,6 +82,12 @@ internal static class Program
         {
             doc.SetHtml(view.ToHtmlDocument());
             doc.Layout(640, 360);
+            doc.CaretBlinkInterval = 0.0;
+            if (doc.CaretBlinkInterval != 0.0 || doc.TickCaretBlink())
+            {
+                Console.Error.WriteLine("FAIL: caret blink configuration did not round-trip.");
+                return 1;
+            }
             Size size = doc.ContentSize;
             Console.WriteLine($"headless layout content size: {size.Width} x {size.Height}");
             if (size.Width <= 0 || size.Height <= 0)
@@ -89,6 +95,67 @@ internal static class Program
                 Console.Error.WriteLine("FAIL: headless layout returned a non-positive content size.");
                 return 1;
             }
+        }
+
+        int captureCalls = 0;
+        long captureReleasesBefore = AffineUIRuntime.ReleasedCallbackCount;
+        using (var captureApp = new App(new AppConfig { Title = "Capture headless" }))
+        {
+            captureApp.OnEventCapture(ev =>
+            {
+                if (ev.Type != EventType.MouseMove || ev.X != 12 || ev.Y != 34)
+                    throw new InvalidOperationException("capture event payload mismatch");
+                captureCalls++;
+                return true;
+            });
+            var captured = new Event { Type = EventType.MouseMove, X = 12, Y = 34 };
+            if (!captureApp.Dispatch(captured))
+            {
+                Console.Error.WriteLine("FAIL: capture handler did not consume the event.");
+                return 1;
+            }
+        }
+        if (captureCalls != 1)
+        {
+            Console.Error.WriteLine($"FAIL: expected one capture callback, got {captureCalls}.");
+            return 1;
+        }
+        long captureReleases =
+            AffineUIRuntime.ReleasedCallbackCount - captureReleasesBefore;
+        if (captureReleases != 1)
+        {
+            Console.Error.WriteLine(
+                $"FAIL: expected one released capture holder, got {captureReleases}.");
+            return 1;
+        }
+
+        int embeddedCaptureCalls = 0;
+        long embeddedReleasesBefore = AffineUIRuntime.ReleasedCallbackCount;
+        using (var embeddedUi = new AffineUI.Embedded.Ui())
+        {
+            embeddedUi.CaretBlinkInterval = 0.0;
+            if (embeddedUi.CaretBlinkInterval != 0.0)
+            {
+                Console.Error.WriteLine("FAIL: embedded caret interval did not round-trip.");
+                return 1;
+            }
+            embeddedUi.OnEventCapture(ev =>
+            {
+                embeddedCaptureCalls++;
+                return ev.Type == EventType.MouseDown;
+            });
+            var mouseDown = new Event { Type = EventType.MouseDown, X = 3, Y = 4 };
+            if (!embeddedUi.Dispatch(mouseDown))
+            {
+                Console.Error.WriteLine("FAIL: embedded capture did not consume mouse input.");
+                return 1;
+            }
+        }
+        if (embeddedCaptureCalls != 1 ||
+            AffineUIRuntime.ReleasedCallbackCount - embeddedReleasesBefore != 1)
+        {
+            Console.Error.WriteLine("FAIL: embedded capture callback lifetime mismatch.");
+            return 1;
         }
 
         // Callback lifetime: the core must release each registered handler

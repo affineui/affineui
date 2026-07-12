@@ -50,6 +50,7 @@ internal struct NativeDispatchResult
     public int InvalidateView;
     public int DeferWidgetChanges;
     public int LayoutChanged;
+    public int EventConsumed;
 }
 
 /// <summary>Mirrors <c>affineui_app_config</c>.</summary>
@@ -164,6 +165,10 @@ internal static partial class NativeMethods
     [LibraryImport(Lib)]
     internal static partial int affineui_ui_dispatch(IntPtr ui, in NativeEvent ev);
 
+    [LibraryImport(Lib)]
+    internal static partial void affineui_ui_on_event_capture(
+        IntPtr ui, IntPtr fn, IntPtr user, IntPtr userFree);
+
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial void affineui_ui_on_click(IntPtr ui, string? selector,
                                                       IntPtr fn, IntPtr user, IntPtr userFree);
@@ -178,6 +183,12 @@ internal static partial class NativeMethods
     internal static partial void affineui_ui_caret_rect(IntPtr ui,
                                                         out int outX, out int outY,
                                                         out int outW, out int outH);
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_ui_set_caret_blink_interval(IntPtr ui, double milliseconds);
+
+    [LibraryImport(Lib)]
+    internal static partial double affineui_ui_caret_blink_interval(IntPtr ui);
 
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial int affineui_ui_set_attr(IntPtr ui, string? elemId, string? name, string? value);
@@ -236,6 +247,10 @@ internal static partial class NativeMethods
     internal static partial int affineui_app_dispatch(IntPtr app, in NativeEvent ev);
 
     [LibraryImport(Lib)]
+    internal static partial void affineui_app_on_event_capture(
+        IntPtr app, IntPtr fn, IntPtr user, IntPtr userFree);
+
+    [LibraryImport(Lib)]
     internal static partial int affineui_app_run(IntPtr app);
 
     [LibraryImport(Lib)]
@@ -287,6 +302,15 @@ internal static partial class NativeMethods
 
     [LibraryImport(Lib)]
     internal static partial void affineui_document_dispatch(IntPtr doc, in NativeEvent ev, out NativeDispatchResult result);
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_document_set_caret_blink_interval(IntPtr doc, double milliseconds);
+
+    [LibraryImport(Lib)]
+    internal static partial double affineui_document_caret_blink_interval(IntPtr doc);
+
+    [LibraryImport(Lib)]
+    internal static partial int affineui_document_tick_caret_blink(IntPtr doc);
 
     [LibraryImport(Lib)]
     internal static partial void affineui_document_attach_script(IntPtr doc, int script);

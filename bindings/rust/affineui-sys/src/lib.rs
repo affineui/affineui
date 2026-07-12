@@ -15,7 +15,7 @@
 
 use core::ffi::{c_char, c_float, c_int, c_void};
 
-pub const AFFINEUI_C_ABI_VERSION: c_int = 1;
+pub const AFFINEUI_C_ABI_VERSION: c_int = 2;
 
 // ── Opaque handles ───────────────────────────────────────────────────
 
@@ -154,6 +154,7 @@ pub struct affineui_dispatch_result {
     pub invalidate_view: c_int,
     pub defer_widget_changes: c_int,
     pub layout_changed: c_int,
+    pub event_consumed: c_int,
 }
 
 #[repr(C)]
@@ -240,6 +241,9 @@ pub struct affineui_frame_target {
 
 pub type affineui_user_free_fn = Option<unsafe extern "C" fn(user: *mut c_void)>;
 pub type affineui_ui_click_fn = Option<unsafe extern "C" fn(user: *mut c_void)>;
+pub type affineui_event_capture_fn = Option<
+    unsafe extern "C" fn(user: *mut c_void, ev: *const affineui_event) -> c_int,
+>;
 pub type affineui_click_fn = Option<unsafe extern "C" fn(user: *mut c_void)>;
 pub type affineui_change_fn = Option<unsafe extern "C" fn(user: *mut c_void, value: *const c_char)>;
 pub type affineui_build_fn = Option<unsafe extern "C" fn(user: *mut c_void, view: *mut affineui_view)>;
@@ -299,6 +303,12 @@ extern "C" {
     pub fn affineui_ui_set_clear_color(ui: *mut affineui_ui, r: u8, g: u8, b: u8, a: u8);
     pub fn affineui_ui_render(ui: *mut affineui_ui, target: *const affineui_frame_target);
     pub fn affineui_ui_dispatch(ui: *mut affineui_ui, ev: *const affineui_event) -> c_int;
+    pub fn affineui_ui_on_event_capture(
+        ui: *mut affineui_ui,
+        fn_: affineui_event_capture_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
     pub fn affineui_ui_on_click(
         ui: *mut affineui_ui,
         selector: *const c_char,
@@ -315,6 +325,8 @@ extern "C" {
         out_w: *mut c_int,
         out_h: *mut c_int,
     );
+    pub fn affineui_ui_set_caret_blink_interval(ui: *mut affineui_ui, milliseconds: f64);
+    pub fn affineui_ui_caret_blink_interval(ui: *const affineui_ui) -> f64;
     pub fn affineui_ui_set_attr(
         ui: *mut affineui_ui,
         elem_id: *const c_char,
@@ -340,6 +352,12 @@ extern "C" {
     pub fn affineui_app_set_perf_overlay_enabled(app: *mut affineui_app, enabled: c_int);
     pub fn affineui_app_perf_overlay_enabled(app: *const affineui_app) -> c_int;
     pub fn affineui_app_dispatch(app: *mut affineui_app, ev: *const affineui_event) -> c_int;
+    pub fn affineui_app_on_event_capture(
+        app: *mut affineui_app,
+        fn_: affineui_event_capture_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
     pub fn affineui_app_run(app: *mut affineui_app) -> c_int;
     pub fn affineui_app_quit(app: *mut affineui_app, code: c_int);
     pub fn affineui_app_window_size(app: *const affineui_app, out_w: *mut c_int, out_h: *mut c_int);
@@ -380,6 +398,12 @@ extern "C" {
         ev: *const affineui_event,
         out: *mut affineui_dispatch_result,
     );
+    pub fn affineui_document_set_caret_blink_interval(
+        doc: *mut affineui_document,
+        milliseconds: f64,
+    );
+    pub fn affineui_document_caret_blink_interval(doc: *const affineui_document) -> f64;
+    pub fn affineui_document_tick_caret_blink(doc: *mut affineui_document) -> c_int;
     pub fn affineui_document_attach_script(doc: *mut affineui_document, script: c_int);
     pub fn affineui_document_detach_script(doc: *mut affineui_document, script: c_int);
     pub fn affineui_document_hovered_cursor(doc: *const affineui_document) -> c_int;

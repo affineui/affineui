@@ -127,6 +127,24 @@ struct TextVisualLine {
     std::size_t end{0};
 };
 
+enum class TextEditKind : std::uint8_t {
+    None,
+    Insert,
+    Backspace,
+    DeleteForward,
+    Replace,
+    Cut,
+    Paste,
+    Composition,
+};
+
+struct TextEditSnapshot {
+    std::string value;
+    std::size_t caret{0};
+    std::size_t selection_anchor{0};
+    std::size_t selection_focus{0};
+};
+
 struct TextControlGeometry {
     std::uint32_t font{0};
     int text_x{0};
@@ -726,6 +744,24 @@ struct DocumentImpl {
     std::unordered_map<lxb_dom_node_t*,
                        std::pair<std::size_t, std::size_t>>
         live_text_selections;
+    // Focus-local text edit history. It intentionally clears whenever focus
+    // moves to a different control: app-global command stacks own model edits,
+    // while this stack owns only the active field's transient editing session.
+    lxb_dom_node_t* text_edit_history_node{nullptr};
+    std::vector<TextEditSnapshot> text_edit_undo;
+    std::vector<TextEditSnapshot> text_edit_redo;
+    std::size_t text_edit_undo_bytes{0};
+    std::size_t text_edit_redo_bytes{0};
+    TextEditKind text_edit_last_kind{TextEditKind::None};
+    std::string text_edit_expected_value;
+    static constexpr std::size_t kTextEditHistoryLimit = 128;
+    static constexpr std::size_t kTextEditHistoryByteLimit = 64 * 1024;
+    // Caret blink is a timed paint invalidation, not a continuously-active CSS
+    // animation. `caret_blink_interval_ms <= 0` keeps the caret always visible.
+    double caret_blink_interval_ms{500.0};
+    std::chrono::steady_clock::time_point caret_blink_epoch{
+        std::chrono::steady_clock::now()};
+    bool caret_blink_visible{true};
     // Active IME composition (preedit). At most one exists — it belongs to
     // the focused text control, keyed by DOM node so it survives block
     // recollection. Display-only state: the preedit is spliced into
@@ -1078,7 +1114,8 @@ bool delete_text_range(detail::DocumentImpl& impl,
                        int idx,
                        Block& block,
                        std::size_t begin,
-                       std::size_t end);
+                       std::size_t end,
+                       TextEditKind kind);
 void dock_cleanup_source(detail::DocumentImpl& impl, lxb_dom_element_t* dock);
 lxb_dom_element_t* dock_create_pane(detail::DocumentImpl& impl,
                                     std::string_view panel_id,
@@ -1167,7 +1204,14 @@ bool remove_tab_drag_ghost(detail::DocumentImpl& impl);
 bool replace_text_selection_or_insert(detail::DocumentImpl& impl,
                                       int idx,
                                       Block& block,
-                                      std::string_view text);
+                                      std::string_view text,
+                                      TextEditKind kind);
+bool undo_text_edit(detail::DocumentImpl& impl, int idx, Block& block);
+bool redo_text_edit(detail::DocumentImpl& impl, int idx, Block& block);
+void break_text_edit_coalescing(detail::DocumentImpl& impl);
+void clear_text_edit_history(detail::DocumentImpl& impl);
+void reset_caret_blink(detail::DocumentImpl& impl, int idx = -1);
+bool tick_caret_blink(detail::DocumentImpl& impl);
 std::string selected_text(const Block& block);
 bool set_block_scroll_y(detail::DocumentImpl& impl, int idx, int scroll_y);
 bool toggle_dcs_popover(detail::DocumentImpl& impl,

@@ -17,7 +17,7 @@ public static class AffineUIRuntime
 {
     /// <summary>The C ABI version this wrapper was written against
     /// (<c>AFFINEUI_C_ABI_VERSION</c>).</summary>
-    public const int ExpectedAbiVersion = 1;
+    public const int ExpectedAbiVersion = 2;
 
     private static readonly object Gate = new();
     private static volatile bool _loaded;
@@ -200,6 +200,9 @@ internal static unsafe class Trampolines
     internal static readonly IntPtr Build =
         (IntPtr)(delegate* unmanaged[Cdecl]<void*, void*, void>)&OnBuild;
 
+    internal static readonly IntPtr EventCapture =
+        (IntPtr)(delegate* unmanaged[Cdecl]<void*, NativeEvent*, int>)&OnEventCapture;
+
     internal static readonly IntPtr FreeUser =
         (IntPtr)(delegate* unmanaged[Cdecl]<void*, void>)&OnFreeUser;
 
@@ -239,6 +242,19 @@ internal static unsafe class Trampolines
                 action(View.Borrowed((IntPtr)view));
         }
         catch (Exception ex) { AffineUIRuntime.ReportCallbackException(ex); }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    private static int OnEventCapture(void* user, NativeEvent* ev)
+    {
+        try
+        {
+            if (ev is not null &&
+                GCHandle.FromIntPtr((IntPtr)user).Target is Func<Event, bool> handler)
+                return handler(Event.FromNative(in *ev)) ? 1 : 0;
+        }
+        catch (Exception ex) { AffineUIRuntime.ReportCallbackException(ex); }
+        return 0;
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]

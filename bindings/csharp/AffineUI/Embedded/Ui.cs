@@ -183,6 +183,17 @@ public sealed class Ui : IDisposable
         }
     }
 
+    /// <summary>Registers a host-global capture handler before focused-widget
+    /// dispatch. Return true to consume the event.</summary>
+    public void OnEventCapture(Func<Event, bool> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        IntPtr user = GCHandle.ToIntPtr(GCHandle.Alloc(handler));
+        NativeMethods.affineui_ui_on_event_capture(
+            Handle, Trampolines.EventCapture, user, Trampolines.FreeUser);
+        GC.KeepAlive(this);
+    }
+
     /// <summary>Registers a click handler for elements matching a minimal CSS
     /// selector ("#id", ".cls", "tag", "a,b"). The closure is released
     /// exactly once when the core drops the handler.</summary>
@@ -230,6 +241,23 @@ public sealed class Ui : IDisposable
                                                  out int w, out int h);
             GC.KeepAlive(this);
             return (x, y, w, h);
+        }
+    }
+
+    /// <summary>Caret visibility half-cycle in milliseconds. Set to zero to
+    /// keep the focused caret continuously visible.</summary>
+    public double CaretBlinkInterval
+    {
+        get
+        {
+            double value = NativeMethods.affineui_ui_caret_blink_interval(Handle);
+            GC.KeepAlive(this);
+            return value;
+        }
+        set
+        {
+            NativeMethods.affineui_ui_set_caret_blink_interval(Handle, value);
+            GC.KeepAlive(this);
         }
     }
 

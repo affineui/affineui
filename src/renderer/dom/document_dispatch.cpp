@@ -56,6 +56,28 @@
 
 namespace affineui {
 
+namespace {
+
+bool is_text_producing_key(Key key) {
+    return (key >= Key::A && key <= Key::Z) ||
+           (key >= Key::Digit0 && key <= Key::Digit9) ||
+           key == Key::Space || key == Key::Minus || key == Key::Equal ||
+           key == Key::BracketLeft || key == Key::BracketRight;
+}
+
+std::string filter_character_event_text(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (const char ch : text) {
+        const auto byte = static_cast<unsigned char>(ch);
+        // UTF-8 continuation/lead bytes are >= 0x80 and remain untouched.
+        if (is_text_codepoint(byte)) out.push_back(static_cast<char>(byte));
+    }
+    return out;
+}
+
+}  // namespace
+
 DispatchResult Document::dispatch(const Event& ev) {
     DispatchResult result{};
     auto ensure_interaction_layout = [&]() {
@@ -1183,12 +1205,14 @@ DispatchResult Document::dispatch(const Event& ev) {
                 if (detail::focused_text_control(*impl_, composing) &&
                     detail::text_composition_active(
                         *impl_, impl_->focused_idx, *composing)) {
+                    result.event_consumed = true;
                     break;
                 }
             }
             // ESC clears focus, matching the convention browsers use for
             // dismissing a focused control.
             if (ev.key == Key::Escape) {
+                result.event_consumed = true;
 #if !defined(AFFINEUI_STUB_BUILD)
                 if (impl_->ui_control_script_attached &&
                     detail::close_transient_layers(*impl_)) {
@@ -1239,7 +1263,17 @@ DispatchResult Document::dispatch(const Event& ev) {
             const auto text = detail::emitted_text_control_value(*control);
             const bool command = detail::command_modifier(ev);
 
-            if (command && ev.key == Key::A) {
+            if (command && ev.key == Key::Z) {
+                result.event_consumed = true;
+                result.redraw_requested = ev.shift
+                    ? detail::redo_text_edit(*impl_, idx, *control)
+                    : detail::undo_text_edit(*impl_, idx, *control);
+            } else if (command && ev.key == Key::Y) {
+                result.event_consumed = true;
+                result.redraw_requested =
+                    detail::redo_text_edit(*impl_, idx, *control);
+            } else if (command && ev.key == Key::A) {
+                result.event_consumed = true;
                 if (detail::move_text_caret(*impl_, idx, *control, text.size(), true)) {
                     detail::set_text_selection(*impl_, idx, *control, 0, text.size());
                     detail::add_dirty_rect(*impl_, detail::block_visual_rect(*impl_, idx));
@@ -1250,60 +1284,78 @@ DispatchResult Document::dispatch(const Event& ev) {
                     result.redraw_requested = true;
                 }
             } else if (command && ev.key == Key::C) {
+                result.event_consumed = true;
                 if (detail::has_text_selection(*control)) {
                     detail::clipboard_set_text(*impl_, detail::selected_text(*control));
                 }
             } else if (command && ev.key == Key::X) {
+                result.event_consumed = true;
                 if (detail::has_text_selection(*control)) {
                     detail::clipboard_set_text(*impl_, detail::selected_text(*control));
                     const auto [begin, end] = detail::normalized_selection(*control);
                     result.redraw_requested =
-                        detail::delete_text_range(*impl_, idx, *control, begin, end);
+                        detail::delete_text_range(
+                            *impl_, idx, *control, begin, end,
+                            TextEditKind::Cut);
                 }
             } else if (command && ev.key == Key::V) {
+                result.event_consumed = true;
                 const std::string paste = detail::clipboard_get_text(*impl_);
                 result.redraw_requested =
-                    detail::replace_text_selection_or_insert(*impl_, idx, *control, paste);
+                    detail::replace_text_selection_or_insert(
+                        *impl_, idx, *control, paste,
+                        TextEditKind::Paste);
             } else if (ev.key == Key::Backspace) {
+                result.event_consumed = true;
                 if (detail::has_text_selection(*control)) {
                     const auto [begin, end] = detail::normalized_selection(*control);
                     result.redraw_requested =
-                        detail::delete_text_range(*impl_, idx, *control, begin, end);
+                        detail::delete_text_range(
+                            *impl_, idx, *control, begin, end,
+                            TextEditKind::Replace);
                 } else if (command) {
                     const std::size_t begin =
                         detail::previous_word_boundary(text, control->caret_offset);
                     result.redraw_requested =
                         detail::delete_text_range(*impl_, idx, *control, begin,
-                                          control->caret_offset);
+                                          control->caret_offset,
+                                          TextEditKind::Backspace);
                 } else {
                     std::size_t begin =
                         detail::previous_utf8_boundary(text, control->caret_offset);
                     result.redraw_requested =
                         detail::delete_text_range(*impl_, idx, *control, begin,
-                                          control->caret_offset);
+                                          control->caret_offset,
+                                          TextEditKind::Backspace);
                 }
             } else if (ev.key == Key::Delete) {
+                result.event_consumed = true;
                 if (detail::has_text_selection(*control)) {
                     const auto [begin, end] = detail::normalized_selection(*control);
                     result.redraw_requested =
-                        detail::delete_text_range(*impl_, idx, *control, begin, end);
+                        detail::delete_text_range(
+                            *impl_, idx, *control, begin, end,
+                            TextEditKind::Replace);
                 } else if (command) {
                     const std::size_t end =
                         detail::next_word_boundary(text, control->caret_offset);
                     result.redraw_requested =
                         detail::delete_text_range(*impl_, idx, *control,
-                                          control->caret_offset, end);
+                                          control->caret_offset, end,
+                                          TextEditKind::DeleteForward);
                 } else {
                     const std::size_t end =
                         detail::next_utf8_boundary(text, control->caret_offset);
                     result.redraw_requested =
                         detail::delete_text_range(*impl_, idx, *control,
-                                          control->caret_offset, end);
+                                          control->caret_offset, end,
+                                          TextEditKind::DeleteForward);
                 }
             } else if (ev.key == Key::ArrowLeft ||
                        ev.key == Key::ArrowRight ||
                        ev.key == Key::Home ||
                        ev.key == Key::End) {
+                result.event_consumed = true;
                 std::size_t caret = control->caret_offset;
                 if (!ev.shift && detail::has_text_selection(*control) &&
                     ev.key == Key::ArrowLeft) {
@@ -1327,20 +1379,40 @@ DispatchResult Document::dispatch(const Event& ev) {
                 if (detail::move_text_caret(*impl_, idx, *control, caret, ev.shift)) {
                     result.redraw_requested = true;
                 }
+            } else if (ev.key == Key::Enter) {
+                result.event_consumed = true;
+                if (control->tag == "textarea") {
+                    result.redraw_requested =
+                        detail::replace_text_selection_or_insert(
+                            *impl_, idx, *control, "\n",
+                            TextEditKind::Insert);
+                }
+            } else if (!command && is_text_producing_key(ev.key)) {
+                // The actual glyph arrives through TextInput. Consume this
+                // physical-key half so app-global bare-letter shortcuts do
+                // not fire while the user is typing in a field.
+                result.event_consumed = true;
             }
             break;
         }
         case EventType::TextInput: {
             Block* control = nullptr;
-            if (detail::focused_text_control(*impl_, control) && !ev.text.empty()) {
+            if (detail::focused_text_control(*impl_, control)) {
+                result.event_consumed = true;
+                const std::string insert = filter_character_event_text(ev.text);
+                if (insert.empty()) break;
                 // Committed text first drops any preedit display; a
                 // continuing composition re-establishes it with the next
                 // Composition event (see docs/IME_ARCHITECTURE.md §4.1).
+                const bool was_composing = detail::text_composition_active(
+                    *impl_, impl_->focused_idx, *control);
                 if (detail::clear_text_composition(*impl_)) {
                     result.redraw_requested = true;
                 }
                 if (detail::replace_text_selection_or_insert(
-                        *impl_, impl_->focused_idx, *control, ev.text)) {
+                        *impl_, impl_->focused_idx, *control, insert,
+                        was_composing ? TextEditKind::Composition
+                                      : TextEditKind::Insert)) {
                     result.redraw_requested = true;
                 }
             }
@@ -1349,6 +1421,7 @@ DispatchResult Document::dispatch(const Event& ev) {
         case EventType::Composition: {
             Block* control = nullptr;
             if (!detail::focused_text_control(*impl_, control)) break;
+            result.event_consumed = true;
             const auto offset = [&ev](int v) {
                 if (v < 0) return ev.text.size();  // "end of preedit"
                 return std::min(static_cast<std::size_t>(v), ev.text.size());

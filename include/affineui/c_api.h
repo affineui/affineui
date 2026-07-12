@@ -197,6 +197,11 @@ typedef struct affineui_event {
     int         composition_clause_end;
 } affineui_event;
 
+// Capture-phase event callback. Runs synchronously before the focused widget;
+// return non-zero to consume the event. `ev` and its `text` pointer are
+// borrowed for the duration of the callback only.
+typedef int (*affineui_event_capture_fn)(void* user, const affineui_event* ev);
+
 // Frees a string returned by any affineui_* function documented as
 // "caller frees". Null is a safe no-op.
 typedef void (*affineui_user_free_fn)(void* user);
@@ -223,6 +228,14 @@ AFFINEUI_C_API void affineui_ui_render(affineui_ui* ui, const affineui_frame_tar
 // own handling of it).
 AFFINEUI_C_API int  affineui_ui_dispatch(affineui_ui* ui, const affineui_event* ev);
 
+// Register an app-global capture handler before focused-widget dispatch.
+// `user_free` is called exactly once when the handler is released.
+AFFINEUI_C_API void affineui_ui_on_event_capture(
+    affineui_ui* ui,
+    affineui_event_capture_fn fn,
+    void* user,
+    affineui_user_free_fn user_free);
+
 // Click callback for elements matching a minimal CSS selector ("#id",
 // ".cls", "tag", "a,b"). `user_free` (optional) is called when the handler
 // is released so bindings can drop their closure state.
@@ -247,7 +260,12 @@ AFFINEUI_C_API int  affineui_ui_text_input_active(const affineui_ui* ui);
 // zeros when no text control is focused. Out params may be null.
 AFFINEUI_C_API void affineui_ui_caret_rect(const affineui_ui* ui,
                                            int* out_x, int* out_y,
-                                           int* out_w, int* out_h);
+                                            int* out_w, int* out_h);
+
+// Caret visibility half-cycle in milliseconds. Zero disables blinking.
+AFFINEUI_C_API void   affineui_ui_set_caret_blink_interval(affineui_ui* ui,
+                                                            double milliseconds);
+AFFINEUI_C_API double affineui_ui_caret_blink_interval(const affineui_ui* ui);
 
 // ── Live DOM mutation (embedded) ─────────────────────────────────────
 // Return 1 only when the document actually changed.
@@ -289,7 +307,7 @@ AFFINEUI_C_API void affineui_tools_shutdown(void);
 // c_api_app.h (enum meaning, struct layout, function semantics).
 // Additive changes (new functions, appended enum values) do not bump it.
 // Language wrappers check it at load and fail fast on mismatch.
-#define AFFINEUI_C_ABI_VERSION 1
+#define AFFINEUI_C_ABI_VERSION 2
 
 AFFINEUI_C_API int         affineui_c_abi_version(void);
 
