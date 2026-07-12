@@ -181,7 +181,7 @@ int main() { affineui::Ui ui; (void)ui; return 0; }
 # the manifest CMake wrote at configure time. Optional examples (hello_sdl,
 # embed_d3d11) are absent from it when their deps weren't found, so whatever
 # this returns is genuinely runnable.
-function Get-ExampleTargets {
+function Get-NativeExampleTargets {
     # Out-Null, or cmake's configure output joins the pipeline and gets returned
     # as if it were example names — which only shows up on a FRESH checkout,
     # where the configure actually runs.
@@ -192,8 +192,52 @@ function Get-ExampleTargets {
              Where-Object { $_ })
 }
 
+# Python examples. NOT CMake targets — they are scripts that run against the
+# built `affineui` extension module, so they need pip rather than a link step,
+# and pretending they were native targets would mean lying to the manifest.
+# Declared here, name -> script, and `run` dispatches on which set the name is
+# in. PhotoEdit additionally needs the `photo_core` raster extension, which the
+# same editable install builds.
+$PyExamples = [ordered]@{
+    'photo_edit'        = 'bindings\python\examples\photo_edit.py'
+    'component_gallery' = 'bindings\python\examples\component_gallery.py'
+    'py_hello'          = 'bindings\python\examples\hello.py'
+}
+
+function Get-ExampleTargets {
+    return @(Get-NativeExampleTargets) + @($PyExamples.Keys)
+}
+
+# The Python examples import `affineui` (and, for PhotoEdit, `photo_core`), so
+# the extension has to be built and importable. An editable install is enough,
+# and it is idempotent — skip it when the module already imports.
+function Initialize-PythonExtension {
+    Initialize-Msvc
+    $probe = & python -c "import affineui, photo_core" 2>&1
+    if ($LASTEXITCODE -eq 0) { return }
+    Write-Host "building the python extension (editable install)..." -ForegroundColor Cyan
+    Push-Location $Root
+    try {
+        & python -m pip install -e ./bindings/python --no-build-isolation -q
+        Assert-LastExit 'pip install -e ./bindings/python'
+    } finally { Pop-Location }
+}
+
+function Invoke-RunPython([string]$name) {
+    Initialize-PythonExtension
+    $script = Join-Path $Root $PyExamples[$name]
+    if (-not (Test-Path $script)) {
+        Write-Host "error: '$name' maps to '$script', which does not exist." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "running $script" -ForegroundColor Cyan
+    Push-Location $Root            # assets/ resolve relative to repo root
+    try { & python $script } finally { Pop-Location }
+}
+
 function Invoke-Examples {
-    $tgts = Get-ExampleTargets
+    # Native targets only — the Python examples have no link step to drive.
+    $tgts = Get-NativeExampleTargets
     if (-not $tgts) { Write-Host "no example targets in this build." -ForegroundColor Yellow; return }
     cmake --build $Build --target $tgts --parallel
     Assert-LastExit 'build examples'
@@ -201,6 +245,7 @@ function Invoke-Examples {
 
 function Invoke-Run([string]$name) {
     if (-not $name) { $name = $Primary }
+    if ($PyExamples.Contains($name)) { Invoke-RunPython $name; return }
     $targets = Get-ExampleTargets
     if ($targets -notcontains $name) {
         Write-Host "unknown example '$name'." -ForegroundColor Red
