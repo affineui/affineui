@@ -392032,6 +392032,12 @@ std::pair<std::size_t, std::size_t> composition_display_range(
 bool text_composition_active(const detail::DocumentImpl& impl,
                              int idx,
                              const Block& block);
+/// True when a preedit is Korean — i.e. contains Hangul and no CJK ideographs
+/// or kana. Hangul composes jamo-by-jamo straight into the syllable, with no
+/// clause structure, and Korean text fields do not underline the composing
+/// syllable; the thin/thick preedit underline is a Japanese/Chinese convention
+/// where it marks which clause is being converted.
+bool is_hangul_composition(std::string_view preedit);
 bool update_text_composition(detail::DocumentImpl& impl,
                              int idx,
                              Block& block,
@@ -392064,6 +392070,10 @@ int positive_int_attr(lxb_dom_element_t* elem, std::string_view name,
                       int fallback);
 std::size_t previous_utf8_boundary(std::string_view text, std::size_t pos);
 std::size_t previous_word_boundary(std::string_view text, std::size_t pos);
+// Snap `pos` down to a UTF-8 boundary, clamped to text.size(). Unlike
+// previous_utf8_boundary this is a no-op when already on one, and
+// text.size() (a caret at end-of-string) is itself a boundary.
+std::size_t snap_utf8_boundary(std::string_view text, std::size_t pos);
 bool remove_tab_drag_ghost(detail::DocumentImpl& impl);
 bool replace_text_selection_or_insert(detail::DocumentImpl& impl,
                                       int idx,
@@ -422254,13 +422264,26 @@ void Document::draw(Painter& painter) {
                                     1.0f);
 
                 // IME preedit decoration: a thin underline across the whole
-                // preedit and a thick one under the IME's active clause —
-                // the conventional composition rendering on every platform.
+                // preedit and a thick one under the IME's active clause.
+                //
+                // This is the Japanese/Chinese convention, not a universal one.
+                // There the preedit is a long unconverted phrase segmented into
+                // clauses, and the thin/thick split is what tells you WHICH
+                // clause you are converting — the underline is carrying real
+                // information. Korean has no such phase: hangul is assembled
+                // jamo-by-jamo directly into the syllable, one or two characters
+                // at a time, with no clause structure to disambiguate. Korean
+                // text fields accordingly do not underline the composing
+                // syllable, and drawing one there is simply wrong.
+                //
+                // Keyed off the SCRIPT of the preedit, not the platform: a
+                // Korean IME on Windows must render like a Korean IME on macOS.
                 const auto [pre_begin, pre_end] =
                     detail::composition_display_range(
                         *impl_, static_cast<int>(i), b);
                 if (pre_end > pre_begin &&
-                    !caret_layout->caret_offsets.empty()) {
+                    !caret_layout->caret_offsets.empty() &&
+                    !detail::is_hangul_composition(impl_->composition_text)) {
                     const auto index_of = [&](std::size_t offset) {
                         auto iter = std::lower_bound(
                             caret_layout->caret_offsets.begin(),
@@ -431938,19 +431961,23 @@ bool focused_text_control(detail::DocumentImpl& impl, Block*& out) {
     out = &block;
     return true;
 }
-}  // namespace detail
-namespace {
-
 // Snap `pos` down to a UTF-8 boundary within `s`, clamped to its size.
 // Unlike previous_utf8_boundary this is a no-op when already on one.
+//
+// pos == s.size() is a legitimate offset (a caret at end-of-string) and is
+// already a boundary by definition — return it rather than subscripting it.
+// The IME hits this on every keystroke: a preedit cursor of -1 means "end of
+// preedit", which dispatch resolves to exactly text.size().
 std::size_t snap_utf8_boundary(std::string_view s, std::size_t pos) {
-    pos = std::min(pos, s.size());
+    if (pos >= s.size()) return s.size();
     while (pos > 0 &&
            (static_cast<unsigned char>(s[pos]) & 0xC0u) == 0x80u) {
         --pos;
     }
     return pos;
 }
+}  // namespace detail
+namespace {
 
 // ── CJK line breaking for text controls ─────────────────────────────
 // CJK prose has no inter-word spaces, so the text-control wrap loop —
@@ -432085,6 +432112,57 @@ void refresh_composed_display(detail::DocumentImpl& impl,
 
 // Cross-file document helpers — declared in internal/document_impl.h.
 namespace detail {
+bool is_hangul_composition(std::string_view preedit) {
+    // Decode UTF-8 and look for Hangul. A preedit that carries any CJK
+    // ideograph or kana is a Japanese/Chinese composition and keeps its
+    // underline even if some hangul rides along; only an all-Korean preedit
+    // drops it.
+    bool saw_hangul = false;
+    for (std::size_t i = 0; i < preedit.size();) {
+        const auto b0 = static_cast<unsigned char>(preedit[i]);
+        std::uint32_t cp = 0;
+        std::size_t len = 1;
+        if (b0 < 0x80) {
+            cp = b0;
+        } else if ((b0 & 0xE0) == 0xC0 && i + 1 < preedit.size()) {
+            cp = static_cast<std::uint32_t>(b0 & 0x1F);
+            len = 2;
+        } else if ((b0 & 0xF0) == 0xE0 && i + 2 < preedit.size()) {
+            cp = static_cast<std::uint32_t>(b0 & 0x0F);
+            len = 3;
+        } else if ((b0 & 0xF8) == 0xF0 && i + 3 < preedit.size()) {
+            cp = static_cast<std::uint32_t>(b0 & 0x07);
+            len = 4;
+        } else {
+            ++i;  // malformed lead byte — skip it
+            continue;
+        }
+        for (std::size_t k = 1; k < len; ++k) {
+            cp = (cp << 6) | (static_cast<std::uint32_t>(
+                                  static_cast<unsigned char>(preedit[i + k])) &
+                              0x3F);
+        }
+        i += len;
+
+        // Hangul: syllables, Jamo, and the compatibility/extended jamo blocks.
+        if ((cp >= 0xAC00 && cp <= 0xD7AF) ||   // Hangul Syllables
+            (cp >= 0x1100 && cp <= 0x11FF) ||   // Hangul Jamo
+            (cp >= 0x3130 && cp <= 0x318F) ||   // Compatibility Jamo
+            (cp >= 0xA960 && cp <= 0xA97F) ||   // Jamo Extended-A
+            (cp >= 0xD7B0 && cp <= 0xD7FF)) {   // Jamo Extended-B
+            saw_hangul = true;
+            continue;
+        }
+        // Kana or CJK ideographs => this is a Japanese/Chinese composition.
+        if ((cp >= 0x3040 && cp <= 0x30FF) ||   // Hiragana + Katakana
+            (cp >= 0x4E00 && cp <= 0x9FFF) ||   // CJK Unified Ideographs
+            (cp >= 0x3400 && cp <= 0x4DBF)) {   // CJK Extension A
+            return false;
+        }
+    }
+    return saw_hangul;
+}
+
 bool text_composition_active(const detail::DocumentImpl& impl,
                              int idx,
                              const Block& block) {
@@ -433399,6 +433477,7 @@ bool text_composition_active(const detail::DocumentImpl&,
                              const Block&) {
     return false;
 }
+bool is_hangul_composition(std::string_view) { return false; }
 bool update_text_composition(detail::DocumentImpl&,
                              int,
                              Block&,
