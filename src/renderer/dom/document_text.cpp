@@ -410,19 +410,23 @@ bool focused_text_control(detail::DocumentImpl& impl, Block*& out) {
     out = &block;
     return true;
 }
-}  // namespace detail
-namespace {
-
 // Snap `pos` down to a UTF-8 boundary within `s`, clamped to its size.
 // Unlike previous_utf8_boundary this is a no-op when already on one.
+//
+// pos == s.size() is a legitimate offset (a caret at end-of-string) and is
+// already a boundary by definition — return it rather than subscripting it.
+// The IME hits this on every keystroke: a preedit cursor of -1 means "end of
+// preedit", which dispatch resolves to exactly text.size().
 std::size_t snap_utf8_boundary(std::string_view s, std::size_t pos) {
-    pos = std::min(pos, s.size());
+    if (pos >= s.size()) return s.size();
     while (pos > 0 &&
            (static_cast<unsigned char>(s[pos]) & 0xC0u) == 0x80u) {
         --pos;
     }
     return pos;
 }
+}  // namespace detail
+namespace {
 
 // ── CJK line breaking for text controls ─────────────────────────────
 // CJK prose has no inter-word spaces, so the text-control wrap loop —

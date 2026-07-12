@@ -229,12 +229,22 @@ if(AFFINEUI_ENABLE_C_API)
     target_sources(affineui PRIVATE src/c_api.cpp src/c_api_app.cpp)
 endif()
 
-# Compile-time bundled Decius CSS framework. The generated header lives
-# at include/affineui/_decius_bundle.h (leading underscore = generated,
-# gitignored). Regenerating it is driven by DEPENDS on the source assets
-# so `cmake --build` picks up an updated CSS or icon font automatically.
+# Compile-time bundled Decius CSS framework. The generated header is written
+# into the BUILD tree, not the source tree.
+#
+# That matters beyond tidiness: affineui-sys ships to crates.io as a
+# source-build crate whose build.rs invokes this cmake, and cargo FORBIDS
+# build.rs from modifying the source directory — it fails the build with
+# "Source directory was modified by build.rs during cargo publish". Generating
+# into ${CMAKE_CURRENT_SOURCE_DIR} therefore broke the crate for every consumer,
+# not just at publish time, and `cargo publish --no-verify` only hid it from us.
+#
+# It lands under generated/affineui/ so that `#include "affineui/_decius_bundle.h"`
+# (src/decius_bundle.cpp) resolves against the generated include root the same
+# way it resolves against the real one.
 if(AFFINEUI_BUNDLE_DECIUS)
-    set(_decius_gen "${CMAKE_CURRENT_SOURCE_DIR}/include/affineui/_decius_bundle.h")
+    set(_decius_gen_dir "${CMAKE_BINARY_DIR}/generated")
+    set(_decius_gen "${_decius_gen_dir}/affineui/_decius_bundle.h")
     set(_decius_src
         "${CMAKE_CURRENT_SOURCE_DIR}/examples/frameworks/css/decius-css-0.6.2.bundle.min.css"
         "${CMAKE_CURRENT_SOURCE_DIR}/examples/frameworks/fonts/decius-icons.ttf")
@@ -244,6 +254,7 @@ if(AFFINEUI_BUNDLE_DECIUS)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_custom_command(
         OUTPUT  "${_decius_gen}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${_decius_gen_dir}/affineui"
         COMMAND ${CMAKE_COMMAND} -E echo "▸ embedding Decius bundle → ${_decius_gen}"
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_decius.py" "${_decius_gen}"
         DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_decius.py" ${_decius_src}
@@ -263,6 +274,12 @@ target_include_directories(affineui
         # tiny-json: single-header JSON parser used by tools_server.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/external/tinyjson
 )
+
+# The generated Decius bundle header lives in the build tree (see above), so the
+# generated include root has to be on the path alongside the real one.
+if(AFFINEUI_BUNDLE_DECIUS)
+    target_include_directories(affineui PRIVATE "${_decius_gen_dir}")
+endif()
 
 target_compile_definitions(affineui
     PUBLIC

@@ -7,6 +7,10 @@
 #include "affineui/view.h"
 #include "decius_interactions.h"
 
+#if !defined(AFFINEUI_STUB_BUILD)
+#    include "renderer/dom/document_impl.h"
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -12373,6 +12377,66 @@ TEST_CASE("caret_rect tracks the IME cursor inside the preedit") {
     const auto rect_mid = doc.caret_rect();
     doc.dispatch(composition_event("\xE3\x81\x8B\xE3\x82\x93", 3));
     CHECK(rect_mid.x == doc.caret_rect().x);
+}
+
+#if !defined(AFFINEUI_STUB_BUILD)
+TEST_CASE("snap_utf8_boundary treats size() as a boundary, not an index") {
+    // Regression: snap_utf8_boundary clamped `pos` to size() and then
+    // immediately subscripted s[pos]. size() is a legitimate OFFSET (a caret
+    // at end-of-string) but not a valid INDEX, so the read went one past the
+    // end. The IME hits this on literally every keystroke: a preedit cursor
+    // of -1 means "end of preedit", and dispatch resolves that to text.size().
+    //
+    // Debug MSVC catches it with a string_view bounds assert. In Release the
+    // checks are off and it is silent UB, so pin the behaviour on a VALUE
+    // instead: hand it a view whose one-past-the-end byte is a continuation
+    // byte (0b10xxxxxx). The buggy loop reads that byte, believes it is
+    // mid-codepoint, and walks the offset backwards off the true end; the
+    // correct code returns size() untouched. This fails in every config.
+    const std::string backing = "\xE3\x81\x8B\xE3\x82\x93\xE3\x82\x93";
+    // View just the first two codepoints ("かん"). backing[6] == 0xE3 is a
+    // LEAD byte, so also test the nastier case below.
+    const std::string_view preedit(backing.data(), 6);
+    CHECK(affineui::detail::snap_utf8_boundary(preedit, preedit.size()) ==
+          preedit.size());
+
+    // The byte at [size()] is now 0x82 — a continuation byte. A snap that
+    // subscripts it would rewind to 3 (or further); it must still return 6.
+    const std::string_view preedit_cont(backing.data() + 1, 6);
+    CHECK(affineui::detail::snap_utf8_boundary(preedit_cont,
+                                               preedit_cont.size()) == 6u);
+
+    // An offset past the end still clamps to size(), and interior offsets
+    // still snap down to the codepoint start they land inside.
+    CHECK(affineui::detail::snap_utf8_boundary(preedit, 99) == 6u);
+    CHECK(affineui::detail::snap_utf8_boundary(preedit, 4) == 3u);
+    CHECK(affineui::detail::snap_utf8_boundary(preedit, 3) == 3u);
+    CHECK(affineui::detail::snap_utf8_boundary(preedit, 0) == 0u);
+    CHECK(affineui::detail::snap_utf8_boundary(std::string_view{}, 0) == 0u);
+}
+#endif  // !AFFINEUI_STUB_BUILD
+
+TEST_CASE("an end-of-preedit IME cursor lands past the last codepoint") {
+    // End-to-end companion to the unit test above: the caret for a cursor of
+    // -1 ("end of preedit") must sit strictly right of the last codepoint
+    // boundary, and agree with an explicit cursor of preedit.size().
+    affineui::Document doc;
+    RecordingPainter painter;
+    focus_ime_input(doc, painter);
+
+    const std::string preedit = "\xE3\x81\x8B\xE3\x82\x93";  // "かん", 6 bytes
+
+    doc.dispatch(composition_event(preedit, -1));
+    const auto rect_implicit_end = doc.caret_rect();
+
+    doc.dispatch(composition_event(preedit, static_cast<int>(preedit.size())));
+    const auto rect_explicit_end = doc.caret_rect();
+
+    doc.dispatch(composition_event(preedit, 3));
+    const auto rect_last_boundary = doc.caret_rect();
+
+    CHECK(rect_implicit_end.x == rect_explicit_end.x);
+    CHECK(rect_implicit_end.x > rect_last_boundary.x);
 }
 
 TEST_CASE("IME preedit survives a relayout") {
