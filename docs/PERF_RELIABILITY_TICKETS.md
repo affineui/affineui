@@ -522,7 +522,10 @@ LANDED TODAY (each verified by profiler/trace, 427/427 green):
 - O(1) StyleStore::element_of (was 60% of session CPU via the hover
   path's per-event linear scans).
 - Mouse-move coalescing in App (event-flood death spiral: 868 layouts /
-  5.5 s in one session → 39; moves now ≤1 dispatch per frame).
+  5.5 s in one session → 39; moves now ≤1 dispatch per frame). **Superseded:**
+  input callbacks must preserve every ordered pointer sample. The macOS native
+  scheduler now batches already-queued input ahead of one coalesced frame
+  opportunity; repaint requests coalesce, input data does not.
 - Scoped structural settle (sink records block roots; settle rematches
   only those subtrees; resolver cache stays warm; per-op invalidation
   on destroy — global settle only for scope-less changes).

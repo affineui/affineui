@@ -38284,6 +38284,14 @@ typedef struct {
     NSWindow* window;
     NSTrackingArea* tracking_area;
     id keyup_monitor;
+    /* AFFINEUI PATCH: CADisplayLink only queues a frame opportunity.  The
+       marker sits behind native input already waiting in NSApplication's
+       event queue, so every input callback runs before the next frame while
+       repeated display ticks still coalesce to one render. */
+    id frame_monitor;
+    bool frame_event_pending;
+    bool frame_in_progress;
+    bool frame_deferred;
     _sapp_macos_app_delegate* app_dlg;
     _sapp_macos_window_delegate* win_dlg;
     _sapp_macos_view* view;
@@ -40975,6 +40983,14 @@ _SOKOL_PRIVATE void _sapp_macos_discard_state(void) {
         // NOTE: removeMonitor also releases the object
         _sapp.macos.keyup_monitor = nil;
     }
+    if (_sapp.macos.frame_monitor != nil) {
+        [NSEvent removeMonitor:_sapp.macos.frame_monitor];
+        // NOTE: removeMonitor also releases the object
+        _sapp.macos.frame_monitor = nil;
+    }
+    _sapp.macos.frame_event_pending = false;
+    _sapp.macos.frame_in_progress = false;
+    _sapp.macos.frame_deferred = false;
     _SAPP_OBJC_RELEASE(_sapp.macos.tracking_area);
     _SAPP_OBJC_RELEASE(_sapp.macos.app_dlg);
     _SAPP_OBJC_RELEASE(_sapp.macos.win_dlg);
@@ -41014,6 +41030,45 @@ _SOKOL_PRIVATE void _sapp_macos_init_cursors(void) {
     _sapp.macos.standard_cursors[SAPP_MOUSECURSOR_NOT_ALLOWED] = [NSCursor operationNotAllowedCursor];
 }
 
+_SOKOL_PRIVATE void _sapp_macos_frame(void);
+
+/* AFFINEUI PATCH: identify an internal frame-opportunity event without
+   reserving an application-visible event subtype.  Both payload words must
+   match, including this process's _sapp address. */
+_SOKOL_PRIVATE bool _sapp_macos_is_frame_event(NSEvent* event) {
+    return (event.type == NSEventTypeApplicationDefined) &&
+        (event.subtype == (NSEventSubtype)0x0AFF) &&
+        (event.data1 == (NSInteger)(uintptr_t)&_sapp) &&
+        (event.data2 == (NSInteger)0x4652414D); /* 'FRAM' */
+}
+
+_SOKOL_PRIVATE void _sapp_macos_post_frame_event(void) {
+    /* A display source reached through a nested run loop must never recurse
+       into rendering.  Remember one opportunity and post it only after the
+       active frame transaction closes. */
+    if (_sapp.cleanup_called) {
+        return;
+    }
+    if (_sapp.macos.frame_in_progress) {
+        _sapp.macos.frame_deferred = true;
+        return;
+    }
+    if (_sapp.macos.frame_event_pending) {
+        return;
+    }
+    _sapp.macos.frame_event_pending = true;
+    NSEvent* event = [NSEvent otherEventWithType:NSEventTypeApplicationDefined
+                                       location:NSZeroPoint
+                                  modifierFlags:0
+                                      timestamp:0
+                                   windowNumber:0
+                                        context:nil
+                                        subtype:(NSEventSubtype)0x0AFF
+                                          data1:(NSInteger)(uintptr_t)&_sapp
+                                          data2:(NSInteger)0x4652414D];
+    [NSApp postEvent:event atStart:NO];
+}
+
 _SOKOL_PRIVATE void _sapp_macos_run(const sapp_desc* desc) {
     _sapp_init_state(desc);
     _sapp_macos_init_keytable();
@@ -41033,6 +41088,32 @@ _SOKOL_PRIVATE void _sapp_macos_run(const sapp_desc* desc) {
         return event;
     };
     _sapp.macos.keyup_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyUp handler:keyup_monitor];
+
+    /* A CADisplayLink callback is a scheduling signal, not permission to
+       render recursively from whichever run-loop mode happened to service
+       it.  The posted marker is ordered after native events that were
+       already queued at the display tick.  Newer input remains behind the
+       marker for the following frame, which bounds both input and render
+       latency without dropping callbacks. */
+    NSEvent* (^frame_monitor)(NSEvent*) = ^NSEvent* (NSEvent* event) {
+        if (!_sapp_macos_is_frame_event(event)) {
+            return event;
+        }
+        _sapp.macos.frame_event_pending = false;
+        if (_sapp.macos.frame_in_progress) {
+            _sapp.macos.frame_deferred = true;
+            return nil;
+        }
+        _sapp.macos.frame_in_progress = true;
+        _sapp_macos_frame();
+        _sapp.macos.frame_in_progress = false;
+        if (_sapp.macos.frame_deferred && !_sapp.cleanup_called) {
+            _sapp.macos.frame_deferred = false;
+            _sapp_macos_post_frame_event();
+        }
+        return nil;
+    };
+    _sapp.macos.frame_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskApplicationDefined handler:frame_monitor];
 
     [NSApp run];
     // NOTE: [NSApp run] never returns, instead cleanup code
@@ -41612,11 +41693,11 @@ _SOKOL_PRIVATE void _sapp_macos_frame(void) {
 #elif defined(SOKOL_METAL) || defined(SOKOL_WGPU)
 - (void)displayLinkFired:(id)sender {
     _SOKOL_UNUSED(sender);
-    _sapp_macos_frame();
+    _sapp_macos_post_frame_event();
 }
 - (void)fallbackTimerFired:(NSTimer*)timer {
     _SOKOL_UNUSED(timer);
-    _sapp_macos_frame();
+    _sapp_macos_post_frame_event();
 }
 #endif
 

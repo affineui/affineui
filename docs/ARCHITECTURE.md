@@ -148,6 +148,35 @@ future Python "Gradio-style" API, and any remote-browser bridge aligned:
 they all create and mutate app/session objects, then choose where those
 objects present.
 
+### Input and frame scheduling
+
+Input data and repaint requests have deliberately different coalescing
+semantics:
+
+- Every native pointer, button, wheel, key, and text event is dispatched in
+  order. Pointer samples are application data (stroke paths, deltas, velocity,
+  gesture history) and are never replaced by a newer sample in the engine.
+- Event callbacks mutate application/UI state and latch invalidation. Many
+  invalidations coalesce into one update/reconcile/paint transaction.
+- A display tick is a frame *opportunity*, not permission to enter rendering
+  recursively. At most one frame transaction runs at a time.
+- The phase order is `native input batch -> update/frame callbacks ->
+  reconcile -> paint/present`. Event delivery does not run inside update,
+  reconcile, or paint.
+
+On macOS, the vendored Sokol backend implements this by posting one internal
+frame marker at the back of AppKit's event queue when `CADisplayLink` fires.
+Native events already queued at that tick therefore dispatch before the marker;
+events arriving later remain behind it for the next batch. Repeated display
+ticks coalesce to one marker, and a tick serviced by a nested run loop is
+deferred until the active frame closes. AffineUI does not pump `NSRunLoop` or
+drain `NSEvent` from inside `cb_frame`.
+
+The engine retains a re-entry check as defense-in-depth, but reaching it is an
+invariant violation in the backend/host scheduler, not a normal scheduling
+mechanism. `AFFINEUI_ABORT_ON_FRAME_REENTRY=1` turns that violation into an
+immediate failure for native integration tests.
+
 ### Backend messaging
 
 The native and browser backends should use the same conceptual queue

@@ -289732,6 +289732,14 @@ typedef struct {
     NSWindow* window;
     NSTrackingArea* tracking_area;
     id keyup_monitor;
+    /* AFFINEUI PATCH: CADisplayLink only queues a frame opportunity.  The
+       marker sits behind native input already waiting in NSApplication's
+       event queue, so every input callback runs before the next frame while
+       repeated display ticks still coalesce to one render. */
+    id frame_monitor;
+    bool frame_event_pending;
+    bool frame_in_progress;
+    bool frame_deferred;
     _sapp_macos_app_delegate* app_dlg;
     _sapp_macos_window_delegate* win_dlg;
     _sapp_macos_view* view;
@@ -292423,6 +292431,14 @@ _SOKOL_PRIVATE void _sapp_macos_discard_state(void) {
         // NOTE: removeMonitor also releases the object
         _sapp.macos.keyup_monitor = nil;
     }
+    if (_sapp.macos.frame_monitor != nil) {
+        [NSEvent removeMonitor:_sapp.macos.frame_monitor];
+        // NOTE: removeMonitor also releases the object
+        _sapp.macos.frame_monitor = nil;
+    }
+    _sapp.macos.frame_event_pending = false;
+    _sapp.macos.frame_in_progress = false;
+    _sapp.macos.frame_deferred = false;
     _SAPP_OBJC_RELEASE(_sapp.macos.tracking_area);
     _SAPP_OBJC_RELEASE(_sapp.macos.app_dlg);
     _SAPP_OBJC_RELEASE(_sapp.macos.win_dlg);
@@ -292462,6 +292478,45 @@ _SOKOL_PRIVATE void _sapp_macos_init_cursors(void) {
     _sapp.macos.standard_cursors[SAPP_MOUSECURSOR_NOT_ALLOWED] = [NSCursor operationNotAllowedCursor];
 }
 
+_SOKOL_PRIVATE void _sapp_macos_frame(void);
+
+/* AFFINEUI PATCH: identify an internal frame-opportunity event without
+   reserving an application-visible event subtype.  Both payload words must
+   match, including this process's _sapp address. */
+_SOKOL_PRIVATE bool _sapp_macos_is_frame_event(NSEvent* event) {
+    return (event.type == NSEventTypeApplicationDefined) &&
+        (event.subtype == (NSEventSubtype)0x0AFF) &&
+        (event.data1 == (NSInteger)(uintptr_t)&_sapp) &&
+        (event.data2 == (NSInteger)0x4652414D); /* 'FRAM' */
+}
+
+_SOKOL_PRIVATE void _sapp_macos_post_frame_event(void) {
+    /* A display source reached through a nested run loop must never recurse
+       into rendering.  Remember one opportunity and post it only after the
+       active frame transaction closes. */
+    if (_sapp.cleanup_called) {
+        return;
+    }
+    if (_sapp.macos.frame_in_progress) {
+        _sapp.macos.frame_deferred = true;
+        return;
+    }
+    if (_sapp.macos.frame_event_pending) {
+        return;
+    }
+    _sapp.macos.frame_event_pending = true;
+    NSEvent* event = [NSEvent otherEventWithType:NSEventTypeApplicationDefined
+                                       location:NSZeroPoint
+                                  modifierFlags:0
+                                      timestamp:0
+                                   windowNumber:0
+                                        context:nil
+                                        subtype:(NSEventSubtype)0x0AFF
+                                          data1:(NSInteger)(uintptr_t)&_sapp
+                                          data2:(NSInteger)0x4652414D];
+    [NSApp postEvent:event atStart:NO];
+}
+
 _SOKOL_PRIVATE void _sapp_macos_run(const sapp_desc* desc) {
     _sapp_init_state(desc);
     _sapp_macos_init_keytable();
@@ -292481,6 +292536,32 @@ _SOKOL_PRIVATE void _sapp_macos_run(const sapp_desc* desc) {
         return event;
     };
     _sapp.macos.keyup_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyUp handler:keyup_monitor];
+
+    /* A CADisplayLink callback is a scheduling signal, not permission to
+       render recursively from whichever run-loop mode happened to service
+       it.  The posted marker is ordered after native events that were
+       already queued at the display tick.  Newer input remains behind the
+       marker for the following frame, which bounds both input and render
+       latency without dropping callbacks. */
+    NSEvent* (^frame_monitor)(NSEvent*) = ^NSEvent* (NSEvent* event) {
+        if (!_sapp_macos_is_frame_event(event)) {
+            return event;
+        }
+        _sapp.macos.frame_event_pending = false;
+        if (_sapp.macos.frame_in_progress) {
+            _sapp.macos.frame_deferred = true;
+            return nil;
+        }
+        _sapp.macos.frame_in_progress = true;
+        _sapp_macos_frame();
+        _sapp.macos.frame_in_progress = false;
+        if (_sapp.macos.frame_deferred && !_sapp.cleanup_called) {
+            _sapp.macos.frame_deferred = false;
+            _sapp_macos_post_frame_event();
+        }
+        return nil;
+    };
+    _sapp.macos.frame_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskApplicationDefined handler:frame_monitor];
 
     [NSApp run];
     // NOTE: [NSApp run] never returns, instead cleanup code
@@ -293060,11 +293141,11 @@ _SOKOL_PRIVATE void _sapp_macos_frame(void) {
 #elif defined(SOKOL_METAL) || defined(SOKOL_WGPU)
 - (void)displayLinkFired:(id)sender {
     _SOKOL_UNUSED(sender);
-    _sapp_macos_frame();
+    _sapp_macos_post_frame_event();
 }
 - (void)fallbackTimerFired:(NSTimer*)timer {
     _SOKOL_UNUSED(timer);
-    _sapp_macos_frame();
+    _sapp_macos_post_frame_event();
 }
 #endif
 
@@ -343687,6 +343768,14 @@ typedef struct {
     NSWindow* window;
     NSTrackingArea* tracking_area;
     id keyup_monitor;
+    /* AFFINEUI PATCH: CADisplayLink only queues a frame opportunity.  The
+       marker sits behind native input already waiting in NSApplication's
+       event queue, so every input callback runs before the next frame while
+       repeated display ticks still coalesce to one render. */
+    id frame_monitor;
+    bool frame_event_pending;
+    bool frame_in_progress;
+    bool frame_deferred;
     _sapp_macos_app_delegate* app_dlg;
     _sapp_macos_window_delegate* win_dlg;
     _sapp_macos_view* view;
@@ -346378,6 +346467,14 @@ _SOKOL_PRIVATE void _sapp_macos_discard_state(void) {
         // NOTE: removeMonitor also releases the object
         _sapp.macos.keyup_monitor = nil;
     }
+    if (_sapp.macos.frame_monitor != nil) {
+        [NSEvent removeMonitor:_sapp.macos.frame_monitor];
+        // NOTE: removeMonitor also releases the object
+        _sapp.macos.frame_monitor = nil;
+    }
+    _sapp.macos.frame_event_pending = false;
+    _sapp.macos.frame_in_progress = false;
+    _sapp.macos.frame_deferred = false;
     _SAPP_OBJC_RELEASE(_sapp.macos.tracking_area);
     _SAPP_OBJC_RELEASE(_sapp.macos.app_dlg);
     _SAPP_OBJC_RELEASE(_sapp.macos.win_dlg);
@@ -346417,6 +346514,45 @@ _SOKOL_PRIVATE void _sapp_macos_init_cursors(void) {
     _sapp.macos.standard_cursors[SAPP_MOUSECURSOR_NOT_ALLOWED] = [NSCursor operationNotAllowedCursor];
 }
 
+_SOKOL_PRIVATE void _sapp_macos_frame(void);
+
+/* AFFINEUI PATCH: identify an internal frame-opportunity event without
+   reserving an application-visible event subtype.  Both payload words must
+   match, including this process's _sapp address. */
+_SOKOL_PRIVATE bool _sapp_macos_is_frame_event(NSEvent* event) {
+    return (event.type == NSEventTypeApplicationDefined) &&
+        (event.subtype == (NSEventSubtype)0x0AFF) &&
+        (event.data1 == (NSInteger)(uintptr_t)&_sapp) &&
+        (event.data2 == (NSInteger)0x4652414D); /* 'FRAM' */
+}
+
+_SOKOL_PRIVATE void _sapp_macos_post_frame_event(void) {
+    /* A display source reached through a nested run loop must never recurse
+       into rendering.  Remember one opportunity and post it only after the
+       active frame transaction closes. */
+    if (_sapp.cleanup_called) {
+        return;
+    }
+    if (_sapp.macos.frame_in_progress) {
+        _sapp.macos.frame_deferred = true;
+        return;
+    }
+    if (_sapp.macos.frame_event_pending) {
+        return;
+    }
+    _sapp.macos.frame_event_pending = true;
+    NSEvent* event = [NSEvent otherEventWithType:NSEventTypeApplicationDefined
+                                       location:NSZeroPoint
+                                  modifierFlags:0
+                                      timestamp:0
+                                   windowNumber:0
+                                        context:nil
+                                        subtype:(NSEventSubtype)0x0AFF
+                                          data1:(NSInteger)(uintptr_t)&_sapp
+                                          data2:(NSInteger)0x4652414D];
+    [NSApp postEvent:event atStart:NO];
+}
+
 _SOKOL_PRIVATE void _sapp_macos_run(const sapp_desc* desc) {
     _sapp_init_state(desc);
     _sapp_macos_init_keytable();
@@ -346436,6 +346572,32 @@ _SOKOL_PRIVATE void _sapp_macos_run(const sapp_desc* desc) {
         return event;
     };
     _sapp.macos.keyup_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyUp handler:keyup_monitor];
+
+    /* A CADisplayLink callback is a scheduling signal, not permission to
+       render recursively from whichever run-loop mode happened to service
+       it.  The posted marker is ordered after native events that were
+       already queued at the display tick.  Newer input remains behind the
+       marker for the following frame, which bounds both input and render
+       latency without dropping callbacks. */
+    NSEvent* (^frame_monitor)(NSEvent*) = ^NSEvent* (NSEvent* event) {
+        if (!_sapp_macos_is_frame_event(event)) {
+            return event;
+        }
+        _sapp.macos.frame_event_pending = false;
+        if (_sapp.macos.frame_in_progress) {
+            _sapp.macos.frame_deferred = true;
+            return nil;
+        }
+        _sapp.macos.frame_in_progress = true;
+        _sapp_macos_frame();
+        _sapp.macos.frame_in_progress = false;
+        if (_sapp.macos.frame_deferred && !_sapp.cleanup_called) {
+            _sapp.macos.frame_deferred = false;
+            _sapp_macos_post_frame_event();
+        }
+        return nil;
+    };
+    _sapp.macos.frame_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskApplicationDefined handler:frame_monitor];
 
     [NSApp run];
     // NOTE: [NSApp run] never returns, instead cleanup code
@@ -347015,11 +347177,11 @@ _SOKOL_PRIVATE void _sapp_macos_frame(void) {
 #elif defined(SOKOL_METAL) || defined(SOKOL_WGPU)
 - (void)displayLinkFired:(id)sender {
     _SOKOL_UNUSED(sender);
-    _sapp_macos_frame();
+    _sapp_macos_post_frame_event();
 }
 - (void)fallbackTimerFired:(NSTimer*)timer {
     _SOKOL_UNUSED(timer);
-    _sapp_macos_frame();
+    _sapp_macos_post_frame_event();
 }
 #endif
 
@@ -403138,15 +403300,6 @@ void push_idle(double t_ms, std::uint64_t skipped) {
 #if !defined(AFFINEUI_STUB_BUILD)
 #endif
 
-#if defined(__APPLE__) && !defined(AFFINEUI_STUB_BUILD)
-// See src/framework/app/app_mac_native.mm. Drains the NSEvent queue in
-// place of AppKit's per-run-loop-iteration delivery, so cb_event fires
-// for every queued input event on each app pulse instead of one per
-// display refresh (which during modal drag stalls mouse-up behind a
-// backlog and produces multi-second unresponsive tails).
-extern "C" void affineui_mac_drain_native_events(void);
-#endif
-
 namespace affineui {
 
 namespace detail {
@@ -403196,10 +403349,11 @@ struct AppImpl {
     bool                       has_last_mouse{false};
     // View diagnostics already printed to stderr (each distinct message once).
     std::set<std::string>      reported_view_diagnostics;
-    // Set for the duration of cb_frame. The macOS native-event drain runs a
-    // nested run loop that can re-enter cb_frame; this makes that nested
-    // frame a no-op (see cb_frame).
+    // Frame-transaction invariant guard. Platform scheduling must serialize
+    // frame opportunities; this remains as defense-in-depth so a future host
+    // integration cannot corrupt renderer state by recursively entering it.
     bool                  in_frame{false};
+    bool                  frame_reentry_reported{false};
     bool                  pointer_captured{false};
     bool                  quit_requested{false};
     int                   exit_code{0};
@@ -403237,6 +403391,7 @@ struct AppImpl {
     // delivered between paints.
     std::uint32_t         moves_received_since_frame{0};
     std::uint32_t         moves_dispatched_since_frame{0};
+    std::uint64_t         input_dispatch_us_since_frame{0};
     // Wall time of the last raw MOUSE_MOVE received in cb_event. Frame
     // trace prints (frame_now - stamp) as "age" so we can see whether
     // events themselves are stale on arrival or fresh but lag downstream.
@@ -404182,14 +404337,27 @@ void sync_ime_state(detail::AppImpl& impl) {
 
 void cb_frame(void* user) {
     auto* impl = static_cast<detail::AppImpl*>(user);
-    // The macOS drain below pumps NSEvents through a nested run loop, which
-    // services the CADisplayLink source and re-enters this callback from
-    // inside itself. A nested frame would run a second render (and a second
-    // set of frame callbacks) over state the outer frame is halfway through
-    // mutating — on the 3D samples that reads a half-torn viewport and
-    // faults. There is nothing useful a nested frame can do that the outer
-    // one won't; drop it and let the outer frame finish.
-    if (impl->in_frame) return;
+    // This is an invariant check, not a scheduler. Native backends queue and
+    // coalesce frame opportunities before reaching the engine. If a host
+    // violates that boundary, refuse the unsafe nested transaction and make
+    // the defect visible instead of silently normalizing it.
+    if (impl->in_frame) {
+        if (std::getenv("AFFINEUI_ABORT_ON_FRAME_REENTRY")) {
+            std::fprintf(stderr,
+                         "AffineUI invariant violation: recursive frame "
+                         "callback reached the engine\n");
+            std::fflush(stderr);
+            std::abort();
+        }
+        if (!impl->frame_reentry_reported) {
+            impl->frame_reentry_reported = true;
+            std::fprintf(stderr,
+                         "AffineUI invariant violation: recursive frame "
+                         "callback was blocked\n");
+            std::fflush(stderr);
+        }
+        return;
+    }
     impl->in_frame = true;
     struct FrameGuard {
         detail::AppImpl* impl;
@@ -404222,7 +404390,9 @@ void cb_frame(void* user) {
                                   std::memory_order_relaxed);
         detail::g_log_t_ms.store(t_ms, std::memory_order_relaxed);
 
-        // Coalesced resize + pointer motion: at most one of each per frame.
+        // Resize is a latest-value update and coalesces to one dispatch per
+        // frame. Pointer samples are never coalesced; native delivery has
+        // already dispatched the full ordered batch before this marker.
         if (impl->has_pending_resize) {
             impl->has_pending_resize = false;
             Event resize_ev{};
@@ -404231,28 +404401,27 @@ void cb_frame(void* user) {
         }
         static const bool input_trace =
             std::getenv("AFFINEUI_INPUT_TRACE") != nullptr;
-        // Pulse start: drain any OS input events queued behind AppKit's
-        // per-run-loop-iteration throttle. This dispatches cb_event N
-        // times, one per queued NSEvent, so mouse-up on a fast drag isn't
-        // buried behind a backlog. No-op on non-Apple platforms.
-        const auto phase_t0 = std::chrono::steady_clock::now();
-#if defined(__APPLE__)
-        affineui_mac_drain_native_events();
-#endif
-        const auto phase_t_after_dispatch = std::chrono::steady_clock::now();
-        // Sample age + counters AFTER the drain so all three describe the
-        // SAME batch of events (the drain updates last_move_stamp and the
-        // moves_received/dispatched counters as it dispatches).
+        // Input is dispatched by the native event phase before this frame
+        // opportunity. On macOS, CADisplayLink posts a coalesced marker at
+        // the back of AppKit's queue, so all native input already waiting at
+        // the tick is delivered in order without entering a nested run loop.
+        const auto input_batch_end = std::chrono::steady_clock::now();
+        // Sample the input work accumulated since the previous frame marker.
+        // Native callbacks have already completed, so these counters describe
+        // exactly the batch whose state this frame will update and paint.
         double age_ms = -1.0;
         if (impl->has_last_move_stamp) {
             age_ms = std::chrono::duration<double, std::milli>(
-                         phase_t_after_dispatch - impl->last_move_stamp)
+                         input_batch_end - impl->last_move_stamp)
                          .count();
         }
         const std::uint32_t raw_this_frame = impl->moves_received_since_frame;
         const std::uint32_t dsp_this_frame = impl->moves_dispatched_since_frame;
+        const double input_dispatch_ms =
+            static_cast<double>(impl->input_dispatch_us_since_frame) / 1000.0;
         impl->moves_received_since_frame = 0;
         impl->moves_dispatched_since_frame = 0;
+        impl->input_dispatch_us_since_frame = 0;
         // Native frame ticks run before the idle short-circuit so
         // physics/animation callbacks can invalidate() to keep drawing;
         // an idle callback that touches nothing costs almost nothing.
@@ -404486,9 +404655,6 @@ void cb_frame(void* user) {
 
         if (input_trace) {
             const auto now = std::chrono::steady_clock::now();
-            const double dispatch_ms =
-                std::chrono::duration<double, std::milli>(
-                    phase_t_after_dispatch - phase_t0).count();
             const double cb_total_ms =
                 std::chrono::duration<double, std::milli>(
                     now - frame_now).count();
@@ -404502,7 +404668,7 @@ void cb_frame(void* user) {
                 "[input] gap=%.1f age=%.1f raw=%u dsp=%u sc=%dx%d sapp=%dx%d "
                 "vp_ch=%d settle=%d rndr[%c%c%c%c%c] rndr_vp=%d rndr_ldirty=%d "
                 "rndr_pdirty=%d dlchg=%d dlops=%u cap=%ux%u ct=%ux%u | "
-                "drain=%.1f prep=%.1f layout=%.1f dlrec=%.1f rast=%.1f "
+                "input=%.1f prep=%.1f layout=%.1f dlrec=%.1f rast=%.1f "
                 "comp=%.1f | cb=%.1f\n",
                 gap_ms, age_ms,
                 raw_this_frame,
@@ -404518,7 +404684,7 @@ void cb_frame(void* user) {
                 s.cached_ops,
                 s.root_layer_capacity_w, s.root_layer_capacity_h,
                 s.root_layer_content_w,  s.root_layer_content_h,
-                dispatch_ms,
+                input_dispatch_ms,
                 s.prepare_us_this_frame / 1000.0,
                 s.layout_us_this_frame / 1000.0,
                 s.display_list_record_us_this_frame / 1000.0,
@@ -404552,6 +404718,24 @@ void cb_cleanup(void* user) {
 void cb_event(const sapp_event* ev, void* user) {
     auto* impl = static_cast<detail::AppImpl*>(user);
     if (!ev) return;
+    static const bool input_trace =
+        std::getenv("AFFINEUI_INPUT_TRACE") != nullptr;
+    const auto event_t0 = input_trace
+        ? std::chrono::steady_clock::now()
+        : std::chrono::steady_clock::time_point{};
+    struct InputDispatchTimer {
+        detail::AppImpl* impl;
+        std::chrono::steady_clock::time_point start;
+        bool enabled;
+        ~InputDispatchTimer() {
+            if (!enabled) return;
+            impl->input_dispatch_us_since_frame +=
+                static_cast<std::uint64_t>(
+                    std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::steady_clock::now() - start)
+                        .count());
+        }
+    } input_dispatch_timer{impl, event_t0, input_trace};
     try {
 
     Event aui_ev{};
@@ -409914,64 +410098,6 @@ ViewSink* View::current_sink() const noexcept {
 }
 
 }  // namespace affineui
-
-// ────────────────────────────────────────────────────────────────────────
-// src/framework/app/app_mac_native.mm
-// ────────────────────────────────────────────────────────────────────────
-// macOS-only helper: drain the NSEvent queue so every queued OS event
-// dispatches to sokol_app's NSResponder callbacks (and thence to cb_event)
-// within a single call, instead of one-per-run-loop-iteration.
-//
-// During modal mouse-drag tracking on macOS, AppKit's default is to deliver
-// mouseDragged: at run-loop-iteration rate — which becomes display-link rate
-// when cb_frame is slow. With sokol's setMouseCoalescingEnabled:NO on top,
-// historical events queue in Cocoa and mouse-up ends up buried behind them,
-// producing a multi-second unresponsive tail after any drag.
-//
-// Calling this at the top of App::should_render()/render() (i.e. once per
-// app pulse) breaks the coupling: we pump the full NSEvent queue every
-// pulse regardless of AppKit's throttle, so cb_event fires N times per
-// pulse and mouse-up dispatches on the same pulse the user released.
-//
-// __APPLE__ guard makes the file safe to compile on non-Apple platforms —
-// necessary because the amalgamator concatenates every ENGINE_SOURCES
-// entry into the cross-platform affineui.cpp.
-
-#if defined(__APPLE__)
-
-#import <AppKit/AppKit.h>
-
-extern "C" void affineui_mac_drain_native_events(void) {
-    // NSEvent queue is polled via nextEventMatchingMask on the shared
-    // NSApp; dequeue:YES pops it, sendEvent: routes through the responder
-    // chain (which reaches sokol_app's mouseMoved:/mouseDragged:).
-    //
-    // We check both the current run-loop mode and NSDefaultRunLoopMode:
-    // during a modal drag the loop is in NSEventTrackingRunLoopMode, and
-    // events queued for a specific mode aren't visible to nextEvent unless
-    // we ask for that mode. Polling both catches drag + non-drag events.
-    NSString* current_mode = [[NSRunLoop currentRunLoop] currentMode];
-    NSString* modes[2] = {
-        current_mode ? current_mode : NSDefaultRunLoopMode,
-        NSDefaultRunLoopMode,
-    };
-    const int mode_count =
-        (current_mode && ![current_mode isEqualToString:NSDefaultRunLoopMode]) ? 2 : 1;
-    for (int i = 0; i < mode_count; ++i) {
-        for (;;) {
-            @autoreleasepool {
-                NSEvent* e = [NSApp nextEventMatchingMask:NSEventMaskAny
-                                                untilDate:[NSDate distantPast]
-                                                   inMode:modes[i]
-                                                  dequeue:YES];
-                if (!e) break;
-                [NSApp sendEvent:e];
-            }
-        }
-    }
-}
-
-#endif  // __APPLE__
 
 // ────────────────────────────────────────────────────────────────────────
 // src/renderer/dom/document_core.cpp
