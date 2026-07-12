@@ -125,6 +125,39 @@ TEST_CASE("App handler iteration snapshots re-entrant registrations") {
     CHECK(late_calls == 1);
 }
 
+TEST_CASE("App dispatch preserves every pointer sample in order") {
+    affineui::App app;
+    std::vector<affineui::Event> seen;
+    app.on_event([&](const affineui::Event& event,
+                     const std::vector<affineui::Document::HoverInfo>&) {
+        seen.push_back(event);
+        return false;
+    });
+
+    for (int x : {3, 8, 13, 21}) {
+        affineui::Event move{};
+        move.type = affineui::EventType::MouseMove;
+        move.pos = {x, x + 1};
+        app.dispatch(move);
+    }
+    affineui::Event up{};
+    up.type = affineui::EventType::MouseUp;
+    up.button = affineui::MouseButton::Left;
+    up.pos = {21, 22};
+    app.dispatch(up);
+
+    REQUIRE(seen.size() == 5);
+    for (std::size_t i = 0; i < 4; ++i) {
+        CHECK(seen[i].type == affineui::EventType::MouseMove);
+    }
+    CHECK(seen[0].pos.x == 3);
+    CHECK(seen[1].pos.x == 8);
+    CHECK(seen[2].pos.x == 13);
+    CHECK(seen[3].pos.x == 21);
+    CHECK(seen[4].type == affineui::EventType::MouseUp);
+    CHECK(seen[4].pos.x == 21);
+}
+
 TEST_CASE("App rebuild recovers after a throwing retained-view builder") {
     affineui::App app;
     bool fail = false;

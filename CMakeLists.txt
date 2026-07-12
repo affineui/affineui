@@ -18,11 +18,11 @@ project(affineui
     DESCRIPTION "Tiny GPU-accelerated HTML5/CSS UI renderer for C++"
     LANGUAGES C CXX
 )
-# sokol_app's macOS implementation is Objective-C (AppKit/Foundation).
-# Enable OBJC only on Apple platforms so set_source_files_properties(LANGUAGE OBJC)
-# in cmake/Dependencies.cmake takes effect there.
+# sokol_app's macOS implementation is Objective-C (AppKit/Foundation), and
+# the native event-queue regression is Objective-C++.
 if(APPLE)
     enable_language(OBJC)
+    enable_language(OBJCXX)
 endif()
 
 # Detect top-level invocation (so subprojects don't get our examples/tests)
@@ -155,10 +155,6 @@ target_sources(affineui PRIVATE
     src/framework/app/event.cpp
     src/framework/app/automation.cpp
     src/framework/app/view.cpp
-    # macOS-only helper: drain the NSEvent queue per app pulse (see file
-    # header for rationale). Attached as a source unconditionally; empty
-    # on non-Apple platforms via #ifdef __APPLE__ inside the file.
-    $<$<PLATFORM_ID:Darwin>:src/framework/app/app_mac_native.mm>
     src/renderer/dom/document_core.cpp
     src/renderer/dom/document_controls.cpp
     src/renderer/dom/document_dispatch.cpp
