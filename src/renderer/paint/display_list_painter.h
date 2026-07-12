@@ -1093,14 +1093,30 @@ inline bool replay_paint_ops_equal(const DisplayList& a,
                                    const DisplayList& b,
                                    const PaintOp& b_op) {
     if (a_op.kind != b_op.kind) return false;
-    if (std::memcmp(&a_op, &b_op, sizeof(PaintOp)) != 0) return false;
     if (a_op.kind == PaintOpKind::DrawText) {
+        auto a_fields = a_op;
+        auto b_fields = b_op;
+        // Pool offsets are storage locations, not visual state. Changing an
+        // earlier label's length shifts every later string even when its text
+        // and paint fields are identical.
+        a_fields.p.draw_text.text_offset = 0;
+        b_fields.p.draw_text.text_offset = 0;
+        if (std::memcmp(&a_fields, &b_fields, sizeof(PaintOp)) != 0) {
+            return false;
+        }
         return a.text_at(a_op.p.draw_text.text_offset,
                          a_op.p.draw_text.text_len)
             == b.text_at(b_op.p.draw_text.text_offset,
                          b_op.p.draw_text.text_len);
     }
     if (a_op.kind == PaintOpKind::DrawTextBox) {
+        auto a_fields = a_op;
+        auto b_fields = b_op;
+        a_fields.p.draw_text_box.text_offset = 0;
+        b_fields.p.draw_text_box.text_offset = 0;
+        if (std::memcmp(&a_fields, &b_fields, sizeof(PaintOp)) != 0) {
+            return false;
+        }
         return a.text_at(a_op.p.draw_text_box.text_offset,
                          a_op.p.draw_text_box.text_len)
             == b.text_at(b_op.p.draw_text_box.text_offset,
@@ -1108,10 +1124,17 @@ inline bool replay_paint_ops_equal(const DisplayList& a,
     }
     if (a_op.kind == PaintOpKind::FillPath ||
         a_op.kind == PaintOpKind::StrokePath) {
+        auto a_fields = a_op;
+        auto b_fields = b_op;
+        a_fields.p.path.data_offset = 0;
+        b_fields.p.path.data_offset = 0;
+        if (std::memcmp(&a_fields, &b_fields, sizeof(PaintOp)) != 0) {
+            return false;
+        }
         return a.bytes_at(a_op.p.path.data_offset, a_op.p.path.data_len)
             == b.bytes_at(b_op.p.path.data_offset, b_op.p.path.data_len);
     }
-    return true;
+    return std::memcmp(&a_op, &b_op, sizeof(PaintOp)) == 0;
 }
 
 inline bool replay_resized_solid_fill_diff_bounds(const PaintOp& old_op,

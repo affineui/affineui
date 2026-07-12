@@ -711,6 +711,37 @@ bool selector_simple_depends_on_attribute(const lxb_css_selector_t* sel,
     }
 }
 
+bool stylesheet_references_attribute(const detail::DocumentImpl& impl,
+                                     std::string_view name) {
+    if (auto it = impl.attr_referenced_cache.find(std::string(name));
+        it != impl.attr_referenced_cache.end()) {
+        return it->second;
+    }
+    const bool referenced = [&] {
+        for (auto* sst : impl.sheets) {
+            if (!sst || !sst->root) continue;
+            auto* rule_list = lxb_css_rule_list(sst->root);
+            if (!rule_list) continue;
+            for (auto* r = rule_list->first; r != nullptr; r = r->next) {
+                if (r->type != LXB_CSS_RULE_STYLE) continue;
+                auto* style = lxb_css_rule_style(r);
+                if (!style) continue;
+                for (auto* sl = style->selector; sl != nullptr; sl = sl->next) {
+                    for (auto* sel = sl->first; sel != nullptr;
+                         sel = sel->next) {
+                        if (selector_simple_depends_on_attribute(sel, name)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }();
+    impl.attr_referenced_cache.emplace(std::string(name), referenced);
+    return referenced;
+}
+
 bool stylesheet_dependencies_stay_in_mutated_subtree(
     const detail::DocumentImpl& impl,
     std::string_view name) {
@@ -2058,6 +2089,40 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
         return true;
     }
 
+    // `value` is deliberately not selector-affecting (see
+    // attribute_can_affect_selector_matching above). Form controls and the
+    // painter-drawn knobs consume it through refreshed block metadata; it
+    // cannot change computed style, so resolving the whole subtree is both
+    // unnecessary and dangerous for a pointer-rate mutation. In the 2600 a
+    // knob's value write was entering restyle_subtree and zeroing content_size,
+    // turning every move into a full document layout. Keep this on the retained
+    // local-paint path.
+    if (name == "value") {
+        if (target_idx >= 0) {
+            auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
+            detail::refresh_block_metadata_from_element(block, elem);
+        }
+        detail::mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
+                                         /*needs_layout=*/false);
+        return true;
+    }
+
+    // data-* and aria-* are conservatively classified as selector-affecting,
+    // but most live telemetry attributes are only painter/widget metadata. If
+    // no attached selector mentions this exact name, rematching and restyling
+    // cannot change presentation. This keeps data-value knob updates local
+    // while retaining full CSS behavior for authored `[data-value=...]` rules.
+    if (selector_affecting &&
+        !stylesheet_references_attribute(impl, name)) {
+        if (target_idx >= 0) {
+            auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
+            detail::refresh_block_metadata_from_element(block, elem);
+        }
+        detail::mark_live_mutation_dirty(impl, dirty_root_idx, old_rect,
+                                         /*needs_layout=*/false);
+        return true;
+    }
+
     bool needs_layout = false;
     if (selector_affecting) {
         auto tp = std::chrono::steady_clock::now();
@@ -2400,12 +2465,14 @@ bool set_text_on_element(detail::DocumentImpl& impl,
     // measured 5.6 ms on EVERY knob-drag frame of the synth. Any real
     // size change is trued up by the next genuine layout pass.
     const auto& cs = impl.style_store.computed(block.id);
-    const bool has_child_block =
-        target_idx + 1 < static_cast<int>(impl.blocks.size()) &&
-        impl.blocks[static_cast<std::size_t>(target_idx) + 1].parent_idx ==
-            target_idx;
+    // Anonymous line/text blocks are the implementation of this leaf's own
+    // text, not layout-bearing child content. `lone_text_shape` above has
+    // already rejected real element descendants and mixed text runs, so it is
+    // the correct leaf test here. Checking the next block's parent treated the
+    // anonymous text run as a child and forced a full layout on every knob
+    // move.
     const bool layout_isolated =
-        !has_child_block &&
+        lone_text_shape &&
         (cs.position == detail::ComputedStyle::Position::Absolute ||
          cs.position == detail::ComputedStyle::Position::Fixed);
     detail::mark_live_mutation_dirty(impl, target_idx, old_rect,

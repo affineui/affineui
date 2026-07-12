@@ -3348,6 +3348,12 @@ public:
         s.animated.gradient_stop1_pos_pct = 100;
         s.animated.gradient_stop0_rgba = 0x00000000u;
         s.animated.gradient_stop1_rgba = 0x00000000u;
+        // Background images are non-inherited. These out-of-line companions
+        // must be cleared alongside the inline gradient fields above; leaving
+        // either shared_ptr copied from `parent` makes every descendant restart
+        // the parent's complete gradient inside its own little paint box.
+        s.gradient_stops.reset();
+        s.background_layers.reset();
         s.animated.background_grid_rgba = 0x00000000u;
         s.animated.background_grid_size_px = 0;
         s.animated.background_grid_line_px = 1;

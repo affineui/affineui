@@ -728,6 +728,10 @@ struct DocumentImpl {
     // stylesheet mention of the attribute sits in a subject compound, so a
     // write can only re-match the mutated element itself.
     mutable std::unordered_map<std::string, bool> attr_subject_confined_cache;
+    // Whether an attribute name occurs in any stylesheet selector. Broadly
+    // classified live attributes such as data-value can skip rematch/restyle
+    // entirely when no selector actually consumes them.
+    mutable std::unordered_map<std::string, bool> attr_referenced_cache;
     // :hover / :active overlay rules â€” populated by scan_pseudo_rules()
     // during attach. Pointers in `decls` reference rule data owned by
     // the document's CSS memory pool; valid for the document's lifetime.
