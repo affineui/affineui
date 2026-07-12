@@ -253,7 +253,20 @@ function Invoke-Run([string]$name) {
         foreach ($t in $targets) { Write-Host "  $t" }
         exit 1
     }
-    cmake --build $Build --target $name --parallel
+    # Killing a running demo (or any hard stop mid-link) leaves MSVC's
+    # incremental-link PDB truncated, and every later link of that target then
+    # dies with "LNK1285: corrupt PDB file ...; delete and rebuild" - forever,
+    # until someone deletes it by hand. That is a miserable trap for something
+    # as ordinary as closing a sample the wrong way, so do what the linker asks
+    # and retry once, rather than making the user decode LNK1285.
+    $buildLog = cmake --build $Build --target $name --parallel 2>&1
+    $buildLog | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0 -and ($buildLog -match 'LNK1285')) {
+        Write-Host "stale PDB from an interrupted link - clearing and retrying..." -ForegroundColor Yellow
+        Get-ChildItem -Path $Build -Recurse -Include "$name.pdb", "$name.ilk" `
+                      -ErrorAction SilentlyContinue | Remove-Item -Force
+        cmake --build $Build --target $name --parallel
+    }
     Assert-LastExit "build example '$name'"
     $exe = Get-ChildItem -Path $Build -Recurse -Filter "$name.exe" -ErrorAction SilentlyContinue |
         Select-Object -First 1
