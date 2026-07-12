@@ -1210,6 +1210,10 @@ int positive_int_attr(lxb_dom_element_t* elem, std::string_view name,
                       int fallback);
 std::size_t previous_utf8_boundary(std::string_view text, std::size_t pos);
 std::size_t previous_word_boundary(std::string_view text, std::size_t pos);
+// Snap `pos` down to a UTF-8 boundary, clamped to text.size(). Unlike
+// previous_utf8_boundary this is a no-op when already on one, and
+// text.size() (a caret at end-of-string) is itself a boundary.
+std::size_t snap_utf8_boundary(std::string_view text, std::size_t pos);
 bool remove_tab_drag_ghost(detail::DocumentImpl& impl);
 bool replace_text_selection_or_insert(detail::DocumentImpl& impl,
                                       int idx,
