@@ -1638,13 +1638,26 @@ void Document::draw(Painter& painter) {
                                     1.0f);
 
                 // IME preedit decoration: a thin underline across the whole
-                // preedit and a thick one under the IME's active clause —
-                // the conventional composition rendering on every platform.
+                // preedit and a thick one under the IME's active clause.
+                //
+                // This is the Japanese/Chinese convention, not a universal one.
+                // There the preedit is a long unconverted phrase segmented into
+                // clauses, and the thin/thick split is what tells you WHICH
+                // clause you are converting — the underline is carrying real
+                // information. Korean has no such phase: hangul is assembled
+                // jamo-by-jamo directly into the syllable, one or two characters
+                // at a time, with no clause structure to disambiguate. Korean
+                // text fields accordingly do not underline the composing
+                // syllable, and drawing one there is simply wrong.
+                //
+                // Keyed off the SCRIPT of the preedit, not the platform: a
+                // Korean IME on Windows must render like a Korean IME on macOS.
                 const auto [pre_begin, pre_end] =
                     detail::composition_display_range(
                         *impl_, static_cast<int>(i), b);
                 if (pre_end > pre_begin &&
-                    !caret_layout->caret_offsets.empty()) {
+                    !caret_layout->caret_offsets.empty() &&
+                    !detail::is_hangul_composition(impl_->composition_text)) {
                     const auto index_of = [&](std::size_t offset) {
                         auto iter = std::lower_bound(
                             caret_layout->caret_offsets.begin(),
