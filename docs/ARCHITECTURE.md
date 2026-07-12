@@ -319,14 +319,19 @@ identity therefore belong in core, not in a language wrapper.
 ## Frame loop
 
 ```
-sokol_app frame callback:
-  ├── pump input events → Document::dispatch(Event)
+native event phase (outside cb_frame):
+  ├── deliver every queued input event → Document::dispatch(Event)
   │     ├── hit-test against retained box tree
   │     ├── update :hover / :active / focus state
   │     └── invoke registered handlers
-  │           └── if handler mutated state → imm dirty bit set
+  │           └── if handler mutated state → latch dirty/invalidation
+  └── display source queues one coalesced frame opportunity
+
+sokol_app frame callback (serialized transaction):
+  ├── run update / frame callbacks
+  │     └── callbacks may latch dirty/invalidation
   │
-  ├── if imm is dirty:
+  ├── if imm is dirty (reconcile):
   │     ├── invoke embedder's view fn → new VDOM
   │     ├── diff(prev VDOM, new VDOM)
   │     └── apply patches to Document's DOM

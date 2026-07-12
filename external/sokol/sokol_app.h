@@ -6199,7 +6199,7 @@ _SOKOL_PRIVATE void _sapp_macos_frame(void) {
 #if defined(SOKOL_GLCORE)
 - (void)timerFired:(id)sender {
     _SOKOL_UNUSED(sender);
-    [self setNeedsDisplay:YES];
+    _sapp_macos_post_frame_event();
 }
 - (void)prepareOpenGL {
     [super prepareOpenGL];
@@ -6210,7 +6210,10 @@ _SOKOL_PRIVATE void _sapp_macos_frame(void) {
 }
 - (void)drawRect:(NSRect)rect {
     _SOKOL_UNUSED(rect);
-    _sapp_macos_frame();
+    /* AppKit can request a draw from a nested run loop (resize/expose). Keep
+       that notification on the same serialized frame-marker path as the GL
+       timer and the Metal display link. */
+    _sapp_macos_post_frame_event();
 }
 #elif defined(SOKOL_METAL) || defined(SOKOL_WGPU)
 - (void)displayLinkFired:(id)sender {
