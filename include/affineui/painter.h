@@ -235,7 +235,7 @@ public:
     /// `center_*_pct` may be negative or exceed 100 — CSS routinely puts a
     /// specular highlight's centre outside the box (`at 50% -10%`).
     /// `radius_*_pct` size the ending shape as a percentage of the box's
-    /// half-width / half-height (CSS `ellipse 110% 90%`); 0 selects the
+    /// full width / height (CSS `ellipse 110% 90%`); 0 selects the
     /// CSS default of farthest-corner, scaled by `stop1_pos_pct`.
     virtual void fill_radial_gradient_rect_n(const Rect& r,
                                              const GradientStop* stops,
@@ -619,13 +619,15 @@ inline void Painter::fill_radial_gradient_rect_n(const Rect& r,
 
     float outer_rx, outer_ry;
     if (radius_x_pct > 0.0f || radius_y_pct > 0.0f) {
-        // Explicit ending shape. CSS sizes an ellipse's radii against the
-        // box's half-extents, so `100%` reaches the box edge from a centred
-        // origin.
+        // Explicit ending shape. CSS Images defines each percentage radius
+        // against the corresponding FULL dimension of the gradient box.
+        // Therefore `ellipse 100% 80%` in a W x H box has radii W and .8H,
+        // not W/2 and .4H. Halving these values compressed the 2600 panel's
+        // specular falloff into a narrow band around its socket row.
         const float rx = radius_x_pct > 0.0f ? radius_x_pct : radius_y_pct;
         const float ry = radius_y_pct > 0.0f ? radius_y_pct : radius_x_pct;
-        outer_rx = fw * 0.5f * (rx / 100.0f);
-        outer_ry = fh * 0.5f * (ry / 100.0f);
+        outer_rx = fw * (rx / 100.0f);
+        outer_ry = fh * (ry / 100.0f);
     } else {
         // CSS default: farthest-corner, a circle through the corner most
         // distant from the centre.

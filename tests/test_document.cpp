@@ -978,6 +978,61 @@ TEST_CASE("UiControls script updates range input and Decius knob markup") {
     CHECK(hovered_attr_for_id(doc, "shape", "value") != "0.25");
 }
 
+TEST_CASE("Decius knob drag keeps its numeric label update paint-local") {
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        html, body { margin: 0; padding: 0; }
+        #shape { position: relative; display: block; width: 80px; height: 80px; }
+        .dcs-knob__value {
+            position: absolute; left: 0; right: 0; top: 0;
+            text-align: center;
+        }
+        </style>
+        <div id="shape" data-dcs-knob data-min="0" data-max="1"
+             data-value="0.25" value="0.25">
+            <div class="dcs-knob__value">0.25</div>
+        </div>
+    )HTML");
+    doc.attach_script(affineui::DocumentScript::UiControls);
+    doc.layout(260, 160, &painter);
+    const auto laid_out_size = doc.content_size();
+    REQUIRE(laid_out_size.width > 0);
+    REQUIRE(laid_out_size.height > 0);
+
+    const auto shape = find_hovered_chain_id(doc, "shape", 260, 160);
+    REQUIRE(shape.x >= 0);
+
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = shape;
+    doc.dispatch(down);
+    (void)doc.take_dirty_rects();
+
+    affineui::Event move{};
+    move.type = affineui::EventType::MouseMove;
+    move.pos = {shape.x, shape.y - 40};
+    const auto move_result = doc.dispatch(move);
+    REQUIRE((move_result.event_consumed || move_result.redraw_requested));
+
+    // A live knob update changes painter-consumed data-value plus an
+    // absolutely positioned numeric text leaf. Neither participates in flow,
+    // so the retained layout must stay valid rather than being zeroed for a
+    // document-wide layout pass on every pointer move.
+    CHECK(doc.content_size().width == laid_out_size.width);
+    CHECK(doc.content_size().height == laid_out_size.height);
+    CHECK(hovered_attr_for_id(doc, "shape", "value") != "0.25");
+    const auto dirty = doc.take_dirty_rects();
+    REQUIRE_FALSE(dirty.empty());
+    for (const auto& rect : dirty) {
+        CHECK(rect.w <= 80);
+        CHECK(rect.h <= 80);
+    }
+}
+
 TEST_CASE("UiControls script toggles Decius target menus") {
     affineui::Document doc;
     RecordingPainter painter;
@@ -12414,6 +12469,7 @@ TEST_CASE("skeuo hardware panel paints its whole CSS background stack") {
     doc.set_html(R"HTML(
         <style>
         body { margin: 0; padding: 0; }
+        #child { display: block; width: 40px; height: 20px; }
         #panel { display: block; width: 200px; height: 100px;
                  background: repeating-linear-gradient(90deg,
                      hsla(0,0%,100%,.02) 0 1px, rgba(0,0,0,.015) 1px 2px),
@@ -12423,7 +12479,7 @@ TEST_CASE("skeuo hardware panel paints its whole CSS background stack") {
                      hsla(0,0%,100%,.01) 70%, transparent 100%),
                    linear-gradient(180deg,#333845,#2c3140 60%,#242834); }
         </style>
-        <div id="panel"></div>
+        <div id="panel"><span id="child"></span></div>
     )HTML");
     doc.layout(240, 140, &painter);
 
@@ -12457,10 +12513,12 @@ TEST_CASE("skeuo hardware panel paints its whole CSS background stack") {
             CHECK(d.paint.colors[4].a == 3);   // hsla(...,.01)
             CHECK(d.paint.colors[5].a == 0);   // transparent
             // `ellipse 110% 90%` -> a genuinely elliptical ending shape,
-            // sized off the box's half-extents (not a farthest-corner
-            // circle). r1 = 200/2 * 1.10, r1y = 100/2 * 0.90.
-            CHECK(d.paint.r1 == doctest::Approx(110.0f));
-            CHECK(d.paint.r1y == doctest::Approx(45.0f));
+            // sized against the corresponding FULL gradient-box dimensions,
+            // per CSS Images 3 (not half-extents and not a farthest-corner
+            // circle). r1 = 200 * 1.10, r1y = 100 * 0.90. The half-extents
+            // interpretation compressed the 2600 sheen around its socket row.
+            CHECK(d.paint.r1 == doctest::Approx(220.0f));
+            CHECK(d.paint.r1y == doctest::Approx(90.0f));
             // `at 50% -10%` — the centre sits ABOVE the panel.
             CHECK(d.paint.y0 == doctest::Approx(panel.y - 10.0f));
         }
@@ -12468,7 +12526,67 @@ TEST_CASE("skeuo hardware panel paints its whole CSS background stack") {
     CHECK(base_ramps == 1);
     CHECK(specular_ramps == 1);
 
-    // And the topmost repeating-linear texture layer reaches the painter too
-    // (it lands on the stripe primitive, not a gradient ramp).
-    CHECK(painter.stripe_draws >= 1);
+    // CSS backgrounds do not inherit. The resolver starts from its parent's
+    // style and must explicitly clear both out-of-line gradient side tables;
+    // otherwise the child restarts this whole specular ramp in its own 40x20
+    // box (the 2600 showed a full little gradient around every widget).
+    const auto child = doc.find_element_rect("#child");
+    REQUIRE(child.w == 40);
+    REQUIRE(child.h == 20);
+
+    // The topmost repeating-linear texture layer is deliberately NOT painted:
+    // the hardware panels are smooth gradients, not striped, and that is the
+    // behavior they had before stacked layers existed. We also cannot render it
+    // faithfully — its 2px period lives in PIXEL stop offsets that lexbor's
+    // percentage-only descriptor drops, and approximating it with the box height
+    // as a tile size clamps to 128 and bands the panel in 128px light/dark
+    // stripes right over the specular highlight.
+    CHECK(painter.stripe_draws == 0);
+}
+
+TEST_CASE("N-stop radial on the BOTTOM layer keeps its full radius") {
+    // Regression: an N-stop radial that is the element's ONLY background layer
+    // takes the bottom-layer paint path, and that path used to forward
+    // `gradient_stop1_pos_pct` as the painter's `stop1_pos_pct`. That parameter
+    // scales the outer radius, and it only means anything for a TWO-stop ramp
+    // ("where the ramp ends"). In an N-stop ramp every stop carries its own
+    // offset and stop *1* is merely the SECOND one — 4% here. Forwarding it
+    // scaled the radius to 4% of its proper size and collapsed the gradient into
+    // an invisible dot: the element rendered with no gradient at all.
+    //
+    // The stacked-layer path always passed 100 and so was never affected, which
+    // is why the panel test above passed while real panels rendered flat.
+    affineui::Document doc;
+    RecordingPainter painter;
+
+    doc.set_html(R"HTML(
+        <style>
+        body { margin: 0; padding: 0; }
+        #dot { display: block; width: 200px; height: 100px;
+               background: radial-gradient(circle at 50% 50%,
+                   #ff0000 0, #00ff00 4%, #0000ff 40%, #000000 100%); }
+        </style>
+        <div id="dot"></div>
+    )HTML");
+    doc.layout(240, 140, &painter);
+
+    const auto box = doc.find_element_rect("#dot");
+    REQUIRE(box.w == 200);
+    REQUIRE(box.h == 100);
+
+    painter.path_draws.clear();
+    doc.draw(painter);
+
+    int radials = 0;
+    for (const auto& d : painter.path_draws) {
+        if (d.stroked) continue;
+        if (d.paint.kind != affineui::PathPaint::Kind::Radial) continue;
+        if (d.paint.stop_count != 4) continue;
+        ++radials;
+        // CSS default ending shape is farthest-corner: from the centre of a
+        // 200x100 box that is sqrt(100^2 + 50^2) ~= 111.8. The bug scaled this
+        // by stop1's 4% and produced ~4.5 — a dot.
+        CHECK(d.paint.r1 == doctest::Approx(111.803f).epsilon(0.01));
+    }
+    CHECK(radials == 1);
 }

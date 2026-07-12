@@ -4094,6 +4094,7 @@ void attach_media_block(detail::DocumentImpl& impl, const MediaBlock& mb) {
         impl.sheets.push_back(sst_media);
         impl.attr_subtree_local_cache.clear();
         impl.attr_subject_confined_cache.clear();
+        impl.attr_referenced_cache.clear();
         scan_pseudo_rules(sst_media, impl.pseudo_rules);
         scan_rule_fills(sst_media, mb.block_css, impl.rule_fills);
         scan_font_face_rules(mb.block_css, {}, impl.font_faces);
@@ -4128,6 +4129,7 @@ void attach_stylesheet(detail::DocumentImpl& impl, std::string_view css,
         impl.sheets.push_back(sst);
         impl.attr_subtree_local_cache.clear();
         impl.attr_subject_confined_cache.clear();
+        impl.attr_referenced_cache.clear();
         scan_pseudo_rules(sst, impl.pseudo_rules);
         // Recover font-family names into AffineUI's font registry side
         // table. attach_stylesheet's `css` argument outlives this call
