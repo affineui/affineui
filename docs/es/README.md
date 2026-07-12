@@ -78,8 +78,6 @@ Está pensado para:
 
 **Alpha.** El núcleo del renderizador, el layout, la cascada y el reconciliador ya son útiles para UIs reales hoy — dashboards con Bootstrap, layouts personalizados estilo DCC y UIs completas de herramientas renderizan todos. La cobertura del estándar es amplia pero incompleta, hay casos límite y algunas funcionalidades de CSS aún están llegando. Espera bugs. Espera reportar bugs. No se lo entregues aún a clientes.
 
-La publicación en registros está a la espera del [pipeline de release](../RELEASING.md); hasta que aterrice el primer release etiquetado puedes compilar desde el código fuente (ver más abajo).
-
 ---
 
 ## Instalación

@@ -90,71 +90,34 @@ tool UIs all render. Standards coverage is broad but incomplete, edge
 cases exist, and some CSS features are still landing. Expect bugs.
 Expect to file bugs. Do not ship it to customers yet.
 
-Registry publishing is behind the [release pipeline](docs/RELEASING.md);
-until the first tagged release lands you can build from source (see below).
-
 ---
 
 ## Install
 
-> **⚠️ Pre-release channels only.** We don't publish alpha/beta/rc builds to
-> the *stable* registries — no `affineui` on PyPI, no stable release on
-> crates.io / NuGet yet. Pre-releases are published where pre-releases
-> belong: Python to **TestPyPI**, Rust and C# as **pre-release versions** on
-> crates.io / NuGet. So the plain commands below won't find anything until
-> the first stable release; use the pre-release form for now. The **C++**
-> two-file drop-in is available today with no registry at all.
-
 Pick your language. All four bindings sit on the same C++ core.
 
-**Python** — like Gradio, but native. Stable release (not published yet):
+**Python** — like Gradio, but native:
 
 ```bash
-# ⚠️ Pre-release only for now — stable not on PyPI yet
 pip install affineui
 ```
 
-Pre-release from TestPyPI (where we route pre-releases today):
+**Rust:**
 
 ```bash
-# ⚠️ Until first stable release, check https://test.pypi.org/project/affineui/
-#    for the current alpha/beta/rc version
-pip install --pre --index-url https://test.pypi.org/simple/ affineui
+cargo add affineui
 ```
 
-`affineui` has no runtime dependencies, so the TestPyPI index alone is
-enough — no `--extra-index-url` needed. **`--pre` is required**, though:
-without it pip ignores every pre-release even when pointed at TestPyPI, and
-the install finds nothing.
-
-If you pin an exact version, note PEP 440 normalizes it: the tag
-`v0.4.0-rc.1` becomes `0.4.0rc1` (no dash, no dot before `rc`) —
-`affineui==0.4.0rc1`, not the tag string.
-
-**Rust** — `cargo add` picks the newest *stable* by default, so opt into the
-current pre-release explicitly:
+**C#:**
 
 ```bash
-# ⚠️ Until first stable release, check https://crates.io/crates/affineui
-#    for the current alpha/beta/rc version
-cargo add affineui@<version>
+dotnet add package AffineUI
 ```
 
-**C#** — `dotnet add package` skips pre-releases by default; opt in:
-
-```bash
-# ⚠️ Until first stable release, check https://www.nuget.org/packages/AffineUI
-#    for the current alpha/beta/rc version
-dotnet add package AffineUI --prerelease
-```
-
-**C++ (drop-in, zero dependencies) — available now:** grab the two files
+**C++ (drop-in, zero dependencies):** grab the two files
 [`dist/affineui.h`](dist/affineui.h) and [`dist/affineui.cpp`](dist/affineui.cpp),
 add them to your project, and compile `affineui.cpp` once as C++20.
 That's the entire SDK — no package manager, no submodule tree, no DLL.
-
-See [RELEASING.md](docs/RELEASING.md) for the full pre-release install
-details (pinning exact versions, PEP 440 version normalization).
 
 Supported platforms: Windows, macOS, Linux, iOS, Android, WebGL. See
 [docs/BUILDING.md](docs/BUILDING.md) for platform-specific notes and

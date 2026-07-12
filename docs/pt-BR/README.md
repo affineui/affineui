@@ -81,9 +81,6 @@ ferramentas renderizam. A cobertura de padrões é ampla, porém incompleta, exi
 extremos e alguns recursos CSS ainda estão chegando. Espere bugs.
 Espere reportar bugs. Não entregue para clientes ainda.
 
-A publicação em registries está atrás do [pipeline de release](../RELEASING.md);
-até o primeiro release taggeado chegar, você pode compilar a partir do código-fonte (veja abaixo).
-
 ---
 
 ## Instalação

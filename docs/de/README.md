@@ -93,10 +93,6 @@ aber unvollständig, es gibt Edge Cases, und einige CSS-Features landen noch.
 Rechnen Sie mit Bugs. Rechnen Sie damit, Bugs zu melden. Liefern Sie es noch
 nicht an Kunden aus.
 
-Das Veröffentlichen in Registries steht hinter der
-[Release-Pipeline](../RELEASING.md); bis das erste getaggte Release erscheint,
-können Sie aus den Quellen bauen (siehe unten).
-
 ---
 
 ## Installation
