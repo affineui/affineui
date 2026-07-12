@@ -3118,6 +3118,9 @@ typedef struct {
 
 #define _SAPP_X11_XDND_VERSION (5)
 #define _SAPP_X11_MAX_X11_KEYCODES (256)
+/* AFFINEUI PATCH (ime): preedit capacity in codepoints (the UTF-8 event buffer
+   is SAPP_MAX_IME_COMPOSITION_SIZE bytes, so this is the practical ceiling). */
+#define _SAPP_X11_MAX_PREEDIT (256)
 
 #define GLX_VENDOR 1
 #define GLX_RGBA_BIT 0x00000001
@@ -3223,10 +3226,24 @@ typedef struct {
        is focused/unfocused with the text-field intent (sapp_ime_set_enabled). */
     XIM xim;
     XIC xic;
-    XFontSet ime_fontset;   // owned by us (over-the-spot requires one)
+    XIMStyle ime_style;     // the style the IC was actually created with
+    XFontSet ime_fontset;   // owned by us (over-the-spot only)
     bool ime_focused;       // XSetICFocus currently applied
     XPoint ime_spot;        // caret spot in window px (XNSpotLocation)
     bool ime_spot_valid;
+    /* on-the-spot preedit state, maintained by the XIM preedit callbacks and
+       published to the app as SAPP_EVENTTYPE_IME_COMPOSITION. Held as
+       codepoints because XIM reports all offsets (chg_first/chg_length/caret)
+       in characters, not bytes. */
+    wchar_t ime_preedit[_SAPP_X11_MAX_PREEDIT];
+    int ime_preedit_len;        // codepoints currently in ime_preedit
+    int ime_preedit_caret;      // IME caret, codepoint index
+    int ime_clause_begin;       // active clause, codepoint indices
+    int ime_clause_end;         // begin == end => no clause info
+    XIMCallback ime_cb_start;   // storage must outlive XCreateIC
+    XIMCallback ime_cb_done;
+    XIMCallback ime_cb_draw;
+    XIMCallback ime_cb_caret;
 } _sapp_x11_t;
 
 #if defined(_SAPP_GLX)
@@ -13486,19 +13503,271 @@ _SOKOL_PRIVATE void _sapp_x11_destroy_window(void) {
     XFlush(_sapp.x11.display);
 }
 
-/* AFFINEUI PATCH (ime): bring up an XIM input context on the window. Uses
-   over-the-spot preedit (XIMPreeditPosition) when the input method supports
-   it — the IME draws the preedit + candidate list at the caret spot we push
-   via sapp_ime_set_rect — and falls back to the root style otherwise. In
-   both styles committed text (including CJK) is delivered through
-   Xutf8LookupString in _sapp_x11_on_keypress. Best-effort: if no IM is
-   available the window keeps working with the legacy XLookupString path. */
+/* AFFINEUI PATCH (ime): defined further down with the other input helpers;
+   the composition reset path below commits through it. */
+_SOKOL_PRIVATE void _sapp_x11_char_event(uint32_t chr, bool repeat, uint32_t mods);
+
+/* AFFINEUI PATCH (ime): on-the-spot preedit plumbing.
+
+   XIM reports preedit edits as (chg_first, chg_length, text) triples with all
+   offsets in CHARACTERS, so the preedit is buffered as codepoints and encoded
+   to UTF-8 only when the event is published. wchar_t is UCS-4 on Linux; the
+   encoder below is written out rather than going through wcstombs() so the
+   result is UTF-8 regardless of the process locale. */
+_SOKOL_PRIVATE int _sapp_x11_wc_utf8_len(uint32_t cp) {
+    if (cp < 0x80)    { return 1; }
+    if (cp < 0x800)   { return 2; }
+    if (cp < 0x10000) { return 3; }
+    return 4;
+}
+
+/* byte offset of codepoint index `idx` in the UTF-8 encoding of `src` */
+_SOKOL_PRIVATE int _sapp_x11_wc_utf8_offset(const wchar_t* src, int idx) {
+    int off = 0;
+    for (int i = 0; i < idx; i++) {
+        off += _sapp_x11_wc_utf8_len((uint32_t)src[i]);
+    }
+    return off;
+}
+
+_SOKOL_PRIVATE void _sapp_x11_wc_to_utf8(const wchar_t* src, int num, char* dst, int dst_size) {
+    int o = 0;
+    for (int i = 0; i < num; i++) {
+        const uint32_t cp = (uint32_t)src[i];
+        const int need = _sapp_x11_wc_utf8_len(cp);
+        if ((o + need) >= dst_size) {
+            break;
+        }
+        if (need == 1) {
+            dst[o++] = (char)cp;
+        } else if (need == 2) {
+            dst[o++] = (char)(0xC0 | (cp >> 6));
+            dst[o++] = (char)(0x80 | (cp & 0x3F));
+        } else if (need == 3) {
+            dst[o++] = (char)(0xE0 | (cp >> 12));
+            dst[o++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+            dst[o++] = (char)(0x80 | (cp & 0x3F));
+        } else {
+            dst[o++] = (char)(0xF0 | (cp >> 18));
+            dst[o++] = (char)(0x80 | ((cp >> 12) & 0x3F));
+            dst[o++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+            dst[o++] = (char)(0x80 | (cp & 0x3F));
+        }
+    }
+    dst[o] = 0;
+}
+
+_SOKOL_PRIVATE void _sapp_x11_ime_reset_preedit(void) {
+    _sapp.x11.ime_preedit_len = 0;
+    _sapp.x11.ime_preedit_caret = 0;
+    _sapp.x11.ime_clause_begin = 0;
+    _sapp.x11.ime_clause_end = 0;
+}
+
+/* publish the current preedit; an empty preedit means "composition cleared" */
+_SOKOL_PRIVATE void _sapp_x11_ime_emit_composition(void) {
+    if (!_sapp_events_enabled()) {
+        return;
+    }
+    _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
+    const int n = _sapp.x11.ime_preedit_len;
+    if (n > 0) {
+        _sapp_x11_wc_to_utf8(_sapp.x11.ime_preedit, n,
+            _sapp.event.ime_composition, (int)sizeof(_sapp.event.ime_composition));
+        int caret = _sapp.x11.ime_preedit_caret;
+        if (caret < 0) { caret = 0; }
+        if (caret > n) { caret = n; }
+        _sapp.event.ime_composition_cursor = _sapp_x11_wc_utf8_offset(_sapp.x11.ime_preedit, caret);
+        if (_sapp.x11.ime_clause_end > _sapp.x11.ime_clause_begin) {
+            _sapp.event.ime_composition_clause_begin =
+                _sapp_x11_wc_utf8_offset(_sapp.x11.ime_preedit, _sapp.x11.ime_clause_begin);
+            _sapp.event.ime_composition_clause_end =
+                _sapp_x11_wc_utf8_offset(_sapp.x11.ime_preedit, _sapp.x11.ime_clause_end);
+        }
+    }
+    /* else: ime_composition stays empty (event was zeroed) => preedit cleared */
+    _sapp_call_event(&_sapp.event);
+}
+
+/* XIM calls this back with the max preedit length it may use (-1 = no limit) */
+_SOKOL_PRIVATE int _sapp_x11_ime_preedit_start_cb(XIC xic, XPointer client_data, XPointer call_data) {
+    _SOKOL_UNUSED(xic); _SOKOL_UNUSED(client_data); _SOKOL_UNUSED(call_data);
+    _sapp_x11_ime_reset_preedit();
+    return -1;
+}
+
+_SOKOL_PRIVATE void _sapp_x11_ime_preedit_done_cb(XIC xic, XPointer client_data, XPointer call_data) {
+    _SOKOL_UNUSED(xic); _SOKOL_UNUSED(client_data); _SOKOL_UNUSED(call_data);
+    _sapp_x11_ime_reset_preedit();
+    _sapp_x11_ime_emit_composition();   /* empty => clear */
+}
+
+_SOKOL_PRIVATE void _sapp_x11_ime_preedit_draw_cb(XIC xic, XPointer client_data, XPointer call_data) {
+    _SOKOL_UNUSED(xic); _SOKOL_UNUSED(client_data);
+    XIMPreeditDrawCallbackStruct* draw = (XIMPreeditDrawCallbackStruct*)call_data;
+    if (!draw) {
+        return;
+    }
+
+    /* 1. decode the incoming run into codepoints (XIMText is either wchar or
+          multibyte in the locale encoding) */
+    wchar_t ins[_SAPP_X11_MAX_PREEDIT];
+    int ins_len = 0;
+    if (draw->text && (draw->text->length > 0)) {
+        int want = (int)draw->text->length;
+        if (want > _SAPP_X11_MAX_PREEDIT) {
+            want = _SAPP_X11_MAX_PREEDIT;
+        }
+        if (draw->text->encoding_is_wchar) {
+            if (draw->text->string.wide_char) {
+                for (int i = 0; i < want; i++) {
+                    ins[i] = draw->text->string.wide_char[i];
+                }
+                ins_len = want;
+            }
+        } else if (draw->text->string.multi_byte) {
+            const size_t got = mbstowcs(ins, draw->text->string.multi_byte, (size_t)_SAPP_X11_MAX_PREEDIT);
+            if (got != (size_t)-1) {
+                ins_len = (int)got;
+                if (ins_len > _SAPP_X11_MAX_PREEDIT) {
+                    ins_len = _SAPP_X11_MAX_PREEDIT;
+                }
+            }
+        }
+    }
+
+    /* 2. splice: replace [chg_first, chg_first+chg_length) with the new run.
+          A null text with a non-zero chg_length is a pure deletion. */
+    int first = draw->chg_first;
+    if (first < 0) { first = 0; }
+    if (first > _sapp.x11.ime_preedit_len) { first = _sapp.x11.ime_preedit_len; }
+    int del = draw->chg_length;
+    if (del < 0) { del = 0; }
+    if ((first + del) > _sapp.x11.ime_preedit_len) { del = _sapp.x11.ime_preedit_len - first; }
+
+    wchar_t tail[_SAPP_X11_MAX_PREEDIT];
+    const int tail_len = _sapp.x11.ime_preedit_len - first - del;
+    for (int i = 0; i < tail_len; i++) {
+        tail[i] = _sapp.x11.ime_preedit[first + del + i];
+    }
+    int o = first;
+    for (int i = 0; (i < ins_len) && (o < _SAPP_X11_MAX_PREEDIT); i++) {
+        _sapp.x11.ime_preedit[o++] = ins[i];
+    }
+    for (int i = 0; (i < tail_len) && (o < _SAPP_X11_MAX_PREEDIT); i++) {
+        _sapp.x11.ime_preedit[o++] = tail[i];
+    }
+    _sapp.x11.ime_preedit_len = o;
+
+    /* 3. caret (XIM reports it in codepoints, relative to the whole preedit) */
+    _sapp.x11.ime_preedit_caret = draw->caret;
+    if (_sapp.x11.ime_preedit_caret < 0) {
+        _sapp.x11.ime_preedit_caret = 0;
+    }
+    if (_sapp.x11.ime_preedit_caret > _sapp.x11.ime_preedit_len) {
+        _sapp.x11.ime_preedit_caret = _sapp.x11.ime_preedit_len;
+    }
+
+    /* 4. active clause = the run the IME marks reverse/highlighted (the segment
+          currently being converted). Feedback is per-character over the run
+          that was just drawn, so the indices are relative to `first`. */
+    _sapp.x11.ime_clause_begin = 0;
+    _sapp.x11.ime_clause_end = 0;
+    if (draw->text && draw->text->feedback && (ins_len > 0)) {
+        int cl_begin = -1, cl_end = -1;
+        for (int i = 0; i < ins_len; i++) {
+            const XIMFeedback fb = draw->text->feedback[i];
+            if (fb & (XIMReverse | XIMHighlight)) {
+                if (cl_begin < 0) {
+                    cl_begin = first + i;
+                }
+                cl_end = first + i + 1;
+            }
+        }
+        if ((cl_begin >= 0) && (cl_end <= _sapp.x11.ime_preedit_len)) {
+            _sapp.x11.ime_clause_begin = cl_begin;
+            _sapp.x11.ime_clause_end = cl_end;
+        }
+    }
+    _sapp_x11_ime_emit_composition();
+}
+
+_SOKOL_PRIVATE void _sapp_x11_ime_preedit_caret_cb(XIC xic, XPointer client_data, XPointer call_data) {
+    _SOKOL_UNUSED(xic); _SOKOL_UNUSED(client_data);
+    XIMPreeditCaretCallbackStruct* cc = (XIMPreeditCaretCallbackStruct*)call_data;
+    if (!cc) {
+        return;
+    }
+    if (cc->direction == XIMAbsolutePosition) {
+        _sapp.x11.ime_preedit_caret = cc->position;
+        if (_sapp.x11.ime_preedit_caret < 0) {
+            _sapp.x11.ime_preedit_caret = 0;
+        }
+        if (_sapp.x11.ime_preedit_caret > _sapp.x11.ime_preedit_len) {
+            _sapp.x11.ime_preedit_caret = _sapp.x11.ime_preedit_len;
+        }
+        _sapp_x11_ime_emit_composition();
+    }
+}
+
+/* Reset the input context, committing whatever the IME had pending. Used when a
+   click lands elsewhere mid-composition (the win32 shell does the same thing
+   with ImmNotifyIME(CPS_COMPLETE)). */
+_SOKOL_PRIVATE void _sapp_x11_ime_reset_ic(void) {
+    if (!_sapp.x11.xic || (_sapp.x11.ime_preedit_len == 0)) {
+        return;
+    }
+    char* committed = Xutf8ResetIC(_sapp.x11.xic);
+    if (committed) {
+        const unsigned char* p = (const unsigned char*)committed;
+        while (*p) {
+            uint32_t cp = 0; int n = 1;
+            const unsigned char c = *p;
+            if (c < 0x80)                { cp = c;        n = 1; }
+            else if ((c & 0xE0) == 0xC0) { cp = c & 0x1F; n = 2; }
+            else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F; n = 3; }
+            else if ((c & 0xF8) == 0xF0) { cp = c & 0x07; n = 4; }
+            else { p++; continue; }
+            bool truncated = false;
+            for (int i = 1; i < n; i++) {
+                if (p[i] == 0) { truncated = true; break; }
+                cp = (cp << 6) | ((uint32_t)p[i] & 0x3F);
+            }
+            if (truncated) { break; }
+            p += n;
+            if ((cp >= 0x20) && (cp != 0x7f)) {
+                _sapp_x11_char_event(cp, false, 0);
+            }
+        }
+        XFree(committed);
+    }
+    _sapp_x11_ime_reset_preedit();
+    _sapp_x11_ime_emit_composition();   /* clear whatever was on screen */
+}
+
+/* AFFINEUI PATCH (ime): bring up an XIM input context on the window.
+
+   Prefers ON-THE-SPOT (XIMPreeditCallbacks): the IME hands us the preedit
+   string, caret and clause range, we publish them as
+   SAPP_EVENTTYPE_IME_COMPOSITION and the app draws the preedit inline — the
+   same contract the win32 IMM path provides. This is what modern IMEs
+   (ibus/fcitx) actually render through; over-the-spot leaves the preedit to
+   the input method, which draws nothing at all when the IME's own panel is
+   disabled (the GNOME/ibus default), so it is only a fallback here.
+
+   Falls back to over-the-spot (XIMPreeditPosition, IME draws at the spot we
+   push via sapp_ime_set_rect) and then the root style. Committed text reaches
+   the app through Xutf8LookupString in _sapp_x11_on_keypress in every style.
+   Best-effort: with no IM available the window keeps working through the
+   legacy XLookupString path. */
 _SOKOL_PRIVATE void _sapp_x11_ime_init(void) {
     _sapp.x11.xim = 0;
     _sapp.x11.xic = 0;
+    _sapp.x11.ime_style = 0;
     _sapp.x11.ime_fontset = 0;
     _sapp.x11.ime_focused = false;
     _sapp.x11.ime_spot_valid = false;
+    _sapp_x11_ime_reset_preedit();
     /* Xutf8LookupString and XIM need the C library locale to be established;
        sokol never sets it, so do it here (LC_CTYPE only, to avoid perturbing
        the host app's numeric/collation formatting). */
@@ -13520,23 +13789,62 @@ _SOKOL_PRIVATE void _sapp_x11_ime_init(void) {
         return;
     }
 
-    /* pick over-the-spot if offered, else root style */
-    const XIMStyle style_ots  = XIMPreeditPosition | XIMStatusNothing;
-    const XIMStyle style_root = XIMPreeditNothing  | XIMStatusNothing;
+    /* prefer on-the-spot (app draws the preedit), then over-the-spot, then root */
+    const XIMStyle style_onspot = XIMPreeditCallbacks | XIMStatusNothing;
+    const XIMStyle style_ots    = XIMPreeditPosition  | XIMStatusNothing;
+    const XIMStyle style_root   = XIMPreeditNothing   | XIMStatusNothing;
     XIMStyle chosen = style_root;
     XIMStyles* styles = 0;
     if ((XGetIMValues(_sapp.x11.xim, XNQueryInputStyle, &styles, (void*)0) == 0) && styles) {
-        bool has_ots = false, has_root = false;
+        bool has_onspot = false, has_ots = false, has_root = false;
         for (unsigned short i = 0; i < styles->count_styles; i++) {
-            if (styles->supported_styles[i] == style_ots)  { has_ots = true; }
-            if (styles->supported_styles[i] == style_root) { has_root = true; }
+            if (styles->supported_styles[i] == style_onspot) { has_onspot = true; }
+            if (styles->supported_styles[i] == style_ots)    { has_ots = true; }
+            if (styles->supported_styles[i] == style_root)   { has_root = true; }
         }
-        if (has_ots)       { chosen = style_ots; }
+        if (has_onspot)    { chosen = style_onspot; }
+        else if (has_ots)  { chosen = style_ots; }
         else if (has_root) { chosen = style_root; }
         XFree(styles);
     }
 
-    if (chosen == style_ots) {
+    if (chosen == style_onspot) {
+        /* the XIMCallback structs are read by XCreateIC but the IM keeps
+           pointing at our function pointers, so they live in _sapp.x11 */
+        _sapp.x11.ime_cb_start.client_data = 0;
+        _sapp.x11.ime_cb_start.callback = (XIMProc)_sapp_x11_ime_preedit_start_cb;
+        _sapp.x11.ime_cb_done.client_data = 0;
+        _sapp.x11.ime_cb_done.callback = (XIMProc)_sapp_x11_ime_preedit_done_cb;
+        _sapp.x11.ime_cb_draw.client_data = 0;
+        _sapp.x11.ime_cb_draw.callback = (XIMProc)_sapp_x11_ime_preedit_draw_cb;
+        _sapp.x11.ime_cb_caret.client_data = 0;
+        _sapp.x11.ime_cb_caret.callback = (XIMProc)_sapp_x11_ime_preedit_caret_cb;
+        _sapp.x11.ime_spot.x = 0;
+        _sapp.x11.ime_spot.y = 0;
+        /* XNSpotLocation still anchors the candidate/lookup window in this style */
+        XVaNestedList preedit = XVaCreateNestedList(0,
+            XNPreeditStartCallback, &_sapp.x11.ime_cb_start,
+            XNPreeditDoneCallback,  &_sapp.x11.ime_cb_done,
+            XNPreeditDrawCallback,  &_sapp.x11.ime_cb_draw,
+            XNPreeditCaretCallback, &_sapp.x11.ime_cb_caret,
+            XNSpotLocation,         &_sapp.x11.ime_spot,
+            (void*)0);
+        if (preedit) {
+            _sapp.x11.xic = XCreateIC(_sapp.x11.xim,
+                XNInputStyle,   chosen,
+                XNClientWindow, _sapp.x11.window,
+                XNFocusWindow,  _sapp.x11.window,
+                XNPreeditAttributes, preedit,
+                (void*)0);
+            XFree(preedit);
+        }
+        if (!_sapp.x11.xic) {
+            /* on-the-spot refused — try over-the-spot next */
+            chosen = style_ots;
+        }
+    }
+
+    if ((chosen == style_ots) && !_sapp.x11.xic) {
         /* over-the-spot mandates a font set for the IME's preedit rendering */
         char** missing = 0; int num_missing = 0; char* def_str = 0;
         _sapp.x11.ime_fontset = XCreateFontSet(_sapp.x11.display,
@@ -13573,6 +13881,7 @@ _SOKOL_PRIVATE void _sapp_x11_ime_init(void) {
         }
     }
     if (!_sapp.x11.xic) {
+        chosen = style_root;
         _sapp.x11.xic = XCreateIC(_sapp.x11.xim,
             XNInputStyle,   style_root,
             XNClientWindow, _sapp.x11.window,
@@ -13588,6 +13897,7 @@ _SOKOL_PRIVATE void _sapp_x11_ime_init(void) {
         }
         return;
     }
+    _sapp.x11.ime_style = chosen;
 
     /* some IMs require extra event-mask bits on the focus window */
     unsigned long im_mask = 0;
@@ -13615,8 +13925,10 @@ _SOKOL_PRIVATE void _sapp_x11_ime_shutdown(void) {
         XFreeFontSet(_sapp.x11.display, _sapp.x11.ime_fontset);
         _sapp.x11.ime_fontset = 0;
     }
+    _sapp.x11.ime_style = 0;
     _sapp.x11.ime_focused = false;
     _sapp.x11.ime_spot_valid = false;
+    _sapp_x11_ime_reset_preedit();
 }
 
 _SOKOL_PRIVATE bool _sapp_x11_window_visible(void) {
@@ -14056,6 +14368,10 @@ _SOKOL_PRIVATE void _sapp_x11_on_keyrelease(XEvent* event) {
 }
 
 _SOKOL_PRIVATE void _sapp_x11_on_buttonpress(XEvent* event) {
+    /* AFFINEUI PATCH (ime): a click lands the caret somewhere new, so finish
+       any active composition first (the caret table is in composed space until
+       it clears). Mirrors the win32 shell's ImmNotifyIME(CPS_COMPLETE). */
+    _sapp_x11_ime_reset_ic();
     _sapp_x11_mouse_update(event->xbutton.x, event->xbutton.y, false);
     const sapp_mousebutton btn = _sapp_x11_translate_button(event);
     uint32_t mods = _sapp_x11_mods(event->xbutton.state);
@@ -14940,7 +15256,10 @@ SOKOL_API_IMPL void sapp_ime_set_rect(int x, int y, int w, int h) {
         _sapp.x11.ime_spot.x = (short)x;
         _sapp.x11.ime_spot.y = (short)(y + h);
         _sapp.x11.ime_spot_valid = true;
-        if (_sapp.x11.xic && _sapp.x11.ime_fontset) {
+        /* the spot anchors the IME's candidate/lookup window in on-the-spot,
+           and additionally the preedit itself in over-the-spot. The root style
+           has no preedit attributes to set. */
+        if (_sapp.x11.xic && (_sapp.x11.ime_style & (XIMPreeditCallbacks | XIMPreeditPosition))) {
             XVaNestedList preedit = XVaCreateNestedList(0,
                 XNSpotLocation, &_sapp.x11.ime_spot,
                 (void*)0);
