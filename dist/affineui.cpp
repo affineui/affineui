@@ -289586,6 +289586,9 @@ typedef struct {
 
 #define _SAPP_X11_XDND_VERSION (5)
 #define _SAPP_X11_MAX_X11_KEYCODES (256)
+/* AFFINEUI PATCH (ime): preedit capacity in codepoints (the UTF-8 event buffer
+   is SAPP_MAX_IME_COMPOSITION_SIZE bytes, so this is the practical ceiling). */
+#define _SAPP_X11_MAX_PREEDIT (256)
 
 #define GLX_VENDOR 1
 #define GLX_RGBA_BIT 0x00000001
@@ -289691,10 +289694,24 @@ typedef struct {
        is focused/unfocused with the text-field intent (sapp_ime_set_enabled). */
     XIM xim;
     XIC xic;
-    XFontSet ime_fontset;   // owned by us (over-the-spot requires one)
+    XIMStyle ime_style;     // the style the IC was actually created with
+    XFontSet ime_fontset;   // owned by us (over-the-spot only)
     bool ime_focused;       // XSetICFocus currently applied
     XPoint ime_spot;        // caret spot in window px (XNSpotLocation)
     bool ime_spot_valid;
+    /* on-the-spot preedit state, maintained by the XIM preedit callbacks and
+       published to the app as SAPP_EVENTTYPE_IME_COMPOSITION. Held as
+       codepoints because XIM reports all offsets (chg_first/chg_length/caret)
+       in characters, not bytes. */
+    wchar_t ime_preedit[_SAPP_X11_MAX_PREEDIT];
+    int ime_preedit_len;        // codepoints currently in ime_preedit
+    int ime_preedit_caret;      // IME caret, codepoint index
+    int ime_clause_begin;       // active clause, codepoint indices
+    int ime_clause_end;         // begin == end => no clause info
+    XIMCallback ime_cb_start;   // storage must outlive XCreateIC
+    XIMCallback ime_cb_done;
+    XIMCallback ime_cb_draw;
+    XIMCallback ime_cb_caret;
 } _sapp_x11_t;
 
 #if defined(_SAPP_GLX)
@@ -296375,10 +296392,28 @@ _SOKOL_PRIVATE void _sapp_win32_ime_composition_event(HIMC himc) {
         if (!_sapp_win32_wide_to_utf8(wbuf, _sapp.event.ime_composition, sizeof(_sapp.event.ime_composition))) {
             _sapp.event.ime_composition[0] = 0;
         }
-        const LONG cursor_pos = ImmGetCompositionStringW(himc, GCS_CURSORPOS, NULL, 0);
-        _sapp.event.ime_composition_cursor = (cursor_pos >= 0)
-            ? _sapp_win32_ime_utf8_offset(wbuf, num_wchars, (int)cursor_pos)
-            : -1;
+        /* GCS_CURSORPOS returns the caret position in the LOW 16 BITS of the
+           return value (it writes nothing to a buffer, hence NULL/0), so mask
+           it — the high word carries a delta the docs tell you to ignore.
+
+           Then: a 0 cursor on a NON-EMPTY preedit means the IME has not placed
+           a caret inside the composition, which is what the Japanese IME reports
+           for freshly-typed unconverted kana. Taken literally that parks our
+           caret to the LEFT of the glyph the user just typed; every native
+           Windows app (and our own macOS path, which reads
+           NSTextInputClient's selectedRange) shows it at the END. -1 is the
+           core's "caret at end of preedit" convention, so hand it that. A
+           cursor the IME genuinely places mid-preedit (arrow keys during
+           conversion) is > 0 and passes through untouched. */
+        const LONG cursor_raw = ImmGetCompositionStringW(himc, GCS_CURSORPOS, NULL, 0);
+        if (cursor_raw < 0) {
+            _sapp.event.ime_composition_cursor = -1;   /* IME reported none */
+        } else {
+            const int cursor_wchars = (int)(cursor_raw & 0xFFFF);
+            _sapp.event.ime_composition_cursor = (cursor_wchars <= 0)
+                ? -1   /* no caret inside the preedit => end of it */
+                : _sapp_win32_ime_utf8_offset(wbuf, num_wchars, cursor_wchars);
+        }
         /* GCS_COMPATTR: one attribute byte per UTF-16 code unit; the
            ATTR_TARGET_* range is the clause the user is converting */
         BYTE attrs[SAPP_MAX_IME_COMPOSITION_SIZE];
@@ -300018,19 +300053,271 @@ _SOKOL_PRIVATE void _sapp_x11_destroy_window(void) {
     XFlush(_sapp.x11.display);
 }
 
-/* AFFINEUI PATCH (ime): bring up an XIM input context on the window. Uses
-   over-the-spot preedit (XIMPreeditPosition) when the input method supports
-   it — the IME draws the preedit + candidate list at the caret spot we push
-   via sapp_ime_set_rect — and falls back to the root style otherwise. In
-   both styles committed text (including CJK) is delivered through
-   Xutf8LookupString in _sapp_x11_on_keypress. Best-effort: if no IM is
-   available the window keeps working with the legacy XLookupString path. */
+/* AFFINEUI PATCH (ime): defined further down with the other input helpers;
+   the composition reset path below commits through it. */
+_SOKOL_PRIVATE void _sapp_x11_char_event(uint32_t chr, bool repeat, uint32_t mods);
+
+/* AFFINEUI PATCH (ime): on-the-spot preedit plumbing.
+
+   XIM reports preedit edits as (chg_first, chg_length, text) triples with all
+   offsets in CHARACTERS, so the preedit is buffered as codepoints and encoded
+   to UTF-8 only when the event is published. wchar_t is UCS-4 on Linux; the
+   encoder below is written out rather than going through wcstombs() so the
+   result is UTF-8 regardless of the process locale. */
+_SOKOL_PRIVATE int _sapp_x11_wc_utf8_len(uint32_t cp) {
+    if (cp < 0x80)    { return 1; }
+    if (cp < 0x800)   { return 2; }
+    if (cp < 0x10000) { return 3; }
+    return 4;
+}
+
+/* byte offset of codepoint index `idx` in the UTF-8 encoding of `src` */
+_SOKOL_PRIVATE int _sapp_x11_wc_utf8_offset(const wchar_t* src, int idx) {
+    int off = 0;
+    for (int i = 0; i < idx; i++) {
+        off += _sapp_x11_wc_utf8_len((uint32_t)src[i]);
+    }
+    return off;
+}
+
+_SOKOL_PRIVATE void _sapp_x11_wc_to_utf8(const wchar_t* src, int num, char* dst, int dst_size) {
+    int o = 0;
+    for (int i = 0; i < num; i++) {
+        const uint32_t cp = (uint32_t)src[i];
+        const int need = _sapp_x11_wc_utf8_len(cp);
+        if ((o + need) >= dst_size) {
+            break;
+        }
+        if (need == 1) {
+            dst[o++] = (char)cp;
+        } else if (need == 2) {
+            dst[o++] = (char)(0xC0 | (cp >> 6));
+            dst[o++] = (char)(0x80 | (cp & 0x3F));
+        } else if (need == 3) {
+            dst[o++] = (char)(0xE0 | (cp >> 12));
+            dst[o++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+            dst[o++] = (char)(0x80 | (cp & 0x3F));
+        } else {
+            dst[o++] = (char)(0xF0 | (cp >> 18));
+            dst[o++] = (char)(0x80 | ((cp >> 12) & 0x3F));
+            dst[o++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+            dst[o++] = (char)(0x80 | (cp & 0x3F));
+        }
+    }
+    dst[o] = 0;
+}
+
+_SOKOL_PRIVATE void _sapp_x11_ime_reset_preedit(void) {
+    _sapp.x11.ime_preedit_len = 0;
+    _sapp.x11.ime_preedit_caret = 0;
+    _sapp.x11.ime_clause_begin = 0;
+    _sapp.x11.ime_clause_end = 0;
+}
+
+/* publish the current preedit; an empty preedit means "composition cleared" */
+_SOKOL_PRIVATE void _sapp_x11_ime_emit_composition(void) {
+    if (!_sapp_events_enabled()) {
+        return;
+    }
+    _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
+    const int n = _sapp.x11.ime_preedit_len;
+    if (n > 0) {
+        _sapp_x11_wc_to_utf8(_sapp.x11.ime_preedit, n,
+            _sapp.event.ime_composition, (int)sizeof(_sapp.event.ime_composition));
+        int caret = _sapp.x11.ime_preedit_caret;
+        if (caret < 0) { caret = 0; }
+        if (caret > n) { caret = n; }
+        _sapp.event.ime_composition_cursor = _sapp_x11_wc_utf8_offset(_sapp.x11.ime_preedit, caret);
+        if (_sapp.x11.ime_clause_end > _sapp.x11.ime_clause_begin) {
+            _sapp.event.ime_composition_clause_begin =
+                _sapp_x11_wc_utf8_offset(_sapp.x11.ime_preedit, _sapp.x11.ime_clause_begin);
+            _sapp.event.ime_composition_clause_end =
+                _sapp_x11_wc_utf8_offset(_sapp.x11.ime_preedit, _sapp.x11.ime_clause_end);
+        }
+    }
+    /* else: ime_composition stays empty (event was zeroed) => preedit cleared */
+    _sapp_call_event(&_sapp.event);
+}
+
+/* XIM calls this back with the max preedit length it may use (-1 = no limit) */
+_SOKOL_PRIVATE int _sapp_x11_ime_preedit_start_cb(XIC xic, XPointer client_data, XPointer call_data) {
+    _SOKOL_UNUSED(xic); _SOKOL_UNUSED(client_data); _SOKOL_UNUSED(call_data);
+    _sapp_x11_ime_reset_preedit();
+    return -1;
+}
+
+_SOKOL_PRIVATE void _sapp_x11_ime_preedit_done_cb(XIC xic, XPointer client_data, XPointer call_data) {
+    _SOKOL_UNUSED(xic); _SOKOL_UNUSED(client_data); _SOKOL_UNUSED(call_data);
+    _sapp_x11_ime_reset_preedit();
+    _sapp_x11_ime_emit_composition();   /* empty => clear */
+}
+
+_SOKOL_PRIVATE void _sapp_x11_ime_preedit_draw_cb(XIC xic, XPointer client_data, XPointer call_data) {
+    _SOKOL_UNUSED(xic); _SOKOL_UNUSED(client_data);
+    XIMPreeditDrawCallbackStruct* draw = (XIMPreeditDrawCallbackStruct*)call_data;
+    if (!draw) {
+        return;
+    }
+
+    /* 1. decode the incoming run into codepoints (XIMText is either wchar or
+          multibyte in the locale encoding) */
+    wchar_t ins[_SAPP_X11_MAX_PREEDIT];
+    int ins_len = 0;
+    if (draw->text && (draw->text->length > 0)) {
+        int want = (int)draw->text->length;
+        if (want > _SAPP_X11_MAX_PREEDIT) {
+            want = _SAPP_X11_MAX_PREEDIT;
+        }
+        if (draw->text->encoding_is_wchar) {
+            if (draw->text->string.wide_char) {
+                for (int i = 0; i < want; i++) {
+                    ins[i] = draw->text->string.wide_char[i];
+                }
+                ins_len = want;
+            }
+        } else if (draw->text->string.multi_byte) {
+            const size_t got = mbstowcs(ins, draw->text->string.multi_byte, (size_t)_SAPP_X11_MAX_PREEDIT);
+            if (got != (size_t)-1) {
+                ins_len = (int)got;
+                if (ins_len > _SAPP_X11_MAX_PREEDIT) {
+                    ins_len = _SAPP_X11_MAX_PREEDIT;
+                }
+            }
+        }
+    }
+
+    /* 2. splice: replace [chg_first, chg_first+chg_length) with the new run.
+          A null text with a non-zero chg_length is a pure deletion. */
+    int first = draw->chg_first;
+    if (first < 0) { first = 0; }
+    if (first > _sapp.x11.ime_preedit_len) { first = _sapp.x11.ime_preedit_len; }
+    int del = draw->chg_length;
+    if (del < 0) { del = 0; }
+    if ((first + del) > _sapp.x11.ime_preedit_len) { del = _sapp.x11.ime_preedit_len - first; }
+
+    wchar_t tail[_SAPP_X11_MAX_PREEDIT];
+    const int tail_len = _sapp.x11.ime_preedit_len - first - del;
+    for (int i = 0; i < tail_len; i++) {
+        tail[i] = _sapp.x11.ime_preedit[first + del + i];
+    }
+    int o = first;
+    for (int i = 0; (i < ins_len) && (o < _SAPP_X11_MAX_PREEDIT); i++) {
+        _sapp.x11.ime_preedit[o++] = ins[i];
+    }
+    for (int i = 0; (i < tail_len) && (o < _SAPP_X11_MAX_PREEDIT); i++) {
+        _sapp.x11.ime_preedit[o++] = tail[i];
+    }
+    _sapp.x11.ime_preedit_len = o;
+
+    /* 3. caret (XIM reports it in codepoints, relative to the whole preedit) */
+    _sapp.x11.ime_preedit_caret = draw->caret;
+    if (_sapp.x11.ime_preedit_caret < 0) {
+        _sapp.x11.ime_preedit_caret = 0;
+    }
+    if (_sapp.x11.ime_preedit_caret > _sapp.x11.ime_preedit_len) {
+        _sapp.x11.ime_preedit_caret = _sapp.x11.ime_preedit_len;
+    }
+
+    /* 4. active clause = the run the IME marks reverse/highlighted (the segment
+          currently being converted). Feedback is per-character over the run
+          that was just drawn, so the indices are relative to `first`. */
+    _sapp.x11.ime_clause_begin = 0;
+    _sapp.x11.ime_clause_end = 0;
+    if (draw->text && draw->text->feedback && (ins_len > 0)) {
+        int cl_begin = -1, cl_end = -1;
+        for (int i = 0; i < ins_len; i++) {
+            const XIMFeedback fb = draw->text->feedback[i];
+            if (fb & (XIMReverse | XIMHighlight)) {
+                if (cl_begin < 0) {
+                    cl_begin = first + i;
+                }
+                cl_end = first + i + 1;
+            }
+        }
+        if ((cl_begin >= 0) && (cl_end <= _sapp.x11.ime_preedit_len)) {
+            _sapp.x11.ime_clause_begin = cl_begin;
+            _sapp.x11.ime_clause_end = cl_end;
+        }
+    }
+    _sapp_x11_ime_emit_composition();
+}
+
+_SOKOL_PRIVATE void _sapp_x11_ime_preedit_caret_cb(XIC xic, XPointer client_data, XPointer call_data) {
+    _SOKOL_UNUSED(xic); _SOKOL_UNUSED(client_data);
+    XIMPreeditCaretCallbackStruct* cc = (XIMPreeditCaretCallbackStruct*)call_data;
+    if (!cc) {
+        return;
+    }
+    if (cc->direction == XIMAbsolutePosition) {
+        _sapp.x11.ime_preedit_caret = cc->position;
+        if (_sapp.x11.ime_preedit_caret < 0) {
+            _sapp.x11.ime_preedit_caret = 0;
+        }
+        if (_sapp.x11.ime_preedit_caret > _sapp.x11.ime_preedit_len) {
+            _sapp.x11.ime_preedit_caret = _sapp.x11.ime_preedit_len;
+        }
+        _sapp_x11_ime_emit_composition();
+    }
+}
+
+/* Reset the input context, committing whatever the IME had pending. Used when a
+   click lands elsewhere mid-composition (the win32 shell does the same thing
+   with ImmNotifyIME(CPS_COMPLETE)). */
+_SOKOL_PRIVATE void _sapp_x11_ime_reset_ic(void) {
+    if (!_sapp.x11.xic || (_sapp.x11.ime_preedit_len == 0)) {
+        return;
+    }
+    char* committed = Xutf8ResetIC(_sapp.x11.xic);
+    if (committed) {
+        const unsigned char* p = (const unsigned char*)committed;
+        while (*p) {
+            uint32_t cp = 0; int n = 1;
+            const unsigned char c = *p;
+            if (c < 0x80)                { cp = c;        n = 1; }
+            else if ((c & 0xE0) == 0xC0) { cp = c & 0x1F; n = 2; }
+            else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F; n = 3; }
+            else if ((c & 0xF8) == 0xF0) { cp = c & 0x07; n = 4; }
+            else { p++; continue; }
+            bool truncated = false;
+            for (int i = 1; i < n; i++) {
+                if (p[i] == 0) { truncated = true; break; }
+                cp = (cp << 6) | ((uint32_t)p[i] & 0x3F);
+            }
+            if (truncated) { break; }
+            p += n;
+            if ((cp >= 0x20) && (cp != 0x7f)) {
+                _sapp_x11_char_event(cp, false, 0);
+            }
+        }
+        XFree(committed);
+    }
+    _sapp_x11_ime_reset_preedit();
+    _sapp_x11_ime_emit_composition();   /* clear whatever was on screen */
+}
+
+/* AFFINEUI PATCH (ime): bring up an XIM input context on the window.
+
+   Prefers ON-THE-SPOT (XIMPreeditCallbacks): the IME hands us the preedit
+   string, caret and clause range, we publish them as
+   SAPP_EVENTTYPE_IME_COMPOSITION and the app draws the preedit inline — the
+   same contract the win32 IMM path provides. This is what modern IMEs
+   (ibus/fcitx) actually render through; over-the-spot leaves the preedit to
+   the input method, which draws nothing at all when the IME's own panel is
+   disabled (the GNOME/ibus default), so it is only a fallback here.
+
+   Falls back to over-the-spot (XIMPreeditPosition, IME draws at the spot we
+   push via sapp_ime_set_rect) and then the root style. Committed text reaches
+   the app through Xutf8LookupString in _sapp_x11_on_keypress in every style.
+   Best-effort: with no IM available the window keeps working through the
+   legacy XLookupString path. */
 _SOKOL_PRIVATE void _sapp_x11_ime_init(void) {
     _sapp.x11.xim = 0;
     _sapp.x11.xic = 0;
+    _sapp.x11.ime_style = 0;
     _sapp.x11.ime_fontset = 0;
     _sapp.x11.ime_focused = false;
     _sapp.x11.ime_spot_valid = false;
+    _sapp_x11_ime_reset_preedit();
     /* Xutf8LookupString and XIM need the C library locale to be established;
        sokol never sets it, so do it here (LC_CTYPE only, to avoid perturbing
        the host app's numeric/collation formatting). */
@@ -300052,23 +300339,62 @@ _SOKOL_PRIVATE void _sapp_x11_ime_init(void) {
         return;
     }
 
-    /* pick over-the-spot if offered, else root style */
-    const XIMStyle style_ots  = XIMPreeditPosition | XIMStatusNothing;
-    const XIMStyle style_root = XIMPreeditNothing  | XIMStatusNothing;
+    /* prefer on-the-spot (app draws the preedit), then over-the-spot, then root */
+    const XIMStyle style_onspot = XIMPreeditCallbacks | XIMStatusNothing;
+    const XIMStyle style_ots    = XIMPreeditPosition  | XIMStatusNothing;
+    const XIMStyle style_root   = XIMPreeditNothing   | XIMStatusNothing;
     XIMStyle chosen = style_root;
     XIMStyles* styles = 0;
     if ((XGetIMValues(_sapp.x11.xim, XNQueryInputStyle, &styles, (void*)0) == 0) && styles) {
-        bool has_ots = false, has_root = false;
+        bool has_onspot = false, has_ots = false, has_root = false;
         for (unsigned short i = 0; i < styles->count_styles; i++) {
-            if (styles->supported_styles[i] == style_ots)  { has_ots = true; }
-            if (styles->supported_styles[i] == style_root) { has_root = true; }
+            if (styles->supported_styles[i] == style_onspot) { has_onspot = true; }
+            if (styles->supported_styles[i] == style_ots)    { has_ots = true; }
+            if (styles->supported_styles[i] == style_root)   { has_root = true; }
         }
-        if (has_ots)       { chosen = style_ots; }
+        if (has_onspot)    { chosen = style_onspot; }
+        else if (has_ots)  { chosen = style_ots; }
         else if (has_root) { chosen = style_root; }
         XFree(styles);
     }
 
-    if (chosen == style_ots) {
+    if (chosen == style_onspot) {
+        /* the XIMCallback structs are read by XCreateIC but the IM keeps
+           pointing at our function pointers, so they live in _sapp.x11 */
+        _sapp.x11.ime_cb_start.client_data = 0;
+        _sapp.x11.ime_cb_start.callback = (XIMProc)_sapp_x11_ime_preedit_start_cb;
+        _sapp.x11.ime_cb_done.client_data = 0;
+        _sapp.x11.ime_cb_done.callback = (XIMProc)_sapp_x11_ime_preedit_done_cb;
+        _sapp.x11.ime_cb_draw.client_data = 0;
+        _sapp.x11.ime_cb_draw.callback = (XIMProc)_sapp_x11_ime_preedit_draw_cb;
+        _sapp.x11.ime_cb_caret.client_data = 0;
+        _sapp.x11.ime_cb_caret.callback = (XIMProc)_sapp_x11_ime_preedit_caret_cb;
+        _sapp.x11.ime_spot.x = 0;
+        _sapp.x11.ime_spot.y = 0;
+        /* XNSpotLocation still anchors the candidate/lookup window in this style */
+        XVaNestedList preedit = XVaCreateNestedList(0,
+            XNPreeditStartCallback, &_sapp.x11.ime_cb_start,
+            XNPreeditDoneCallback,  &_sapp.x11.ime_cb_done,
+            XNPreeditDrawCallback,  &_sapp.x11.ime_cb_draw,
+            XNPreeditCaretCallback, &_sapp.x11.ime_cb_caret,
+            XNSpotLocation,         &_sapp.x11.ime_spot,
+            (void*)0);
+        if (preedit) {
+            _sapp.x11.xic = XCreateIC(_sapp.x11.xim,
+                XNInputStyle,   chosen,
+                XNClientWindow, _sapp.x11.window,
+                XNFocusWindow,  _sapp.x11.window,
+                XNPreeditAttributes, preedit,
+                (void*)0);
+            XFree(preedit);
+        }
+        if (!_sapp.x11.xic) {
+            /* on-the-spot refused — try over-the-spot next */
+            chosen = style_ots;
+        }
+    }
+
+    if ((chosen == style_ots) && !_sapp.x11.xic) {
         /* over-the-spot mandates a font set for the IME's preedit rendering */
         char** missing = 0; int num_missing = 0; char* def_str = 0;
         _sapp.x11.ime_fontset = XCreateFontSet(_sapp.x11.display,
@@ -300105,6 +300431,7 @@ _SOKOL_PRIVATE void _sapp_x11_ime_init(void) {
         }
     }
     if (!_sapp.x11.xic) {
+        chosen = style_root;
         _sapp.x11.xic = XCreateIC(_sapp.x11.xim,
             XNInputStyle,   style_root,
             XNClientWindow, _sapp.x11.window,
@@ -300120,6 +300447,7 @@ _SOKOL_PRIVATE void _sapp_x11_ime_init(void) {
         }
         return;
     }
+    _sapp.x11.ime_style = chosen;
 
     /* some IMs require extra event-mask bits on the focus window */
     unsigned long im_mask = 0;
@@ -300147,8 +300475,10 @@ _SOKOL_PRIVATE void _sapp_x11_ime_shutdown(void) {
         XFreeFontSet(_sapp.x11.display, _sapp.x11.ime_fontset);
         _sapp.x11.ime_fontset = 0;
     }
+    _sapp.x11.ime_style = 0;
     _sapp.x11.ime_focused = false;
     _sapp.x11.ime_spot_valid = false;
+    _sapp_x11_ime_reset_preedit();
 }
 
 _SOKOL_PRIVATE bool _sapp_x11_window_visible(void) {
@@ -300588,6 +300918,10 @@ _SOKOL_PRIVATE void _sapp_x11_on_keyrelease(XEvent* event) {
 }
 
 _SOKOL_PRIVATE void _sapp_x11_on_buttonpress(XEvent* event) {
+    /* AFFINEUI PATCH (ime): a click lands the caret somewhere new, so finish
+       any active composition first (the caret table is in composed space until
+       it clears). Mirrors the win32 shell's ImmNotifyIME(CPS_COMPLETE). */
+    _sapp_x11_ime_reset_ic();
     _sapp_x11_mouse_update(event->xbutton.x, event->xbutton.y, false);
     const sapp_mousebutton btn = _sapp_x11_translate_button(event);
     uint32_t mods = _sapp_x11_mods(event->xbutton.state);
@@ -301472,7 +301806,10 @@ SOKOL_API_IMPL void sapp_ime_set_rect(int x, int y, int w, int h) {
         _sapp.x11.ime_spot.x = (short)x;
         _sapp.x11.ime_spot.y = (short)(y + h);
         _sapp.x11.ime_spot_valid = true;
-        if (_sapp.x11.xic && _sapp.x11.ime_fontset) {
+        /* the spot anchors the IME's candidate/lookup window in on-the-spot,
+           and additionally the preedit itself in over-the-spot. The root style
+           has no preedit attributes to set. */
+        if (_sapp.x11.xic && (_sapp.x11.ime_style & (XIMPreeditCallbacks | XIMPreeditPosition))) {
             XVaNestedList preedit = XVaCreateNestedList(0,
                 XNSpotLocation, &_sapp.x11.ime_spot,
                 (void*)0);
@@ -343964,6 +344301,9 @@ typedef struct {
 
 #define _SAPP_X11_XDND_VERSION (5)
 #define _SAPP_X11_MAX_X11_KEYCODES (256)
+/* AFFINEUI PATCH (ime): preedit capacity in codepoints (the UTF-8 event buffer
+   is SAPP_MAX_IME_COMPOSITION_SIZE bytes, so this is the practical ceiling). */
+#define _SAPP_X11_MAX_PREEDIT (256)
 
 #define GLX_VENDOR 1
 #define GLX_RGBA_BIT 0x00000001
@@ -344069,10 +344409,24 @@ typedef struct {
        is focused/unfocused with the text-field intent (sapp_ime_set_enabled). */
     XIM xim;
     XIC xic;
-    XFontSet ime_fontset;   // owned by us (over-the-spot requires one)
+    XIMStyle ime_style;     // the style the IC was actually created with
+    XFontSet ime_fontset;   // owned by us (over-the-spot only)
     bool ime_focused;       // XSetICFocus currently applied
     XPoint ime_spot;        // caret spot in window px (XNSpotLocation)
     bool ime_spot_valid;
+    /* on-the-spot preedit state, maintained by the XIM preedit callbacks and
+       published to the app as SAPP_EVENTTYPE_IME_COMPOSITION. Held as
+       codepoints because XIM reports all offsets (chg_first/chg_length/caret)
+       in characters, not bytes. */
+    wchar_t ime_preedit[_SAPP_X11_MAX_PREEDIT];
+    int ime_preedit_len;        // codepoints currently in ime_preedit
+    int ime_preedit_caret;      // IME caret, codepoint index
+    int ime_clause_begin;       // active clause, codepoint indices
+    int ime_clause_end;         // begin == end => no clause info
+    XIMCallback ime_cb_start;   // storage must outlive XCreateIC
+    XIMCallback ime_cb_done;
+    XIMCallback ime_cb_draw;
+    XIMCallback ime_cb_caret;
 } _sapp_x11_t;
 
 #if defined(_SAPP_GLX)
@@ -350753,10 +351107,28 @@ _SOKOL_PRIVATE void _sapp_win32_ime_composition_event(HIMC himc) {
         if (!_sapp_win32_wide_to_utf8(wbuf, _sapp.event.ime_composition, sizeof(_sapp.event.ime_composition))) {
             _sapp.event.ime_composition[0] = 0;
         }
-        const LONG cursor_pos = ImmGetCompositionStringW(himc, GCS_CURSORPOS, NULL, 0);
-        _sapp.event.ime_composition_cursor = (cursor_pos >= 0)
-            ? _sapp_win32_ime_utf8_offset(wbuf, num_wchars, (int)cursor_pos)
-            : -1;
+        /* GCS_CURSORPOS returns the caret position in the LOW 16 BITS of the
+           return value (it writes nothing to a buffer, hence NULL/0), so mask
+           it — the high word carries a delta the docs tell you to ignore.
+
+           Then: a 0 cursor on a NON-EMPTY preedit means the IME has not placed
+           a caret inside the composition, which is what the Japanese IME reports
+           for freshly-typed unconverted kana. Taken literally that parks our
+           caret to the LEFT of the glyph the user just typed; every native
+           Windows app (and our own macOS path, which reads
+           NSTextInputClient's selectedRange) shows it at the END. -1 is the
+           core's "caret at end of preedit" convention, so hand it that. A
+           cursor the IME genuinely places mid-preedit (arrow keys during
+           conversion) is > 0 and passes through untouched. */
+        const LONG cursor_raw = ImmGetCompositionStringW(himc, GCS_CURSORPOS, NULL, 0);
+        if (cursor_raw < 0) {
+            _sapp.event.ime_composition_cursor = -1;   /* IME reported none */
+        } else {
+            const int cursor_wchars = (int)(cursor_raw & 0xFFFF);
+            _sapp.event.ime_composition_cursor = (cursor_wchars <= 0)
+                ? -1   /* no caret inside the preedit => end of it */
+                : _sapp_win32_ime_utf8_offset(wbuf, num_wchars, cursor_wchars);
+        }
         /* GCS_COMPATTR: one attribute byte per UTF-16 code unit; the
            ATTR_TARGET_* range is the clause the user is converting */
         BYTE attrs[SAPP_MAX_IME_COMPOSITION_SIZE];
@@ -354396,19 +354768,271 @@ _SOKOL_PRIVATE void _sapp_x11_destroy_window(void) {
     XFlush(_sapp.x11.display);
 }
 
-/* AFFINEUI PATCH (ime): bring up an XIM input context on the window. Uses
-   over-the-spot preedit (XIMPreeditPosition) when the input method supports
-   it — the IME draws the preedit + candidate list at the caret spot we push
-   via sapp_ime_set_rect — and falls back to the root style otherwise. In
-   both styles committed text (including CJK) is delivered through
-   Xutf8LookupString in _sapp_x11_on_keypress. Best-effort: if no IM is
-   available the window keeps working with the legacy XLookupString path. */
+/* AFFINEUI PATCH (ime): defined further down with the other input helpers;
+   the composition reset path below commits through it. */
+_SOKOL_PRIVATE void _sapp_x11_char_event(uint32_t chr, bool repeat, uint32_t mods);
+
+/* AFFINEUI PATCH (ime): on-the-spot preedit plumbing.
+
+   XIM reports preedit edits as (chg_first, chg_length, text) triples with all
+   offsets in CHARACTERS, so the preedit is buffered as codepoints and encoded
+   to UTF-8 only when the event is published. wchar_t is UCS-4 on Linux; the
+   encoder below is written out rather than going through wcstombs() so the
+   result is UTF-8 regardless of the process locale. */
+_SOKOL_PRIVATE int _sapp_x11_wc_utf8_len(uint32_t cp) {
+    if (cp < 0x80)    { return 1; }
+    if (cp < 0x800)   { return 2; }
+    if (cp < 0x10000) { return 3; }
+    return 4;
+}
+
+/* byte offset of codepoint index `idx` in the UTF-8 encoding of `src` */
+_SOKOL_PRIVATE int _sapp_x11_wc_utf8_offset(const wchar_t* src, int idx) {
+    int off = 0;
+    for (int i = 0; i < idx; i++) {
+        off += _sapp_x11_wc_utf8_len((uint32_t)src[i]);
+    }
+    return off;
+}
+
+_SOKOL_PRIVATE void _sapp_x11_wc_to_utf8(const wchar_t* src, int num, char* dst, int dst_size) {
+    int o = 0;
+    for (int i = 0; i < num; i++) {
+        const uint32_t cp = (uint32_t)src[i];
+        const int need = _sapp_x11_wc_utf8_len(cp);
+        if ((o + need) >= dst_size) {
+            break;
+        }
+        if (need == 1) {
+            dst[o++] = (char)cp;
+        } else if (need == 2) {
+            dst[o++] = (char)(0xC0 | (cp >> 6));
+            dst[o++] = (char)(0x80 | (cp & 0x3F));
+        } else if (need == 3) {
+            dst[o++] = (char)(0xE0 | (cp >> 12));
+            dst[o++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+            dst[o++] = (char)(0x80 | (cp & 0x3F));
+        } else {
+            dst[o++] = (char)(0xF0 | (cp >> 18));
+            dst[o++] = (char)(0x80 | ((cp >> 12) & 0x3F));
+            dst[o++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+            dst[o++] = (char)(0x80 | (cp & 0x3F));
+        }
+    }
+    dst[o] = 0;
+}
+
+_SOKOL_PRIVATE void _sapp_x11_ime_reset_preedit(void) {
+    _sapp.x11.ime_preedit_len = 0;
+    _sapp.x11.ime_preedit_caret = 0;
+    _sapp.x11.ime_clause_begin = 0;
+    _sapp.x11.ime_clause_end = 0;
+}
+
+/* publish the current preedit; an empty preedit means "composition cleared" */
+_SOKOL_PRIVATE void _sapp_x11_ime_emit_composition(void) {
+    if (!_sapp_events_enabled()) {
+        return;
+    }
+    _sapp_init_event(SAPP_EVENTTYPE_IME_COMPOSITION);
+    const int n = _sapp.x11.ime_preedit_len;
+    if (n > 0) {
+        _sapp_x11_wc_to_utf8(_sapp.x11.ime_preedit, n,
+            _sapp.event.ime_composition, (int)sizeof(_sapp.event.ime_composition));
+        int caret = _sapp.x11.ime_preedit_caret;
+        if (caret < 0) { caret = 0; }
+        if (caret > n) { caret = n; }
+        _sapp.event.ime_composition_cursor = _sapp_x11_wc_utf8_offset(_sapp.x11.ime_preedit, caret);
+        if (_sapp.x11.ime_clause_end > _sapp.x11.ime_clause_begin) {
+            _sapp.event.ime_composition_clause_begin =
+                _sapp_x11_wc_utf8_offset(_sapp.x11.ime_preedit, _sapp.x11.ime_clause_begin);
+            _sapp.event.ime_composition_clause_end =
+                _sapp_x11_wc_utf8_offset(_sapp.x11.ime_preedit, _sapp.x11.ime_clause_end);
+        }
+    }
+    /* else: ime_composition stays empty (event was zeroed) => preedit cleared */
+    _sapp_call_event(&_sapp.event);
+}
+
+/* XIM calls this back with the max preedit length it may use (-1 = no limit) */
+_SOKOL_PRIVATE int _sapp_x11_ime_preedit_start_cb(XIC xic, XPointer client_data, XPointer call_data) {
+    _SOKOL_UNUSED(xic); _SOKOL_UNUSED(client_data); _SOKOL_UNUSED(call_data);
+    _sapp_x11_ime_reset_preedit();
+    return -1;
+}
+
+_SOKOL_PRIVATE void _sapp_x11_ime_preedit_done_cb(XIC xic, XPointer client_data, XPointer call_data) {
+    _SOKOL_UNUSED(xic); _SOKOL_UNUSED(client_data); _SOKOL_UNUSED(call_data);
+    _sapp_x11_ime_reset_preedit();
+    _sapp_x11_ime_emit_composition();   /* empty => clear */
+}
+
+_SOKOL_PRIVATE void _sapp_x11_ime_preedit_draw_cb(XIC xic, XPointer client_data, XPointer call_data) {
+    _SOKOL_UNUSED(xic); _SOKOL_UNUSED(client_data);
+    XIMPreeditDrawCallbackStruct* draw = (XIMPreeditDrawCallbackStruct*)call_data;
+    if (!draw) {
+        return;
+    }
+
+    /* 1. decode the incoming run into codepoints (XIMText is either wchar or
+          multibyte in the locale encoding) */
+    wchar_t ins[_SAPP_X11_MAX_PREEDIT];
+    int ins_len = 0;
+    if (draw->text && (draw->text->length > 0)) {
+        int want = (int)draw->text->length;
+        if (want > _SAPP_X11_MAX_PREEDIT) {
+            want = _SAPP_X11_MAX_PREEDIT;
+        }
+        if (draw->text->encoding_is_wchar) {
+            if (draw->text->string.wide_char) {
+                for (int i = 0; i < want; i++) {
+                    ins[i] = draw->text->string.wide_char[i];
+                }
+                ins_len = want;
+            }
+        } else if (draw->text->string.multi_byte) {
+            const size_t got = mbstowcs(ins, draw->text->string.multi_byte, (size_t)_SAPP_X11_MAX_PREEDIT);
+            if (got != (size_t)-1) {
+                ins_len = (int)got;
+                if (ins_len > _SAPP_X11_MAX_PREEDIT) {
+                    ins_len = _SAPP_X11_MAX_PREEDIT;
+                }
+            }
+        }
+    }
+
+    /* 2. splice: replace [chg_first, chg_first+chg_length) with the new run.
+          A null text with a non-zero chg_length is a pure deletion. */
+    int first = draw->chg_first;
+    if (first < 0) { first = 0; }
+    if (first > _sapp.x11.ime_preedit_len) { first = _sapp.x11.ime_preedit_len; }
+    int del = draw->chg_length;
+    if (del < 0) { del = 0; }
+    if ((first + del) > _sapp.x11.ime_preedit_len) { del = _sapp.x11.ime_preedit_len - first; }
+
+    wchar_t tail[_SAPP_X11_MAX_PREEDIT];
+    const int tail_len = _sapp.x11.ime_preedit_len - first - del;
+    for (int i = 0; i < tail_len; i++) {
+        tail[i] = _sapp.x11.ime_preedit[first + del + i];
+    }
+    int o = first;
+    for (int i = 0; (i < ins_len) && (o < _SAPP_X11_MAX_PREEDIT); i++) {
+        _sapp.x11.ime_preedit[o++] = ins[i];
+    }
+    for (int i = 0; (i < tail_len) && (o < _SAPP_X11_MAX_PREEDIT); i++) {
+        _sapp.x11.ime_preedit[o++] = tail[i];
+    }
+    _sapp.x11.ime_preedit_len = o;
+
+    /* 3. caret (XIM reports it in codepoints, relative to the whole preedit) */
+    _sapp.x11.ime_preedit_caret = draw->caret;
+    if (_sapp.x11.ime_preedit_caret < 0) {
+        _sapp.x11.ime_preedit_caret = 0;
+    }
+    if (_sapp.x11.ime_preedit_caret > _sapp.x11.ime_preedit_len) {
+        _sapp.x11.ime_preedit_caret = _sapp.x11.ime_preedit_len;
+    }
+
+    /* 4. active clause = the run the IME marks reverse/highlighted (the segment
+          currently being converted). Feedback is per-character over the run
+          that was just drawn, so the indices are relative to `first`. */
+    _sapp.x11.ime_clause_begin = 0;
+    _sapp.x11.ime_clause_end = 0;
+    if (draw->text && draw->text->feedback && (ins_len > 0)) {
+        int cl_begin = -1, cl_end = -1;
+        for (int i = 0; i < ins_len; i++) {
+            const XIMFeedback fb = draw->text->feedback[i];
+            if (fb & (XIMReverse | XIMHighlight)) {
+                if (cl_begin < 0) {
+                    cl_begin = first + i;
+                }
+                cl_end = first + i + 1;
+            }
+        }
+        if ((cl_begin >= 0) && (cl_end <= _sapp.x11.ime_preedit_len)) {
+            _sapp.x11.ime_clause_begin = cl_begin;
+            _sapp.x11.ime_clause_end = cl_end;
+        }
+    }
+    _sapp_x11_ime_emit_composition();
+}
+
+_SOKOL_PRIVATE void _sapp_x11_ime_preedit_caret_cb(XIC xic, XPointer client_data, XPointer call_data) {
+    _SOKOL_UNUSED(xic); _SOKOL_UNUSED(client_data);
+    XIMPreeditCaretCallbackStruct* cc = (XIMPreeditCaretCallbackStruct*)call_data;
+    if (!cc) {
+        return;
+    }
+    if (cc->direction == XIMAbsolutePosition) {
+        _sapp.x11.ime_preedit_caret = cc->position;
+        if (_sapp.x11.ime_preedit_caret < 0) {
+            _sapp.x11.ime_preedit_caret = 0;
+        }
+        if (_sapp.x11.ime_preedit_caret > _sapp.x11.ime_preedit_len) {
+            _sapp.x11.ime_preedit_caret = _sapp.x11.ime_preedit_len;
+        }
+        _sapp_x11_ime_emit_composition();
+    }
+}
+
+/* Reset the input context, committing whatever the IME had pending. Used when a
+   click lands elsewhere mid-composition (the win32 shell does the same thing
+   with ImmNotifyIME(CPS_COMPLETE)). */
+_SOKOL_PRIVATE void _sapp_x11_ime_reset_ic(void) {
+    if (!_sapp.x11.xic || (_sapp.x11.ime_preedit_len == 0)) {
+        return;
+    }
+    char* committed = Xutf8ResetIC(_sapp.x11.xic);
+    if (committed) {
+        const unsigned char* p = (const unsigned char*)committed;
+        while (*p) {
+            uint32_t cp = 0; int n = 1;
+            const unsigned char c = *p;
+            if (c < 0x80)                { cp = c;        n = 1; }
+            else if ((c & 0xE0) == 0xC0) { cp = c & 0x1F; n = 2; }
+            else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F; n = 3; }
+            else if ((c & 0xF8) == 0xF0) { cp = c & 0x07; n = 4; }
+            else { p++; continue; }
+            bool truncated = false;
+            for (int i = 1; i < n; i++) {
+                if (p[i] == 0) { truncated = true; break; }
+                cp = (cp << 6) | ((uint32_t)p[i] & 0x3F);
+            }
+            if (truncated) { break; }
+            p += n;
+            if ((cp >= 0x20) && (cp != 0x7f)) {
+                _sapp_x11_char_event(cp, false, 0);
+            }
+        }
+        XFree(committed);
+    }
+    _sapp_x11_ime_reset_preedit();
+    _sapp_x11_ime_emit_composition();   /* clear whatever was on screen */
+}
+
+/* AFFINEUI PATCH (ime): bring up an XIM input context on the window.
+
+   Prefers ON-THE-SPOT (XIMPreeditCallbacks): the IME hands us the preedit
+   string, caret and clause range, we publish them as
+   SAPP_EVENTTYPE_IME_COMPOSITION and the app draws the preedit inline — the
+   same contract the win32 IMM path provides. This is what modern IMEs
+   (ibus/fcitx) actually render through; over-the-spot leaves the preedit to
+   the input method, which draws nothing at all when the IME's own panel is
+   disabled (the GNOME/ibus default), so it is only a fallback here.
+
+   Falls back to over-the-spot (XIMPreeditPosition, IME draws at the spot we
+   push via sapp_ime_set_rect) and then the root style. Committed text reaches
+   the app through Xutf8LookupString in _sapp_x11_on_keypress in every style.
+   Best-effort: with no IM available the window keeps working through the
+   legacy XLookupString path. */
 _SOKOL_PRIVATE void _sapp_x11_ime_init(void) {
     _sapp.x11.xim = 0;
     _sapp.x11.xic = 0;
+    _sapp.x11.ime_style = 0;
     _sapp.x11.ime_fontset = 0;
     _sapp.x11.ime_focused = false;
     _sapp.x11.ime_spot_valid = false;
+    _sapp_x11_ime_reset_preedit();
     /* Xutf8LookupString and XIM need the C library locale to be established;
        sokol never sets it, so do it here (LC_CTYPE only, to avoid perturbing
        the host app's numeric/collation formatting). */
@@ -354430,23 +355054,62 @@ _SOKOL_PRIVATE void _sapp_x11_ime_init(void) {
         return;
     }
 
-    /* pick over-the-spot if offered, else root style */
-    const XIMStyle style_ots  = XIMPreeditPosition | XIMStatusNothing;
-    const XIMStyle style_root = XIMPreeditNothing  | XIMStatusNothing;
+    /* prefer on-the-spot (app draws the preedit), then over-the-spot, then root */
+    const XIMStyle style_onspot = XIMPreeditCallbacks | XIMStatusNothing;
+    const XIMStyle style_ots    = XIMPreeditPosition  | XIMStatusNothing;
+    const XIMStyle style_root   = XIMPreeditNothing   | XIMStatusNothing;
     XIMStyle chosen = style_root;
     XIMStyles* styles = 0;
     if ((XGetIMValues(_sapp.x11.xim, XNQueryInputStyle, &styles, (void*)0) == 0) && styles) {
-        bool has_ots = false, has_root = false;
+        bool has_onspot = false, has_ots = false, has_root = false;
         for (unsigned short i = 0; i < styles->count_styles; i++) {
-            if (styles->supported_styles[i] == style_ots)  { has_ots = true; }
-            if (styles->supported_styles[i] == style_root) { has_root = true; }
+            if (styles->supported_styles[i] == style_onspot) { has_onspot = true; }
+            if (styles->supported_styles[i] == style_ots)    { has_ots = true; }
+            if (styles->supported_styles[i] == style_root)   { has_root = true; }
         }
-        if (has_ots)       { chosen = style_ots; }
+        if (has_onspot)    { chosen = style_onspot; }
+        else if (has_ots)  { chosen = style_ots; }
         else if (has_root) { chosen = style_root; }
         XFree(styles);
     }
 
-    if (chosen == style_ots) {
+    if (chosen == style_onspot) {
+        /* the XIMCallback structs are read by XCreateIC but the IM keeps
+           pointing at our function pointers, so they live in _sapp.x11 */
+        _sapp.x11.ime_cb_start.client_data = 0;
+        _sapp.x11.ime_cb_start.callback = (XIMProc)_sapp_x11_ime_preedit_start_cb;
+        _sapp.x11.ime_cb_done.client_data = 0;
+        _sapp.x11.ime_cb_done.callback = (XIMProc)_sapp_x11_ime_preedit_done_cb;
+        _sapp.x11.ime_cb_draw.client_data = 0;
+        _sapp.x11.ime_cb_draw.callback = (XIMProc)_sapp_x11_ime_preedit_draw_cb;
+        _sapp.x11.ime_cb_caret.client_data = 0;
+        _sapp.x11.ime_cb_caret.callback = (XIMProc)_sapp_x11_ime_preedit_caret_cb;
+        _sapp.x11.ime_spot.x = 0;
+        _sapp.x11.ime_spot.y = 0;
+        /* XNSpotLocation still anchors the candidate/lookup window in this style */
+        XVaNestedList preedit = XVaCreateNestedList(0,
+            XNPreeditStartCallback, &_sapp.x11.ime_cb_start,
+            XNPreeditDoneCallback,  &_sapp.x11.ime_cb_done,
+            XNPreeditDrawCallback,  &_sapp.x11.ime_cb_draw,
+            XNPreeditCaretCallback, &_sapp.x11.ime_cb_caret,
+            XNSpotLocation,         &_sapp.x11.ime_spot,
+            (void*)0);
+        if (preedit) {
+            _sapp.x11.xic = XCreateIC(_sapp.x11.xim,
+                XNInputStyle,   chosen,
+                XNClientWindow, _sapp.x11.window,
+                XNFocusWindow,  _sapp.x11.window,
+                XNPreeditAttributes, preedit,
+                (void*)0);
+            XFree(preedit);
+        }
+        if (!_sapp.x11.xic) {
+            /* on-the-spot refused — try over-the-spot next */
+            chosen = style_ots;
+        }
+    }
+
+    if ((chosen == style_ots) && !_sapp.x11.xic) {
         /* over-the-spot mandates a font set for the IME's preedit rendering */
         char** missing = 0; int num_missing = 0; char* def_str = 0;
         _sapp.x11.ime_fontset = XCreateFontSet(_sapp.x11.display,
@@ -354483,6 +355146,7 @@ _SOKOL_PRIVATE void _sapp_x11_ime_init(void) {
         }
     }
     if (!_sapp.x11.xic) {
+        chosen = style_root;
         _sapp.x11.xic = XCreateIC(_sapp.x11.xim,
             XNInputStyle,   style_root,
             XNClientWindow, _sapp.x11.window,
@@ -354498,6 +355162,7 @@ _SOKOL_PRIVATE void _sapp_x11_ime_init(void) {
         }
         return;
     }
+    _sapp.x11.ime_style = chosen;
 
     /* some IMs require extra event-mask bits on the focus window */
     unsigned long im_mask = 0;
@@ -354525,8 +355190,10 @@ _SOKOL_PRIVATE void _sapp_x11_ime_shutdown(void) {
         XFreeFontSet(_sapp.x11.display, _sapp.x11.ime_fontset);
         _sapp.x11.ime_fontset = 0;
     }
+    _sapp.x11.ime_style = 0;
     _sapp.x11.ime_focused = false;
     _sapp.x11.ime_spot_valid = false;
+    _sapp_x11_ime_reset_preedit();
 }
 
 _SOKOL_PRIVATE bool _sapp_x11_window_visible(void) {
@@ -354966,6 +355633,10 @@ _SOKOL_PRIVATE void _sapp_x11_on_keyrelease(XEvent* event) {
 }
 
 _SOKOL_PRIVATE void _sapp_x11_on_buttonpress(XEvent* event) {
+    /* AFFINEUI PATCH (ime): a click lands the caret somewhere new, so finish
+       any active composition first (the caret table is in composed space until
+       it clears). Mirrors the win32 shell's ImmNotifyIME(CPS_COMPLETE). */
+    _sapp_x11_ime_reset_ic();
     _sapp_x11_mouse_update(event->xbutton.x, event->xbutton.y, false);
     const sapp_mousebutton btn = _sapp_x11_translate_button(event);
     uint32_t mods = _sapp_x11_mods(event->xbutton.state);
@@ -355850,7 +356521,10 @@ SOKOL_API_IMPL void sapp_ime_set_rect(int x, int y, int w, int h) {
         _sapp.x11.ime_spot.x = (short)x;
         _sapp.x11.ime_spot.y = (short)(y + h);
         _sapp.x11.ime_spot_valid = true;
-        if (_sapp.x11.xic && _sapp.x11.ime_fontset) {
+        /* the spot anchors the IME's candidate/lookup window in on-the-spot,
+           and additionally the preedit itself in over-the-spot. The root style
+           has no preedit attributes to set. */
+        if (_sapp.x11.xic && (_sapp.x11.ime_style & (XIMPreeditCallbacks | XIMPreeditPosition))) {
             XVaNestedList preedit = XVaCreateNestedList(0,
                 XNSpotLocation, &_sapp.x11.ime_spot,
                 (void*)0);
@@ -388058,14 +388732,30 @@ inline bool replay_paint_ops_equal(const DisplayList& a,
                                    const DisplayList& b,
                                    const PaintOp& b_op) {
     if (a_op.kind != b_op.kind) return false;
-    if (std::memcmp(&a_op, &b_op, sizeof(PaintOp)) != 0) return false;
     if (a_op.kind == PaintOpKind::DrawText) {
+        auto a_fields = a_op;
+        auto b_fields = b_op;
+        // Pool offsets are storage locations, not visual state. Changing an
+        // earlier label's length shifts every later string even when its text
+        // and paint fields are identical.
+        a_fields.p.draw_text.text_offset = 0;
+        b_fields.p.draw_text.text_offset = 0;
+        if (std::memcmp(&a_fields, &b_fields, sizeof(PaintOp)) != 0) {
+            return false;
+        }
         return a.text_at(a_op.p.draw_text.text_offset,
                          a_op.p.draw_text.text_len)
             == b.text_at(b_op.p.draw_text.text_offset,
                          b_op.p.draw_text.text_len);
     }
     if (a_op.kind == PaintOpKind::DrawTextBox) {
+        auto a_fields = a_op;
+        auto b_fields = b_op;
+        a_fields.p.draw_text_box.text_offset = 0;
+        b_fields.p.draw_text_box.text_offset = 0;
+        if (std::memcmp(&a_fields, &b_fields, sizeof(PaintOp)) != 0) {
+            return false;
+        }
         return a.text_at(a_op.p.draw_text_box.text_offset,
                          a_op.p.draw_text_box.text_len)
             == b.text_at(b_op.p.draw_text_box.text_offset,
@@ -388073,10 +388763,17 @@ inline bool replay_paint_ops_equal(const DisplayList& a,
     }
     if (a_op.kind == PaintOpKind::FillPath ||
         a_op.kind == PaintOpKind::StrokePath) {
+        auto a_fields = a_op;
+        auto b_fields = b_op;
+        a_fields.p.path.data_offset = 0;
+        b_fields.p.path.data_offset = 0;
+        if (std::memcmp(&a_fields, &b_fields, sizeof(PaintOp)) != 0) {
+            return false;
+        }
         return a.bytes_at(a_op.p.path.data_offset, a_op.p.path.data_len)
             == b.bytes_at(b_op.p.path.data_offset, b_op.p.path.data_len);
     }
-    return true;
+    return std::memcmp(&a_op, &b_op, sizeof(PaintOp)) == 0;
 }
 
 inline bool replay_resized_solid_fill_diff_bounds(const PaintOp& old_op,
@@ -388639,7 +389336,7 @@ struct BackgroundLayer {
     std::int16_t center_x_pct{50};
     std::int16_t center_y_pct{50};
     /// Radial: the ending shape's radii, as a percentage of the box's
-    /// half-width / half-height (`ellipse 110% 90%` → 110 / 90). 0 means
+    /// full width / height (`ellipse 110% 90%` → 110 / 90). 0 means
     /// "no explicit size" — use the CSS default, farthest-corner.
     std::uint16_t radius_x_pct{0};
     std::uint16_t radius_y_pct{0};
@@ -390891,6 +391588,10 @@ struct DocumentImpl {
     // stylesheet mention of the attribute sits in a subject compound, so a
     // write can only re-match the mutated element itself.
     mutable std::unordered_map<std::string, bool> attr_subject_confined_cache;
+    // Whether an attribute name occurs in any stylesheet selector. Broadly
+    // classified live attributes such as data-value can skip rematch/restyle
+    // entirely when no selector actually consumes them.
+    mutable std::unordered_map<std::string, bool> attr_referenced_cache;
     // :hover / :active overlay rules â€” populated by scan_pseudo_rules()
     // during attach. Pointers in `decls` reference rule data owned by
     // the document's CSS memory pool; valid for the document's lifetime.
@@ -406450,15 +407151,15 @@ body{margin:0}
 .aui-root>.aui-test-shell{margin:-24px;height:100vh;min-height:100vh}
 .aui-test-shell{display:flex;flex-direction:column;height:100vh;min-height:0;background:inherit;color:inherit}
 .aui-test-shell-inner{display:flex;flex:1 1 auto;min-height:0;flex-direction:column;overflow:hidden}
-.aui-test-topbar{display:flex;align-items:stretch;flex-wrap:nowrap;gap:0;height:48px;min-height:48px;max-height:48px;padding:0 96px 0 16px;box-sizing:border-box;border-bottom:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));background:var(--bs-body-bg,var(--dcs-surface-1,inherit));overflow:hidden;white-space:nowrap;flex:0 0 auto;min-width:0}
+.aui-test-topbar{display:flex;align-items:center;flex-wrap:nowrap;gap:0;height:48px;min-height:48px;max-height:48px;padding:6px 96px 6px 16px;box-sizing:border-box;border-bottom:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));background:var(--bs-body-bg,var(--dcs-surface-1,inherit));overflow:hidden;white-space:nowrap;flex:0 0 auto;min-width:0}
 .aui-test-topbar.dcs-menubar{height:var(--dcs-h-lg);min-height:var(--dcs-h-lg);max-height:var(--dcs-h-lg);padding:0 96px 0 var(--dcs-s-3);gap:0}
 .aui-test-brand{display:flex;align-items:center;gap:8px;flex:0 1 340px;max-width:36%;min-width:0;overflow:hidden;white-space:nowrap}
 .aui-test-brand h1{margin:0;font-size:1rem;font-weight:700;line-height:1.2;white-space:nowrap}
 .aui-test-brand p,.aui-test-subtitle p{margin:0}
 .aui-test-subtitle{display:flex;align-items:center;min-width:0;overflow:hidden;color:var(--bs-secondary-color,var(--dcs-text-mute,#6c757d))}
 .aui-test-subtitle p{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.aui-test-tweaks{display:flex;align-items:stretch;justify-content:flex-end;flex:1 1 auto;flex-wrap:nowrap;gap:0;min-width:0;margin-left:auto;height:100%;overflow:hidden}
-.aui-test-control{display:flex;align-items:center;flex:0 1 auto;gap:7px;height:100%;min-width:0;padding:0 10px;border-left:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));box-sizing:border-box;overflow:hidden}
+.aui-test-tweaks{display:flex;align-items:center;justify-content:flex-end;flex:0 0 auto;flex-wrap:nowrap;gap:0;min-width:0;margin-left:auto;height:100%}
+.aui-test-control{display:flex;align-items:center;flex:0 0 auto;gap:7px;height:100%;min-width:0;padding:0 10px;border-left:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));box-sizing:border-box}
 .aui-test-control-label{margin:0;color:var(--bs-secondary-color,var(--dcs-text-mute,#6c757d));font-size:var(--dcs-fs-xs,.72rem);font-weight:600;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
 .aui-test-segment-group{display:inline-flex;align-items:center;flex:0 0 auto;width:auto;min-width:0;max-width:none}
 .aui-test-segment-group.btn-group{display:inline-flex;height:30px;width:auto}
@@ -406466,9 +407167,9 @@ body{margin:0}
 .aui-test-segment{flex:0 0 auto;width:auto;min-width:48px;white-space:nowrap}
 .aui-test-segment-group.dcs-btn-group>.aui-test-segment{flex:0 0 auto;width:auto;min-width:56px;height:100%;padding-left:10px;padding-right:10px}
 .aui-test-segment-group.btn-group>.aui-test-segment{flex:0 0 auto;width:auto;min-width:58px;height:100%;padding-left:10px;padding-right:10px}
-.aui-test-keycolor{display:flex;align-items:center;gap:5px;height:100%;padding:0 2px 0 10px;border-left:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));min-width:0;box-sizing:border-box}
+.aui-test-keycolor{display:flex;align-items:center;gap:5px;height:100%;padding:0 2px 0 10px;border-left:1px solid var(--bs-border-color,var(--dcs-line,rgba(128,128,128,.25)));flex:0 0 auto;box-sizing:border-box}
 .aui-keycolor-label{margin:0;color:var(--dcs-text-mute,#6c757d);font-size:var(--dcs-fs-xs,.72rem);font-weight:600;letter-spacing:.06em;text-transform:uppercase}
-.aui-keycolor-swatch{--aui-swatch:#00b8d4;flex:0 0 18px;width:18px;height:18px;border-radius:50%;background:var(--aui-swatch);border:2px solid transparent;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),inset 0 -1px 1px rgba(0,0,0,.35),0 1px 2px rgba(0,0,0,.45);cursor:pointer;box-sizing:border-box}
+.aui-keycolor-swatch{--aui-swatch:#00b8d4;flex:0 0 18px;width:18px;height:18px;border-radius:50%;background:var(--aui-swatch);border:2px solid transparent;box-shadow:inset 0 -1px 1px rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.4);cursor:pointer;box-sizing:border-box}
 .aui-keycolor-swatch--cyan{--aui-swatch:#00b8d4}.aui-keycolor-swatch--green{--aui-swatch:#3dd68a}.aui-keycolor-swatch--orange{--aui-swatch:#ff8a3a}.aui-keycolor-swatch--violet{--aui-swatch:#8b6dff}
 .aui-keycolor-swatch:hover{border-color:rgba(255,255,255,.35);box-shadow:inset 0 1px 0 rgba(255,255,255,.42),inset 0 -1px 1px rgba(0,0,0,.35),0 1px 2px rgba(0,0,0,.45)}
 .aui-keycolor-swatch.is-active{border-color:var(--dcs-bg-app,#1f222a);box-shadow:0 0 0 2px var(--dcs-bg-app,#1f222a),0 0 0 4px var(--aui-swatch),inset 0 1px 0 rgba(255,255,255,.42),inset 0 -1px 1px rgba(0,0,0,.35),0 1px 2px rgba(0,0,0,.45)}
@@ -410782,6 +411483,7 @@ void Document::set_html(std::string_view html) {
     impl_->sheets.clear();
     impl_->attr_subtree_local_cache.clear();
     impl_->attr_subject_confined_cache.clear();
+    impl_->attr_referenced_cache.clear();
     // Every element in the old document is destroyed here, so the
     // pointer-keyed SVG geometry cache must go with them.
     impl_->svg_path_cache.clear();
@@ -420560,7 +421262,16 @@ void Document::draw(Painter& painter) {
                         clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
                         static_cast<float>(an.gradient_center_x_pct),
                         static_cast<float>(an.gradient_center_y_pct),
-                        static_cast<float>(an.gradient_stop1_pos_pct));
+                        // 100, NOT gradient_stop1_pos_pct. That field means
+                        // "where the ramp ends" and only makes sense for a
+                        // TWO-stop gradient, where it scales the outer radius.
+                        // In an N-stop ramp every stop carries its own offset
+                        // (they are in `gs`), and stop *1* is merely the second
+                        // one — 4% in `.dcs-hw--lacquer`. Feeding that in scaled
+                        // the radius to 4% of its proper size and collapsed the
+                        // gradient into an invisible dot. The stacked-layer call
+                        // below has always passed 100 for the same reason.
+                        /*stop1_pos_pct=*/100.0f);
                 } else {
                     painter.fill_radial_gradient_rect(
                         bg_rect, s0, s1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
@@ -420629,14 +421340,26 @@ void Document::draw(Painter& painter) {
                             static_cast<float>(layer.radius_y_pct));
                         break;
                     case LK::LinearStripes:
-                        // repeating-linear-gradient: approximated as a tiled
-                        // stripe fill in the ramp's first colour, the same
-                        // primitive the bottom layer uses for it.
-                        painter.fill_linear_stripes_rect(
-                            bg_rect, static_cast<float>(layer.angle_deg),
-                            gs[0].color,
-                            static_cast<float>(std::max(1, bg_rect.h)),
-                            clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
+                        // repeating-linear-gradient: NOT painted, which is the
+                        // behavior these panels had before stacked layers
+                        // existed (a `layer_count == 2` guard used to drop it),
+                        // and it is the look the samples are designed around —
+                        // the synth modules are smooth gradients, not striped.
+                        //
+                        // We also cannot render it faithfully: the period lives
+                        // in the stops' PIXEL offsets (`0 1px, 1px 2px` — a 2px
+                        // repeat) and lexbor's descriptor stores stop positions
+                        // as percentages, so it never survives the parse; and the
+                        // stripe primitive paints one flat colour, not a
+                        // two-colour ramp. Approximating it with the box height
+                        // as a tile size clamps to 128 and bands the panel in
+                        // 128px light/dark stripes over the specular highlight.
+                        //
+                        // The one repeating-linear-gradient in the Decius bundle
+                        // is .dcs-hw--brushed's metal texture at 2% alpha —
+                        // imperceptible when absent. Rendering it properly needs
+                        // pixel stop offsets carried through the lexbor fork and
+                        // a real repeating-ramp primitive.
                         break;
                     case LK::None:
                         break;
@@ -421285,6 +422008,18 @@ void Document::draw(Painter& painter) {
                     pushed_text_control_clip = true;
                 }
             }
+            if (b.tag == "select") {
+                // A closed select is a single-line native control. Clip its
+                // value to the edit viewport so an overlong option cannot
+                // paint beneath the indicator or outside the control.
+                painter.push_clip(Rect{
+                    text_x,
+                    eff.y + used_border_top,
+                    std::max(1, static_cast<int>(std::floor(content_w))),
+                    std::max(1, eff.h - used_border_top - used_border_bottom),
+                });
+                pushed_text_control_clip = true;
+            }
 
             // Add 1px slack to wrap width: measure rounds + draw word-
             // break can disagree at the edge (text whose natural width
@@ -421341,7 +422076,11 @@ void Document::draw(Painter& painter) {
                 paint_align = Painter::TextAlign::Left;
             }
 
-            bool force_single_line = is_nowrap;
+            constexpr float kAdvanceTolerancePx = 4.0f;
+            const bool overflowing_closed_select =
+                b.tag == "select" &&
+                natural_text_width() > content_w + kAdvanceTolerancePx;
+            bool force_single_line = is_nowrap || overflowing_closed_select;
             if (!is_nowrap &&
                 !b.text_control &&
                 b.tag != "select" &&
@@ -421349,7 +422088,6 @@ void Document::draw(Painter& painter) {
                 b.text.find('\n') == std::string::npos &&
                 (paint_align == Painter::TextAlign::Center ||
                  paint_align == Painter::TextAlign::Right)) {
-                constexpr float kAdvanceTolerancePx = 4.0f;
                 const float tw = natural_text_width();
                 if (tw <= content_w + kAdvanceTolerancePx) {
                     const float slack = content_w - tw;
@@ -424466,6 +425204,37 @@ bool selector_simple_depends_on_attribute(const lxb_css_selector_t* sel,
     }
 }
 
+bool stylesheet_references_attribute(const detail::DocumentImpl& impl,
+                                     std::string_view name) {
+    if (auto it = impl.attr_referenced_cache.find(std::string(name));
+        it != impl.attr_referenced_cache.end()) {
+        return it->second;
+    }
+    const bool referenced = [&] {
+        for (auto* sst : impl.sheets) {
+            if (!sst || !sst->root) continue;
+            auto* rule_list = lxb_css_rule_list(sst->root);
+            if (!rule_list) continue;
+            for (auto* r = rule_list->first; r != nullptr; r = r->next) {
+                if (r->type != LXB_CSS_RULE_STYLE) continue;
+                auto* style = lxb_css_rule_style(r);
+                if (!style) continue;
+                for (auto* sl = style->selector; sl != nullptr; sl = sl->next) {
+                    for (auto* sel = sl->first; sel != nullptr;
+                         sel = sel->next) {
+                        if (selector_simple_depends_on_attribute(sel, name)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }();
+    impl.attr_referenced_cache.emplace(std::string(name), referenced);
+    return referenced;
+}
+
 bool stylesheet_dependencies_stay_in_mutated_subtree(
     const detail::DocumentImpl& impl,
     std::string_view name) {
@@ -425813,6 +426582,40 @@ bool set_attribute_on_element(detail::DocumentImpl& impl,
         return true;
     }
 
+    // `value` is deliberately not selector-affecting (see
+    // attribute_can_affect_selector_matching above). Form controls and the
+    // painter-drawn knobs consume it through refreshed block metadata; it
+    // cannot change computed style, so resolving the whole subtree is both
+    // unnecessary and dangerous for a pointer-rate mutation. In the 2600 a
+    // knob's value write was entering restyle_subtree and zeroing content_size,
+    // turning every move into a full document layout. Keep this on the retained
+    // local-paint path.
+    if (name == "value") {
+        if (target_idx >= 0) {
+            auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
+            detail::refresh_block_metadata_from_element(block, elem);
+        }
+        detail::mark_live_mutation_dirty(impl, mutation_dirty_root_idx, old_rect,
+                                         /*needs_layout=*/false);
+        return true;
+    }
+
+    // data-* and aria-* are conservatively classified as selector-affecting,
+    // but most live telemetry attributes are only painter/widget metadata. If
+    // no attached selector mentions this exact name, rematching and restyling
+    // cannot change presentation. This keeps data-value knob updates local
+    // while retaining full CSS behavior for authored `[data-value=...]` rules.
+    if (selector_affecting &&
+        !stylesheet_references_attribute(impl, name)) {
+        if (target_idx >= 0) {
+            auto& block = impl.blocks[static_cast<std::size_t>(target_idx)];
+            detail::refresh_block_metadata_from_element(block, elem);
+        }
+        detail::mark_live_mutation_dirty(impl, dirty_root_idx, old_rect,
+                                         /*needs_layout=*/false);
+        return true;
+    }
+
     bool needs_layout = false;
     if (selector_affecting) {
         auto tp = std::chrono::steady_clock::now();
@@ -426155,12 +426958,14 @@ bool set_text_on_element(detail::DocumentImpl& impl,
     // measured 5.6 ms on EVERY knob-drag frame of the synth. Any real
     // size change is trued up by the next genuine layout pass.
     const auto& cs = impl.style_store.computed(block.id);
-    const bool has_child_block =
-        target_idx + 1 < static_cast<int>(impl.blocks.size()) &&
-        impl.blocks[static_cast<std::size_t>(target_idx) + 1].parent_idx ==
-            target_idx;
+    // Anonymous line/text blocks are the implementation of this leaf's own
+    // text, not layout-bearing child content. `lone_text_shape` above has
+    // already rejected real element descendants and mixed text runs, so it is
+    // the correct leaf test here. Checking the next block's parent treated the
+    // anonymous text run as a child and forced a full layout on every knob
+    // move.
     const bool layout_isolated =
-        !has_child_block &&
+        lone_text_shape &&
         (cs.position == detail::ComputedStyle::Position::Absolute ||
          cs.position == detail::ComputedStyle::Position::Fixed);
     detail::mark_live_mutation_dirty(impl, target_idx, old_rect,
@@ -430641,6 +431446,7 @@ void attach_media_block(detail::DocumentImpl& impl, const MediaBlock& mb) {
         impl.sheets.push_back(sst_media);
         impl.attr_subtree_local_cache.clear();
         impl.attr_subject_confined_cache.clear();
+        impl.attr_referenced_cache.clear();
         scan_pseudo_rules(sst_media, impl.pseudo_rules);
         scan_rule_fills(sst_media, mb.block_css, impl.rule_fills);
         scan_font_face_rules(mb.block_css, {}, impl.font_faces);
@@ -430675,6 +431481,7 @@ void attach_stylesheet(detail::DocumentImpl& impl, std::string_view css,
         impl.sheets.push_back(sst);
         impl.attr_subtree_local_cache.clear();
         impl.attr_subject_confined_cache.clear();
+        impl.attr_referenced_cache.clear();
         scan_pseudo_rules(sst, impl.pseudo_rules);
         // Recover font-family names into AffineUI's font registry side
         // table. attach_stylesheet's `css` argument outlives this call
@@ -436457,6 +437264,12 @@ public:
         s.animated.gradient_stop1_pos_pct = 100;
         s.animated.gradient_stop0_rgba = 0x00000000u;
         s.animated.gradient_stop1_rgba = 0x00000000u;
+        // Background images are non-inherited. These out-of-line companions
+        // must be cleared alongside the inline gradient fields above; leaving
+        // either shared_ptr copied from `parent` makes every descendant restart
+        // the parent's complete gradient inside its own little paint box.
+        s.gradient_stops.reset();
+        s.background_layers.reset();
         s.animated.background_grid_rgba = 0x00000000u;
         s.animated.background_grid_size_px = 0;
         s.animated.background_grid_line_px = 1;
