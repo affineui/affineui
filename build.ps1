@@ -114,7 +114,27 @@ function Assert-LastExit([string]$what) {
 # ── verbs ────────────────────────────────────────────────────────────────────
 function Invoke-Configure {
     Initialize-Msvc
-    if (-not (Test-Path (Join-Path $Build 'CMakeCache.txt'))) {
+    $cache = Join-Path $Build 'CMakeCache.txt'
+
+    # Existing-cache check, not just existing-FILE check. A bare
+    # `cmake -S . -B build/ninja` (no --preset) silently configures build/ninja
+    # with the DEFAULT generator - Visual Studio, multi-config - and everything
+    # downstream then quietly uses it: exes land in a Debug\ subdir, `run`
+    # launches a Debug binary, and `test` measures the wrong build. The old
+    # guard only asked "does CMakeCache.txt exist", so that wrong cache stuck
+    # around forever. Detect the mismatch and reconfigure from scratch.
+    $stale = $false
+    if (Test-Path $cache) {
+        $gen = (Select-String -Path $cache -Pattern '^CMAKE_GENERATOR:INTERNAL=(.*)$' |
+                Select-Object -First 1).Matches.Groups[1].Value
+        if ($gen -and $gen -ne 'Ninja') {
+            Write-Host "build\ninja was configured with '$gen', not Ninja - reconfiguring." -ForegroundColor Yellow
+            $stale = $true
+        }
+    }
+    if ($stale) { Remove-Item -Recurse -Force $Build -ErrorAction SilentlyContinue }
+
+    if (-not (Test-Path $cache)) {
         Push-Location $Root
         try { cmake --preset ninja; Assert-LastExit 'cmake configure' }
         finally { Pop-Location }
