@@ -55,8 +55,6 @@ Il est conçu pour :
 
 **Alpha.** Le cœur du moteur de rendu, la mise en page, la cascade et le reconciler sont utilisables pour de vraies interfaces aujourd'hui — les tableaux de bord Bootstrap, les dispositions DCC personnalisées et les interfaces d'outils complètes s'affichent tous. La couverture des standards est large mais incomplète, il existe des cas limites, et certaines fonctionnalités CSS sont encore en cours d'intégration. Attendez-vous à des bugs. Attendez-vous à en signaler. Ne l'expédiez pas encore à des clients.
 
-La publication vers les registres est derrière le [pipeline de publication](../RELEASING.md) ; jusqu'à la première release taguée, vous pouvez compiler depuis les sources (voir ci-dessous).
-
 ---
 
 ## Installation

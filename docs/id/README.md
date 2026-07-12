@@ -90,9 +90,6 @@ kasus tepi masih ada, dan beberapa fitur CSS masih dalam proses masuk. Harap
 bersiap menghadapi bug. Harap bersiap melaporkan bug. Jangan rilis ke pelanggan
 dulu.
 
-Publikasi ke registry berada di balik [pipeline rilis](../RELEASING.md);
-hingga rilis bertag pertama hadir, Anda dapat build dari source (lihat di bawah).
-
 ---
 
 ## Install

@@ -10,8 +10,9 @@ GPU-accelerated HTML/CSS UI renderer for tools and game engines.
 Build UIs with a gradio/imgui-style component tree; AffineUI renders
 them natively (D3D11/Metal/GL) with real CSS. No JS, no webview.
 
-**EXPERIMENTAL preview** — published for early testing; APIs and the
-underlying C ABI will change while AffineUI is pre-1.0.
+**Status:** alpha. Broad standards coverage and real UIs run today, but
+expect bugs, and expect the API and the underlying C ABI to move while
+AffineUI is pre-1.0.
 
 ---
 
@@ -42,9 +43,15 @@ If you'd rather skip the vendored build (faster CI, or you build the
 engine yourself), disable default features and point the build script
 at your library directory:
 
+```sh
+cargo add affineui --no-default-features --features system
+```
+
+which writes the equivalent of:
+
 ```toml
 [dependencies]
-affineui = { version = "0.4.0-beta.6", default-features = false, features = ["system"] }
+affineui = { version = "*", default-features = false, features = ["system"] }
 ```
 
 ```toml

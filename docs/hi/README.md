@@ -83,9 +83,6 @@ AffineUI एक असली browser-style HTML/CSS layout और paint engine �
 हैं। Bugs की उम्मीद रखें। Bugs report करने की उम्मीद रखें। इसे अभी
 customers को ship न करें।
 
-Registry publishing [release pipeline](../RELEASING.md) के पीछे है;
-पहला tagged release आने तक आप source से build कर सकते हैं (नीचे देखें)।
-
 ---
 
 ## Install
