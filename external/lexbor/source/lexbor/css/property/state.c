@@ -3389,6 +3389,31 @@ lxb_css_property_state_radial_prelude(lxb_css_parser_t *parser,
             gradient->center_x_pct = x;
             gradient->center_y_pct = y;
         }
+        else if (token->type == LXB_CSS_SYNTAX_TOKEN_PERCENTAGE) {
+            /* The ending shape's explicit size: `ellipse 110% 90%`.
+             * First percentage is the x radius, second the y. A single
+             * percentage (a `circle`) sets both. Dropping these used to
+             * force every sized radial into a farthest-corner circle,
+             * which stretches a tight specular highlight across the whole
+             * box. */
+            double r = lxb_css_syntax_token_percentage(token)->num;
+
+            saw_prelude = true;
+            lxb_css_syntax_parser_consume(parser);
+
+            if (!gradient->has_radius_x_pct) {
+                gradient->radius_x_pct = r;
+                gradient->has_radius_x_pct = true;
+                /* A lone size is a circle: mirror onto y until a second
+                 * percentage overrides it. */
+                gradient->radius_y_pct = r;
+                gradient->has_radius_y_pct = true;
+            }
+            else {
+                gradient->radius_y_pct = r;
+                gradient->has_radius_y_pct = true;
+            }
+        }
         else if (lxb_css_property_state_radial_prelude_start(token)) {
             saw_prelude = true;
             lxb_css_syntax_parser_consume(parser);
@@ -3438,6 +3463,10 @@ lxb_css_property_state_gradient_args(lxb_css_parser_t *parser,
     gradient->angle_deg = 180.0; /* CSS default: `to bottom` */
     gradient->center_x_pct = 50.0;
     gradient->center_y_pct = 50.0;
+    gradient->radius_x_pct = 0.0;
+    gradient->radius_y_pct = 0.0;
+    gradient->has_radius_x_pct = false;
+    gradient->has_radius_y_pct = false;
     gradient->stop0_pos_pct = 0.0;
     gradient->stop1_pos_pct = 100.0;
     gradient->has_stop0_pos_pct = false;
@@ -3747,7 +3776,8 @@ lxb_css_property_state_background(lxb_css_parser_t *parser,
                         gradient.kind = LXB_CSS_GRADIENT_LINEAR_STRIPES;
                     }
                     declar->u.background->gradient = gradient;
-                    if (declar->u.background->layer_count < 3) {
+                    if (declar->u.background->layer_count
+                        < LXB_CSS_BACKGROUND_MAX_LAYERS) {
                         declar->u.background->layers[
                             declar->u.background->layer_count++] = gradient;
                     }

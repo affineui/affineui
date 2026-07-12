@@ -6611,7 +6611,7 @@ lexbor_utils_hash_hash(const lxb_char_t *key, size_t key_size);
 #define lexbor_str_get(str, attr) str->attr
 #define lexbor_str_set(str, attr) lexbor_str_get(str, attr)
 #define lexbor_str_len(str) lexbor_str_get(str, length)
-#define lexbor_str(p) {.data = (lxb_char_t *) (p), sizeof(p) - 1}
+#define lexbor_str(p) {.data = (lxb_char_t *) (p), .length = sizeof(p) - 1}
 
 
 #define lexbor_str_check_size_arg_m(str, size, mraw, plus_len, return_fail)    \
@@ -10664,23 +10664,11 @@ inline ptr_proxy ptr(const void *p) { return {const_cast<void *>(p)}; }
 
 
 /* Insert variable. */
-const lexbor_hash_insert_t lexbor_hash_insert_var = {
-    .hash = lexbor_hash_make_id,
-    .copy = lexbor_hash_copy,
-    .cmp = lexbor_str_data_ncmp
-};
+const lexbor_hash_insert_t lexbor_hash_insert_var = {.hash = lexbor_hash_make_id, .cmp = lexbor_str_data_ncmp, .copy = lexbor_hash_copy};
 
-const lexbor_hash_insert_t lexbor_hash_insert_lower_var = {
-    .hash = lexbor_hash_make_id_lower,
-    .copy = lexbor_hash_copy_lower,
-    .cmp = lexbor_str_data_nlocmp_right
-};
+const lexbor_hash_insert_t lexbor_hash_insert_lower_var = {.hash = lexbor_hash_make_id_lower, .cmp = lexbor_str_data_nlocmp_right, .copy = lexbor_hash_copy_lower};
 
-const lexbor_hash_insert_t lexbor_hash_insert_upper_var = {
-    .hash = lexbor_hash_make_id_upper,
-    .copy = lexbor_hash_copy_upper,
-    .cmp = lexbor_str_data_nupcmp_right
-};
+const lexbor_hash_insert_t lexbor_hash_insert_upper_var = {.hash = lexbor_hash_make_id_upper, .cmp = lexbor_str_data_nupcmp_right, .copy = lexbor_hash_copy_upper};
 
 LXB_API const lexbor_hash_insert_t
 *lexbor_hash_insert_raw = &lexbor_hash_insert_var;
@@ -21521,6 +21509,14 @@ typedef struct {
     double                  angle_deg;  /* linear: CSS angle degrees */
     double                  center_x_pct;
     double                  center_y_pct;
+    /* radial: explicit ending-shape size, as a percentage of the box's
+     * half-width / half-height (`ellipse 110% 90%` => 110 / 90). When
+     * has_radius_*_pct is false the CSS default (farthest-corner) applies
+     * and the consumer picks the extent itself. */
+    double                  radius_x_pct;
+    double                  radius_y_pct;
+    bool                    has_radius_x_pct;
+    bool                    has_radius_y_pct;
     double                  stop0_pos_pct;
     double                  stop1_pos_pct;
     bool                    has_stop0_pos_pct;
@@ -21533,10 +21529,15 @@ typedef struct {
     unsigned int            stop_count;
 } lxb_css_property_gradient_t;
 
+/* Max comma-separated `background` image layers kept. Real skeuomorphic
+ * CSS stacks up to three (a repeating texture over a specular highlight
+ * over a base ramp); one spare keeps a fourth from being silently lost. */
+#define LXB_CSS_BACKGROUND_MAX_LAYERS 4
+
 typedef struct {
     lxb_css_value_color_t      color;
     lxb_css_property_gradient_t gradient; /* kind=NONE when no gradient */
-    lxb_css_property_gradient_t layers[3];
+    lxb_css_property_gradient_t layers[LXB_CSS_BACKGROUND_MAX_LAYERS];
     unsigned int                layer_count;
 }
 lxb_css_property_background_t;
@@ -27553,14 +27554,7 @@ static const lxb_css_syntax_cb_at_rule_t aui_lexbor_static_890aa09d0c_lxb_css_de
     .end = aui_lexbor_static_890aa09d0c_lxb_css_declaration_list_at_rule_end
 };
 
-static const lxb_css_syntax_cb_declarations_t aui_lexbor_static_890aa09d0c_lxb_css_declaration_list_cb = {
-    .cb.state = aui_lexbor_static_890aa09d0c_lxb_css_declaration_list_name,
-    .cb.block = aui_lexbor_static_890aa09d0c_lxb_css_declaration_list_value,
-    .cb.failed = aui_lexbor_static_890aa09d0c_lxb_css_declaration_list_bad,
-    .cb.end = aui_lexbor_static_890aa09d0c_lxb_css_declarations_list_end,
-    .declaration_end = aui_lexbor_static_890aa09d0c_lxb_css_declaration_list_end,
-    .at_rule = &aui_lexbor_static_890aa09d0c_lxb_css_declaration_list_at_cb
-};
+static const lxb_css_syntax_cb_declarations_t aui_lexbor_static_890aa09d0c_lxb_css_declaration_list_cb = {.cb = {.state = aui_lexbor_static_890aa09d0c_lxb_css_declaration_list_name, .block = aui_lexbor_static_890aa09d0c_lxb_css_declaration_list_value, .failed = aui_lexbor_static_890aa09d0c_lxb_css_declaration_list_bad, .end = aui_lexbor_static_890aa09d0c_lxb_css_declarations_list_end}, .declaration_end = aui_lexbor_static_890aa09d0c_lxb_css_declaration_list_end, .at_rule = &aui_lexbor_static_890aa09d0c_lxb_css_declaration_list_at_cb};
 
 
 lxb_status_t
@@ -29763,10 +29757,10 @@ static const lxb_css_entry_data_t lxb_css_property_data[LXB_CSS_PROPERTY__LAST_E
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_border_bottom_color_t, {.type = LXB_CSS_COLOR_CURRENTCOLOR})},
     {(lxb_char_t *) "border-bottom-left-radius", 25, LXB_CSS_PROPERTY_BORDER_BOTTOM_LEFT_RADIUS, lxb_css_property_state_border_bottom_left_radius,
      lxb_css_property_border_bottom_left_radius_create, lxb_css_property_border_bottom_left_radius_destroy, lxb_css_property_border_bottom_left_radius_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_border_bottom_left_radius_t, {.h = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}, .v = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_border_bottom_left_radius_t, {.h = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}, .v = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}})},
     {(lxb_char_t *) "border-bottom-right-radius", 26, LXB_CSS_PROPERTY_BORDER_BOTTOM_RIGHT_RADIUS, lxb_css_property_state_border_bottom_right_radius,
      lxb_css_property_border_bottom_right_radius_create, lxb_css_property_border_bottom_right_radius_destroy, lxb_css_property_border_bottom_right_radius_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_border_bottom_right_radius_t, {.h = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}, .v = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_border_bottom_right_radius_t, {.h = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}, .v = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}})},
     {(lxb_char_t *) "border-color", 12, LXB_CSS_PROPERTY_BORDER_COLOR, lxb_css_property_state_border_color,
      lxb_css_property_border_color_create, lxb_css_property_border_color_destroy, lxb_css_property_border_color_serialize,
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_border_color_t, {.top = {.type = LXB_CSS_COLOR_CURRENTCOLOR}, .right = {.type = LXB_CSS_COLOR_CURRENTCOLOR}, .bottom = {.type = LXB_CSS_COLOR_CURRENTCOLOR}, .left = {.type = LXB_CSS_COLOR_CURRENTCOLOR}})},
@@ -29778,7 +29772,7 @@ static const lxb_css_entry_data_t lxb_css_property_data[LXB_CSS_PROPERTY__LAST_E
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_border_left_color_t, {.type = LXB_CSS_COLOR_CURRENTCOLOR})},
     {(lxb_char_t *) "border-radius", 13, LXB_CSS_PROPERTY_BORDER_RADIUS, lxb_css_property_state_border_radius,
      lxb_css_property_border_radius_create, lxb_css_property_border_radius_destroy, lxb_css_property_border_radius_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_border_radius_t, {.top_left = {.h = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}, .v = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}}, .top_right = {.h = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}, .v = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}}, .bottom_right = {.h = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}, .v = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}}, .bottom_left = {.h = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}, .v = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_border_radius_t, {.top_left = {.h = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}, .v = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}}, .top_right = {.h = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}, .v = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}}, .bottom_right = {.h = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}, .v = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}}, .bottom_left = {.h = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}, .v = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}}})},
     {(lxb_char_t *) "border-right", 12, LXB_CSS_PROPERTY_BORDER_RIGHT, lxb_css_property_state_border_right,
      lxb_css_property_border_right_create, lxb_css_property_border_right_destroy, lxb_css_property_border_right_serialize,
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_border_right_t, {.style = LXB_CSS_BORDER_NONE, .width = {.type = LXB_CSS_BORDER_MEDIUM}, .color = {.type = LXB_CSS_COLOR_CURRENTCOLOR}})},
@@ -29793,13 +29787,13 @@ static const lxb_css_entry_data_t lxb_css_property_data[LXB_CSS_PROPERTY__LAST_E
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_border_top_color_t, {.type = LXB_CSS_COLOR_CURRENTCOLOR})},
     {(lxb_char_t *) "border-top-left-radius", 22, LXB_CSS_PROPERTY_BORDER_TOP_LEFT_RADIUS, lxb_css_property_state_border_top_left_radius,
      lxb_css_property_border_top_left_radius_create, lxb_css_property_border_top_left_radius_destroy, lxb_css_property_border_top_left_radius_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_border_top_left_radius_t, {.h = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}, .v = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_border_top_left_radius_t, {.h = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}, .v = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}})},
     {(lxb_char_t *) "border-top-right-radius", 23, LXB_CSS_PROPERTY_BORDER_TOP_RIGHT_RADIUS, lxb_css_property_state_border_top_right_radius,
      lxb_css_property_border_top_right_radius_create, lxb_css_property_border_top_right_radius_destroy, lxb_css_property_border_top_right_radius_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_border_top_right_radius_t, {.h = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}, .v = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_border_top_right_radius_t, {.h = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}, .v = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}})},
     {(lxb_char_t *) "bottom", 6, LXB_CSS_PROPERTY_BOTTOM, lxb_css_property_state_bottom,
      lxb_css_property_bottom_create, lxb_css_property_bottom_destroy, lxb_css_property_bottom_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_bottom_t, {.type = LXB_CSS_VALUE_AUTO, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_bottom_t, {.type = LXB_CSS_VALUE_AUTO, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "box-shadow", 10, LXB_CSS_PROPERTY_BOX_SHADOW, lxb_css_property_state_box_shadow,
      lxb_css_property_box_shadow_create, lxb_css_property_box_shadow_destroy, lxb_css_property_box_shadow_serialize,
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_box_shadow_t, {.type = LXB_CSS_BOX_SHADOW_NONE})},
@@ -29826,10 +29820,10 @@ static const lxb_css_entry_data_t lxb_css_property_data[LXB_CSS_PROPERTY__LAST_E
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_dominant_baseline_t, {.type = LXB_CSS_DOMINANT_BASELINE_AUTO})},
     {(lxb_char_t *) "flex", 4, LXB_CSS_PROPERTY_FLEX, lxb_css_property_state_flex,
      lxb_css_property_flex_create, lxb_css_property_flex_destroy, lxb_css_property_flex_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_flex_t, {.type = LXB_CSS_VALUE__UNDEF, .grow = {.type = LXB_CSS_FLEX_GROW__NUMBER, .number = {.num = 0, .is_float = false}}, .shrink = {.type = LXB_CSS_FLEX_SHRINK__NUMBER, .number = {.num = 1, .is_float = false}}, .basis = {.type = LXB_CSS_WIDTH_AUTO, .u.length = {.num = 0, .is_float = false}}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_flex_t, {.type = LXB_CSS_VALUE__UNDEF, .grow = {.type = LXB_CSS_FLEX_GROW__NUMBER, .number = {.num = 0, .is_float = false}}, .shrink = {.type = LXB_CSS_FLEX_SHRINK__NUMBER, .number = {.num = 1, .is_float = false}}, .basis = {.type = LXB_CSS_WIDTH_AUTO, .u = {.length = {.num = 0, .is_float = false}}}})},
     {(lxb_char_t *) "flex-basis", 10, LXB_CSS_PROPERTY_FLEX_BASIS, lxb_css_property_state_flex_basis,
      lxb_css_property_flex_basis_create, lxb_css_property_flex_basis_destroy, lxb_css_property_flex_basis_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_flex_basis_t, {.type = LXB_CSS_WIDTH_AUTO, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_flex_basis_t, {.type = LXB_CSS_WIDTH_AUTO, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "flex-direction", 14, LXB_CSS_PROPERTY_FLEX_DIRECTION, lxb_css_property_state_flex_direction,
      lxb_css_property_flex_direction_create, lxb_css_property_flex_direction_destroy, lxb_css_property_flex_direction_serialize,
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_flex_direction_t, {.type = LXB_CSS_FLEX_DIRECTION_ROW})},
@@ -29880,28 +29874,28 @@ static const lxb_css_entry_data_t lxb_css_property_data[LXB_CSS_PROPERTY__LAST_E
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_hanging_punctuation_t, {.type_first = LXB_CSS_HANGING_PUNCTUATION_NONE})},
     {(lxb_char_t *) "height", 6, LXB_CSS_PROPERTY_HEIGHT, lxb_css_property_state_height,
      lxb_css_property_height_create, lxb_css_property_height_destroy, lxb_css_property_height_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_height_t, {.type = LXB_CSS_HEIGHT_AUTO, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_height_t, {.type = LXB_CSS_HEIGHT_AUTO, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "hyphens", 7, LXB_CSS_PROPERTY_HYPHENS, lxb_css_property_state_hyphens,
      lxb_css_property_hyphens_create, lxb_css_property_hyphens_destroy, lxb_css_property_hyphens_serialize,
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_hyphens_t, {.type = LXB_CSS_HYPHENS_MANUAL})},
     {(lxb_char_t *) "inset-block-end", 15, LXB_CSS_PROPERTY_INSET_BLOCK_END, lxb_css_property_state_inset_block_end,
      lxb_css_property_inset_block_end_create, lxb_css_property_inset_block_end_destroy, lxb_css_property_inset_block_end_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_inset_block_end_t, {.type = LXB_CSS_VALUE_AUTO, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_inset_block_end_t, {.type = LXB_CSS_VALUE_AUTO, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "inset-block-start", 17, LXB_CSS_PROPERTY_INSET_BLOCK_START, lxb_css_property_state_inset_block_start,
      lxb_css_property_inset_block_start_create, lxb_css_property_inset_block_start_destroy, lxb_css_property_inset_block_start_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_inset_block_start_t, {.type = LXB_CSS_VALUE_AUTO, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_inset_block_start_t, {.type = LXB_CSS_VALUE_AUTO, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "inset-inline-end", 16, LXB_CSS_PROPERTY_INSET_INLINE_END, lxb_css_property_state_inset_inline_end,
      lxb_css_property_inset_inline_end_create, lxb_css_property_inset_inline_end_destroy, lxb_css_property_inset_inline_end_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_inset_inline_end_t, {.type = LXB_CSS_VALUE_AUTO, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_inset_inline_end_t, {.type = LXB_CSS_VALUE_AUTO, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "inset-inline-start", 18, LXB_CSS_PROPERTY_INSET_INLINE_START, lxb_css_property_state_inset_inline_start,
      lxb_css_property_inset_inline_start_create, lxb_css_property_inset_inline_start_destroy, lxb_css_property_inset_inline_start_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_inset_inline_start_t, {.type = LXB_CSS_VALUE_AUTO, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_inset_inline_start_t, {.type = LXB_CSS_VALUE_AUTO, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "justify-content", 15, LXB_CSS_PROPERTY_JUSTIFY_CONTENT, lxb_css_property_state_justify_content,
      lxb_css_property_justify_content_create, lxb_css_property_justify_content_destroy, lxb_css_property_justify_content_serialize,
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_justify_content_t, {.type = LXB_CSS_JUSTIFY_CONTENT_FLEX_START})},
     {(lxb_char_t *) "left", 4, LXB_CSS_PROPERTY_LEFT, lxb_css_property_state_left,
      lxb_css_property_left_create, lxb_css_property_left_destroy, lxb_css_property_left_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_left_t, {.type = LXB_CSS_VALUE_AUTO, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_left_t, {.type = LXB_CSS_VALUE_AUTO, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "letter-spacing", 14, LXB_CSS_PROPERTY_LETTER_SPACING, lxb_css_property_state_letter_spacing,
      lxb_css_property_letter_spacing_create, lxb_css_property_letter_spacing_destroy, lxb_css_property_letter_spacing_serialize,
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_letter_spacing_t, {.type = LXB_CSS_LETTER_SPACING_NORMAL})},
@@ -29913,31 +29907,31 @@ static const lxb_css_entry_data_t lxb_css_property_data[LXB_CSS_PROPERTY__LAST_E
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_line_height_t, {.type = LXB_CSS_LINE_HEIGHT_NORMAL})},
     {(lxb_char_t *) "margin", 6, LXB_CSS_PROPERTY_MARGIN, lxb_css_property_state_margin,
      lxb_css_property_margin_create, lxb_css_property_margin_destroy, lxb_css_property_margin_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_margin_t, {.top = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}, .right = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}, .bottom = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}, .left = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_margin_t, {.top = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}, .right = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}, .bottom = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}, .left = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}})},
     {(lxb_char_t *) "margin-bottom", 13, LXB_CSS_PROPERTY_MARGIN_BOTTOM, lxb_css_property_state_margin_bottom,
      lxb_css_property_margin_bottom_create, lxb_css_property_margin_bottom_destroy, lxb_css_property_margin_bottom_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_margin_bottom_t, {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_margin_bottom_t, {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "margin-left", 11, LXB_CSS_PROPERTY_MARGIN_LEFT, lxb_css_property_state_margin_left,
      lxb_css_property_margin_left_create, lxb_css_property_margin_left_destroy, lxb_css_property_margin_left_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_margin_left_t, {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_margin_left_t, {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "margin-right", 12, LXB_CSS_PROPERTY_MARGIN_RIGHT, lxb_css_property_state_margin_right,
      lxb_css_property_margin_right_create, lxb_css_property_margin_right_destroy, lxb_css_property_margin_right_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_margin_right_t, {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_margin_right_t, {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "margin-top", 10, LXB_CSS_PROPERTY_MARGIN_TOP, lxb_css_property_state_margin_top,
      lxb_css_property_margin_top_create, lxb_css_property_margin_top_destroy, lxb_css_property_margin_top_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_margin_top_t, {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_margin_top_t, {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "max-height", 10, LXB_CSS_PROPERTY_MAX_HEIGHT, lxb_css_property_state_max_height,
      lxb_css_property_max_height_create, lxb_css_property_max_height_destroy, lxb_css_property_max_height_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_max_height_t, {.type = LXB_CSS_MAX_HEIGHT_NONE, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_max_height_t, {.type = LXB_CSS_MAX_HEIGHT_NONE, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "max-width", 9, LXB_CSS_PROPERTY_MAX_WIDTH, lxb_css_property_state_max_width,
      lxb_css_property_max_width_create, lxb_css_property_max_width_destroy, lxb_css_property_max_width_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_max_width_t, {.type = LXB_CSS_MAX_WIDTH_NONE, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_max_width_t, {.type = LXB_CSS_MAX_WIDTH_NONE, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "min-height", 10, LXB_CSS_PROPERTY_MIN_HEIGHT, lxb_css_property_state_min_height,
      lxb_css_property_min_height_create, lxb_css_property_min_height_destroy, lxb_css_property_min_height_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_min_height_t, {.type = LXB_CSS_MIN_HEIGHT_AUTO, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_min_height_t, {.type = LXB_CSS_MIN_HEIGHT_AUTO, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "min-width", 9, LXB_CSS_PROPERTY_MIN_WIDTH, lxb_css_property_state_min_width,
      lxb_css_property_min_width_create, lxb_css_property_min_width_destroy, lxb_css_property_min_width_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_min_width_t, {.type = LXB_CSS_MIN_WIDTH_AUTO, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_min_width_t, {.type = LXB_CSS_MIN_WIDTH_AUTO, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "opacity", 7, LXB_CSS_PROPERTY_OPACITY, lxb_css_property_state_opacity,
      lxb_css_property_opacity_create, lxb_css_property_opacity_destroy, lxb_css_property_opacity_serialize,
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_opacity_t, {.type = LXB_CSS_OPACITY__NUMBER, .u = {.number = {.num = 1, .is_float = false}}})},
@@ -29961,25 +29955,25 @@ static const lxb_css_entry_data_t lxb_css_property_data[LXB_CSS_PROPERTY__LAST_E
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_overflow_y_t, {.type = LXB_CSS_OVERFLOW_Y_VISIBLE})},
     {(lxb_char_t *) "padding", 7, LXB_CSS_PROPERTY_PADDING, lxb_css_property_state_padding,
      lxb_css_property_padding_create, lxb_css_property_padding_destroy, lxb_css_property_padding_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_padding_t, {.top = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}, .right = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}, .bottom = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}, .left = {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_padding_t, {.top = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}, .right = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}, .bottom = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}, .left = {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}}})},
     {(lxb_char_t *) "padding-bottom", 14, LXB_CSS_PROPERTY_PADDING_BOTTOM, lxb_css_property_state_padding_bottom,
      lxb_css_property_padding_bottom_create, lxb_css_property_padding_bottom_destroy, lxb_css_property_padding_bottom_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_padding_bottom_t, {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_padding_bottom_t, {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "padding-left", 12, LXB_CSS_PROPERTY_PADDING_LEFT, lxb_css_property_state_padding_left,
      lxb_css_property_padding_left_create, lxb_css_property_padding_left_destroy, lxb_css_property_padding_left_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_padding_left_t, {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_padding_left_t, {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "padding-right", 13, LXB_CSS_PROPERTY_PADDING_RIGHT, lxb_css_property_state_padding_right,
      lxb_css_property_padding_right_create, lxb_css_property_padding_right_destroy, lxb_css_property_padding_right_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_padding_right_t, {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_padding_right_t, {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "padding-top", 11, LXB_CSS_PROPERTY_PADDING_TOP, lxb_css_property_state_padding_top,
      lxb_css_property_padding_top_create, lxb_css_property_padding_top_destroy, lxb_css_property_padding_top_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_padding_top_t, {.type = LXB_CSS_VALUE__LENGTH, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_padding_top_t, {.type = LXB_CSS_VALUE__LENGTH, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "position", 8, LXB_CSS_PROPERTY_POSITION, lxb_css_property_state_position,
      lxb_css_property_position_create, lxb_css_property_position_destroy, lxb_css_property_position_serialize,
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_position_t, {.type = LXB_CSS_POSITION_STATIC})},
     {(lxb_char_t *) "right", 5, LXB_CSS_PROPERTY_RIGHT, lxb_css_property_state_right,
      lxb_css_property_right_create, lxb_css_property_right_destroy, lxb_css_property_right_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_right_t, {.type = LXB_CSS_VALUE_AUTO, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_right_t, {.type = LXB_CSS_VALUE_AUTO, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "row-gap", 7, LXB_CSS_PROPERTY_ROW_GAP, lxb_css_property_state_row_gap,
      lxb_css_property_row_gap_create, lxb_css_property_row_gap_destroy, lxb_css_property_row_gap_serialize,
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_row_gap_t, {.type = LXB_CSS_VALUE_NORMAL})},
@@ -30027,7 +30021,7 @@ static const lxb_css_entry_data_t lxb_css_property_data[LXB_CSS_PROPERTY__LAST_E
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_text_transform_t, {.type_case = LXB_CSS_TEXT_TRANSFORM_NONE, .full_width = LXB_CSS_PROPERTY__UNDEF, .full_size_kana = LXB_CSS_PROPERTY__UNDEF})},
     {(lxb_char_t *) "top", 3, LXB_CSS_PROPERTY_TOP, lxb_css_property_state_top,
      lxb_css_property_top_create, lxb_css_property_top_destroy, lxb_css_property_top_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_top_t, {.type = LXB_CSS_VALUE_AUTO, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_top_t, {.type = LXB_CSS_VALUE_AUTO, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "unicode-bidi", 12, LXB_CSS_PROPERTY_UNICODE_BIDI, lxb_css_property_state_unicode_bidi,
      lxb_css_property_unicode_bidi_create, lxb_css_property_unicode_bidi_destroy, lxb_css_property_unicode_bidi_serialize,
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_unicode_bidi_t, {.type = LXB_CSS_UNICODE_BIDI_NORMAL})},
@@ -30042,7 +30036,7 @@ static const lxb_css_entry_data_t lxb_css_property_data[LXB_CSS_PROPERTY__LAST_E
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_white_space_t, {.type = LXB_CSS_WHITE_SPACE_NORMAL})},
     {(lxb_char_t *) "width", 5, LXB_CSS_PROPERTY_WIDTH, lxb_css_property_state_width,
      lxb_css_property_width_create, lxb_css_property_width_destroy, lxb_css_property_width_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_width_t, {.type = LXB_CSS_WIDTH_AUTO, .u.length = {.num = 0, .is_float = false}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_width_t, {.type = LXB_CSS_WIDTH_AUTO, .u = {.length = {.num = 0, .is_float = false}}})},
     {(lxb_char_t *) "word-break", 10, LXB_CSS_PROPERTY_WORD_BREAK, lxb_css_property_state_word_break,
      lxb_css_property_word_break_create, lxb_css_property_word_break_destroy, lxb_css_property_word_break_serialize,
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_word_break_t, {.type = LXB_CSS_WORD_BREAK_NORMAL})},
@@ -30136,10 +30130,7 @@ static const lxb_css_entry_data_t lxb_css_property_data[LXB_CSS_PROPERTY__LAST_E
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_animation_t, {.duration_s = 0, .delay_s = 0, .iteration_count = 1, .timing = LXB_CSS_ANIMATION_TIMING_EASE, .direction = LXB_CSS_ANIMATION_DIRECTION_NORMAL, .fill_mode = LXB_CSS_ANIMATION_FILL_MODE_NONE, .play_state = LXB_CSS_ANIMATION_PLAY_STATE_RUNNING})},
     {(lxb_char_t *) "inset", 5, LXB_CSS_PROPERTY_INSET, lxb_css_property_state_inset,
      lxb_css_property_inset_create, lxb_css_property_inset_destroy, lxb_css_property_inset_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_inset_t, {.top = {.type = LXB_CSS_VALUE_AUTO, .u.length = {.num = 0, .is_float = false}},
-                                  .right = {.type = LXB_CSS_VALUE_AUTO, .u.length = {.num = 0, .is_float = false}},
-                                  .bottom = {.type = LXB_CSS_VALUE_AUTO, .u.length = {.num = 0, .is_float = false}},
-                                  .left = {.type = LXB_CSS_VALUE_AUTO, .u.length = {.num = 0, .is_float = false}}})},
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_inset_t, {.top = {.type = LXB_CSS_VALUE_AUTO, .u = {.length = {.num = 0, .is_float = false}}}, .right = {.type = LXB_CSS_VALUE_AUTO, .u = {.length = {.num = 0, .is_float = false}}}, .bottom = {.type = LXB_CSS_VALUE_AUTO, .u = {.length = {.num = 0, .is_float = false}}}, .left = {.type = LXB_CSS_VALUE_AUTO, .u = {.length = {.num = 0, .is_float = false}}}})},
     {(lxb_char_t *) "background-size", 15, LXB_CSS_PROPERTY_BACKGROUND_SIZE, lxb_css_property_state_background_size,
      lxb_css_property_background_size_create, lxb_css_property_background_size_destroy, lxb_css_property_background_size_serialize,
      LEXBOR_CPP_STATIC_PTR(lxb_css_property_background_size_t, {.layers = {
@@ -30149,9 +30140,7 @@ static const lxb_css_entry_data_t lxb_css_property_data[LXB_CSS_PROPERTY__LAST_E
          .layer_count = 1})},
     {(lxb_char_t *) "transform-origin", 16, LXB_CSS_PROPERTY_TRANSFORM_ORIGIN, lxb_css_property_state_transform_origin,
      lxb_css_property_transform_origin_create, lxb_css_property_transform_origin_destroy, lxb_css_property_transform_origin_serialize,
-     LEXBOR_CPP_STATIC_PTR(lxb_css_property_transform_origin_t, {
-         .x = {.type = LXB_CSS_VALUE__PERCENTAGE, .u.percentage = {.num = 50, .is_float = false}},
-         .y = {.type = LXB_CSS_VALUE__PERCENTAGE, .u.percentage = {.num = 50, .is_float = false}}})}
+     LEXBOR_CPP_STATIC_PTR(lxb_css_property_transform_origin_t, {.x = {.type = LXB_CSS_VALUE__PERCENTAGE, .u = {.percentage = {.num = 50, .is_float = false}}}, .y = {.type = LXB_CSS_VALUE__PERCENTAGE, .u = {.percentage = {.num = 50, .is_float = false}}}})}
 };
 
 static const lexbor_shs_entry_t lxb_css_property_shs[249] =
@@ -34314,6 +34303,31 @@ aui_lexbor_static_d8f79466e9_lxb_css_property_state_radial_prelude(lxb_css_parse
             gradient->center_x_pct = x;
             gradient->center_y_pct = y;
         }
+        else if (token->type == LXB_CSS_SYNTAX_TOKEN_PERCENTAGE) {
+            /* The ending shape's explicit size: `ellipse 110% 90%`.
+             * First percentage is the x radius, second the y. A single
+             * percentage (a `circle`) sets both. Dropping these used to
+             * force every sized radial into a farthest-corner circle,
+             * which stretches a tight specular highlight across the whole
+             * box. */
+            double r = lxb_css_syntax_token_percentage(token)->num;
+
+            saw_prelude = true;
+            lxb_css_syntax_parser_consume(parser);
+
+            if (!gradient->has_radius_x_pct) {
+                gradient->radius_x_pct = r;
+                gradient->has_radius_x_pct = true;
+                /* A lone size is a circle: mirror onto y until a second
+                 * percentage overrides it. */
+                gradient->radius_y_pct = r;
+                gradient->has_radius_y_pct = true;
+            }
+            else {
+                gradient->radius_y_pct = r;
+                gradient->has_radius_y_pct = true;
+            }
+        }
         else if (aui_lexbor_static_d8f79466e9_lxb_css_property_state_radial_prelude_start(token)) {
             saw_prelude = true;
             lxb_css_syntax_parser_consume(parser);
@@ -34363,6 +34377,10 @@ aui_lexbor_static_d8f79466e9_lxb_css_property_state_gradient_args(lxb_css_parser
     gradient->angle_deg = 180.0; /* CSS default: `to bottom` */
     gradient->center_x_pct = 50.0;
     gradient->center_y_pct = 50.0;
+    gradient->radius_x_pct = 0.0;
+    gradient->radius_y_pct = 0.0;
+    gradient->has_radius_x_pct = false;
+    gradient->has_radius_y_pct = false;
     gradient->stop0_pos_pct = 0.0;
     gradient->stop1_pos_pct = 100.0;
     gradient->has_stop0_pos_pct = false;
@@ -34672,7 +34690,8 @@ lxb_css_property_state_background(lxb_css_parser_t *parser,
                         gradient.kind = LXB_CSS_GRADIENT_LINEAR_STRIPES;
                     }
                     declar->u.background->gradient = gradient;
-                    if (declar->u.background->layer_count < 3) {
+                    if (declar->u.background->layer_count
+                        < LXB_CSS_BACKGROUND_MAX_LAYERS) {
                         declar->u.background->layers[
                             declar->u.background->layer_count++] = gradient;
                     }
@@ -50575,14 +50594,7 @@ static const lxb_css_syntax_cb_qualified_rule_t aui_lexbor_static_cb6e991ef7_lxb
     .end = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_qualified_rule_end
 };
 
-static const lxb_css_syntax_cb_list_rules_t aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_list_rules = {
-    .cb.state = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_list_rules_state,
-    .cb.failed = lxb_css_state_failed,
-    .cb.end = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_list_rules_end,
-    .next = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_list_rules_next,
-    .at_rule = &aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_at_rule,
-    .qualified_rule = &aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_qualified_rule
-};
+static const lxb_css_syntax_cb_list_rules_t aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_list_rules = {.cb = {.state = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_list_rules_state, .failed = lxb_css_state_failed, .end = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_list_rules_end}, .next = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_list_rules_next, .at_rule = &aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_at_rule, .qualified_rule = &aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_qualified_rule};
 
 static const lxb_css_syntax_cb_at_rule_t aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_declarations_at_rule = {
     .state = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_declarations_at_rule_state,
@@ -50591,14 +50603,7 @@ static const lxb_css_syntax_cb_at_rule_t aui_lexbor_static_cb6e991ef7_lxb_css_st
     .end = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_declarations_at_rule_end
 };
 
-static const lxb_css_syntax_cb_declarations_t aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_declarations = {
-    .cb.state = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_declarations_name,
-    .cb.block = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_declarations_value,
-    .cb.failed = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_declarations_bad,
-    .cb.end = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_declarations_end,
-    .declaration_end = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_declaration_end,
-    .at_rule = &aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_declarations_at_rule
-};
+static const lxb_css_syntax_cb_declarations_t aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_declarations = {.cb = {.state = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_declarations_name, .block = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_declarations_value, .failed = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_declarations_bad, .end = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_declarations_end}, .declaration_end = aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_declaration_end, .at_rule = &aui_lexbor_static_cb6e991ef7_lxb_css_stylesheet_declarations_at_rule};
 
 
 lxb_css_stylesheet_t *
@@ -52232,12 +52237,7 @@ inline ptr_proxy ptr(const void *p) { return {const_cast<void *>(p)}; }
 
 
 static const lxb_css_syntax_token_t aui_lexbor_static_051fcc21fe_lxb_css_syntax_token_terminated =
-{
-    .types.terminated = {.begin = NULL, .length = 0, .user_id = 0},
-    .type = LXB_CSS_SYNTAX_TOKEN__END,
-    .offset = 0,
-    .cloned = false
-};
+{.types = {.terminated = {.begin = NULL, .length = 0, .user_id = 0}}, .type = LXB_CSS_SYNTAX_TOKEN__END, .offset = 0, .cloned = false};
 
 
 static const lxb_css_syntax_token_t *
@@ -68344,80 +68344,43 @@ lxb_dom_interface_destroy(lxb_dom_interface_t *intrfc)
 
 
 static const lxb_dom_attr_data_t lxb_dom_attr_res_data_default[LXB_DOM_ATTR__LAST_ENTRY] =
-{
-    {{.u.short_str = "#undef", .length = 6, .next = NULL},
-     LXB_DOM_ATTR__UNDEF, 1, true},
-    {{.u.short_str = "active", .length = 6, .next = NULL},
-     LXB_DOM_ATTR_ACTIVE, 1, true},
-    {{.u.short_str = "alt", .length = 3, .next = NULL},
-     LXB_DOM_ATTR_ALT, 1, true},
-    {{.u.short_str = "charset", .length = 7, .next = NULL},
-     LXB_DOM_ATTR_CHARSET, 1, true},
-    {{.u.short_str = "checked", .length = 7, .next = NULL},
-     LXB_DOM_ATTR_CHECKED, 1, true},
-    {{.u.short_str = "class", .length = 5, .next = NULL},
-     LXB_DOM_ATTR_CLASS, 1, true},
-    {{.u.short_str = "color", .length = 5, .next = NULL},
-     LXB_DOM_ATTR_COLOR, 1, true},
-    {{.u.short_str = "content", .length = 7, .next = NULL},
-     LXB_DOM_ATTR_CONTENT, 1, true},
-    {{.u.short_str = "dir", .length = 3, .next = NULL},
-     LXB_DOM_ATTR_DIR, 1, true},
-    {{.u.short_str = "disabled", .length = 8, .next = NULL},
-     LXB_DOM_ATTR_DISABLED, 1, true},
-    {{.u.short_str = "face", .length = 4, .next = NULL},
-     LXB_DOM_ATTR_FACE, 1, true},
-    {{.u.short_str = "focus", .length = 5, .next = NULL},
-     LXB_DOM_ATTR_FOCUS, 1, true},
-    {{.u.short_str = "for", .length = 3, .next = NULL},
-     LXB_DOM_ATTR_FOR, 1, true},
-    {{.u.short_str = "height", .length = 6, .next = NULL},
-     LXB_DOM_ATTR_HEIGHT, 1, true},
-    {{.u.short_str = "hover", .length = 5, .next = NULL},
-     LXB_DOM_ATTR_HOVER, 1, true},
-    {{.u.short_str = "href", .length = 4, .next = NULL},
-     LXB_DOM_ATTR_HREF, 1, true},
-    {{.u.short_str = "html", .length = 4, .next = NULL},
-     LXB_DOM_ATTR_HTML, 1, true},
-    {{.u.short_str = "http-equiv", .length = 10, .next = NULL},
-     LXB_DOM_ATTR_HTTP_EQUIV, 1, true},
-    {{.u.short_str = "id", .length = 2, .next = NULL},
-     LXB_DOM_ATTR_ID, 1, true},
-    {{.u.short_str = "is", .length = 2, .next = NULL},
-     LXB_DOM_ATTR_IS, 1, true},
-    {{.u.short_str = "maxlength", .length = 9, .next = NULL},
-     LXB_DOM_ATTR_MAXLENGTH, 1, true},
-    {{.u.short_str = "placeholder", .length = 11, .next = NULL},
-     LXB_DOM_ATTR_PLACEHOLDER, 1, true},
-    {{.u.short_str = "pool", .length = 4, .next = NULL},
-     LXB_DOM_ATTR_POOL, 1, true},
-    {{.u.short_str = "public", .length = 6, .next = NULL},
-     LXB_DOM_ATTR_PUBLIC, 1, true},
-    {{.u.short_str = "readonly", .length = 8, .next = NULL},
-     LXB_DOM_ATTR_READONLY, 1, true},
-    {{.u.short_str = "required", .length = 8, .next = NULL},
-     LXB_DOM_ATTR_REQUIRED, 1, true},
-    {{.u.short_str = "scheme", .length = 6, .next = NULL},
-     LXB_DOM_ATTR_SCHEME, 1, true},
-    {{.u.short_str = "selected", .length = 8, .next = NULL},
-     LXB_DOM_ATTR_SELECTED, 1, true},
-    {{.u.short_str = "size", .length = 4, .next = NULL},
-     LXB_DOM_ATTR_SIZE, 1, true},
-    {{.u.short_str = "slot", .length = 4, .next = NULL},
-     LXB_DOM_ATTR_SLOT, 1, true},
-    {{.u.short_str = "src", .length = 3, .next = NULL},
-     LXB_DOM_ATTR_SRC, 1, true},
-    {{.u.short_str = "style", .length = 5, .next = NULL},
-     LXB_DOM_ATTR_STYLE, 1, true},
-    {{.u.short_str = "system", .length = 6, .next = NULL},
-     LXB_DOM_ATTR_SYSTEM, 1, true},
-    {{.u.short_str = "title", .length = 5, .next = NULL},
-     LXB_DOM_ATTR_TITLE, 1, true},
-    {{.u.short_str = "type", .length = 4, .next = NULL},
-     LXB_DOM_ATTR_TYPE, 1, true},
-    {{.u.short_str = "width", .length = 5, .next = NULL},
-     LXB_DOM_ATTR_WIDTH, 1, true}
-};
+{{{.u = {.short_str = "#undef"}, .length = 6, .next = NULL},
+     LXB_DOM_ATTR__UNDEF, 1, true},{{.u = {.short_str = "active"}, .length = 6, .next = NULL},
+     LXB_DOM_ATTR_ACTIVE, 1, true},{{.u = {.short_str = "alt"}, .length = 3, .next = NULL},
+     LXB_DOM_ATTR_ALT, 1, true},{{.u = {.short_str = "charset"}, .length = 7, .next = NULL},
+     LXB_DOM_ATTR_CHARSET, 1, true},{{.u = {.short_str = "checked"}, .length = 7, .next = NULL},
+     LXB_DOM_ATTR_CHECKED, 1, true},{{.u = {.short_str = "class"}, .length = 5, .next = NULL},
+     LXB_DOM_ATTR_CLASS, 1, true},{{.u = {.short_str = "color"}, .length = 5, .next = NULL},
+     LXB_DOM_ATTR_COLOR, 1, true},{{.u = {.short_str = "content"}, .length = 7, .next = NULL},
+     LXB_DOM_ATTR_CONTENT, 1, true},{{.u = {.short_str = "dir"}, .length = 3, .next = NULL},
+     LXB_DOM_ATTR_DIR, 1, true},{{.u = {.short_str = "disabled"}, .length = 8, .next = NULL},
+     LXB_DOM_ATTR_DISABLED, 1, true},{{.u = {.short_str = "face"}, .length = 4, .next = NULL},
+     LXB_DOM_ATTR_FACE, 1, true},{{.u = {.short_str = "focus"}, .length = 5, .next = NULL},
+     LXB_DOM_ATTR_FOCUS, 1, true},{{.u = {.short_str = "for"}, .length = 3, .next = NULL},
+     LXB_DOM_ATTR_FOR, 1, true},{{.u = {.short_str = "height"}, .length = 6, .next = NULL},
+     LXB_DOM_ATTR_HEIGHT, 1, true},{{.u = {.short_str = "hover"}, .length = 5, .next = NULL},
+     LXB_DOM_ATTR_HOVER, 1, true},{{.u = {.short_str = "href"}, .length = 4, .next = NULL},
+     LXB_DOM_ATTR_HREF, 1, true},{{.u = {.short_str = "html"}, .length = 4, .next = NULL},
+     LXB_DOM_ATTR_HTML, 1, true},{{.u = {.short_str = "http-equiv"}, .length = 10, .next = NULL},
+     LXB_DOM_ATTR_HTTP_EQUIV, 1, true},{{.u = {.short_str = "id"}, .length = 2, .next = NULL},
+     LXB_DOM_ATTR_ID, 1, true},{{.u = {.short_str = "is"}, .length = 2, .next = NULL},
+     LXB_DOM_ATTR_IS, 1, true},{{.u = {.short_str = "maxlength"}, .length = 9, .next = NULL},
+     LXB_DOM_ATTR_MAXLENGTH, 1, true},{{.u = {.short_str = "placeholder"}, .length = 11, .next = NULL},
+     LXB_DOM_ATTR_PLACEHOLDER, 1, true},{{.u = {.short_str = "pool"}, .length = 4, .next = NULL},
+     LXB_DOM_ATTR_POOL, 1, true},{{.u = {.short_str = "public"}, .length = 6, .next = NULL},
+     LXB_DOM_ATTR_PUBLIC, 1, true},{{.u = {.short_str = "readonly"}, .length = 8, .next = NULL},
+     LXB_DOM_ATTR_READONLY, 1, true},{{.u = {.short_str = "required"}, .length = 8, .next = NULL},
+     LXB_DOM_ATTR_REQUIRED, 1, true},{{.u = {.short_str = "scheme"}, .length = 6, .next = NULL},
+     LXB_DOM_ATTR_SCHEME, 1, true},{{.u = {.short_str = "selected"}, .length = 8, .next = NULL},
+     LXB_DOM_ATTR_SELECTED, 1, true},{{.u = {.short_str = "size"}, .length = 4, .next = NULL},
+     LXB_DOM_ATTR_SIZE, 1, true},{{.u = {.short_str = "slot"}, .length = 4, .next = NULL},
+     LXB_DOM_ATTR_SLOT, 1, true},{{.u = {.short_str = "src"}, .length = 3, .next = NULL},
+     LXB_DOM_ATTR_SRC, 1, true},{{.u = {.short_str = "style"}, .length = 5, .next = NULL},
+     LXB_DOM_ATTR_STYLE, 1, true},{{.u = {.short_str = "system"}, .length = 6, .next = NULL},
+     LXB_DOM_ATTR_SYSTEM, 1, true},{{.u = {.short_str = "title"}, .length = 5, .next = NULL},
+     LXB_DOM_ATTR_TITLE, 1, true},{{.u = {.short_str = "type"}, .length = 4, .next = NULL},
+     LXB_DOM_ATTR_TYPE, 1, true},{{.u = {.short_str = "width"}, .length = 5, .next = NULL},
+     LXB_DOM_ATTR_WIDTH, 1, true}};
 
 static const lexbor_shs_entry_t lxb_dom_attr_res_shs_data[40] =
 {
@@ -96411,16 +96374,9 @@ inline ptr_proxy ptr(const void *p) { return {const_cast<void *>(p)}; }
 
 
 
-static const lexbor_hash_search_t  aui_lexbor_static_2978fd58b1_lxb_html_document_css_customs_se = {
-    .cmp = lexbor_str_data_ncasecmp,
-    .hash = lexbor_hash_make_id
-};
+static const lexbor_hash_search_t  aui_lexbor_static_2978fd58b1_lxb_html_document_css_customs_se = {.hash = lexbor_hash_make_id, .cmp = lexbor_str_data_ncasecmp};
 
-static const lexbor_hash_insert_t  aui_lexbor_static_2978fd58b1_lxb_html_document_css_customs_in = {
-    .copy = lexbor_hash_copy,
-    .cmp = lexbor_str_data_ncasecmp,
-    .hash = lexbor_hash_make_id
-};
+static const lexbor_hash_insert_t  aui_lexbor_static_2978fd58b1_lxb_html_document_css_customs_in = {.hash = lexbor_hash_make_id, .cmp = lexbor_str_data_ncasecmp, .copy = lexbor_hash_copy};
 
 
 typedef struct {
@@ -161141,28 +161097,10 @@ static const char * lexbor_str_res_char_to_two_hex_value_lowercase[257] = {
 
 
 static const lxb_ns_data_t lxb_ns_res_data[LXB_NS__LAST_ENTRY] =
-{
-    {{.u.short_str = "", .length = 0, .next = NULL}, LXB_NS__UNDEF, 1, true},
-    {{.u.short_str = "", .length = 0, .next = NULL}, LXB_NS__ANY, 1, true},
-    {{.u.long_str = (lxb_char_t *) "http://www.w3.org/1999/xhtml", .length = 28, .next = NULL}, LXB_NS_HTML, 1, true},
-    {{.u.long_str = (lxb_char_t *) "http://www.w3.org/1998/Math/MathML", .length = 34, .next = NULL}, LXB_NS_MATH, 1, true},
-    {{.u.long_str = (lxb_char_t *) "http://www.w3.org/2000/svg", .length = 26, .next = NULL}, LXB_NS_SVG, 1, true},
-    {{.u.long_str = (lxb_char_t *) "http://www.w3.org/1999/xlink", .length = 28, .next = NULL}, LXB_NS_XLINK, 1, true},
-    {{.u.long_str = (lxb_char_t *) "http://www.w3.org/XML/1998/namespace", .length = 36, .next = NULL}, LXB_NS_XML, 1, true},
-    {{.u.long_str = (lxb_char_t *) "http://www.w3.org/2000/xmlns/", .length = 29, .next = NULL}, LXB_NS_XMLNS, 1, true}
-};
+{{{.u = {.short_str = ""}, .length = 0, .next = NULL}, LXB_NS__UNDEF, 1, true},{{.u = {.short_str = ""}, .length = 0, .next = NULL}, LXB_NS__ANY, 1, true},{{.u = {.long_str = (lxb_char_t *) "http://www.w3.org/1999/xhtml"}, .length = 28, .next = NULL}, LXB_NS_HTML, 1, true},{{.u = {.long_str = (lxb_char_t *) "http://www.w3.org/1998/Math/MathML"}, .length = 34, .next = NULL}, LXB_NS_MATH, 1, true},{{.u = {.long_str = (lxb_char_t *) "http://www.w3.org/2000/svg"}, .length = 26, .next = NULL}, LXB_NS_SVG, 1, true},{{.u = {.long_str = (lxb_char_t *) "http://www.w3.org/1999/xlink"}, .length = 28, .next = NULL}, LXB_NS_XLINK, 1, true},{{.u = {.long_str = (lxb_char_t *) "http://www.w3.org/XML/1998/namespace"}, .length = 36, .next = NULL}, LXB_NS_XML, 1, true},{{.u = {.long_str = (lxb_char_t *) "http://www.w3.org/2000/xmlns/"}, .length = 29, .next = NULL}, LXB_NS_XMLNS, 1, true}};
 
 static const lxb_ns_prefix_data_t lxb_ns_prefix_res_data[LXB_NS__LAST_ENTRY] =
-{
-    {{.u.short_str = "#undef", .length = 6, .next = NULL}, LXB_NS__UNDEF, 1, true},
-    {{.u.short_str = "#any", .length = 4, .next = NULL}, LXB_NS__ANY, 1, true},
-    {{.u.short_str = "html", .length = 4, .next = NULL}, LXB_NS_HTML, 1, true},
-    {{.u.short_str = "math", .length = 4, .next = NULL}, LXB_NS_MATH, 1, true},
-    {{.u.short_str = "svg", .length = 3, .next = NULL}, LXB_NS_SVG, 1, true},
-    {{.u.short_str = "xlink", .length = 5, .next = NULL}, LXB_NS_XLINK, 1, true},
-    {{.u.short_str = "xml", .length = 3, .next = NULL}, LXB_NS_XML, 1, true},
-    {{.u.short_str = "xmlns", .length = 5, .next = NULL}, LXB_NS_XMLNS, 1, true}
-};
+{{{.u = {.short_str = "#undef"}, .length = 6, .next = NULL}, LXB_NS__UNDEF, 1, true},{{.u = {.short_str = "#any"}, .length = 4, .next = NULL}, LXB_NS__ANY, 1, true},{{.u = {.short_str = "html"}, .length = 4, .next = NULL}, LXB_NS_HTML, 1, true},{{.u = {.short_str = "math"}, .length = 4, .next = NULL}, LXB_NS_MATH, 1, true},{{.u = {.short_str = "svg"}, .length = 3, .next = NULL}, LXB_NS_SVG, 1, true},{{.u = {.short_str = "xlink"}, .length = 5, .next = NULL}, LXB_NS_XLINK, 1, true},{{.u = {.short_str = "xml"}, .length = 3, .next = NULL}, LXB_NS_XML, 1, true},{{.u = {.short_str = "xmlns"}, .length = 5, .next = NULL}, LXB_NS_XMLNS, 1, true}};
 
 static const lexbor_shs_entry_t lxb_ns_res_shs_data[] =
 {
@@ -165237,404 +165175,10 @@ lxb_selectors_selector_noi(const lxb_selectors_t *selectors)
 #endif /* LXB_TAG_CONST_VERSION */
 
 static const lxb_tag_data_t lxb_tag_res_data_default[LXB_TAG__LAST_ENTRY] =
-{
-    {{.u.short_str = "#undef", .length = 6, .next = NULL}, LXB_TAG__UNDEF, 1, true},
-    {{.u.short_str = "#end-of-file", .length = 12, .next = NULL}, LXB_TAG__END_OF_FILE, 1, true},
-    {{.u.short_str = "#text", .length = 5, .next = NULL}, LXB_TAG__TEXT, 1, true},
-    {{.u.short_str = "#document", .length = 9, .next = NULL}, LXB_TAG__DOCUMENT, 1, true},
-    {{.u.short_str = "!--", .length = 3, .next = NULL}, LXB_TAG__EM_COMMENT, 1, true},
-    {{.u.short_str = "!doctype", .length = 8, .next = NULL}, LXB_TAG__EM_DOCTYPE, 1, true},
-    {{.u.short_str = "a", .length = 1, .next = NULL}, LXB_TAG_A, 1, true},
-    {{.u.short_str = "abbr", .length = 4, .next = NULL}, LXB_TAG_ABBR, 1, true},
-    {{.u.short_str = "acronym", .length = 7, .next = NULL}, LXB_TAG_ACRONYM, 1, true},
-    {{.u.short_str = "address", .length = 7, .next = NULL}, LXB_TAG_ADDRESS, 1, true},
-    {{.u.short_str = "altglyph", .length = 8, .next = NULL}, LXB_TAG_ALTGLYPH, 1, true},
-    {{.u.short_str = "altglyphdef", .length = 11, .next = NULL}, LXB_TAG_ALTGLYPHDEF, 1, true},
-    {{.u.short_str = "altglyphitem", .length = 12, .next = NULL}, LXB_TAG_ALTGLYPHITEM, 1, true},
-    {{.u.short_str = "animatecolor", .length = 12, .next = NULL}, LXB_TAG_ANIMATECOLOR, 1, true},
-    {{.u.short_str = "animatemotion", .length = 13, .next = NULL}, LXB_TAG_ANIMATEMOTION, 1, true},
-    {{.u.short_str = "animatetransform", .length = 16, .next = NULL}, LXB_TAG_ANIMATETRANSFORM, 1, true},
-    {{.u.short_str = "annotation-xml", .length = 14, .next = NULL}, LXB_TAG_ANNOTATION_XML, 1, true},
-    {{.u.short_str = "applet", .length = 6, .next = NULL}, LXB_TAG_APPLET, 1, true},
-    {{.u.short_str = "area", .length = 4, .next = NULL}, LXB_TAG_AREA, 1, true},
-    {{.u.short_str = "article", .length = 7, .next = NULL}, LXB_TAG_ARTICLE, 1, true},
-    {{.u.short_str = "aside", .length = 5, .next = NULL}, LXB_TAG_ASIDE, 1, true},
-    {{.u.short_str = "audio", .length = 5, .next = NULL}, LXB_TAG_AUDIO, 1, true},
-    {{.u.short_str = "b", .length = 1, .next = NULL}, LXB_TAG_B, 1, true},
-    {{.u.short_str = "base", .length = 4, .next = NULL}, LXB_TAG_BASE, 1, true},
-    {{.u.short_str = "basefont", .length = 8, .next = NULL}, LXB_TAG_BASEFONT, 1, true},
-    {{.u.short_str = "bdi", .length = 3, .next = NULL}, LXB_TAG_BDI, 1, true},
-    {{.u.short_str = "bdo", .length = 3, .next = NULL}, LXB_TAG_BDO, 1, true},
-    {{.u.short_str = "bgsound", .length = 7, .next = NULL}, LXB_TAG_BGSOUND, 1, true},
-    {{.u.short_str = "big", .length = 3, .next = NULL}, LXB_TAG_BIG, 1, true},
-    {{.u.short_str = "blink", .length = 5, .next = NULL}, LXB_TAG_BLINK, 1, true},
-    {{.u.short_str = "blockquote", .length = 10, .next = NULL}, LXB_TAG_BLOCKQUOTE, 1, true},
-    {{.u.short_str = "body", .length = 4, .next = NULL}, LXB_TAG_BODY, 1, true},
-    {{.u.short_str = "br", .length = 2, .next = NULL}, LXB_TAG_BR, 1, true},
-    {{.u.short_str = "button", .length = 6, .next = NULL}, LXB_TAG_BUTTON, 1, true},
-    {{.u.short_str = "canvas", .length = 6, .next = NULL}, LXB_TAG_CANVAS, 1, true},
-    {{.u.short_str = "caption", .length = 7, .next = NULL}, LXB_TAG_CAPTION, 1, true},
-    {{.u.short_str = "center", .length = 6, .next = NULL}, LXB_TAG_CENTER, 1, true},
-    {{.u.short_str = "cite", .length = 4, .next = NULL}, LXB_TAG_CITE, 1, true},
-    {{.u.short_str = "clippath", .length = 8, .next = NULL}, LXB_TAG_CLIPPATH, 1, true},
-    {{.u.short_str = "code", .length = 4, .next = NULL}, LXB_TAG_CODE, 1, true},
-    {{.u.short_str = "col", .length = 3, .next = NULL}, LXB_TAG_COL, 1, true},
-    {{.u.short_str = "colgroup", .length = 8, .next = NULL}, LXB_TAG_COLGROUP, 1, true},
-    {{.u.short_str = "data", .length = 4, .next = NULL}, LXB_TAG_DATA, 1, true},
-    {{.u.short_str = "datalist", .length = 8, .next = NULL}, LXB_TAG_DATALIST, 1, true},
-    {{.u.short_str = "dd", .length = 2, .next = NULL}, LXB_TAG_DD, 1, true},
-    {{.u.short_str = "del", .length = 3, .next = NULL}, LXB_TAG_DEL, 1, true},
-    {{.u.short_str = "desc", .length = 4, .next = NULL}, LXB_TAG_DESC, 1, true},
-    {{.u.short_str = "details", .length = 7, .next = NULL}, LXB_TAG_DETAILS, 1, true},
-    {{.u.short_str = "dfn", .length = 3, .next = NULL}, LXB_TAG_DFN, 1, true},
-    {{.u.short_str = "dialog", .length = 6, .next = NULL}, LXB_TAG_DIALOG, 1, true},
-    {{.u.short_str = "dir", .length = 3, .next = NULL}, LXB_TAG_DIR, 1, true},
-    {{.u.short_str = "div", .length = 3, .next = NULL}, LXB_TAG_DIV, 1, true},
-    {{.u.short_str = "dl", .length = 2, .next = NULL}, LXB_TAG_DL, 1, true},
-    {{.u.short_str = "dt", .length = 2, .next = NULL}, LXB_TAG_DT, 1, true},
-    {{.u.short_str = "em", .length = 2, .next = NULL}, LXB_TAG_EM, 1, true},
-    {{.u.short_str = "embed", .length = 5, .next = NULL}, LXB_TAG_EMBED, 1, true},
-    {{.u.short_str = "feblend", .length = 7, .next = NULL}, LXB_TAG_FEBLEND, 1, true},
-    {{.u.short_str = "fecolormatrix", .length = 13, .next = NULL}, LXB_TAG_FECOLORMATRIX, 1, true},
-    {{.u.long_str = (lxb_char_t *) "fecomponenttransfer", .length = 19, .next = NULL}, LXB_TAG_FECOMPONENTTRANSFER, 1, true},
-    {{.u.short_str = "fecomposite", .length = 11, .next = NULL}, LXB_TAG_FECOMPOSITE, 1, true},
-    {{.u.short_str = "feconvolvematrix", .length = 16, .next = NULL}, LXB_TAG_FECONVOLVEMATRIX, 1, true},
-    {{.u.long_str = (lxb_char_t *) "fediffuselighting", .length = 17, .next = NULL}, LXB_TAG_FEDIFFUSELIGHTING, 1, true},
-    {{.u.long_str = (lxb_char_t *) "fedisplacementmap", .length = 17, .next = NULL}, LXB_TAG_FEDISPLACEMENTMAP, 1, true},
-    {{.u.short_str = "fedistantlight", .length = 14, .next = NULL}, LXB_TAG_FEDISTANTLIGHT, 1, true},
-    {{.u.short_str = "fedropshadow", .length = 12, .next = NULL}, LXB_TAG_FEDROPSHADOW, 1, true},
-    {{.u.short_str = "feflood", .length = 7, .next = NULL}, LXB_TAG_FEFLOOD, 1, true},
-    {{.u.short_str = "fefunca", .length = 7, .next = NULL}, LXB_TAG_FEFUNCA, 1, true},
-    {{.u.short_str = "fefuncb", .length = 7, .next = NULL}, LXB_TAG_FEFUNCB, 1, true},
-    {{.u.short_str = "fefuncg", .length = 7, .next = NULL}, LXB_TAG_FEFUNCG, 1, true},
-    {{.u.short_str = "fefuncr", .length = 7, .next = NULL}, LXB_TAG_FEFUNCR, 1, true},
-    {{.u.short_str = "fegaussianblur", .length = 14, .next = NULL}, LXB_TAG_FEGAUSSIANBLUR, 1, true},
-    {{.u.short_str = "feimage", .length = 7, .next = NULL}, LXB_TAG_FEIMAGE, 1, true},
-    {{.u.short_str = "femerge", .length = 7, .next = NULL}, LXB_TAG_FEMERGE, 1, true},
-    {{.u.short_str = "femergenode", .length = 11, .next = NULL}, LXB_TAG_FEMERGENODE, 1, true},
-    {{.u.short_str = "femorphology", .length = 12, .next = NULL}, LXB_TAG_FEMORPHOLOGY, 1, true},
-    {{.u.short_str = "feoffset", .length = 8, .next = NULL}, LXB_TAG_FEOFFSET, 1, true},
-    {{.u.short_str = "fepointlight", .length = 12, .next = NULL}, LXB_TAG_FEPOINTLIGHT, 1, true},
-    {{.u.long_str = (lxb_char_t *) "fespecularlighting", .length = 18, .next = NULL}, LXB_TAG_FESPECULARLIGHTING, 1, true},
-    {{.u.short_str = "fespotlight", .length = 11, .next = NULL}, LXB_TAG_FESPOTLIGHT, 1, true},
-    {{.u.short_str = "fetile", .length = 6, .next = NULL}, LXB_TAG_FETILE, 1, true},
-    {{.u.short_str = "feturbulence", .length = 12, .next = NULL}, LXB_TAG_FETURBULENCE, 1, true},
-    {{.u.short_str = "fieldset", .length = 8, .next = NULL}, LXB_TAG_FIELDSET, 1, true},
-    {{.u.short_str = "figcaption", .length = 10, .next = NULL}, LXB_TAG_FIGCAPTION, 1, true},
-    {{.u.short_str = "figure", .length = 6, .next = NULL}, LXB_TAG_FIGURE, 1, true},
-    {{.u.short_str = "font", .length = 4, .next = NULL}, LXB_TAG_FONT, 1, true},
-    {{.u.short_str = "footer", .length = 6, .next = NULL}, LXB_TAG_FOOTER, 1, true},
-    {{.u.short_str = "foreignobject", .length = 13, .next = NULL}, LXB_TAG_FOREIGNOBJECT, 1, true},
-    {{.u.short_str = "form", .length = 4, .next = NULL}, LXB_TAG_FORM, 1, true},
-    {{.u.short_str = "frame", .length = 5, .next = NULL}, LXB_TAG_FRAME, 1, true},
-    {{.u.short_str = "frameset", .length = 8, .next = NULL}, LXB_TAG_FRAMESET, 1, true},
-    {{.u.short_str = "glyphref", .length = 8, .next = NULL}, LXB_TAG_GLYPHREF, 1, true},
-    {{.u.short_str = "h1", .length = 2, .next = NULL}, LXB_TAG_H1, 1, true},
-    {{.u.short_str = "h2", .length = 2, .next = NULL}, LXB_TAG_H2, 1, true},
-    {{.u.short_str = "h3", .length = 2, .next = NULL}, LXB_TAG_H3, 1, true},
-    {{.u.short_str = "h4", .length = 2, .next = NULL}, LXB_TAG_H4, 1, true},
-    {{.u.short_str = "h5", .length = 2, .next = NULL}, LXB_TAG_H5, 1, true},
-    {{.u.short_str = "h6", .length = 2, .next = NULL}, LXB_TAG_H6, 1, true},
-    {{.u.short_str = "head", .length = 4, .next = NULL}, LXB_TAG_HEAD, 1, true},
-    {{.u.short_str = "header", .length = 6, .next = NULL}, LXB_TAG_HEADER, 1, true},
-    {{.u.short_str = "hgroup", .length = 6, .next = NULL}, LXB_TAG_HGROUP, 1, true},
-    {{.u.short_str = "hr", .length = 2, .next = NULL}, LXB_TAG_HR, 1, true},
-    {{.u.short_str = "html", .length = 4, .next = NULL}, LXB_TAG_HTML, 1, true},
-    {{.u.short_str = "i", .length = 1, .next = NULL}, LXB_TAG_I, 1, true},
-    {{.u.short_str = "iframe", .length = 6, .next = NULL}, LXB_TAG_IFRAME, 1, true},
-    {{.u.short_str = "image", .length = 5, .next = NULL}, LXB_TAG_IMAGE, 1, true},
-    {{.u.short_str = "img", .length = 3, .next = NULL}, LXB_TAG_IMG, 1, true},
-    {{.u.short_str = "input", .length = 5, .next = NULL}, LXB_TAG_INPUT, 1, true},
-    {{.u.short_str = "ins", .length = 3, .next = NULL}, LXB_TAG_INS, 1, true},
-    {{.u.short_str = "isindex", .length = 7, .next = NULL}, LXB_TAG_ISINDEX, 1, true},
-    {{.u.short_str = "kbd", .length = 3, .next = NULL}, LXB_TAG_KBD, 1, true},
-    {{.u.short_str = "keygen", .length = 6, .next = NULL}, LXB_TAG_KEYGEN, 1, true},
-    {{.u.short_str = "label", .length = 5, .next = NULL}, LXB_TAG_LABEL, 1, true},
-    {{.u.short_str = "legend", .length = 6, .next = NULL}, LXB_TAG_LEGEND, 1, true},
-    {{.u.short_str = "li", .length = 2, .next = NULL}, LXB_TAG_LI, 1, true},
-    {{.u.short_str = "lineargradient", .length = 14, .next = NULL}, LXB_TAG_LINEARGRADIENT, 1, true},
-    {{.u.short_str = "link", .length = 4, .next = NULL}, LXB_TAG_LINK, 1, true},
-    {{.u.short_str = "listing", .length = 7, .next = NULL}, LXB_TAG_LISTING, 1, true},
-    {{.u.short_str = "main", .length = 4, .next = NULL}, LXB_TAG_MAIN, 1, true},
-    {{.u.short_str = "malignmark", .length = 10, .next = NULL}, LXB_TAG_MALIGNMARK, 1, true},
-    {{.u.short_str = "map", .length = 3, .next = NULL}, LXB_TAG_MAP, 1, true},
-    {{.u.short_str = "mark", .length = 4, .next = NULL}, LXB_TAG_MARK, 1, true},
-    {{.u.short_str = "marquee", .length = 7, .next = NULL}, LXB_TAG_MARQUEE, 1, true},
-    {{.u.short_str = "math", .length = 4, .next = NULL}, LXB_TAG_MATH, 1, true},
-    {{.u.short_str = "menu", .length = 4, .next = NULL}, LXB_TAG_MENU, 1, true},
-    {{.u.short_str = "meta", .length = 4, .next = NULL}, LXB_TAG_META, 1, true},
-    {{.u.short_str = "meter", .length = 5, .next = NULL}, LXB_TAG_METER, 1, true},
-    {{.u.short_str = "mfenced", .length = 7, .next = NULL}, LXB_TAG_MFENCED, 1, true},
-    {{.u.short_str = "mglyph", .length = 6, .next = NULL}, LXB_TAG_MGLYPH, 1, true},
-    {{.u.short_str = "mi", .length = 2, .next = NULL}, LXB_TAG_MI, 1, true},
-    {{.u.short_str = "mn", .length = 2, .next = NULL}, LXB_TAG_MN, 1, true},
-    {{.u.short_str = "mo", .length = 2, .next = NULL}, LXB_TAG_MO, 1, true},
-    {{.u.short_str = "ms", .length = 2, .next = NULL}, LXB_TAG_MS, 1, true},
-    {{.u.short_str = "mtext", .length = 5, .next = NULL}, LXB_TAG_MTEXT, 1, true},
-    {{.u.short_str = "multicol", .length = 8, .next = NULL}, LXB_TAG_MULTICOL, 1, true},
-    {{.u.short_str = "nav", .length = 3, .next = NULL}, LXB_TAG_NAV, 1, true},
-    {{.u.short_str = "nextid", .length = 6, .next = NULL}, LXB_TAG_NEXTID, 1, true},
-    {{.u.short_str = "nobr", .length = 4, .next = NULL}, LXB_TAG_NOBR, 1, true},
-    {{.u.short_str = "noembed", .length = 7, .next = NULL}, LXB_TAG_NOEMBED, 1, true},
-    {{.u.short_str = "noframes", .length = 8, .next = NULL}, LXB_TAG_NOFRAMES, 1, true},
-    {{.u.short_str = "noscript", .length = 8, .next = NULL}, LXB_TAG_NOSCRIPT, 1, true},
-    {{.u.short_str = "object", .length = 6, .next = NULL}, LXB_TAG_OBJECT, 1, true},
-    {{.u.short_str = "ol", .length = 2, .next = NULL}, LXB_TAG_OL, 1, true},
-    {{.u.short_str = "optgroup", .length = 8, .next = NULL}, LXB_TAG_OPTGROUP, 1, true},
-    {{.u.short_str = "option", .length = 6, .next = NULL}, LXB_TAG_OPTION, 1, true},
-    {{.u.short_str = "output", .length = 6, .next = NULL}, LXB_TAG_OUTPUT, 1, true},
-    {{.u.short_str = "p", .length = 1, .next = NULL}, LXB_TAG_P, 1, true},
-    {{.u.short_str = "param", .length = 5, .next = NULL}, LXB_TAG_PARAM, 1, true},
-    {{.u.short_str = "path", .length = 4, .next = NULL}, LXB_TAG_PATH, 1, true},
-    {{.u.short_str = "picture", .length = 7, .next = NULL}, LXB_TAG_PICTURE, 1, true},
-    {{.u.short_str = "plaintext", .length = 9, .next = NULL}, LXB_TAG_PLAINTEXT, 1, true},
-    {{.u.short_str = "pre", .length = 3, .next = NULL}, LXB_TAG_PRE, 1, true},
-    {{.u.short_str = "progress", .length = 8, .next = NULL}, LXB_TAG_PROGRESS, 1, true},
-    {{.u.short_str = "q", .length = 1, .next = NULL}, LXB_TAG_Q, 1, true},
-    {{.u.short_str = "radialgradient", .length = 14, .next = NULL}, LXB_TAG_RADIALGRADIENT, 1, true},
-    {{.u.short_str = "rb", .length = 2, .next = NULL}, LXB_TAG_RB, 1, true},
-    {{.u.short_str = "rp", .length = 2, .next = NULL}, LXB_TAG_RP, 1, true},
-    {{.u.short_str = "rt", .length = 2, .next = NULL}, LXB_TAG_RT, 1, true},
-    {{.u.short_str = "rtc", .length = 3, .next = NULL}, LXB_TAG_RTC, 1, true},
-    {{.u.short_str = "ruby", .length = 4, .next = NULL}, LXB_TAG_RUBY, 1, true},
-    {{.u.short_str = "s", .length = 1, .next = NULL}, LXB_TAG_S, 1, true},
-    {{.u.short_str = "samp", .length = 4, .next = NULL}, LXB_TAG_SAMP, 1, true},
-    {{.u.short_str = "script", .length = 6, .next = NULL}, LXB_TAG_SCRIPT, 1, true},
-    {{.u.short_str = "section", .length = 7, .next = NULL}, LXB_TAG_SECTION, 1, true},
-    {{.u.short_str = "select", .length = 6, .next = NULL}, LXB_TAG_SELECT, 1, true},
-    {{.u.short_str = "slot", .length = 4, .next = NULL}, LXB_TAG_SLOT, 1, true},
-    {{.u.short_str = "small", .length = 5, .next = NULL}, LXB_TAG_SMALL, 1, true},
-    {{.u.short_str = "source", .length = 6, .next = NULL}, LXB_TAG_SOURCE, 1, true},
-    {{.u.short_str = "spacer", .length = 6, .next = NULL}, LXB_TAG_SPACER, 1, true},
-    {{.u.short_str = "span", .length = 4, .next = NULL}, LXB_TAG_SPAN, 1, true},
-    {{.u.short_str = "strike", .length = 6, .next = NULL}, LXB_TAG_STRIKE, 1, true},
-    {{.u.short_str = "strong", .length = 6, .next = NULL}, LXB_TAG_STRONG, 1, true},
-    {{.u.short_str = "style", .length = 5, .next = NULL}, LXB_TAG_STYLE, 1, true},
-    {{.u.short_str = "sub", .length = 3, .next = NULL}, LXB_TAG_SUB, 1, true},
-    {{.u.short_str = "summary", .length = 7, .next = NULL}, LXB_TAG_SUMMARY, 1, true},
-    {{.u.short_str = "sup", .length = 3, .next = NULL}, LXB_TAG_SUP, 1, true},
-    {{.u.short_str = "svg", .length = 3, .next = NULL}, LXB_TAG_SVG, 1, true},
-    {{.u.short_str = "table", .length = 5, .next = NULL}, LXB_TAG_TABLE, 1, true},
-    {{.u.short_str = "tbody", .length = 5, .next = NULL}, LXB_TAG_TBODY, 1, true},
-    {{.u.short_str = "td", .length = 2, .next = NULL}, LXB_TAG_TD, 1, true},
-    {{.u.short_str = "template", .length = 8, .next = NULL}, LXB_TAG_TEMPLATE, 1, true},
-    {{.u.short_str = "textarea", .length = 8, .next = NULL}, LXB_TAG_TEXTAREA, 1, true},
-    {{.u.short_str = "textpath", .length = 8, .next = NULL}, LXB_TAG_TEXTPATH, 1, true},
-    {{.u.short_str = "tfoot", .length = 5, .next = NULL}, LXB_TAG_TFOOT, 1, true},
-    {{.u.short_str = "th", .length = 2, .next = NULL}, LXB_TAG_TH, 1, true},
-    {{.u.short_str = "thead", .length = 5, .next = NULL}, LXB_TAG_THEAD, 1, true},
-    {{.u.short_str = "time", .length = 4, .next = NULL}, LXB_TAG_TIME, 1, true},
-    {{.u.short_str = "title", .length = 5, .next = NULL}, LXB_TAG_TITLE, 1, true},
-    {{.u.short_str = "tr", .length = 2, .next = NULL}, LXB_TAG_TR, 1, true},
-    {{.u.short_str = "track", .length = 5, .next = NULL}, LXB_TAG_TRACK, 1, true},
-    {{.u.short_str = "tt", .length = 2, .next = NULL}, LXB_TAG_TT, 1, true},
-    {{.u.short_str = "u", .length = 1, .next = NULL}, LXB_TAG_U, 1, true},
-    {{.u.short_str = "ul", .length = 2, .next = NULL}, LXB_TAG_UL, 1, true},
-    {{.u.short_str = "var", .length = 3, .next = NULL}, LXB_TAG_VAR, 1, true},
-    {{.u.short_str = "video", .length = 5, .next = NULL}, LXB_TAG_VIDEO, 1, true},
-    {{.u.short_str = "wbr", .length = 3, .next = NULL}, LXB_TAG_WBR, 1, true},
-    {{.u.short_str = "xmp", .length = 3, .next = NULL}, LXB_TAG_XMP, 1, true}
-};
+{{{.u = {.short_str = "#undef"}, .length = 6, .next = NULL}, LXB_TAG__UNDEF, 1, true},{{.u = {.short_str = "#end-of-file"}, .length = 12, .next = NULL}, LXB_TAG__END_OF_FILE, 1, true},{{.u = {.short_str = "#text"}, .length = 5, .next = NULL}, LXB_TAG__TEXT, 1, true},{{.u = {.short_str = "#document"}, .length = 9, .next = NULL}, LXB_TAG__DOCUMENT, 1, true},{{.u = {.short_str = "!--"}, .length = 3, .next = NULL}, LXB_TAG__EM_COMMENT, 1, true},{{.u = {.short_str = "!doctype"}, .length = 8, .next = NULL}, LXB_TAG__EM_DOCTYPE, 1, true},{{.u = {.short_str = "a"}, .length = 1, .next = NULL}, LXB_TAG_A, 1, true},{{.u = {.short_str = "abbr"}, .length = 4, .next = NULL}, LXB_TAG_ABBR, 1, true},{{.u = {.short_str = "acronym"}, .length = 7, .next = NULL}, LXB_TAG_ACRONYM, 1, true},{{.u = {.short_str = "address"}, .length = 7, .next = NULL}, LXB_TAG_ADDRESS, 1, true},{{.u = {.short_str = "altglyph"}, .length = 8, .next = NULL}, LXB_TAG_ALTGLYPH, 1, true},{{.u = {.short_str = "altglyphdef"}, .length = 11, .next = NULL}, LXB_TAG_ALTGLYPHDEF, 1, true},{{.u = {.short_str = "altglyphitem"}, .length = 12, .next = NULL}, LXB_TAG_ALTGLYPHITEM, 1, true},{{.u = {.short_str = "animatecolor"}, .length = 12, .next = NULL}, LXB_TAG_ANIMATECOLOR, 1, true},{{.u = {.short_str = "animatemotion"}, .length = 13, .next = NULL}, LXB_TAG_ANIMATEMOTION, 1, true},{{.u = {.short_str = "animatetransform"}, .length = 16, .next = NULL}, LXB_TAG_ANIMATETRANSFORM, 1, true},{{.u = {.short_str = "annotation-xml"}, .length = 14, .next = NULL}, LXB_TAG_ANNOTATION_XML, 1, true},{{.u = {.short_str = "applet"}, .length = 6, .next = NULL}, LXB_TAG_APPLET, 1, true},{{.u = {.short_str = "area"}, .length = 4, .next = NULL}, LXB_TAG_AREA, 1, true},{{.u = {.short_str = "article"}, .length = 7, .next = NULL}, LXB_TAG_ARTICLE, 1, true},{{.u = {.short_str = "aside"}, .length = 5, .next = NULL}, LXB_TAG_ASIDE, 1, true},{{.u = {.short_str = "audio"}, .length = 5, .next = NULL}, LXB_TAG_AUDIO, 1, true},{{.u = {.short_str = "b"}, .length = 1, .next = NULL}, LXB_TAG_B, 1, true},{{.u = {.short_str = "base"}, .length = 4, .next = NULL}, LXB_TAG_BASE, 1, true},{{.u = {.short_str = "basefont"}, .length = 8, .next = NULL}, LXB_TAG_BASEFONT, 1, true},{{.u = {.short_str = "bdi"}, .length = 3, .next = NULL}, LXB_TAG_BDI, 1, true},{{.u = {.short_str = "bdo"}, .length = 3, .next = NULL}, LXB_TAG_BDO, 1, true},{{.u = {.short_str = "bgsound"}, .length = 7, .next = NULL}, LXB_TAG_BGSOUND, 1, true},{{.u = {.short_str = "big"}, .length = 3, .next = NULL}, LXB_TAG_BIG, 1, true},{{.u = {.short_str = "blink"}, .length = 5, .next = NULL}, LXB_TAG_BLINK, 1, true},{{.u = {.short_str = "blockquote"}, .length = 10, .next = NULL}, LXB_TAG_BLOCKQUOTE, 1, true},{{.u = {.short_str = "body"}, .length = 4, .next = NULL}, LXB_TAG_BODY, 1, true},{{.u = {.short_str = "br"}, .length = 2, .next = NULL}, LXB_TAG_BR, 1, true},{{.u = {.short_str = "button"}, .length = 6, .next = NULL}, LXB_TAG_BUTTON, 1, true},{{.u = {.short_str = "canvas"}, .length = 6, .next = NULL}, LXB_TAG_CANVAS, 1, true},{{.u = {.short_str = "caption"}, .length = 7, .next = NULL}, LXB_TAG_CAPTION, 1, true},{{.u = {.short_str = "center"}, .length = 6, .next = NULL}, LXB_TAG_CENTER, 1, true},{{.u = {.short_str = "cite"}, .length = 4, .next = NULL}, LXB_TAG_CITE, 1, true},{{.u = {.short_str = "clippath"}, .length = 8, .next = NULL}, LXB_TAG_CLIPPATH, 1, true},{{.u = {.short_str = "code"}, .length = 4, .next = NULL}, LXB_TAG_CODE, 1, true},{{.u = {.short_str = "col"}, .length = 3, .next = NULL}, LXB_TAG_COL, 1, true},{{.u = {.short_str = "colgroup"}, .length = 8, .next = NULL}, LXB_TAG_COLGROUP, 1, true},{{.u = {.short_str = "data"}, .length = 4, .next = NULL}, LXB_TAG_DATA, 1, true},{{.u = {.short_str = "datalist"}, .length = 8, .next = NULL}, LXB_TAG_DATALIST, 1, true},{{.u = {.short_str = "dd"}, .length = 2, .next = NULL}, LXB_TAG_DD, 1, true},{{.u = {.short_str = "del"}, .length = 3, .next = NULL}, LXB_TAG_DEL, 1, true},{{.u = {.short_str = "desc"}, .length = 4, .next = NULL}, LXB_TAG_DESC, 1, true},{{.u = {.short_str = "details"}, .length = 7, .next = NULL}, LXB_TAG_DETAILS, 1, true},{{.u = {.short_str = "dfn"}, .length = 3, .next = NULL}, LXB_TAG_DFN, 1, true},{{.u = {.short_str = "dialog"}, .length = 6, .next = NULL}, LXB_TAG_DIALOG, 1, true},{{.u = {.short_str = "dir"}, .length = 3, .next = NULL}, LXB_TAG_DIR, 1, true},{{.u = {.short_str = "div"}, .length = 3, .next = NULL}, LXB_TAG_DIV, 1, true},{{.u = {.short_str = "dl"}, .length = 2, .next = NULL}, LXB_TAG_DL, 1, true},{{.u = {.short_str = "dt"}, .length = 2, .next = NULL}, LXB_TAG_DT, 1, true},{{.u = {.short_str = "em"}, .length = 2, .next = NULL}, LXB_TAG_EM, 1, true},{{.u = {.short_str = "embed"}, .length = 5, .next = NULL}, LXB_TAG_EMBED, 1, true},{{.u = {.short_str = "feblend"}, .length = 7, .next = NULL}, LXB_TAG_FEBLEND, 1, true},{{.u = {.short_str = "fecolormatrix"}, .length = 13, .next = NULL}, LXB_TAG_FECOLORMATRIX, 1, true},{{.u = {.long_str = (lxb_char_t *) "fecomponenttransfer"}, .length = 19, .next = NULL}, LXB_TAG_FECOMPONENTTRANSFER, 1, true},{{.u = {.short_str = "fecomposite"}, .length = 11, .next = NULL}, LXB_TAG_FECOMPOSITE, 1, true},{{.u = {.short_str = "feconvolvematrix"}, .length = 16, .next = NULL}, LXB_TAG_FECONVOLVEMATRIX, 1, true},{{.u = {.long_str = (lxb_char_t *) "fediffuselighting"}, .length = 17, .next = NULL}, LXB_TAG_FEDIFFUSELIGHTING, 1, true},{{.u = {.long_str = (lxb_char_t *) "fedisplacementmap"}, .length = 17, .next = NULL}, LXB_TAG_FEDISPLACEMENTMAP, 1, true},{{.u = {.short_str = "fedistantlight"}, .length = 14, .next = NULL}, LXB_TAG_FEDISTANTLIGHT, 1, true},{{.u = {.short_str = "fedropshadow"}, .length = 12, .next = NULL}, LXB_TAG_FEDROPSHADOW, 1, true},{{.u = {.short_str = "feflood"}, .length = 7, .next = NULL}, LXB_TAG_FEFLOOD, 1, true},{{.u = {.short_str = "fefunca"}, .length = 7, .next = NULL}, LXB_TAG_FEFUNCA, 1, true},{{.u = {.short_str = "fefuncb"}, .length = 7, .next = NULL}, LXB_TAG_FEFUNCB, 1, true},{{.u = {.short_str = "fefuncg"}, .length = 7, .next = NULL}, LXB_TAG_FEFUNCG, 1, true},{{.u = {.short_str = "fefuncr"}, .length = 7, .next = NULL}, LXB_TAG_FEFUNCR, 1, true},{{.u = {.short_str = "fegaussianblur"}, .length = 14, .next = NULL}, LXB_TAG_FEGAUSSIANBLUR, 1, true},{{.u = {.short_str = "feimage"}, .length = 7, .next = NULL}, LXB_TAG_FEIMAGE, 1, true},{{.u = {.short_str = "femerge"}, .length = 7, .next = NULL}, LXB_TAG_FEMERGE, 1, true},{{.u = {.short_str = "femergenode"}, .length = 11, .next = NULL}, LXB_TAG_FEMERGENODE, 1, true},{{.u = {.short_str = "femorphology"}, .length = 12, .next = NULL}, LXB_TAG_FEMORPHOLOGY, 1, true},{{.u = {.short_str = "feoffset"}, .length = 8, .next = NULL}, LXB_TAG_FEOFFSET, 1, true},{{.u = {.short_str = "fepointlight"}, .length = 12, .next = NULL}, LXB_TAG_FEPOINTLIGHT, 1, true},{{.u = {.long_str = (lxb_char_t *) "fespecularlighting"}, .length = 18, .next = NULL}, LXB_TAG_FESPECULARLIGHTING, 1, true},{{.u = {.short_str = "fespotlight"}, .length = 11, .next = NULL}, LXB_TAG_FESPOTLIGHT, 1, true},{{.u = {.short_str = "fetile"}, .length = 6, .next = NULL}, LXB_TAG_FETILE, 1, true},{{.u = {.short_str = "feturbulence"}, .length = 12, .next = NULL}, LXB_TAG_FETURBULENCE, 1, true},{{.u = {.short_str = "fieldset"}, .length = 8, .next = NULL}, LXB_TAG_FIELDSET, 1, true},{{.u = {.short_str = "figcaption"}, .length = 10, .next = NULL}, LXB_TAG_FIGCAPTION, 1, true},{{.u = {.short_str = "figure"}, .length = 6, .next = NULL}, LXB_TAG_FIGURE, 1, true},{{.u = {.short_str = "font"}, .length = 4, .next = NULL}, LXB_TAG_FONT, 1, true},{{.u = {.short_str = "footer"}, .length = 6, .next = NULL}, LXB_TAG_FOOTER, 1, true},{{.u = {.short_str = "foreignobject"}, .length = 13, .next = NULL}, LXB_TAG_FOREIGNOBJECT, 1, true},{{.u = {.short_str = "form"}, .length = 4, .next = NULL}, LXB_TAG_FORM, 1, true},{{.u = {.short_str = "frame"}, .length = 5, .next = NULL}, LXB_TAG_FRAME, 1, true},{{.u = {.short_str = "frameset"}, .length = 8, .next = NULL}, LXB_TAG_FRAMESET, 1, true},{{.u = {.short_str = "glyphref"}, .length = 8, .next = NULL}, LXB_TAG_GLYPHREF, 1, true},{{.u = {.short_str = "h1"}, .length = 2, .next = NULL}, LXB_TAG_H1, 1, true},{{.u = {.short_str = "h2"}, .length = 2, .next = NULL}, LXB_TAG_H2, 1, true},{{.u = {.short_str = "h3"}, .length = 2, .next = NULL}, LXB_TAG_H3, 1, true},{{.u = {.short_str = "h4"}, .length = 2, .next = NULL}, LXB_TAG_H4, 1, true},{{.u = {.short_str = "h5"}, .length = 2, .next = NULL}, LXB_TAG_H5, 1, true},{{.u = {.short_str = "h6"}, .length = 2, .next = NULL}, LXB_TAG_H6, 1, true},{{.u = {.short_str = "head"}, .length = 4, .next = NULL}, LXB_TAG_HEAD, 1, true},{{.u = {.short_str = "header"}, .length = 6, .next = NULL}, LXB_TAG_HEADER, 1, true},{{.u = {.short_str = "hgroup"}, .length = 6, .next = NULL}, LXB_TAG_HGROUP, 1, true},{{.u = {.short_str = "hr"}, .length = 2, .next = NULL}, LXB_TAG_HR, 1, true},{{.u = {.short_str = "html"}, .length = 4, .next = NULL}, LXB_TAG_HTML, 1, true},{{.u = {.short_str = "i"}, .length = 1, .next = NULL}, LXB_TAG_I, 1, true},{{.u = {.short_str = "iframe"}, .length = 6, .next = NULL}, LXB_TAG_IFRAME, 1, true},{{.u = {.short_str = "image"}, .length = 5, .next = NULL}, LXB_TAG_IMAGE, 1, true},{{.u = {.short_str = "img"}, .length = 3, .next = NULL}, LXB_TAG_IMG, 1, true},{{.u = {.short_str = "input"}, .length = 5, .next = NULL}, LXB_TAG_INPUT, 1, true},{{.u = {.short_str = "ins"}, .length = 3, .next = NULL}, LXB_TAG_INS, 1, true},{{.u = {.short_str = "isindex"}, .length = 7, .next = NULL}, LXB_TAG_ISINDEX, 1, true},{{.u = {.short_str = "kbd"}, .length = 3, .next = NULL}, LXB_TAG_KBD, 1, true},{{.u = {.short_str = "keygen"}, .length = 6, .next = NULL}, LXB_TAG_KEYGEN, 1, true},{{.u = {.short_str = "label"}, .length = 5, .next = NULL}, LXB_TAG_LABEL, 1, true},{{.u = {.short_str = "legend"}, .length = 6, .next = NULL}, LXB_TAG_LEGEND, 1, true},{{.u = {.short_str = "li"}, .length = 2, .next = NULL}, LXB_TAG_LI, 1, true},{{.u = {.short_str = "lineargradient"}, .length = 14, .next = NULL}, LXB_TAG_LINEARGRADIENT, 1, true},{{.u = {.short_str = "link"}, .length = 4, .next = NULL}, LXB_TAG_LINK, 1, true},{{.u = {.short_str = "listing"}, .length = 7, .next = NULL}, LXB_TAG_LISTING, 1, true},{{.u = {.short_str = "main"}, .length = 4, .next = NULL}, LXB_TAG_MAIN, 1, true},{{.u = {.short_str = "malignmark"}, .length = 10, .next = NULL}, LXB_TAG_MALIGNMARK, 1, true},{{.u = {.short_str = "map"}, .length = 3, .next = NULL}, LXB_TAG_MAP, 1, true},{{.u = {.short_str = "mark"}, .length = 4, .next = NULL}, LXB_TAG_MARK, 1, true},{{.u = {.short_str = "marquee"}, .length = 7, .next = NULL}, LXB_TAG_MARQUEE, 1, true},{{.u = {.short_str = "math"}, .length = 4, .next = NULL}, LXB_TAG_MATH, 1, true},{{.u = {.short_str = "menu"}, .length = 4, .next = NULL}, LXB_TAG_MENU, 1, true},{{.u = {.short_str = "meta"}, .length = 4, .next = NULL}, LXB_TAG_META, 1, true},{{.u = {.short_str = "meter"}, .length = 5, .next = NULL}, LXB_TAG_METER, 1, true},{{.u = {.short_str = "mfenced"}, .length = 7, .next = NULL}, LXB_TAG_MFENCED, 1, true},{{.u = {.short_str = "mglyph"}, .length = 6, .next = NULL}, LXB_TAG_MGLYPH, 1, true},{{.u = {.short_str = "mi"}, .length = 2, .next = NULL}, LXB_TAG_MI, 1, true},{{.u = {.short_str = "mn"}, .length = 2, .next = NULL}, LXB_TAG_MN, 1, true},{{.u = {.short_str = "mo"}, .length = 2, .next = NULL}, LXB_TAG_MO, 1, true},{{.u = {.short_str = "ms"}, .length = 2, .next = NULL}, LXB_TAG_MS, 1, true},{{.u = {.short_str = "mtext"}, .length = 5, .next = NULL}, LXB_TAG_MTEXT, 1, true},{{.u = {.short_str = "multicol"}, .length = 8, .next = NULL}, LXB_TAG_MULTICOL, 1, true},{{.u = {.short_str = "nav"}, .length = 3, .next = NULL}, LXB_TAG_NAV, 1, true},{{.u = {.short_str = "nextid"}, .length = 6, .next = NULL}, LXB_TAG_NEXTID, 1, true},{{.u = {.short_str = "nobr"}, .length = 4, .next = NULL}, LXB_TAG_NOBR, 1, true},{{.u = {.short_str = "noembed"}, .length = 7, .next = NULL}, LXB_TAG_NOEMBED, 1, true},{{.u = {.short_str = "noframes"}, .length = 8, .next = NULL}, LXB_TAG_NOFRAMES, 1, true},{{.u = {.short_str = "noscript"}, .length = 8, .next = NULL}, LXB_TAG_NOSCRIPT, 1, true},{{.u = {.short_str = "object"}, .length = 6, .next = NULL}, LXB_TAG_OBJECT, 1, true},{{.u = {.short_str = "ol"}, .length = 2, .next = NULL}, LXB_TAG_OL, 1, true},{{.u = {.short_str = "optgroup"}, .length = 8, .next = NULL}, LXB_TAG_OPTGROUP, 1, true},{{.u = {.short_str = "option"}, .length = 6, .next = NULL}, LXB_TAG_OPTION, 1, true},{{.u = {.short_str = "output"}, .length = 6, .next = NULL}, LXB_TAG_OUTPUT, 1, true},{{.u = {.short_str = "p"}, .length = 1, .next = NULL}, LXB_TAG_P, 1, true},{{.u = {.short_str = "param"}, .length = 5, .next = NULL}, LXB_TAG_PARAM, 1, true},{{.u = {.short_str = "path"}, .length = 4, .next = NULL}, LXB_TAG_PATH, 1, true},{{.u = {.short_str = "picture"}, .length = 7, .next = NULL}, LXB_TAG_PICTURE, 1, true},{{.u = {.short_str = "plaintext"}, .length = 9, .next = NULL}, LXB_TAG_PLAINTEXT, 1, true},{{.u = {.short_str = "pre"}, .length = 3, .next = NULL}, LXB_TAG_PRE, 1, true},{{.u = {.short_str = "progress"}, .length = 8, .next = NULL}, LXB_TAG_PROGRESS, 1, true},{{.u = {.short_str = "q"}, .length = 1, .next = NULL}, LXB_TAG_Q, 1, true},{{.u = {.short_str = "radialgradient"}, .length = 14, .next = NULL}, LXB_TAG_RADIALGRADIENT, 1, true},{{.u = {.short_str = "rb"}, .length = 2, .next = NULL}, LXB_TAG_RB, 1, true},{{.u = {.short_str = "rp"}, .length = 2, .next = NULL}, LXB_TAG_RP, 1, true},{{.u = {.short_str = "rt"}, .length = 2, .next = NULL}, LXB_TAG_RT, 1, true},{{.u = {.short_str = "rtc"}, .length = 3, .next = NULL}, LXB_TAG_RTC, 1, true},{{.u = {.short_str = "ruby"}, .length = 4, .next = NULL}, LXB_TAG_RUBY, 1, true},{{.u = {.short_str = "s"}, .length = 1, .next = NULL}, LXB_TAG_S, 1, true},{{.u = {.short_str = "samp"}, .length = 4, .next = NULL}, LXB_TAG_SAMP, 1, true},{{.u = {.short_str = "script"}, .length = 6, .next = NULL}, LXB_TAG_SCRIPT, 1, true},{{.u = {.short_str = "section"}, .length = 7, .next = NULL}, LXB_TAG_SECTION, 1, true},{{.u = {.short_str = "select"}, .length = 6, .next = NULL}, LXB_TAG_SELECT, 1, true},{{.u = {.short_str = "slot"}, .length = 4, .next = NULL}, LXB_TAG_SLOT, 1, true},{{.u = {.short_str = "small"}, .length = 5, .next = NULL}, LXB_TAG_SMALL, 1, true},{{.u = {.short_str = "source"}, .length = 6, .next = NULL}, LXB_TAG_SOURCE, 1, true},{{.u = {.short_str = "spacer"}, .length = 6, .next = NULL}, LXB_TAG_SPACER, 1, true},{{.u = {.short_str = "span"}, .length = 4, .next = NULL}, LXB_TAG_SPAN, 1, true},{{.u = {.short_str = "strike"}, .length = 6, .next = NULL}, LXB_TAG_STRIKE, 1, true},{{.u = {.short_str = "strong"}, .length = 6, .next = NULL}, LXB_TAG_STRONG, 1, true},{{.u = {.short_str = "style"}, .length = 5, .next = NULL}, LXB_TAG_STYLE, 1, true},{{.u = {.short_str = "sub"}, .length = 3, .next = NULL}, LXB_TAG_SUB, 1, true},{{.u = {.short_str = "summary"}, .length = 7, .next = NULL}, LXB_TAG_SUMMARY, 1, true},{{.u = {.short_str = "sup"}, .length = 3, .next = NULL}, LXB_TAG_SUP, 1, true},{{.u = {.short_str = "svg"}, .length = 3, .next = NULL}, LXB_TAG_SVG, 1, true},{{.u = {.short_str = "table"}, .length = 5, .next = NULL}, LXB_TAG_TABLE, 1, true},{{.u = {.short_str = "tbody"}, .length = 5, .next = NULL}, LXB_TAG_TBODY, 1, true},{{.u = {.short_str = "td"}, .length = 2, .next = NULL}, LXB_TAG_TD, 1, true},{{.u = {.short_str = "template"}, .length = 8, .next = NULL}, LXB_TAG_TEMPLATE, 1, true},{{.u = {.short_str = "textarea"}, .length = 8, .next = NULL}, LXB_TAG_TEXTAREA, 1, true},{{.u = {.short_str = "textpath"}, .length = 8, .next = NULL}, LXB_TAG_TEXTPATH, 1, true},{{.u = {.short_str = "tfoot"}, .length = 5, .next = NULL}, LXB_TAG_TFOOT, 1, true},{{.u = {.short_str = "th"}, .length = 2, .next = NULL}, LXB_TAG_TH, 1, true},{{.u = {.short_str = "thead"}, .length = 5, .next = NULL}, LXB_TAG_THEAD, 1, true},{{.u = {.short_str = "time"}, .length = 4, .next = NULL}, LXB_TAG_TIME, 1, true},{{.u = {.short_str = "title"}, .length = 5, .next = NULL}, LXB_TAG_TITLE, 1, true},{{.u = {.short_str = "tr"}, .length = 2, .next = NULL}, LXB_TAG_TR, 1, true},{{.u = {.short_str = "track"}, .length = 5, .next = NULL}, LXB_TAG_TRACK, 1, true},{{.u = {.short_str = "tt"}, .length = 2, .next = NULL}, LXB_TAG_TT, 1, true},{{.u = {.short_str = "u"}, .length = 1, .next = NULL}, LXB_TAG_U, 1, true},{{.u = {.short_str = "ul"}, .length = 2, .next = NULL}, LXB_TAG_UL, 1, true},{{.u = {.short_str = "var"}, .length = 3, .next = NULL}, LXB_TAG_VAR, 1, true},{{.u = {.short_str = "video"}, .length = 5, .next = NULL}, LXB_TAG_VIDEO, 1, true},{{.u = {.short_str = "wbr"}, .length = 3, .next = NULL}, LXB_TAG_WBR, 1, true},{{.u = {.short_str = "xmp"}, .length = 3, .next = NULL}, LXB_TAG_XMP, 1, true}};
 
 static const lxb_tag_data_t lxb_tag_res_data_upper_default[LXB_TAG__LAST_ENTRY] =
-{
-    {{.u.short_str = "#UNDEF", .length = 6, .next = NULL}, LXB_TAG__UNDEF, 1, true},
-    {{.u.short_str = "#END-OF-FILE", .length = 12, .next = NULL}, LXB_TAG__END_OF_FILE, 1, true},
-    {{.u.short_str = "#TEXT", .length = 5, .next = NULL}, LXB_TAG__TEXT, 1, true},
-    {{.u.short_str = "#DOCUMENT", .length = 9, .next = NULL}, LXB_TAG__DOCUMENT, 1, true},
-    {{.u.short_str = "!--", .length = 3, .next = NULL}, LXB_TAG__EM_COMMENT, 1, true},
-    {{.u.short_str = "!DOCTYPE", .length = 8, .next = NULL}, LXB_TAG__EM_DOCTYPE, 1, true},
-    {{.u.short_str = "A", .length = 1, .next = NULL}, LXB_TAG_A, 1, true},
-    {{.u.short_str = "ABBR", .length = 4, .next = NULL}, LXB_TAG_ABBR, 1, true},
-    {{.u.short_str = "ACRONYM", .length = 7, .next = NULL}, LXB_TAG_ACRONYM, 1, true},
-    {{.u.short_str = "ADDRESS", .length = 7, .next = NULL}, LXB_TAG_ADDRESS, 1, true},
-    {{.u.short_str = "ALTGLYPH", .length = 8, .next = NULL}, LXB_TAG_ALTGLYPH, 1, true},
-    {{.u.short_str = "ALTGLYPHDEF", .length = 11, .next = NULL}, LXB_TAG_ALTGLYPHDEF, 1, true},
-    {{.u.short_str = "ALTGLYPHITEM", .length = 12, .next = NULL}, LXB_TAG_ALTGLYPHITEM, 1, true},
-    {{.u.short_str = "ANIMATECOLOR", .length = 12, .next = NULL}, LXB_TAG_ANIMATECOLOR, 1, true},
-    {{.u.short_str = "ANIMATEMOTION", .length = 13, .next = NULL}, LXB_TAG_ANIMATEMOTION, 1, true},
-    {{.u.short_str = "ANIMATETRANSFORM", .length = 16, .next = NULL}, LXB_TAG_ANIMATETRANSFORM, 1, true},
-    {{.u.short_str = "ANNOTATION-XML", .length = 14, .next = NULL}, LXB_TAG_ANNOTATION_XML, 1, true},
-    {{.u.short_str = "APPLET", .length = 6, .next = NULL}, LXB_TAG_APPLET, 1, true},
-    {{.u.short_str = "AREA", .length = 4, .next = NULL}, LXB_TAG_AREA, 1, true},
-    {{.u.short_str = "ARTICLE", .length = 7, .next = NULL}, LXB_TAG_ARTICLE, 1, true},
-    {{.u.short_str = "ASIDE", .length = 5, .next = NULL}, LXB_TAG_ASIDE, 1, true},
-    {{.u.short_str = "AUDIO", .length = 5, .next = NULL}, LXB_TAG_AUDIO, 1, true},
-    {{.u.short_str = "B", .length = 1, .next = NULL}, LXB_TAG_B, 1, true},
-    {{.u.short_str = "BASE", .length = 4, .next = NULL}, LXB_TAG_BASE, 1, true},
-    {{.u.short_str = "BASEFONT", .length = 8, .next = NULL}, LXB_TAG_BASEFONT, 1, true},
-    {{.u.short_str = "BDI", .length = 3, .next = NULL}, LXB_TAG_BDI, 1, true},
-    {{.u.short_str = "BDO", .length = 3, .next = NULL}, LXB_TAG_BDO, 1, true},
-    {{.u.short_str = "BGSOUND", .length = 7, .next = NULL}, LXB_TAG_BGSOUND, 1, true},
-    {{.u.short_str = "BIG", .length = 3, .next = NULL}, LXB_TAG_BIG, 1, true},
-    {{.u.short_str = "BLINK", .length = 5, .next = NULL}, LXB_TAG_BLINK, 1, true},
-    {{.u.short_str = "BLOCKQUOTE", .length = 10, .next = NULL}, LXB_TAG_BLOCKQUOTE, 1, true},
-    {{.u.short_str = "BODY", .length = 4, .next = NULL}, LXB_TAG_BODY, 1, true},
-    {{.u.short_str = "BR", .length = 2, .next = NULL}, LXB_TAG_BR, 1, true},
-    {{.u.short_str = "BUTTON", .length = 6, .next = NULL}, LXB_TAG_BUTTON, 1, true},
-    {{.u.short_str = "CANVAS", .length = 6, .next = NULL}, LXB_TAG_CANVAS, 1, true},
-    {{.u.short_str = "CAPTION", .length = 7, .next = NULL}, LXB_TAG_CAPTION, 1, true},
-    {{.u.short_str = "CENTER", .length = 6, .next = NULL}, LXB_TAG_CENTER, 1, true},
-    {{.u.short_str = "CITE", .length = 4, .next = NULL}, LXB_TAG_CITE, 1, true},
-    {{.u.short_str = "CLIPPATH", .length = 8, .next = NULL}, LXB_TAG_CLIPPATH, 1, true},
-    {{.u.short_str = "CODE", .length = 4, .next = NULL}, LXB_TAG_CODE, 1, true},
-    {{.u.short_str = "COL", .length = 3, .next = NULL}, LXB_TAG_COL, 1, true},
-    {{.u.short_str = "COLGROUP", .length = 8, .next = NULL}, LXB_TAG_COLGROUP, 1, true},
-    {{.u.short_str = "DATA", .length = 4, .next = NULL}, LXB_TAG_DATA, 1, true},
-    {{.u.short_str = "DATALIST", .length = 8, .next = NULL}, LXB_TAG_DATALIST, 1, true},
-    {{.u.short_str = "DD", .length = 2, .next = NULL}, LXB_TAG_DD, 1, true},
-    {{.u.short_str = "DEL", .length = 3, .next = NULL}, LXB_TAG_DEL, 1, true},
-    {{.u.short_str = "DESC", .length = 4, .next = NULL}, LXB_TAG_DESC, 1, true},
-    {{.u.short_str = "DETAILS", .length = 7, .next = NULL}, LXB_TAG_DETAILS, 1, true},
-    {{.u.short_str = "DFN", .length = 3, .next = NULL}, LXB_TAG_DFN, 1, true},
-    {{.u.short_str = "DIALOG", .length = 6, .next = NULL}, LXB_TAG_DIALOG, 1, true},
-    {{.u.short_str = "DIR", .length = 3, .next = NULL}, LXB_TAG_DIR, 1, true},
-    {{.u.short_str = "DIV", .length = 3, .next = NULL}, LXB_TAG_DIV, 1, true},
-    {{.u.short_str = "DL", .length = 2, .next = NULL}, LXB_TAG_DL, 1, true},
-    {{.u.short_str = "DT", .length = 2, .next = NULL}, LXB_TAG_DT, 1, true},
-    {{.u.short_str = "EM", .length = 2, .next = NULL}, LXB_TAG_EM, 1, true},
-    {{.u.short_str = "EMBED", .length = 5, .next = NULL}, LXB_TAG_EMBED, 1, true},
-    {{.u.short_str = "FEBLEND", .length = 7, .next = NULL}, LXB_TAG_FEBLEND, 1, true},
-    {{.u.short_str = "FECOLORMATRIX", .length = 13, .next = NULL}, LXB_TAG_FECOLORMATRIX, 1, true},
-    {{.u.long_str = (lxb_char_t *) "FECOMPONENTTRANSFER", .length = 19, .next = NULL}, LXB_TAG_FECOMPONENTTRANSFER, 1, true},
-    {{.u.short_str = "FECOMPOSITE", .length = 11, .next = NULL}, LXB_TAG_FECOMPOSITE, 1, true},
-    {{.u.short_str = "FECONVOLVEMATRIX", .length = 16, .next = NULL}, LXB_TAG_FECONVOLVEMATRIX, 1, true},
-    {{.u.long_str = (lxb_char_t *) "FEDIFFUSELIGHTING", .length = 17, .next = NULL}, LXB_TAG_FEDIFFUSELIGHTING, 1, true},
-    {{.u.long_str = (lxb_char_t *) "FEDISPLACEMENTMAP", .length = 17, .next = NULL}, LXB_TAG_FEDISPLACEMENTMAP, 1, true},
-    {{.u.short_str = "FEDISTANTLIGHT", .length = 14, .next = NULL}, LXB_TAG_FEDISTANTLIGHT, 1, true},
-    {{.u.short_str = "FEDROPSHADOW", .length = 12, .next = NULL}, LXB_TAG_FEDROPSHADOW, 1, true},
-    {{.u.short_str = "FEFLOOD", .length = 7, .next = NULL}, LXB_TAG_FEFLOOD, 1, true},
-    {{.u.short_str = "FEFUNCA", .length = 7, .next = NULL}, LXB_TAG_FEFUNCA, 1, true},
-    {{.u.short_str = "FEFUNCB", .length = 7, .next = NULL}, LXB_TAG_FEFUNCB, 1, true},
-    {{.u.short_str = "FEFUNCG", .length = 7, .next = NULL}, LXB_TAG_FEFUNCG, 1, true},
-    {{.u.short_str = "FEFUNCR", .length = 7, .next = NULL}, LXB_TAG_FEFUNCR, 1, true},
-    {{.u.short_str = "FEGAUSSIANBLUR", .length = 14, .next = NULL}, LXB_TAG_FEGAUSSIANBLUR, 1, true},
-    {{.u.short_str = "FEIMAGE", .length = 7, .next = NULL}, LXB_TAG_FEIMAGE, 1, true},
-    {{.u.short_str = "FEMERGE", .length = 7, .next = NULL}, LXB_TAG_FEMERGE, 1, true},
-    {{.u.short_str = "FEMERGENODE", .length = 11, .next = NULL}, LXB_TAG_FEMERGENODE, 1, true},
-    {{.u.short_str = "FEMORPHOLOGY", .length = 12, .next = NULL}, LXB_TAG_FEMORPHOLOGY, 1, true},
-    {{.u.short_str = "FEOFFSET", .length = 8, .next = NULL}, LXB_TAG_FEOFFSET, 1, true},
-    {{.u.short_str = "FEPOINTLIGHT", .length = 12, .next = NULL}, LXB_TAG_FEPOINTLIGHT, 1, true},
-    {{.u.long_str = (lxb_char_t *) "FESPECULARLIGHTING", .length = 18, .next = NULL}, LXB_TAG_FESPECULARLIGHTING, 1, true},
-    {{.u.short_str = "FESPOTLIGHT", .length = 11, .next = NULL}, LXB_TAG_FESPOTLIGHT, 1, true},
-    {{.u.short_str = "FETILE", .length = 6, .next = NULL}, LXB_TAG_FETILE, 1, true},
-    {{.u.short_str = "FETURBULENCE", .length = 12, .next = NULL}, LXB_TAG_FETURBULENCE, 1, true},
-    {{.u.short_str = "FIELDSET", .length = 8, .next = NULL}, LXB_TAG_FIELDSET, 1, true},
-    {{.u.short_str = "FIGCAPTION", .length = 10, .next = NULL}, LXB_TAG_FIGCAPTION, 1, true},
-    {{.u.short_str = "FIGURE", .length = 6, .next = NULL}, LXB_TAG_FIGURE, 1, true},
-    {{.u.short_str = "FONT", .length = 4, .next = NULL}, LXB_TAG_FONT, 1, true},
-    {{.u.short_str = "FOOTER", .length = 6, .next = NULL}, LXB_TAG_FOOTER, 1, true},
-    {{.u.short_str = "FOREIGNOBJECT", .length = 13, .next = NULL}, LXB_TAG_FOREIGNOBJECT, 1, true},
-    {{.u.short_str = "FORM", .length = 4, .next = NULL}, LXB_TAG_FORM, 1, true},
-    {{.u.short_str = "FRAME", .length = 5, .next = NULL}, LXB_TAG_FRAME, 1, true},
-    {{.u.short_str = "FRAMESET", .length = 8, .next = NULL}, LXB_TAG_FRAMESET, 1, true},
-    {{.u.short_str = "GLYPHREF", .length = 8, .next = NULL}, LXB_TAG_GLYPHREF, 1, true},
-    {{.u.short_str = "H1", .length = 2, .next = NULL}, LXB_TAG_H1, 1, true},
-    {{.u.short_str = "H2", .length = 2, .next = NULL}, LXB_TAG_H2, 1, true},
-    {{.u.short_str = "H3", .length = 2, .next = NULL}, LXB_TAG_H3, 1, true},
-    {{.u.short_str = "H4", .length = 2, .next = NULL}, LXB_TAG_H4, 1, true},
-    {{.u.short_str = "H5", .length = 2, .next = NULL}, LXB_TAG_H5, 1, true},
-    {{.u.short_str = "H6", .length = 2, .next = NULL}, LXB_TAG_H6, 1, true},
-    {{.u.short_str = "HEAD", .length = 4, .next = NULL}, LXB_TAG_HEAD, 1, true},
-    {{.u.short_str = "HEADER", .length = 6, .next = NULL}, LXB_TAG_HEADER, 1, true},
-    {{.u.short_str = "HGROUP", .length = 6, .next = NULL}, LXB_TAG_HGROUP, 1, true},
-    {{.u.short_str = "HR", .length = 2, .next = NULL}, LXB_TAG_HR, 1, true},
-    {{.u.short_str = "HTML", .length = 4, .next = NULL}, LXB_TAG_HTML, 1, true},
-    {{.u.short_str = "I", .length = 1, .next = NULL}, LXB_TAG_I, 1, true},
-    {{.u.short_str = "IFRAME", .length = 6, .next = NULL}, LXB_TAG_IFRAME, 1, true},
-    {{.u.short_str = "IMAGE", .length = 5, .next = NULL}, LXB_TAG_IMAGE, 1, true},
-    {{.u.short_str = "IMG", .length = 3, .next = NULL}, LXB_TAG_IMG, 1, true},
-    {{.u.short_str = "INPUT", .length = 5, .next = NULL}, LXB_TAG_INPUT, 1, true},
-    {{.u.short_str = "INS", .length = 3, .next = NULL}, LXB_TAG_INS, 1, true},
-    {{.u.short_str = "ISINDEX", .length = 7, .next = NULL}, LXB_TAG_ISINDEX, 1, true},
-    {{.u.short_str = "KBD", .length = 3, .next = NULL}, LXB_TAG_KBD, 1, true},
-    {{.u.short_str = "KEYGEN", .length = 6, .next = NULL}, LXB_TAG_KEYGEN, 1, true},
-    {{.u.short_str = "LABEL", .length = 5, .next = NULL}, LXB_TAG_LABEL, 1, true},
-    {{.u.short_str = "LEGEND", .length = 6, .next = NULL}, LXB_TAG_LEGEND, 1, true},
-    {{.u.short_str = "LI", .length = 2, .next = NULL}, LXB_TAG_LI, 1, true},
-    {{.u.short_str = "LINEARGRADIENT", .length = 14, .next = NULL}, LXB_TAG_LINEARGRADIENT, 1, true},
-    {{.u.short_str = "LINK", .length = 4, .next = NULL}, LXB_TAG_LINK, 1, true},
-    {{.u.short_str = "LISTING", .length = 7, .next = NULL}, LXB_TAG_LISTING, 1, true},
-    {{.u.short_str = "MAIN", .length = 4, .next = NULL}, LXB_TAG_MAIN, 1, true},
-    {{.u.short_str = "MALIGNMARK", .length = 10, .next = NULL}, LXB_TAG_MALIGNMARK, 1, true},
-    {{.u.short_str = "MAP", .length = 3, .next = NULL}, LXB_TAG_MAP, 1, true},
-    {{.u.short_str = "MARK", .length = 4, .next = NULL}, LXB_TAG_MARK, 1, true},
-    {{.u.short_str = "MARQUEE", .length = 7, .next = NULL}, LXB_TAG_MARQUEE, 1, true},
-    {{.u.short_str = "MATH", .length = 4, .next = NULL}, LXB_TAG_MATH, 1, true},
-    {{.u.short_str = "MENU", .length = 4, .next = NULL}, LXB_TAG_MENU, 1, true},
-    {{.u.short_str = "META", .length = 4, .next = NULL}, LXB_TAG_META, 1, true},
-    {{.u.short_str = "METER", .length = 5, .next = NULL}, LXB_TAG_METER, 1, true},
-    {{.u.short_str = "MFENCED", .length = 7, .next = NULL}, LXB_TAG_MFENCED, 1, true},
-    {{.u.short_str = "MGLYPH", .length = 6, .next = NULL}, LXB_TAG_MGLYPH, 1, true},
-    {{.u.short_str = "MI", .length = 2, .next = NULL}, LXB_TAG_MI, 1, true},
-    {{.u.short_str = "MN", .length = 2, .next = NULL}, LXB_TAG_MN, 1, true},
-    {{.u.short_str = "MO", .length = 2, .next = NULL}, LXB_TAG_MO, 1, true},
-    {{.u.short_str = "MS", .length = 2, .next = NULL}, LXB_TAG_MS, 1, true},
-    {{.u.short_str = "MTEXT", .length = 5, .next = NULL}, LXB_TAG_MTEXT, 1, true},
-    {{.u.short_str = "MULTICOL", .length = 8, .next = NULL}, LXB_TAG_MULTICOL, 1, true},
-    {{.u.short_str = "NAV", .length = 3, .next = NULL}, LXB_TAG_NAV, 1, true},
-    {{.u.short_str = "NEXTID", .length = 6, .next = NULL}, LXB_TAG_NEXTID, 1, true},
-    {{.u.short_str = "NOBR", .length = 4, .next = NULL}, LXB_TAG_NOBR, 1, true},
-    {{.u.short_str = "NOEMBED", .length = 7, .next = NULL}, LXB_TAG_NOEMBED, 1, true},
-    {{.u.short_str = "NOFRAMES", .length = 8, .next = NULL}, LXB_TAG_NOFRAMES, 1, true},
-    {{.u.short_str = "NOSCRIPT", .length = 8, .next = NULL}, LXB_TAG_NOSCRIPT, 1, true},
-    {{.u.short_str = "OBJECT", .length = 6, .next = NULL}, LXB_TAG_OBJECT, 1, true},
-    {{.u.short_str = "OL", .length = 2, .next = NULL}, LXB_TAG_OL, 1, true},
-    {{.u.short_str = "OPTGROUP", .length = 8, .next = NULL}, LXB_TAG_OPTGROUP, 1, true},
-    {{.u.short_str = "OPTION", .length = 6, .next = NULL}, LXB_TAG_OPTION, 1, true},
-    {{.u.short_str = "OUTPUT", .length = 6, .next = NULL}, LXB_TAG_OUTPUT, 1, true},
-    {{.u.short_str = "P", .length = 1, .next = NULL}, LXB_TAG_P, 1, true},
-    {{.u.short_str = "PARAM", .length = 5, .next = NULL}, LXB_TAG_PARAM, 1, true},
-    {{.u.short_str = "PATH", .length = 4, .next = NULL}, LXB_TAG_PATH, 1, true},
-    {{.u.short_str = "PICTURE", .length = 7, .next = NULL}, LXB_TAG_PICTURE, 1, true},
-    {{.u.short_str = "PLAINTEXT", .length = 9, .next = NULL}, LXB_TAG_PLAINTEXT, 1, true},
-    {{.u.short_str = "PRE", .length = 3, .next = NULL}, LXB_TAG_PRE, 1, true},
-    {{.u.short_str = "PROGRESS", .length = 8, .next = NULL}, LXB_TAG_PROGRESS, 1, true},
-    {{.u.short_str = "Q", .length = 1, .next = NULL}, LXB_TAG_Q, 1, true},
-    {{.u.short_str = "RADIALGRADIENT", .length = 14, .next = NULL}, LXB_TAG_RADIALGRADIENT, 1, true},
-    {{.u.short_str = "RB", .length = 2, .next = NULL}, LXB_TAG_RB, 1, true},
-    {{.u.short_str = "RP", .length = 2, .next = NULL}, LXB_TAG_RP, 1, true},
-    {{.u.short_str = "RT", .length = 2, .next = NULL}, LXB_TAG_RT, 1, true},
-    {{.u.short_str = "RTC", .length = 3, .next = NULL}, LXB_TAG_RTC, 1, true},
-    {{.u.short_str = "RUBY", .length = 4, .next = NULL}, LXB_TAG_RUBY, 1, true},
-    {{.u.short_str = "S", .length = 1, .next = NULL}, LXB_TAG_S, 1, true},
-    {{.u.short_str = "SAMP", .length = 4, .next = NULL}, LXB_TAG_SAMP, 1, true},
-    {{.u.short_str = "SCRIPT", .length = 6, .next = NULL}, LXB_TAG_SCRIPT, 1, true},
-    {{.u.short_str = "SECTION", .length = 7, .next = NULL}, LXB_TAG_SECTION, 1, true},
-    {{.u.short_str = "SELECT", .length = 6, .next = NULL}, LXB_TAG_SELECT, 1, true},
-    {{.u.short_str = "SLOT", .length = 4, .next = NULL}, LXB_TAG_SLOT, 1, true},
-    {{.u.short_str = "SMALL", .length = 5, .next = NULL}, LXB_TAG_SMALL, 1, true},
-    {{.u.short_str = "SOURCE", .length = 6, .next = NULL}, LXB_TAG_SOURCE, 1, true},
-    {{.u.short_str = "SPACER", .length = 6, .next = NULL}, LXB_TAG_SPACER, 1, true},
-    {{.u.short_str = "SPAN", .length = 4, .next = NULL}, LXB_TAG_SPAN, 1, true},
-    {{.u.short_str = "STRIKE", .length = 6, .next = NULL}, LXB_TAG_STRIKE, 1, true},
-    {{.u.short_str = "STRONG", .length = 6, .next = NULL}, LXB_TAG_STRONG, 1, true},
-    {{.u.short_str = "STYLE", .length = 5, .next = NULL}, LXB_TAG_STYLE, 1, true},
-    {{.u.short_str = "SUB", .length = 3, .next = NULL}, LXB_TAG_SUB, 1, true},
-    {{.u.short_str = "SUMMARY", .length = 7, .next = NULL}, LXB_TAG_SUMMARY, 1, true},
-    {{.u.short_str = "SUP", .length = 3, .next = NULL}, LXB_TAG_SUP, 1, true},
-    {{.u.short_str = "SVG", .length = 3, .next = NULL}, LXB_TAG_SVG, 1, true},
-    {{.u.short_str = "TABLE", .length = 5, .next = NULL}, LXB_TAG_TABLE, 1, true},
-    {{.u.short_str = "TBODY", .length = 5, .next = NULL}, LXB_TAG_TBODY, 1, true},
-    {{.u.short_str = "TD", .length = 2, .next = NULL}, LXB_TAG_TD, 1, true},
-    {{.u.short_str = "TEMPLATE", .length = 8, .next = NULL}, LXB_TAG_TEMPLATE, 1, true},
-    {{.u.short_str = "TEXTAREA", .length = 8, .next = NULL}, LXB_TAG_TEXTAREA, 1, true},
-    {{.u.short_str = "TEXTPATH", .length = 8, .next = NULL}, LXB_TAG_TEXTPATH, 1, true},
-    {{.u.short_str = "TFOOT", .length = 5, .next = NULL}, LXB_TAG_TFOOT, 1, true},
-    {{.u.short_str = "TH", .length = 2, .next = NULL}, LXB_TAG_TH, 1, true},
-    {{.u.short_str = "THEAD", .length = 5, .next = NULL}, LXB_TAG_THEAD, 1, true},
-    {{.u.short_str = "TIME", .length = 4, .next = NULL}, LXB_TAG_TIME, 1, true},
-    {{.u.short_str = "TITLE", .length = 5, .next = NULL}, LXB_TAG_TITLE, 1, true},
-    {{.u.short_str = "TR", .length = 2, .next = NULL}, LXB_TAG_TR, 1, true},
-    {{.u.short_str = "TRACK", .length = 5, .next = NULL}, LXB_TAG_TRACK, 1, true},
-    {{.u.short_str = "TT", .length = 2, .next = NULL}, LXB_TAG_TT, 1, true},
-    {{.u.short_str = "U", .length = 1, .next = NULL}, LXB_TAG_U, 1, true},
-    {{.u.short_str = "UL", .length = 2, .next = NULL}, LXB_TAG_UL, 1, true},
-    {{.u.short_str = "VAR", .length = 3, .next = NULL}, LXB_TAG_VAR, 1, true},
-    {{.u.short_str = "VIDEO", .length = 5, .next = NULL}, LXB_TAG_VIDEO, 1, true},
-    {{.u.short_str = "WBR", .length = 3, .next = NULL}, LXB_TAG_WBR, 1, true},
-    {{.u.short_str = "XMP", .length = 3, .next = NULL}, LXB_TAG_XMP, 1, true}
-};
+{{{.u = {.short_str = "#UNDEF"}, .length = 6, .next = NULL}, LXB_TAG__UNDEF, 1, true},{{.u = {.short_str = "#END-OF-FILE"}, .length = 12, .next = NULL}, LXB_TAG__END_OF_FILE, 1, true},{{.u = {.short_str = "#TEXT"}, .length = 5, .next = NULL}, LXB_TAG__TEXT, 1, true},{{.u = {.short_str = "#DOCUMENT"}, .length = 9, .next = NULL}, LXB_TAG__DOCUMENT, 1, true},{{.u = {.short_str = "!--"}, .length = 3, .next = NULL}, LXB_TAG__EM_COMMENT, 1, true},{{.u = {.short_str = "!DOCTYPE"}, .length = 8, .next = NULL}, LXB_TAG__EM_DOCTYPE, 1, true},{{.u = {.short_str = "A"}, .length = 1, .next = NULL}, LXB_TAG_A, 1, true},{{.u = {.short_str = "ABBR"}, .length = 4, .next = NULL}, LXB_TAG_ABBR, 1, true},{{.u = {.short_str = "ACRONYM"}, .length = 7, .next = NULL}, LXB_TAG_ACRONYM, 1, true},{{.u = {.short_str = "ADDRESS"}, .length = 7, .next = NULL}, LXB_TAG_ADDRESS, 1, true},{{.u = {.short_str = "ALTGLYPH"}, .length = 8, .next = NULL}, LXB_TAG_ALTGLYPH, 1, true},{{.u = {.short_str = "ALTGLYPHDEF"}, .length = 11, .next = NULL}, LXB_TAG_ALTGLYPHDEF, 1, true},{{.u = {.short_str = "ALTGLYPHITEM"}, .length = 12, .next = NULL}, LXB_TAG_ALTGLYPHITEM, 1, true},{{.u = {.short_str = "ANIMATECOLOR"}, .length = 12, .next = NULL}, LXB_TAG_ANIMATECOLOR, 1, true},{{.u = {.short_str = "ANIMATEMOTION"}, .length = 13, .next = NULL}, LXB_TAG_ANIMATEMOTION, 1, true},{{.u = {.short_str = "ANIMATETRANSFORM"}, .length = 16, .next = NULL}, LXB_TAG_ANIMATETRANSFORM, 1, true},{{.u = {.short_str = "ANNOTATION-XML"}, .length = 14, .next = NULL}, LXB_TAG_ANNOTATION_XML, 1, true},{{.u = {.short_str = "APPLET"}, .length = 6, .next = NULL}, LXB_TAG_APPLET, 1, true},{{.u = {.short_str = "AREA"}, .length = 4, .next = NULL}, LXB_TAG_AREA, 1, true},{{.u = {.short_str = "ARTICLE"}, .length = 7, .next = NULL}, LXB_TAG_ARTICLE, 1, true},{{.u = {.short_str = "ASIDE"}, .length = 5, .next = NULL}, LXB_TAG_ASIDE, 1, true},{{.u = {.short_str = "AUDIO"}, .length = 5, .next = NULL}, LXB_TAG_AUDIO, 1, true},{{.u = {.short_str = "B"}, .length = 1, .next = NULL}, LXB_TAG_B, 1, true},{{.u = {.short_str = "BASE"}, .length = 4, .next = NULL}, LXB_TAG_BASE, 1, true},{{.u = {.short_str = "BASEFONT"}, .length = 8, .next = NULL}, LXB_TAG_BASEFONT, 1, true},{{.u = {.short_str = "BDI"}, .length = 3, .next = NULL}, LXB_TAG_BDI, 1, true},{{.u = {.short_str = "BDO"}, .length = 3, .next = NULL}, LXB_TAG_BDO, 1, true},{{.u = {.short_str = "BGSOUND"}, .length = 7, .next = NULL}, LXB_TAG_BGSOUND, 1, true},{{.u = {.short_str = "BIG"}, .length = 3, .next = NULL}, LXB_TAG_BIG, 1, true},{{.u = {.short_str = "BLINK"}, .length = 5, .next = NULL}, LXB_TAG_BLINK, 1, true},{{.u = {.short_str = "BLOCKQUOTE"}, .length = 10, .next = NULL}, LXB_TAG_BLOCKQUOTE, 1, true},{{.u = {.short_str = "BODY"}, .length = 4, .next = NULL}, LXB_TAG_BODY, 1, true},{{.u = {.short_str = "BR"}, .length = 2, .next = NULL}, LXB_TAG_BR, 1, true},{{.u = {.short_str = "BUTTON"}, .length = 6, .next = NULL}, LXB_TAG_BUTTON, 1, true},{{.u = {.short_str = "CANVAS"}, .length = 6, .next = NULL}, LXB_TAG_CANVAS, 1, true},{{.u = {.short_str = "CAPTION"}, .length = 7, .next = NULL}, LXB_TAG_CAPTION, 1, true},{{.u = {.short_str = "CENTER"}, .length = 6, .next = NULL}, LXB_TAG_CENTER, 1, true},{{.u = {.short_str = "CITE"}, .length = 4, .next = NULL}, LXB_TAG_CITE, 1, true},{{.u = {.short_str = "CLIPPATH"}, .length = 8, .next = NULL}, LXB_TAG_CLIPPATH, 1, true},{{.u = {.short_str = "CODE"}, .length = 4, .next = NULL}, LXB_TAG_CODE, 1, true},{{.u = {.short_str = "COL"}, .length = 3, .next = NULL}, LXB_TAG_COL, 1, true},{{.u = {.short_str = "COLGROUP"}, .length = 8, .next = NULL}, LXB_TAG_COLGROUP, 1, true},{{.u = {.short_str = "DATA"}, .length = 4, .next = NULL}, LXB_TAG_DATA, 1, true},{{.u = {.short_str = "DATALIST"}, .length = 8, .next = NULL}, LXB_TAG_DATALIST, 1, true},{{.u = {.short_str = "DD"}, .length = 2, .next = NULL}, LXB_TAG_DD, 1, true},{{.u = {.short_str = "DEL"}, .length = 3, .next = NULL}, LXB_TAG_DEL, 1, true},{{.u = {.short_str = "DESC"}, .length = 4, .next = NULL}, LXB_TAG_DESC, 1, true},{{.u = {.short_str = "DETAILS"}, .length = 7, .next = NULL}, LXB_TAG_DETAILS, 1, true},{{.u = {.short_str = "DFN"}, .length = 3, .next = NULL}, LXB_TAG_DFN, 1, true},{{.u = {.short_str = "DIALOG"}, .length = 6, .next = NULL}, LXB_TAG_DIALOG, 1, true},{{.u = {.short_str = "DIR"}, .length = 3, .next = NULL}, LXB_TAG_DIR, 1, true},{{.u = {.short_str = "DIV"}, .length = 3, .next = NULL}, LXB_TAG_DIV, 1, true},{{.u = {.short_str = "DL"}, .length = 2, .next = NULL}, LXB_TAG_DL, 1, true},{{.u = {.short_str = "DT"}, .length = 2, .next = NULL}, LXB_TAG_DT, 1, true},{{.u = {.short_str = "EM"}, .length = 2, .next = NULL}, LXB_TAG_EM, 1, true},{{.u = {.short_str = "EMBED"}, .length = 5, .next = NULL}, LXB_TAG_EMBED, 1, true},{{.u = {.short_str = "FEBLEND"}, .length = 7, .next = NULL}, LXB_TAG_FEBLEND, 1, true},{{.u = {.short_str = "FECOLORMATRIX"}, .length = 13, .next = NULL}, LXB_TAG_FECOLORMATRIX, 1, true},{{.u = {.long_str = (lxb_char_t *) "FECOMPONENTTRANSFER"}, .length = 19, .next = NULL}, LXB_TAG_FECOMPONENTTRANSFER, 1, true},{{.u = {.short_str = "FECOMPOSITE"}, .length = 11, .next = NULL}, LXB_TAG_FECOMPOSITE, 1, true},{{.u = {.short_str = "FECONVOLVEMATRIX"}, .length = 16, .next = NULL}, LXB_TAG_FECONVOLVEMATRIX, 1, true},{{.u = {.long_str = (lxb_char_t *) "FEDIFFUSELIGHTING"}, .length = 17, .next = NULL}, LXB_TAG_FEDIFFUSELIGHTING, 1, true},{{.u = {.long_str = (lxb_char_t *) "FEDISPLACEMENTMAP"}, .length = 17, .next = NULL}, LXB_TAG_FEDISPLACEMENTMAP, 1, true},{{.u = {.short_str = "FEDISTANTLIGHT"}, .length = 14, .next = NULL}, LXB_TAG_FEDISTANTLIGHT, 1, true},{{.u = {.short_str = "FEDROPSHADOW"}, .length = 12, .next = NULL}, LXB_TAG_FEDROPSHADOW, 1, true},{{.u = {.short_str = "FEFLOOD"}, .length = 7, .next = NULL}, LXB_TAG_FEFLOOD, 1, true},{{.u = {.short_str = "FEFUNCA"}, .length = 7, .next = NULL}, LXB_TAG_FEFUNCA, 1, true},{{.u = {.short_str = "FEFUNCB"}, .length = 7, .next = NULL}, LXB_TAG_FEFUNCB, 1, true},{{.u = {.short_str = "FEFUNCG"}, .length = 7, .next = NULL}, LXB_TAG_FEFUNCG, 1, true},{{.u = {.short_str = "FEFUNCR"}, .length = 7, .next = NULL}, LXB_TAG_FEFUNCR, 1, true},{{.u = {.short_str = "FEGAUSSIANBLUR"}, .length = 14, .next = NULL}, LXB_TAG_FEGAUSSIANBLUR, 1, true},{{.u = {.short_str = "FEIMAGE"}, .length = 7, .next = NULL}, LXB_TAG_FEIMAGE, 1, true},{{.u = {.short_str = "FEMERGE"}, .length = 7, .next = NULL}, LXB_TAG_FEMERGE, 1, true},{{.u = {.short_str = "FEMERGENODE"}, .length = 11, .next = NULL}, LXB_TAG_FEMERGENODE, 1, true},{{.u = {.short_str = "FEMORPHOLOGY"}, .length = 12, .next = NULL}, LXB_TAG_FEMORPHOLOGY, 1, true},{{.u = {.short_str = "FEOFFSET"}, .length = 8, .next = NULL}, LXB_TAG_FEOFFSET, 1, true},{{.u = {.short_str = "FEPOINTLIGHT"}, .length = 12, .next = NULL}, LXB_TAG_FEPOINTLIGHT, 1, true},{{.u = {.long_str = (lxb_char_t *) "FESPECULARLIGHTING"}, .length = 18, .next = NULL}, LXB_TAG_FESPECULARLIGHTING, 1, true},{{.u = {.short_str = "FESPOTLIGHT"}, .length = 11, .next = NULL}, LXB_TAG_FESPOTLIGHT, 1, true},{{.u = {.short_str = "FETILE"}, .length = 6, .next = NULL}, LXB_TAG_FETILE, 1, true},{{.u = {.short_str = "FETURBULENCE"}, .length = 12, .next = NULL}, LXB_TAG_FETURBULENCE, 1, true},{{.u = {.short_str = "FIELDSET"}, .length = 8, .next = NULL}, LXB_TAG_FIELDSET, 1, true},{{.u = {.short_str = "FIGCAPTION"}, .length = 10, .next = NULL}, LXB_TAG_FIGCAPTION, 1, true},{{.u = {.short_str = "FIGURE"}, .length = 6, .next = NULL}, LXB_TAG_FIGURE, 1, true},{{.u = {.short_str = "FONT"}, .length = 4, .next = NULL}, LXB_TAG_FONT, 1, true},{{.u = {.short_str = "FOOTER"}, .length = 6, .next = NULL}, LXB_TAG_FOOTER, 1, true},{{.u = {.short_str = "FOREIGNOBJECT"}, .length = 13, .next = NULL}, LXB_TAG_FOREIGNOBJECT, 1, true},{{.u = {.short_str = "FORM"}, .length = 4, .next = NULL}, LXB_TAG_FORM, 1, true},{{.u = {.short_str = "FRAME"}, .length = 5, .next = NULL}, LXB_TAG_FRAME, 1, true},{{.u = {.short_str = "FRAMESET"}, .length = 8, .next = NULL}, LXB_TAG_FRAMESET, 1, true},{{.u = {.short_str = "GLYPHREF"}, .length = 8, .next = NULL}, LXB_TAG_GLYPHREF, 1, true},{{.u = {.short_str = "H1"}, .length = 2, .next = NULL}, LXB_TAG_H1, 1, true},{{.u = {.short_str = "H2"}, .length = 2, .next = NULL}, LXB_TAG_H2, 1, true},{{.u = {.short_str = "H3"}, .length = 2, .next = NULL}, LXB_TAG_H3, 1, true},{{.u = {.short_str = "H4"}, .length = 2, .next = NULL}, LXB_TAG_H4, 1, true},{{.u = {.short_str = "H5"}, .length = 2, .next = NULL}, LXB_TAG_H5, 1, true},{{.u = {.short_str = "H6"}, .length = 2, .next = NULL}, LXB_TAG_H6, 1, true},{{.u = {.short_str = "HEAD"}, .length = 4, .next = NULL}, LXB_TAG_HEAD, 1, true},{{.u = {.short_str = "HEADER"}, .length = 6, .next = NULL}, LXB_TAG_HEADER, 1, true},{{.u = {.short_str = "HGROUP"}, .length = 6, .next = NULL}, LXB_TAG_HGROUP, 1, true},{{.u = {.short_str = "HR"}, .length = 2, .next = NULL}, LXB_TAG_HR, 1, true},{{.u = {.short_str = "HTML"}, .length = 4, .next = NULL}, LXB_TAG_HTML, 1, true},{{.u = {.short_str = "I"}, .length = 1, .next = NULL}, LXB_TAG_I, 1, true},{{.u = {.short_str = "IFRAME"}, .length = 6, .next = NULL}, LXB_TAG_IFRAME, 1, true},{{.u = {.short_str = "IMAGE"}, .length = 5, .next = NULL}, LXB_TAG_IMAGE, 1, true},{{.u = {.short_str = "IMG"}, .length = 3, .next = NULL}, LXB_TAG_IMG, 1, true},{{.u = {.short_str = "INPUT"}, .length = 5, .next = NULL}, LXB_TAG_INPUT, 1, true},{{.u = {.short_str = "INS"}, .length = 3, .next = NULL}, LXB_TAG_INS, 1, true},{{.u = {.short_str = "ISINDEX"}, .length = 7, .next = NULL}, LXB_TAG_ISINDEX, 1, true},{{.u = {.short_str = "KBD"}, .length = 3, .next = NULL}, LXB_TAG_KBD, 1, true},{{.u = {.short_str = "KEYGEN"}, .length = 6, .next = NULL}, LXB_TAG_KEYGEN, 1, true},{{.u = {.short_str = "LABEL"}, .length = 5, .next = NULL}, LXB_TAG_LABEL, 1, true},{{.u = {.short_str = "LEGEND"}, .length = 6, .next = NULL}, LXB_TAG_LEGEND, 1, true},{{.u = {.short_str = "LI"}, .length = 2, .next = NULL}, LXB_TAG_LI, 1, true},{{.u = {.short_str = "LINEARGRADIENT"}, .length = 14, .next = NULL}, LXB_TAG_LINEARGRADIENT, 1, true},{{.u = {.short_str = "LINK"}, .length = 4, .next = NULL}, LXB_TAG_LINK, 1, true},{{.u = {.short_str = "LISTING"}, .length = 7, .next = NULL}, LXB_TAG_LISTING, 1, true},{{.u = {.short_str = "MAIN"}, .length = 4, .next = NULL}, LXB_TAG_MAIN, 1, true},{{.u = {.short_str = "MALIGNMARK"}, .length = 10, .next = NULL}, LXB_TAG_MALIGNMARK, 1, true},{{.u = {.short_str = "MAP"}, .length = 3, .next = NULL}, LXB_TAG_MAP, 1, true},{{.u = {.short_str = "MARK"}, .length = 4, .next = NULL}, LXB_TAG_MARK, 1, true},{{.u = {.short_str = "MARQUEE"}, .length = 7, .next = NULL}, LXB_TAG_MARQUEE, 1, true},{{.u = {.short_str = "MATH"}, .length = 4, .next = NULL}, LXB_TAG_MATH, 1, true},{{.u = {.short_str = "MENU"}, .length = 4, .next = NULL}, LXB_TAG_MENU, 1, true},{{.u = {.short_str = "META"}, .length = 4, .next = NULL}, LXB_TAG_META, 1, true},{{.u = {.short_str = "METER"}, .length = 5, .next = NULL}, LXB_TAG_METER, 1, true},{{.u = {.short_str = "MFENCED"}, .length = 7, .next = NULL}, LXB_TAG_MFENCED, 1, true},{{.u = {.short_str = "MGLYPH"}, .length = 6, .next = NULL}, LXB_TAG_MGLYPH, 1, true},{{.u = {.short_str = "MI"}, .length = 2, .next = NULL}, LXB_TAG_MI, 1, true},{{.u = {.short_str = "MN"}, .length = 2, .next = NULL}, LXB_TAG_MN, 1, true},{{.u = {.short_str = "MO"}, .length = 2, .next = NULL}, LXB_TAG_MO, 1, true},{{.u = {.short_str = "MS"}, .length = 2, .next = NULL}, LXB_TAG_MS, 1, true},{{.u = {.short_str = "MTEXT"}, .length = 5, .next = NULL}, LXB_TAG_MTEXT, 1, true},{{.u = {.short_str = "MULTICOL"}, .length = 8, .next = NULL}, LXB_TAG_MULTICOL, 1, true},{{.u = {.short_str = "NAV"}, .length = 3, .next = NULL}, LXB_TAG_NAV, 1, true},{{.u = {.short_str = "NEXTID"}, .length = 6, .next = NULL}, LXB_TAG_NEXTID, 1, true},{{.u = {.short_str = "NOBR"}, .length = 4, .next = NULL}, LXB_TAG_NOBR, 1, true},{{.u = {.short_str = "NOEMBED"}, .length = 7, .next = NULL}, LXB_TAG_NOEMBED, 1, true},{{.u = {.short_str = "NOFRAMES"}, .length = 8, .next = NULL}, LXB_TAG_NOFRAMES, 1, true},{{.u = {.short_str = "NOSCRIPT"}, .length = 8, .next = NULL}, LXB_TAG_NOSCRIPT, 1, true},{{.u = {.short_str = "OBJECT"}, .length = 6, .next = NULL}, LXB_TAG_OBJECT, 1, true},{{.u = {.short_str = "OL"}, .length = 2, .next = NULL}, LXB_TAG_OL, 1, true},{{.u = {.short_str = "OPTGROUP"}, .length = 8, .next = NULL}, LXB_TAG_OPTGROUP, 1, true},{{.u = {.short_str = "OPTION"}, .length = 6, .next = NULL}, LXB_TAG_OPTION, 1, true},{{.u = {.short_str = "OUTPUT"}, .length = 6, .next = NULL}, LXB_TAG_OUTPUT, 1, true},{{.u = {.short_str = "P"}, .length = 1, .next = NULL}, LXB_TAG_P, 1, true},{{.u = {.short_str = "PARAM"}, .length = 5, .next = NULL}, LXB_TAG_PARAM, 1, true},{{.u = {.short_str = "PATH"}, .length = 4, .next = NULL}, LXB_TAG_PATH, 1, true},{{.u = {.short_str = "PICTURE"}, .length = 7, .next = NULL}, LXB_TAG_PICTURE, 1, true},{{.u = {.short_str = "PLAINTEXT"}, .length = 9, .next = NULL}, LXB_TAG_PLAINTEXT, 1, true},{{.u = {.short_str = "PRE"}, .length = 3, .next = NULL}, LXB_TAG_PRE, 1, true},{{.u = {.short_str = "PROGRESS"}, .length = 8, .next = NULL}, LXB_TAG_PROGRESS, 1, true},{{.u = {.short_str = "Q"}, .length = 1, .next = NULL}, LXB_TAG_Q, 1, true},{{.u = {.short_str = "RADIALGRADIENT"}, .length = 14, .next = NULL}, LXB_TAG_RADIALGRADIENT, 1, true},{{.u = {.short_str = "RB"}, .length = 2, .next = NULL}, LXB_TAG_RB, 1, true},{{.u = {.short_str = "RP"}, .length = 2, .next = NULL}, LXB_TAG_RP, 1, true},{{.u = {.short_str = "RT"}, .length = 2, .next = NULL}, LXB_TAG_RT, 1, true},{{.u = {.short_str = "RTC"}, .length = 3, .next = NULL}, LXB_TAG_RTC, 1, true},{{.u = {.short_str = "RUBY"}, .length = 4, .next = NULL}, LXB_TAG_RUBY, 1, true},{{.u = {.short_str = "S"}, .length = 1, .next = NULL}, LXB_TAG_S, 1, true},{{.u = {.short_str = "SAMP"}, .length = 4, .next = NULL}, LXB_TAG_SAMP, 1, true},{{.u = {.short_str = "SCRIPT"}, .length = 6, .next = NULL}, LXB_TAG_SCRIPT, 1, true},{{.u = {.short_str = "SECTION"}, .length = 7, .next = NULL}, LXB_TAG_SECTION, 1, true},{{.u = {.short_str = "SELECT"}, .length = 6, .next = NULL}, LXB_TAG_SELECT, 1, true},{{.u = {.short_str = "SLOT"}, .length = 4, .next = NULL}, LXB_TAG_SLOT, 1, true},{{.u = {.short_str = "SMALL"}, .length = 5, .next = NULL}, LXB_TAG_SMALL, 1, true},{{.u = {.short_str = "SOURCE"}, .length = 6, .next = NULL}, LXB_TAG_SOURCE, 1, true},{{.u = {.short_str = "SPACER"}, .length = 6, .next = NULL}, LXB_TAG_SPACER, 1, true},{{.u = {.short_str = "SPAN"}, .length = 4, .next = NULL}, LXB_TAG_SPAN, 1, true},{{.u = {.short_str = "STRIKE"}, .length = 6, .next = NULL}, LXB_TAG_STRIKE, 1, true},{{.u = {.short_str = "STRONG"}, .length = 6, .next = NULL}, LXB_TAG_STRONG, 1, true},{{.u = {.short_str = "STYLE"}, .length = 5, .next = NULL}, LXB_TAG_STYLE, 1, true},{{.u = {.short_str = "SUB"}, .length = 3, .next = NULL}, LXB_TAG_SUB, 1, true},{{.u = {.short_str = "SUMMARY"}, .length = 7, .next = NULL}, LXB_TAG_SUMMARY, 1, true},{{.u = {.short_str = "SUP"}, .length = 3, .next = NULL}, LXB_TAG_SUP, 1, true},{{.u = {.short_str = "SVG"}, .length = 3, .next = NULL}, LXB_TAG_SVG, 1, true},{{.u = {.short_str = "TABLE"}, .length = 5, .next = NULL}, LXB_TAG_TABLE, 1, true},{{.u = {.short_str = "TBODY"}, .length = 5, .next = NULL}, LXB_TAG_TBODY, 1, true},{{.u = {.short_str = "TD"}, .length = 2, .next = NULL}, LXB_TAG_TD, 1, true},{{.u = {.short_str = "TEMPLATE"}, .length = 8, .next = NULL}, LXB_TAG_TEMPLATE, 1, true},{{.u = {.short_str = "TEXTAREA"}, .length = 8, .next = NULL}, LXB_TAG_TEXTAREA, 1, true},{{.u = {.short_str = "TEXTPATH"}, .length = 8, .next = NULL}, LXB_TAG_TEXTPATH, 1, true},{{.u = {.short_str = "TFOOT"}, .length = 5, .next = NULL}, LXB_TAG_TFOOT, 1, true},{{.u = {.short_str = "TH"}, .length = 2, .next = NULL}, LXB_TAG_TH, 1, true},{{.u = {.short_str = "THEAD"}, .length = 5, .next = NULL}, LXB_TAG_THEAD, 1, true},{{.u = {.short_str = "TIME"}, .length = 4, .next = NULL}, LXB_TAG_TIME, 1, true},{{.u = {.short_str = "TITLE"}, .length = 5, .next = NULL}, LXB_TAG_TITLE, 1, true},{{.u = {.short_str = "TR"}, .length = 2, .next = NULL}, LXB_TAG_TR, 1, true},{{.u = {.short_str = "TRACK"}, .length = 5, .next = NULL}, LXB_TAG_TRACK, 1, true},{{.u = {.short_str = "TT"}, .length = 2, .next = NULL}, LXB_TAG_TT, 1, true},{{.u = {.short_str = "U"}, .length = 1, .next = NULL}, LXB_TAG_U, 1, true},{{.u = {.short_str = "UL"}, .length = 2, .next = NULL}, LXB_TAG_UL, 1, true},{{.u = {.short_str = "VAR"}, .length = 3, .next = NULL}, LXB_TAG_VAR, 1, true},{{.u = {.short_str = "VIDEO"}, .length = 5, .next = NULL}, LXB_TAG_VIDEO, 1, true},{{.u = {.short_str = "WBR"}, .length = 3, .next = NULL}, LXB_TAG_WBR, 1, true},{{.u = {.short_str = "XMP"}, .length = 3, .next = NULL}, LXB_TAG_XMP, 1, true}};
 
 static const lexbor_shs_entry_t lxb_tag_res_shs_data_default[] =
 {
@@ -185496,8 +185040,6 @@ static void nvgTextMetrics(NVGcontext* ctx, float* ascender, float* descender, f
 
 }  // extern "C"
 #endif  // !AFFINEUI_STUB_BUILD && !AFFINEUI_HOST_PROVIDES_NANOVG
-
-extern "C" {
 
 // ────────────────────────────────────────────────────────────────────────
 // src/renderer/text/stb_impl.c
@@ -302860,7 +302402,6 @@ static bool isEndOfPrimitive( char ch ) {
     return ch == ',' || isOneOfThem( ch, blank ) || isOneOfThem( ch, endofblock );
 }
 
-}  // extern "C"
 
 // Implementation macros are single-use; clear them before any later
 // declaration-only repeat of these upstream headers (the renderer
@@ -302874,6 +302415,15 @@ static bool isEndOfPrimitive( char ch ) {
 #undef FONTSTASH_IMPLEMENTATION
 #undef STB_IMAGE_IMPLEMENTATION
 #undef STB_TRUETYPE_IMPLEMENTATION
+
+// X11 (pulled in by sokol_app's Linux backend) defines `None` as an
+// object-like macro. In one TU that macro reaches every line below,
+// and C++ code legitimately uses `None` as an identifier — Yoga's
+// `Errata::None`, for one. Drop it; sokol_app is done with it, and
+// nothing downstream in the amalgamation wants the X11 spelling.
+#ifdef None
+#  undef None
+#endif
 
 // ─── Yoga flexbox layout engine ───────────────────────────────────────
 #if !defined(AFFINEUI_STUB_BUILD)
@@ -386741,21 +386291,26 @@ inline void prepare_replay_metadata(DisplayList& list);
 // ── Vector path blob ────────────────────────────────────────────────
 // FillPath / StrokePath store their command stream + paint in the
 // text_pool as a blob:
-//   u32 paint kind, f32 x0 y0 x1 y1 r0 r1, u32 stop_count,
+//   u32 paint kind, f32 x0 y0 x1 y1 r0 r1 r1y, u32 stop_count,
 //   f32 offset × n, u32 rgba × n, then the raw float command stream.
+// The 7 geo floats are the contiguous x0..r1y run of PathPaint, copied
+// as a block — keep them adjacent in the struct if you add more.
 // Blobs are 4-byte aligned in the pool so the float stream can be
 // read in place.
+inline constexpr std::size_t kPathBlobGeoFloats = 7;  // x0 y0 x1 y1 r0 r1 r1y
+
 inline bool path_blob_decode(std::string_view blob, PathPaint& paint,
                              const float*& cmds, std::size_t& count) {
-    constexpr std::size_t kFixedWords = 8;  // kind + 6 geo floats + count
+    // kind + geo floats + stop_count
+    constexpr std::size_t kFixedWords = 2 + kPathBlobGeoFloats;
     if (blob.size() < kFixedWords * 4) return false;
     std::uint32_t fixed[kFixedWords];
     std::memcpy(fixed, blob.data(), sizeof(fixed));
     paint = PathPaint{};
     paint.kind = static_cast<PathPaint::Kind>(fixed[0]);
-    std::memcpy(&paint.x0, &fixed[1], 6 * sizeof(float));
-    const std::uint32_t n =
-        std::min<std::uint32_t>(fixed[7], PathPaint::kMaxStops);
+    std::memcpy(&paint.x0, &fixed[1], kPathBlobGeoFloats * sizeof(float));
+    const std::uint32_t n = std::min<std::uint32_t>(
+        fixed[1 + kPathBlobGeoFloats], PathPaint::kMaxStops);
     paint.stop_count = static_cast<std::uint8_t>(n);
     const std::size_t header_bytes = (kFixedWords + 2u * n) * 4;
     if (blob.size() < header_bytes) return false;
@@ -387350,17 +386905,19 @@ private:
         while (list_.text_pool.size() % 4 != 0) {
             list_.text_pool.push_back('\0');
         }
+        constexpr std::size_t kFixedWords = 2 + kPathBlobGeoFloats;
         const std::uint32_t n = std::min<std::uint32_t>(
             paint.stop_count, PathPaint::kMaxStops);
-        std::uint32_t header[8 + 2 * PathPaint::kMaxStops] = {};
+        std::uint32_t header[kFixedWords + 2 * PathPaint::kMaxStops] = {};
         header[0] = static_cast<std::uint32_t>(paint.kind);
-        std::memcpy(&header[1], &paint.x0, 6 * sizeof(float));
-        header[7] = n;
-        std::memcpy(&header[8], paint.offsets, n * sizeof(float));
+        std::memcpy(&header[1], &paint.x0,
+                    kPathBlobGeoFloats * sizeof(float));
+        header[1 + kPathBlobGeoFloats] = n;
+        std::memcpy(&header[kFixedWords], paint.offsets, n * sizeof(float));
         for (std::uint32_t s = 0; s < n; ++s) {
-            header[8 + n + s] = pack(paint.colors[s]);
+            header[kFixedWords + n + s] = pack(paint.colors[s]);
         }
-        const std::size_t header_bytes = (8 + 2u * n) * 4;
+        const std::size_t header_bytes = (kFixedWords + 2u * n) * 4;
         const auto [off, hlen] = list_.intern_bytes(header, header_bytes);
         (void)hlen;
         list_.intern_bytes(cmds, count * sizeof(float));
@@ -388346,24 +387903,66 @@ struct GradientStop {
 /// it out-of-line, exactly like `BoxShadowList`.
 using GradientStopList = std::vector<GradientStop>;
 
-/// A second gradient background layer painted OVER the bottom gradient.
-/// CSS `background` is a back-to-front stack of image layers; the bottom
-/// layer lives in AnimatedStyle's inline gradient fields, and this
-/// carries a single 2-stop overlay layer for the few widgets that need
-/// one (the color-picker square: a `to top, #000, transparent` value
-/// shade over the `to right, #fff, hue` saturation ramp). Kept out-of-
-/// line (like box_shadows) because almost no element has an overlay, so
-/// AnimatedStyle stays compact. kind: 1 = linear, 2 = radial.
-struct OverlayGradient {
-    std::uint8_t  kind{0};
-    std::uint8_t  center_x_pct{50};
-    std::uint8_t  center_y_pct{50};
-    std::uint8_t  stop1_pos_pct{100};
-    std::int16_t  angle_deg{0};
-    std::uint16_t pad{0};
-    std::uint32_t stop0_rgba{0};
-    std::uint32_t stop1_rgba{0};
+/// One gradient background layer painted OVER the bottom layer.
+///
+/// CSS `background` / `background-image` is a comma-separated, back-to-
+/// front stack of image layers: the LAST value in the list is the bottom-
+/// most and the FIRST is on top. We split that stack in two:
+///
+///   - The BOTTOM layer keeps the legacy inline home it has always had —
+///     AnimatedStyle's gradient_kind/angle/center/stop0/stop1 fields,
+///     plus `gradient_stops` when it has 3+ stops. That is the case for
+///     virtually every element in a real UI, and it costs zero side-table
+///     lookups and (at 2 stops) zero allocations. Do not regress it.
+///   - Every layer ABOVE the bottom lands in `background_layers`, one
+///     entry each, in CSS source order (index 0 = topmost). Null for the
+///     single-layer case, exactly like `box_shadows`.
+///
+/// This replaced an earlier `OverlayGradient` that hardcoded exactly two
+/// stops and only ever held ONE layer. It was written for the color-
+/// picker square (a genuinely 2-stop, 2-layer value) and silently
+/// truncated anything richer: the Decius skeuomorphic panels
+/// (`.dcs-hw--lacquer` / `--brushed`) stack a 6-stop specular highlight
+/// over a 3-stop base, and truncating that highlight to its first and
+/// last stop turns a subtle sheen into a blown-out white wash — the CSS
+/// ramp falls from 42% white to 1.5% by 70% of the radius, while a 2-stop
+/// approximation carries 42% white linearly across the whole panel.
+/// Layers therefore carry their own full stop list.
+struct BackgroundLayer {
+    enum class Kind : std::uint8_t {
+        None = 0,
+        Linear,          ///< linear-gradient()
+        Radial,          ///< radial-gradient()
+        LinearStripes,   ///< repeating-linear-gradient() tile approximation
+    };
+
+    Kind kind{Kind::None};
+    /// Linear: CSS gradient angle, degrees, 0 = upward, clockwise.
+    std::int16_t angle_deg{0};
+    /// Radial: gradient centre as a percentage of the box. SIGNED and
+    /// unclamped on purpose — CSS routinely places a specular highlight
+    /// just OUTSIDE the box (`at 50% -10%`) so only the bottom edge of
+    /// the falloff lands on it. Clamping that to 0 pulls the hot centre
+    /// onto the panel's top edge and is exactly the sort of blow-out this
+    /// struct exists to avoid.
+    std::int16_t center_x_pct{50};
+    std::int16_t center_y_pct{50};
+    /// Radial: the ending shape's radii, as a percentage of the box's
+    /// half-width / half-height (`ellipse 110% 90%` → 110 / 90). 0 means
+    /// "no explicit size" — use the CSS default, farthest-corner.
+    std::uint16_t radius_x_pct{0};
+    std::uint16_t radius_y_pct{0};
+    /// The layer's full ordered ramp. Always populated (2+ stops for any
+    /// kind other than None); offsets have already had CSS stop-placement
+    /// applied, so they are ascending in 0–1.
+    GradientStopList stops;
 };
+
+/// The above-the-bottom part of an element's background stack, topmost
+/// first (CSS source order). Carried out-of-line behind a shared_ptr and
+/// left null for the overwhelmingly common single-layer case — the same
+/// "most elements have none" idiom as `BoxShadowList`.
+using BackgroundLayerList = std::vector<BackgroundLayer>;
 
 /// The two-struct bundle the cascade resolves into. Splitting them
 /// pays off downstream: layout reads ComputedStyle only, paint reads
@@ -388409,9 +388008,9 @@ struct ResolvedStyle {
     /// Ordered by ascending offset; the offsets have already had CSS
     /// stop-placement (even distribution / monotonic clamping) applied.
     std::shared_ptr<const GradientStopList> gradient_stops;
-    /// Optional second (overlay) gradient background layer. Null for the
-    /// common single-layer case.
-    std::shared_ptr<const OverlayGradient> overlay_gradient;
+    /// Optional background layers stacked ABOVE the bottom one, topmost
+    /// first. Null for the common single-layer case — see BackgroundLayer.
+    std::shared_ptr<const BackgroundLayerList> background_layers;
 };
 
 struct ViewportDependency {
@@ -389971,7 +389570,7 @@ struct Block {
     std::shared_ptr<const detail::CustomPropMap> custom_props;
     std::shared_ptr<const detail::BoxShadowList> box_shadows;
     std::shared_ptr<const detail::GradientStopList> gradient_stops;
-    std::shared_ptr<const detail::OverlayGradient> overlay_gradient;
+    std::shared_ptr<const detail::BackgroundLayerList> background_layers;
     std::array<detail::GridTrackHint, detail::kMaxGridTrackHints> grid_columns{};
     std::uint8_t grid_column_count{0};
     detail::AnimatedStyle base_animated{};
@@ -420152,24 +419751,62 @@ void Document::draw(Painter& painter) {
                 clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
         }
 
-        // Overlay gradient layer (CSS `background` top layer) — painted
-        // over the bottom gradient. The color-picker square's black->
-        // transparent value shade rides on top of the white->hue ramp.
-        if (b.overlay_gradient && b.overlay_gradient->kind != 0 &&
-            bg_rect.w > 0 && bg_rect.h > 0) {
-            const auto& ov = *b.overlay_gradient;
-            const Color o0 = detail::unpack_rgba(ov.stop0_rgba);
-            const Color o1 = detail::unpack_rgba(ov.stop1_rgba);
-            if (ov.kind == 1) {  // linear
-                painter.fill_linear_gradient_rect(
-                    bg_rect, static_cast<float>(ov.angle_deg),
-                    o0, o1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
-            } else {  // radial
-                painter.fill_radial_gradient_rect(
-                    bg_rect, o0, o1, clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
-                    static_cast<float>(ov.center_x_pct),
-                    static_cast<float>(ov.center_y_pct),
-                    static_cast<float>(ov.stop1_pos_pct));
+        // The rest of the CSS `background` stack — every layer ABOVE the
+        // bottom one, painted back-to-front. `background_layers` is stored
+        // in CSS source order (topmost first), so walk it in REVERSE: the
+        // last entry is the layer immediately above the bottom gradient and
+        // must go down first.
+        //
+        // Each layer carries its own full N-stop ramp, so a 6-stop specular
+        // highlight over a 3-stop base (the Decius skeuo panels) renders as
+        // authored. The predecessor of this loop collapsed the top layer to
+        // its first and last stop, which turned that highlight's steep
+        // falloff into a flat white wash across the whole panel.
+        if (b.background_layers && bg_rect.w > 0 && bg_rect.h > 0) {
+            using LK = detail::BackgroundLayer::Kind;
+            std::array<Painter::GradientStop, PathPaint::kMaxStops> gs{};
+            for (auto it = b.background_layers->rbegin();
+                 it != b.background_layers->rend(); ++it) {
+                const auto& layer = *it;
+                if (layer.kind == LK::None || layer.stops.empty()) continue;
+
+                const std::size_t n = std::min<std::size_t>(
+                    layer.stops.size(), PathPaint::kMaxStops);
+                for (std::size_t i = 0; i < n; ++i) {
+                    gs[i].offset = layer.stops[i].offset;
+                    gs[i].color  = detail::unpack_rgba(layer.stops[i].rgba);
+                }
+
+                switch (layer.kind) {
+                    case LK::Linear:
+                        painter.fill_linear_gradient_rect_n(
+                            bg_rect, static_cast<float>(layer.angle_deg),
+                            gs.data(), n,
+                            clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
+                        break;
+                    case LK::Radial:
+                        painter.fill_radial_gradient_rect_n(
+                            bg_rect, gs.data(), n,
+                            clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl,
+                            static_cast<float>(layer.center_x_pct),
+                            static_cast<float>(layer.center_y_pct),
+                            /*stop1_pos_pct=*/100.0f,
+                            static_cast<float>(layer.radius_x_pct),
+                            static_cast<float>(layer.radius_y_pct));
+                        break;
+                    case LK::LinearStripes:
+                        // repeating-linear-gradient: approximated as a tiled
+                        // stripe fill in the ramp's first colour, the same
+                        // primitive the bottom layer uses for it.
+                        painter.fill_linear_stripes_rect(
+                            bg_rect, static_cast<float>(layer.angle_deg),
+                            gs[0].color,
+                            static_cast<float>(std::max(1, bg_rect.h)),
+                            clip_r_tl, clip_r_tr, clip_r_br, clip_r_bl);
+                        break;
+                    case LK::None:
+                        break;
+                }
             }
         }
 
@@ -422104,7 +421741,7 @@ void collect_blocks(detail::DocumentImpl& impl,
         b.custom_props = rs.custom_props;
         b.box_shadows = rs.box_shadows;
         b.gradient_stops = rs.gradient_stops;
-        b.overlay_gradient = rs.overlay_gradient;
+        b.background_layers = rs.background_layers;
         if (b.tag == "img") {
             b.image_src = detail::attr_string(elem, "src");
         }
@@ -423831,7 +423468,7 @@ bool restyle_block(detail::DocumentImpl& impl, int idx) {
     block.custom_props = rs.custom_props;
     block.box_shadows = rs.box_shadows;
     block.gradient_stops = rs.gradient_stops;
-    block.overlay_gradient = rs.overlay_gradient;
+    block.background_layers = rs.background_layers;
     block.grid_columns = grid_columns;
     block.grid_column_count = grid_column_count;
     block.base_animated = rs.animated;
@@ -432893,6 +432530,73 @@ bool parse_color(const lxb_css_value_color_t* v, std::uint32_t& out,
     return parse_color(v, out);
 }
 
+// A CSS percentage that may legitimately sit outside [0,100] (a radial
+// gradient centred at `50% -10%`) squeezed into an int16. The clamp is
+// only a range guard against absurd authored values, not CSS semantics.
+std::int16_t clamp_i16_pct(double pct) {
+    return static_cast<std::int16_t>(
+        std::clamp(std::lround(pct), -32768L, 32767L));
+}
+
+// A CSS size percentage, which is non-negative but may exceed 100%
+// (`ellipse 110% 90%`).
+std::uint16_t clamp_u16_pct(double pct) {
+    return static_cast<std::uint16_t>(
+        std::clamp(std::lround(pct), 0L, 65535L));
+}
+
+// Turn one parsed lexbor gradient into an ordered stop list with CSS
+// stop placement applied. Shared by the bottom (inline) layer and every
+// stacked layer, so both get identical, correct ramps — the whole point
+// of the multi-layer rework is that a stacked layer is not a second-class
+// citizen with a truncated 2-stop ramp.
+GradientStopList build_gradient_stops(const lxb_css_property_gradient_t& g) {
+    GradientStopList list;
+    const unsigned n = std::min<unsigned>(
+        g.stop_count, static_cast<unsigned>(LXB_CSS_GRADIENT_MAX_STOPS));
+    if (n == 0) return list;
+    list.reserve(n);
+
+    // 1) Pull colors + explicit offsets (fraction 0–1). -1 marks
+    //    "no explicit position".
+    for (unsigned i = 0; i < n; ++i) {
+        std::uint32_t rgba = 0;
+        parse_color(&g.stops[i].color, rgba);
+        const float off = g.stops[i].has_pos_pct
+            ? static_cast<float>(g.stops[i].pos_pct / 100.0)
+            : -1.0f;
+        list.push_back(GradientStop{off, rgba});
+    }
+
+    // 2) CSS placement: first defaults to 0, last to 1, then make
+    //    positions monotonic non-decreasing.
+    if (list[0].offset < 0.0f) list[0].offset = 0.0f;
+    if (list.back().offset < 0.0f) list.back().offset = 1.0f;
+    for (std::size_t i = 1; i < list.size(); ++i) {
+        if (list[i].offset >= 0.0f && list[i].offset < list[i - 1].offset) {
+            list[i].offset = list[i - 1].offset;
+        }
+    }
+    // 3) Evenly distribute runs of unpositioned stops between their
+    //    bracketing positioned neighbours.
+    std::size_t i = 0;
+    while (i < list.size()) {
+        if (list[i].offset >= 0.0f) { ++i; continue; }
+        std::size_t j = i;
+        while (j < list.size() && list[j].offset < 0.0f) ++j;
+        const float lo = list[i - 1].offset;
+        const float hi = (j < list.size()) ? list[j].offset : 1.0f;
+        const std::size_t gap = (j - i) + 1;
+        for (std::size_t k = i; k < j; ++k) {
+            const float t = static_cast<float>(k - i + 1) /
+                            static_cast<float>(gap);
+            list[k].offset = lo + (hi - lo) * t;
+        }
+        i = j;
+    }
+    return list;
+}
+
 // em_px: the font-size in CSS pixels used to resolve `em` lengths.
 //   For most properties this is the element's own computed font-size.
 //   For `font-size` itself it must be the PARENT's font-size (passed by
@@ -433945,104 +433649,59 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s,
                 // the list (they are a single-color tile).
                 if (gradient.kind != LXB_CSS_GRADIENT_LINEAR_STRIPES &&
                     gradient.stop_count > 2) {
-                    const unsigned n = std::min<unsigned>(
-                        gradient.stop_count,
-                        static_cast<unsigned>(LXB_CSS_GRADIENT_MAX_STOPS));
-                    auto list = std::make_shared<GradientStopList>();
-                    list->reserve(n);
-
-                    // 1) Pull colors + explicit offsets (fraction 0–1).
-                    //    -1 marks "no explicit position".
-                    for (unsigned i = 0; i < n; ++i) {
-                        std::uint32_t rgba = 0;
-                        parse_color(&gradient.stops[i].color, rgba);
-                        const float off = gradient.stops[i].has_pos_pct
-                            ? static_cast<float>(
-                                  gradient.stops[i].pos_pct / 100.0)
-                            : -1.0f;
-                        list->push_back(GradientStop{off, rgba});
-                    }
-
-                    // 2) CSS placement: first defaults to 0, last to 1,
-                    //    then make positions monotonic non-decreasing.
-                    if ((*list)[0].offset < 0.0f) (*list)[0].offset = 0.0f;
-                    if (list->back().offset < 0.0f)
-                        list->back().offset = 1.0f;
-                    for (std::size_t i = 1; i < list->size(); ++i) {
-                        if ((*list)[i].offset >= 0.0f &&
-                            (*list)[i].offset < (*list)[i - 1].offset) {
-                            (*list)[i].offset = (*list)[i - 1].offset;
-                        }
-                    }
-                    // 3) Evenly distribute runs of unpositioned stops
-                    //    between their bracketing positioned neighbours.
-                    std::size_t i = 0;
-                    while (i < list->size()) {
-                        if ((*list)[i].offset >= 0.0f) { ++i; continue; }
-                        std::size_t j = i;
-                        while (j < list->size() &&
-                               (*list)[j].offset < 0.0f) {
-                            ++j;
-                        }
-                        const float lo = (*list)[i - 1].offset;
-                        const float hi = (j < list->size())
-                                             ? (*list)[j].offset
-                                             : 1.0f;
-                        const std::size_t gap = (j - i) + 1;
-                        for (std::size_t k = i; k < j; ++k) {
-                            const float t =
-                                static_cast<float>(k - i + 1) /
-                                static_cast<float>(gap);
-                            (*list)[k].offset = lo + (hi - lo) * t;
-                        }
-                        i = j;
-                    }
+                    auto list = std::make_shared<GradientStopList>(
+                        build_gradient_stops(gradient));
                     s.gradient_stops = std::move(list);
                 } else {
                     s.gradient_stops.reset();
                 }
             };
 
-            // Record `layers[0]` (the TOP background image) as a 2-stop
-            // overlay painted over the bottom gradient. Used by the
-            // color-picker square's `to top, #000, transparent` shade.
-            // Kept out-of-line (shared_ptr) so AnimatedStyle stays compact.
-            const auto apply_overlay =
-                [&](const lxb_css_property_gradient_t& g) {
-                std::uint8_t kind;
+            // Every layer ABOVE the bottom one. Each keeps its OWN full
+            // ramp and its own radial geometry — the predecessor of this
+            // code kept a single 2-stop `OverlayGradient`, which turned
+            // the Decius skeuo panels' 6-stop specular into a blown-out
+            // white wash (see BackgroundLayer's comment in
+            // style_resolver.h) and dropped any third layer entirely.
+            const auto make_layer =
+                [&](const lxb_css_property_gradient_t& g,
+                    BackgroundLayer& out) -> bool {
+                using LK = BackgroundLayer::Kind;
                 switch (g.kind) {
-                    case LXB_CSS_GRADIENT_LINEAR: kind = 1; break;
-                    case LXB_CSS_GRADIENT_RADIAL: kind = 2; break;
-                    default: s.overlay_gradient.reset(); return;
+                    case LXB_CSS_GRADIENT_LINEAR: out.kind = LK::Linear; break;
+                    case LXB_CSS_GRADIENT_RADIAL: out.kind = LK::Radial; break;
+                    case LXB_CSS_GRADIENT_LINEAR_STRIPES:
+                        out.kind = LK::LinearStripes;
+                        break;
+                    default:
+                        return false;
                 }
-                auto ov = std::make_shared<OverlayGradient>();
-                ov->kind = kind;
                 double ang = g.angle_deg;
                 ang = ang - 360.0 * std::floor(ang / 360.0);
-                ov->angle_deg = static_cast<std::int16_t>(ang);
-                ov->center_x_pct = static_cast<std::uint8_t>(
-                    std::clamp(std::lround(g.center_x_pct), 0L, 100L));
-                ov->center_y_pct = static_cast<std::uint8_t>(
-                    std::clamp(std::lround(g.center_y_pct), 0L, 100L));
-                ov->stop1_pos_pct = static_cast<std::uint8_t>(
-                    std::clamp(std::lround(g.has_stop1_pos_pct
-                        ? g.stop1_pos_pct : 100.0), 1L, 100L));
-                std::uint32_t o0 = 0, o1 = 0;
-                parse_color(&g.stop0, o0);
-                parse_color(&g.stop1, o1);
-                ov->stop0_rgba = o0;
-                ov->stop1_rgba = o1;
-                s.overlay_gradient = std::move(ov);
+                out.angle_deg = static_cast<std::int16_t>(ang);
+                // Signed and UNCLAMPED: `at 50% -10%` puts the specular
+                // centre above the box on purpose.
+                out.center_x_pct = clamp_i16_pct(g.center_x_pct);
+                out.center_y_pct = clamp_i16_pct(g.center_y_pct);
+                out.radius_x_pct = clamp_u16_pct(g.has_radius_x_pct
+                                                     ? g.radius_x_pct : 0.0);
+                out.radius_y_pct = clamp_u16_pct(g.has_radius_y_pct
+                                                     ? g.radius_y_pct : 0.0);
+                out.stops = build_gradient_stops(g);
+                return out.stops.size() >= 2;
             };
 
-            // CSS background layers are painted back-to-front: the last
-            // parsed layer is the bottom image. Keep our existing single
-            // gradient descriptor for that bottom layer, then record the
-            // common tiled two-linear-gradient grid overlay separately.
-            s.overlay_gradient.reset();
+            // CSS background layers are painted back-to-front: the LAST
+            // parsed layer is the bottom image. The bottom layer keeps its
+            // inline AnimatedStyle home (the zero-allocation fast path);
+            // anything stacked on top of it goes out-of-line.
+            s.background_layers.reset();
             if (v->layer_count != 0) {
                 apply_gradient(v->layers[v->layer_count - 1]);
 
+                // The tiled two-linear-gradient grid pattern is a distinct
+                // primitive (fill_grid_rect), not a gradient stack —
+                // recognise it before falling through to the generic path.
                 bool grid_matched = false;
                 if (v->layer_count >= 2 &&
                     v->layers[0].kind == LXB_CSS_GRADIENT_LINEAR &&
@@ -434060,19 +433719,26 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s,
                         grid_matched = true;
                     }
                 }
-                // Exactly two gradient layers that are NOT the tiled grid
-                // pattern → paint the top layer as an overlay gradient.
-                if (!grid_matched && v->layer_count == 2 &&
-                    v->layers[0].kind != LXB_CSS_GRADIENT_NONE &&
-                    v->layers[0].kind != LXB_CSS_GRADIENT_LINEAR_STRIPES) {
-                    apply_overlay(v->layers[0]);
+                if (!grid_matched && v->layer_count >= 2) {
+                    auto layers = std::make_shared<BackgroundLayerList>();
+                    layers->reserve(v->layer_count - 1);
+                    // Source order, topmost first — the paint side walks
+                    // it in reverse to get CSS's back-to-front order.
+                    for (unsigned i = 0; i + 1 < v->layer_count; ++i) {
+                        BackgroundLayer layer;
+                        if (make_layer(v->layers[i], layer)) {
+                            layers->push_back(std::move(layer));
+                        }
+                    }
+                    if (!layers->empty()) {
+                        s.background_layers = std::move(layers);
+                    }
                 }
             } else if (v->gradient.kind != LXB_CSS_GRADIENT_NONE) {
                 apply_gradient(v->gradient);
             } else {
                 s.animated.gradient_kind = AnimatedStyle::GradientKind::None;
                 s.gradient_stops.reset();
-                s.overlay_gradient.reset();
             }
             break;
         }
@@ -438549,8 +438215,14 @@ public:
                                                1.0f);
                     }
                 } else if (p.r1 > 0.0f) {
-                    return nvgImagePattern(vg_, p.x0 - p.r1, p.y0 - p.r1,
-                                           p.r1 * 2.0f, p.r1 * 2.0f, 0.0f,
+                    // The radial LUT is a disc normalised to [-1,1] on both
+                    // axes, so stretching it over a NON-square pattern rect
+                    // renders a true ellipse (CSS `ellipse 110% 90%`) at no
+                    // extra cost. r1y == 0 keeps the rect square (a circle),
+                    // which is what every other caller wants.
+                    const float ry = p.outer_ry();
+                    return nvgImagePattern(vg_, p.x0 - p.r1, p.y0 - ry,
+                                           p.r1 * 2.0f, ry * 2.0f, 0.0f,
                                            image, 1.0f);
                 }
             }

@@ -332,6 +332,390 @@ def replace_compound_pointer_literals(text: str) -> str:
     return "".join(out)
 
 
+# ── C99 designated initializers ──────────────────────────────────────────────
+# C99 permits two things C++20 does not, and Lexbor's tables use both:
+#
+#   1. Nested designator *chains*: `.cb.state = f`. C++ only allows a single
+#      identifier per designator, so the chain has to become brace nesting:
+#      `.cb = { .state = f }`. Consecutive chain members that share a prefix
+#      have to be folded into one brace group, recursively.
+#   2. Designators in *any* order. C++ requires them in member-declaration
+#      order, so `{ .hash = h, .copy = c, .cmp = m }` must be resorted to
+#      match `struct lexbor_hash_insert { hash; cmp; copy; }`.
+#
+# Reordering needs each struct's member order, so we parse it out of the
+# staged headers. Chain collapsing is purely syntactic and needs no types.
+
+STRUCT_TAG_RE = re.compile(r"(?m)^\s*(?:typedef\s+)?struct\s+([A-Za-z_]\w*)\s*\{")
+STRUCT_ANON_RE = re.compile(r"(?m)^\s*typedef\s+struct\s*\{")
+TYPEDEF_ALIAS_RE = re.compile(
+    r"(?m)^\s*typedef\s+(?:struct\s+|union\s+)?([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*;")
+MEMBER_RE = re.compile(
+    r"^\s*(?:const\s+|volatile\s+|struct\s+|union\s+|unsigned\s+|signed\s+)*"
+    r"([A-Za-z_]\w*)\s*\**\s*([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*$")
+
+
+@dataclass
+class StructInfo:
+    """Member declaration order, and each member's type where resolvable."""
+    order: list[str]
+    member_type: dict[str, str]
+
+
+def strip_comments(text: str) -> str:
+    """Blank out comments and string/char literal bodies, preserving offsets."""
+    out = list(text)
+    i, n = 0, len(text)
+
+    while i < n:
+        c = text[i]
+        if c == "/" and i + 1 < n and text[i + 1] == "*":
+            j = text.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            for k in range(i, j):
+                if out[k] != "\n":
+                    out[k] = " "
+            i = j
+        elif c == "/" and i + 1 < n and text[i + 1] == "/":
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+            for k in range(i, j):
+                out[k] = " "
+            i = j
+        elif c in ('"', "'"):
+            quote = c
+            j = i + 1
+            while j < n:
+                if text[j] == "\\":
+                    j += 2
+                    continue
+                if text[j] == quote:
+                    j += 1
+                    break
+                j += 1
+            for k in range(i + 1, min(j - 1, n) + 1):
+                if k < n and out[k] not in ('"', "'") and out[k] != "\n":
+                    out[k] = " "
+            i = j
+        else:
+            i += 1
+
+    return "".join(out)
+
+
+def matching_brace(text: str, open_idx: int) -> int:
+    """Index just past the `}` closing the `{` at open_idx (in blanked text)."""
+    depth = 0
+    for i in range(open_idx, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+    return -1
+
+
+def parse_struct_body(body: str) -> tuple[list[str], dict[str, str]]:
+    """Split a struct body into member names in order, plus their types.
+
+    Nested anonymous `union { ... } name;` / `struct { ... } name;` members
+    contribute the trailing name; their inner members are registered under a
+    synthetic type name by the caller.
+    """
+    order: list[str] = []
+    types: dict[str, str] = {}
+    i, n = 0, len(body)
+    decl_start = 0
+
+    while i < n:
+        c = body[i]
+        if c == "{":
+            end = matching_brace(body, i)
+            if end < 0:
+                break
+            nested = body[i:end]
+            kind = "union" if "union" in body[decl_start:i] else "struct"
+            # The declaration continues past the brace body: `} name;`
+            semi = body.find(";", end)
+            if semi < 0:
+                break
+            name = body[end:semi].strip().lstrip("*").strip()
+            if name:
+                order.append(name)
+                types[name] = f"__anon_{kind}_{len(order)}"
+                types[f"@body:{name}"] = nested
+            i = decl_start = semi + 1
+            continue
+        if c == ";":
+            match = MEMBER_RE.match(body[decl_start:i].replace("\n", " "))
+            if match is not None:
+                order.append(match.group(2))
+                types[match.group(2)] = match.group(1)
+            i = decl_start = i + 1
+            continue
+        i += 1
+
+    return order, types
+
+
+def collect_struct_layouts(staged_source: Path) -> dict[str, StructInfo]:
+    """Map every reachable Lexbor struct/typedef name to its member order."""
+    layouts: dict[str, StructInfo] = {}
+    aliases: dict[str, str] = {}
+
+    def register(name: str, body: str) -> None:
+        order, types = parse_struct_body(body)
+        member_type: dict[str, str] = {}
+        for field in order:
+            typ = types.get(field, "")
+            if typ.startswith("__anon_"):
+                anon = f"{name}::{field}"
+                register(anon, types[f"@body:{field}"][1:-1])
+                member_type[field] = anon
+            elif typ:
+                member_type[field] = typ
+        layouts[name] = StructInfo(order=order, member_type=member_type)
+
+    for path in sorted((staged_source / "lexbor").rglob("*.h")):
+        blank = strip_comments(read_text(path))
+
+        # Parse the comment-blanked text throughout: member declarations are
+        # split on `;`, and Lexbor's per-member trailing comments would
+        # otherwise be swallowed into the *next* declaration.
+        for match in STRUCT_TAG_RE.finditer(blank):
+            open_idx = blank.index("{", match.start())
+            end = matching_brace(blank, open_idx)
+            if end < 0:
+                continue
+            register(match.group(1), blank[open_idx + 1:end - 1])
+
+        for match in STRUCT_ANON_RE.finditer(blank):
+            open_idx = blank.index("{", match.start())
+            end = matching_brace(blank, open_idx)
+            if end < 0:
+                continue
+            # `typedef struct { ... }\nNAME;` — the alias follows the body.
+            tail = re.match(r"\s*([A-Za-z_]\w*)\s*;", blank[end:])
+            if tail is None:
+                continue
+            register(tail.group(1), blank[open_idx + 1:end - 1])
+
+        for match in TYPEDEF_ALIAS_RE.finditer(blank):
+            aliases.setdefault(match.group(2), match.group(1))
+
+    # Flatten alias chains (`typedef struct lexbor_hash_insert
+    # lexbor_hash_insert_t;`) onto the layout they ultimately name.
+    for alias, target in aliases.items():
+        seen = {alias}
+        while target in aliases and target not in seen:
+            seen.add(target)
+            target = aliases[target]
+        if alias not in layouts and target in layouts:
+            layouts[alias] = layouts[target]
+
+    return layouts
+
+
+def split_init_items(body: str) -> list[str]:
+    """Split a brace-initializer body at top-level commas."""
+    blank = strip_comments(body)
+    items: list[str] = []
+    depth = 0
+    start = 0
+
+    for i, c in enumerate(blank):
+        if c in "{([":
+            depth += 1
+        elif c in "})]":
+            depth -= 1
+        elif c == "," and depth == 0:
+            items.append(body[start:i])
+            start = i + 1
+
+    tail = body[start:]
+    if tail.strip():
+        items.append(tail)
+    return items
+
+
+DESIGNATOR_RE = re.compile(r"^\s*((?:\.[A-Za-z_]\w*|\[[^\]]*\])+)\s*=\s*(.*)$",
+                           re.S)
+
+
+def split_designator(designator: str) -> list[str]:
+    """`.cb.state` -> ['.cb', '.state']; `[3].x` -> ['[3]', '.x']."""
+    return re.findall(r"\.[A-Za-z_]\w*|\[[^\]]*\]", designator)
+
+
+def normalize_init_body(body: str, type_name: str | None,
+                        layouts: dict[str, StructInfo]) -> tuple[str, bool]:
+    """Collapse designator chains and resort designators in one brace body.
+
+    Returns the (possibly rewritten) body and whether anything changed. Bodies
+    that already satisfy C++ come back byte-identical: the big generated CSS
+    tables are mostly fine, and reflowing them would churn megabytes of the
+    amalgamation for nothing.
+    """
+    items = split_init_items(body)
+    if not items:
+        return body, False
+
+    # Parse each item into (designator-path, value) or (None, positional).
+    parsed: list[tuple[list[str] | None, str]] = []
+    for item in items:
+        match = DESIGNATOR_RE.match(item)
+        if match is None:
+            parsed.append((None, item))
+        else:
+            parsed.append((split_designator(match.group(1)),
+                           match.group(2).strip()))
+
+    info = layouts.get(type_name or "")
+    changed = False
+
+    if not any(path for path, _ in parsed):
+        # No designators at this level, but nested braces may still hold some.
+        # An array/positional body keeps the element type for its rows.
+        out: list[str] = []
+        for _, value in parsed:
+            fixed, hit = normalize_value(value, type_name, layouts)
+            changed |= hit
+            out.append(fixed)
+        return (",".join(out), True) if changed else (body, False)
+
+    # 1. Fold consecutive items that share a leading designator into one group:
+    #    `.cb.state = a, .cb.end = b` -> `.cb = {.state = a, .end = b}`.
+    folded: list[tuple[str, str]] = []  # (designator or "", value)
+    idx = 0
+    while idx < len(parsed):
+        path, value = parsed[idx]
+        if path is None:
+            folded.append(("", value.strip()))
+            idx += 1
+            continue
+        if len(path) == 1:
+            folded.append((path[0], value))
+            idx += 1
+            continue
+
+        head = path[0]
+        group: list[str] = []
+        while idx < len(parsed):
+            nxt_path, nxt_value = parsed[idx]
+            if not nxt_path or len(nxt_path) < 2 or nxt_path[0] != head:
+                break
+            group.append(f"{''.join(nxt_path[1:])} = {nxt_value}")
+            idx += 1
+        folded.append((head, "{" + ", ".join(group) + "}"))
+        changed = True
+
+    # 2. Recurse into each member's value with that member's declared type, so
+    #    nested bodies get the same treatment — including the group just built.
+    rendered: list[tuple[str, str]] = []
+    for head, value in folded:
+        member = head[1:] if head.startswith(".") else ""
+        member_type = info.member_type.get(member) if info else None
+        fixed, hit = normalize_value(value, member_type, layouts)
+        changed |= hit
+        rendered.append((head, fixed))
+
+    # 3. Resort to member-declaration order. Array designators and positional
+    #    items have no declared order, so bodies mixing them are left alone.
+    if info and all(head.startswith(".") for head, _ in rendered):
+        names = [head[1:] for head, _ in rendered]
+        if all(name in info.order for name in names):
+            order = [info.order.index(name) for name in names]
+            if order != sorted(order):
+                rendered.sort(key=lambda hv: info.order.index(hv[0][1:]))
+                changed = True
+
+    if not changed:
+        return body, False
+
+    return ", ".join(f"{head} = {value}" if head else value
+                     for head, value in rendered), True
+
+
+def normalize_value(value: str, type_name: str | None,
+                    layouts: dict[str, StructInfo]) -> tuple[str, bool]:
+    stripped = value.strip()
+    if not (stripped.startswith("{") and stripped.endswith("}")):
+        return value, False
+    inner, changed = normalize_init_body(stripped[1:-1], type_name, layouts)
+    if not changed:
+        return value, False
+    return "{" + inner + "}", True
+
+
+INIT_DECL_RE = re.compile(
+    r"(?:^|[\s(,])(?:const\s+|static\s+|volatile\s+)*"
+    r"((?:lexbor|lxb)_[A-Za-z0-9_]*(?:_t)?)\s+\**\s*[A-Za-z_]\w*\s*(?:\[[^\]]*\])?\s*=\s*",
+    re.M)
+STATIC_PTR_RE = re.compile(r"LEXBOR_CPP_STATIC_PTR\(\s*([A-Za-z_]\w*)\s*,\s*")
+
+
+def normalize_designated_initializers(
+        text: str, layouts: dict[str, StructInfo]) -> str:
+    """Rewrite every C99 designated initializer in `text` for C++20."""
+    if "." not in text or "{" not in text:
+        return text
+
+    blank = strip_comments(text)
+    out: list[str] = []
+    cursor = 0
+
+    # Every initializer whose type we can name: `TYPE name = { ... }` and the
+    # `LEXBOR_CPP_STATIC_PTR(TYPE, { ... })` form emitted by the compound-
+    # literal pass above. Both give us the root type needed to resort members.
+    starts: list[tuple[int, str]] = []
+    for match in INIT_DECL_RE.finditer(blank):
+        starts.append((match.end(), match.group(1)))
+    for match in STATIC_PTR_RE.finditer(blank):
+        starts.append((match.end(), match.group(1)))
+    starts.sort()
+
+    # The cursor only advances on an actual rewrite. An outer table that needs
+    # no change therefore leaves its inner LEXBOR_CPP_STATIC_PTR initializers
+    # (which recursion does not descend into — they are calls, not braces)
+    # visible to their own entries in `starts`.
+    for pos, type_name in starts:
+        if pos < cursor:
+            continue
+        brace = pos
+        while brace < len(blank) and blank[brace].isspace():
+            brace += 1
+        if brace >= len(blank) or blank[brace] != "{":
+            continue
+        end = matching_brace(blank, brace)
+        if end < 0:
+            continue
+        body = text[brace + 1:end - 1]
+        if "." not in strip_comments(body):
+            continue
+
+        fixed, changed = normalize_init_body(body, type_name, layouts)
+        if not changed:
+            continue
+
+        out.append(text[cursor:brace])
+        out.append("{" + fixed + "}")
+        cursor = end
+
+    out.append(text[cursor:])
+    return "".join(out)
+
+
+def patch_designated_initializers(staged_source: Path) -> None:
+    layouts = collect_struct_layouts(staged_source)
+    for pattern in ("*.c", "*.h"):
+        for path in (staged_source / "lexbor").rglob(pattern):
+            text = read_text(path)
+            fixed = normalize_designated_initializers(text, layouts)
+            if fixed != text:
+                write_text(path, fixed)
+
+
 def patch_generated_headers(staged_source: Path) -> None:
     for path in (staged_source / "lexbor").rglob("*.h"):
         text = replace_compound_pointer_literals(read_text(path))
@@ -371,6 +755,16 @@ def patch_c_translation_units(staged_source: Path) -> None:
 
 def apply_known_cxx_source_fixes(staged_source: Path) -> None:
     """Apply non-diagnostic fixes for C constructs that need structural edits."""
+    # C99 lets an initializer mix designated and positional clauses; C++ does
+    # not. This one lives in a macro body, so the designator pass — which keys
+    # off a nameable initializer type — can't reach it.
+    path = staged_source / "lexbor" / "core" / "str.h"
+    text = read_text(path)
+    text = text.replace(
+        "#define lexbor_str(p) {.data = (lxb_char_t *) (p), sizeof(p) - 1}",
+        "#define lexbor_str(p) {.data = (lxb_char_t *) (p), .length = sizeof(p) - 1}")
+    write_text(path, text)
+
     path = staged_source / "lexbor" / "css" / "syntax" / "state.c"
     text = read_text(path)
     text = text.replace('static const lxb_char_t minuses[3] = "---";',
@@ -443,6 +837,10 @@ def transform(staged_source: Path, symbol_prefix: str) -> None:
     inject_base_helpers(staged_source)
     patch_swar_endian_check(staged_source)
     patch_generated_headers(staged_source)
+    # After the compound-literal pass: it wraps `&(type){...}` into
+    # LEXBOR_CPP_STATIC_PTR(type, {...}), which is one of the two forms the
+    # designator pass reads a root type from.
+    patch_designated_initializers(staged_source)
     patch_c_translation_units(staged_source)
     apply_known_cxx_source_fixes(staged_source)
     prefix_file_static_symbols(staged_source)
@@ -859,8 +1257,11 @@ def main() -> int:
                         help="compile generated Lexbor C files as C++")
     parser.add_argument("--no-repair", action="store_true",
                         help="skip compiler-guided cast repair")
-    parser.add_argument("--cxx", default=os.environ.get("CXX", "clang++"),
-                        help="C++ compiler for --check")
+    # clang, not $CXX: --check's repair pass parses clang's diagnostic wording
+    # and passes clang-only flags (see CPP_COMPILE_FLAGS). Inheriting the
+    # build's compiler hands it g++ or cl.exe and it dies partway through.
+    parser.add_argument("--cxx", default="clang++",
+                        help="clang++ used for --check")
     parser.add_argument("--symbol-prefix", default="aui_",
                         help="prefix for generated Lexbor linker symbols")
     parser.add_argument("--no-symbol-prefix", action="store_true",

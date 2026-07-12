@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -795,11 +796,17 @@ def emit_vendored_c_block(root: Path, cwrap_blocks: list[FileBlock],
                              vendored_external_headers),
         '}  // extern "C"\n',
         "#endif  // !AFFINEUI_STUB_BUILD && !AFFINEUI_HOST_PROVIDES_NANOVG\n\n",
-        'extern "C" {\n\n',
     ]
+    # No `extern "C"` wrapper here. Every header these wrappers pull in
+    # (sokol_*.h, nanovg_sokol.h, tiny-json.h, stb_*.h) already declares its
+    # own `#ifdef __cplusplus extern "C" {`, so the definitions inherit C
+    # linkage from those declarations. Wrapping the block would additionally
+    # drag sokol_gfx.h's C++ *reference overloads* (`sg_setup(const sg_desc&)`
+    # next to `sg_setup(const sg_desc*)`) into C linkage — GCC rejects that as
+    # a conflicting declaration of a C function, and only clang lets it pass.
     for b in cwrap_blocks:
         parts.append(render_block(b))
-    parts.append('}  // extern "C"\n\n')
+    parts.append("\n")
     parts.append(
         "// Implementation macros are single-use; clear them before any later\n"
         "// declaration-only repeat of these upstream headers (the renderer\n"
@@ -813,6 +820,15 @@ def emit_vendored_c_block(root: Path, cwrap_blocks: list[FileBlock],
         "#undef FONTSTASH_IMPLEMENTATION\n"
         "#undef STB_IMAGE_IMPLEMENTATION\n"
         "#undef STB_TRUETYPE_IMPLEMENTATION\n"
+        "\n"
+        "// X11 (pulled in by sokol_app's Linux backend) defines `None` as an\n"
+        "// object-like macro. In one TU that macro reaches every line below,\n"
+        "// and C++ code legitimately uses `None` as an identifier — Yoga's\n"
+        "// `Errata::None`, for one. Drop it; sokol_app is done with it, and\n"
+        "// nothing downstream in the amalgamation wants the X11 spelling.\n"
+        "#ifdef None\n"
+        "#  undef None\n"
+        "#endif\n"
         "\n"
     )
     return "".join(parts)
@@ -961,12 +977,64 @@ def verify_inputs(root: Path) -> list[str]:
     return missing
 
 
+CLANG_REQUIRED_MSG = """\
+amalgamate: generating the two-file SDK requires clang.
+
+The Lexbor staging tree is compiled as C++ and repaired from the compiler's
+diagnostics; the repair pass parses clang's diagnostic wording and passes
+clang-only flags (-Wno-c99-designator, -ferror-limit). GCC and MSVC are not
+supported for this step — but the *generated* affineui.cpp compiles on all
+three, which is what actually ships.
+
+Install LLVM and retry, or pass --cxx <path-to-clang++> explicitly:
+  Linux : apt-get install clang
+  macOS : xcode-select --install
+  Windows: winget install LLVM.LLVM
+"""
+
+
+def resolve_clang(requested: str | None) -> str:
+    """Return a clang++ to drive the Lexbor repair pass, or die trying.
+
+    Deliberately does *not* inherit CMAKE_CXX_COMPILER: on a GCC- or
+    MSVC-configured build that hands the repair pass a compiler it cannot
+    drive, and the target then dies partway through — emitting affineui.h
+    with no affineui.cpp.
+    """
+    candidates = [requested] if requested else ["clang++", "clang"]
+
+    for name in candidates:
+        path = shutil.which(name) or (name if Path(name).is_file() else None)
+        if path is None:
+            continue
+        # A path can exist and still not be runnable (not executable, wrong
+        # arch, a stub). Treat that as "not a usable clang" and fall through to
+        # the guidance below, rather than letting a traceback out.
+        try:
+            result = subprocess.run(
+                [path, "--version"], text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        except OSError:
+            result = None
+        if (result is not None and result.returncode == 0
+                and "clang" in result.stdout.lower()):
+            return path
+        if requested:
+            print(f"amalgamate: --cxx '{requested}' is not a usable clang\n",
+                  file=sys.stderr)
+            break
+
+    print(CLANG_REQUIRED_MSG, file=sys.stderr)
+    return ""
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     ap.add_argument("--root", required=True, help="repo root")
     ap.add_argument("--out",  required=True, help="output directory")
-    ap.add_argument("--cxx", default="clang++",
-                    help="C++ compiler used to repair generated Lexbor staging")
+    ap.add_argument("--cxx", default=None,
+                    help="clang++ used to repair the generated Lexbor staging "
+                         "(default: the first clang on PATH)")
     ap.add_argument("--manifest-only", action="store_true",
                     help="print the input manifest and exit (no files written)")
     args = ap.parse_args()
@@ -977,6 +1045,10 @@ def main() -> int:
     if args.manifest_only:
         emit_manifest(root)
         return 0
+
+    cxx = resolve_clang(args.cxx)
+    if not cxx:
+        return 1
 
     # Regenerate the Decius bundle header before scanning inputs.
     # embed_decius.py reads examples/frameworks/{css,fonts}/* and writes
@@ -1009,8 +1081,16 @@ def main() -> int:
 
     h_path   = out / "affineui.h"
     cpp_path = out / "affineui.cpp"
+
+    # Clear both outputs, then emit the *implementation* first: it is the step
+    # that can fail (Lexbor staging, C++ repair). A half-written pair — a fresh
+    # affineui.h next to a missing or stale affineui.cpp — is worse than none,
+    # because it looks like a successful build to everything downstream.
+    h_path.unlink(missing_ok=True)
+    cpp_path.unlink(missing_ok=True)
+
+    cpp_size = emit_impl  (root, cpp_path, version, cxx)
     h_size   = emit_header(root, h_path,   version)
-    cpp_size = emit_impl  (root, cpp_path, version, args.cxx)
 
     print(f"wrote {h_path}   ({h_size:>9,} bytes)")
     print(f"wrote {cpp_path} ({cpp_size:>9,} bytes)")

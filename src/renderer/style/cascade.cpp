@@ -482,6 +482,73 @@ bool parse_color(const lxb_css_value_color_t* v, std::uint32_t& out,
     return parse_color(v, out);
 }
 
+// A CSS percentage that may legitimately sit outside [0,100] (a radial
+// gradient centred at `50% -10%`) squeezed into an int16. The clamp is
+// only a range guard against absurd authored values, not CSS semantics.
+std::int16_t clamp_i16_pct(double pct) {
+    return static_cast<std::int16_t>(
+        std::clamp(std::lround(pct), -32768L, 32767L));
+}
+
+// A CSS size percentage, which is non-negative but may exceed 100%
+// (`ellipse 110% 90%`).
+std::uint16_t clamp_u16_pct(double pct) {
+    return static_cast<std::uint16_t>(
+        std::clamp(std::lround(pct), 0L, 65535L));
+}
+
+// Turn one parsed lexbor gradient into an ordered stop list with CSS
+// stop placement applied. Shared by the bottom (inline) layer and every
+// stacked layer, so both get identical, correct ramps — the whole point
+// of the multi-layer rework is that a stacked layer is not a second-class
+// citizen with a truncated 2-stop ramp.
+GradientStopList build_gradient_stops(const lxb_css_property_gradient_t& g) {
+    GradientStopList list;
+    const unsigned n = std::min<unsigned>(
+        g.stop_count, static_cast<unsigned>(LXB_CSS_GRADIENT_MAX_STOPS));
+    if (n == 0) return list;
+    list.reserve(n);
+
+    // 1) Pull colors + explicit offsets (fraction 0–1). -1 marks
+    //    "no explicit position".
+    for (unsigned i = 0; i < n; ++i) {
+        std::uint32_t rgba = 0;
+        parse_color(&g.stops[i].color, rgba);
+        const float off = g.stops[i].has_pos_pct
+            ? static_cast<float>(g.stops[i].pos_pct / 100.0)
+            : -1.0f;
+        list.push_back(GradientStop{off, rgba});
+    }
+
+    // 2) CSS placement: first defaults to 0, last to 1, then make
+    //    positions monotonic non-decreasing.
+    if (list[0].offset < 0.0f) list[0].offset = 0.0f;
+    if (list.back().offset < 0.0f) list.back().offset = 1.0f;
+    for (std::size_t i = 1; i < list.size(); ++i) {
+        if (list[i].offset >= 0.0f && list[i].offset < list[i - 1].offset) {
+            list[i].offset = list[i - 1].offset;
+        }
+    }
+    // 3) Evenly distribute runs of unpositioned stops between their
+    //    bracketing positioned neighbours.
+    std::size_t i = 0;
+    while (i < list.size()) {
+        if (list[i].offset >= 0.0f) { ++i; continue; }
+        std::size_t j = i;
+        while (j < list.size() && list[j].offset < 0.0f) ++j;
+        const float lo = list[i - 1].offset;
+        const float hi = (j < list.size()) ? list[j].offset : 1.0f;
+        const std::size_t gap = (j - i) + 1;
+        for (std::size_t k = i; k < j; ++k) {
+            const float t = static_cast<float>(k - i + 1) /
+                            static_cast<float>(gap);
+            list[k].offset = lo + (hi - lo) * t;
+        }
+        i = j;
+    }
+    return list;
+}
+
 // em_px: the font-size in CSS pixels used to resolve `em` lengths.
 //   For most properties this is the element's own computed font-size.
 //   For `font-size` itself it must be the PARENT's font-size (passed by
@@ -1534,104 +1601,59 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s,
                 // the list (they are a single-color tile).
                 if (gradient.kind != LXB_CSS_GRADIENT_LINEAR_STRIPES &&
                     gradient.stop_count > 2) {
-                    const unsigned n = std::min<unsigned>(
-                        gradient.stop_count,
-                        static_cast<unsigned>(LXB_CSS_GRADIENT_MAX_STOPS));
-                    auto list = std::make_shared<GradientStopList>();
-                    list->reserve(n);
-
-                    // 1) Pull colors + explicit offsets (fraction 0–1).
-                    //    -1 marks "no explicit position".
-                    for (unsigned i = 0; i < n; ++i) {
-                        std::uint32_t rgba = 0;
-                        parse_color(&gradient.stops[i].color, rgba);
-                        const float off = gradient.stops[i].has_pos_pct
-                            ? static_cast<float>(
-                                  gradient.stops[i].pos_pct / 100.0)
-                            : -1.0f;
-                        list->push_back(GradientStop{off, rgba});
-                    }
-
-                    // 2) CSS placement: first defaults to 0, last to 1,
-                    //    then make positions monotonic non-decreasing.
-                    if ((*list)[0].offset < 0.0f) (*list)[0].offset = 0.0f;
-                    if (list->back().offset < 0.0f)
-                        list->back().offset = 1.0f;
-                    for (std::size_t i = 1; i < list->size(); ++i) {
-                        if ((*list)[i].offset >= 0.0f &&
-                            (*list)[i].offset < (*list)[i - 1].offset) {
-                            (*list)[i].offset = (*list)[i - 1].offset;
-                        }
-                    }
-                    // 3) Evenly distribute runs of unpositioned stops
-                    //    between their bracketing positioned neighbours.
-                    std::size_t i = 0;
-                    while (i < list->size()) {
-                        if ((*list)[i].offset >= 0.0f) { ++i; continue; }
-                        std::size_t j = i;
-                        while (j < list->size() &&
-                               (*list)[j].offset < 0.0f) {
-                            ++j;
-                        }
-                        const float lo = (*list)[i - 1].offset;
-                        const float hi = (j < list->size())
-                                             ? (*list)[j].offset
-                                             : 1.0f;
-                        const std::size_t gap = (j - i) + 1;
-                        for (std::size_t k = i; k < j; ++k) {
-                            const float t =
-                                static_cast<float>(k - i + 1) /
-                                static_cast<float>(gap);
-                            (*list)[k].offset = lo + (hi - lo) * t;
-                        }
-                        i = j;
-                    }
+                    auto list = std::make_shared<GradientStopList>(
+                        build_gradient_stops(gradient));
                     s.gradient_stops = std::move(list);
                 } else {
                     s.gradient_stops.reset();
                 }
             };
 
-            // Record `layers[0]` (the TOP background image) as a 2-stop
-            // overlay painted over the bottom gradient. Used by the
-            // color-picker square's `to top, #000, transparent` shade.
-            // Kept out-of-line (shared_ptr) so AnimatedStyle stays compact.
-            const auto apply_overlay =
-                [&](const lxb_css_property_gradient_t& g) {
-                std::uint8_t kind;
+            // Every layer ABOVE the bottom one. Each keeps its OWN full
+            // ramp and its own radial geometry — the predecessor of this
+            // code kept a single 2-stop `OverlayGradient`, which turned
+            // the Decius skeuo panels' 6-stop specular into a blown-out
+            // white wash (see BackgroundLayer's comment in
+            // style_resolver.h) and dropped any third layer entirely.
+            const auto make_layer =
+                [&](const lxb_css_property_gradient_t& g,
+                    BackgroundLayer& out) -> bool {
+                using LK = BackgroundLayer::Kind;
                 switch (g.kind) {
-                    case LXB_CSS_GRADIENT_LINEAR: kind = 1; break;
-                    case LXB_CSS_GRADIENT_RADIAL: kind = 2; break;
-                    default: s.overlay_gradient.reset(); return;
+                    case LXB_CSS_GRADIENT_LINEAR: out.kind = LK::Linear; break;
+                    case LXB_CSS_GRADIENT_RADIAL: out.kind = LK::Radial; break;
+                    case LXB_CSS_GRADIENT_LINEAR_STRIPES:
+                        out.kind = LK::LinearStripes;
+                        break;
+                    default:
+                        return false;
                 }
-                auto ov = std::make_shared<OverlayGradient>();
-                ov->kind = kind;
                 double ang = g.angle_deg;
                 ang = ang - 360.0 * std::floor(ang / 360.0);
-                ov->angle_deg = static_cast<std::int16_t>(ang);
-                ov->center_x_pct = static_cast<std::uint8_t>(
-                    std::clamp(std::lround(g.center_x_pct), 0L, 100L));
-                ov->center_y_pct = static_cast<std::uint8_t>(
-                    std::clamp(std::lround(g.center_y_pct), 0L, 100L));
-                ov->stop1_pos_pct = static_cast<std::uint8_t>(
-                    std::clamp(std::lround(g.has_stop1_pos_pct
-                        ? g.stop1_pos_pct : 100.0), 1L, 100L));
-                std::uint32_t o0 = 0, o1 = 0;
-                parse_color(&g.stop0, o0);
-                parse_color(&g.stop1, o1);
-                ov->stop0_rgba = o0;
-                ov->stop1_rgba = o1;
-                s.overlay_gradient = std::move(ov);
+                out.angle_deg = static_cast<std::int16_t>(ang);
+                // Signed and UNCLAMPED: `at 50% -10%` puts the specular
+                // centre above the box on purpose.
+                out.center_x_pct = clamp_i16_pct(g.center_x_pct);
+                out.center_y_pct = clamp_i16_pct(g.center_y_pct);
+                out.radius_x_pct = clamp_u16_pct(g.has_radius_x_pct
+                                                     ? g.radius_x_pct : 0.0);
+                out.radius_y_pct = clamp_u16_pct(g.has_radius_y_pct
+                                                     ? g.radius_y_pct : 0.0);
+                out.stops = build_gradient_stops(g);
+                return out.stops.size() >= 2;
             };
 
-            // CSS background layers are painted back-to-front: the last
-            // parsed layer is the bottom image. Keep our existing single
-            // gradient descriptor for that bottom layer, then record the
-            // common tiled two-linear-gradient grid overlay separately.
-            s.overlay_gradient.reset();
+            // CSS background layers are painted back-to-front: the LAST
+            // parsed layer is the bottom image. The bottom layer keeps its
+            // inline AnimatedStyle home (the zero-allocation fast path);
+            // anything stacked on top of it goes out-of-line.
+            s.background_layers.reset();
             if (v->layer_count != 0) {
                 apply_gradient(v->layers[v->layer_count - 1]);
 
+                // The tiled two-linear-gradient grid pattern is a distinct
+                // primitive (fill_grid_rect), not a gradient stack —
+                // recognise it before falling through to the generic path.
                 bool grid_matched = false;
                 if (v->layer_count >= 2 &&
                     v->layers[0].kind == LXB_CSS_GRADIENT_LINEAR &&
@@ -1649,19 +1671,26 @@ void apply_declaration(const lxb_css_rule_declaration_t* d, ResolvedStyle& s,
                         grid_matched = true;
                     }
                 }
-                // Exactly two gradient layers that are NOT the tiled grid
-                // pattern → paint the top layer as an overlay gradient.
-                if (!grid_matched && v->layer_count == 2 &&
-                    v->layers[0].kind != LXB_CSS_GRADIENT_NONE &&
-                    v->layers[0].kind != LXB_CSS_GRADIENT_LINEAR_STRIPES) {
-                    apply_overlay(v->layers[0]);
+                if (!grid_matched && v->layer_count >= 2) {
+                    auto layers = std::make_shared<BackgroundLayerList>();
+                    layers->reserve(v->layer_count - 1);
+                    // Source order, topmost first — the paint side walks
+                    // it in reverse to get CSS's back-to-front order.
+                    for (unsigned i = 0; i + 1 < v->layer_count; ++i) {
+                        BackgroundLayer layer;
+                        if (make_layer(v->layers[i], layer)) {
+                            layers->push_back(std::move(layer));
+                        }
+                    }
+                    if (!layers->empty()) {
+                        s.background_layers = std::move(layers);
+                    }
                 }
             } else if (v->gradient.kind != LXB_CSS_GRADIENT_NONE) {
                 apply_gradient(v->gradient);
             } else {
                 s.animated.gradient_kind = AnimatedStyle::GradientKind::None;
                 s.gradient_stops.reset();
-                s.overlay_gradient.reset();
             }
             break;
         }

@@ -229,6 +229,14 @@ typedef struct {
     double                  angle_deg;  /* linear: CSS angle degrees */
     double                  center_x_pct;
     double                  center_y_pct;
+    /* radial: explicit ending-shape size, as a percentage of the box's
+     * half-width / half-height (`ellipse 110% 90%` => 110 / 90). When
+     * has_radius_*_pct is false the CSS default (farthest-corner) applies
+     * and the consumer picks the extent itself. */
+    double                  radius_x_pct;
+    double                  radius_y_pct;
+    bool                    has_radius_x_pct;
+    bool                    has_radius_y_pct;
     double                  stop0_pos_pct;
     double                  stop1_pos_pct;
     bool                    has_stop0_pos_pct;
@@ -241,10 +249,15 @@ typedef struct {
     unsigned int            stop_count;
 } lxb_css_property_gradient_t;
 
+/* Max comma-separated `background` image layers kept. Real skeuomorphic
+ * CSS stacks up to three (a repeating texture over a specular highlight
+ * over a base ramp); one spare keeps a fourth from being silently lost. */
+#define LXB_CSS_BACKGROUND_MAX_LAYERS 4
+
 typedef struct {
     lxb_css_value_color_t      color;
     lxb_css_property_gradient_t gradient; /* kind=NONE when no gradient */
-    lxb_css_property_gradient_t layers[3];
+    lxb_css_property_gradient_t layers[LXB_CSS_BACKGROUND_MAX_LAYERS];
     unsigned int                layer_count;
 }
 lxb_css_property_background_t;
