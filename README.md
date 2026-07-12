@@ -474,47 +474,60 @@ CSS-selector click routing without any glue code.
 
 ## Running the demos
 
-Clone the repo and build with CMake — the `examples/` folder ships
-roughly twenty end-to-end applications covering game tools, DCC UIs,
-and framework compatibility.
+Clone the repo and use the task runner — `./build.sh run <name>` builds
+whatever that demo needs and launches it. There is nothing to install first.
 
 ```bash
 git clone https://github.com/benjcooley/affineui.git
 cd affineui
-cmake -S . -B build -G Ninja
-cmake --build build
+
+./build.sh run                    # the default demo (hello)
+./build.sh run decius_game_editor
+./build.sh list                   # every demo you can run, C++ and Python
 ```
+
+On Windows use `build.ps1` (it sets up the MSVC environment) — the commands
+are otherwise identical: `.\build.ps1 run decius_game_editor`.
+
+`list` reads the demo set from the build itself, so it only ever shows demos
+that are genuinely runnable here — ones with a missing optional dependency
+(the SDL2 or D3D11 samples) simply don't appear.
 
 Notable ones:
 
-| Demo | Path | What it shows |
+| Demo | Run it | What it shows |
 | --- | --- | --- |
-| Hello | [`examples/00_hello`](examples/00_hello) | Smallest working program |
-| Bootstrap dashboard | [`examples/10_bootstrap_dashboard`](examples/10_bootstrap_dashboard) | Real Bootstrap 4.6 CSS, cards, navbars, tables |
-| Game editor | [`examples/11_decius_game_editor`](examples/11_decius_game_editor) | Docked panels, tree view, inspector |
-| Skeuomorphic synth | [`examples/14_decius_synth_skeuo`](examples/14_decius_synth_skeuo) | Custom skin with realistic textures + animations |
-| Dender (3D print slicer) | [`examples/16_decius_dender`](examples/16_decius_dender) | Full-app layout with viewport |
-| Atari 2600 | [`examples/17_affine_2600`](examples/17_affine_2600) | Emulator UI embedded in a native window |
-
-Run any of them straight from the build directory:
-
-```bash
-./build/examples/00_hello/hello
-./build/examples/11_decius_game_editor/decius_game_editor
-./build/examples/14_decius_synth_skeuo/decius_synth_skeuo
-./build/examples/16_decius_dender/dender
-```
+| Hello | `./build.sh run hello` | Smallest working program |
+| Bootstrap dashboard | `./build.sh run bootstrap_dashboard` | Real Bootstrap 4.6 CSS, cards, navbars, tables |
+| Game editor | `./build.sh run decius_game_editor` | Docked panels, tree view, inspector, 3D viewport |
+| Dender (3D print slicer) | `./build.sh run decius_dender` | Full-app layout with a live 3D viewport |
+| Atari 2600 | `./build.sh run affine_2600` | Emulator UI embedded in a native window |
+| Virtual list | `./build.sh run virtual_list` | Millions of rows, recycled — no lag |
+| Component gallery (Python) | `./build.sh run py_component_gallery` | The whole widget set, driven from Python |
 
 <img src="images/affineui_game_editor.png" width="720" alt="Game editor demo">
 
 *Decius Game Editor demo — docked panels, tree view, inspector, and toolbars in AffineUI's default Decius CSS look.*
 
-The Python and Rust bindings ship their own runnable examples:
+### Python demos
+
+The Python demos are addressed as `py_<name>` and run the same way:
 
 ```bash
-python bindings/python/examples/hello.py
-python bindings/python/examples/component_gallery.py
+./build.sh run py_hello
+./build.sh run py_component_gallery
+./build.sh run py_photo_edit
+```
 
+The first `py_*` run builds the extension module into a private virtualenv
+under `build-python/` — so the demos always run against *this* checkout, and
+nothing is installed into your system Python. (If you'd rather work against an
+installed package, `pip install -e ./bindings/python` still does what you
+expect.)
+
+### Rust demos
+
+```bash
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example hello
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example component_gallery
 ```

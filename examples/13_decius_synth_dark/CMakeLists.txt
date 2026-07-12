@@ -1,1 +1,0 @@
-affineui_add_sokol_example(decius_synth_dark main.cpp)

@@ -4052,16 +4052,24 @@ TEST_CASE("dark synth checkbox survives real page live control interactions") {
     affineui::Ui ui;
     RecordingPainter painter;
 
+    // The dark-synth demo was retired, but its page survives as a fixture: it
+    // is a real Decius page, and these two tests are regressions against live
+    // control interactions on it. Its asset hrefs are still written relative to
+    // its old home (../frameworks, ../common), so resolve them from there —
+    // lexically_normal() folds the ".." away without needing that (now deleted)
+    // directory to exist on disk.
     const auto examples_root =
         std::filesystem::path{AFFINEUI_TEST_SOURCE_DIR} / "examples";
+    const auto synth_page = std::filesystem::path{AFFINEUI_TEST_SOURCE_DIR} /
+                            "tests" / "fixtures" / "dark_synth" / "index.html";
     ui.document().set_resource_loader(
         [examples_root](std::string_view url) -> std::string {
             const std::filesystem::path rel{std::string(url)};
-            return read_test_file(examples_root / "13_decius_synth_dark" / rel);
+            return read_test_file(
+                (examples_root / "13_decius_synth_dark" / rel).lexically_normal());
         });
 
-    std::string html = read_test_file(examples_root /
-                                      "13_decius_synth_dark" / "index.html");
+    std::string html = read_test_file(synth_page);
     REQUIRE_FALSE(html.empty());
     const std::string unchecked = R"HTML(<div id="sync" class="dcs-check">)HTML";
     const auto pos = html.find(unchecked);
@@ -4118,16 +4126,24 @@ TEST_CASE("dark synth unchecked checkbox keeps its box after hover leave and dra
     affineui::Ui ui;
     RecordingPainter painter;
 
+    // The dark-synth demo was retired, but its page survives as a fixture: it
+    // is a real Decius page, and these two tests are regressions against live
+    // control interactions on it. Its asset hrefs are still written relative to
+    // its old home (../frameworks, ../common), so resolve them from there —
+    // lexically_normal() folds the ".." away without needing that (now deleted)
+    // directory to exist on disk.
     const auto examples_root =
         std::filesystem::path{AFFINEUI_TEST_SOURCE_DIR} / "examples";
+    const auto synth_page = std::filesystem::path{AFFINEUI_TEST_SOURCE_DIR} /
+                            "tests" / "fixtures" / "dark_synth" / "index.html";
     ui.document().set_resource_loader(
         [examples_root](std::string_view url) -> std::string {
             const std::filesystem::path rel{std::string(url)};
-            return read_test_file(examples_root / "13_decius_synth_dark" / rel);
+            return read_test_file(
+                (examples_root / "13_decius_synth_dark" / rel).lexically_normal());
         });
 
-    const std::string html = read_test_file(
-        examples_root / "13_decius_synth_dark" / "index.html");
+    const std::string html = read_test_file(synth_page);
     REQUIRE_FALSE(html.empty());
     ui.html(html);
 

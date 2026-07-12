@@ -384,17 +384,16 @@ cmake --build build
 | Hello | [`examples/00_hello`](../../examples/00_hello) | 最小の動作プログラム |
 | Bootstrap ダッシュボード | [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard) | 本物のBootstrap 4.6 CSS、カード、ナビゲーションバー、テーブル |
 | ゲームエディタ | [`examples/11_decius_game_editor`](../../examples/11_decius_game_editor) | ドッキング可能なパネル、ツリービュー、インスペクタ |
-| スキューモーフィックシンセ | [`examples/14_decius_synth_skeuo`](../../examples/14_decius_synth_skeuo) | リアルなテクスチャとアニメーションを備えたカスタムスキン |
 | Dender (3Dプリントスライサー) | [`examples/16_decius_dender`](../../examples/16_decius_dender) | ビューポート付きのフルアプリレイアウト |
 | Atari 2600 | [`examples/17_affine_2600`](../../examples/17_affine_2600) | ネイティブウィンドウに埋め込まれたエミュレータUI |
 
-いずれもビルドディレクトリから直接実行できます。
+タスクランナーで実行できます。必要なものをビルドして起動します（`./build.sh list` で一覧表示）。Windows では `build.ps1` を使います。
 
 ```bash
-./build/examples/00_hello/hello
-./build/examples/11_decius_game_editor/decius_game_editor
-./build/examples/14_decius_synth_skeuo/decius_synth_skeuo
-./build/examples/16_decius_dender/dender
+./build.sh run hello
+./build.sh run decius_game_editor
+./build.sh run decius_dender
+./build.sh list
 ```
 
 <img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="ゲームエディタのデモ">
@@ -404,8 +403,8 @@ cmake --build build
 PythonとRustのバインディングにも、独自の実行可能なサンプルが同梱されています。
 
 ```bash
-python bindings/python/examples/hello.py
-python bindings/python/examples/component_gallery.py
+./build.sh run py_hello
+./build.sh run py_component_gallery
 
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example hello
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example component_gallery

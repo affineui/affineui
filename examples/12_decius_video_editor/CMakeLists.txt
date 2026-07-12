@@ -1,1 +1,0 @@
-affineui_add_sokol_example(decius_video_editor main.cpp)

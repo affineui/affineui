@@ -384,17 +384,16 @@ Les plus notables :
 | Hello | [`examples/00_hello`](../../examples/00_hello) | Le plus petit programme qui fonctionne |
 | Tableau de bord Bootstrap | [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard) | CSS Bootstrap 4.6 réel, cartes, barres de navigation, tableaux |
 | Éditeur de jeu | [`examples/11_decius_game_editor`](../../examples/11_decius_game_editor) | Panneaux ancrés, vue arborescente, inspecteur |
-| Synthé skeuomorphe | [`examples/14_decius_synth_skeuo`](../../examples/14_decius_synth_skeuo) | Habillage personnalisé avec textures réalistes + animations |
 | Dender (slicer d'impression 3D) | [`examples/16_decius_dender`](../../examples/16_decius_dender) | Mise en page pleine application avec viewport |
 | Atari 2600 | [`examples/17_affine_2600`](../../examples/17_affine_2600) | Interface d'émulateur intégrée dans une fenêtre native |
 
-Exécutez n'importe laquelle directement depuis le répertoire de build :
+Lancez n'importe laquelle avec le task runner — il compile ce qu'il faut et l'exécute (`./build.sh list` les affiche toutes). Sous Windows, utilisez `build.ps1`.
 
 ```bash
-./build/examples/00_hello/hello
-./build/examples/11_decius_game_editor/decius_game_editor
-./build/examples/14_decius_synth_skeuo/decius_synth_skeuo
-./build/examples/16_decius_dender/dender
+./build.sh run hello
+./build.sh run decius_game_editor
+./build.sh run decius_dender
+./build.sh list
 ```
 
 <img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="Démo de l'éditeur de jeu">
@@ -404,8 +403,8 @@ Exécutez n'importe laquelle directement depuis le répertoire de build :
 Les bindings Python et Rust livrent leurs propres exemples exécutables :
 
 ```bash
-python bindings/python/examples/hello.py
-python bindings/python/examples/component_gallery.py
+./build.sh run py_hello
+./build.sh run py_component_gallery
 
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example hello
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example component_gallery

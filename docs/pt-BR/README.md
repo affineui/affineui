@@ -449,17 +449,16 @@ Alguns notáveis:
 | Hello | [`examples/00_hello`](../../examples/00_hello) | Menor programa funcional |
 | Bootstrap dashboard | [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard) | CSS real do Bootstrap 4.6, cards, navbars, tabelas |
 | Editor de jogos | [`examples/11_decius_game_editor`](../../examples/11_decius_game_editor) | Painéis encaixáveis, tree view, inspector |
-| Sintetizador esqueumórfico | [`examples/14_decius_synth_skeuo`](../../examples/14_decius_synth_skeuo) | Skin customizada com texturas + animações realistas |
 | Dender (fatiador de impressão 3D) | [`examples/16_decius_dender`](../../examples/16_decius_dender) | Layout completo de aplicação com viewport |
 | Atari 2600 | [`examples/17_affine_2600`](../../examples/17_affine_2600) | UI de emulador embutida em uma janela nativa |
 
-Rode qualquer um deles diretamente do diretório de build:
+Execute qualquer uma com o task runner — ele compila o necessário e a inicia (`./build.sh list` mostra todas). No Windows use `build.ps1`.
 
 ```bash
-./build/examples/00_hello/hello
-./build/examples/11_decius_game_editor/decius_game_editor
-./build/examples/14_decius_synth_skeuo/decius_synth_skeuo
-./build/examples/16_decius_dender/dender
+./build.sh run hello
+./build.sh run decius_game_editor
+./build.sh run decius_dender
+./build.sh list
 ```
 
 <img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="Demo do editor de jogos">
@@ -469,8 +468,8 @@ Rode qualquer um deles diretamente do diretório de build:
 Os bindings Python e Rust trazem seus próprios exemplos executáveis:
 
 ```bash
-python bindings/python/examples/hello.py
-python bindings/python/examples/component_gallery.py
+./build.sh run py_hello
+./build.sh run py_component_gallery
 
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example hello
 cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example component_gallery
