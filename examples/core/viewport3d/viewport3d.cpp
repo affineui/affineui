@@ -523,7 +523,14 @@ void Viewport3D::paint(affineui::Painter& p, const Rect& r) {
     canvas_rect_ = r;
     if (renderer_ == nullptr) return;
     const std::uint32_t image = renderer_->painter_image(p);
-    if (image != 0) p.draw_image(image, r, r);
+    if (image == 0) return;
+    // The source rect is in TEXEL space, and the render target is sized in
+    // physical px (canvas * dpi — see frame()). Passing the CSS-point rect as
+    // the source sampled only the top-left 1/dpi of the texture and stretched
+    // it over the panel: invisible at dpi 1, a 2x zoom into the corner on a
+    // retina display (the scene center ends up in the bottom-right).
+    const Rect src{0, 0, renderer_->width(), renderer_->height()};
+    p.draw_image(image, r, src);
 }
 
 // ── Navigation axis ball ────────────────────────────────────────────

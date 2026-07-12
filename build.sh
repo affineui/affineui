@@ -27,7 +27,7 @@ SMOKE="${ROOT}/build/smoke"
 
 # Primary example (what `run` launches with no name) + the full set.
 PRIMARY="hello"
-EXAMPLES=(hello bootstrap hello_sdl media imm_counter imm_todo text_flow forms_focus bootstrap_kitchen embed_d3d11)
+EXAMPLES=(hello bootstrap hello_sdl media imm_counter imm_todo text_flow forms_focus bootstrap_kitchen embed_d3d11 bootstrap_dashboard decius_game_editor decius_video_editor decius_synth_dark decius_synth_skeuo command_panel decius_dender affine_2600 virtual_list)
 
 py()    { command -v python3 || command -v python; }
 
@@ -89,11 +89,21 @@ smoke() {
 # optional, e.g. hello_sdl is skipped when SDL2 isn't found).
 example_targets() {
     ensure_configured
+    # NB: feed grep from a here-string, not a pipe. `grep -q` exits on
+    # first match and closes stdin, which SIGPIPEs the upstream printf;
+    # combined with `set -o pipefail` that used to make the `&&` branch
+    # silently skip and mark the target as "not available".
     local present; present="$(ninja -C "$BUILD" -t targets all 2>/dev/null | sed 's/:.*//')"
     local e
     for e in "${EXAMPLES[@]}"; do
-        printf '%s\n' "$present" | grep -qx "$e" && echo "$e"
+        # `if`, not `&&`: the loop's status is its last command's, so a final
+        # example that ISN'T present would leave the function returning 1 and
+        # `set -e` would kill the caller mid-assignment — silently.
+        if grep -qx "$e" <<< "$present"; then
+            echo "$e"
+        fi
     done
+    return 0
 }
 
 build_examples() {
@@ -110,7 +120,11 @@ run_example() {
         echo "available: ${EXAMPLES[*]}" >&2
         exit 1
     fi
-    if ! example_targets | grep -qx "$name"; then
+    # Materialize the target list first, then grep the string — piping
+    # into `grep -q` short-circuits `example_targets`, which trips
+    # `pipefail` and makes valid targets read as "not available".
+    local available; available="$(example_targets)"
+    if ! grep -qx "$name" <<< "$available"; then
         echo "example '$name' isn't available in this build (an optional dep, e.g. SDL2, wasn't found at configure)." >&2
         exit 1
     fi
