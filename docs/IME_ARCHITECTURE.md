@@ -254,20 +254,35 @@ the rect from `sapp_ime_set_rect`. This *changes the existing key event flow*
 kept out of the Windows PR.
 
 **Linux/X11 (landed).** An XIM input context is created on the sokol window
-(`_sapp_x11_ime_init`), preferring the **over-the-spot** style
-(`XIMPreeditPosition | XIMStatusNothing`) and falling back to root style when
-the input method doesn't offer it. The IME (ibus/fcitx/uim over XIM) draws the
-preedit and candidate list itself at the caret spot pushed via
-`sapp_ime_set_rect` → `XNSpotLocation`; committed text — including multi-
-codepoint CJK strings — is read with `Xutf8LookupString` in the KeyPress
-handler and flows through the existing `SAPP_EVENTTYPE_CHAR` → `TextInput`
-path. `XFilterEvent` in the run loop hands composition keystrokes to the IME
-first; `sapp_ime_set_enabled` maps to `XSetICFocus`/`XUnsetICFocus` so the IME
-is only active while a text field is focused. No new link dependencies (XIM is
-part of libX11). Because over-the-spot lets the IME render the preedit, X11
-does **not** emit `SAPP_EVENTTYPE_IME_COMPOSITION` — app-drawn inline preedit
-(on-the-spot `XIMPreeditCallbacks` → `Composition` events, matching win32) is
-the natural follow-up on top of this.
+(`_sapp_x11_ime_init`), preferring **on-the-spot**
+(`XIMPreeditCallbacks | XIMStatusNothing`) and degrading to over-the-spot
+(`XIMPreeditPosition`) then root style if the input method doesn't offer it.
+
+*Why on-the-spot and not over-the-spot:* over-the-spot delegates preedit
+rendering to the input method, and a modern ibus under GNOME runs with its
+panel disabled (`ibus-daemon --panel disable`) — so it draws **nothing at all**
+for an XIM client and the user sees no in-progress glyphs. On-the-spot is what
+GTK/Qt effectively get through their native ibus modules, and it is the style
+that matches the win32 IMM contract: the IME hands *us* the preedit and the app
+draws it inline.
+
+The preedit callbacks (`XNPreeditStart/Draw/Caret/Done`) maintain a codepoint
+buffer — XIM reports `chg_first`/`chg_length`/`caret` in **characters**, not
+bytes — splice each `XIMText` run into it, derive the active clause from the
+`XIMReverse`/`XIMHighlight` feedback, and publish
+`SAPP_EVENTTYPE_IME_COMPOSITION` with UTF-8 text plus byte offsets. That lands
+on the same `Composition` → preedit-splice + underline path the win32 shell
+feeds. `XNSpotLocation` (from `sapp_ime_set_rect`) still anchors the
+candidate/lookup window at the caret in this style.
+
+Committed text — including multi-codepoint CJK strings — is read with
+`Xutf8LookupString` in the KeyPress handler and flows through the existing
+`SAPP_EVENTTYPE_CHAR` → `TextInput` path. `XFilterEvent` in the run loop hands
+composition keystrokes to the IME first. `sapp_ime_set_enabled` maps to
+`XSetICFocus`/`XUnsetICFocus` so the IME is only active while a text field is
+focused, and a mouse-down calls `Xutf8ResetIC` to finish any live composition
+(the analogue of win32's `ImmNotifyIME(CPS_COMPLETE)`). No new link
+dependencies — XIM ships in libX11.
 
 ### 4.5 SDL adapter (`include/affineui/sdl.h`) — free reference platform
 
@@ -370,7 +385,8 @@ line's end lands the caret at the start of the next line.
 | **PR C — CJK rendering** | lazy per-glyph fallback fonts; text-control CJK breaks + minimal kinsoku; conformance case for paragraph CJK wrap | doctest + conformance + visual |
 | **PR D — Linux XIM shell** | vendored-sokol X11 IME patch: over-the-spot XIC (`XIMPreeditPosition`, root fallback); `Xutf8LookupString` commit; `XFilterEvent` in the run loop; `sapp_ime_set_rect`→`XNSpotLocation`, `sapp_ime_set_enabled`→`XSetICFocus`. No app.cpp changes (shell wiring is platform-neutral) | **user IME test** on Linux (ibus/fcitx) |
 | later | macOS `NSTextInputClient` sokol patch | user test on mac |
-| later | Linux on-the-spot preedit (`XIMPreeditCallbacks` → `Composition`); surrounding-text query; mobile shims (with the port) | — |
+| **PR E — Linux on-the-spot** | swap the X11 XIC to `XIMPreeditCallbacks`: preedit start/draw/caret/done callbacks → `SAPP_EVENTTYPE_IME_COMPOSITION` (app-drawn inline preedit, clause from XIM feedback); `Xutf8ResetIC` on mouse-down. Over-the-spot rendered nothing under ibus+GNOME (panel disabled) | **user IME test** on Linux — verified with ibus-hangul (Korean) |
+| later | surrounding-text query; mobile shims (with the port) | — |
 
 A, B, C are independent enough to review separately; C is visible value even
 without B (pasted/programmatic CJK stops rendering as tofu).
