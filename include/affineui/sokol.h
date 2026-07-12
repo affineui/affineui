@@ -193,7 +193,11 @@ inline Event translate(const sapp_event* ev) {
             return out;
         case SAPP_EVENTTYPE_CHAR:
             out.type = EventType::TextInput;
-            out.text = utf8_from_codepoint(ev->char_code);
+            // Control codes are not text; an empty payload is ignored by the
+            // document's TextInput handler.
+            if (is_text_codepoint(ev->char_code)) {
+                out.text = utf8_from_codepoint(ev->char_code);
+            }
             return out;
         case SAPP_EVENTTYPE_IME_COMPOSITION:
             out.type = EventType::Composition;
@@ -679,6 +683,16 @@ inline void cb_event_(const sapp_event* ev, void* user) {
     (void)consumed;
     if (e.type == EventType::MouseMove) {
         sapp_set_mouse_cursor(cursor_to_sokol(ui.hovered_cursor()));
+    }
+    // Focus / caret / preedit may have moved — retarget the platform IME.
+    // MUST stay in step with affineui::sokol::dispatch(): this callback is
+    // what wire() installs, so without it a wired app NEVER enables the input
+    // method and every CJK keystroke falls through as a raw character (no
+    // composition, no candidate window) on every platform.
+    if (e.type == EventType::MouseDown || e.type == EventType::MouseUp ||
+        e.type == EventType::KeyDown || e.type == EventType::TextInput ||
+        e.type == EventType::Composition) {
+        sync_text_input(ui);
     }
 }
 inline void cb_cleanup_(void* user) {

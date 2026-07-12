@@ -11922,3 +11922,37 @@ TEST_CASE("Inline style: a descendant-inert write restyles only the target "
     }
     CHECK_FALSE(label_still_green);
 }
+
+// A platform "character" event is a keystroke reinterpreted as text, and every
+// backend pushes control codes down that same path (macOS: Backspace U+007F,
+// Escape U+001B, Ctrl+<letter> U+0001..U+001A; win32 WM_CHAR: Backspace
+// U+0008). Text controls insert a TextInput payload literally, so an unfiltered
+// control code lands in the field as invisible junk that only surfaces once the
+// visible text is deleted. Shells gate character events on is_text_codepoint().
+TEST_CASE("is_text_codepoint rejects control codes but keeps tab and newline") {
+    using affineui::is_text_codepoint;
+
+    // The ones that actually bit us: they arrive as CHAR events on macOS.
+    CHECK_FALSE(is_text_codepoint(0x7F));  // Backspace / DEL
+    CHECK_FALSE(is_text_codepoint(0x1B));  // Escape
+    CHECK_FALSE(is_text_codepoint(0x08));  // win32 WM_CHAR Backspace
+    for (std::uint32_t cp = 0x01; cp <= 0x1A; ++cp) {   // Ctrl+A .. Ctrl+Z
+        if (cp == 0x09 || cp == 0x0A || cp == 0x0D) continue;
+        CAPTURE(cp);
+        CHECK_FALSE(is_text_codepoint(cp));
+    }
+    CHECK_FALSE(is_text_codepoint(0x00));
+
+    // Tab and the newlines ARE text: the DOM has no KeyCode::Enter insert path,
+    // so a newline reaches a textarea through the text path or not at all.
+    CHECK(is_text_codepoint(0x09));  // tab
+    CHECK(is_text_codepoint(0x0A));  // LF
+    CHECK(is_text_codepoint(0x0D));  // CR
+
+    // Ordinary text is untouched, control-adjacent boundaries included.
+    CHECK(is_text_codepoint(0x20));      // space
+    CHECK(is_text_codepoint('a'));
+    CHECK(is_text_codepoint(0x80));      // just past DEL
+    CHECK(is_text_codepoint(0xD55C));    // 한
+    CHECK(is_text_codepoint(0x1F600));   // non-BMP
+}

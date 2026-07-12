@@ -132,4 +132,28 @@ struct DispatchResult {
 /// "data:image/png;base64,..."), returns the raw bytes or empty on miss.
 using ResourceLoader = std::function<std::string(std::string_view url)>;
 
+/// Is `cp` a codepoint a platform "character" event may insert as text?
+///
+/// A character event is a keystroke reinterpreted as text, and every platform
+/// pushes control codes down that same path: macOS reports Backspace as
+/// U+007F, Escape as U+001B and Ctrl+<letter> as U+0001..U+001A; win32 WM_CHAR
+/// reports Backspace as U+0008. Text controls insert an `EventType::TextInput`
+/// payload literally, so an unfiltered control code lands in the field as
+/// invisible junk that only surfaces once the visible text is deleted. Editing
+/// keys already arrive as `EventType::KeyDown`, which is where they belong.
+///
+/// Tab and the newlines are the exception — they are genuine text, and there is
+/// no KeyCode::Enter insert path in the DOM, so a newline has to come through
+/// the text path or Enter stops working in a textarea.
+///
+/// Platform shells (the App loop, `sokol.h`, engine embedders) must gate a
+/// character event on this before turning it into `TextInput`. It does NOT
+/// apply to `TextInput` from other sources — a paste or a programmatic set may
+/// legitimately carry anything.
+inline bool is_text_codepoint(std::uint32_t cp) {
+    if (cp == 0x09u || cp == 0x0Au || cp == 0x0Du) return true;   // tab, LF, CR
+    if (cp < 0x20u || cp == 0x7Fu) return false;                  // C0 + DEL
+    return true;
+}
+
 }  // namespace affineui

@@ -1513,6 +1513,7 @@ void cb_event(const sapp_event* ev, void* user) {
             (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
             return;
         case SAPP_EVENTTYPE_CHAR:
+            if (!is_text_codepoint(ev->char_code)) return;  // control code, not text
             aui_ev.type = EventType::TextInput;
             aui_ev.text = utf8_from_codepoint(ev->char_code);
             if (!aui_ev.text.empty()) {
