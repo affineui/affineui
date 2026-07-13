@@ -16,18 +16,26 @@
 
 #pragma once
 
-// NOTE: this core links NO affineui runtime — deliberately. It used to take an
-// `affineui::App&`, which dragged in the whole library (and with it a SECOND
-// copy of sokol_app: two `_sapp_macos_view` ObjC classes in one process, which
-// macOS warns "may cause spurious casting failures and mysterious crashes").
-// A raster engine has no business knowing what a window is. It now takes a Host
-// of plain callbacks; the caller supplies them.
+// NOTE: this core knows NOTHING about affineui — deliberately, and it includes
+// none of its headers.
 //
-// Only header-only affineui types are used: Painter is a pure-virtual interface
-// (dispatch through the vtable, nothing to link) and Rect/Color are PODs.
-#include "affineui/painter.h"
-#include "affineui/types.h"
-#include "affineui/weak_ref.h"   // header-only; nothing to link
+// It used to take an `affineui::App&`, which dragged in the whole library (and
+// with it a SECOND copy of sokol_app: two `_sapp_macos_view` ObjC classes in one
+// process, which macOS warns "may cause spurious casting failures and mysterious
+// crashes"). A raster engine has no business knowing what a window is. It takes a
+// Host of plain callbacks instead; the caller supplies them.
+//
+// Painting used to be the last coupling: the core drew through `affineui::Painter&`.
+// Even as a pure-virtual interface that was a hard ABI coupling — the core, compiled
+// into a SEPARATE module, was pinned to the runtime's exact vtable layout (reorder a
+// virtual and it silently calls the wrong slot), and pybind needed
+// `typeid(affineui::Painter)`, whose typeinfo lives only in the affineui runtime
+// (Painter has a key function). Python loads extension modules RTLD_LOCAL, so the
+// core could not borrow it and failed to import outright.
+//
+// So the core now declares the surface IT wants — `photo::Canvas`, below, in the
+// core's own types — and the host adapts whatever painter it actually has to it.
+// Nothing here is an affineui type.
 
 #include <cstdint>
 #include <functional>
@@ -38,12 +46,6 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-
-namespace affineui {
-class App;
-class Painter;
-struct Rect;
-}  // namespace affineui
 
 namespace photo {
 
@@ -64,6 +66,30 @@ struct RectI {
     bool empty() const { return w <= 0 || h <= 0; }
 };
 
+// RGBA8, non-premultiplied — the core's own color type.
+struct Color {
+    std::uint8_t r = 0, g = 0, b = 0, a = 255;
+};
+
+/// The drawing surface the core needs, expressed entirely in the core's own
+/// types. The HOST implements this over whatever painter it actually has; the
+/// core never learns what that is.
+///
+/// Deliberately minimal — these four calls are everything the core draws.
+/// Images are referenced by the opaque id the host handed back from
+/// Host::create_image_rgba, so no image type crosses the boundary either.
+class Canvas {
+public:
+    virtual ~Canvas() = default;
+
+    virtual void draw_image(std::uint32_t image_id, const RectI& dst,
+                            const RectI& src) = 0;
+    virtual void fill_rect(const RectI& r, Color c) = 0;
+    virtual void stroke_rect(const RectI& r, Color c, float width) = 0;
+    virtual void stroke_line(float x0, float y0, float x1, float y1, Color c,
+                             float width) = 0;
+};
+
 // UI-facing layer snapshot (metadata only; pixels stay in the core).
 struct LayerInfo {
     int id = 0;
@@ -81,7 +107,7 @@ struct HistoryEntry {
     std::string icon;  // decius di-* icon name
 };
 
-class PhotoDoc : public affineui::Trackable {
+class PhotoDoc {
 public:
     PhotoDoc(int width, int height);
     ~PhotoDoc();
@@ -251,8 +277,9 @@ public:
     // Image ids are opaque to the core: 0 means "none/failed". Pixel spans are
     // borrowed for the duration of the call — the host must not retain them.
     struct Host {
-        using PaintFn =
-            std::function<void(affineui::Painter&, const affineui::Rect&)>;
+        // The host hands the core a Canvas it implements itself, plus the
+        // element rect to draw into. Both are the core's own types.
+        using PaintFn = std::function<void(Canvas&, const RectI&)>;
         using Pixels = std::span<const std::uint8_t>;
 
         // Register (or, with a null fn, unregister) a custom-paint handler.
@@ -344,11 +371,15 @@ private:
     RectI doc_rect() const { return {0, 0, w_, h_}; }
     RectI sel_or_doc() const { return sel_.empty() ? doc_rect() : sel_; }
 
-    void paint_stage(affineui::Painter& p, const affineui::Rect& r);
-    void paint_nav(affineui::Painter& p, const affineui::Rect& r);
-    void paint_thumb(int layer_id, affineui::Painter& p,
-                     const affineui::Rect& r);
+    void paint_stage(Canvas& p, const RectI& r);
+    void paint_nav(Canvas& p, const RectI& r);
+    void paint_thumb(int layer_id, Canvas& p, const RectI& r);
     void sync_thumb_handlers();  // register/unregister per-layer thumbs
+
+    // Lifetime token for the paint lambdas: they outlive nothing, but they are
+    // held by the host, so a destroyed doc must not be called back into. (This
+    // replaces affineui::Trackable — the core owns its own lifetime story.)
+    std::shared_ptr<PhotoDoc*> alive_ = std::make_shared<PhotoDoc*>(this);
 
     void reset_history(const std::string& label, const std::string& icon);
     void restore(const HistoryRec& rec);

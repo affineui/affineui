@@ -925,7 +925,14 @@ PhotoDoc::PhotoDoc(int width, int height) {
     mark_all_dirty();
 }
 
-PhotoDoc::~PhotoDoc() { detach(); }
+PhotoDoc::~PhotoDoc() {
+    // Kill the lifetime token FIRST: paint handlers the host still holds capture
+    // a weak_ptr to it, so any callback that lands mid-teardown no-ops instead of
+    // touching a half-destroyed doc. (detach() unregisters them, but the token is
+    // what makes a stale call safe rather than merely unlikely.)
+    *alive_ = nullptr;
+    detach();
+}
 
 void PhotoDoc::new_document(int width, int height,
                             const std::string& background_hex) {
@@ -2514,14 +2521,14 @@ void PhotoDoc::attach(Host host) {
     host_ = std::move(host);
     if (!host_) return;
     if (host_.font_data) font_provider() = host_.font_data;
-    const auto weak = affineui::to_weak_ref(this);
+    const std::weak_ptr<PhotoDoc*> weak = alive_;
     host_.set_custom_paint(
-        "ps-stage", [weak](affineui::Painter& p, const affineui::Rect& r) {
-            if (auto* self = weak.get()) self->paint_stage(p, r);
+        "ps-stage", [weak](Canvas& p, const RectI& r) {
+            if (auto s = weak.lock(); s && *s) (*s)->paint_stage(p, r);
         });
     host_.set_custom_paint(
-        "ps-nav", [weak](affineui::Painter& p, const affineui::Rect& r) {
-            if (auto* self = weak.get()) self->paint_nav(p, r);
+        "ps-nav", [weak](Canvas& p, const RectI& r) {
+            if (auto s = weak.lock(); s && *s) (*s)->paint_nav(p, r);
         });
     sync_thumb_handlers();
 }
@@ -2566,11 +2573,11 @@ void PhotoDoc::sync_thumb_handlers() {
     for (int id : want) {
         if (thumb_names_.count(id)) continue;
         thumb_names_.insert(id);
-        const auto weak = affineui::to_weak_ref(this);
+        const std::weak_ptr<PhotoDoc*> weak = alive_;
         host_.set_custom_paint(
             thumb_paint_name(id),
-            [weak, id](affineui::Painter& p, const affineui::Rect& r) {
-                if (auto* self = weak.get()) self->paint_thumb(id, p, r);
+            [weak, id](Canvas& p, const RectI& r) {
+                if (auto s = weak.lock(); s && *s) (*s)->paint_thumb(id, p, r);
             });
     }
 }
@@ -2586,7 +2593,7 @@ void PhotoDoc::request_repaint() {
     }
 }
 
-void PhotoDoc::paint_stage(affineui::Painter& p, const affineui::Rect& r) {
+void PhotoDoc::paint_stage(Canvas& p, const RectI& r) {
     stage_rect_ = {r.x, r.y, r.w, r.h};
     if (need_fit_) fit_to_screen();
 
@@ -2616,21 +2623,21 @@ void PhotoDoc::paint_stage(affineui::Painter& p, const affineui::Rect& r) {
     const double vy1 = std::min(oy + dh, static_cast<double>(r.y + r.h));
     if (vx1 <= vx0 || vy1 <= vy0) return;
 
-    const affineui::Rect dst{
+    const RectI dst{
         static_cast<int>(std::floor(vx0)), static_cast<int>(std::floor(vy0)),
         static_cast<int>(std::ceil(vx1) - std::floor(vx0)),
         static_cast<int>(std::ceil(vy1) - std::floor(vy0))};
-    const affineui::Rect src{
+    const RectI src{
         static_cast<int>((dst.x - ox) / zoom_),
         static_cast<int>((dst.y - oy) / zoom_),
         std::max(1, static_cast<int>(std::ceil(dst.w / zoom_))),
         std::max(1, static_cast<int>(std::ceil(dst.h / zoom_)))};
 
     // subtle document drop shadow / border
-    p.fill_rect(affineui::Rect{static_cast<int>(ox) + 4,
+    p.fill_rect(RectI{static_cast<int>(ox) + 4,
                                static_cast<int>(oy) + 4,
                                static_cast<int>(dw), static_cast<int>(dh)},
-                affineui::Color{0, 0, 0, 70});
+                Color{0, 0, 0, 70});
     p.draw_image(stage_img_, dst, src);
 
     // pen-tool path preview (paint.js drawPen)
@@ -2644,28 +2651,28 @@ void PhotoDoc::paint_stage(affineui::Painter& p, const affineui::Rect& r) {
             const auto [x0f, y0f] = to_screen(pen_pts_[i - 1]);
             const auto [x1f, y1f] = to_screen(pen_pts_[i]);
             p.stroke_line(x0f, y0f, x1f, y1f,
-                          affineui::Color{0x4d, 0x9f, 0xff, 255}, 1.5f);
+                          Color{0x4d, 0x9f, 0xff, 255}, 1.5f);
         }
         for (const auto& pt : pen_pts_) {
             const auto [xf, yf] = to_screen(pt);
-            const affineui::Rect anchor{static_cast<int>(xf) - 3,
+            const RectI anchor{static_cast<int>(xf) - 3,
                                         static_cast<int>(yf) - 3, 6, 6};
-            p.fill_rect(anchor, affineui::Color{255, 255, 255, 255});
-            p.stroke_rect(anchor, affineui::Color{0x1f, 0x6f, 0xeb, 255},
+            p.fill_rect(anchor, Color{255, 255, 255, 255});
+            p.stroke_rect(anchor, Color{0x1f, 0x6f, 0xeb, 255},
                           1.0f);
         }
     }
 }
 
-void PhotoDoc::paint_nav(affineui::Painter& p, const affineui::Rect& r) {
+void PhotoDoc::paint_nav(Canvas& p, const RectI& r) {
     if (stage_img_ == 0 || r.w <= 2 || r.h <= 2) return;
     const double s = std::min(r.w / static_cast<double>(w_),
                               r.h / static_cast<double>(h_));
     const int tw = std::max(1, static_cast<int>(w_ * s));
     const int th = std::max(1, static_cast<int>(h_ * s));
-    const affineui::Rect dst{r.x + (r.w - tw) / 2, r.y + (r.h - th) / 2, tw,
+    const RectI dst{r.x + (r.w - tw) / 2, r.y + (r.h - th) / 2, tw,
                              th};
-    p.draw_image(stage_img_, dst, affineui::Rect{0, 0, w_, h_});
+    p.draw_image(stage_img_, dst, RectI{0, 0, w_, h_});
     // viewport rectangle = doc region visible in the stage
     if (stage_rect_.w > 0) {
         double tlx, tly, brx, bry;
@@ -2674,17 +2681,17 @@ void PhotoDoc::paint_nav(affineui::Painter& p, const affineui::Rect& r) {
                       stage_rect_.y + stage_rect_.h, brx, bry);
         const double x0 = clampd(tlx, 0, w_), y0 = clampd(tly, 0, h_);
         const double x1 = clampd(brx, 0, w_), y1 = clampd(bry, 0, h_);
-        const affineui::Rect view{
+        const RectI view{
             dst.x + static_cast<int>(x0 * s),
             dst.y + static_cast<int>(y0 * s),
             std::max(2, static_cast<int>((x1 - x0) * s)),
             std::max(2, static_cast<int>((y1 - y0) * s))};
-        p.stroke_rect(view, affineui::Color{255, 255, 255, 230}, 1.0f);
+        p.stroke_rect(view, Color{255, 255, 255, 230}, 1.0f);
     }
 }
 
-void PhotoDoc::paint_thumb(int layer_id, affineui::Painter& p,
-                           const affineui::Rect& r) {
+void PhotoDoc::paint_thumb(int layer_id, Canvas& p,
+                           const RectI& r) {
     Layer* l = find_layer(layer_id);
     if (l == nullptr) return;
     ThumbTex& tex = thumbs_[layer_id];
@@ -2715,7 +2722,7 @@ void PhotoDoc::paint_thumb(int layer_id, affineui::Painter& p,
         tex.rev = l->pixel_rev;
     }
     if (tex.img != 0) {
-        p.draw_image(tex.img, r, affineui::Rect{0, 0, kThumb, kThumb});
+        p.draw_image(tex.img, r, RectI{0, 0, kThumb, kThumb});
     }
 }
 

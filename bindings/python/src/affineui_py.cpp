@@ -108,14 +108,72 @@ PYBIND11_MODULE(_affineui, m) {
     m.def("version", [] { return std::string{affineui::version_string()}; });
     m.def("native_backend", [] { return std::string{"sokol"}; });
 
-    // Painter — an OPAQUE handle. Deliberately has no methods: it exists so a
-    // paint callback can carry the live Painter across the Python boundary and
-    // back into a native core's C++ (pybind resolves the type across modules).
-    // That is what lets the photoedit raster core draw without linking affineui.
+    // Painter — an opaque handle to the live painter, plus the drawing calls.
+    //
+    // The handle is what a paint callback receives. The METHODS are what make it
+    // usable from outside the affineui runtime: a native rendering core in its own
+    // extension module (the photoedit raster core) drives its drawing through
+    // these, rather than by taking a C++ `affineui::Painter&`.
+    //
+    // That indirection is deliberate, not incidental. A separately-compiled module
+    // holding an `affineui::Painter*` would be pinned to this class's exact vtable
+    // layout — reorder a virtual and it silently calls the wrong slot — and pybind
+    // would need `typeid(affineui::Painter)`, whose typeinfo lives only in the
+    // affineui runtime (Painter has a key function). Python loads extension modules
+    // RTLD_LOCAL, so such a core cannot borrow it and fails to import outright.
+    // A method call over the Python boundary has neither problem.
+    //
+    // Rects and colors cross as plain tuples so a caller needs no affineui type at
+    // all: rect = (x, y, w, h), color = (r, g, b, a) with 0-255 components.
+    using PyRect = std::tuple<int, int, int, int>;
+    using PyColor = std::tuple<int, int, int, int>;
+    const auto to_rect = [](const PyRect& t) {
+        return affineui::Rect{std::get<0>(t), std::get<1>(t), std::get<2>(t),
+                              std::get<3>(t)};
+    };
+    const auto to_color = [](const PyColor& t) {
+        const auto clamp8 = [](int v) -> std::uint8_t {
+            return static_cast<std::uint8_t>(v < 0 ? 0 : (v > 255 ? 255 : v));
+        };
+        return affineui::Color{clamp8(std::get<0>(t)), clamp8(std::get<1>(t)),
+                               clamp8(std::get<2>(t)), clamp8(std::get<3>(t))};
+    };
+
     py::class_<affineui::Painter>(
         m, "Painter",
-        "Opaque handle to the live painter, passed to App.set_custom_paint "
-        "handlers. Hand it to a native core; it has no Python-side methods.");
+        "The live painter, passed to App.set_custom_paint handlers. Rects are "
+        "(x, y, w, h) tuples; colors are (r, g, b, a) tuples, 0-255. Valid only "
+        "for the duration of the paint callback.")
+        .def(
+            "draw_image",
+            [to_rect](affineui::Painter& p, std::uint32_t image_id,
+                      const PyRect& dst, const PyRect& src) {
+                p.draw_image(image_id, to_rect(dst), to_rect(src));
+            },
+            py::arg("image_id"), py::arg("dst"), py::arg("src"),
+            "Draw an image previously created with App.create_image_rgba.")
+        .def(
+            "fill_rect",
+            [to_rect, to_color](affineui::Painter& p, const PyRect& r,
+                                const PyColor& c) {
+                p.fill_rect(to_rect(r), to_color(c));
+            },
+            py::arg("rect"), py::arg("color"))
+        .def(
+            "stroke_rect",
+            [to_rect, to_color](affineui::Painter& p, const PyRect& r,
+                                const PyColor& c, float width) {
+                p.stroke_rect(to_rect(r), to_color(c), width);
+            },
+            py::arg("rect"), py::arg("color"), py::arg("width") = 1.0f)
+        .def(
+            "stroke_line",
+            [to_color](affineui::Painter& p, float x0, float y0, float x1,
+                       float y1, const PyColor& c, float width) {
+                p.stroke_line(x0, y0, x1, y1, to_color(c), width);
+            },
+            py::arg("x0"), py::arg("y0"), py::arg("x1"), py::arg("y1"),
+            py::arg("color"), py::arg("width") = 1.0f);
 
     m.def("embedded_font_data",
           [](bool bold) {
