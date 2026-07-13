@@ -84,7 +84,6 @@ from ._affineui import (
     VirtualTreeProvider,
     WidgetKind,
     WidgetRef,
-    __version__,
     native_backend,
     tools_active,
     tools_listen,
@@ -92,6 +91,30 @@ from ._affineui import (
     tools_shutdown,
     version,
 )
+
+# `__version__` is the version of the INSTALLED DISTRIBUTION — read from package
+# metadata, never compiled in.
+#
+# It used to be a compile-time define fed by `project(affineui_python VERSION
+# ...)`, a second source of truth that scripts/set_version.py never stamped. So
+# 0.4.0 shipped to PyPI reporting `__version__ == "0.0.1"` while pip metadata and
+# version() were both right.
+#
+# Sourcing it from the metadata is not just "a place that IS stamped" — it makes
+# drift impossible by construction, and it is the only way to report the version
+# a user actually installed: pip normalizes to PEP 440 (`0.4.0-rc.1` becomes
+# `0.4.0rc1`), and a CMake `project(VERSION)` literal cannot carry a pre-release
+# suffix at all.
+#
+# `version()` is different and stays as it is: it reports the native CORE version
+# (MAJOR.MINOR.PATCH), which has no pre-release component by design.
+try:  # pragma: no cover - trivial
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as _dist_version
+
+    __version__ = _dist_version("affineui")
+except PackageNotFoundError:  # running from a build tree, not an install
+    from ._affineui import __version__  # type: ignore[no-redef]
 
 
 class ElementRef:

@@ -267,7 +267,7 @@ jobs:
       - name: Stamp a scratch version and verify every manifest took it
         run: |
           set -euo pipefail
-          python3 scripts/set_version.py 9.9.9-ci
+          python3 scripts/set_version.py 9.9.9-rc.1
 
           fail=0
           check() {  # file, expected-substring
@@ -278,10 +278,10 @@ jobs:
               fail=1
             fi
           }
-          check bindings/python/pyproject.toml            'version = "9.9.9-ci"'
-          check bindings/rust/Cargo.toml                  'version = "9.9.9-ci"'
-          check bindings/rust/affineui/Cargo.toml         'version = "9.9.9-ci"'
-          check bindings/csharp/AffineUI/AffineUI.csproj  '<Version>9.9.9-ci</Version>'
+          check bindings/python/pyproject.toml            'version = "9.9.9-rc.1"'
+          check bindings/rust/Cargo.toml                  'version = "9.9.9-rc.1"'
+          check bindings/rust/affineui/Cargo.toml         'version = "9.9.9-rc.1"'
+          check bindings/csharp/AffineUI/AffineUI.csproj  '<Version>9.9.9-rc.1</Version>'
           check CMakeLists.txt                            'VERSION 9.9.9'
 
           # The affineui-sys dependency line also carries `default-features = false`,
@@ -310,7 +310,7 @@ jobs:
       - name: Build the wheel and check the version a user sees
         run: |
           set -euo pipefail
-          # The tree is still stamped to 9.9.9-ci from the step above.
+          # The tree is still stamped to 9.9.9-rc.1 from the step above.
           python3 -m venv /tmp/v
           . /tmp/v/bin/activate
           pip install --upgrade pip
@@ -321,7 +321,12 @@ jobs:
           import sys
           import affineui as ui
 
-          expected = "9.9.9-ci"
+          # pip NORMALIZES to PEP 440: the stamped "9.9.9-rc.1" installs as
+          # "9.9.9rc1". __version__ is read from that same metadata, so the two
+          # agree by construction. version() reports the native CORE version,
+          # which carries no pre-release component (a CMake project(VERSION)
+          # literal cannot hold one) — hence the prefix check below.
+          expected = "9.9.9rc1"
           seen = {
               "__version__":  ui.__version__,
               "version()":    ui.version(),
