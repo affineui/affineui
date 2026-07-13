@@ -443552,6 +443552,23 @@ struct RendererImpl {
 
 }  // namespace detail
 
+// Painter's vtable is ANCHORED here — by the out-of-line destructor (the key
+// function) and this, its only non-pure virtual. With both inline in the header,
+// Painter had no key function: GCC emitted the vtable, and the inline bodies it
+// points at, into every TU that included <affineui/painter.h>. Those bodies call
+// ImageHandle::is_valid()/backend_id(), so simply INCLUDING the header forced a
+// link dependency on the affineui runtime — even in code that only dispatches
+// through a `Painter&`. See the header for the full story (it broke the
+// photoedit raster core on GCC).
+Painter::~Painter() = default;
+
+void Painter::draw_image(const ImageHandle& image,
+                         const Rect& dst,
+                         const Rect& src) {
+    if (!image.is_valid()) return;
+    draw_image(image.backend_id(), dst, src);
+}
+
 bool ImageHandle::is_valid() const noexcept {
     if (!lease_) return false;
     const auto registry = lease_->registry.lock();

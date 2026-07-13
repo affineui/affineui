@@ -1884,6 +1884,15 @@ public:
     /// last handle copy releases it. Calls after renderer shutdown are safe.
     void reset() noexcept;
 
+    /// The painter-level image id — exactly what
+    /// `Painter::draw_image(std::uint32_t, ...)` takes. 0 when invalid.
+    ///
+    /// Exposed so a native rendering core can draw an app-owned image while
+    /// linking NOTHING of the affineui runtime: it needs only the abstract
+    /// Painter (pure-virtual, so vtable dispatch) plus this id. The photoedit
+    /// raster core does exactly that — see examples/core/photoedit.
+    [[nodiscard]] std::uint32_t id() const noexcept { return backend_id(); }
+
 private:
     explicit ImageHandle(std::shared_ptr<detail::ImageLease> lease) noexcept
         : lease_(std::move(lease)) {}
@@ -2042,7 +2051,21 @@ enum class LineJoin : std::uint8_t { Miter, Round, Bevel };
 /// the inside of a frame.
 class Painter {
 public:
-    virtual ~Painter() = default;
+    // Out of line to ANCHOR THE VTABLE (defined in renderer.cpp).
+    //
+    // With `= default` here, every virtual was either pure or inline, so Painter
+    // had no key function and GCC emitted the vtable — plus the inline bodies it
+    // points at — into EVERY translation unit that includes this header. Those
+    // bodies call into the affineui runtime, so merely including
+    // <affineui/painter.h> forced a link dependency on the library, even in code
+    // that only dispatches through a `Painter&` and never constructs one.
+    //
+    // That broke the photoedit raster core on GCC (clang happened to elide the
+    // vtable; GCC emitted it → undefined ImageHandle::is_valid at import, and on
+    // Linux Python loads extensions RTLD_LOCAL so it cannot borrow the symbol
+    // from _affineui). Anchored here, the vtable is emitted once, and a pure
+    // consumer of the abstract interface links nothing.
+    virtual ~Painter();
 
     // ── Frame lifecycle (called by Document::draw) ──────────────────
     virtual void begin_frame(int width, int height, float dpi_scale) = 0;
@@ -2302,12 +2325,25 @@ public:
                                      const Rect&   dst,
                                      const Rect&   src) = 0;
     /// Draw a renderer-owned dynamic image. An invalid handle draws nothing.
+    ///
+    /// Defined OUT OF LINE on purpose — this is Painter's key function.
+    ///
+    /// Every other virtual here is pure, so with an inline body this was the
+    /// only non-pure one, which left Painter without a key function: the vtable
+    /// (and this body) got emitted into EVERY translation unit that includes
+    /// this header. Its body calls ImageHandle::is_valid()/backend_id(), which
+    /// live in the affineui runtime — so merely including <affineui/painter.h>
+    /// forced a link dependency on the library, even in code that only ever
+    /// dispatches through a `Painter&` and never constructs one.
+    ///
+    /// That silently broke the photoedit raster core on GCC (clang happened to
+    /// elide the vtable; GCC emitted it → undefined ImageHandle::is_valid at
+    /// import). Out-of-line, this is the key function: the vtable is emitted in
+    /// renderer.cpp alone, and a pure consumer of the abstract interface links
+    /// nothing.
     virtual void draw_image(const ImageHandle& image,
                             const Rect& dst,
-                            const Rect& src) {
-        if (!image.is_valid()) return;
-        draw_image(image.backend_id(), dst, src);
-    }
+                            const Rect& src);
 
     // ── Native GPU images (renderer-owned textures) ─────────────────
     /// Draw a GPU texture owned by other rendering code (a 3D engine's
