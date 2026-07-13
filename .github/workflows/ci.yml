@@ -278,6 +278,64 @@ jobs:
             > /tmp/ge.html
           test -s /tmp/ge.html
 
+  rust_windows:
+    name: Rust consumer (Windows, debug + release)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+
+      # No CI job has ever run cargo on Windows: the `bindings` job runs on
+      # ubuntu, and the `windows` job only compiles C++ / runs ctest. So the
+      # one combination that breaks — Windows AND the dev profile — was the
+      # one combination nothing covered, and 0.4.1 shipped a crate whose
+      # DEFAULT `cargo build` could not link:
+      #
+      #     unresolved external symbol __imp__calloc_dbg
+      #     LNK4098: defaultlib 'MSVCRTD' conflicts with use of other libs
+      #
+      # build.rs compiles the C++ core Release (release CRT), while cargo's
+      # dev profile links the DEBUG CRT — and the debug allocator symbols
+      # (_malloc_dbg, _CrtDbgReport, …) don't exist in the release CRT. 0.4.0
+      # masked it by shipping a DLL, which seals its CRT inside itself; linking
+      # the archive statically made the two CRTs meet in the consumer's link.
+      #
+      # Build a real downstream consumer, both profiles. Debug is listed first
+      # because it is the one that was broken, and it is what `cargo build`
+      # does by default.
+      - name: Build a downstream consumer (debug — the profile that broke)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/consumer/src
+          cd /tmp/consumer
+          cat > Cargo.toml <<EOF
+          [package]
+          name = "consumer"
+          version = "0.0.0"
+          edition = "2021"
+
+          [dependencies]
+          affineui = { path = "$GITHUB_WORKSPACE/bindings/rust/affineui" }
+          EOF
+          cat > src/main.rs <<'EOF'
+          fn main() {
+              println!("affineui {}", affineui::version());
+          }
+          EOF
+          cargo build
+          ./target/debug/consumer.exe
+
+      - name: Build a downstream consumer (release)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/consumer
+          cargo build --release
+          ./target/release/consumer.exe
+
   version_stamp:
     name: Version stamping (release manifests)
     runs-on: ubuntu-latest

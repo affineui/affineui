@@ -222,6 +222,24 @@ fn build_vendored(src_dir: &Path) {
         // source tree smaller and avoids one more moving part.
         .define("AFFINEUI_NO_EMBEDDED_FONTS", "ON")
         .define("CMAKE_BUILD_TYPE", "Release")
+        // MSVC picks the C runtime from the build type, and we always build the
+        // C++ core Release — so it links the RELEASE CRT. But `cargo build`
+        // (the dev profile, i.e. the default) links the DEBUG CRT, and the two
+        // do not mix: the debug CRT's allocator symbols (_malloc_dbg,
+        // _calloc_dbg, _free_dbg, _CrtDbgReport) simply do not exist in the
+        // release CRT, so the final link dies with
+        //
+        //     unresolved external symbol __imp__calloc_dbg
+        //     LNK4098: defaultlib 'MSVCRTD' conflicts with use of other libs
+        //
+        // 0.4.0 hid this: the C ABI was a DLL, which seals its CRT inside
+        // itself. Linking the archive statically (see above) makes the C++
+        // objects part of the consumer's link, so the two CRTs now have to
+        // agree. Pin ours to the release CRT unconditionally to match the
+        // release build type — which is what a prebuilt static dependency
+        // should do, and leaves the consumer's own profile free.
+        .define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreadedDLL")
+        .define("CMAKE_POLICY_DEFAULT_CMP0091", "NEW")
         .build_target("affineui")
         .build();
 
