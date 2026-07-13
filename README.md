@@ -30,7 +30,7 @@ Download C++ (right click, Save link as..): [affineui.cpp](https://raw.githubuse
 
 <img src="images/affineui_dender.png" width="720" alt="AffineUI running the Dender 3D-print slicer">
 
-*Dender — a 3D-print slicer showing AffineUI's default Decius CSS look. Docked panels, a custom viewport, and a full-app layout, all rendered natively.*
+*Dender — a Blender UI example showing AffineUI's default Decius CSS look. Docked panels, a custom viewport, and a full-app layout, all rendered natively.*
 
 AffineUI ships a real browser-style HTML/CSS layout and paint engine as a
 two-file C++ drop-in, a Python library (Gradio-style), a Rust crate, and a
