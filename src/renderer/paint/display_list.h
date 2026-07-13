@@ -1,5 +1,6 @@
 #pragma once
 
+#include "affineui/image.h"
 #include "affineui/types.h"
 
 #include <cstdint>
@@ -305,6 +306,11 @@ struct DisplayListClipRange {
 struct DisplayList {
     std::vector<PaintOp>   ops;
     std::vector<char>      text_pool;  // contiguous text storage
+    // Dynamic-image draw ops store compact backend ids in PaintOp, while this
+    // side table retains the corresponding shared leases through replay.
+    // Without it a temporary ImageHandle could release its GPU image after
+    // recording and leave a stale/recycled backend id in the cached list.
+    std::vector<ImageHandle> managed_images;
     // Optional measured visual bounds for ops whose compact payload cannot
     // carry enough geometry for precise retained-surface invalidation
     // (notably wrapped/aligned text boxes).
@@ -316,6 +322,7 @@ struct DisplayList {
     void clear() {
         ops.clear();
         text_pool.clear();
+        managed_images.clear();
         op_bounds_override.clear();
         transform_ranges.clear();
         clip_ranges.clear();

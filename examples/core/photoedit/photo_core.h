@@ -16,6 +16,9 @@
 
 #pragma once
 
+#include "affineui/app.h"
+#include "affineui/weak_ref.h"
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -65,7 +68,7 @@ struct HistoryEntry {
     std::string icon;  // decius di-* icon name
 };
 
-class PhotoDoc {
+class PhotoDoc : public affineui::Trackable {
 public:
     PhotoDoc(int width, int height);
     ~PhotoDoc();
@@ -334,18 +337,17 @@ private:
 
     // GPU side (valid only while attached; handles live in the device
     // painter and are refreshed lazily against *_rev counters).
-    affineui::App* app_ = nullptr;
-    std::uint32_t stage_img_ = 0;
+    affineui::AppHandle app_{};
+    affineui::ImageHandle stage_img_{};
     int stage_img_w_ = 0, stage_img_h_ = 0;
     std::uint64_t uploaded_rev_ = 0;
     std::uint64_t revision_ = 1;
     struct ThumbTex {
-        std::uint32_t img = 0;
+        affineui::ImageHandle img{};
         std::uint64_t rev = 0;   // layer pixel_rev the texture reflects
     };
     std::unordered_map<int, ThumbTex> thumbs_;      // by layer id
     std::unordered_set<int> thumb_names_;           // registered handlers
-    std::vector<std::uint32_t> dead_images_;        // freed at next paint
 };
 
 }  // namespace photo

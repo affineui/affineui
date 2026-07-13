@@ -165,8 +165,8 @@ private:
                                  const e3d::Vec3& old_s);
 
     Config         cfg_;
-    affineui::App* app_{nullptr};
-    app::Context*  ctx_{nullptr};
+    affineui::AppHandle app_{};
+    affineui::WeakRef<app::Context> ctx_{};
 
     std::shared_ptr<e3d::Scene>             scene_;
     std::shared_ptr<e3d::PerspectiveCamera> camera_;

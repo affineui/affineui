@@ -266,7 +266,7 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
     DispatchResult result;
     {
         detail::TraceSpan dispatch_span("dispatch");
-        result = impl.document.dispatch(ev);
+        result = impl.renderer.dispatch(impl.document, ev);
     }
     if (result.redraw_requested || result.invalidate_view) {
         impl.dirty = true;
@@ -456,7 +456,7 @@ void log_event_loop_exception(const char* where) {
 
 App::App() : App(Config{}) {}
 
-App::App(Config cfg) : impl_{std::make_unique<detail::AppImpl>()} {
+App::App(Config cfg) : impl_{std::make_shared<detail::AppImpl>()} {
     impl_->config = std::move(cfg);
     impl_->perf_overlay_enabled = impl_->config.perf_overlay;
     // Env override: AFFINEUI_PERF_OVERLAY=1 turns on the perf/DPI HUD without a
@@ -542,13 +542,16 @@ App::App(Config cfg) : impl_{std::make_unique<detail::AppImpl>()} {
     impl_->owner = this;
 }
 
-App::~App() = default;
+App::~App() {
+    if (impl_) impl_->owner = nullptr;
+}
 App::App(App&& other) noexcept : impl_{std::move(other.impl_)} {
     // The moved-in impl still carries the source App's owner pointer; repoint
     // it at this App so the frame loop drives the right instance.
     if (impl_) impl_->owner = this;
 }
 App& App::operator=(App&& other) noexcept {
+    if (impl_) impl_->owner = nullptr;
     impl_ = std::move(other.impl_);
     if (impl_) impl_->owner = this;
     return *this;
@@ -601,6 +604,55 @@ void replay_view_node(ViewSink& sink, const WidgetNode& node,
 }
 }  // namespace detail
 
+bool AppHandle::is_valid() const noexcept {
+    const auto impl = impl_.lock();
+    return impl && impl->owner != nullptr;
+}
+
+void AppHandle::set_custom_paint(std::string_view name,
+                                 Document::CustomPaintFn fn) const {
+    const auto impl = impl_.lock();
+    if (!impl || impl->owner == nullptr) return;
+    impl->document.set_custom_paint(name, std::move(fn));
+    impl->dirty = true;
+    impl->animations_active = false;
+}
+
+bool AppHandle::request_custom_repaint(std::string_view name) const {
+    const auto impl = impl_.lock();
+    if (!impl || impl->owner == nullptr) return false;
+    if (!impl->document.request_custom_repaint(name)) return false;
+    impl->dirty = true;
+    return true;
+}
+
+Rect AppHandle::find_element_rect(std::string_view target) const {
+    const auto impl = impl_.lock();
+    return impl && impl->owner != nullptr
+               ? impl->document.find_element_rect(target)
+               : Rect{};
+}
+
+ImageHandle AppHandle::create_image_rgba(
+    int width,
+    int height,
+    std::span<const std::uint8_t> rgba) const {
+    const auto impl = impl_.lock();
+    return impl && impl->owner != nullptr
+               ? impl->renderer.create_image_rgba(width, height, rgba)
+               : ImageHandle{};
+}
+
+void AppHandle::capture_pointer() const {
+    const auto impl = impl_.lock();
+    if (impl && impl->owner != nullptr) impl->pointer_captured = true;
+}
+
+void AppHandle::release_pointer() const {
+    const auto impl = impl_.lock();
+    if (impl && impl->owner != nullptr) impl->pointer_captured = false;
+}
+
 void App::set_view(std::function<void(View&)> builder) {
     impl_->view_builder = std::move(builder);
     impl_->view_bootstrapped = false;
@@ -608,41 +660,81 @@ void App::set_view(std::function<void(View&)> builder) {
 }
 
 void App::rebuild_view() {
-    if (!impl_->view_builder) return;
-    if (!impl_->retained_view) {
-        impl_->retained_view = std::make_unique<View>();
+    const auto impl = impl_;
+    if (!impl->view_builder) return;
+    if (!impl->retained_view) {
+        impl->retained_view = std::make_unique<View>();
     }
     // Dock surgery (tearoff / drag-to-dock) restructured the DOM outside the
     // retained view. Incremental reconcile on top of that leaves the
     // surgery's wrapper elements behind as duplicate panels — resync by
     // re-bootstrapping. The arrangement itself is not lost: the builder's
     // dock_layout provider replays it (the harvest ran on the surgical DOM).
-    if (impl_->view_bootstrapped &&
-        impl_->document.take_dock_structure_changed()) {
-        impl_->view_bootstrapped = false;
+    if (impl->view_bootstrapped &&
+        impl->document.take_dock_structure_changed()) {
+        impl->view_bootstrapped = false;
     }
-    View& view = *impl_->retained_view;
+    View& view = *impl->retained_view;
+    const std::weak_ptr<detail::AppImpl> weak_impl = impl;
+    view.set_mutation_dispatch(
+        [weak_impl](
+            const std::function<void(ViewSink&)>& mutation) {
+            const auto locked_impl = weak_impl.lock();
+            if (!locked_impl) return;
+            auto* sink = locked_impl->document.begin_view_mutations();
+            if (sink == nullptr) return;
+            try {
+                mutation(*sink);
+            } catch (...) {
+                locked_impl->document.end_view_mutations();
+                throw;
+            }
+            locked_impl->document.end_view_mutations();
+            if (locked_impl->retained_view) {
+                locked_impl->view_click_bindings =
+                    locked_impl->retained_view->click_bindings();
+                locked_impl->view_change_bindings =
+                    locked_impl->retained_view->change_bindings();
+                locked_impl->view_commit_bindings =
+                    locked_impl->retained_view->commit_bindings();
+            }
+            locked_impl->dirty = true;
+            locked_impl->animations_active = false;
+            locked_impl->settle_frames = detail::kSwapchainSettleFrames;
+        });
+    view.set_binding_dispatch([weak_impl] {
+        const auto locked_impl = weak_impl.lock();
+        if (!locked_impl || !locked_impl->retained_view) return;
+        locked_impl->view_click_bindings =
+            locked_impl->retained_view->click_bindings();
+        locked_impl->view_change_bindings =
+            locked_impl->retained_view->change_bindings();
+        locked_impl->view_commit_bindings =
+            locked_impl->retained_view->commit_bindings();
+    });
 
     // Feed each virtual list its container's live scroll geometry so the build
     // renders the window currently under the viewport. Set every rebuild (the
     // View is reused) before the builder runs.
     {
-        Document* doc = &impl_->document;
         view.set_scroll_provider(
-            [doc](std::string_view name, Axis axis) -> View::ScrollGeometry {
-                const auto g = doc->virtual_scroll_geometry(
+            [weak_impl](std::string_view name,
+                        Axis axis) -> View::ScrollGeometry {
+                const auto locked_impl = weak_impl.lock();
+                if (!locked_impl) return {};
+                const auto g = locked_impl->document.virtual_scroll_geometry(
                     name, axis == Axis::Horizontal);
                 return {g.offset, g.viewport, g.known};
             });
     }
 
-    if (!impl_->view_bootstrapped) {
+    if (!impl->view_bootstrapped) {
         // Bootstrap: build without a sink, load only the document SHELL
         // (head/styles/body attrs, empty <main>), then replay the built
         // tree through the document sink so it owns every node mapping.
         view.begin(static_cast<ViewSink*>(nullptr));
         try {
-            impl_->view_builder(view);
+            impl->view_builder(view);
         } catch (...) {
             // The builder may have opened its own nested reconcile session
             // before throwing. Collapse it so this owner-level end() fully
@@ -652,28 +744,29 @@ void App::rebuild_view() {
             throw;
         }
         view.end();
-        impl_->config.clear_color = view.background_color();
-        impl_->renderer.set_clear_color(impl_->config.clear_color);
-        load_html(view.to_html_shell());
-        impl_->document.attach_script(DocumentScript::UiControls);
-        if (auto* sink = impl_->document.begin_view_mutations()) {
+        impl->config.clear_color = view.background_color();
+        impl->renderer.set_clear_color(impl->config.clear_color);
+        if (impl->owner == nullptr) return;
+        impl->owner->load_html(view.to_html_shell());
+        impl->document.attach_script(DocumentScript::UiControls);
+        if (auto* sink = impl->document.begin_view_mutations()) {
             const auto& root = view.root();
             for (std::size_t i = 0; i < root.children.size(); ++i) {
                 detail::replay_view_node(*sink, root.children[i], nullptr,
                                          i);
             }
         }
-        impl_->document.end_view_mutations();
-        impl_->view_bootstrapped = true;
+        impl->document.end_view_mutations();
+        impl->view_bootstrapped = true;
     } else {
         // Steady state: rebuild into the persistent view; only actual
         // differences reach the document (attribute/text mutations on
         // the cheap path; structural edits settle in one restyle).
-        auto* sink = impl_->document.begin_view_mutations();
+        auto* sink = impl->document.begin_view_mutations();
         view.begin(sink);
         bool view_end_attempted = false;
         try {
-            impl_->view_builder(view);
+            impl->view_builder(view);
             view_end_attempted = true;
             view.end();
         } catch (...) {
@@ -704,7 +797,7 @@ void App::rebuild_view() {
                                  "AffineUI view cleanup failed\n");
                 }
             }
-            impl_->document.end_view_mutations();
+            impl->document.end_view_mutations();
             try {
                 std::rethrow_exception(failure);
             } catch (const std::exception& e) {
@@ -721,30 +814,30 @@ void App::rebuild_view() {
         // silent no-ops. Stamped INSIDE the mutation window so the flip and
         // the reconcile settle once, together. No-op when unchanged.
         for (const auto& attr : view.resolved_document_attrs()) {
-            impl_->document.set_body_attribute(attr.name, attr.value);
+            impl->document.set_body_attribute(attr.name, attr.value);
         }
-        impl_->document.end_view_mutations();
+        impl->document.end_view_mutations();
     }
 
     // Builder-misuse diagnostics (undeclared dock panels, bad selectors, …)
     // are collected quietly during the build; a silent vector helps nobody,
     // so print each distinct message once per process.
     for (const auto& d : view.diagnostics()) {
-        if (impl_->reported_view_diagnostics.insert(d).second) {
+        if (impl->reported_view_diagnostics.insert(d).second) {
             std::fprintf(stderr, "AffineUI view diagnostic: %s\n", d.c_str());
         }
     }
     view.clear_diagnostics();
 
-    impl_->view_click_bindings = view.click_bindings();
-    impl_->view_change_bindings = view.change_bindings();
-    impl_->view_commit_bindings = view.commit_bindings();
-    impl_->dirty = true;
-    impl_->animations_active = false;
+    impl->view_click_bindings = view.click_bindings();
+    impl->view_change_bindings = view.change_bindings();
+    impl->view_commit_bindings = view.commit_bindings();
+    impl->dirty = true;
+    impl->animations_active = false;
     // The reconcile has landed; nothing further to rebuild until the next
     // invalidate(). Clearing here also covers the direct App::rebuild_view()
     // and set_view() entry points, so a subsequent frame won't rebuild again.
-    impl_->view_dirty = false;
+    impl->view_dirty = false;
 }
 bool App::load_html_file(std::string_view)     { return false; }
 void App::set_stylesheet(std::string_view css) {
@@ -783,6 +876,13 @@ void App::request_custom_repaint(std::string_view name) {
     if (impl_->document.request_custom_repaint(name)) {
         impl_->dirty = true;
     }
+}
+
+ImageHandle App::create_image_rgba(
+    int width,
+    int height,
+    std::span<const std::uint8_t> rgba) {
+    return impl_->renderer.create_image_rgba(width, height, rgba);
 }
 
 bool App::set_widget_value(std::string_view name, std::string_view value) {
@@ -848,7 +948,8 @@ const FrameTelemetry& App::frame_telemetry() const noexcept {
 }
 
 bool App::dispatch(const Event& ev) {
-    return detail::dispatch_loaded_view_event(*impl_, ev);
+    const auto impl = impl_;
+    return detail::dispatch_loaded_view_event(*impl, ev);
 }
 
 void App::on_event(EventHandler cb) {
@@ -1094,7 +1195,7 @@ void sync_ime_state(detail::AppImpl& impl) {
         sapp_ime_set_enabled(active);
     }
     if (!active) return;
-    const Rect caret = impl.document.caret_rect();
+    const Rect caret = impl.renderer.caret_rect(impl.document);
     if (caret.w <= 0 || caret.h <= 0) return;
     if (caret.x == impl.last_ime_rect.x && caret.y == impl.last_ime_rect.y &&
         caret.w == impl.last_ime_rect.w && caret.h == impl.last_ime_rect.h) {

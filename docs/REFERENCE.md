@@ -26,9 +26,11 @@ Conventions:
 - Everything lives in `namespace affineui` unless noted.
 - **Single-threaded.** Construct, build, dispatch, and render on the thread
   that owns the graphics context.
-- **Hard to crash.** Handles to dead things (widgets, callback targets, DOM
-  nodes) resolve to defaults on read and no-op on write — never a dangling
-  pointer. This is a library-wide contract, restated per type below.
+- **Hard to crash.** Invalidating handle types (`WidgetRef`, `AppHandle`,
+  `ImageHandle`, `DomHandle`, `WeakRef`) resolve to defaults on read and no-op
+  on write after their target dies. Retained callbacks receive the same
+  guarantee when created with `bind()` or `guard()`; an arbitrary capturing
+  `std::function` still carries the lifetime contract chosen by its author.
 - `LOC` in signatures stands for the trailing
   `std::source_location here = std::source_location::current()` parameter
   every `View` builder takes (records the creating call site for devtools).
@@ -87,6 +89,12 @@ as long as the App). Non-copyable, movable.
 | `void set_view(std::function<void(View&)> builder)` | Install a persistent view builder; each `rebuild_view()` reconciles into the live document — the fast path, no HTML reparse. |
 | `void rebuild_view()` | Re-run the installed builder and reconcile. |
 | `void mount(std::function<void()> view_fn)` | Install an immediate-mode view function. |
+
+`App::handle()` returns an `AppHandle`: a copyable, non-owning capability for
+retained controllers. `is_valid()` becomes false after App destruction;
+custom-paint, repaint, image creation, geometry lookup, and pointer-capture
+operations then safely no-op. It never exposes an App, Document, Renderer, or
+Painter pointer.
 
 ### Loop, events, frames
 
@@ -301,9 +309,10 @@ Move-only.
 
 ## `WidgetRef`
 
-Id-addressed widget handle. Survives reconciliation (re-finds its node by
-key) and degrades gracefully — when the node is gone, reads return the
-fallback and **every mutator no-ops**.
+Id-addressed widget handle. It weakly tracks its View (never keeps it alive),
+survives reconciliation by re-finding its node by key, and degrades gracefully
+when either the View or node is gone: reads return the fallback and **every
+mutator no-ops**. `Scope` and `DockHandle` use the same View identity.
 
 | Signature | Description |
 |---|---|
@@ -313,8 +322,8 @@ fallback and **every mutator no-ops**.
 | `WidgetRef& text(std::string_view)` / `attr(name, value)` / `remove_attr(name)` / `selector(name, value)` / `named(name)` / `clear()` | Mutators. |
 | `WidgetRef& cls(std::string_view classes)` | **Replaces the whole class list** — including framework classes the builder set. |
 | `WidgetRef& add_class(std::string_view token)` | Appends one class token (idempotent) — the right way to add modifiers. |
-| `WidgetRef& on_click(std::function<void()>)` / `on_change(std::function<void(std::string_view)>)` | Handlers. Register before `App::load_view` (it copies the view, callbacks included). |
-| `WidgetRef& append(const std::function<void(View&)>&)` / `replace(...)` | Build children into the node. |
+| `WidgetRef& on_click(std::function<void()>)` / `on_change(std::function<void(std::string_view)>)` | Handlers. On an attached `set_view` View, replacement refreshes the live App binding immediately. |
+| `WidgetRef& append(const std::function<void(View&)>&)` / `replace(...)` | Build children into the node. On an attached View, structural changes enter one scoped live-document mutation transaction. |
 | `WidgetRef find_widget(std::string_view name) const` | Named descendant. |
 
 ## Virtual lists & trees (`affineui/virtual_list.h`)
@@ -483,7 +492,8 @@ the data is read from the live document.
 ## `Ui` — the one-type facade (`affineui/ui.h`)
 
 Composes a `Document` and a `Renderer` behind one type — the surface game
-integrations and the C ABI wrap. Single-threaded; non-copyable, movable.
+integrations and the C ABI wrap. Single-threaded, non-copyable, and non-movable
+so retained host wiring cannot follow a relocated facade by accident.
 
 | Signature | Description |
 |---|---|
@@ -494,6 +504,7 @@ integrations and the C ABI wrap. Single-threaded; non-copyable, movable.
 | `void render(const FrameTarget& target)` | Embedded mode (see Part 5); requires `init()` first. |
 | `void init(const InitDesc& desc)` | Embedded-mode init against host GPU objects. |
 | `bool dispatch(const Event& e)` | True when the UI consumed the event. |
+| `bool dispatch(const Event&, Painter&)` | Exact headless/custom-host dispatch; borrows the Painter for this call and never retains it. |
 | `void on_click(std::string_view selector, std::function<void()> cb)` | Click handler for a selector. *(experimental grammar: `#id`, `.cls`, `tag`, comma lists — compound selectors later)* |
 | `void on_event_capture(EventHandler)` / `on_event(EventHandler)` | Pre-widget interception for mouse, keyboard, text, and composition events / post-document low-level event phase. Returning true from capture prevents AffineUI handling (but does not cancel the underlying OS event). |
 | `on_frame(std::function<void(double)>)` / `run_frame_callbacks(double)` | Frame tick. |
@@ -624,10 +635,10 @@ Headers: `affineui/types.h`, `affineui/geom.h`, `affineui/callback.h`,
 `affineui/log.h`, `affineui/memory.h`, `affineui/version.h`.
 
 The most heavily used facility here is the **versioned weak-reference
-idiom**: one `{slot, generation}` mechanism provides `WeakRef<T>` (object
-references), `DomHandle` (DOM nodes), and the guard inside safe callbacks —
-and `WidgetRef` in the framework layer is built on the same principle. It
-is why, everywhere in AffineUI, a reference to something that has been
+idiom**. `WeakRef<T>` carries `{registry, slot, generation}` for object
+references; `DomHandle` uses the same slot-and-generation principle for DOM
+nodes; safe callbacks and framework-level `WidgetRef` build on those handles.
+It is why, everywhere in AffineUI, a reference to something that has been
 destroyed degrades to a no-op instead of dangling.
 
 ## Value types (`affineui/types.h`)
@@ -654,15 +665,18 @@ destroyed degrades to a no-op instead of dangling.
 
 ## Crash-safe callbacks (`affineui/callback.h`, `affineui/weak_ref.h`)
 
-The classic retained-UI crash — an event firing into a destroyed object —
-is designed out. `Callback<Args...>` optionally carries a liveness guard;
-once the target dies, invoking it is a silent no-op.
+The classic retained-UI crash — an event firing into a destroyed object — is
+avoided by `bind()` and `guard()`. Their retained closures store weak identity,
+resolve only for the call, and silently no-op once the target dies. Plain
+capturing lambdas remain available for self-contained or externally
+lifetime-safe handlers.
 
 | Signature | Description |
 |---|---|
 | `template <typename... Args> class Callback` | Callable with optional guard; implicit from any lambda (unguarded); converts to `std::function` (guard still honored). Aliases: `ClickCallback = Callback<>`, `ChangeCallback = Callback<std::string_view>`. |
 | `bind(T* obj, R (T::*method)(Args...))` | Safe (object, method) callback — no-ops after `obj` is destroyed; null obj → empty callback. Const overloads exist. |
 | `bind(T* obj, method, bound_args...)` | Binds arguments by value into a zero-arg callback (per-item handlers: `row.on_click(bind(this, &C::select, id))`). |
+| `guard(T* owner, callable)` | Guards an arbitrary void/non-void callable. The callable receives the live `T&` first, so it need not capture a raw `this`. Dead non-void calls return a default value. |
 
 Opting into weak tracking (required for `bind`'s guard, structural — the
 `WeaklyTrackable` concept):
@@ -670,13 +684,15 @@ Opting into weak tracking (required for `bind`'s guard, structural — the
 | Mechanism | Use |
 |---|---|
 | `class Trackable` (base) | The default for long-lived controllers/models. Non-copyable/movable; virtual dtor. |
-| `AFFINEUI_WEAK_TRACKABLE()` (macro) | One-line retrofit inside any class body; adds one 32-bit slot. |
+| `AFFINEUI_WEAK_TRACKABLE()` (macro) | One-line retrofit inside any class body; adds a registry identity and one 32-bit slot. |
 | `WeakRef<T>` | Typed copyable weak reference: `get()` → a non-owning `T*` or null, `alive()`, `bound()`. `to_weak_ref(obj)` from a pointer. The borrow does not pin the target; resolve again after re-entrant work that could destroy it. `lock()` is a deprecated compatibility alias. |
 
-The mechanism is a process-wide versioned slot table (the game-engine
-handle pattern) — the same idiom `DomHandle` uses for DOM nodes. Only make
-trackable what genuinely receives callbacks that outlive a stack frame;
-plain value types stay plain.
+The mechanism is a versioned slot table (the game-engine handle pattern) — the
+same idiom `DomHandle` uses for DOM nodes. A statically linked library or
+extension module may own its own table; each slot owner and weak reference
+carries the issuing table's identity so a handle continues to resolve across
+module boundaries. Only make trackable what genuinely receives callbacks that
+outlive a stack frame; plain value types stay plain.
 
 ## Reflection (`affineui/object.h`)
 
@@ -781,10 +797,21 @@ compositor. Does not own the window or loop.
 | `void init_embedded(const GpuContext&, const Allocator* = nullptr)` | Bring up sokol_gfx on the host's device objects. |
 | `void render(Document&, int fb_w, int fb_h, float dpi_scale)` | One frame into the default framebuffer. |
 | `void render_to(Document&, const FrameTarget&)` | One frame into host views (embedded). |
+| `DispatchResult dispatch(Document&, const Event&)` | Dispatch with exact interaction relayout through the renderer-owned Painter. |
+| `ImageHandle create_image_rgba(w, h, rgba)` | Create a managed RGBA8 image. Copies share ownership; final release destroys the GPU image; shutdown invalidates all handles. |
+| `Rect caret_rect(Document&)` | Exact caret geometry using the renderer-owned Painter without exposing or retaining it. |
 | `void shutdown()` | Release GPU resources **while the context is still current**. |
 | `set_clear_color(Color)` / `clear_color()` | Default `#1e1e2e`. |
 | `const RenderStats& stats() const` | Per-frame/lifetime counters (display-list records/replays, rasterizes, stage timings µs, dirty areas). |
 | `void draw_debug_overlay(text, frame_ms, fb_w, fb_h, dpi, corner)` | Native overlay outside the document tree. |
+
+`ImageHandle` is the dynamic-image API. `is_valid()` reports whether its
+renderer and generation are live, `update(rgba)` replaces the complete payload,
+and `reset()` releases that copy. Drawing or updating an invalid handle is a
+safe no-op. Cached display lists retain a handle lease for as long as they may
+replay the image. Image creation, update, and drawing occur on the renderer/UI
+thread; final release from another thread is retired for renderer-thread
+destruction.
 
 `affineui/display_list.h` (the hashable/diffable paint-op stream:
 `PaintOp`, `DisplayList`, `rolling_hash()`, `same_pixels_as()`) is public

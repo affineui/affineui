@@ -26,6 +26,7 @@
 #include "affineui/weak_ref.h"
 #include "affineui/embed.h"
 #include "affineui/log.h"
+#include "affineui/image.h"
 #include "affineui/painter.h"
 #include "affineui/renderer.h"
 #include "affineui/themes.h"

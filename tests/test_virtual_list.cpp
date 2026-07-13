@@ -334,6 +334,64 @@ TEST_CASE("TreeFlattener: handle resolves to the live item; null when data dies"
     CHECK(p.item_count() == 0);
 }
 
+TEST_CASE("TreeFlattener: wired provider safely outlives the flattener") {
+    auto tree = make_mini();
+    affineui::VirtualTreeProvider provider;
+    {
+        Flat flattener{affineui::to_weak_ref(tree.get())};
+        wire_mini(flattener);
+        flattener.wire(provider);
+        REQUIRE(provider.item_count() == 2);
+    }
+
+    CHECK(provider.item_count() == 0);
+    CHECK(provider.depth(0) == 0);
+    CHECK_FALSE(provider.is_expandable(0));
+    CHECK_FALSE(provider.is_expanded(0));
+    CHECK_FALSE(provider.is_selected(0));
+    CHECK_FALSE(provider.is_checked(0));
+    CHECK_NOTHROW(provider.toggle(0));
+    CHECK_NOTHROW(provider.activate(0, SelectMod::Replace));
+    CHECK_NOTHROW(provider.set_checked(0, true));
+    REQUIRE(static_cast<bool>(provider.item_text()));
+    CHECK(provider.item_text()(0).empty());
+}
+
+TEST_CASE("TreeFlattener tolerates destruction from a model callback") {
+    auto tree = make_mini();
+    auto flattener = std::make_unique<Flat>(
+        affineui::to_weak_ref(tree.get()));
+    bool destroy_during_rebuild = false;
+    flattener
+        ->on_roots([&](MiniTree* source,
+                       std::vector<std::uint64_t>& out) {
+            out = source->roots;
+            if (destroy_during_rebuild) flattener.reset();
+        })
+        .on_children([](MiniTree* source, std::uint64_t id,
+                        std::vector<std::uint64_t>& out) {
+            if (auto* node = source->resolve(id)) out = node->kids;
+        })
+        .on_has_children([](MiniTree* source, std::uint64_t id) {
+            const auto* node = source->resolve(id);
+            return node != nullptr && !node->kids.empty();
+        })
+        .on_label([](MiniTree* source, std::uint64_t id) {
+            const auto* node = source->resolve(id);
+            return node != nullptr ? node->name : std::string{};
+        });
+
+    affineui::VirtualTreeProvider provider;
+    flattener->wire(provider);
+    REQUIRE(provider.item_count() == 2);
+    REQUIRE(provider.is_expandable(0));
+
+    destroy_during_rebuild = true;
+    CHECK_NOTHROW(provider.toggle(0));
+    CHECK(flattener == nullptr);
+    CHECK(provider.item_count() == 0);
+}
+
 TEST_CASE("virtual_tree builder: depth, chevron state, flattened window") {
     View view{affineui::ViewTheme::Bootstrap};
     VirtualTreeProvider t;

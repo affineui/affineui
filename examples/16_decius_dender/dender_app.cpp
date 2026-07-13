@@ -798,11 +798,15 @@ void DenderApp::commit_dimension(int axis, std::string_view value) {
     dim_gesture_id_.clear();
     if (!next || !prev || prev == next) return;
 
-    viewport3d::Viewport3D* vp = viewport_.get();
+    const auto vp = affineui::to_weak_ref(viewport_.get());
     ctx_.stack().push(std::make_unique<app::LambdaCommand>(
         "dender.setDimensions", "Resize " + obj->name,
-        [vp, id, next](app::Document&) { vp->set_node_geometry(id, next); },
-        [vp, id, prev](app::Document&) { vp->set_node_geometry(id, prev); }));
+        [vp, id, next](app::Document&) {
+            if (auto* viewport = vp.get()) viewport->set_node_geometry(id, next);
+        },
+        [vp, id, prev](app::Document&) {
+            if (auto* viewport = vp.get()) viewport->set_node_geometry(id, prev);
+        }));
 }
 
 void DenderApp::add_object(std::string_view type) {

@@ -43,10 +43,6 @@
 #include <cstring>
 #include <memory>
 #include <string_view>
-#include <stddef.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <stdint.h>
 #include <string>
 #include <vector>
 #include <functional>
@@ -59,6 +55,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <stddef.h>
 #include <cstdio>
 #include <mutex>
 #include <map>
@@ -80,8 +77,6 @@
 #include <optional>
 #include <unordered_set>
 #include <cassert>
-#include <string.h>
-#include <ctype.h>
 
 // ─── vendored-symbol shielding (TU-local linkage) ───────────────────────
 // Each define is honored by the matching upstream header; the
@@ -303730,650 +303725,6 @@ SOKOL_API_IMPL sg_swapchain sglue_swapchain(void) {
 
 #endif
 
-// ────────────────────────────────────────────────────────────────────────
-// external/tinyjson/tiny-json.c
-// ────────────────────────────────────────────────────────────────────────
-
-/*
-
-<https://github.com/rafagafe/tiny-json>
-
-  Licensed under the MIT License <http://opensource.org/licenses/MIT>.
-  SPDX-License-Identifier: MIT
-  Copyright (c) 2016-2018 Rafa Garcia <rafagarcia77@gmail.com>.
-
-  Permission is hereby  granted, free of charge, to any  person obtaining a copy
-  of this software and associated  documentation files (the "Software"), to deal
-  in the Software  without restriction, including without  limitation the rights
-  to  use, copy,  modify, merge,  publish, distribute,  sublicense, and/or  sell
-  copies  of  the Software,  and  to  permit persons  to  whom  the Software  is
-  furnished to do so, subject to the following conditions:
-
-  The above copyright notice and this permission notice shall be included in all
-  copies or substantial portions of the Software.
-
-  THE SOFTWARE  IS PROVIDED "AS  IS", WITHOUT WARRANTY  OF ANY KIND,  EXPRESS OR
-  IMPLIED,  INCLUDING BUT  NOT  LIMITED TO  THE  WARRANTIES OF  MERCHANTABILITY,
-  FITNESS FOR  A PARTICULAR PURPOSE AND  NONINFRINGEMENT. IN NO EVENT  SHALL THE
-  AUTHORS  OR COPYRIGHT  HOLDERS  BE  LIABLE FOR  ANY  CLAIM,  DAMAGES OR  OTHER
-  LIABILITY, WHETHER IN AN ACTION OF  CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  OUT OF OR IN CONNECTION WITH THE SOFTWARE  OR THE USE OR OTHER DEALINGS IN THE
-  SOFTWARE.
-
-*/
-
-// ────────────────────────────────────────────────────────────────────────
-// external/tinyjson/tiny-json.h
-// ────────────────────────────────────────────────────────────────────────
-
-
-/*
-
-<https://github.com/rafagafe/tiny-json>
-
-  Licensed under the MIT License <http://opensource.org/licenses/MIT>.
-  SPDX-License-Identifier: MIT
-  Copyright (c) 2016-2018 Rafa Garcia <rafagarcia77@gmail.com>.
-
-  Permission is hereby  granted, free of charge, to any  person obtaining a copy
-  of this software and associated  documentation files (the "Software"), to deal
-  in the Software  without restriction, including without  limitation the rights
-  to  use, copy,  modify, merge,  publish, distribute,  sublicense, and/or  sell
-  copies  of  the Software,  and  to  permit persons  to  whom  the Software  is
-  furnished to do so, subject to the following conditions:
-
-  The above copyright notice and this permission notice shall be included in all
-  copies or substantial portions of the Software.
-
-  THE SOFTWARE  IS PROVIDED "AS  IS", WITHOUT WARRANTY  OF ANY KIND,  EXPRESS OR
-  IMPLIED,  INCLUDING BUT  NOT  LIMITED TO  THE  WARRANTIES OF  MERCHANTABILITY,
-  FITNESS FOR  A PARTICULAR PURPOSE AND  NONINFRINGEMENT. IN NO EVENT  SHALL THE
-  AUTHORS  OR COPYRIGHT  HOLDERS  BE  LIABLE FOR  ANY  CLAIM,  DAMAGES OR  OTHER
-  LIABILITY, WHETHER IN AN ACTION OF  CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  OUT OF OR IN CONNECTION WITH THE SOFTWARE  OR THE USE OR OTHER DEALINGS IN THE
-  SOFTWARE.
-
-*/
-
-#ifndef _TINY_JSON_H_
-#define	_TINY_JSON_H_
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#include <stddef.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <stdint.h>
-
-#define json_containerOf( ptr, type, member ) \
-    ((type*)( (char*)ptr - offsetof( type, member ) ))
-
-/** @defgroup tinyJson Tiny JSON parser.
-  * @{ */
-
-/** Enumeration of codes of supported JSON properties types. */
-typedef enum {
-    JSON_OBJ, JSON_ARRAY, JSON_TEXT, JSON_BOOLEAN,
-    JSON_INTEGER, JSON_REAL, JSON_NULL
-} jsonType_t;
-
-/** Structure to handle JSON properties. */
-typedef struct json_s {
-    struct json_s* sibling;
-    char const* name;
-    union {
-        char const* value;
-        struct {
-            struct json_s* child;
-            struct json_s* last_child;
-        } c;
-    } u;
-    jsonType_t type;
-} json_t;
-
-/** Parse a string to get a json.
-  * @param str String pointer with a JSON object. It will be modified.
-  * @param mem Array of json properties to allocate.
-  * @param qty Number of elements of mem.
-  * @retval Null pointer if any was wrong in the parse process.
-  * @retval If the parser process was successfully a valid handler of a json.
-  *         This property is always unnamed and its type is JSON_OBJ. */
-json_t const* json_create( char* str, json_t mem[], unsigned int qty );
-
-/** Get the name of a json property.
-  * @param json A valid handler of a json property.
-  * @retval Pointer to null-terminated if property has name.
-  * @retval Null pointer if the property is unnamed. */
-static inline char const* json_getName( json_t const* json ) {
-    return json->name;
-}
-
-/** Get the value of a json property.
-  * The type of property cannot be JSON_OBJ or JSON_ARRAY.
-  * @param property A valid handler of a json property.
-  * @return Pointer to null-terminated string with the value. */
-static inline char const* json_getValue( json_t const* property ) {
-    return property->u.value;
-}
-
-/** Get the type of a json property.
-  * @param json A valid handler of a json property.
-  * @return The code of type.*/
-static inline jsonType_t json_getType( json_t const* json ) {
-    return json->type;
-}
-
-/** Get the next sibling of a JSON property that is within a JSON object or array.
-  * @param json A valid handler of a json property.
-  * @retval The handler of the next sibling if found.
-  * @retval Null pointer if the json property is the last one. */
-static inline json_t const* json_getSibling( json_t const* json ) {
-    return json->sibling;
-}
-
-/** Search a property by its name in a JSON object.
-  * @param obj A valid handler of a json object. Its type must be JSON_OBJ.
-  * @param property The name of property to get.
-  * @retval The handler of the json property if found.
-  * @retval Null pointer if not found. */
-json_t const* json_getProperty( json_t const* obj, char const* property );
-
-
-/** Search a property by its name in a JSON object and return its value.
-  * @param obj A valid handler of a json object. Its type must be JSON_OBJ.
-  * @param property The name of property to get.
-  * @retval If found a pointer to null-terminated string with the value.
-  * @retval Null pointer if not found or it is an array or an object. */
-char const* json_getPropertyValue( json_t const* obj, char const* property );
-
-/** Get the first property of a JSON object or array.
-  * @param json A valid handler of a json property.
-  *             Its type must be JSON_OBJ or JSON_ARRAY.
-  * @retval The handler of the first property if there is.
-  * @retval Null pointer if the json object has not properties. */
-static inline json_t const* json_getChild( json_t const* json ) {
-    return json->u.c.child;
-}
-
-/** Get the value of a json boolean property.
-  * @param property A valid handler of a json object. Its type must be JSON_BOOLEAN.
-  * @return The value stdbool. */
-static inline bool json_getBoolean( json_t const* property ) {
-    return *property->u.value == 't';
-}
-
-/** Get the value of a json integer property.
-  * @param property A valid handler of a json object. Its type must be JSON_INTEGER.
-  * @return The value stdint. */
-static inline int64_t json_getInteger( json_t const* property ) {
-  return strtoll( property->u.value,(char**)NULL, 10);
-}
-
-/** Get the value of a json real property.
-  * @param property A valid handler of a json object. Its type must be JSON_REAL.
-  * @return The value. */
-static inline double json_getReal( json_t const* property ) {
-  return strtod( property->u.value,(char**)NULL );
-}
-
-
-
-/** Structure to handle a heap of JSON properties. */
-typedef struct jsonPool_s jsonPool_t;
-struct jsonPool_s {
-    json_t* (*init)( jsonPool_t* pool );
-    json_t* (*alloc)( jsonPool_t* pool );
-};
-
-/** Parse a string to get a json.
-  * @param str String pointer with a JSON object. It will be modified.
-  * @param pool Custom json pool pointer.
-  * @retval Null pointer if any was wrong in the parse process.
-  * @retval If the parser process was successfully a valid handler of a json.
-  *         This property is always unnamed and its type is JSON_OBJ. */
-json_t const* json_createWithPool( char* str, jsonPool_t* pool );
-
-/** @ } */
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif	/* _TINY_JSON_H_ */
-
-
-
-/** Structure to handle a heap of JSON properties. */
-typedef struct jsonStaticPool_s {
-    json_t* mem;      /**< Pointer to array of json properties.      */
-    unsigned int qty; /**< Length of the array of json properties.   */
-    unsigned int nextFree;  /**< The index of the next free json property. */
-    jsonPool_t pool;
-} jsonStaticPool_t;
-
-/* Search a property by its name in a JSON object. */
-json_t const* json_getProperty( json_t const* obj, char const* property ) {
-    json_t const* sibling;
-    for( sibling = obj->u.c.child; sibling; sibling = sibling->sibling )
-        if ( sibling->name && !strcmp( sibling->name, property ) )
-            return sibling;
-    return 0;
-}
-
-/* Search a property by its name in a JSON object and return its value. */
-char const* json_getPropertyValue( json_t const* obj, char const* property ) {
-	json_t const* field = json_getProperty( obj, property );
-	if ( !field ) return 0;
-        jsonType_t type = json_getType( field );
-        if ( JSON_ARRAY >= type ) return 0;
-	return json_getValue( field );
-}
-
-/* Internal prototypes: */
-static char* goBlank( char* str );
-static char* goNum( char* str );
-static json_t* poolInit( jsonPool_t* pool );
-static json_t* poolAlloc( jsonPool_t* pool );
-static char* objValue( char* ptr, json_t* obj, jsonPool_t* pool );
-static char* setToNull( char* ch );
-static bool isEndOfPrimitive( char ch );
-
-/* Parse a string to get a json. */
-json_t const* json_createWithPool( char *str, jsonPool_t *pool ) {
-    char* ptr = goBlank( str );
-    if ( !ptr || (*ptr != '{' && *ptr != '[') ) return 0;
-    json_t* obj = pool->init( pool );
-    obj->name    = 0;
-    obj->sibling = 0;
-    obj->u.c.child = 0;
-    ptr = objValue( ptr, obj, pool );
-    if ( !ptr ) return 0;
-    return obj;
-}
-
-/* Parse a string to get a json. */
-json_t const* json_create( char* str, json_t mem[], unsigned int qty ) {
-    jsonStaticPool_t spool;
-    spool.mem = mem;
-    spool.qty = qty;
-    spool.pool.init = poolInit;
-    spool.pool.alloc = poolAlloc;
-    return json_createWithPool( str, &spool.pool );
-}
-
-/** Get a special character with its escape character. Examples:
-  * 'b' -> '\\b', 'n' -> '\\n', 't' -> '\\t'
-  * @param ch The escape character.
-  * @retval  The character code. */
-static char getEscape( char ch ) {
-    static struct { char ch; char code; } const pair[] = {
-        { '\"', '\"' }, { '\\', '\\' },
-        { '/',  '/'  }, { 'b',  '\b' },
-        { 'f',  '\f' }, { 'n',  '\n' },
-        { 'r',  '\r' }, { 't',  '\t' },
-    };
-    unsigned int i;
-    for( i = 0; i < sizeof pair / sizeof *pair; ++i )
-        if ( pair[i].ch == ch )
-            return pair[i].code;
-    return '\0';
-}
-
-/** Parse 4 characters.
-  * @param str Pointer to  first digit.
-  * @retval '?' If the four characters are hexadecimal digits.
-  * @retval '\0' In other cases. */
-static unsigned char getCharFromUnicode( unsigned char const* str ) {
-    unsigned int i;
-    for( i = 0; i < 4; ++i )
-        if ( !isxdigit( str[i] ) )
-            return '\0';
-    return '?';
-}
-
-/** Parse a string and replace the scape characters by their meaning characters.
-  * This parser stops when finds the character '\"'. Then replaces '\"' by '\0'.
-  * @param str Pointer to first character.
-  * @retval Pointer to first non white space after the string. If success.
-  * @retval Null pointer if any error occur. */
-static char* parseString( char* str ) {
-    unsigned char* head = (unsigned char*)str;
-    unsigned char* tail = (unsigned char*)str;
-    for( ; *head; ++head, ++tail ) {
-        if ( *head == '\"' ) {
-            *tail = '\0';
-            return (char*)++head;
-        }
-        if ( *head == '\\' ) {
-            if ( *++head == 'u' ) {
-                char const ch = getCharFromUnicode( ++head );
-                if ( ch == '\0' ) return 0;
-                *tail = ch;
-                head += 3;
-            }
-            else {
-                char const esc = getEscape( *head );
-                if ( esc == '\0' ) return 0;
-                *tail = esc;
-            }
-        }
-        else *tail = *head;
-    }
-    return 0;
-}
-
-/** Parse a string to get the name of a property.
-  * @param ptr Pointer to first character.
-  * @param property The property to assign the name.
-  * @retval Pointer to first of property value. If success.
-  * @retval Null pointer if any error occur. */
-static char* propertyName( char* ptr, json_t* property ) {
-    property->name = ++ptr;
-    ptr = parseString( ptr );
-    if ( !ptr ) return 0;
-    ptr = goBlank( ptr );
-    if ( !ptr ) return 0;
-    if ( *ptr++ != ':' ) return 0;
-    return goBlank( ptr );
-}
-
-/** Parse a string to get the value of a property when its type is JSON_TEXT.
-  * @param ptr Pointer to first character ('\"').
-  * @param property The property to assign the name.
-  * @retval Pointer to first non white space after the string. If success.
-  * @retval Null pointer if any error occur. */
-static char* textValue( char* ptr, json_t* property ) {
-    ++property->u.value;
-    ptr = parseString( ++ptr );
-    if ( !ptr ) return 0;
-    property->type = JSON_TEXT;
-    return ptr;
-}
-
-/** Compare two strings until get the null character in the second one.
-  * @param ptr sub string
-  * @param str main string
-  * @retval Pointer to next character.
-  * @retval Null pointer if any error occur. */
-static char* checkStr( char* ptr, char const* str ) {
-    while( *str )
-        if ( *ptr++ != *str++ )
-            return 0;
-    return ptr;
-}
-
-/** Parser a string to get a primitive value.
-  * If the first character after the value is different of '}' or ']' is set to '\0'.
-  * @param ptr Pointer to first character.
-  * @param property Property handler to set the value and the type, (true, false or null).
-  * @param value String with the primitive literal.
-  * @param type The code of the type. ( JSON_BOOLEAN or JSON_NULL )
-  * @retval Pointer to first non white space after the string. If success.
-  * @retval Null pointer if any error occur. */
-static char* primitiveValue( char* ptr, json_t* property, char const* value, jsonType_t type ) {
-    ptr = checkStr( ptr, value );
-    if ( !ptr || !isEndOfPrimitive( *ptr ) ) return 0;
-    ptr = setToNull( ptr );
-    property->type = type;
-    return ptr;
-}
-
-/** Parser a string to get a true value.
-  * If the first character after the value is different of '}' or ']' is set to '\0'.
-  * @param ptr Pointer to first character.
-  * @param property Property handler to set the value and the type, (true, false or null).
-  * @retval Pointer to first non white space after the string. If success.
-  * @retval Null pointer if any error occur. */
-static char* trueValue( char* ptr, json_t* property ) {
-    return primitiveValue( ptr, property, "true", JSON_BOOLEAN );
-}
-
-/** Parser a string to get a false value.
-  * If the first character after the value is different of '}' or ']' is set to '\0'.
-  * @param ptr Pointer to first character.
-  * @param property Property handler to set the value and the type, (true, false or null).
-  * @retval Pointer to first non white space after the string. If success.
-  * @retval Null pointer if any error occur. */
-static char* falseValue( char* ptr, json_t* property ) {
-    return primitiveValue( ptr, property, "false", JSON_BOOLEAN );
-}
-
-/** Parser a string to get a null value.
-  * If the first character after the value is different of '}' or ']' is set to '\0'.
-  * @param ptr Pointer to first character.
-  * @param property Property handler to set the value and the type, (true, false or null).
-  * @retval Pointer to first non white space after the string. If success.
-  * @retval Null pointer if any error occur. */
-static char* nullValue( char* ptr, json_t* property ) {
-    return primitiveValue( ptr, property, "null", JSON_NULL );
-}
-
-/** Analyze the exponential part of a real number.
-  * @param ptr Pointer to first character.
-  * @retval Pointer to first non numerical after the string. If success.
-  * @retval Null pointer if any error occur. */
-static char* expValue( char* ptr ) {
-    if ( *ptr == '-' || *ptr == '+' ) ++ptr;
-    if ( !isdigit( (int)(*ptr) ) ) return 0;
-    ptr = goNum( ++ptr );
-    return ptr;
-}
-
-/** Analyze the decimal part of a real number.
-  * @param ptr Pointer to first character.
-  * @retval Pointer to first non numerical after the string. If success.
-  * @retval Null pointer if any error occur. */
-static char* fraqValue( char* ptr ) {
-    if ( !isdigit( (int)(*ptr) ) ) return 0;
-    ptr = goNum( ++ptr );
-    if ( !ptr ) return 0;
-    return ptr;
-}
-
-/** Parser a string to get a numerical value.
-  * If the first character after the value is different of '}' or ']' is set to '\0'.
-  * @param ptr Pointer to first character.
-  * @param property Property handler to set the value and the type: JSON_REAL or JSON_INTEGER.
-  * @retval Pointer to first non white space after the string. If success.
-  * @retval Null pointer if any error occur. */
-static char* numValue( char* ptr, json_t* property ) {
-    if ( *ptr == '-' ) ++ptr;
-    if ( !isdigit( (int)(*ptr) ) ) return 0;
-    if ( *ptr != '0' ) {
-        ptr = goNum( ptr );
-        if ( !ptr ) return 0;
-    }
-    else if ( isdigit( (int)(*++ptr) ) ) return 0;
-    property->type = JSON_INTEGER;
-    if ( *ptr == '.' ) {
-        ptr = fraqValue( ++ptr );
-        if ( !ptr ) return 0;
-        property->type = JSON_REAL;
-    }
-    if ( *ptr == 'e' || *ptr == 'E' ) {
-        ptr = expValue( ++ptr );
-        if ( !ptr ) return 0;
-        property->type = JSON_REAL;
-    }
-    if ( !isEndOfPrimitive( *ptr ) ) return 0;
-    if ( JSON_INTEGER == property->type ) {
-        char const* value = property->u.value;
-        bool const negative = *value == '-';
-        static char const min[] = "-9223372036854775808";
-        static char const max[] = "9223372036854775807";
-        unsigned int const maxdigits = ( negative? sizeof min: sizeof max ) - 1;
-        unsigned int const len = ( unsigned int const ) ( ptr - value );
-        if ( len > maxdigits ) return 0;
-        if ( len == maxdigits ) {
-            char const tmp = *ptr;
-            *ptr = '\0';
-            char const* const threshold = negative ? min: max;
-            if ( 0 > strcmp( threshold, value ) ) return 0;
-            *ptr = tmp;
-        }
-    }
-    ptr = setToNull( ptr );
-    return ptr;
-}
-
-/** Add a property to a JSON object or array.
-  * @param obj The handler of the JSON object or array.
-  * @param property The handler of the property to be added. */
-static void add( json_t* obj, json_t* property ) {
-    property->sibling = 0;
-    if ( !obj->u.c.child ){
-	    obj->u.c.child = property;
-	    obj->u.c.last_child = property;
-    } else {
-	    obj->u.c.last_child->sibling = property;
-	    obj->u.c.last_child = property;
-    }
-}
-
-/** Parser a string to get a json object value.
-  * @param ptr Pointer to first character.
-  * @param obj The handler of the JSON root object or array.
-  * @param pool The handler of a json pool for creating json instances.
-  * @retval Pointer to first character after the value. If success.
-  * @retval Null pointer if any error occur. */
-static char* objValue( char* ptr, json_t* obj, jsonPool_t* pool ) {
-    obj->type    = *ptr == '{' ? JSON_OBJ : JSON_ARRAY;
-    obj->u.c.child = 0;
-    obj->sibling = 0;
-    ptr++;
-    for(;;) {
-        ptr = goBlank( ptr );
-        if ( !ptr ) return 0;
-        if ( *ptr == ',' ) {
-            ++ptr;
-            continue;
-        }
-        char const endchar = ( obj->type == JSON_OBJ )? '}': ']';
-        if ( *ptr == endchar ) {
-            *ptr = '\0';
-            json_t* parentObj = obj->sibling;
-            if ( !parentObj ) return ++ptr;
-            obj->sibling = 0;
-            obj = parentObj;
-            ++ptr;
-            continue;
-        }
-        json_t* property = pool->alloc( pool );
-        if ( !property ) return 0;
-        if( obj->type != JSON_ARRAY ) {
-            if ( *ptr != '\"' ) return 0;
-            ptr = propertyName( ptr, property );
-            if ( !ptr ) return 0;
-        }
-        else property->name = 0;
-        add( obj, property );
-        property->u.value = ptr;
-        switch( *ptr ) {
-            case '{':
-                property->type    = JSON_OBJ;
-                property->u.c.child = 0;
-                property->sibling = obj;
-                obj = property;
-                ++ptr;
-                break;
-            case '[':
-                property->type    = JSON_ARRAY;
-                property->u.c.child = 0;
-                property->sibling = obj;
-                obj = property;
-                ++ptr;
-                break;
-            case '\"': ptr = textValue( ptr, property );  break;
-            case 't':  ptr = trueValue( ptr, property );  break;
-            case 'f':  ptr = falseValue( ptr, property ); break;
-            case 'n':  ptr = nullValue( ptr, property );  break;
-            default:   ptr = numValue( ptr, property );   break;
-        }
-        if ( !ptr ) return 0;
-    }
-}
-
-/** Initialize a json pool.
-  * @param pool The handler of the pool.
-  * @return a instance of a json. */
-static json_t* poolInit( jsonPool_t* pool ) {
-    jsonStaticPool_t *spool = json_containerOf( pool, jsonStaticPool_t, pool );
-    spool->nextFree = 1;
-    return spool->mem;
-}
-
-/** Create an instance of a json from a pool.
-  * @param pool The handler of the pool.
-  * @retval The handler of the new instance if success.
-  * @retval Null pointer if the pool was empty. */
-static json_t* poolAlloc( jsonPool_t* pool ) {
-    jsonStaticPool_t *spool = json_containerOf( pool, jsonStaticPool_t, pool );
-    if ( spool->nextFree >= spool->qty ) return 0;
-    return spool->mem + spool->nextFree++;
-}
-
-/** Checks whether an character belongs to set.
-  * @param ch Character value to be checked.
-  * @param set Set of characters. It is just a null-terminated string.
-  * @return true or false there is membership or not. */
-static bool isOneOfThem( char ch, char const* set ) {
-    while( *set != '\0' )
-        if ( ch == *set++ )
-            return true;
-    return false;
-}
-
-/** Increases a pointer while it points to a character that belongs to a set.
-  * @param str The initial pointer value.
-  * @param set Set of characters. It is just a null-terminated string.
-  * @return The final pointer value or null pointer if the null character was found. */
-static char* goWhile( char* str, char const* set ) {
-    for(; *str != '\0'; ++str ) {
-        if ( !isOneOfThem( *str, set ) )
-            return str;
-    }
-    return 0;
-}
-
-/** Set of characters that defines a blank. */
-static char const* const blank = " \n\r\t\f";
-
-/** Increases a pointer while it points to a white space character.
-  * @param str The initial pointer value.
-  * @return The final pointer value or null pointer if the null character was found. */
-static char* goBlank( char* str ) {
-    return goWhile( str, blank );
-}
-
-/** Increases a pointer while it points to a decimal digit character.
-  * @param str The initial pointer value.
-  * @return The final pointer value or null pointer if the null character was found. */
-static char* goNum( char* str ) {
-    for( ; *str != '\0'; ++str ) {
-        if ( !isdigit( (int)(*str) ) )
-            return str;
-    }
-    return 0;
-}
-
-/** Set of characters that defines the end of an array or a JSON object. */
-static char const* const endofblock = "}]";
-
-/** Set a char to '\0' and increase its pointer if the char is different to '}' or ']'.
-  * @param ch Pointer to character.
-  * @return  Final value pointer. */
-static char* setToNull( char* ch ) {
-    if ( !isOneOfThem( *ch, endofblock ) ) *ch++ = '\0';
-    return ch;
-}
-
-/** Indicate if a character is the end of a primitive value. */
-static bool isEndOfPrimitive( char ch ) {
-    return ch == ',' || isOneOfThem( ch, blank ) || isOneOfThem( ch, endofblock );
-}
-
 
 // Implementation macros are single-use; clear them before any later
 // declaration-only repeat of these upstream headers (the renderer
@@ -387357,13 +386708,17 @@ sg_image nvsgImageHandle(NVGcontext* ctx, int image) {
 
 namespace affineui::detail {
 
-void set_log_sink(LogFn fn, void* user) noexcept;
+std::uint64_t set_log_sink(LogFn fn, void* user) noexcept;
+void clear_log_sink(std::uint64_t registration) noexcept;
 void log_msg(LogLevel level, const char* msg) noexcept;
 
-// The embedder's raw-pointer sink, exposed for the log facility (log.cpp)
-// so it keeps firing alongside the std::function handler.
-LogFn legacy_log_fn() noexcept;
-void* legacy_log_user() noexcept;
+// The embedder's sink, snapshotted as one pair so concurrent replacement can
+// never combine one registration's function with another's user pointer.
+struct LegacyLogSink {
+    LogFn fn{nullptr};
+    void* user{nullptr};
+};
+LegacyLogSink legacy_log_sink() noexcept;
 
 }  // namespace affineui::detail
 
@@ -387548,180 +386903,325 @@ static_assert(AFFINEUI_KEY_BRACKET_RIGHT ==
 }  // namespace affineui_c
 
 // ────────────────────────────────────────────────────────────────────────
-// external/tinyjson/tiny-json.h
+// src/core/tools/json_reader.h
 // ────────────────────────────────────────────────────────────────────────
 
-/*
-
-<https://github.com/rafagafe/tiny-json>
-
-  Licensed under the MIT License <http://opensource.org/licenses/MIT>.
-  SPDX-License-Identifier: MIT
-  Copyright (c) 2016-2018 Rafa Garcia <rafagarcia77@gmail.com>.
-
-  Permission is hereby  granted, free of charge, to any  person obtaining a copy
-  of this software and associated  documentation files (the "Software"), to deal
-  in the Software  without restriction, including without  limitation the rights
-  to  use, copy,  modify, merge,  publish, distribute,  sublicense, and/or  sell
-  copies  of  the Software,  and  to  permit persons  to  whom  the Software  is
-  furnished to do so, subject to the following conditions:
-
-  The above copyright notice and this permission notice shall be included in all
-  copies or substantial portions of the Software.
-
-  THE SOFTWARE  IS PROVIDED "AS  IS", WITHOUT WARRANTY  OF ANY KIND,  EXPRESS OR
-  IMPLIED,  INCLUDING BUT  NOT  LIMITED TO  THE  WARRANTIES OF  MERCHANTABILITY,
-  FITNESS FOR  A PARTICULAR PURPOSE AND  NONINFRINGEMENT. IN NO EVENT  SHALL THE
-  AUTHORS  OR COPYRIGHT  HOLDERS  BE  LIABLE FOR  ANY  CLAIM,  DAMAGES OR  OTHER
-  LIABILITY, WHETHER IN AN ACTION OF  CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  OUT OF OR IN CONNECTION WITH THE SOFTWARE  OR THE USE OR OTHER DEALINGS IN THE
-  SOFTWARE.
-
-*/
-
-#ifndef _TINY_JSON_H_
-#define	_TINY_JSON_H_
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+// Minimal, strict JSON reader for the affinetools protocol server
+// (AFFINETOOLS_DESIGN.md §3.1: commands are parsed on the SERVER thread
+// into typed values; the app thread never sees JSON). Internal — not part
+// of the public API.
+//
+// Hard-to-crash rules (the length prefix and payload are untrusted input
+// arriving inside the probed process):
+//   • fail closed: any malformed byte → parse() returns false;
+//   • bounded recursion (max_depth) — deep nesting can't blow the stack;
+//   • no exceptions, no asserts on input.
+//
+// Allocations are fine here — this runs on the server thread only.
 
 
-#define json_containerOf( ptr, type, member ) \
-    ((type*)( (char*)ptr - offsetof( type, member ) ))
+namespace affineui::detail::json {
 
-/** @defgroup tinyJson Tiny JSON parser.
-  * @{ */
+struct Value {
+    enum class Kind : std::uint8_t {
+        Null,
+        Boolean,
+        Number,
+        String,
+        Array,
+        Object
+    };
 
-/** Enumeration of codes of supported JSON properties types. */
-typedef enum {
-    JSON_OBJ, JSON_ARRAY, JSON_TEXT, JSON_BOOLEAN,
-    JSON_INTEGER, JSON_REAL, JSON_NULL
-} jsonType_t;
+    Kind        kind{Kind::Null};
+    bool        boolean{false};
+    double      number{0.0};
+    std::string string;
+    std::vector<Value> array;
+    std::vector<std::pair<std::string, Value>> object;
 
-/** Structure to handle JSON properties. */
-typedef struct json_s {
-    struct json_s* sibling;
-    char const* name;
-    union {
-        char const* value;
-        struct {
-            struct json_s* child;
-            struct json_s* last_child;
-        } c;
-    } u;
-    jsonType_t type;
-} json_t;
+    Value();
+    ~Value();
+    Value(const Value&);
+    Value(Value&&) noexcept;
+    Value& operator=(const Value&);
+    Value& operator=(Value&&) noexcept;
 
-/** Parse a string to get a json.
-  * @param str String pointer with a JSON object. It will be modified.
-  * @param mem Array of json properties to allocate.
-  * @param qty Number of elements of mem.
-  * @retval Null pointer if any was wrong in the parse process.
-  * @retval If the parser process was successfully a valid handler of a json.
-  *         This property is always unnamed and its type is JSON_OBJ. */
-json_t const* json_create( char* str, json_t mem[], unsigned int qty );
+    [[nodiscard]] bool is_object() const noexcept { return kind == Kind::Object; }
+    [[nodiscard]] bool is_string() const noexcept { return kind == Kind::String; }
+    [[nodiscard]] bool is_number() const noexcept { return kind == Kind::Number; }
 
-/** Get the name of a json property.
-  * @param json A valid handler of a json property.
-  * @retval Pointer to null-terminated if property has name.
-  * @retval Null pointer if the property is unnamed. */
-static inline char const* json_getName( json_t const* json ) {
-    return json->name;
-}
+    /// Object member lookup; nullptr when absent or not an object.
+    [[nodiscard]] const Value* get(std::string_view key) const noexcept;
 
-/** Get the value of a json property.
-  * The type of property cannot be JSON_OBJ or JSON_ARRAY.
-  * @param property A valid handler of a json property.
-  * @return Pointer to null-terminated string with the value. */
-static inline char const* json_getValue( json_t const* property ) {
-    return property->u.value;
-}
+    /// Convenience: object member as string ("" when absent/wrong type).
+    [[nodiscard]] std::string_view get_string(
+        std::string_view key) const noexcept;
 
-/** Get the type of a json property.
-  * @param json A valid handler of a json property.
-  * @return The code of type.*/
-static inline jsonType_t json_getType( json_t const* json ) {
-    return json->type;
-}
-
-/** Get the next sibling of a JSON property that is within a JSON object or array.
-  * @param json A valid handler of a json property.
-  * @retval The handler of the next sibling if found.
-  * @retval Null pointer if the json property is the last one. */
-static inline json_t const* json_getSibling( json_t const* json ) {
-    return json->sibling;
-}
-
-/** Search a property by its name in a JSON object.
-  * @param obj A valid handler of a json object. Its type must be JSON_OBJ.
-  * @param property The name of property to get.
-  * @retval The handler of the json property if found.
-  * @retval Null pointer if not found. */
-json_t const* json_getProperty( json_t const* obj, char const* property );
-
-
-/** Search a property by its name in a JSON object and return its value.
-  * @param obj A valid handler of a json object. Its type must be JSON_OBJ.
-  * @param property The name of property to get.
-  * @retval If found a pointer to null-terminated string with the value.
-  * @retval Null pointer if not found or it is an array or an object. */
-char const* json_getPropertyValue( json_t const* obj, char const* property );
-
-/** Get the first property of a JSON object or array.
-  * @param json A valid handler of a json property.
-  *             Its type must be JSON_OBJ or JSON_ARRAY.
-  * @retval The handler of the first property if there is.
-  * @retval Null pointer if the json object has not properties. */
-static inline json_t const* json_getChild( json_t const* json ) {
-    return json->u.c.child;
-}
-
-/** Get the value of a json boolean property.
-  * @param property A valid handler of a json object. Its type must be JSON_BOOLEAN.
-  * @return The value stdbool. */
-static inline bool json_getBoolean( json_t const* property ) {
-    return *property->u.value == 't';
-}
-
-/** Get the value of a json integer property.
-  * @param property A valid handler of a json object. Its type must be JSON_INTEGER.
-  * @return The value stdint. */
-static inline int64_t json_getInteger( json_t const* property ) {
-  return strtoll( property->u.value,(char**)NULL, 10);
-}
-
-/** Get the value of a json real property.
-  * @param property A valid handler of a json object. Its type must be JSON_REAL.
-  * @return The value. */
-static inline double json_getReal( json_t const* property ) {
-  return strtod( property->u.value,(char**)NULL );
-}
-
-
-
-/** Structure to handle a heap of JSON properties. */
-typedef struct jsonPool_s jsonPool_t;
-struct jsonPool_s {
-    json_t* (*init)( jsonPool_t* pool );
-    json_t* (*alloc)( jsonPool_t* pool );
+    /// Convenience: object member as number (`fallback` when absent/wrong type).
+    [[nodiscard]] double get_number(std::string_view key,
+                                    double fallback = 0.0) const noexcept;
 };
 
-/** Parse a string to get a json.
-  * @param str String pointer with a JSON object. It will be modified.
-  * @param pool Custom json pool pointer.
-  * @retval Null pointer if any was wrong in the parse process.
-  * @retval If the parser process was successfully a valid handler of a json.
-  *         This property is always unnamed and its type is JSON_OBJ. */
-json_t const* json_createWithPool( char* str, jsonPool_t* pool );
+inline Value::Value() = default;
+inline Value::~Value() = default;
+inline Value::Value(const Value&) = default;
+inline Value::Value(Value&&) noexcept = default;
+inline Value& Value::operator=(const Value&) = default;
+inline Value& Value::operator=(Value&&) noexcept = default;
 
-/** @ } */
-
-#ifdef __cplusplus
+inline const Value* Value::get(std::string_view key) const noexcept {
+    if (kind != Kind::Object) return nullptr;
+    for (const auto& [member_key, member_value] : object) {
+        if (member_key == key) return &member_value;
+    }
+    return nullptr;
 }
-#endif
 
-#endif	/* _TINY_JSON_H_ */
+inline std::string_view Value::get_string(
+    std::string_view key) const noexcept {
+    const Value* value = get(key);
+    return (value != nullptr && value->kind == Kind::String)
+               ? std::string_view{value->string}
+               : std::string_view{};
+}
+
+inline double Value::get_number(std::string_view key,
+                                double fallback) const noexcept {
+    const Value* value = get(key);
+    return (value != nullptr && value->kind == Kind::Number)
+               ? value->number
+               : fallback;
+}
+
+namespace detail_impl {
+
+struct Parser {
+    const char* p;
+    const char* end;
+    int         depth_left;
+
+    void skip_ws() noexcept {
+        while (p < end &&
+               (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) {
+            ++p;
+        }
+    }
+
+    bool consume(char c) noexcept {
+        if (p < end && *p == c) {
+            ++p;
+            return true;
+        }
+        return false;
+    }
+
+    bool literal(const char* lit) noexcept {
+        const char* q = p;
+        while (*lit != '\0') {
+            if (q >= end || *q != *lit) return false;
+            ++q;
+            ++lit;
+        }
+        p = q;
+        return true;
+    }
+
+    static void append_utf8(std::string& out, std::uint32_t cp) {
+        if (cp <= 0x7Fu) {
+            out.push_back(static_cast<char>(cp));
+        } else if (cp <= 0x7FFu) {
+            out.push_back(static_cast<char>(0xC0u | (cp >> 6)));
+            out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+        } else if (cp <= 0xFFFFu) {
+            out.push_back(static_cast<char>(0xE0u | (cp >> 12)));
+            out.push_back(static_cast<char>(0x80u | ((cp >> 6) & 0x3Fu)));
+            out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+        } else {
+            out.push_back(static_cast<char>(0xF0u | (cp >> 18)));
+            out.push_back(static_cast<char>(0x80u | ((cp >> 12) & 0x3Fu)));
+            out.push_back(static_cast<char>(0x80u | ((cp >> 6) & 0x3Fu)));
+            out.push_back(static_cast<char>(0x80u | (cp & 0x3Fu)));
+        }
+    }
+
+    bool hex4(std::uint32_t& out) noexcept {
+        if (end - p < 4) return false;
+        std::uint32_t v = 0;
+        for (int i = 0; i < 4; ++i) {
+            const char c = p[i];
+            v <<= 4;
+            if (c >= '0' && c <= '9') v |= static_cast<std::uint32_t>(c - '0');
+            else if (c >= 'a' && c <= 'f') v |= static_cast<std::uint32_t>(c - 'a' + 10);
+            else if (c >= 'A' && c <= 'F') v |= static_cast<std::uint32_t>(c - 'A' + 10);
+            else return false;
+        }
+        p += 4;
+        out = v;
+        return true;
+    }
+
+    bool parse_string(std::string& out) {
+        if (!consume('"')) return false;
+        out.clear();
+        while (p < end) {
+            const unsigned char c = static_cast<unsigned char>(*p);
+            if (c == '"') {
+                ++p;
+                return true;
+            }
+            if (c == '\\') {
+                ++p;
+                if (p >= end) return false;
+                switch (*p) {
+                    case '"':  out.push_back('"');  ++p; break;
+                    case '\\': out.push_back('\\'); ++p; break;
+                    case '/':  out.push_back('/');  ++p; break;
+                    case 'b':  out.push_back('\b'); ++p; break;
+                    case 'f':  out.push_back('\f'); ++p; break;
+                    case 'n':  out.push_back('\n'); ++p; break;
+                    case 'r':  out.push_back('\r'); ++p; break;
+                    case 't':  out.push_back('\t'); ++p; break;
+                    case 'u': {
+                        ++p;
+                        std::uint32_t cp = 0;
+                        if (!hex4(cp)) return false;
+                        // Surrogate pair → single code point.
+                        if (cp >= 0xD800u && cp <= 0xDBFFu) {
+                            if (end - p < 6 || p[0] != '\\' || p[1] != 'u') {
+                                return false;
+                            }
+                            p += 2;
+                            std::uint32_t lo = 0;
+                            if (!hex4(lo) || lo < 0xDC00u || lo > 0xDFFFu) {
+                                return false;
+                            }
+                            cp = 0x10000u + ((cp - 0xD800u) << 10) +
+                                 (lo - 0xDC00u);
+                        } else if (cp >= 0xDC00u && cp <= 0xDFFFu) {
+                            return false;  // lone low surrogate
+                        }
+                        append_utf8(out, cp);
+                        break;
+                    }
+                    default: return false;
+                }
+                continue;
+            }
+            if (c < 0x20u) return false;  // raw control char
+            out.push_back(static_cast<char>(c));
+            ++p;
+        }
+        return false;  // unterminated
+    }
+
+    bool parse_number(double& out) noexcept {
+        const char* start = p;
+        if (consume('-')) {}
+        if (p >= end) return false;
+        if (*p == '0') {
+            ++p;
+        } else if (*p >= '1' && *p <= '9') {
+            while (p < end && *p >= '0' && *p <= '9') ++p;
+        } else {
+            return false;
+        }
+        if (p < end && *p == '.') {
+            ++p;
+            if (p >= end || *p < '0' || *p > '9') return false;
+            while (p < end && *p >= '0' && *p <= '9') ++p;
+        }
+        if (p < end && (*p == 'e' || *p == 'E')) {
+            ++p;
+            if (p < end && (*p == '+' || *p == '-')) ++p;
+            if (p >= end || *p < '0' || *p > '9') return false;
+            while (p < end && *p >= '0' && *p <= '9') ++p;
+        }
+        // strtod on a bounded copy (the token is short by construction).
+        char buf[64];
+        const std::size_t len = static_cast<std::size_t>(p - start);
+        if (len == 0 || len >= sizeof(buf)) return false;
+        for (std::size_t i = 0; i < len; ++i) buf[i] = start[i];
+        buf[len] = '\0';
+        out = std::strtod(buf, nullptr);
+        return true;
+    }
+
+    bool parse_value(Value& out) {
+        if (depth_left <= 0) return false;
+        skip_ws();
+        if (p >= end) return false;
+        switch (*p) {
+            case '{': {
+                ++p;
+                --depth_left;
+                out.kind = Value::Kind::Object;
+                skip_ws();
+                if (consume('}')) { ++depth_left; return true; }
+                while (true) {
+                    skip_ws();
+                    std::string key;
+                    if (!parse_string(key)) return false;
+                    skip_ws();
+                    if (!consume(':')) return false;
+                    Value member;
+                    if (!parse_value(member)) return false;
+                    out.object.emplace_back(std::move(key), std::move(member));
+                    skip_ws();
+                    if (consume(',')) continue;
+                    if (consume('}')) { ++depth_left; return true; }
+                    return false;
+                }
+            }
+            case '[': {
+                ++p;
+                --depth_left;
+                out.kind = Value::Kind::Array;
+                skip_ws();
+                if (consume(']')) { ++depth_left; return true; }
+                while (true) {
+                    Value item;
+                    if (!parse_value(item)) return false;
+                    out.array.push_back(std::move(item));
+                    skip_ws();
+                    if (consume(',')) continue;
+                    if (consume(']')) { ++depth_left; return true; }
+                    return false;
+                }
+            }
+            case '"':
+                out.kind = Value::Kind::String;
+                return parse_string(out.string);
+            case 't':
+                out.kind = Value::Kind::Boolean;
+                out.boolean = true;
+                return literal("true");
+            case 'f':
+                out.kind = Value::Kind::Boolean;
+                out.boolean = false;
+                return literal("false");
+            case 'n':
+                out.kind = Value::Kind::Null;
+                return literal("null");
+            default:
+                out.kind = Value::Kind::Number;
+                return parse_number(out.number);
+        }
+    }
+};
+
+}  // namespace detail_impl
+
+/// Parse a complete JSON document. Trailing non-whitespace → false.
+[[nodiscard]] inline bool parse(std::string_view text, Value& out,
+                                int max_depth = 32) {
+    detail_impl::Parser parser{text.data(), text.data() + text.size(),
+                               max_depth};
+    if (!parser.parse_value(out)) return false;
+    parser.skip_ws();
+    return parser.p == parser.end;
+}
+
+}  // namespace affineui::detail::json
 
 // ────────────────────────────────────────────────────────────────────────
 // src/core/tools/tools_commands.h
@@ -388885,6 +388385,11 @@ struct DisplayListClipRange {
 struct DisplayList {
     std::vector<PaintOp>   ops;
     std::vector<char>      text_pool;  // contiguous text storage
+    // Dynamic-image draw ops store compact backend ids in PaintOp, while this
+    // side table retains the corresponding shared leases through replay.
+    // Without it a temporary ImageHandle could release its GPU image after
+    // recording and leave a stale/recycled backend id in the cached list.
+    std::vector<ImageHandle> managed_images;
     // Optional measured visual bounds for ops whose compact payload cannot
     // carry enough geometry for precise retained-surface invalidation
     // (notably wrapped/aligned text boxes).
@@ -388896,6 +388401,7 @@ struct DisplayList {
     void clear() {
         ops.clear();
         text_pool.clear();
+        managed_images.clear();
         op_bounds_override.clear();
         transform_ranges.clear();
         clip_ranges.clear();
@@ -389457,6 +388963,13 @@ public:
     }
     void delete_image(std::uint32_t image) override {
         if (device_painter_) device_painter_->delete_image(image);
+    }
+    void draw_image(const ImageHandle& image,
+                    const Rect& dst,
+                    const Rect& src) override {
+        if (!image.is_valid()) return;
+        list_.managed_images.push_back(image);
+        Painter::draw_image(image, dst, src);
     }
     void draw_image(std::uint32_t image, const Rect& dst, const Rect& src) override {
         PaintOp op{};
@@ -392129,6 +391642,8 @@ class Document;
 
 namespace affineui::detail {
 
+struct DocumentImpl;
+
 struct ImmStateSlot {
     void*       data{nullptr};
     std::size_t size{0};
@@ -392146,7 +391661,7 @@ public:
     /// Bind to a freshly-parsed document. Called by Document::set_html
     /// after the lexbor doc has been reset; keeps the runtime in sync
     /// with whichever document its host is currently on.
-    void bind(Document* owner, lxb_html_document_t* doc);
+    void bind(DocumentImpl* owner, lxb_html_document_t* doc);
 
     void set_view_fn(std::function<void()> fn);
     bool dirty() const noexcept { return dirty_; }
@@ -392200,7 +391715,7 @@ public:
     void append_text_to_current(std::string_view text);
 
 private:
-    Document*             owner_{nullptr};
+    DocumentImpl*         owner_{nullptr};
     lxb_html_document_t*  doc_{nullptr};
     std::function<void()> view_fn_;
     bool                  dirty_{true};
@@ -392645,7 +392160,6 @@ struct DocumentImpl {
     // The sink owns the WidgetNode remote_id → DOM node mapping; the
     // reset hook clears it when the document is replaced wholesale.
     std::unique_ptr<ViewSink>  view_sink;
-    std::function<void()>      view_sink_reset;
     bool                       view_batch_active{false};
     bool                       view_structure_dirty{false};
     // §8.2 batched attr contract (WIDGET_RECONCILIATION.md): selector-
@@ -392987,7 +392501,6 @@ struct DocumentImpl {
     std::string     composition_composed;    // text_value + preedit at caret
     std::unordered_map<std::uint64_t, TextLayoutEntry> text_layout_cache;
     std::unordered_map<lxb_dom_node_t*, std::uint64_t> text_layout_signatures;
-    Painter* last_measurer{nullptr};
     struct UserTextAreaSize {
         int width{-1};
         int height{-1};
@@ -393395,7 +392908,7 @@ bool update_text_composition(detail::DocumentImpl& impl,
                              std::size_t clause_end);
 // Caret rectangle of the focused text control in document coordinates
 // (for IME candidate-window placement). w<=0 when unavailable.
-Rect text_caret_rect(detail::DocumentImpl& impl, int idx, Painter& painter);
+Rect text_caret_rect(detail::DocumentImpl& impl, int idx, Painter* painter);
 // Re-splice the active preedit into a freshly collected leaf's display
 // text (composition state survives recollection via the DOM node key).
 void splice_composition_display(detail::DocumentImpl& impl,
@@ -404081,9 +403594,10 @@ void log(LogLevel level, std::string_view msg) {
     }
 
     // Embedder's raw-pointer sink (InitDesc::log) still fires, if set.
-    if (auto fn = detail::legacy_log_fn()) {
+    const auto legacy = detail::legacy_log_sink();
+    if (legacy.fn) {
         std::string owned(msg);
-        fn(level, owned.c_str(), detail::legacy_log_user());
+        legacy.fn(level, owned.c_str(), legacy.user);
     }
 }
 
@@ -404618,13 +404132,8 @@ void sink_close() {
 
 #if AFFINEUI_PERF
 
-// Inbound wire messages are parsed with tiny-json (external/tinyjson) —
-// a ~600 LOC single-header C parser with zero heap allocations. Same
-// code path in modular + amalgamated builds; the parser vendors cleanly
-// into the two-file SDK.
-extern "C" {
-}
-
+// Inbound wire messages use AffineUI's strict, depth-bounded internal JSON
+// reader in both modular and amalgamated builds.
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -404915,49 +404424,55 @@ void send_result(Connection& c, long long id, std::string_view result_json) {
     (void) send_framed(c.sock, msg);
 }
 
-// Small helpers around tiny-json's C surface. tiny-json's json_t union
-// stores every non-container leaf as a null-terminated char*, so string
-// access just wraps the pointer; number access runs strtod once.
+// Protocol numeric fields are untrusted. Validate their exact integer range
+// before conversion so malformed input cannot trigger an out-of-range cast.
 namespace {
 
-std::string_view tj_str(json_t const* obj, const char* prop) noexcept {
-    if (!obj) return {};
-    json_t const* v = json_getProperty(obj, prop);
-    if (!v || v->type != JSON_TEXT || !v->u.value) return {};
-    return std::string_view{v->u.value};
+using JsonValue = detail::json::Value;
+
+template <typename Int>
+Int json_integer(const JsonValue* object, std::string_view key,
+                 Int fallback) noexcept {
+    const JsonValue* value = object != nullptr ? object->get(key) : nullptr;
+    if (value == nullptr || !value->is_number()) return fallback;
+
+    const long double number = static_cast<long double>(value->number);
+    if (!std::isfinite(value->number) || std::trunc(number) != number ||
+        number < static_cast<long double>(std::numeric_limits<Int>::lowest()) ||
+        number > static_cast<long double>(std::numeric_limits<Int>::max())) {
+        return fallback;
+    }
+    return static_cast<Int>(number);
 }
 
-double tj_num(json_t const* obj, const char* prop, double fallback) noexcept {
-    if (!obj) return fallback;
-    json_t const* v = json_getProperty(obj, prop);
-    if (!v || !v->u.value) return fallback;
-    if (v->type != JSON_INTEGER && v->type != JSON_REAL) return fallback;
-    return std::strtod(v->u.value, nullptr);
+bool json_uint32(const JsonValue& value, std::uint32_t& out) noexcept {
+    if (!value.is_number()) return false;
+    const long double number = static_cast<long double>(value.number);
+    if (!std::isfinite(value.number) || std::trunc(number) != number ||
+        number < 0.0L ||
+        number > static_cast<long double>(
+                     std::numeric_limits<std::uint32_t>::max())) {
+        return false;
+    }
+    out = static_cast<std::uint32_t>(number);
+    return true;
 }
-
-// Ceiling on tokens per inbound message — hello / subscribe / etc. are
-// tiny (top-level object + maybe one params sub-object with a couple of
-// leaves). 64 is roomy for anything the current protocol emits and still
-// fits comfortably on the stack.
-constexpr unsigned kJsonPoolSize = 64;
 
 /// Parse a `"nid":[document_id,node_slot,generation]` param. Returns an
 /// empty (falsy) handle when absent/malformed — commands that require a
 /// node answer a "stale node" error from the pump.
-affineui::DomHandle tj_nid(json_t const* params) noexcept {
+affineui::DomHandle json_nid(const JsonValue* params) noexcept {
     affineui::DomHandle out{};
     if (!params) return out;
-    json_t const* arr = json_getProperty(params, "nid");
-    if (!arr || json_getType(arr) != JSON_ARRAY) return out;
-    std::uint32_t vals[3] = {0, 0, 0};
-    int i = 0;
-    for (json_t const* item = json_getChild(arr); item != nullptr && i < 3;
-         item = json_getSibling(item), ++i) {
-        if (json_getType(item) != JSON_INTEGER || !item->u.value) return {};
-        vals[i] = static_cast<std::uint32_t>(
-            std::strtoul(item->u.value, nullptr, 10));
+    const JsonValue* arr = params->get("nid");
+    if (arr == nullptr || arr->kind != JsonValue::Kind::Array ||
+        arr->array.size() != 3) {
+        return out;
     }
-    if (i != 3) return {};
+    std::uint32_t vals[3] = {0, 0, 0};
+    for (std::size_t i = 0; i < arr->array.size(); ++i) {
+        if (!json_uint32(arr->array[i], vals[i])) return {};
+    }
     out.document_id = vals[0];
     out.node_slot = vals[1];
     out.generation = vals[2];
@@ -404968,24 +404483,21 @@ affineui::DomHandle tj_nid(json_t const* params) noexcept {
 
 /// Returns false when the connection must be dropped.
 bool handle_message(ServerState& st, Connection& c, std::string_view text) {
-    // tiny-json parses in place (writes '\0' terminators into the buffer),
-    // so hand it a mutable copy. Inbound frames are already size-bounded
-    // by drain_inbuf, so a std::string is fine here.
-    std::string buf(text);
-    json_t pool[kJsonPoolSize];
-    json_t const* msg = json_create(buf.data(), pool, kJsonPoolSize);
-    if (!msg || json_getType(msg) != JSON_OBJ) {
+    JsonValue msg;
+    if (!detail::json::parse(text, msg) || !msg.is_object()) {
         return false;  // malformed → disconnect (hard-to-crash rule)
     }
 
-    const std::string_view method = tj_str(msg, "method");
-    const long long id = static_cast<long long>(tj_num(msg, "id", -1.0));
+    const std::string_view method = msg.get_string("method");
+    const long long id = json_integer(&msg, "id", -1LL);
 
     if (!c.authed) {
         // Only hello is accepted before auth; a bad token disconnects.
         if (method != "hello") return false;
-        json_t const* params = json_getProperty(msg, "params");
-        const std::string_view token = tj_str(params, "token");
+        const JsonValue* params = msg.get("params");
+        const std::string_view token = params != nullptr
+                                           ? params->get_string("token")
+                                           : std::string_view{};
         if (token.empty() || token != st.token) return false;
         c.authed = true;
         std::string result;
@@ -405038,23 +404550,23 @@ bool handle_message(ServerState& st, Connection& c, std::string_view text) {
     ToolsCommand cmd;
     cmd.id = id;
     bool is_read_command = true;
-    json_t const* params = json_getProperty(msg, "params");
+    const JsonValue* params = msg.get("params");
     if (method == "dom.document") {
         cmd.kind = ToolsCommand::Kind::DomDocument;
     } else if (method == "dom.children") {
         cmd.kind = ToolsCommand::Kind::DomChildren;
-        cmd.nid = tj_nid(params);
+        cmd.nid = json_nid(params);
     } else if (method == "dom.html") {
         cmd.kind = ToolsCommand::Kind::DomHtml;
-        cmd.nid = tj_nid(params);  // empty handle = whole document
+        cmd.nid = json_nid(params);  // empty handle = whole document
     } else if (method == "css.box_model") {
         cmd.kind = ToolsCommand::Kind::CssBoxModel;
-        cmd.nid = tj_nid(params);
+        cmd.nid = json_nid(params);
     } else if (method == "resource.stylesheets") {
         cmd.kind = ToolsCommand::Kind::ResourceStylesheets;
     } else if (method == "resource.stylesheet_text") {
         cmd.kind = ToolsCommand::Kind::ResourceStylesheetText;
-        cmd.index = static_cast<int>(tj_num(params, "index", -1.0));
+        cmd.index = json_integer(params, "index", -1);
     } else {
         is_read_command = false;
     }
@@ -405921,7 +405433,7 @@ bool dispatch_loaded_view_event(AppImpl& impl, const Event& ev) {
     DispatchResult result;
     {
         detail::TraceSpan dispatch_span("dispatch");
-        result = impl.document.dispatch(ev);
+        result = impl.renderer.dispatch(impl.document, ev);
     }
     if (result.redraw_requested || result.invalidate_view) {
         impl.dirty = true;
@@ -406111,7 +405623,7 @@ void log_event_loop_exception(const char* where) {
 
 App::App() : App(Config{}) {}
 
-App::App(Config cfg) : impl_{std::make_unique<detail::AppImpl>()} {
+App::App(Config cfg) : impl_{std::make_shared<detail::AppImpl>()} {
     impl_->config = std::move(cfg);
     impl_->perf_overlay_enabled = impl_->config.perf_overlay;
     // Env override: AFFINEUI_PERF_OVERLAY=1 turns on the perf/DPI HUD without a
@@ -406197,13 +405709,16 @@ App::App(Config cfg) : impl_{std::make_unique<detail::AppImpl>()} {
     impl_->owner = this;
 }
 
-App::~App() = default;
+App::~App() {
+    if (impl_) impl_->owner = nullptr;
+}
 App::App(App&& other) noexcept : impl_{std::move(other.impl_)} {
     // The moved-in impl still carries the source App's owner pointer; repoint
     // it at this App so the frame loop drives the right instance.
     if (impl_) impl_->owner = this;
 }
 App& App::operator=(App&& other) noexcept {
+    if (impl_) impl_->owner = nullptr;
     impl_ = std::move(other.impl_);
     if (impl_) impl_->owner = this;
     return *this;
@@ -406256,6 +405771,55 @@ void replay_view_node(ViewSink& sink, const WidgetNode& node,
 }
 }  // namespace detail
 
+bool AppHandle::is_valid() const noexcept {
+    const auto impl = impl_.lock();
+    return impl && impl->owner != nullptr;
+}
+
+void AppHandle::set_custom_paint(std::string_view name,
+                                 Document::CustomPaintFn fn) const {
+    const auto impl = impl_.lock();
+    if (!impl || impl->owner == nullptr) return;
+    impl->document.set_custom_paint(name, std::move(fn));
+    impl->dirty = true;
+    impl->animations_active = false;
+}
+
+bool AppHandle::request_custom_repaint(std::string_view name) const {
+    const auto impl = impl_.lock();
+    if (!impl || impl->owner == nullptr) return false;
+    if (!impl->document.request_custom_repaint(name)) return false;
+    impl->dirty = true;
+    return true;
+}
+
+Rect AppHandle::find_element_rect(std::string_view target) const {
+    const auto impl = impl_.lock();
+    return impl && impl->owner != nullptr
+               ? impl->document.find_element_rect(target)
+               : Rect{};
+}
+
+ImageHandle AppHandle::create_image_rgba(
+    int width,
+    int height,
+    std::span<const std::uint8_t> rgba) const {
+    const auto impl = impl_.lock();
+    return impl && impl->owner != nullptr
+               ? impl->renderer.create_image_rgba(width, height, rgba)
+               : ImageHandle{};
+}
+
+void AppHandle::capture_pointer() const {
+    const auto impl = impl_.lock();
+    if (impl && impl->owner != nullptr) impl->pointer_captured = true;
+}
+
+void AppHandle::release_pointer() const {
+    const auto impl = impl_.lock();
+    if (impl && impl->owner != nullptr) impl->pointer_captured = false;
+}
+
 void App::set_view(std::function<void(View&)> builder) {
     impl_->view_builder = std::move(builder);
     impl_->view_bootstrapped = false;
@@ -406263,41 +405827,81 @@ void App::set_view(std::function<void(View&)> builder) {
 }
 
 void App::rebuild_view() {
-    if (!impl_->view_builder) return;
-    if (!impl_->retained_view) {
-        impl_->retained_view = std::make_unique<View>();
+    const auto impl = impl_;
+    if (!impl->view_builder) return;
+    if (!impl->retained_view) {
+        impl->retained_view = std::make_unique<View>();
     }
     // Dock surgery (tearoff / drag-to-dock) restructured the DOM outside the
     // retained view. Incremental reconcile on top of that leaves the
     // surgery's wrapper elements behind as duplicate panels — resync by
     // re-bootstrapping. The arrangement itself is not lost: the builder's
     // dock_layout provider replays it (the harvest ran on the surgical DOM).
-    if (impl_->view_bootstrapped &&
-        impl_->document.take_dock_structure_changed()) {
-        impl_->view_bootstrapped = false;
+    if (impl->view_bootstrapped &&
+        impl->document.take_dock_structure_changed()) {
+        impl->view_bootstrapped = false;
     }
-    View& view = *impl_->retained_view;
+    View& view = *impl->retained_view;
+    const std::weak_ptr<detail::AppImpl> weak_impl = impl;
+    view.set_mutation_dispatch(
+        [weak_impl](
+            const std::function<void(ViewSink&)>& mutation) {
+            const auto locked_impl = weak_impl.lock();
+            if (!locked_impl) return;
+            auto* sink = locked_impl->document.begin_view_mutations();
+            if (sink == nullptr) return;
+            try {
+                mutation(*sink);
+            } catch (...) {
+                locked_impl->document.end_view_mutations();
+                throw;
+            }
+            locked_impl->document.end_view_mutations();
+            if (locked_impl->retained_view) {
+                locked_impl->view_click_bindings =
+                    locked_impl->retained_view->click_bindings();
+                locked_impl->view_change_bindings =
+                    locked_impl->retained_view->change_bindings();
+                locked_impl->view_commit_bindings =
+                    locked_impl->retained_view->commit_bindings();
+            }
+            locked_impl->dirty = true;
+            locked_impl->animations_active = false;
+            locked_impl->settle_frames = detail::kSwapchainSettleFrames;
+        });
+    view.set_binding_dispatch([weak_impl] {
+        const auto locked_impl = weak_impl.lock();
+        if (!locked_impl || !locked_impl->retained_view) return;
+        locked_impl->view_click_bindings =
+            locked_impl->retained_view->click_bindings();
+        locked_impl->view_change_bindings =
+            locked_impl->retained_view->change_bindings();
+        locked_impl->view_commit_bindings =
+            locked_impl->retained_view->commit_bindings();
+    });
 
     // Feed each virtual list its container's live scroll geometry so the build
     // renders the window currently under the viewport. Set every rebuild (the
     // View is reused) before the builder runs.
     {
-        Document* doc = &impl_->document;
         view.set_scroll_provider(
-            [doc](std::string_view name, Axis axis) -> View::ScrollGeometry {
-                const auto g = doc->virtual_scroll_geometry(
+            [weak_impl](std::string_view name,
+                        Axis axis) -> View::ScrollGeometry {
+                const auto locked_impl = weak_impl.lock();
+                if (!locked_impl) return {};
+                const auto g = locked_impl->document.virtual_scroll_geometry(
                     name, axis == Axis::Horizontal);
                 return {g.offset, g.viewport, g.known};
             });
     }
 
-    if (!impl_->view_bootstrapped) {
+    if (!impl->view_bootstrapped) {
         // Bootstrap: build without a sink, load only the document SHELL
         // (head/styles/body attrs, empty <main>), then replay the built
         // tree through the document sink so it owns every node mapping.
         view.begin(static_cast<ViewSink*>(nullptr));
         try {
-            impl_->view_builder(view);
+            impl->view_builder(view);
         } catch (...) {
             // The builder may have opened its own nested reconcile session
             // before throwing. Collapse it so this owner-level end() fully
@@ -406307,28 +405911,29 @@ void App::rebuild_view() {
             throw;
         }
         view.end();
-        impl_->config.clear_color = view.background_color();
-        impl_->renderer.set_clear_color(impl_->config.clear_color);
-        load_html(view.to_html_shell());
-        impl_->document.attach_script(DocumentScript::UiControls);
-        if (auto* sink = impl_->document.begin_view_mutations()) {
+        impl->config.clear_color = view.background_color();
+        impl->renderer.set_clear_color(impl->config.clear_color);
+        if (impl->owner == nullptr) return;
+        impl->owner->load_html(view.to_html_shell());
+        impl->document.attach_script(DocumentScript::UiControls);
+        if (auto* sink = impl->document.begin_view_mutations()) {
             const auto& root = view.root();
             for (std::size_t i = 0; i < root.children.size(); ++i) {
                 detail::replay_view_node(*sink, root.children[i], nullptr,
                                          i);
             }
         }
-        impl_->document.end_view_mutations();
-        impl_->view_bootstrapped = true;
+        impl->document.end_view_mutations();
+        impl->view_bootstrapped = true;
     } else {
         // Steady state: rebuild into the persistent view; only actual
         // differences reach the document (attribute/text mutations on
         // the cheap path; structural edits settle in one restyle).
-        auto* sink = impl_->document.begin_view_mutations();
+        auto* sink = impl->document.begin_view_mutations();
         view.begin(sink);
         bool view_end_attempted = false;
         try {
-            impl_->view_builder(view);
+            impl->view_builder(view);
             view_end_attempted = true;
             view.end();
         } catch (...) {
@@ -406359,7 +405964,7 @@ void App::rebuild_view() {
                                  "AffineUI view cleanup failed\n");
                 }
             }
-            impl_->document.end_view_mutations();
+            impl->document.end_view_mutations();
             try {
                 std::rethrow_exception(failure);
             } catch (const std::exception& e) {
@@ -406376,30 +405981,30 @@ void App::rebuild_view() {
         // silent no-ops. Stamped INSIDE the mutation window so the flip and
         // the reconcile settle once, together. No-op when unchanged.
         for (const auto& attr : view.resolved_document_attrs()) {
-            impl_->document.set_body_attribute(attr.name, attr.value);
+            impl->document.set_body_attribute(attr.name, attr.value);
         }
-        impl_->document.end_view_mutations();
+        impl->document.end_view_mutations();
     }
 
     // Builder-misuse diagnostics (undeclared dock panels, bad selectors, …)
     // are collected quietly during the build; a silent vector helps nobody,
     // so print each distinct message once per process.
     for (const auto& d : view.diagnostics()) {
-        if (impl_->reported_view_diagnostics.insert(d).second) {
+        if (impl->reported_view_diagnostics.insert(d).second) {
             std::fprintf(stderr, "AffineUI view diagnostic: %s\n", d.c_str());
         }
     }
     view.clear_diagnostics();
 
-    impl_->view_click_bindings = view.click_bindings();
-    impl_->view_change_bindings = view.change_bindings();
-    impl_->view_commit_bindings = view.commit_bindings();
-    impl_->dirty = true;
-    impl_->animations_active = false;
+    impl->view_click_bindings = view.click_bindings();
+    impl->view_change_bindings = view.change_bindings();
+    impl->view_commit_bindings = view.commit_bindings();
+    impl->dirty = true;
+    impl->animations_active = false;
     // The reconcile has landed; nothing further to rebuild until the next
     // invalidate(). Clearing here also covers the direct App::rebuild_view()
     // and set_view() entry points, so a subsequent frame won't rebuild again.
-    impl_->view_dirty = false;
+    impl->view_dirty = false;
 }
 bool App::load_html_file(std::string_view)     { return false; }
 void App::set_stylesheet(std::string_view css) {
@@ -406438,6 +406043,13 @@ void App::request_custom_repaint(std::string_view name) {
     if (impl_->document.request_custom_repaint(name)) {
         impl_->dirty = true;
     }
+}
+
+ImageHandle App::create_image_rgba(
+    int width,
+    int height,
+    std::span<const std::uint8_t> rgba) {
+    return impl_->renderer.create_image_rgba(width, height, rgba);
 }
 
 bool App::set_widget_value(std::string_view name, std::string_view value) {
@@ -406503,7 +406115,8 @@ const FrameTelemetry& App::frame_telemetry() const noexcept {
 }
 
 bool App::dispatch(const Event& ev) {
-    return detail::dispatch_loaded_view_event(*impl_, ev);
+    const auto impl = impl_;
+    return detail::dispatch_loaded_view_event(*impl, ev);
 }
 
 void App::on_event(EventHandler cb) {
@@ -406749,7 +406362,7 @@ void sync_ime_state(detail::AppImpl& impl) {
         sapp_ime_set_enabled(active);
     }
     if (!active) return;
-    const Rect caret = impl.document.caret_rect();
+    const Rect caret = impl.renderer.caret_rect(impl.document);
     if (caret.w <= 0 || caret.h <= 0) return;
     if (caret.x == impl.last_ime_rect.x && caret.y == impl.last_ime_rect.y &&
         caret.w == impl.last_ime_rect.w && caret.h == impl.last_ime_rect.h) {
@@ -407430,11 +407043,13 @@ void translate_event_stub() {
 
 namespace affineui {
 
-UiScript::UiScript(Document& doc, int viewport_w, int viewport_h,
-                   Painter* measurer)
-    : doc_(doc), w_(viewport_w), h_(viewport_h), measurer_(measurer) {
+UiScript::UiScript(Document& doc, int viewport_w, int viewport_h)
+    : doc_(doc), w_(viewport_w), h_(viewport_h) {
+    const auto weak = to_weak_ref(this);
     detail::set_dock_trace_capture(
-        [this](const std::string& line) { log_.push_back(line); });
+        [weak](const std::string& line) {
+            if (auto* self = weak.get()) self->log_.push_back(line);
+        });
 }
 
 UiScript::~UiScript() { detail::set_dock_trace_capture(nullptr); }
@@ -407444,7 +407059,7 @@ void UiScript::set_step_hook(std::function<void(const DispatchResult&)> hook) {
 }
 
 Point UiScript::point_of(std::string_view target, Anchor anchor) {
-    doc_.layout(w_, h_, measurer_);
+    doc_.layout(w_, h_, nullptr);
     const Rect r = doc_.find_element_rect(target);
     if (r.w <= 0 || r.h <= 0) return {-1, -1};
     // Edge anchors land INSIDE the rect's edge band (a few px in), so dock
@@ -407465,7 +407080,7 @@ Point UiScript::point_of(std::string_view target, Anchor anchor) {
 bool UiScript::dispatch(const Event& ev) {
     const auto result = doc_.dispatch(ev);
     if (hook_) hook_(result);
-    doc_.layout(w_, h_, measurer_);
+    doc_.layout(w_, h_, nullptr);
     return true;
 }
 
@@ -408773,8 +408388,9 @@ std::string RemotePatchQueue::to_json() const {
 void RemotePatchSink::create_element(const WidgetNode& node,
                                      const WidgetNode* parent,
                                      std::size_t index) {
-    if (!queue_) return;
-    queue_->push(RemotePatch{
+    auto* queue = queue_.get();
+    if (!queue) return;
+    queue->push(RemotePatch{
         RemotePatchOp::CreateElement,
         node.remote_id,
         parent ? parent->remote_id : std::string{},
@@ -408788,8 +408404,9 @@ void RemotePatchSink::create_element(const WidgetNode& node,
 void RemotePatchSink::create_text(const WidgetNode& node,
                                   const WidgetNode* parent,
                                   std::size_t index) {
-    if (!queue_) return;
-    queue_->push(RemotePatch{
+    auto* queue = queue_.get();
+    if (!queue) return;
+    queue->push(RemotePatch{
         RemotePatchOp::CreateText,
         node.remote_id,
         parent ? parent->remote_id : std::string{},
@@ -408801,16 +408418,23 @@ void RemotePatchSink::create_text(const WidgetNode& node,
 }
 
 void RemotePatchSink::remove(const WidgetNode& node) {
-    if (!queue_ || node.remote_id.empty()) return;
-    queue_->push(RemotePatch{
+    auto* queue = queue_.get();
+    if (!queue || node.remote_id.empty()) return;
+    queue->push(RemotePatch{
         RemotePatchOp::Remove,
         node.remote_id,
+        {},
+        {},
+        {},
+        {},
+        0,
     });
 }
 
 void RemotePatchSink::set_text(const WidgetNode& node, std::string_view value) {
-    if (!queue_) return;
-    queue_->push(RemotePatch{
+    auto* queue = queue_.get();
+    if (!queue) return;
+    queue->push(RemotePatch{
         RemotePatchOp::SetText,
         node.remote_id,
         {},
@@ -408823,8 +408447,9 @@ void RemotePatchSink::set_text(const WidgetNode& node, std::string_view value) {
 void RemotePatchSink::set_attribute(const WidgetNode& node,
                                     std::string_view name,
                                     std::string_view value) {
-    if (!queue_) return;
-    queue_->push(RemotePatch{
+    auto* queue = queue_.get();
+    if (!queue) return;
+    queue->push(RemotePatch{
         RemotePatchOp::SetAttribute,
         node.remote_id,
         {},
@@ -408836,24 +408461,37 @@ void RemotePatchSink::set_attribute(const WidgetNode& node,
 
 void RemotePatchSink::remove_attribute(const WidgetNode& node,
                                        std::string_view name) {
-    if (!queue_) return;
-    queue_->push(RemotePatch{
+    auto* queue = queue_.get();
+    if (!queue) return;
+    queue->push(RemotePatch{
         RemotePatchOp::RemoveAttribute,
         node.remote_id,
         {},
         {},
         std::string(name),
+        {},
+        0,
     });
 }
 
-WidgetRef::WidgetRef(View* owner,
+detail::WeakViewRef::WeakViewRef(View* view) noexcept
+    : lifetime_(view ? (view->lifetime_.bind(view),
+                        to_weak_ref(&view->lifetime_))
+                     : WeakRef<ViewLifetime>{}) {}
+
+View* detail::WeakViewRef::get() const noexcept {
+    const auto* lifetime = lifetime_.get();
+    return lifetime != nullptr ? lifetime->owner() : nullptr;
+}
+
+WidgetRef::WidgetRef(detail::WeakViewRef owner,
                      StableId panel_id,
                      StableId id,
                      std::string_view name)
     : owner_(owner), panel_id_(panel_id), id_(id), name_(name) {}
 
 WidgetRef::operator bool() const {
-    return owner_ != nullptr && owner_->resolve_widget_ref(*this) != nullptr;
+    return owner_ && owner_->resolve_widget_ref(*this) != nullptr;
 }
 
 StableId WidgetRef::id() const {
@@ -409019,64 +408657,96 @@ WidgetRef WidgetRef::find_widget(std::string_view name) const {
 }
 
 View::Scope::Scope(View* owner, WidgetNode* node, std::size_t unwind_to) noexcept
-    : owner_(owner), node_(node), unwind_to_(unwind_to) {}
+    : lifetime_(owner ? to_weak_ref(&owner->lifetime_)
+                      : WeakRef<detail::ViewLifetime>{}),
+      node_id_(node ? node->id : StableId{}),
+      unwind_to_(unwind_to) {}
 
 View::Scope::~Scope() {
-    if (owner_) owner_->close_to(unwind_to_);
+    if (auto* owner = resolve_owner()) owner->close_to(unwind_to_);
 }
 
 View::Scope::Scope(Scope&& other) noexcept
-    : owner_(other.owner_), node_(other.node_), unwind_to_(other.unwind_to_) {
-    other.owner_ = nullptr;
-    other.node_ = nullptr;
+    : lifetime_(other.lifetime_), node_id_(other.node_id_),
+      unwind_to_(other.unwind_to_) {
+    other.lifetime_ = {};
+    other.node_id_ = {};
 }
 
 View::Scope& View::Scope::operator=(Scope&& other) noexcept {
     if (this == &other) return *this;
-    if (owner_) owner_->close_to(unwind_to_);
-    owner_ = other.owner_;
-    node_ = other.node_;
+    if (auto* owner = resolve_owner()) owner->close_to(unwind_to_);
+    lifetime_ = other.lifetime_;
+    node_id_ = other.node_id_;
     unwind_to_ = other.unwind_to_;
-    other.owner_ = nullptr;
-    other.node_ = nullptr;
+    other.lifetime_ = {};
+    other.node_id_ = {};
     return *this;
 }
 
+View* View::Scope::resolve_owner() const noexcept {
+    const auto* lifetime = lifetime_.get();
+    return lifetime != nullptr ? lifetime->owner() : nullptr;
+}
+
+WidgetNode* View::Scope::resolve_node() const noexcept {
+    auto* owner = resolve_owner();
+    return owner != nullptr ? owner->find_id(node_id_) : nullptr;
+}
+
+View::Scope::operator bool() const noexcept {
+    return resolve_node() != nullptr;
+}
+
 WidgetRef View::Scope::ref() const {
-    return (owner_ && node_) ? owner_->ref_for_node(*node_, node_->id) : WidgetRef{};
+    auto* owner = resolve_owner();
+    auto* node = resolve_node();
+    return (owner && node) ? owner->ref_for_node(*node, node->id) : WidgetRef{};
 }
 
 View::Scope& View::Scope::named(std::string_view name) {
-    if (owner_ && node_) owner_->set_widget_name(*node_, name);
+    if (auto* owner = resolve_owner()) {
+        if (auto* node = owner->find_id(node_id_)) owner->set_widget_name(*node, name);
+    }
     return *this;
 }
 
 View::Scope& View::Scope::attr(std::string_view name, std::string_view value) {
-    if (owner_ && node_) owner_->set_attr(*node_, name, value);
+    if (auto* owner = resolve_owner()) {
+        if (auto* node = owner->find_id(node_id_)) owner->set_attr(*node, name, value);
+    }
     return *this;
 }
 
 View::Scope& View::Scope::selector(std::string_view name,
                                    std::string_view value) {
-    if (owner_ && node_) owner_->set_selector(*node_, name, value);
+    if (auto* owner = resolve_owner()) {
+        if (auto* node = owner->find_id(node_id_)) owner->set_selector(*node, name, value);
+    }
     return *this;
 }
 
 View::Scope& View::Scope::cls(std::string_view classes) {
-    if (owner_ && node_) owner_->set_attr(*node_, "class", classes);
+    if (auto* owner = resolve_owner()) {
+        if (auto* node = owner->find_id(node_id_)) owner->set_attr(*node, "class", classes);
+    }
     return *this;
 }
 
 View::Scope& View::Scope::text(std::string_view value) {
-    if (owner_ && node_) owner_->set_text(*node_, value);
+    if (auto* owner = resolve_owner()) {
+        if (auto* node = owner->find_id(node_id_)) owner->set_text(*node, value);
+    }
     return *this;
 }
 
 WidgetRef View::Scope::find_widget(std::string_view name) const {
-    if (!owner_ || !node_) return {};
-    auto* found = owner_->find_widget_node_under(node_->id, name);
-    return found ? owner_->ref_for_node(*found, node_->id, name)
-                 : WidgetRef{owner_, node_->id, {}, name};
+    auto* owner = resolve_owner();
+    auto* node = resolve_node();
+    if (!owner || !node) return {};
+    auto* found = owner->find_widget_node_under(node->id, name);
+    return found ? owner->ref_for_node(*found, node->id, name)
+                 : WidgetRef{detail::WeakViewRef{owner}, node->id, {}, name};
 }
 
 StableId current_panel_id(const std::vector<WidgetNode*>& stack) {
@@ -409100,9 +408770,73 @@ View::View(ViewTheme theme) : theme_(theme) {
 
 // Out-of-line so unique_ptr<StringListState> (incomplete in the header) is
 // destroyed where StringListState is complete.
-View::~View() = default;
-View::View(View&&) noexcept = default;
-View& View::operator=(View&&) noexcept = default;
+View::~View() {
+    // Invalidate every external WidgetRef/Scope/DockHandle before any other
+    // View member begins destruction. The token is declared first (and would
+    // otherwise die last), so a default destructor exposes a partially torn
+    // down View to re-entrant teardown code.
+    lifetime_.invalidate();
+}
+
+View::View(View&& other) : View(other.theme_) {
+    move_state_from(other);
+}
+
+View& View::operator=(View&& other) {
+    if (this == &other) return *this;
+    View replacement(std::move(other));
+    lifetime_.invalidate();
+    lifetime_.renew(this);
+    move_state_from(replacement);
+    return *this;
+}
+
+void View::move_state_from(View& other) {
+    // Handles name one View identity, not a movable address. Invalidate the
+    // source identity before transferring its value state; refs never follow
+    // a move to a different object.
+    other.lifetime_.invalidate();
+
+    // A View is only meaningfully movable between build sessions. If a caller
+    // moves one mid-session, cancel the transient session pointers rather than
+    // transferring raw pointers into the other object's root storage.
+    stack_.clear();
+    sink_ = nullptr;
+    reconciling_ = false;
+    direct_mutation_ = false;
+    begin_depth_ = 0;
+    remote_patch_sink_.reset(nullptr);
+    dock_recorder_ = nullptr;
+    other.stack_.clear();
+    other.sink_ = nullptr;
+    other.reconciling_ = false;
+    other.direct_mutation_ = false;
+    other.begin_depth_ = 0;
+    other.remote_patch_sink_.reset(nullptr);
+    other.dock_recorder_ = nullptr;
+
+    using std::swap;
+    swap(theme_, other.theme_);
+    swap(framework_version_, other.framework_version_);
+    swap(root_app_shell_, other.root_app_shell_);
+    swap(attr_coalesce_dirty_, other.attr_coalesce_dirty_);
+    swap(document_attrs_, other.document_attrs_);
+    swap(root_, other.root_);
+    swap(widget_names_, other.widget_names_);
+    swap(click_handlers_, other.click_handlers_);
+    swap(change_handlers_, other.change_handlers_);
+    swap(commit_handlers_, other.commit_handlers_);
+    swap(diagnostics_, other.diagnostics_);
+    swap(mutation_dispatch_, other.mutation_dispatch_);
+    swap(binding_dispatch_, other.binding_dispatch_);
+    swap(mutation_remote_queue_, other.mutation_remote_queue_);
+    swap(dock_size_provider_, other.dock_size_provider_);
+    swap(scroll_provider_, other.scroll_provider_);
+    swap(string_lists_, other.string_lists_);
+    swap(dock_placement_provider_, other.dock_placement_provider_);
+    swap(dock_active_tab_provider_, other.dock_active_tab_provider_);
+    swap(dock_layout_provider_, other.dock_layout_provider_);
+}
 
 void View::clear() {
     root_.children.clear();
@@ -409161,6 +408895,7 @@ void View::begin(RemotePatchQueue* remote_patches) {
         return;
     }
     remote_patch_sink_.reset(remote_patches);
+    mutation_remote_queue_ = to_weak_ref(remote_patches);
     begin(static_cast<ViewSink*>(&remote_patch_sink_));
 }
 
@@ -409744,7 +409479,7 @@ std::function<void(std::string_view)> virtual_activation_handler(
     VirtualListProvider& provider) {
     WeakRef<VirtualListProvider> weak = to_weak_ref(&provider);
     return [weak](std::string_view value) {
-        auto* p = weak.lock();
+        auto* p = weak.get();
         if (!p) return;
         if (handle_virtual_row_check(*p, value)) return;
         constexpr std::string_view prefix = "activate:";
@@ -409773,7 +409508,7 @@ std::function<void(std::string_view)> virtual_tree_handler(
     VirtualTreeProvider& provider) {
     WeakRef<VirtualTreeProvider> weak = to_weak_ref(&provider);
     return [weak](std::string_view value) {
-        auto* p = weak.lock();
+        auto* p = weak.get();
         if (!p) return;
         if (handle_virtual_row_check(*p, value)) return;
         auto parse_index = [](std::string_view sv, std::size_t& out) {
@@ -410058,8 +409793,8 @@ WidgetRef View::virtual_list(std::string_view key,
     // between smooth and jerky. The equality check early-exits on the first
     // difference and allocates nothing.
     if (st.items != items) st.items = items;
-    st.selection = options.selection;
-    st.checked = options.checked;
+    st.selection = to_weak_ref(options.selection);
+    st.checked = to_weak_ref(options.checked);
 
     if (!st.wired) {
         // Wire the provider once — its callbacks read the persistent state, so
@@ -410068,23 +409803,28 @@ WidgetRef View::virtual_list(std::string_view key,
             .on_item_count([&st] { return st.items.size(); })
             .on_item_text([&st](std::size_t i) { return st.items[i]; })
             .on_is_selected([&st](std::size_t i) {
-                return st.selection && st.selection->contains(i);
+                const auto* selection = st.selection.get();
+                return selection != nullptr && selection->contains(i);
             })
             .on_activate([&st](std::size_t i, SelectMod m) {
-                if (st.selection) st.selection->apply(i, m, st.items.size());
+                if (auto* selection = st.selection.get()) {
+                    selection->apply(i, m, st.items.size());
+                }
             })
             .on_is_checked([&st](std::size_t i) {
-                return st.checked && st.checked->contains(i);
+                const auto* checked = st.checked.get();
+                return checked != nullptr && checked->contains(i);
             })
             .on_set_checked([&st](std::size_t i, bool) {
-                if (st.checked)
-                    st.checked->apply(i, SelectMod::Toggle, st.items.size());
+                if (auto* checked = st.checked.get()) {
+                    checked->apply(i, SelectMod::Toggle, st.items.size());
+                }
             });
         st.wired = true;
     }
     // Checkbox MODE follows the per-call options (the widget's leading
     // checkbox slot renders only while a checked model is supplied).
-    st.provider.checkboxes(options.checked != nullptr);
+    st.provider.checkboxes(st.checked.alive());
 
     return virtual_list(key, st.provider, options.axis, options.classes, here);
 }
@@ -411457,7 +411197,7 @@ DockHandle View::document(const std::function<void(View&)>& content,
     dock_recorder_->document_icon = std::string(icon);
     DockHandle h;
     h.id = "__document__";
-    h.owner_ = this;
+    h.lifetime_ = to_weak_ref(&lifetime_);
     return h;
 }
 
@@ -411481,8 +411221,16 @@ void View::attach_dock_toolbar(std::string_view id,
 }
 
 DockHandle& DockHandle::toolbar(const std::function<void(View&)>& build) {
-    if (owner_) owner_->attach_dock_toolbar(id, build);
+    const auto* lifetime = lifetime_.get();
+    if (auto* owner = lifetime != nullptr ? lifetime->owner() : nullptr) {
+        owner->attach_dock_toolbar(id, build);
+    }
     return *this;
+}
+
+DockHandle::operator bool() const noexcept {
+    const auto* lifetime = lifetime_.get();
+    return !id.empty() && lifetime != nullptr && lifetime->owner() != nullptr;
 }
 
 void View::set_dock_size_provider(std::function<int(std::string_view)> fn) {
@@ -411530,7 +411278,7 @@ DockHandle View::dockpanel(std::string_view title,
     dock_recorder_->panels.push_back(std::move(spec));
     DockHandle h;
     h.id = key.empty() ? dom_id_fragment(title) : std::string(key);
-    h.owner_ = this;
+    h.lifetime_ = to_weak_ref(&lifetime_);
     return h;
 }
 
@@ -411969,7 +411717,9 @@ WidgetRef View::combo(std::string_view label, double value, double step,
 WidgetRef View::find_widget(std::string_view name) {
     // An empty name is "no name", not a wildcard — it must not resolve to
     // the first keyless widget in tree order.
-    if (name.empty()) return WidgetRef{this, root_.id, {}, name};
+    if (name.empty()) {
+        return WidgetRef{detail::WeakViewRef{this}, root_.id, {}, name};
+    }
     for (auto it = widget_names_.rbegin(); it != widget_names_.rend(); ++it) {
         if (it->first != name) continue;
         if (auto* node = find_id(it->second)) {
@@ -411978,7 +411728,7 @@ WidgetRef View::find_widget(std::string_view name) {
     }
     auto* found = find_widget_node_under(root_.id, name);
     return found ? ref_for_node(*found, root_.id, name)
-                 : WidgetRef{this, root_.id, {}, name};
+                 : WidgetRef{detail::WeakViewRef{this}, root_.id, {}, name};
 }
 
 void View::note_component_type_mismatch(std::string_view name) {
@@ -412073,6 +411823,7 @@ WidgetNode& View::open_node(WidgetKind kind,
                             bool push_scope) {
     if (stack_.empty()) begin(static_cast<ViewSink*>(nullptr));
     auto* parent = stack_.back();
+    ViewSink* active_sink = current_sink();
     const std::size_t index = parent->cursor++;
     StableId id = make_stable_id(parent->id, kind, key, here);
     if (!key.empty()) {
@@ -412095,7 +411846,7 @@ WidgetNode& View::open_node(WidgetKind kind,
     } else {
         for (std::size_t i = index; i < parent->children.size(); ++i) {
             unregister_tree(parent->children[i]);
-            emit_remove_tree(sink_, parent->children[i]);
+            emit_remove_tree(active_sink, parent->children[i]);
         }
         parent->children.erase(parent->children.begin() +
                                static_cast<std::ptrdiff_t>(index),
@@ -412119,14 +411870,17 @@ WidgetNode& View::open_node(WidgetKind kind,
     node->cursor = 0;
     node->style_written = false;  // style writes compose per pass (§5.2)
 
-    if (created && sink_) {
+    if (created && active_sink) {
         if (kind == WidgetKind::Text) {
-            sink_->create_text(*node, parent == &root_ ? nullptr : parent, index);
+            active_sink->create_text(*node,
+                                     parent == &root_ ? nullptr : parent,
+                                     index);
         } else if (kind == WidgetKind::RawHtml) {
-            sink_->create_raw_html(*node, parent == &root_ ? nullptr : parent,
-                                   index);
+            active_sink->create_raw_html(
+                *node, parent == &root_ ? nullptr : parent, index);
         } else {
-            sink_->create_element(*node, parent == &root_ ? nullptr : parent, index);
+            active_sink->create_element(
+                *node, parent == &root_ ? nullptr : parent, index);
         }
     }
     if (!classes.empty()) set_attr(*node, "class", classes);
@@ -412173,9 +411927,10 @@ void View::flush_attr_diffs(WidgetNode& node) {
 void View::close_node() {
     if (stack_.size() <= 1) return;
     auto* node = stack_.back();
+    ViewSink* active_sink = current_sink();
     for (std::size_t i = node->cursor; i < node->children.size(); ++i) {
         unregister_tree(node->children[i]);
-        emit_remove_tree(sink_, node->children[i]);
+        emit_remove_tree(active_sink, node->children[i]);
     }
     node->children.erase(node->children.begin() +
                          static_cast<std::ptrdiff_t>(node->cursor),
@@ -412288,7 +412043,13 @@ void View::set_attr(WidgetNode& node,
     } else {
         node.attrs.push_back({std::string(name), std::string(value)});
     }
-    if (auto* sink = current_sink()) sink->set_attribute(node, name, value);
+    if (auto* active_sink = current_sink()) {
+        active_sink->set_attribute(node, name, value);
+    } else {
+        emit_mutation([&](ViewSink& mutation_sink) {
+            mutation_sink.set_attribute(node, name, value);
+        });
+    }
 }
 
 void View::set_selector(WidgetNode& node,
@@ -412324,17 +412085,35 @@ void View::remove_attr(WidgetNode& node, std::string_view name) {
         return;
     }
     node.attrs.erase(it);
-    if (auto* sink = current_sink()) sink->remove_attribute(node, name);
+    if (auto* active_sink = current_sink()) {
+        active_sink->remove_attribute(node, name);
+    } else {
+        emit_mutation([&](ViewSink& mutation_sink) {
+            mutation_sink.remove_attribute(node, name);
+        });
+    }
 }
 
 void View::set_text(WidgetNode& node, std::string_view value) {
     if (node.text == value) return;
     node.text = std::string(value);
     if (node.kind == WidgetKind::RawHtml) {
-        if (auto* sink = current_sink()) sink->set_raw_html(node, value);
+        if (auto* active_sink = current_sink()) {
+            active_sink->set_raw_html(node, value);
+        } else {
+            emit_mutation([&](ViewSink& mutation_sink) {
+                mutation_sink.set_raw_html(node, value);
+            });
+        }
         return;
     }
-    if (auto* sink = current_sink()) sink->set_text(node, value);
+    if (auto* active_sink = current_sink()) {
+        active_sink->set_text(node, value);
+    } else {
+        emit_mutation([&](ViewSink& mutation_sink) {
+            mutation_sink.set_text(node, value);
+        });
+    }
 }
 
 void View::set_click_handler(WidgetNode& node, std::function<void()> cb) {
@@ -412352,6 +412131,7 @@ void View::set_click_handler(WidgetNode& node, std::function<void()> cb) {
     // silently dead — the handler registers but no activation is ever
     // emitted for the element.
     set_attr(node, "data-aui-clickable", "1");
+    notify_bindings_changed();
 }
 
 void View::set_change_handler(WidgetNode& node,
@@ -412363,6 +412143,7 @@ void View::set_change_handler(WidgetNode& node,
     } else {
         change_handlers_.push_back({node.id, std::move(cb)});
     }
+    notify_bindings_changed();
 }
 
 void View::set_commit_handler(WidgetNode& node,
@@ -412374,13 +412155,18 @@ void View::set_commit_handler(WidgetNode& node,
     } else {
         commit_handlers_.push_back({node.id, std::move(cb)});
     }
+    notify_bindings_changed();
 }
 
 void View::clear_children(WidgetNode& node) {
-    for (const auto& child : node.children) {
-        unregister_tree(child);
-        emit_remove_tree(current_sink(), child);
-    }
+    const auto clear = [&](ViewSink* sink) {
+        for (const auto& child : node.children) {
+            unregister_tree(child);
+            emit_remove_tree(sink, child);
+        }
+    };
+    if (auto* sink = current_sink()) clear(sink);
+    else with_mutation_sink(clear);
     node.children.clear();
     node.cursor = 0;
 }
@@ -412459,28 +412245,42 @@ void View::build_children(WidgetNode& node,
                           const std::function<void(View&)>& build,
                           bool replace) {
     if (!build) return;
-    if (replace) clear_children(node);
+    with_mutation_sink([&](ViewSink* mutation_sink) {
+        auto old_stack = std::move(stack_);
+        const bool old_reconciling = reconciling_;
+        const bool old_direct_mutation = direct_mutation_;
+        ViewSink* old_sink = sink_;
 
-    const auto old_stack = std::move(stack_);
-    const bool old_reconciling = reconciling_;
-    ViewSink* old_sink = sink_;
+        const auto restore = [&] {
+            stack_ = std::move(old_stack);
+            reconciling_ = old_reconciling;
+            direct_mutation_ = old_direct_mutation;
+            sink_ = old_sink;
+        };
 
-    reconciling_ = false;
-    sink_ = nullptr;
-    stack_.clear();
-    node.cursor = node.children.size();
-    stack_.push_back(&root_);
-    stack_.push_back(&node);
+        reconciling_ = false;
+        direct_mutation_ = true;
+        sink_ = mutation_sink;
+        stack_.clear();
 
-    build(*this);
+        try {
+            if (replace) clear_children(node);
+            node.cursor = node.children.size();
+            stack_.push_back(&root_);
+            stack_.push_back(&node);
 
-    while (stack_.size() > 2) close_node();
-    if (stack_.size() == 2) stack_.pop_back();
-    if (stack_.size() == 1) stack_.pop_back();
+            build(*this);
 
-    stack_ = old_stack;
-    reconciling_ = old_reconciling;
-    sink_ = old_sink;
+            while (stack_.size() > 2) close_node();
+            if (stack_.size() == 2) stack_.pop_back();
+            if (stack_.size() == 1) stack_.pop_back();
+        } catch (...) {
+            restore();
+            throw;
+        }
+
+        restore();
+    });
 }
 
 WidgetNode* View::find_id(StableId id) {
@@ -412499,7 +412299,7 @@ WidgetRef View::ref_for_node(const WidgetNode& node,
     // is only the re-find-after-reconciliation fallback, not a validity
     // gate. Builder helpers routinely set text/attrs through the ref of
     // a freshly opened (private-keyed) node.
-    return WidgetRef{this, panel_id, node.id, ref_name};
+    return WidgetRef{detail::WeakViewRef{this}, panel_id, node.id, ref_name};
 }
 
 WidgetNode* View::find_widget_node_under(StableId root_id, std::string_view name) {
@@ -412525,8 +412325,51 @@ WidgetNode* View::resolve_widget_ref(const WidgetRef& ref) {
     return nullptr;
 }
 
+void View::set_mutation_dispatch(MutationDispatch dispatch) {
+    mutation_dispatch_ = std::move(dispatch);
+    mutation_remote_queue_ = {};
+}
+
+void View::set_binding_dispatch(std::function<void()> dispatch) {
+    binding_dispatch_ = std::move(dispatch);
+}
+
+void View::notify_bindings_changed() {
+    if (reconciling_ || direct_mutation_ || !binding_dispatch_) return;
+    const auto dispatch = binding_dispatch_;
+    dispatch();
+}
+
+void View::emit_mutation(
+    const std::function<void(ViewSink&)>& mutation) {
+    if (!mutation) return;
+    with_mutation_sink([&](ViewSink* sink) {
+        if (sink) mutation(*sink);
+    });
+}
+
+void View::with_mutation_sink(
+    const std::function<void(ViewSink*)>& mutation) {
+    if (!mutation) return;
+    if (auto* sink = current_sink()) {
+        mutation(sink);
+        return;
+    }
+    if (mutation_dispatch_) {
+        const auto dispatch = mutation_dispatch_;
+        dispatch([&](ViewSink& sink) { mutation(&sink); });
+        return;
+    }
+    if (auto* remote_queue = mutation_remote_queue_.get()) {
+        RemotePatchSink sink{remote_queue};
+        mutation(&sink);
+        return;
+    }
+    mutation(nullptr);
+}
+
 ViewSink* View::current_sink() const noexcept {
-    return reconciling_ ? sink_ : mutation_sink_;
+    return (reconciling_ || direct_mutation_) ? sink_ : nullptr;
 }
 
 }  // namespace affineui
@@ -412815,7 +412658,7 @@ void Document::set_html(std::string_view html) {
         detail::snapshot_scroll_state(*impl_, /*include_elements=*/false);
     // The whole DOM is being replaced â€” any view-reconcile node mapping
     // is now stale.
-    if (impl_->view_sink_reset) impl_->view_sink_reset();
+    if (impl_->view_sink) impl_->view_sink->reset_mappings();
     impl_->html.assign(html);
     impl_->blocks.clear();
     impl_->style_store.reset();
@@ -413498,7 +413341,7 @@ class DocumentViewSink final : public ViewSink {
 public:
     explicit DocumentViewSink(detail::DocumentImpl& impl) : impl_(impl) {}
 
-    void reset() {
+    void reset_mappings() override {
         elems_.clear();
         texts_.clear();
         raw_groups_.clear();
@@ -414020,7 +413863,6 @@ ViewSink* Document::begin_view_mutations() {
     detail::debug_validate_attr_lists(*impl_, "begin-view-mutations");
     if (!impl_->view_sink) {
         auto sink = std::make_unique<DocumentViewSink>(*impl_);
-        impl_->view_sink_reset = [raw = sink.get()] { raw->reset(); };
         impl_->view_sink = std::move(sink);
     }
     if (!impl_->view_batch_active) {
@@ -414350,7 +414192,7 @@ void Document::set_imm_view(std::function<void()> view_fn) {
         // normal parse path and ends with an empty <body>.
         set_html("");
     }
-    impl_->imm->bind(this, impl_->doc);
+    impl_->imm->bind(impl_.get(), impl_->doc);
 #endif
     impl_->imm->set_view_fn(std::move(view_fn));
 }
@@ -420341,7 +420183,7 @@ Rect Document::find_element_rect(std::string_view target) const {
         const auto t0 = std::chrono::steady_clock::now();
         const_cast<Document*>(this)->layout(impl_->media_viewport_width_px,
                                             impl_->media_viewport_height_px,
-                                            impl_->last_measurer);
+                                            nullptr);
         if (detail::MutationTraceTimer::enabled()) {
             const double ms = std::chrono::duration<double, std::milli>(
                                   std::chrono::steady_clock::now() - t0)
@@ -420425,6 +420267,14 @@ std::string filter_character_event_text(std::string_view text) {
 }  // namespace
 
 DispatchResult Document::dispatch(const Event& ev) {
+    return dispatch_impl(ev, nullptr);
+}
+
+DispatchResult Document::dispatch(const Event& ev, Painter& measurer) {
+    return dispatch_impl(ev, &measurer);
+}
+
+DispatchResult Document::dispatch_impl(const Event& ev, Painter* measurer) {
     DispatchResult result{};
     auto ensure_interaction_layout = [&]() {
 #if !defined(AFFINEUI_STUB_BUILD)
@@ -420436,7 +420286,7 @@ DispatchResult Document::dispatch(const Event& ev) {
         if (impl_->content_size.width == 0 &&
             impl_->media_viewport_width_px > 0) {
             layout(impl_->media_viewport_width_px,
-                   impl_->media_viewport_height_px, impl_->last_measurer);
+                   impl_->media_viewport_height_px, measurer);
         }
 #endif
     };
@@ -422792,7 +422642,11 @@ void Document::draw(Painter& painter) {
                     !handler_name.empty()) {
                     if (auto it = impl_->paint_handlers.find(handler_name);
                         it != impl_->paint_handlers.end() && it->second) {
-                        it->second(painter, eff);
+                        // The callback may unregister itself. Invoke a copy so
+                        // erasing the map entry cannot destroy the callable
+                        // whose operator() is currently on the stack.
+                        auto handler = it->second;
+                        handler(painter, eff);
                     }
                 }
             }
@@ -425019,9 +424873,9 @@ void Document::layout(int viewport_width, int viewport_height,
         if (media_set_changed) {
             if (first_viewport) {
                 detail::attach_matching_media_blocks_for_viewport(*impl_);
-            } else if (impl_->view_sink_reset) {
+            } else if (impl_->view_sink) {
                 // Reconciler-driven app (View::begin_view_mutations was
-                // ever used → view_sink_reset stays set for the doc's
+                // ever used: view_sink stays set for the document's
                 // lifetime): the live DOM has content that ISN'T in
                 // impl_->html. impl_->html holds only the shell that
                 // App::rebuild_view seeded via load_html(view.to_html_shell());
@@ -425073,7 +424927,6 @@ void Document::layout(int viewport_width, int viewport_height,
 
 #if !defined(AFFINEUI_STUB_BUILD)
     if (measurer != nullptr) {
-        impl_->last_measurer = measurer;
         detail::ensure_font_faces_registered(*impl_, *measurer);
     }
 #endif
@@ -434097,11 +433950,6 @@ std::size_t text_caret_offset_from_point(detail::DocumentImpl& impl,
     auto& block = impl.blocks[static_cast<std::size_t>(idx)];
     if (!block.text_control || block.text_value.empty()) return 0;
     const TextLayoutEntry* entry = cached_text_layout_entry(impl, idx);
-    if (entry == nullptr && impl.last_measurer != nullptr) {
-        const auto g = detail::text_control_geometry(impl, idx, *impl.last_measurer);
-        entry = &detail::ensure_text_layout_entry(
-            impl, idx, g, block, *impl.last_measurer);
-    }
     if (entry == nullptr) {
         const auto& cs = impl.style_store.computed(block.id);
         const int content_x = block.bounds.x + cs.used_border_left() +
@@ -434710,9 +434558,14 @@ bool Document::text_input_active() const {
 Rect Document::caret_rect() const {
     Block* control = nullptr;
     if (!detail::focused_text_control(*impl_, control)) return {};
-    if (impl_->last_measurer == nullptr) return {};
     return detail::text_caret_rect(*impl_, impl_->focused_idx,
-                                   *impl_->last_measurer);
+                                   nullptr);
+}
+
+Rect Document::caret_rect(Painter& measurer) const {
+    Block* control = nullptr;
+    if (!detail::focused_text_control(*impl_, control)) return {};
+    return detail::text_caret_rect(*impl_, impl_->focused_idx, &measurer);
 }
 
 void Document::set_caret_blink_interval(double milliseconds) {
@@ -434732,35 +434585,38 @@ bool Document::tick_caret_blink() {
 }
 
 namespace detail {
-Rect text_caret_rect(detail::DocumentImpl& impl, int idx, Painter& painter) {
+Rect text_caret_rect(detail::DocumentImpl& impl, int idx, Painter* painter) {
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return {};
     auto& block = impl.blocks[static_cast<std::size_t>(idx)];
     if (!block.text_control) return {};
-    const auto g = detail::text_control_geometry(impl, idx, painter);
-    const auto& entry =
-        detail::ensure_text_layout_entry(impl, idx, g, block, painter);
-    if (entry.caret_offsets.empty()) return {};
+    const TextLayoutEntry* entry = cached_text_layout_entry(impl, idx);
+    if (entry == nullptr && painter != nullptr) {
+        const auto g = detail::text_control_geometry(impl, idx, *painter);
+        entry = &detail::ensure_text_layout_entry(
+            impl, idx, g, block, *painter);
+    }
+    if (entry == nullptr || entry->caret_offsets.empty()) return {};
     const auto& value = detail::composed_text_value(impl, idx, block);
     const std::size_t caret_offset =
         std::min(detail::composed_caret_offset(impl, idx, block),
                  value.size());
     // Same offset→(x, line) mapping the caret painter uses.
-    auto it = std::lower_bound(entry.caret_offsets.begin(),
-                               entry.caret_offsets.end(), caret_offset);
-    std::size_t caret_index = it == entry.caret_offsets.end()
-        ? entry.caret_offsets.size() - 1
+    auto it = std::lower_bound(entry->caret_offsets.begin(),
+                               entry->caret_offsets.end(), caret_offset);
+    std::size_t caret_index = it == entry->caret_offsets.end()
+        ? entry->caret_offsets.size() - 1
         : static_cast<std::size_t>(
-              std::distance(entry.caret_offsets.begin(), it));
-    if (entry.caret_offsets[caret_index] != caret_offset && caret_index > 0) {
+              std::distance(entry->caret_offsets.begin(), it));
+    if (entry->caret_offsets[caret_index] != caret_offset && caret_index > 0) {
         --caret_index;
     }
-    const auto line = entry.caret_lines[caret_index];
-    const float x = detail::aligned_line_origin_x(entry, line) +
-                    entry.caret_x[caret_index];
-    const float line_h = std::max(1.0f, entry.css_line_height);
+    const auto line = entry->caret_lines[caret_index];
+    const float x = detail::aligned_line_origin_x(*entry, line) +
+                    entry->caret_x[caret_index];
+    const float line_h = std::max(1.0f, entry->css_line_height);
     return Rect{static_cast<int>(std::floor(x)),
                 static_cast<int>(std::floor(
-                    static_cast<float>(entry.text_y) +
+                    static_cast<float>(entry->text_y) +
                     static_cast<float>(line) * line_h)),
                 1,
                 static_cast<int>(std::ceil(line_h))};
@@ -434848,7 +434704,7 @@ bool update_text_composition(detail::DocumentImpl&,
                              std::size_t) {
     return false;
 }
-Rect text_caret_rect(detail::DocumentImpl&, int, Painter&) { return {}; }
+Rect text_caret_rect(detail::DocumentImpl&, int, Painter*) { return {}; }
 void splice_composition_display(detail::DocumentImpl&,
                                 lxb_dom_node_t*,
                                 Block&) {}
@@ -434856,6 +434712,7 @@ void splice_composition_display(detail::DocumentImpl&,
 
 bool Document::text_input_active() const { return false; }
 Rect Document::caret_rect() const { return {}; }
+Rect Document::caret_rect(Painter&) const { return {}; }
 void Document::set_caret_blink_interval(double) {}
 double Document::caret_blink_interval() const noexcept { return 0.0; }
 bool Document::tick_caret_blink() { return false; }
@@ -439400,23 +439257,42 @@ struct UiImpl {
     std::vector<std::function<void(double)>> frame_callbacks;
     std::vector<Document::HoverInfo> hover_chain_scratch;
     bool pointer_captured{false};
+    std::uint64_t log_sink_registration{0};
 };
 
 // ── Internal log sink (embed_log.h) ─────────────────────────────────
 namespace {
-LogFn g_log_fn   = nullptr;
-void* g_log_user = nullptr;
+LogFn        g_log_fn{nullptr};
+void*        g_log_user{nullptr};
+std::uint64_t g_log_registration{0};
+std::uint64_t g_next_log_registration{1};
+std::mutex    g_log_mutex;
 }  // namespace
 
-void set_log_sink(LogFn fn, void* user) noexcept {
-    g_log_fn   = fn;
+std::uint64_t set_log_sink(LogFn fn, void* user) noexcept {
+    const std::lock_guard<std::mutex> lock(g_log_mutex);
+    std::uint64_t id = g_next_log_registration++;
+    if (id == 0) id = g_next_log_registration++;
     g_log_user = user;
+    g_log_fn = fn;
+    g_log_registration = id;
+    return id;
+}
+
+void clear_log_sink(std::uint64_t registration) noexcept {
+    const std::lock_guard<std::mutex> lock(g_log_mutex);
+    if (registration == 0 || g_log_registration != registration) return;
+    g_log_fn = nullptr;
+    g_log_user = nullptr;
+    g_log_registration = 0;
 }
 
 // Exposed to the log facility (log.cpp) so the embedder's raw-pointer sink
 // keeps firing alongside the new std::function handler.
-LogFn legacy_log_fn() noexcept   { return g_log_fn; }
-void* legacy_log_user() noexcept { return g_log_user; }
+LegacyLogSink legacy_log_sink() noexcept {
+    const std::lock_guard<std::mutex> lock(g_log_mutex);
+    return {g_log_fn, g_log_user};
+}
 
 void log_msg(LogLevel level, const char* msg) noexcept {
     // Route through the public facility: default = console + affinetools,
@@ -439430,10 +439306,10 @@ void log_msg(LogLevel level, const char* msg) noexcept {
 
 }  // namespace detail
 
-Ui::Ui() : impl_(std::make_unique<detail::UiImpl>()) {}
-Ui::~Ui() = default;
-Ui::Ui(Ui&&) noexcept            = default;
-Ui& Ui::operator=(Ui&&) noexcept = default;
+Ui::Ui() : impl_(std::make_shared<detail::UiImpl>()) {}
+Ui::~Ui() {
+    detail::clear_log_sink(impl_->log_sink_registration);
+}
 
 // ── Content ─────────────────────────────────────────────────────────
 
@@ -439500,7 +439376,9 @@ void Ui::invalidate() {
 
 void Ui::init(const InitDesc& desc) {
     if (desc.log) {
-        detail::set_log_sink(desc.log, desc.log_user);
+        detail::clear_log_sink(impl_->log_sink_registration);
+        impl_->log_sink_registration =
+            detail::set_log_sink(desc.log, desc.log_user);
     }
     if (desc.resource_loader) {
         impl_->document.set_resource_loader(desc.resource_loader);
@@ -439610,51 +439488,68 @@ void Ui::reset() {
 // ── Input ───────────────────────────────────────────────────────────
 
 bool Ui::dispatch(const Event& e) {
-    const auto event_capture_handlers = impl_->event_capture_handlers;
+    return dispatch_impl(e, nullptr);
+}
+
+bool Ui::dispatch(const Event& e, Painter& measurer) {
+    return dispatch_impl(e, &measurer);
+}
+
+bool Ui::dispatch_impl(const Event& e, Painter* measurer) {
+    const auto impl = impl_;
+    // Resize always requires a new frame, even when an application-level
+    // capture handler consumes the event before document dispatch.
+    if (e.type == EventType::Resize) {
+        impl->dirty = true;
+    }
+    const auto event_capture_handlers = impl->event_capture_handlers;
     if (!event_capture_handlers.empty()) {
-        impl_->document.hovered_info_chain(impl_->hover_chain_scratch);
+        impl->document.hovered_info_chain(impl->hover_chain_scratch);
         bool capture_consumed = false;
         for (const auto& cb : event_capture_handlers) {
             capture_consumed =
-                cb(e, impl_->hover_chain_scratch) || capture_consumed;
+                cb(e, impl->hover_chain_scratch) || capture_consumed;
         }
         if (capture_consumed) return true;
     }
-    const auto event_handlers = impl_->event_handlers;
-    if (impl_->pointer_captured && e.type == EventType::MouseMove &&
+    const auto event_handlers = impl->event_handlers;
+    if (impl->pointer_captured && e.type == EventType::MouseMove &&
         !event_handlers.empty()) {
-        impl_->document.hovered_info_chain(impl_->hover_chain_scratch);
+        impl->document.hovered_info_chain(impl->hover_chain_scratch);
         bool consumed = false;
         for (const auto& cb : event_handlers) {
-            consumed = cb(e, impl_->hover_chain_scratch) || consumed;
+            consumed = cb(e, impl->hover_chain_scratch) || consumed;
         }
         if (consumed) return true;
     }
 
-    if (e.type == EventType::Resize) {
-        impl_->dirty = true;
-    }
-    const auto result = impl_->document.dispatch(e);
+    const auto result = measurer != nullptr
+                            ? impl->document.dispatch(e, *measurer)
+                            : impl->renderer.dispatch(impl->document, e);
     if (result.redraw_requested || result.invalidate_view) {
-        impl_->dirty = true;  // a hover/focus/state change needs a repaint
+        impl->dirty = true;  // a hover/focus/state change needs a repaint
     }
-    if (result.event_consumed) return true;
 
     const bool mouse_up_left =
         e.type == EventType::MouseUp && e.button == MouseButton::Left;
     const bool needs_chain =
         !event_handlers.empty() || mouse_up_left;
     if (needs_chain) {
-        impl_->document.hovered_info_chain(impl_->hover_chain_scratch);
+        impl->document.hovered_info_chain(impl->hover_chain_scratch);
     } else {
-        impl_->hover_chain_scratch.clear();
+        impl->hover_chain_scratch.clear();
     }
-    const auto& chain = impl_->hover_chain_scratch;
-    bool event_consumed = false;
-    for (const auto& cb : event_handlers) {
-        event_consumed = cb(e, chain) || event_consumed;
+    const auto& chain = impl->hover_chain_scratch;
+    bool event_consumed = result.event_consumed;
+    if (!result.event_consumed) {
+        for (const auto& cb : event_handlers) {
+            event_consumed = cb(e, chain) || event_consumed;
+        }
     }
-    if (event_consumed) return true;
+    // A native handler that consumes MouseUp owns the gesture. A document
+    // control that consumes MouseUp still represents a click, so selector and
+    // imm callbacks below must observe it (checkbox/button activation).
+    if (event_consumed && !result.event_consumed) return true;
 
     // Click routing: on MouseUp, check (1) user-registered selectors
     // via on_click across the hovered ancestor chain, then (2) imm-mode
@@ -439664,7 +439559,7 @@ bool Ui::dispatch(const Event& e) {
     if (mouse_up_left) {
         if (!chain.empty()) {
             std::vector<std::function<void()>> callbacks;
-            const auto click_handlers = impl_->click_handlers;
+            const auto click_handlers = impl->click_handlers;
             for (const auto& [selector, cb] : click_handlers) {
                 const bool matched = std::any_of(
                     chain.begin(), chain.end(),
@@ -439679,13 +439574,13 @@ bool Ui::dispatch(const Event& e) {
             if (!callbacks.empty()) return true;
             // imm-mode handler hit?
             for (const auto& info : chain) {
-                if (impl_->document.invoke_imm_click(info.elem_id)) {
+                if (impl->document.invoke_imm_click(info.elem_id)) {
                     return true;
                 }
             }
         }
     }
-    return false;
+    return event_consumed;
 }
 
 int Ui::hovered_cursor() const {
@@ -439697,7 +439592,7 @@ bool Ui::text_input_active() const {
 }
 
 Rect Ui::caret_rect() const {
-    return impl_->document.caret_rect();
+    return impl_->renderer.caret_rect(impl_->document);
 }
 
 std::vector<Document::HoverInfo> Ui::hovered_info_chain() const {
@@ -439735,7 +439630,8 @@ void Ui::on_frame(std::function<void(double)> cb) {
 }
 
 void Ui::run_frame_callbacks(double dt_seconds) {
-    const auto callbacks = impl_->frame_callbacks;
+    const auto impl = impl_;
+    const auto callbacks = impl->frame_callbacks;
     for (const auto& cb : callbacks) {
         cb(dt_seconds);
     }
@@ -442652,7 +442548,7 @@ public:
         if (text_trace) {
             std::fprintf(stderr,
                          "[text] fs=%d asc=%.1f desc=%.1f gap=%.1f "
-                         "css_lh=%.2f pos.y=%d baseline=%.1f '%.*s'\n",
+                         "css_lh=%.2f pos.y=%.1f baseline=%.1f '%.*s'\n",
                          handle_size_px(handle), vm.ascent, vm.descent,
                          vm.line_gap, css_line_h, pos_y, fy,
                          static_cast<int>(std::min<std::size_t>(12,
@@ -443406,10 +443302,198 @@ namespace affineui {
 
 namespace detail {
 
+class ImageLease final {
+public:
+    ImageLease(std::weak_ptr<ImageRegistry> owner_registry,
+               std::uint32_t owner_slot,
+               std::uint32_t owner_generation) noexcept
+        : registry(std::move(owner_registry)),
+          slot(owner_slot),
+          generation(owner_generation) {}
+    ~ImageLease();
+
+    std::weak_ptr<ImageRegistry> registry;
+    std::uint32_t slot{0};
+    std::uint32_t generation{0};
+    bool armed{false};
+};
+
+class ImageRegistry final
+    : public std::enable_shared_from_this<ImageRegistry> {
+public:
+    ImageRegistry() { slots_.push_back({}); }  // slot 0 is always invalid
+
+    void set_painter(Painter* painter) noexcept {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        painter_ = painter;
+        owner_thread_ = std::this_thread::get_id();
+    }
+
+    ImageHandle create(int width,
+                       int height,
+                       std::span<const std::uint8_t> rgba) {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        if (painter_ == nullptr || width <= 0 || height <= 0) return {};
+        if (std::this_thread::get_id() != owner_thread_) return {};
+        collect_retired_locked();
+        const auto w = static_cast<std::size_t>(width);
+        const auto h = static_cast<std::size_t>(height);
+        if (w > std::numeric_limits<std::size_t>::max() / 4u / h) return {};
+        const std::size_t expected = w * h * 4u;
+        if (rgba.size() != expected) return {};
+
+        std::uint32_t slot = 0;
+        for (std::size_t i = 1; i < slots_.size(); ++i) {
+            if (slots_[i].backend == 0) {
+                slot = static_cast<std::uint32_t>(i);
+                break;
+            }
+        }
+        if (slot == 0) {
+            slot = static_cast<std::uint32_t>(slots_.size());
+            slots_.push_back({});
+        }
+        auto& entry = slots_[slot];
+        // Allocate every fallible bookkeeping object before creating the GPU
+        // resource. If allocation throws, there is no backend image to leak.
+        auto lease = std::shared_ptr<ImageLease>(
+            new ImageLease{weak_from_this(), slot, entry.generation});
+        const std::uint32_t backend =
+            painter_->create_image_rgba(width, height, rgba.data());
+        if (backend == 0) return {};
+        entry.backend = backend;
+        entry.bytes = expected;
+        lease->armed = true;
+        return ImageHandle{std::move(lease)};
+    }
+
+    [[nodiscard]] bool valid(std::uint32_t slot,
+                             std::uint32_t generation) const noexcept {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        return valid_locked(slot, generation);
+    }
+
+    [[nodiscard]] bool valid_locked(std::uint32_t slot,
+                                    std::uint32_t generation) const noexcept {
+        if (painter_ == nullptr || slot == 0 || slot >= slots_.size()) {
+            return false;
+        }
+        const auto& entry = slots_[slot];
+        return entry.generation == generation && entry.backend != 0 &&
+               !entry.retired;
+    }
+
+    [[nodiscard]] std::uint32_t backend_id(
+        std::uint32_t slot,
+        std::uint32_t generation) noexcept {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        if (std::this_thread::get_id() == owner_thread_) {
+            collect_retired_locked();
+        }
+        return valid_locked(slot, generation) ? slots_[slot].backend : 0u;
+    }
+
+    bool update(std::uint32_t slot,
+                std::uint32_t generation,
+                std::span<const std::uint8_t> rgba) {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        if (std::this_thread::get_id() != owner_thread_) return false;
+        collect_retired_locked();
+        if (!valid_locked(slot, generation)) return false;
+        const auto& entry = slots_[slot];
+        if (rgba.size() != entry.bytes) return false;
+        painter_->update_image_rgba(entry.backend, rgba.data());
+        return true;
+    }
+
+    void release(std::uint32_t slot, std::uint32_t generation) noexcept {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        if (!valid_locked(slot, generation)) return;
+        auto& entry = slots_[slot];
+        if (std::this_thread::get_id() != owner_thread_) {
+            // GPU destruction is renderer-thread-only. Retire the generation
+            // immediately so all handles become invalid, then let the next
+            // renderer-thread operation collect the backend resource.
+            entry.retired = true;
+            entry.bytes = 0;
+            ++entry.generation;
+            if (entry.generation == 0) entry.generation = 1;
+            return;
+        }
+        try {
+            painter_->delete_image(entry.backend);
+        } catch (...) {
+            // Handle destruction is a no-throw boundary. A backend that throws
+            // forfeits the resource, but cannot crash user teardown.
+        }
+        invalidate(entry);
+    }
+
+    void shutdown() noexcept {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        if (painter_) {
+            for (std::size_t i = 1; i < slots_.size(); ++i) {
+                auto& entry = slots_[i];
+                if (entry.backend != 0) {
+                    try {
+                        painter_->delete_image(entry.backend);
+                    } catch (...) {
+                    }
+                }
+                invalidate(entry);
+            }
+        }
+        painter_ = nullptr;
+    }
+
+private:
+    struct Slot {
+        std::uint32_t backend{0};
+        std::uint32_t generation{1};
+        std::size_t bytes{0};
+        bool retired{false};
+    };
+
+    static void invalidate(Slot& entry) noexcept {
+        entry.backend = 0;
+        entry.bytes = 0;
+        entry.retired = false;
+        ++entry.generation;
+        if (entry.generation == 0) entry.generation = 1;
+    }
+
+    void collect_retired_locked() noexcept {
+        if (painter_ == nullptr) return;
+        for (std::size_t i = 1; i < slots_.size(); ++i) {
+            auto& entry = slots_[i];
+            if (!entry.retired || entry.backend == 0) continue;
+            try {
+                painter_->delete_image(entry.backend);
+            } catch (...) {
+            }
+            entry.backend = 0;
+            entry.retired = false;
+        }
+    }
+
+    Painter* painter_{nullptr};
+    std::thread::id owner_thread_{};
+    mutable std::mutex mutex_;
+    std::vector<Slot> slots_;
+};
+
+ImageLease::~ImageLease() {
+    if (!armed) return;
+    if (const auto owner = registry.lock()) {
+        owner->release(slot, generation);
+    }
+}
+
 struct RendererImpl {
     Color clear_color{30, 30, 46, 255};
     bool  ready{false};
     RenderStats stats{};
+    std::shared_ptr<ImageRegistry> images{std::make_shared<ImageRegistry>()};
 
 #if !defined(AFFINEUI_STUB_BUILD)
     NVGcontext*              vg{nullptr};
@@ -443468,6 +443552,31 @@ struct RendererImpl {
 
 }  // namespace detail
 
+bool ImageHandle::is_valid() const noexcept {
+    if (!lease_) return false;
+    const auto registry = lease_->registry.lock();
+    return registry && registry->valid(lease_->slot, lease_->generation);
+}
+
+bool ImageHandle::update(std::span<const std::uint8_t> rgba) const {
+    if (!lease_) return false;
+    const auto registry = lease_->registry.lock();
+    return registry &&
+           registry->update(lease_->slot, lease_->generation, rgba);
+}
+
+void ImageHandle::reset() noexcept {
+    lease_.reset();
+}
+
+std::uint32_t ImageHandle::backend_id() const noexcept {
+    if (!lease_) return 0;
+    const auto registry = lease_->registry.lock();
+    return registry
+               ? registry->backend_id(lease_->slot, lease_->generation)
+               : 0u;
+}
+
 Renderer::Renderer() : impl_(std::make_unique<detail::RendererImpl>()) {}
 Renderer::~Renderer() { shutdown(); }
 
@@ -443476,11 +443585,48 @@ bool Renderer::ready() const noexcept { return impl_->ready; }
 void Renderer::set_clear_color(Color c) { impl_->clear_color = c; }
 Color Renderer::clear_color() const     { return impl_->clear_color; }
 
+ImageHandle Renderer::create_image_rgba(
+    int width,
+    int height,
+    std::span<const std::uint8_t> rgba) {
+    return impl_->images->create(width, height, rgba);
+}
+
+Rect Renderer::caret_rect(Document& doc) const {
+#if defined(AFFINEUI_STUB_BUILD)
+    return doc.caret_rect();
+#else
+    return impl_->painter ? doc.caret_rect(*impl_->painter)
+                          : doc.caret_rect();
+#endif
+}
+
+DispatchResult Renderer::dispatch(Document& doc, const Event& ev) const {
+#if defined(AFFINEUI_STUB_BUILD)
+    return doc.dispatch(ev);
+#else
+    return impl_->painter ? doc.dispatch(ev, *impl_->painter)
+                          : doc.dispatch(ev);
+#endif
+}
+
 #if defined(AFFINEUI_STUB_BUILD)
 
 void Renderer::init_gl() {}
 void Renderer::init_embedded(const GpuContext&, const Allocator*) {}
-void Renderer::shutdown() { impl_->ready = false; }
+void Renderer::shutdown() {
+    // Drop cached resource leases and force a complete re-record after any
+    // later reinitialization. Backend ids are scoped to one painter/context
+    // and must never cross shutdown.
+    impl_->cached_display_list.clear();
+    impl_->cached_display_list_valid = false;
+    impl_->first_frame = true;
+    impl_->last_w = -1;
+    impl_->last_h = -1;
+    impl_->last_dpi = 1.0f;
+    impl_->images->shutdown();
+    impl_->ready = false;
+}
 void Renderer::render(Document&, int, int, float) {}
 void Renderer::draw_debug_overlay(std::string_view,
                                   std::span<const float>,
@@ -443507,6 +443653,7 @@ void Renderer::init_gl() {
     // exist, text simply won't render — by design we never crash.
     detail::register_default_font(impl_->vg);
     impl_->painter = detail::make_nanovg_painter(impl_->vg);
+    impl_->images->set_painter(impl_->painter.get());
     impl_->ready = true;
 }
 
@@ -444590,6 +444737,7 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
 }
 
 void Renderer::shutdown() {
+    impl_->images->shutdown();
     if (!impl_->ready && !impl_->owns_sg) return;
     impl_->painter.reset();
     destroy_root_layer(*impl_);
@@ -445731,7 +445879,7 @@ ImmRuntime::~ImmRuntime() {
     }
 }
 
-void ImmRuntime::bind(Document* owner, lxb_html_document_t* doc) {
+void ImmRuntime::bind(DocumentImpl* owner, lxb_html_document_t* doc) {
     owner_ = owner;
     doc_   = doc;
 }
@@ -445863,8 +446011,7 @@ void ImmRuntime::run_view_fn() {
     // Kill any tail under body that this render didn't visit. Same
     // logic close_element runs at every level — this catches the
     // outermost level (body's leftover children).
-    destroy_from(owner_ ? owner_->impl_.get() : nullptr,
-                 cursor_stack_.back());
+    destroy_from(owner_, cursor_stack_.back());
 
     parent_stack_.clear();
     cursor_stack_.clear();
@@ -445970,7 +446117,7 @@ lxb_dom_element_t* ImmRuntime::open_element(std::string_view tag,
     // stale (different tag, different scope hash, different node
     // type, or just no more old children). Destroy it and append a
     // fresh element.
-    destroy_from(owner_ ? owner_->impl_.get() : nullptr, parent_cursor);
+    destroy_from(owner_, parent_cursor);
     parent_cursor = nullptr;
 
     auto* elem = lxb_dom_document_create_element(
@@ -446008,8 +446155,7 @@ void ImmRuntime::close_element() {
     if (parent_stack_.size() <= 1) return;
     // Tail-kill: anything left under the cursor for THIS element is
     // old content the view fn didn't visit on this render. Destroy it.
-    destroy_from(owner_ ? owner_->impl_.get() : nullptr,
-                 cursor_stack_.back());
+    destroy_from(owner_, cursor_stack_.back());
     parent_stack_.pop_back();
     cursor_stack_.pop_back();
 }
@@ -446055,7 +446201,7 @@ void ImmRuntime::append_text_to_current(std::string_view text) {
 
     // Mismatch (cursor was an element, or no cursor at all): destroy
     // tail then append a fresh text node.
-    destroy_from(owner_ ? owner_->impl_.get() : nullptr, cursor);
+    destroy_from(owner_, cursor);
     cursor = nullptr;
     auto* tn = lxb_dom_document_create_text_node(
         lxb_dom_interface_document(doc_),

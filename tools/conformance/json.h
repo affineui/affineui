@@ -16,7 +16,7 @@ using Array  = std::vector<Value>;
 using Object = std::map<std::string, Value>;
 
 struct Value {
-    enum Type { Null, Bool, Num, Str, Arr, Obj } type = Null;
+    enum Type { Null, Boolean, Num, Str, Arr, Obj } type = Null;
     bool                    b   = false;
     double                  num = 0;
     std::string             str;
@@ -66,8 +66,8 @@ struct Parser {
     }
     bool number(Value& v) { char* e; v.num = std::strtod(p, &e); if (e == p) return false; p = e; v.type = Value::Num; return true; }
     bool boolean(Value& v) {
-        if (end - p >= 4 && std::strncmp(p, "true", 4) == 0)  { p += 4; v.type = Value::Bool; v.b = true;  return true; }
-        if (end - p >= 5 && std::strncmp(p, "false", 5) == 0) { p += 5; v.type = Value::Bool; v.b = false; return true; }
+        if (end - p >= 4 && std::strncmp(p, "true", 4) == 0)  { p += 4; v.type = Value::Boolean; v.b = true;  return true; }
+        if (end - p >= 5 && std::strncmp(p, "false", 5) == 0) { p += 5; v.type = Value::Boolean; v.b = false; return true; }
         return false;
     }
     bool array(Value& v) {

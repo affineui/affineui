@@ -174,9 +174,10 @@ struct Cable {
 ///
 /// The drag lifecycle (grab jack → cable follows with hanging physics →
 /// drop on another jack) and click-to-remove are handled internally.
-class PatchBay {
+class PatchBay : public Trackable {
 public:
     PatchBay();
+    ~PatchBay() override;
 
     // ── Declaration ──
     /// Open the patch board container. Jacks declared inside it (via
@@ -236,7 +237,7 @@ private:
         bool        active{false};
     };
 
-    bool handle_event(App& app, const Event& ev,
+    bool handle_event(const Event& ev,
                       const std::vector<Document::HoverInfo>& chain);
     void tick(double dt);
     void paint_cables(Painter& painter, const Rect& bounds);
@@ -245,7 +246,7 @@ private:
     int cable_at(float doc_x, float doc_y) const;
     int next_color() const;
 
-    App*                     app_{nullptr};
+    AppHandle                app_{};
     std::vector<Cable>       cables_;
     std::vector<std::string> jacks_;       // registered ids, rebuild order
     std::string              board_name_;  // data-aui-name of the board

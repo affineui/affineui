@@ -5,7 +5,8 @@
 // A core invariant of AffineUI is that it must be *hard to crash* from C++.
 // The most common way a retained-mode UI crashes is a widget event firing
 // into a handler whose owning object has already been destroyed — a dangling
-// `this`. AffineUI makes that impossible: a callback may be bound to a
+// `this`. AffineUI's bind() and guard() helpers prevent that failure: a
+// callback may be bound to a
 // `(object, method)` pair guarded by a versioned weak reference (see
 // weak_ref.h). Once the object dies its weak reference stops resolving and
 // invoking the callback becomes a safe no-op. The lookup table that performs
@@ -26,8 +27,8 @@
 //   view.input("Zoom", "100").on_change(
 //       affineui::bind(&editor, &Editor::set_zoom));
 //
-//   // 3. A free lambda, exactly as before — no lifetime guard, for small
-//   //    self-contained handlers (as one would use in Qt).
+//   // 3. A free lambda — no lifetime guard. Use only when the handler is
+//   //    self-contained and captures no borrowed object state.
 //   view.button("Quit").on_click([] { /* ... */ });
 //
 // `Callback<Args...>` converts implicitly to `std::function<void(Args...)>`,
@@ -39,6 +40,7 @@
 // threaded. Bind, invoke, and destroy targets on the UI thread.
 
 #include <functional>
+#include <memory>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -109,7 +111,7 @@ public:
     /// Convert to a std::function that still honours the liveness guard, so it
     /// can be stored in existing std::function-based handler slots. An unbound
     /// callback returns its function unwrapped (no per-call guard cost).
-    operator Fn() const {  // NOLINT(google-explicit-constructor)
+    [[nodiscard]] Fn to_function() const {
         if (!fn_) return Fn{};
         if (!guard_.bound()) return fn_;
         detail::LivenessGuard guard = guard_;
@@ -117,6 +119,10 @@ public:
         return [guard, fn](Args... args) {
             if (guard.alive()) fn(std::forward<Args>(args)...);
         };
+    }
+
+    operator Fn() const {  // NOLINT(google-explicit-constructor)
+        return to_function();
     }
 
 private:
@@ -129,10 +135,14 @@ private:
 template <WeaklyTrackable T, typename R, typename... Args>
 Callback<Args...> bind(T* obj, R (T::*method)(Args...)) {
     if (obj == nullptr) return Callback<Args...>{};
-    detail::LivenessGuard guard{to_weak_ref(obj)};
+    const auto weak = to_weak_ref(obj);
+    detail::LivenessGuard guard{weak};
     return Callback<Args...>(std::move(guard),
-                             [obj, method](Args... args) {
-                                 (obj->*method)(std::forward<Args>(args)...);
+                             [weak, method](Args... args) {
+                                 if (auto* target = weak.get()) {
+                                     (target->*method)(
+                                         std::forward<Args>(args)...);
+                                 }
                              });
 }
 
@@ -140,10 +150,14 @@ Callback<Args...> bind(T* obj, R (T::*method)(Args...)) {
 template <WeaklyTrackable T, typename R, typename... Args>
 Callback<Args...> bind(T* obj, R (T::*method)(Args...) const) {
     if (obj == nullptr) return Callback<Args...>{};
-    detail::LivenessGuard guard{to_weak_ref(obj)};
+    const auto weak = to_weak_ref(obj);
+    detail::LivenessGuard guard{weak};
     return Callback<Args...>(std::move(guard),
-                             [obj, method](Args... args) {
-                                 (obj->*method)(std::forward<Args>(args)...);
+                             [weak, method](Args... args) {
+                                 if (const auto* target = weak.get()) {
+                                     (target->*method)(
+                                         std::forward<Args>(args)...);
+                                 }
                              });
 }
 
@@ -161,10 +175,13 @@ Callback<> bind(T* obj, R (T::*method)(MArgs...), Bound... bound) {
     static_assert(sizeof...(Bound) == sizeof...(MArgs),
                   "bind with arguments must supply exactly the method's args");
     if (obj == nullptr) return Callback<>{};
-    detail::LivenessGuard guard{to_weak_ref(obj)};
+    const auto weak = to_weak_ref(obj);
+    detail::LivenessGuard guard{weak};
     return Callback<>(std::move(guard),
-                      [obj, method, bound...]() {
-                          (obj->*method)(bound...);
+                      [weak, method, bound...]() {
+                          if (auto* target = weak.get()) {
+                              (target->*method)(bound...);
+                          }
                       });
 }
 
@@ -175,15 +192,53 @@ Callback<> bind(T* obj, R (T::*method)(MArgs...) const, Bound... bound) {
     static_assert(sizeof...(Bound) == sizeof...(MArgs),
                   "bind with arguments must supply exactly the method's args");
     if (obj == nullptr) return Callback<>{};
-    detail::LivenessGuard guard{to_weak_ref(obj)};
+    const auto weak = to_weak_ref(obj);
+    detail::LivenessGuard guard{weak};
     return Callback<>(std::move(guard),
-                      [obj, method, bound...]() {
-                          (obj->*method)(bound...);
+                      [weak, method, bound...]() {
+                          if (const auto* target = weak.get()) {
+                              (target->*method)(bound...);
+                          }
                       });
 }
 
 /// Convenience aliases for the two handler shapes AffineUI uses today.
 using ClickCallback  = Callback<>;
 using ChangeCallback = Callback<std::string_view>;
+
+/// Guard an arbitrary callable (including non-void provider/event callbacks)
+/// with a target object's versioned lifetime. This is the general counterpart
+/// to bind(): the callable is never invoked after `owner` is destroyed, and a
+/// dead non-void callback returns a value-initialized result.
+///
+/// Prefer bind() for a direct member function. Use guard() when the callback
+/// needs captured value state or a non-void return:
+///
+///   app.on_event(guard(this, [](Editor& self, const Event& e,
+///                              const auto& chain) {
+///       return self.handle_event(e, chain);
+///   }));
+///
+/// The callable receives the live target as its first argument. That shape is
+/// deliberate: the retained closure stores only the WeakRef, never `owner` or
+/// a captured `this` pointer.
+template <WeaklyTrackable T, typename F>
+auto guard(T* owner, F&& callable) {
+    using Fn = std::decay_t<F>;
+    const auto weak = to_weak_ref(owner);
+    return [weak, fn = Fn(std::forward<F>(callable))](auto&&... args) mutable
+        -> std::invoke_result_t<Fn&, T&, decltype(args)...> {
+        using Result = std::invoke_result_t<Fn&, T&, decltype(args)...>;
+        if (auto* target = weak.get()) {
+            return std::invoke(fn, *target,
+                               std::forward<decltype(args)>(args)...);
+        }
+        if constexpr (!std::is_void_v<Result>) {
+            static_assert(std::is_default_constructible_v<Result>,
+                          "a guarded non-void callback needs a default result");
+            return Result{};
+        }
+    };
+}
 
 }  // namespace affineui

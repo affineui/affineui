@@ -129,4 +129,18 @@ fn headless_contracts() {
         assert_eq!(drops.get(), 0, "closure must live while the view does");
     }
     assert_eq!(drops.get(), 1, "closure must be released exactly once");
+
+    // Widget is an invalidating handle, not an owner of View.
+    let stale = {
+        let view = View::new(Theme::Plain);
+        view.build(|v| {
+            v.button("temporary", false, "temporary");
+        });
+        let widget = view.find_widget("temporary");
+        assert!(widget.is_valid());
+        widget
+    };
+    assert!(!stale.is_valid());
+    assert_eq!(stale.text(), "");
+    stale.set_text("ignored");
 }

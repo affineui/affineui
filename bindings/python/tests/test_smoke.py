@@ -1,3 +1,4 @@
+import gc
 import sys
 from pathlib import Path
 
@@ -257,6 +258,21 @@ def test_named_widget_refs_are_safe_and_recoverable():
     assert run
     assert rebuilt.id() == run.id()
     assert "Run again" in view.to_html_fragment()
+
+
+def test_widget_ref_does_not_keep_view_alive():
+    view = ui.View(ui.ViewTheme.Bootstrap)
+    view.begin()
+    widget = view.button("Temporary", key="temporary")
+    view.end()
+    assert widget
+
+    del view
+    gc.collect()
+
+    assert not widget
+    assert widget.text_value() == ""
+    widget.text("ignored").attr("aria-label", "ignored")
 
 
 def test_keyless_widgets_are_write_only_declarations():

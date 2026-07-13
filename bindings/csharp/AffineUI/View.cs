@@ -32,7 +32,6 @@ public sealed partial class View : IDisposable
     }
 
     private readonly ViewSafeHandle _handle;
-    private readonly List<WeakReference<Widget.WidgetSafeHandle>> _widgetHandles = new();
 
     /// <summary>Creates a new view. Default theme is <see cref="Theme.Decius"/>
     /// — the framework the compile-time bundle ships CSS + fonts for, so a
@@ -57,41 +56,20 @@ public sealed partial class View : IDisposable
     /// that callback.</summary>
     internal static View Borrowed(IntPtr handle) => new(handle);
 
-    internal ViewSafeHandle SafeHandleForWidgets => _handle;
     internal IntPtr Handle => _handle.IsClosed ? IntPtr.Zero : _handle.DangerousGetHandle();
 
     /// <summary>
-    /// Destroys the native view. Any still-live <see cref="Widget"/> handles
-    /// created from this view are closed first (widget handles must not
-    /// outlive their view), after which their operations no-op.
+    /// Destroys the native view. Existing Widget handles weakly invalidate and
+    /// remain safe to query or dispose afterward.
     /// </summary>
     public void Dispose()
     {
-        lock (_widgetHandles)
-        {
-            foreach (var weak in _widgetHandles)
-            {
-                if (weak.TryGetTarget(out var wh))
-                    wh.Dispose();
-            }
-            _widgetHandles.Clear();
-        }
         _handle.Dispose();
     }
 
     internal Widget Wrap(IntPtr widgetHandle)
     {
-        var widget = new Widget(widgetHandle, this);
-        if (widgetHandle != IntPtr.Zero)
-        {
-            lock (_widgetHandles)
-            {
-                if (_widgetHandles.Count > 0 && (_widgetHandles.Count & 63) == 0)
-                    _widgetHandles.RemoveAll(w => !w.TryGetTarget(out _));
-                _widgetHandles.Add(new WeakReference<Widget.WidgetSafeHandle>(widget.NativeHandle));
-            }
-        }
-        return widget;
+        return new Widget(widgetHandle);
     }
 
     // ── Lifecycle / reconciliation ───────────────────────────────────────

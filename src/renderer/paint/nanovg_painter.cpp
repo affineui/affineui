@@ -1806,7 +1806,7 @@ public:
         if (text_trace) {
             std::fprintf(stderr,
                          "[text] fs=%d asc=%.1f desc=%.1f gap=%.1f "
-                         "css_lh=%.2f pos.y=%d baseline=%.1f '%.*s'\n",
+                         "css_lh=%.2f pos.y=%.1f baseline=%.1f '%.*s'\n",
                          handle_size_px(handle), vm.ascent, vm.descent,
                          vm.line_gap, css_line_h, pos_y, fy,
                          static_cast<int>(std::min<std::size_t>(12,

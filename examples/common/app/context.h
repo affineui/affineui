@@ -15,6 +15,7 @@
 #include <string>
 #include <string_view>
 
+#include "affineui/weak_ref.h"
 #include "app/command.h"
 #include "app/command_registry.h"
 #include "app/command_stack.h"
@@ -23,7 +24,7 @@
 
 namespace app {
 
-class Context {
+class Context : public affineui::Trackable {
 public:
     Context() : stack_(document_) {}
 

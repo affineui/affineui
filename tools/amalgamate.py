@@ -67,6 +67,7 @@ PUBLIC_HEADERS = [
     "include/affineui/themes.h",
     "include/affineui/geom.h",
     "include/affineui/style.h",
+    "include/affineui/image.h",
     "include/affineui/painter.h",
     "include/affineui/computed_style.h",
     "include/affineui/display_list.h",
@@ -97,7 +98,7 @@ INTERNAL_HEADERS = [
     "src/core/log_internal.h",
     "src/core/diag.h",              # TraceSpan + sampler; used by every renderer TU
     "src/c_api_util.h",             # shared by c_api.cpp / c_api_app.cpp
-    "external/tinyjson/tiny-json.h",# used by core/tools/tools_server.cpp
+    "src/core/tools/json_reader.h",  # strict inbound tools protocol parser
     "src/core/tools/tools_commands.h",  # server↔app command bridge (tools_server / document_tools)
     "src/renderer/style/element_id.h",
     "src/renderer/style/animated_style.h",
@@ -211,7 +212,6 @@ VENDORED_C_TUS = [
     "src/renderer/text/fontstash_impl.c",
     "src/renderer/paint/nanovg_sokol.c",
     "src/renderer/paint/sokol_impl.c",
-    "external/tinyjson/tiny-json.c",  # inbound wire parser for tools_server.cpp
 ]
 
 REQUIRED_EXTERNAL_FILES = [
@@ -247,7 +247,6 @@ INLINED_EXTERNAL_PREFIXES = (
     "fontstash.h",
     "stb_image.h",
     "stb_truetype.h",
-    "tiny-json.h",  # vendored inbound wire parser (external/tinyjson)
 )
 LEXBOR_REPEATABLE_HEADERS = {
     "lexbor/core/cpp_compat.h",
@@ -438,7 +437,6 @@ def resolve_external_include(root: Path, current_file: Path | None,
         root / "external" / "nanovg" / "src",
         root / "external" / "sokol",
         root / "external" / "yoga",
-        root / "external" / "tinyjson",
     ]
     for base in external_roots:
         candidates.append(base / name)
@@ -836,7 +834,7 @@ def emit_vendored_c_block(root: Path, cwrap_blocks: list[FileBlock],
         "#endif  // !AFFINEUI_STUB_BUILD && !AFFINEUI_HOST_PROVIDES_NANOVG\n\n",
     ]
     # No `extern "C"` wrapper here. Every header these wrappers pull in
-    # (sokol_*.h, nanovg_sokol.h, tiny-json.h, stb_*.h) already declares its
+    # (sokol_*.h, nanovg_sokol.h, stb_*.h) already declares its
     # own `#ifdef __cplusplus extern "C" {`, so the definitions inherit C
     # linkage from those declarations. Wrapping the block would additionally
     # drag sokol_gfx.h's C++ *reference overloads* (`sg_setup(const sg_desc&)`

@@ -79,6 +79,14 @@ std::string filter_character_event_text(std::string_view text) {
 }  // namespace
 
 DispatchResult Document::dispatch(const Event& ev) {
+    return dispatch_impl(ev, nullptr);
+}
+
+DispatchResult Document::dispatch(const Event& ev, Painter& measurer) {
+    return dispatch_impl(ev, &measurer);
+}
+
+DispatchResult Document::dispatch_impl(const Event& ev, Painter* measurer) {
     DispatchResult result{};
     auto ensure_interaction_layout = [&]() {
 #if !defined(AFFINEUI_STUB_BUILD)
@@ -90,7 +98,7 @@ DispatchResult Document::dispatch(const Event& ev) {
         if (impl_->content_size.width == 0 &&
             impl_->media_viewport_width_px > 0) {
             layout(impl_->media_viewport_width_px,
-                   impl_->media_viewport_height_px, impl_->last_measurer);
+                   impl_->media_viewport_height_px, measurer);
         }
 #endif
     };

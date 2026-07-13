@@ -407,7 +407,7 @@ PYBIND11_MODULE(_affineui, m) {
              "should enable platform text input / IME while this holds "
              "(see docs/IME_ARCHITECTURE.md).")
         .def("caret_rect",
-             &affineui::Document::caret_rect,
+             py::overload_cast<>(&affineui::Document::caret_rect, py::const_),
              "Caret rectangle of the focused text control in document CSS "
              "points, for IME candidate-window placement (w<=0 when no "
              "text control is focused).")
@@ -929,7 +929,6 @@ PYBIND11_MODULE(_affineui, m) {
                  return ref.find_widget(name);
              },
              py::arg("name"),
-             py::keep_alive<0, 1>(),
              "Find a descendant widget by key. Empty refs are safe.");
 
     py::class_<affineui::View>(m, "View")
@@ -968,7 +967,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("text"),
              py::arg("classes") = "",
              py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add a heading and return a stable WidgetRef tied to this View.")
         .def("paragraph",
              [](affineui::View& view,
@@ -980,7 +978,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("text"),
              py::arg("classes") = "",
              py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add a paragraph and return a stable WidgetRef tied to this View.")
         .def("text",
              [](affineui::View& view,
@@ -990,7 +987,6 @@ PYBIND11_MODULE(_affineui, m) {
              },
              py::arg("text"),
              py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add a bare text node and return a WidgetRef tied to this View.")
         .def("set_framework_version",
              [](affineui::View& view, const std::string& version) {
@@ -1011,7 +1007,6 @@ PYBIND11_MODULE(_affineui, m) {
              },
              py::arg("markup"),
              py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Append trusted raw HTML to the current View. The markup is "
              "parsed when the View is loaded into the App document.")
         .def("button",
@@ -1024,8 +1019,8 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("label"),
              py::arg("primary") = false,
              py::arg("key") = "",
-             py::keep_alive<0, 1>(),
-             "Add a button. The returned WidgetRef keeps the View alive.")
+             "Add a button. The returned WidgetRef weakly invalidates when "
+             "the View is destroyed.")
         .def("checkbox",
              [](affineui::View& view,
                 const std::string& label,
@@ -1036,7 +1031,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("label"),
              py::arg("checked"),
              py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add a checkbox and return a WidgetRef tied to this View.")
         .def("toggle",
              [](affineui::View& view,
@@ -1048,7 +1042,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("label"),
              py::arg("on"),
              py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add an on/off switch (checkbox semantics, slide presentation).")
         .def("combo",
              [](affineui::View& view,
@@ -1064,7 +1057,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("step") = 0.01,
              py::arg("key") = "",
              py::arg("linear") = false,
-             py::keep_alive<0, 1>(),
              "Add a bare drag-scrub numeric combo (no field/label wrapper). "
              "linear=True scrubs at a constant step/pixel (for rotation "
              "degrees etc.); the default accelerates with the value's "
@@ -1079,7 +1071,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("label"),
              py::arg("value") = "",
              py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add the Decius color field (chip + editable hex + picker "
              "popover). Degrades to a native color input off-Decius.")
         .def("input",
@@ -1094,7 +1085,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("value") = "",
              py::arg("type") = "text",
              py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add a text-like input and return a WidgetRef tied to this View.")
         .def("password",
              [](affineui::View& view,
@@ -1106,7 +1096,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("label"),
              py::arg("value") = "",
              py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add a password input and return a WidgetRef tied to this View.")
         .def("textarea",
              [](affineui::View& view,
@@ -1120,7 +1109,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("value") = "",
              py::arg("rows") = 3,
              py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add a textarea and return a WidgetRef tied to this View.")
         .def("dropdown",
              [](affineui::View& view,
@@ -1134,7 +1122,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("options"),
              py::arg("selected") = "",
              py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add a dropdown/select and return a WidgetRef tied to this View.")
         .def("button_group",
              [](affineui::View& view,
@@ -1148,7 +1135,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("options"),
              py::arg("selected") = "",
              py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add a mutually-exclusive button group and return a WidgetRef.")
         .def("virtual_list",
              [](affineui::View& view, const std::string& key,
@@ -1159,7 +1145,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("key"), py::arg("provider"),
              py::arg("axis") = affineui::Axis::Vertical,
              py::arg("classes") = "",
-             py::keep_alive<0, 1>(),  // widget kept with the view
              py::keep_alive<1, 3>(),  // provider kept alive by the view
              "Add a recycling virtual list bridged to a VirtualListProvider. "
              "Only the rows under the viewport (plus overscan) are built; the "
@@ -1171,7 +1156,7 @@ PYBIND11_MODULE(_affineui, m) {
                  return view.virtual_tree(key, provider, classes);
              },
              py::arg("key"), py::arg("provider"), py::arg("classes") = "",
-             py::keep_alive<0, 1>(), py::keep_alive<1, 3>(),
+             py::keep_alive<1, 3>(),
              "Add a recycling virtual tree over a VirtualTreeProvider's "
              "flattened, currently-expanded nodes.")
         .def("virtual_string_list",
@@ -1189,7 +1174,7 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("key"), py::arg("items"), py::arg("item_size") = 24.0,
              py::arg("selection") = nullptr, py::arg("checked") = nullptr,
              py::arg("classes") = "",
-             py::keep_alive<0, 1>(), py::keep_alive<1, 5>(),
+             py::keep_alive<1, 5>(),
              py::keep_alive<1, 6>(),
              "Display an array of strings as a virtual list. Pass a selection "
              "IndexSelection for click selection, or checked for checkboxes.")
@@ -1207,7 +1192,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("min") = 0.0,
              py::arg("max") = 1.0,
              py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add a slider and return a WidgetRef tied to this View.")
         .def("knob",
              [](affineui::View& view,
@@ -1225,7 +1209,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("max") = 1.0,
              py::arg("bipolar") = false,
              py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add a rotary knob and return a WidgetRef tied to this View.")
         .def("container",
              [](affineui::View& view,
@@ -1243,7 +1226,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("classes") = "",
              py::arg("key") = "",
              py::arg("build") = py::none(),
-             py::keep_alive<0, 1>(),
              "Add a generic container. If build is supplied it is called "
              "immediately with the same View.")
         .def("canvas",
@@ -1256,7 +1238,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("paint_name"),
              py::arg("classes") = "",
              py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add a custom-paint (canvas) surface. The handler registered "
              "under paint_name (App.set_custom_paint or a native core's "
              "attach) draws the element's content each frame; per-frame "
@@ -1274,7 +1255,6 @@ PYBIND11_MODULE(_affineui, m) {
              },
              py::arg("key") = "",
              py::arg("build") = py::none(),
-             py::keep_alive<0, 1>(),
              "Add a framework-default panel. If build is supplied it is "
              "called immediately with the same View.")
         .def("element",
@@ -1295,7 +1275,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("classes") = "",
              py::arg("key") = "",
              py::arg("build") = py::none(),
-             py::keep_alive<0, 1>(),
              "Add an arbitrary element. If build is supplied it is called "
              "immediately with the same View.")
         .def("card",
@@ -1313,7 +1292,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("classes") = "",
              py::arg("key") = "",
              py::arg("build") = py::none(),
-             py::keep_alive<0, 1>(),
              "Add a titled card; fill it via the build callback.")
         .def("foldout",
              [](affineui::View& view,
@@ -1330,7 +1308,6 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("expanded") = true,
              py::arg("key") = "",
              py::arg("build") = py::none(),
-             py::keep_alive<0, 1>(),
              "Add a collapsible section (header + body); fill the body via "
              "build. Clicking the header toggles collapse.")
         .def("find_widget",
@@ -1338,12 +1315,11 @@ PYBIND11_MODULE(_affineui, m) {
                  return view.find_widget(name);
              },
              py::arg("name"),
-             py::keep_alive<0, 1>(),
              "Return a stable WidgetRef by user key. Empty refs are safe.")
         // ── App-shell / structural component builders ───────────────────
         // Scope builders take a Pythonic `build` callback (called immediately
         // with the same View) instead of exposing a raw RAII Scope to Python;
-        // every returned WidgetRef keeps the View alive (keep_alive<0,1>).
+        // Returned WidgetRefs weakly invalidate; they do not retain the View.
         .def("toolbar",
              [](affineui::View& view, const std::string& key, py::object build) {
                  auto scope = view.toolbar(key);
@@ -1352,20 +1328,19 @@ PYBIND11_MODULE(_affineui, m) {
                  return ref;
              },
              py::arg("key") = "", py::arg("build") = py::none(),
-             py::keep_alive<0, 1>(),
              "Add a toolbar row; fill it via the build callback.")
         .def("toolbar_separator",
              [](affineui::View& view, const std::string& key) {
                  return view.toolbar_separator(key);
              },
-             py::arg("key") = "", py::keep_alive<0, 1>(),
+             py::arg("key") = "",
              "Add a separator inside a toolbar.")
         .def("icon_button",
              [](affineui::View& view, const std::string& icon,
                 const std::string& key) {
                  return view.icon_button(icon, key);
              },
-             py::arg("icon"), py::arg("key") = "", py::keep_alive<0, 1>(),
+             py::arg("icon"), py::arg("key") = "",
              "Add an icon-only ghost button (icon = Decius icon name).")
         .def("menu_bar",
              [](affineui::View& view, const std::string& key, py::object build) {
@@ -1375,7 +1350,6 @@ PYBIND11_MODULE(_affineui, m) {
                  return ref;
              },
              py::arg("key") = "", py::arg("build") = py::none(),
-             py::keep_alive<0, 1>(),
              "Add a menubar row; fill it with menu_button()s.")
         .def("menu_button",
              [](affineui::View& view, const std::string& label,
@@ -1383,7 +1357,6 @@ PYBIND11_MODULE(_affineui, m) {
                  return view.menu_button(label, menu_id, key);
              },
              py::arg("label"), py::arg("menu_id"), py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add a menubar button that opens the menu with id menu_id.")
         .def("menu_button",
              [](affineui::View& view, const std::string& label,
@@ -1394,7 +1367,6 @@ PYBIND11_MODULE(_affineui, m) {
                      key);
              },
              py::arg("label"), py::arg("build"), py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add a menubar button that OWNS its dropdown: build(view) "
              "populates the menu inline (menu_item/menu_separator/submenu).")
         .def("menu",
@@ -1405,7 +1377,6 @@ PYBIND11_MODULE(_affineui, m) {
                      [&build](affineui::View& v) { build(&v); });
              },
              py::arg("menu_id"), py::arg("build"),
-             py::keep_alive<0, 1>(),
              "Add a popup menu (hidden until a menu_button targets its id); "
              "build(view) populates it.")
         .def("menu_item",
@@ -1415,7 +1386,7 @@ PYBIND11_MODULE(_affineui, m) {
                  return view.menu_item(label, icon, shortcut, key);
              },
              py::arg("label"), py::arg("icon") = "", py::arg("shortcut") = "",
-             py::arg("key") = "", py::keep_alive<0, 1>(),
+             py::arg("key") = "",
              "Add a menu row (optional icon glyph + label + shortcut). Wire "
              "on_click for the action.")
         .def("menu_item_custom",
@@ -1426,14 +1397,13 @@ PYBIND11_MODULE(_affineui, m) {
                  return ref;
              },
              py::arg("key") = "", py::arg("build") = py::none(),
-             py::keep_alive<0, 1>(),
              "Add a menu row whose content the caller composes via build; "
              "activation behaves like menu_item.")
         .def("menu_separator",
              [](affineui::View& view, const std::string& key) {
                  return view.menu_separator(key);
              },
-             py::arg("key") = "", py::keep_alive<0, 1>(),
+             py::arg("key") = "",
              "Add a separator line between menu groups.")
         .def("submenu",
              [](affineui::View& view, const std::string& label,
@@ -1445,7 +1415,7 @@ PYBIND11_MODULE(_affineui, m) {
                      icon, key);
              },
              py::arg("label"), py::arg("build"), py::arg("icon") = "",
-             py::arg("key") = "", py::keep_alive<0, 1>(),
+             py::arg("key") = "",
              "Add a submenu row revealing nested items (build) on hover.")
         .def("menu_brand",
              [](affineui::View& view, const std::string& title,
@@ -1453,20 +1423,19 @@ PYBIND11_MODULE(_affineui, m) {
                  return view.menu_brand(title, icon, key);
              },
              py::arg("title"), py::arg("icon") = "", py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add the app brand (icon + title) at the start of a menubar.")
         .def("menu_spacer",
              [](affineui::View& view, const std::string& key) {
                  return view.menu_spacer(key);
              },
-             py::arg("key") = "", py::keep_alive<0, 1>(),
+             py::arg("key") = "",
              "Add a flexible spacer pushing following menubar items right.")
         .def("menu_meta",
              [](affineui::View& view, const std::string& text,
                 const std::string& key) {
                  return view.menu_meta(text, key);
              },
-             py::arg("text"), py::arg("key") = "", py::keep_alive<0, 1>(),
+             py::arg("text"), py::arg("key") = "",
              "Add right-aligned status/meta text in a menubar.")
         .def("dock_panel",
              [](affineui::View& view, const std::string& title,
@@ -1479,7 +1448,6 @@ PYBIND11_MODULE(_affineui, m) {
              },
              py::arg("title"), py::arg("tabpanel_id"), py::arg("classes") = "",
              py::arg("key") = "", py::arg("build") = py::none(),
-             py::keep_alive<0, 1>(),
              "Add a dockable panel (titled tab + body); fill the body via build.")
         // ── Declarative docking workspace ────────────────────────────────
         .def("document_view",
@@ -1492,7 +1460,7 @@ PYBIND11_MODULE(_affineui, m) {
                          (*cb)(&dv);
                      });
              },
-             py::arg("key"), py::arg("build"), py::keep_alive<0, 1>(),
+             py::arg("key"), py::arg("build"),
              "The docking workspace: declare the document and dockpanels "
              "inside build; the layout resolves from the declared seed, or "
              "replays the live arrangement when a dock-layout provider is "
@@ -1509,7 +1477,7 @@ PYBIND11_MODULE(_affineui, m) {
                      title, icon);
              },
              py::arg("content"), py::arg("title") = "",
-             py::arg("icon") = "", py::keep_alive<0, 1>(),
+             py::arg("icon") = "",
              "Declare the center document of a document_view.")
         .def("dockpanel",
              [](affineui::View& view, const std::string& title,
@@ -1526,7 +1494,6 @@ PYBIND11_MODULE(_affineui, m) {
              },
              py::arg("title"), py::arg("where"), py::arg("content"),
              py::arg("icon") = "", py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Declare a dockable panel at a DockLocation; returns a "
              "DockHandle usable as another panel's parent.")
         .def("set_dock_layout_provider",
@@ -1583,7 +1550,6 @@ PYBIND11_MODULE(_affineui, m) {
                  return view.splitter(horizontal, key);
              },
              py::arg("horizontal") = false, py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add a drag splitter between docked regions.")
         .def("tree",
              [](affineui::View& view, const std::string& key, py::object build) {
@@ -1593,7 +1559,6 @@ PYBIND11_MODULE(_affineui, m) {
                  return ref;
              },
              py::arg("key") = "", py::arg("build") = py::none(),
-             py::keep_alive<0, 1>(),
              "Add a tree container; fill it with tree_row()s.")
         .def("tree_row",
              [](affineui::View& view, const std::string& label, bool selected,
@@ -1601,7 +1566,7 @@ PYBIND11_MODULE(_affineui, m) {
                  return view.tree_row(label, selected, depth, key);
              },
              py::arg("label"), py::arg("selected") = false, py::arg("depth") = 0,
-             py::arg("key") = "", py::keep_alive<0, 1>(),
+             py::arg("key") = "",
              "Add a selectable tree row at the given depth.")
         .def("status_bar",
              [](affineui::View& view, const std::string& key, py::object build) {
@@ -1611,7 +1576,6 @@ PYBIND11_MODULE(_affineui, m) {
                  return ref;
              },
              py::arg("key") = "", py::arg("build") = py::none(),
-             py::keep_alive<0, 1>(),
              "Add a status bar row; fill it via the build callback.")
         .def("color_field",
              [](affineui::View& view, const std::string& label,
@@ -1622,7 +1586,6 @@ PYBIND11_MODULE(_affineui, m) {
              },
              py::arg("label"), py::arg("value") = "",
              py::arg("swatches") = std::vector<std::string>{}, py::arg("key") = "",
-             py::keep_alive<0, 1>(),
              "Add a color field that opens a swatch picker popup.")
         .def("to_html_fragment", &affineui::View::to_html_fragment)
         .def("to_html_document", &affineui::View::to_html_document)
@@ -1630,24 +1593,25 @@ PYBIND11_MODULE(_affineui, m) {
         // Each returns a typed wrapper over a WidgetRef. Querying the wrong
         // type yields a wrapper whose .validity is WrongType (still attached,
         // but typed accessors are inert) and logs a diagnostic; a missing id
-        // yields NotPresent. Never raises / never crashes. keep_alive<0,1>
+        // yields NotPresent. Never raises / never crashes. The returned
+        // component weakly invalidates with the View.
         // ties the wrapper (and its inner ref) to this View.
         .def("button_at", &affineui::View::component<affineui::Button>,
-             py::arg("name"), py::keep_alive<0, 1>())
+             py::arg("name"))
         .def("checkbox_at", &affineui::View::component<affineui::Checkbox>,
-             py::arg("name"), py::keep_alive<0, 1>())
+             py::arg("name"))
         .def("text_field_at", &affineui::View::component<affineui::TextField>,
-             py::arg("name"), py::keep_alive<0, 1>())
+             py::arg("name"))
         .def("dropdown_at", &affineui::View::component<affineui::Dropdown>,
-             py::arg("name"), py::keep_alive<0, 1>())
+             py::arg("name"))
         .def("slider_at", &affineui::View::component<affineui::Slider>,
-             py::arg("name"), py::keep_alive<0, 1>())
+             py::arg("name"))
         .def("color_field_at", &affineui::View::component<affineui::ColorField>,
-             py::arg("name"), py::keep_alive<0, 1>())
+             py::arg("name"))
         .def("dock_panel_at", &affineui::View::component<affineui::DockPanel>,
-             py::arg("name"), py::keep_alive<0, 1>())
+             py::arg("name"))
         .def("foldout_at", &affineui::View::component<affineui::Foldout>,
-             py::arg("name"), py::keep_alive<0, 1>());
+             py::arg("name"));
 
     // ── Typed component wrappers ────────────────────────────────────────
     py::enum_<affineui::ComponentValidity>(m, "ComponentValidity")

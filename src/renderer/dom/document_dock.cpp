@@ -2522,7 +2522,7 @@ Rect Document::find_element_rect(std::string_view target) const {
         const auto t0 = std::chrono::steady_clock::now();
         const_cast<Document*>(this)->layout(impl_->media_viewport_width_px,
                                             impl_->media_viewport_height_px,
-                                            impl_->last_measurer);
+                                            nullptr);
         if (detail::MutationTraceTimer::enabled()) {
             const double ms = std::chrono::duration<double, std::milli>(
                                   std::chrono::steady_clock::now() - t0)

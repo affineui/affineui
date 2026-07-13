@@ -42,6 +42,22 @@ struct Retrofitted {
 static_assert(WeaklyTrackable<Retrofitted>,
               "AFFINEUI_WEAK_TRACKABLE() should satisfy the concept");
 
+struct LeadingPolymorphicBase {
+    virtual ~LeadingPolymorphicBase() = default;
+    int prefix{17};
+};
+
+struct OffsetTrackable : LeadingPolymorphicBase, Trackable {
+    int value{23};
+};
+
+static_assert(WeaklyTrackable<OffsetTrackable>);
+static_assert(!std::is_constructible_v<WeakRef<int>, std::uint32_t,
+                                       std::uint32_t>);
+static_assert(!std::is_constructible_v<WeakRef<int>,
+                                       affineui::detail::WeakRegistry*,
+                                       std::uint32_t, std::uint32_t>);
+
 }  // namespace
 
 TEST_CASE("bound member callback invokes the target while it is alive") {
@@ -188,6 +204,49 @@ TEST_CASE("a recycled registry slot invalidates the old WeakRef") {
     CHECK(stale.get() != &second);
 }
 
+TEST_CASE("WeakRef resolves through the registry that issued its slot") {
+    // Python wheels load _affineui and example sidecars as separate extension
+    // modules. Both may statically link AffineUI, so the same numeric slot can
+    // exist in two registries. A reference must carry its issuing table.
+    affineui::detail::WeakRegistry first_registry;
+    affineui::detail::WeakRegistry second_registry;
+    int first = 1;
+    int second = 2;
+
+    const auto first_slot = first_registry.acquire(&first);
+    const auto second_slot = second_registry.acquire(&second);
+    REQUIRE(first_slot == second_slot);
+
+    auto first_ref = affineui::detail::WeakRefFactory::from_slot<int>(
+        &first_registry, first_slot, first_registry.generation(first_slot));
+    auto second_ref = affineui::detail::WeakRefFactory::from_slot<int>(
+        &second_registry, second_slot,
+        second_registry.generation(second_slot));
+    CHECK(first_ref.get() == &first);
+    CHECK(second_ref.get() == &second);
+
+    first_registry.release(first_slot);
+    CHECK(first_ref.get() == nullptr);
+    CHECK(second_ref.get() == &second);
+    second_registry.release(second_slot);
+    CHECK(second_ref.get() == nullptr);
+}
+
+TEST_CASE("WeakRef adjusts a non-first Trackable base to the derived object") {
+    WeakRef<OffsetTrackable> ref;
+    {
+        OffsetTrackable target;
+        auto* base = static_cast<Trackable*>(&target);
+        REQUIRE(static_cast<void*>(base) != static_cast<void*>(&target));
+
+        ref = affineui::to_weak_ref(&target);
+        REQUIRE(ref.get() == &target);
+        CHECK(ref.get()->prefix == 17);
+        CHECK(ref.get()->value == 23);
+    }
+    CHECK(ref.get() == nullptr);
+}
+
 TEST_CASE("copying a bound callback shares the same liveness guard") {
     std::optional<ClickCallback> original;
     ClickCallback copy;
@@ -214,4 +273,24 @@ TEST_CASE("macro-retrofitted classes bind and guard like base-class ones") {
     }
     (*cb)();  // target gone — safe no-op via the macro-provided slot
     CHECK_MESSAGE(true, "retrofitted target safe after destruction");
+}
+
+TEST_CASE("guard protects arbitrary void and value-returning callbacks") {
+    std::function<void()> action;
+    std::function<bool(int)> predicate;
+    auto counter = std::make_unique<Counter>();
+    action = affineui::guard(counter.get(), [](Counter& live) {
+        ++live.clicks;
+    });
+    predicate = affineui::guard(counter.get(), [](Counter&, int value) {
+        return value == 7;
+    });
+
+    action();
+    CHECK(counter->clicks == 1);
+    CHECK(predicate(7));
+
+    counter.reset();
+    CHECK_NOTHROW(action());
+    CHECK_FALSE(predicate(7));
 }

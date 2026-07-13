@@ -437,7 +437,6 @@ struct DocumentImpl {
     // The sink owns the WidgetNode remote_id → DOM node mapping; the
     // reset hook clears it when the document is replaced wholesale.
     std::unique_ptr<ViewSink>  view_sink;
-    std::function<void()>      view_sink_reset;
     bool                       view_batch_active{false};
     bool                       view_structure_dirty{false};
     // §8.2 batched attr contract (WIDGET_RECONCILIATION.md): selector-
@@ -779,7 +778,6 @@ struct DocumentImpl {
     std::string     composition_composed;    // text_value + preedit at caret
     std::unordered_map<std::uint64_t, TextLayoutEntry> text_layout_cache;
     std::unordered_map<lxb_dom_node_t*, std::uint64_t> text_layout_signatures;
-    Painter* last_measurer{nullptr};
     struct UserTextAreaSize {
         int width{-1};
         int height{-1};
@@ -1187,7 +1185,7 @@ bool update_text_composition(detail::DocumentImpl& impl,
                              std::size_t clause_end);
 // Caret rectangle of the focused text control in document coordinates
 // (for IME candidate-window placement). w<=0 when unavailable.
-Rect text_caret_rect(detail::DocumentImpl& impl, int idx, Painter& painter);
+Rect text_caret_rect(detail::DocumentImpl& impl, int idx, Painter* painter);
 // Re-splice the active preedit into a freshly collected leaf's display
 // text (composition state survives recollection via the DOM node key).
 void splice_composition_display(detail::DocumentImpl& impl,

@@ -12,6 +12,7 @@
 #include <affineui/view.h>
 
 #include <cmath>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -70,6 +71,93 @@ TEST_CASE("PatchBay jack rect resolves to the socket, not the labeled group") {
     const int socket_cx = socket.x + socket.w / 2;
     const int named_cx = named.x + named.w / 2;
     CHECK(std::abs(socket_cx - named_cx) <= 1);
+}
+
+TEST_CASE("PatchBay callbacks may destroy an active drag safely") {
+    namespace sk = affineui::skeuo;
+
+    auto build_bay = [](sk::PatchBay& bay, affineui::View& view) {
+        view.begin();
+        {
+            auto board = bay.board(view, "", "board");
+            (void) board;
+            bay.jack(view, "source", "SOURCE");
+            bay.jack(view, "target", "TARGET");
+            bay.cables_layer(view);
+        }
+        view.end();
+    };
+    auto pointer_event = [](affineui::EventType type,
+                            const affineui::Rect& rect) {
+        affineui::Event event{};
+        event.type = type;
+        event.button = affineui::MouseButton::Left;
+        event.pos = {rect.x + rect.w / 2, rect.y + rect.h / 2};
+        return event;
+    };
+
+    SUBCASE("picking up an existing cable does not strand pointer capture") {
+        auto bay = std::make_unique<sk::PatchBay>();
+        bay->connect("source", "target");
+
+        affineui::View view{affineui::ViewTheme::Decius};
+        build_bay(*bay, view);
+
+        affineui::App::Config cfg;
+        cfg.asset_folders = skeuo_asset_folders();
+        affineui::App app{cfg};
+        app.load_view(view);
+        app.document().layout(400, 300);
+        bay->attach(app);
+
+        int renders = 0;
+        bay->request_render = [&] { ++renders; };
+        bay->on_change = [&] { bay.reset(); };
+
+        const auto source = app.document().find_element_rect(
+            "[data-skeuo-jack=source]");
+        REQUIRE(source.w > 0);
+        CHECK_NOTHROW(app.dispatch(
+            pointer_event(affineui::EventType::MouseDown, source)));
+
+        CHECK(bay == nullptr);
+        CHECK_FALSE(app.pointer_captured());
+        CHECK(renders == 1);
+    }
+
+    SUBCASE("completing a cable makes no access after destructive callback") {
+        auto bay = std::make_unique<sk::PatchBay>();
+
+        affineui::View view{affineui::ViewTheme::Decius};
+        build_bay(*bay, view);
+
+        affineui::App::Config cfg;
+        cfg.asset_folders = skeuo_asset_folders();
+        affineui::App app{cfg};
+        app.load_view(view);
+        app.document().layout(400, 300);
+        bay->attach(app);
+
+        int renders = 0;
+        bay->request_render = [&] { ++renders; };
+        bay->on_change = [&] { bay.reset(); };
+
+        const auto source = app.document().find_element_rect(
+            "[data-skeuo-jack=source]");
+        const auto target = app.document().find_element_rect("target");
+        REQUIRE(source.w > 0);
+        REQUIRE(target.w > 0);
+        REQUIRE(app.dispatch(
+            pointer_event(affineui::EventType::MouseDown, source)));
+        REQUIRE(app.pointer_captured());
+
+        CHECK_NOTHROW(app.dispatch(
+            pointer_event(affineui::EventType::MouseUp, target)));
+
+        CHECK(bay == nullptr);
+        CHECK_FALSE(app.pointer_captured());
+        CHECK(renders == 2);
+    }
 }
 
 TEST_CASE("step_pair renders two stacked chunky buttons, not a sliver") {

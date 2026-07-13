@@ -1162,8 +1162,9 @@ std::string RemotePatchQueue::to_json() const {
 void RemotePatchSink::create_element(const WidgetNode& node,
                                      const WidgetNode* parent,
                                      std::size_t index) {
-    if (!queue_) return;
-    queue_->push(RemotePatch{
+    auto* queue = queue_.get();
+    if (!queue) return;
+    queue->push(RemotePatch{
         RemotePatchOp::CreateElement,
         node.remote_id,
         parent ? parent->remote_id : std::string{},
@@ -1177,8 +1178,9 @@ void RemotePatchSink::create_element(const WidgetNode& node,
 void RemotePatchSink::create_text(const WidgetNode& node,
                                   const WidgetNode* parent,
                                   std::size_t index) {
-    if (!queue_) return;
-    queue_->push(RemotePatch{
+    auto* queue = queue_.get();
+    if (!queue) return;
+    queue->push(RemotePatch{
         RemotePatchOp::CreateText,
         node.remote_id,
         parent ? parent->remote_id : std::string{},
@@ -1190,16 +1192,23 @@ void RemotePatchSink::create_text(const WidgetNode& node,
 }
 
 void RemotePatchSink::remove(const WidgetNode& node) {
-    if (!queue_ || node.remote_id.empty()) return;
-    queue_->push(RemotePatch{
+    auto* queue = queue_.get();
+    if (!queue || node.remote_id.empty()) return;
+    queue->push(RemotePatch{
         RemotePatchOp::Remove,
         node.remote_id,
+        {},
+        {},
+        {},
+        {},
+        0,
     });
 }
 
 void RemotePatchSink::set_text(const WidgetNode& node, std::string_view value) {
-    if (!queue_) return;
-    queue_->push(RemotePatch{
+    auto* queue = queue_.get();
+    if (!queue) return;
+    queue->push(RemotePatch{
         RemotePatchOp::SetText,
         node.remote_id,
         {},
@@ -1212,8 +1221,9 @@ void RemotePatchSink::set_text(const WidgetNode& node, std::string_view value) {
 void RemotePatchSink::set_attribute(const WidgetNode& node,
                                     std::string_view name,
                                     std::string_view value) {
-    if (!queue_) return;
-    queue_->push(RemotePatch{
+    auto* queue = queue_.get();
+    if (!queue) return;
+    queue->push(RemotePatch{
         RemotePatchOp::SetAttribute,
         node.remote_id,
         {},
@@ -1225,24 +1235,37 @@ void RemotePatchSink::set_attribute(const WidgetNode& node,
 
 void RemotePatchSink::remove_attribute(const WidgetNode& node,
                                        std::string_view name) {
-    if (!queue_) return;
-    queue_->push(RemotePatch{
+    auto* queue = queue_.get();
+    if (!queue) return;
+    queue->push(RemotePatch{
         RemotePatchOp::RemoveAttribute,
         node.remote_id,
         {},
         {},
         std::string(name),
+        {},
+        0,
     });
 }
 
-WidgetRef::WidgetRef(View* owner,
+detail::WeakViewRef::WeakViewRef(View* view) noexcept
+    : lifetime_(view ? (view->lifetime_.bind(view),
+                        to_weak_ref(&view->lifetime_))
+                     : WeakRef<ViewLifetime>{}) {}
+
+View* detail::WeakViewRef::get() const noexcept {
+    const auto* lifetime = lifetime_.get();
+    return lifetime != nullptr ? lifetime->owner() : nullptr;
+}
+
+WidgetRef::WidgetRef(detail::WeakViewRef owner,
                      StableId panel_id,
                      StableId id,
                      std::string_view name)
     : owner_(owner), panel_id_(panel_id), id_(id), name_(name) {}
 
 WidgetRef::operator bool() const {
-    return owner_ != nullptr && owner_->resolve_widget_ref(*this) != nullptr;
+    return owner_ && owner_->resolve_widget_ref(*this) != nullptr;
 }
 
 StableId WidgetRef::id() const {
@@ -1408,64 +1431,96 @@ WidgetRef WidgetRef::find_widget(std::string_view name) const {
 }
 
 View::Scope::Scope(View* owner, WidgetNode* node, std::size_t unwind_to) noexcept
-    : owner_(owner), node_(node), unwind_to_(unwind_to) {}
+    : lifetime_(owner ? to_weak_ref(&owner->lifetime_)
+                      : WeakRef<detail::ViewLifetime>{}),
+      node_id_(node ? node->id : StableId{}),
+      unwind_to_(unwind_to) {}
 
 View::Scope::~Scope() {
-    if (owner_) owner_->close_to(unwind_to_);
+    if (auto* owner = resolve_owner()) owner->close_to(unwind_to_);
 }
 
 View::Scope::Scope(Scope&& other) noexcept
-    : owner_(other.owner_), node_(other.node_), unwind_to_(other.unwind_to_) {
-    other.owner_ = nullptr;
-    other.node_ = nullptr;
+    : lifetime_(other.lifetime_), node_id_(other.node_id_),
+      unwind_to_(other.unwind_to_) {
+    other.lifetime_ = {};
+    other.node_id_ = {};
 }
 
 View::Scope& View::Scope::operator=(Scope&& other) noexcept {
     if (this == &other) return *this;
-    if (owner_) owner_->close_to(unwind_to_);
-    owner_ = other.owner_;
-    node_ = other.node_;
+    if (auto* owner = resolve_owner()) owner->close_to(unwind_to_);
+    lifetime_ = other.lifetime_;
+    node_id_ = other.node_id_;
     unwind_to_ = other.unwind_to_;
-    other.owner_ = nullptr;
-    other.node_ = nullptr;
+    other.lifetime_ = {};
+    other.node_id_ = {};
     return *this;
 }
 
+View* View::Scope::resolve_owner() const noexcept {
+    const auto* lifetime = lifetime_.get();
+    return lifetime != nullptr ? lifetime->owner() : nullptr;
+}
+
+WidgetNode* View::Scope::resolve_node() const noexcept {
+    auto* owner = resolve_owner();
+    return owner != nullptr ? owner->find_id(node_id_) : nullptr;
+}
+
+View::Scope::operator bool() const noexcept {
+    return resolve_node() != nullptr;
+}
+
 WidgetRef View::Scope::ref() const {
-    return (owner_ && node_) ? owner_->ref_for_node(*node_, node_->id) : WidgetRef{};
+    auto* owner = resolve_owner();
+    auto* node = resolve_node();
+    return (owner && node) ? owner->ref_for_node(*node, node->id) : WidgetRef{};
 }
 
 View::Scope& View::Scope::named(std::string_view name) {
-    if (owner_ && node_) owner_->set_widget_name(*node_, name);
+    if (auto* owner = resolve_owner()) {
+        if (auto* node = owner->find_id(node_id_)) owner->set_widget_name(*node, name);
+    }
     return *this;
 }
 
 View::Scope& View::Scope::attr(std::string_view name, std::string_view value) {
-    if (owner_ && node_) owner_->set_attr(*node_, name, value);
+    if (auto* owner = resolve_owner()) {
+        if (auto* node = owner->find_id(node_id_)) owner->set_attr(*node, name, value);
+    }
     return *this;
 }
 
 View::Scope& View::Scope::selector(std::string_view name,
                                    std::string_view value) {
-    if (owner_ && node_) owner_->set_selector(*node_, name, value);
+    if (auto* owner = resolve_owner()) {
+        if (auto* node = owner->find_id(node_id_)) owner->set_selector(*node, name, value);
+    }
     return *this;
 }
 
 View::Scope& View::Scope::cls(std::string_view classes) {
-    if (owner_ && node_) owner_->set_attr(*node_, "class", classes);
+    if (auto* owner = resolve_owner()) {
+        if (auto* node = owner->find_id(node_id_)) owner->set_attr(*node, "class", classes);
+    }
     return *this;
 }
 
 View::Scope& View::Scope::text(std::string_view value) {
-    if (owner_ && node_) owner_->set_text(*node_, value);
+    if (auto* owner = resolve_owner()) {
+        if (auto* node = owner->find_id(node_id_)) owner->set_text(*node, value);
+    }
     return *this;
 }
 
 WidgetRef View::Scope::find_widget(std::string_view name) const {
-    if (!owner_ || !node_) return {};
-    auto* found = owner_->find_widget_node_under(node_->id, name);
-    return found ? owner_->ref_for_node(*found, node_->id, name)
-                 : WidgetRef{owner_, node_->id, {}, name};
+    auto* owner = resolve_owner();
+    auto* node = resolve_node();
+    if (!owner || !node) return {};
+    auto* found = owner->find_widget_node_under(node->id, name);
+    return found ? owner->ref_for_node(*found, node->id, name)
+                 : WidgetRef{detail::WeakViewRef{owner}, node->id, {}, name};
 }
 
 StableId current_panel_id(const std::vector<WidgetNode*>& stack) {
@@ -1489,9 +1544,73 @@ View::View(ViewTheme theme) : theme_(theme) {
 
 // Out-of-line so unique_ptr<StringListState> (incomplete in the header) is
 // destroyed where StringListState is complete.
-View::~View() = default;
-View::View(View&&) noexcept = default;
-View& View::operator=(View&&) noexcept = default;
+View::~View() {
+    // Invalidate every external WidgetRef/Scope/DockHandle before any other
+    // View member begins destruction. The token is declared first (and would
+    // otherwise die last), so a default destructor exposes a partially torn
+    // down View to re-entrant teardown code.
+    lifetime_.invalidate();
+}
+
+View::View(View&& other) : View(other.theme_) {
+    move_state_from(other);
+}
+
+View& View::operator=(View&& other) {
+    if (this == &other) return *this;
+    View replacement(std::move(other));
+    lifetime_.invalidate();
+    lifetime_.renew(this);
+    move_state_from(replacement);
+    return *this;
+}
+
+void View::move_state_from(View& other) {
+    // Handles name one View identity, not a movable address. Invalidate the
+    // source identity before transferring its value state; refs never follow
+    // a move to a different object.
+    other.lifetime_.invalidate();
+
+    // A View is only meaningfully movable between build sessions. If a caller
+    // moves one mid-session, cancel the transient session pointers rather than
+    // transferring raw pointers into the other object's root storage.
+    stack_.clear();
+    sink_ = nullptr;
+    reconciling_ = false;
+    direct_mutation_ = false;
+    begin_depth_ = 0;
+    remote_patch_sink_.reset(nullptr);
+    dock_recorder_ = nullptr;
+    other.stack_.clear();
+    other.sink_ = nullptr;
+    other.reconciling_ = false;
+    other.direct_mutation_ = false;
+    other.begin_depth_ = 0;
+    other.remote_patch_sink_.reset(nullptr);
+    other.dock_recorder_ = nullptr;
+
+    using std::swap;
+    swap(theme_, other.theme_);
+    swap(framework_version_, other.framework_version_);
+    swap(root_app_shell_, other.root_app_shell_);
+    swap(attr_coalesce_dirty_, other.attr_coalesce_dirty_);
+    swap(document_attrs_, other.document_attrs_);
+    swap(root_, other.root_);
+    swap(widget_names_, other.widget_names_);
+    swap(click_handlers_, other.click_handlers_);
+    swap(change_handlers_, other.change_handlers_);
+    swap(commit_handlers_, other.commit_handlers_);
+    swap(diagnostics_, other.diagnostics_);
+    swap(mutation_dispatch_, other.mutation_dispatch_);
+    swap(binding_dispatch_, other.binding_dispatch_);
+    swap(mutation_remote_queue_, other.mutation_remote_queue_);
+    swap(dock_size_provider_, other.dock_size_provider_);
+    swap(scroll_provider_, other.scroll_provider_);
+    swap(string_lists_, other.string_lists_);
+    swap(dock_placement_provider_, other.dock_placement_provider_);
+    swap(dock_active_tab_provider_, other.dock_active_tab_provider_);
+    swap(dock_layout_provider_, other.dock_layout_provider_);
+}
 
 void View::clear() {
     root_.children.clear();
@@ -1550,6 +1669,7 @@ void View::begin(RemotePatchQueue* remote_patches) {
         return;
     }
     remote_patch_sink_.reset(remote_patches);
+    mutation_remote_queue_ = to_weak_ref(remote_patches);
     begin(static_cast<ViewSink*>(&remote_patch_sink_));
 }
 
@@ -2133,7 +2253,7 @@ std::function<void(std::string_view)> virtual_activation_handler(
     VirtualListProvider& provider) {
     WeakRef<VirtualListProvider> weak = to_weak_ref(&provider);
     return [weak](std::string_view value) {
-        auto* p = weak.lock();
+        auto* p = weak.get();
         if (!p) return;
         if (handle_virtual_row_check(*p, value)) return;
         constexpr std::string_view prefix = "activate:";
@@ -2162,7 +2282,7 @@ std::function<void(std::string_view)> virtual_tree_handler(
     VirtualTreeProvider& provider) {
     WeakRef<VirtualTreeProvider> weak = to_weak_ref(&provider);
     return [weak](std::string_view value) {
-        auto* p = weak.lock();
+        auto* p = weak.get();
         if (!p) return;
         if (handle_virtual_row_check(*p, value)) return;
         auto parse_index = [](std::string_view sv, std::size_t& out) {
@@ -2447,8 +2567,8 @@ WidgetRef View::virtual_list(std::string_view key,
     // between smooth and jerky. The equality check early-exits on the first
     // difference and allocates nothing.
     if (st.items != items) st.items = items;
-    st.selection = options.selection;
-    st.checked = options.checked;
+    st.selection = to_weak_ref(options.selection);
+    st.checked = to_weak_ref(options.checked);
 
     if (!st.wired) {
         // Wire the provider once — its callbacks read the persistent state, so
@@ -2457,23 +2577,28 @@ WidgetRef View::virtual_list(std::string_view key,
             .on_item_count([&st] { return st.items.size(); })
             .on_item_text([&st](std::size_t i) { return st.items[i]; })
             .on_is_selected([&st](std::size_t i) {
-                return st.selection && st.selection->contains(i);
+                const auto* selection = st.selection.get();
+                return selection != nullptr && selection->contains(i);
             })
             .on_activate([&st](std::size_t i, SelectMod m) {
-                if (st.selection) st.selection->apply(i, m, st.items.size());
+                if (auto* selection = st.selection.get()) {
+                    selection->apply(i, m, st.items.size());
+                }
             })
             .on_is_checked([&st](std::size_t i) {
-                return st.checked && st.checked->contains(i);
+                const auto* checked = st.checked.get();
+                return checked != nullptr && checked->contains(i);
             })
             .on_set_checked([&st](std::size_t i, bool) {
-                if (st.checked)
-                    st.checked->apply(i, SelectMod::Toggle, st.items.size());
+                if (auto* checked = st.checked.get()) {
+                    checked->apply(i, SelectMod::Toggle, st.items.size());
+                }
             });
         st.wired = true;
     }
     // Checkbox MODE follows the per-call options (the widget's leading
     // checkbox slot renders only while a checked model is supplied).
-    st.provider.checkboxes(options.checked != nullptr);
+    st.provider.checkboxes(st.checked.alive());
 
     return virtual_list(key, st.provider, options.axis, options.classes, here);
 }
@@ -3846,7 +3971,7 @@ DockHandle View::document(const std::function<void(View&)>& content,
     dock_recorder_->document_icon = std::string(icon);
     DockHandle h;
     h.id = "__document__";
-    h.owner_ = this;
+    h.lifetime_ = to_weak_ref(&lifetime_);
     return h;
 }
 
@@ -3870,8 +3995,16 @@ void View::attach_dock_toolbar(std::string_view id,
 }
 
 DockHandle& DockHandle::toolbar(const std::function<void(View&)>& build) {
-    if (owner_) owner_->attach_dock_toolbar(id, build);
+    const auto* lifetime = lifetime_.get();
+    if (auto* owner = lifetime != nullptr ? lifetime->owner() : nullptr) {
+        owner->attach_dock_toolbar(id, build);
+    }
     return *this;
+}
+
+DockHandle::operator bool() const noexcept {
+    const auto* lifetime = lifetime_.get();
+    return !id.empty() && lifetime != nullptr && lifetime->owner() != nullptr;
 }
 
 void View::set_dock_size_provider(std::function<int(std::string_view)> fn) {
@@ -3919,7 +4052,7 @@ DockHandle View::dockpanel(std::string_view title,
     dock_recorder_->panels.push_back(std::move(spec));
     DockHandle h;
     h.id = key.empty() ? dom_id_fragment(title) : std::string(key);
-    h.owner_ = this;
+    h.lifetime_ = to_weak_ref(&lifetime_);
     return h;
 }
 
@@ -4358,7 +4491,9 @@ WidgetRef View::combo(std::string_view label, double value, double step,
 WidgetRef View::find_widget(std::string_view name) {
     // An empty name is "no name", not a wildcard — it must not resolve to
     // the first keyless widget in tree order.
-    if (name.empty()) return WidgetRef{this, root_.id, {}, name};
+    if (name.empty()) {
+        return WidgetRef{detail::WeakViewRef{this}, root_.id, {}, name};
+    }
     for (auto it = widget_names_.rbegin(); it != widget_names_.rend(); ++it) {
         if (it->first != name) continue;
         if (auto* node = find_id(it->second)) {
@@ -4367,7 +4502,7 @@ WidgetRef View::find_widget(std::string_view name) {
     }
     auto* found = find_widget_node_under(root_.id, name);
     return found ? ref_for_node(*found, root_.id, name)
-                 : WidgetRef{this, root_.id, {}, name};
+                 : WidgetRef{detail::WeakViewRef{this}, root_.id, {}, name};
 }
 
 void View::note_component_type_mismatch(std::string_view name) {
@@ -4462,6 +4597,7 @@ WidgetNode& View::open_node(WidgetKind kind,
                             bool push_scope) {
     if (stack_.empty()) begin(static_cast<ViewSink*>(nullptr));
     auto* parent = stack_.back();
+    ViewSink* active_sink = current_sink();
     const std::size_t index = parent->cursor++;
     StableId id = make_stable_id(parent->id, kind, key, here);
     if (!key.empty()) {
@@ -4484,7 +4620,7 @@ WidgetNode& View::open_node(WidgetKind kind,
     } else {
         for (std::size_t i = index; i < parent->children.size(); ++i) {
             unregister_tree(parent->children[i]);
-            emit_remove_tree(sink_, parent->children[i]);
+            emit_remove_tree(active_sink, parent->children[i]);
         }
         parent->children.erase(parent->children.begin() +
                                static_cast<std::ptrdiff_t>(index),
@@ -4508,14 +4644,17 @@ WidgetNode& View::open_node(WidgetKind kind,
     node->cursor = 0;
     node->style_written = false;  // style writes compose per pass (§5.2)
 
-    if (created && sink_) {
+    if (created && active_sink) {
         if (kind == WidgetKind::Text) {
-            sink_->create_text(*node, parent == &root_ ? nullptr : parent, index);
+            active_sink->create_text(*node,
+                                     parent == &root_ ? nullptr : parent,
+                                     index);
         } else if (kind == WidgetKind::RawHtml) {
-            sink_->create_raw_html(*node, parent == &root_ ? nullptr : parent,
-                                   index);
+            active_sink->create_raw_html(
+                *node, parent == &root_ ? nullptr : parent, index);
         } else {
-            sink_->create_element(*node, parent == &root_ ? nullptr : parent, index);
+            active_sink->create_element(
+                *node, parent == &root_ ? nullptr : parent, index);
         }
     }
     if (!classes.empty()) set_attr(*node, "class", classes);
@@ -4562,9 +4701,10 @@ void View::flush_attr_diffs(WidgetNode& node) {
 void View::close_node() {
     if (stack_.size() <= 1) return;
     auto* node = stack_.back();
+    ViewSink* active_sink = current_sink();
     for (std::size_t i = node->cursor; i < node->children.size(); ++i) {
         unregister_tree(node->children[i]);
-        emit_remove_tree(sink_, node->children[i]);
+        emit_remove_tree(active_sink, node->children[i]);
     }
     node->children.erase(node->children.begin() +
                          static_cast<std::ptrdiff_t>(node->cursor),
@@ -4677,7 +4817,13 @@ void View::set_attr(WidgetNode& node,
     } else {
         node.attrs.push_back({std::string(name), std::string(value)});
     }
-    if (auto* sink = current_sink()) sink->set_attribute(node, name, value);
+    if (auto* active_sink = current_sink()) {
+        active_sink->set_attribute(node, name, value);
+    } else {
+        emit_mutation([&](ViewSink& mutation_sink) {
+            mutation_sink.set_attribute(node, name, value);
+        });
+    }
 }
 
 void View::set_selector(WidgetNode& node,
@@ -4713,17 +4859,35 @@ void View::remove_attr(WidgetNode& node, std::string_view name) {
         return;
     }
     node.attrs.erase(it);
-    if (auto* sink = current_sink()) sink->remove_attribute(node, name);
+    if (auto* active_sink = current_sink()) {
+        active_sink->remove_attribute(node, name);
+    } else {
+        emit_mutation([&](ViewSink& mutation_sink) {
+            mutation_sink.remove_attribute(node, name);
+        });
+    }
 }
 
 void View::set_text(WidgetNode& node, std::string_view value) {
     if (node.text == value) return;
     node.text = std::string(value);
     if (node.kind == WidgetKind::RawHtml) {
-        if (auto* sink = current_sink()) sink->set_raw_html(node, value);
+        if (auto* active_sink = current_sink()) {
+            active_sink->set_raw_html(node, value);
+        } else {
+            emit_mutation([&](ViewSink& mutation_sink) {
+                mutation_sink.set_raw_html(node, value);
+            });
+        }
         return;
     }
-    if (auto* sink = current_sink()) sink->set_text(node, value);
+    if (auto* active_sink = current_sink()) {
+        active_sink->set_text(node, value);
+    } else {
+        emit_mutation([&](ViewSink& mutation_sink) {
+            mutation_sink.set_text(node, value);
+        });
+    }
 }
 
 void View::set_click_handler(WidgetNode& node, std::function<void()> cb) {
@@ -4741,6 +4905,7 @@ void View::set_click_handler(WidgetNode& node, std::function<void()> cb) {
     // silently dead — the handler registers but no activation is ever
     // emitted for the element.
     set_attr(node, "data-aui-clickable", "1");
+    notify_bindings_changed();
 }
 
 void View::set_change_handler(WidgetNode& node,
@@ -4752,6 +4917,7 @@ void View::set_change_handler(WidgetNode& node,
     } else {
         change_handlers_.push_back({node.id, std::move(cb)});
     }
+    notify_bindings_changed();
 }
 
 void View::set_commit_handler(WidgetNode& node,
@@ -4763,13 +4929,18 @@ void View::set_commit_handler(WidgetNode& node,
     } else {
         commit_handlers_.push_back({node.id, std::move(cb)});
     }
+    notify_bindings_changed();
 }
 
 void View::clear_children(WidgetNode& node) {
-    for (const auto& child : node.children) {
-        unregister_tree(child);
-        emit_remove_tree(current_sink(), child);
-    }
+    const auto clear = [&](ViewSink* sink) {
+        for (const auto& child : node.children) {
+            unregister_tree(child);
+            emit_remove_tree(sink, child);
+        }
+    };
+    if (auto* sink = current_sink()) clear(sink);
+    else with_mutation_sink(clear);
     node.children.clear();
     node.cursor = 0;
 }
@@ -4848,28 +5019,42 @@ void View::build_children(WidgetNode& node,
                           const std::function<void(View&)>& build,
                           bool replace) {
     if (!build) return;
-    if (replace) clear_children(node);
+    with_mutation_sink([&](ViewSink* mutation_sink) {
+        auto old_stack = std::move(stack_);
+        const bool old_reconciling = reconciling_;
+        const bool old_direct_mutation = direct_mutation_;
+        ViewSink* old_sink = sink_;
 
-    const auto old_stack = std::move(stack_);
-    const bool old_reconciling = reconciling_;
-    ViewSink* old_sink = sink_;
+        const auto restore = [&] {
+            stack_ = std::move(old_stack);
+            reconciling_ = old_reconciling;
+            direct_mutation_ = old_direct_mutation;
+            sink_ = old_sink;
+        };
 
-    reconciling_ = false;
-    sink_ = nullptr;
-    stack_.clear();
-    node.cursor = node.children.size();
-    stack_.push_back(&root_);
-    stack_.push_back(&node);
+        reconciling_ = false;
+        direct_mutation_ = true;
+        sink_ = mutation_sink;
+        stack_.clear();
 
-    build(*this);
+        try {
+            if (replace) clear_children(node);
+            node.cursor = node.children.size();
+            stack_.push_back(&root_);
+            stack_.push_back(&node);
 
-    while (stack_.size() > 2) close_node();
-    if (stack_.size() == 2) stack_.pop_back();
-    if (stack_.size() == 1) stack_.pop_back();
+            build(*this);
 
-    stack_ = old_stack;
-    reconciling_ = old_reconciling;
-    sink_ = old_sink;
+            while (stack_.size() > 2) close_node();
+            if (stack_.size() == 2) stack_.pop_back();
+            if (stack_.size() == 1) stack_.pop_back();
+        } catch (...) {
+            restore();
+            throw;
+        }
+
+        restore();
+    });
 }
 
 WidgetNode* View::find_id(StableId id) {
@@ -4888,7 +5073,7 @@ WidgetRef View::ref_for_node(const WidgetNode& node,
     // is only the re-find-after-reconciliation fallback, not a validity
     // gate. Builder helpers routinely set text/attrs through the ref of
     // a freshly opened (private-keyed) node.
-    return WidgetRef{this, panel_id, node.id, ref_name};
+    return WidgetRef{detail::WeakViewRef{this}, panel_id, node.id, ref_name};
 }
 
 WidgetNode* View::find_widget_node_under(StableId root_id, std::string_view name) {
@@ -4914,8 +5099,51 @@ WidgetNode* View::resolve_widget_ref(const WidgetRef& ref) {
     return nullptr;
 }
 
+void View::set_mutation_dispatch(MutationDispatch dispatch) {
+    mutation_dispatch_ = std::move(dispatch);
+    mutation_remote_queue_ = {};
+}
+
+void View::set_binding_dispatch(std::function<void()> dispatch) {
+    binding_dispatch_ = std::move(dispatch);
+}
+
+void View::notify_bindings_changed() {
+    if (reconciling_ || direct_mutation_ || !binding_dispatch_) return;
+    const auto dispatch = binding_dispatch_;
+    dispatch();
+}
+
+void View::emit_mutation(
+    const std::function<void(ViewSink&)>& mutation) {
+    if (!mutation) return;
+    with_mutation_sink([&](ViewSink* sink) {
+        if (sink) mutation(*sink);
+    });
+}
+
+void View::with_mutation_sink(
+    const std::function<void(ViewSink*)>& mutation) {
+    if (!mutation) return;
+    if (auto* sink = current_sink()) {
+        mutation(sink);
+        return;
+    }
+    if (mutation_dispatch_) {
+        const auto dispatch = mutation_dispatch_;
+        dispatch([&](ViewSink& sink) { mutation(&sink); });
+        return;
+    }
+    if (auto* remote_queue = mutation_remote_queue_.get()) {
+        RemotePatchSink sink{remote_queue};
+        mutation(&sink);
+        return;
+    }
+    mutation(nullptr);
+}
+
 ViewSink* View::current_sink() const noexcept {
-    return reconciling_ ? sink_ : mutation_sink_;
+    return (reconciling_ || direct_mutation_) ? sink_ : nullptr;
 }
 
 }  // namespace affineui

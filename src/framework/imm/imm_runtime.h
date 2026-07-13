@@ -39,6 +39,8 @@ class Document;
 
 namespace affineui::detail {
 
+struct DocumentImpl;
+
 struct ImmStateSlot {
     void*       data{nullptr};
     std::size_t size{0};
@@ -56,7 +58,7 @@ public:
     /// Bind to a freshly-parsed document. Called by Document::set_html
     /// after the lexbor doc has been reset; keeps the runtime in sync
     /// with whichever document its host is currently on.
-    void bind(Document* owner, lxb_html_document_t* doc);
+    void bind(DocumentImpl* owner, lxb_html_document_t* doc);
 
     void set_view_fn(std::function<void()> fn);
     bool dirty() const noexcept { return dirty_; }
@@ -110,7 +112,7 @@ public:
     void append_text_to_current(std::string_view text);
 
 private:
-    Document*             owner_{nullptr};
+    DocumentImpl*         owner_{nullptr};
     lxb_html_document_t*  doc_{nullptr};
     std::function<void()> view_fn_;
     bool                  dirty_{true};

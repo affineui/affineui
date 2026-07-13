@@ -13,7 +13,7 @@
 // assertions, and validate_dock_layout() checks the structural invariants
 // every dock arrangement must satisfy.
 //
-//   affineui::UiScript ui(doc, 640, 360, &painter);
+//   affineui::UiScript ui(doc, 640, 360);
 //   ui.set_step_hook([&](const DispatchResult& r) {
 //       if (r.layout_changed) rebuild();   // emulate the app
 //   });
@@ -33,6 +33,7 @@
 
 #include "affineui/document.h"
 #include "affineui/types.h"
+#include "affineui/weak_ref.h"
 
 namespace affineui {
 
@@ -41,7 +42,7 @@ namespace detail {
 void set_dock_trace_capture(std::function<void(const std::string&)> fn);
 }  // namespace detail
 
-class UiScript {
+class UiScript : public Trackable {
 public:
     /// Where inside a target rect a pointer op lands.
     enum class Anchor {
@@ -53,10 +54,9 @@ public:
         TopLeft  ///< near the top-left corner (e.g. a tab's label area)
     };
 
-    /// `measurer` is the painter used for relayout after each event (tests
-    /// pass their RecordingPainter; nullptr falls back to estimates).
-    UiScript(Document& doc, int viewport_w, int viewport_h,
-             Painter* measurer = nullptr);
+    /// Relayout after each event uses Document's painterless measurement
+    /// fallback. UiScript never retains a frame-scoped Painter.
+    UiScript(Document& doc, int viewport_w, int viewport_h);
     ~UiScript();
 
     UiScript(const UiScript&) = delete;
@@ -112,7 +112,6 @@ private:
     Document&  doc_;
     int        w_;
     int        h_;
-    Painter*   measurer_;
     Point      cursor_{0, 0};
     std::function<void(const DispatchResult&)> hook_;
     std::vector<std::string> log_;
