@@ -47,17 +47,27 @@ add_subdirectory(
 )
 affineui_photoedit_python_module()
 
-# photo_core installs as a top-level module at the wheel root so both the
-# sample (`import photo_core`) and the test suite import it the normal way.
-# It shares process-global pybind11 internals with affineui's _affineui, so
-# the two MUST come from the same build — a clean editable reinstall keeps
-# them in lockstep; the sample additionally carries a self-locator fallback
-# that loads an ABI-matched photo_core from _affineui's own directory if the
-# top-level import ever misses (partial/edited trees).
-install(TARGETS photo_core
-    LIBRARY DESTINATION .
-    RUNTIME DESTINATION .
-)
+# photo_core is DELIBERATELY NOT INSTALLED — it must never enter the wheel.
+#
+# It is a sample sidecar, not part of affineui, and shipping it was actively
+# harmful, not merely wasteful:
+#
+#   - It statically links its own copy of sokol_app, so a process that loaded
+#     both got DUPLICATE ObjC classes (_sapp_macos_view, _sapp_macos_window,
+#     ...). macOS says it plainly: "This may cause spurious casting failures
+#     and mysterious crashes."
+#   - It added ~3.5 MB to every wheel, on every platform, for a module the
+#     library itself never touches.
+#   - It couldn't even be loaded from a wheel: _affineui installs INTO the
+#     affineui package while photo_core installed at the wheel ROOT, and the
+#     sample's loader (correctly) refuses to pair a photo_core from a
+#     different directory, since a mismatched pybind11 pair crashes the moment
+#     a type crosses the boundary.
+#
+# The target is still BUILT here (pybind11 is in scope, and a build tree keeps
+# it next to _affineui so the ABI pair matches). Run the sample from a repo
+# build — `./build.sh run py_photo_edit` builds and stages both together.
+# Its tests skip when it isn't importable.
 
 install(FILES
     "${CMAKE_CURRENT_LIST_DIR}/../../extras/browser_server/affineui_browser_server.h"
