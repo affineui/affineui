@@ -4,10 +4,12 @@
 #include "affineui/embed.h"
 #include "affineui/telemetry.h"
 #include "affineui/types.h"
+#include "affineui/image.h"
 #include "affineui/view.h"
 
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -17,6 +19,35 @@ namespace affineui {
 namespace detail {
 struct AppImpl;
 }
+
+/// Invalidating, non-owning access to the small set of App operations that
+/// retained helpers need. It never exposes App, Document, Renderer, or Painter
+/// pointers; every operation safely no-ops after the App is destroyed.
+class AppHandle {
+public:
+    AppHandle() noexcept = default;
+
+    [[nodiscard]] bool is_valid() const noexcept;
+    [[nodiscard]] explicit operator bool() const noexcept { return is_valid(); }
+
+    void set_custom_paint(std::string_view name,
+                          Document::CustomPaintFn fn) const;
+    bool request_custom_repaint(std::string_view name) const;
+    [[nodiscard]] Rect find_element_rect(std::string_view target) const;
+    [[nodiscard]] ImageHandle create_image_rgba(
+        int width,
+        int height,
+        std::span<const std::uint8_t> rgba) const;
+    void capture_pointer() const;
+    void release_pointer() const;
+
+private:
+    explicit AppHandle(std::weak_ptr<detail::AppImpl> impl) noexcept
+        : impl_(std::move(impl)) {}
+
+    std::weak_ptr<detail::AppImpl> impl_{};
+    friend class App;
+};
 
 class App {
 public:
@@ -120,6 +151,15 @@ public:
     /// the cheap path for per-frame animated geometry (drag previews,
     /// meters): no restyle, no layout, no reconcile.
     void request_custom_repaint(std::string_view name);
+
+    /// Create a renderer-owned dynamic RGBA8 image. Safe handles invalidate
+    /// on reset or renderer shutdown and never retain a Painter.
+    [[nodiscard]] ImageHandle create_image_rgba(
+        int width,
+        int height,
+        std::span<const std::uint8_t> rgba);
+
+    [[nodiscard]] AppHandle handle() const noexcept { return AppHandle{impl_}; }
 
     /// Programmatically set the value a named widget displays, in place
     /// (no view rebuild) and without echoing an on_change — the
@@ -245,7 +285,7 @@ public:
     float dpi_scale() const;
 
 private:
-    std::unique_ptr<detail::AppImpl> impl_;
+    std::shared_ptr<detail::AppImpl> impl_;
 };
 
 }  // namespace affineui

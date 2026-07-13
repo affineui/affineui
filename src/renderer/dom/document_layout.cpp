@@ -945,9 +945,9 @@ void Document::layout(int viewport_width, int viewport_height,
         if (media_set_changed) {
             if (first_viewport) {
                 detail::attach_matching_media_blocks_for_viewport(*impl_);
-            } else if (impl_->view_sink_reset) {
+            } else if (impl_->view_sink) {
                 // Reconciler-driven app (View::begin_view_mutations was
-                // ever used → view_sink_reset stays set for the doc's
+                // ever used: view_sink stays set for the document's
                 // lifetime): the live DOM has content that ISN'T in
                 // impl_->html. impl_->html holds only the shell that
                 // App::rebuild_view seeded via load_html(view.to_html_shell());
@@ -999,7 +999,6 @@ void Document::layout(int viewport_width, int viewport_height,
 
 #if !defined(AFFINEUI_STUB_BUILD)
     if (measurer != nullptr) {
-        impl_->last_measurer = measurer;
         detail::ensure_font_faces_registered(*impl_, *measurer);
     }
 #endif

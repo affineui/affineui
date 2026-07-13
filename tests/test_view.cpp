@@ -3623,6 +3623,7 @@ TEST_CASE("WidgetRef can append and replace child declarations") {
     view.end();
 
     REQUIRE(panel);
+    patches.clear();
     panel.append([](affineui::View& v) {
         v.paragraph("First child", {}, "first");
     });
@@ -3632,7 +3633,11 @@ TEST_CASE("WidgetRef can append and replace child declarations") {
     REQUIRE(panel.node() != nullptr);
     CHECK(panel.node()->children.size() == 2);
     CHECK(view.find_widget("second"));
+    CHECK(has_op(patches, affineui::RemotePatchOp::CreateElement));
+    CHECK(has_text_patch(patches, "First child"));
+    CHECK(has_text_patch(patches, "Second child"));
 
+    patches.clear();
     panel.replace([](affineui::View& v) {
         v.heading(2, "Replacement", {}, "replacement");
     });
@@ -3640,6 +3645,159 @@ TEST_CASE("WidgetRef can append and replace child declarations") {
     CHECK(panel.node()->children.size() == 1);
     CHECK_FALSE(view.find_widget("second"));
     CHECK(view.find_widget("replacement"));
+    CHECK(has_op(patches, affineui::RemotePatchOp::Remove));
+    CHECK(has_op(patches, affineui::RemotePatchOp::CreateElement));
+    CHECK(has_text_patch(patches, "Replacement"));
+}
+
+TEST_CASE("WidgetRef post-build attributes reach the attached mutation sink") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    affineui::RemotePatchQueue patches;
+
+    view.begin(&patches);
+    auto button = view.button("Launch", false, "launch");
+    view.end();
+
+    patches.clear();
+    button.attr("aria-label", "Launch now");
+
+    REQUIRE(patches.size() == 1);
+    CHECK(patches.patches().front().op ==
+          affineui::RemotePatchOp::SetAttribute);
+    CHECK(patches.patches().front().name == "aria-label");
+    CHECK(patches.patches().front().value == "Launch now");
+}
+
+TEST_CASE("WidgetRef safely stops patching after its remote queue is destroyed") {
+    affineui::View view{affineui::ViewTheme::Bootstrap};
+    affineui::WidgetRef button;
+    {
+        affineui::RemotePatchQueue patches;
+        view.begin(&patches);
+        button = view.button("Launch", false, "launch");
+        view.end();
+        REQUIRE(button);
+    }
+
+    CHECK_NOTHROW(button.attr("aria-label", "local shadow only"));
+    REQUIRE(button.node() != nullptr);
+    const auto it = std::find_if(
+        button.node()->attrs.begin(), button.node()->attrs.end(),
+        [](const affineui::WidgetAttribute& attr) {
+            return attr.name == "aria-label";
+        });
+    REQUIRE(it != button.node()->attrs.end());
+    CHECK(it->value == "local shadow only");
+}
+
+TEST_CASE("WidgetRef invalidates safely when its View is destroyed") {
+    affineui::WidgetRef ref;
+    {
+        affineui::View view{affineui::ViewTheme::Bootstrap};
+        view.begin();
+        ref = view.button("Temporary", false, "temporary");
+        view.end();
+        REQUIRE(ref);
+    }
+
+    CHECK_FALSE(ref);
+    CHECK(ref.node() == nullptr);
+    CHECK(ref.text_value().empty());
+    CHECK_NOTHROW(ref.attr("aria-label", "ignored").text("ignored").clear());
+}
+
+TEST_CASE("View scopes and dock handles invalidate after View destruction") {
+    affineui::View::Scope scope;
+    affineui::DockHandle dock;
+    {
+        affineui::View view{affineui::ViewTheme::Bootstrap};
+        view.begin();
+        scope = view.container("panel", "panel");
+        view.end();
+        REQUIRE(scope);
+
+        view.begin();
+        view.document_view("workspace", [&](affineui::View& nested) {
+            dock = nested.document(
+                [](affineui::View& content) { content.text("Viewport"); });
+        });
+        view.end();
+        REQUIRE(dock);
+    }
+
+    CHECK_FALSE(scope);
+    CHECK_FALSE(dock);
+    CHECK_FALSE(scope.ref());
+    CHECK_NOTHROW(scope.attr("aria-label", "ignored").text("ignored"));
+    CHECK_NOTHROW(dock.toolbar(
+        [](affineui::View& toolbar) { toolbar.button("Ignored"); }));
+}
+
+TEST_CASE("View moves invalidate old refs and issue refs from the new identity") {
+    affineui::View source{affineui::ViewTheme::Bootstrap};
+    source.begin();
+    auto stale = source.button("Moved", false, "moved");
+    source.end();
+    REQUIRE(stale);
+
+    affineui::View moved{std::move(source)};
+    CHECK_FALSE(stale);
+    auto live = moved.find_widget("moved");
+    REQUIRE(live);
+    CHECK(live.text_value() == "Moved");
+
+    affineui::View assigned;
+    assigned = std::move(moved);
+    CHECK_FALSE(live);
+    auto assigned_live = assigned.find_widget("moved");
+    REQUIRE(assigned_live);
+    CHECK(assigned_live.text_value() == "Moved");
+}
+
+TEST_CASE("WidgetRef mutation pins App state through reentrant App destruction") {
+    auto app = std::make_unique<affineui::App>();
+    affineui::WidgetRef panel;
+    app->set_view([&](affineui::View& view) {
+        panel = view.container_ref("panel", "panel");
+    });
+    REQUIRE(panel);
+
+    CHECK_NOTHROW(panel.append([&](affineui::View& view) {
+        app.reset();
+        view.paragraph("Finishes against the pinned mutation state");
+    }));
+    CHECK(app == nullptr);
+    CHECK_FALSE(panel);
+}
+
+TEST_CASE("post-build WidgetRef handler replacement updates App bindings") {
+    affineui::App app;
+    affineui::WidgetRef button;
+    int old_calls = 0;
+    int new_calls = 0;
+    app.set_view([&](affineui::View& view) {
+        button = view.button("Action", false, "action");
+        button.on_click([&] { ++old_calls; });
+    });
+
+    TestPainter painter;
+    app.document().layout(320, 160, &painter);
+    const auto bounds = app.document().find_element_rect("action");
+    REQUIRE(bounds.w > 0);
+    REQUIRE(bounds.h > 0);
+
+    button.on_click([&] { ++new_calls; });
+    affineui::Event down{};
+    down.type = affineui::EventType::MouseDown;
+    down.button = affineui::MouseButton::Left;
+    down.pos = {bounds.x + bounds.w / 2, bounds.y + bounds.h / 2};
+    auto up = down;
+    up.type = affineui::EventType::MouseUp;
+    app.dispatch(down);
+    app.dispatch(up);
+
+    CHECK(old_calls == 0);
+    CHECK(new_calls == 1);
 }
 
 TEST_CASE("WidgetRef child mutation is illegal during view generation") {

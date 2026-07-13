@@ -23,10 +23,10 @@
 // that outlives (or is wrongly shared past) its provider renders empty rather
 // than crashing — the same hard-to-crash contract the rest of AffineUI honours.
 //
-// Providers are populated fluently and carry guarded callbacks so they bind
-// cleanly from every language (Python callables, C#/Rust delegates over the C
-// ABI) — there is deliberately no virtual-method base class to override, which
-// would not survive the C ABI boundary.
+// Providers are populated fluently and accept callbacks from every language
+// (Python callables, C#/Rust delegates over the C ABI). A callback that borrows
+// controller state must use bind()/guard(); there is deliberately no virtual-
+// method base class to override across the C ABI boundary.
 //
 //   struct Outliner : affineui::Trackable {           // the panel controller
 //       std::vector<Node> nodes;
@@ -35,14 +35,15 @@
 //
 //       Outliner() {
 //           rows = std::make_unique<affineui::VirtualListProvider>();
-//           rows->on_item_count([this] { return nodes.size(); })
-//               .on_item_text([this](std::size_t i) { return nodes[i].name; })
-//               .on_is_selected([this](std::size_t i) {
-//                   return selection.contains(nodes[i].id); })
-//               .on_activate([this](std::size_t i, affineui::SelectMod m) {
-//                   selection.apply(m, nodes[i].id); })
-//               .on_drop([this](std::size_t src, std::size_t dst,
-//                               affineui::DropPos p) { move_node(src, dst, p); });
+//           rows->on_item_count(affineui::guard(this,
+//               [](Outliner& self) { return self.nodes.size(); }))
+//               .on_item_text(affineui::guard(this,
+//                   [](Outliner& self, std::size_t i) {
+//                       return self.nodes[i].name; }))
+//               .on_activate(affineui::guard(this,
+//                   [](Outliner& self, std::size_t i,
+//                      affineui::SelectMod m) {
+//                       self.selection.apply(m, self.nodes[i].id); }));
 //       }
 //   };
 //
@@ -100,14 +101,16 @@ enum class DropPos {
 /// (never a DOM pointer — so it survives row recycling). Plug it into a
 /// provider in one line:
 ///
-///   sel_.on_change([this] { app_.rebuild_view(); });
-///   provider.on_is_selected([this](std::size_t i) { return sel_.contains(i); })
-///           .on_activate([this](std::size_t i, affineui::SelectMod m) {
-///               sel_.apply(i, m); });
+///   sel_.on_change(guard(this, [](Panel& self) { self.app_.rebuild_view(); }));
+///   provider.on_is_selected(guard(this, [](Panel& self, std::size_t i) {
+///               return self.sel_.contains(i); }))
+///           .on_activate(guard(this, [](Panel& self, std::size_t i,
+///                                      affineui::SelectMod m) {
+///               self.sel_.apply(i, m); }));
 ///
 /// Apps that track selection by id or need custom rules can ignore this and
 /// implement on_activate/on_is_selected directly.
-class IndexSelection {
+class IndexSelection : public Trackable {
 public:
     using ChangedFn = std::function<void()>;
 
@@ -170,7 +173,7 @@ private:
 };
 
 /// A stateless bridge between an app-owned list model and a virtual-list
-/// widget. Holds only guarded callbacks; stores no data. Trackable so the
+/// widget. Stores callbacks but no model data. Trackable so the
 /// widget can hold a WeakRef to it. Populated fluently — every setter returns
 /// the most-derived provider type (via CRTP) so chaining stays typed even when
 /// a base setter precedes a derived one on VirtualTreeProvider.
@@ -179,13 +182,10 @@ private:
 template <typename Self>
 class VirtualListProviderBase : public Trackable {
 public:
-    // Callback signatures. The provider itself is the crash guard: the widget
-    // holds a WeakRef and locks it before invoking any of these, so a destroyed
-    // provider degrades to an empty list rather than a dangling call. Callbacks
-    // are plain std::function (not the bound Callback form) so they bind
-    // uniformly from every language; the controller that owns the provider via
-    // unique_ptr is destroyed with it, keeping the captured `this` valid for the
-    // provider's whole lifetime.
+    // Callback signatures. The widget weakly guards the provider itself, so a
+    // destroyed provider degrades to an empty list. The callbacks are plain
+    // std::function for language-binding compatibility; any callback that
+    // borrows a separate controller/model must carry its own bind()/guard().
     using ItemCountFn = std::function<std::size_t()>;
     using ItemSizeFn  = std::function<double(std::size_t)>;
     using BuildItemFn = std::function<void(View&, std::size_t)>;
@@ -410,7 +410,7 @@ private:
 /// The item pointer used to draw a row is resolved from the handle transiently
 /// at render time, so it can never dangle. A `Handle` can be any of:
 ///   • a raw pointer      — static data that never moves/frees (resolve = cast)
-///   • a WeakRef<Item>     — dynamic data; resolve = handle.lock() (self-guards)
+///   • a WeakRef<Item>     — dynamic data; resolve = handle.get() (self-guards)
 ///   • a uint64 / id       — app-indexed; resolve looks it up
 ///   • a key into a map    — resolve = data->map.find(key)
 /// All are the same size (~8 bytes). The app supplies the walk (roots, children,
@@ -425,7 +425,7 @@ private:
 ///   flat.wire(tree_provider);            // provider now reflects the tree
 ///   flat.on_changed([this]{ app_.rebuild_view(); });
 template <typename Data, typename Item = void, typename Handle = std::uintptr_t>
-class TreeFlattener {
+class TreeFlattener : public Trackable {
 public:
     using RootsFn       = std::function<void(Data*, std::vector<Handle>&)>;
     using ChildrenFn    = std::function<void(Data*, Handle, std::vector<Handle>&)>;
@@ -438,6 +438,11 @@ public:
     using ChangedFn     = std::function<void()>;
 
     explicit TreeFlattener(WeakRef<Data> data) : data_(data) {}
+
+    TreeFlattener(const TreeFlattener&) = delete;
+    TreeFlattener& operator=(const TreeFlattener&) = delete;
+    TreeFlattener(TreeFlattener&&) = delete;
+    TreeFlattener& operator=(TreeFlattener&&) = delete;
 
     TreeFlattener& on_roots(RootsFn fn) { roots_ = std::move(fn); return *this; }
     TreeFlattener& on_children(ChildrenFn fn) {
@@ -460,13 +465,13 @@ public:
     /// Resolve the flattened row i to its live item pointer (locked from the
     /// weak-ref'd data). Returns null if the data is gone or i is out of range.
     [[nodiscard]] Item* item_at(std::size_t i) const {
-        Data* d = data_.lock();
+        Data* d = data_.get();
         if (!d || !resolve_ || i >= flat_.size()) return nullptr;
         return resolve_(d, flat_[i].handle);
     }
     /// Resolve an arbitrary handle to its item pointer.
     [[nodiscard]] Item* resolve(Handle h) const {
-        Data* d = data_.lock();
+        Data* d = data_.get();
         return (d && resolve_) ? resolve_(d, h) : nullptr;
     }
 
@@ -586,54 +591,98 @@ public:
     /// instead of dereferencing freed memory: the handle indirection is what
     /// makes the thing being drawn impossible to dangle.
     void wire(VirtualTreeProvider& provider) {
+        const auto weak = to_weak_ref(this);
         rebuild();
-        provider.on_item_count([this] { return flat_.size(); })
-            .on_depth([this](std::size_t i) {
-                return i < flat_.size() ? flat_[i].depth : 0;
+        provider.on_item_count([weak] {
+                const auto* self = weak.get();
+                return self != nullptr ? self->flat_.size() : std::size_t{0};
             })
-            .on_is_expandable([this](std::size_t i) {
-                return i < flat_.size() && flat_[i].has_children;
+            .on_depth([weak](std::size_t i) {
+                const auto* self = weak.get();
+                return self != nullptr && i < self->flat_.size()
+                           ? self->flat_[i].depth
+                           : 0;
             })
-            .on_is_expanded([this](std::size_t i) {
-                return i < flat_.size() &&
-                       expanded_.count(flat_[i].handle) != 0;
+            .on_is_expandable([weak](std::size_t i) {
+                const auto* self = weak.get();
+                return self != nullptr && i < self->flat_.size() &&
+                       self->flat_[i].has_children;
             })
-            .on_toggle([this](std::size_t i) {
-                if (i >= flat_.size() || !flat_[i].has_children) return;
-                const Handle h = flat_[i].handle;
-                if (!expanded_.erase(h)) expanded_.insert(h);
-                rebuild();
-                if (changed_) changed_();
+            .on_is_expanded([weak](std::size_t i) {
+                const auto* self = weak.get();
+                return self != nullptr && i < self->flat_.size() &&
+                       self->expanded_.count(self->flat_[i].handle) != 0;
+            })
+            .on_toggle([weak](std::size_t i) {
+                auto* self = weak.get();
+                if (self == nullptr || i >= self->flat_.size() ||
+                    !self->flat_[i].has_children) {
+                    return;
+                }
+                const Handle h = self->flat_[i].handle;
+                if (!self->expanded_.erase(h)) self->expanded_.insert(h);
+                self->rebuild();
+                self = weak.get();
+                if (self == nullptr) return;
+                const auto changed = self->changed_;
+                if (changed) changed();
             })
             // Selection and checked state are wired to the flattener's
             // HANDLE-keyed models, so both survive expand/collapse (indices
             // renumber, handles don't). Re-set these AFTER wire() to
             // substitute a custom model. Checkbox RENDERING stays off until
             // the app turns it on: provider.checkboxes(true).
-            .on_is_selected([this](std::size_t i) { return row_selected(i); })
-            .on_activate(
-                [this](std::size_t i, SelectMod m) { activate(i, m); })
-            .on_is_checked([this](std::size_t i) {
-                return i < flat_.size() &&
-                       checked_.count(flat_[i].handle) != 0;
+            .on_is_selected([weak](std::size_t i) {
+                const auto* self = weak.get();
+                return self != nullptr && self->row_selected(i);
             })
-            .on_set_checked([this](std::size_t i, bool on) {
-                if (i < flat_.size()) set_checked(flat_[i].handle, on);
+            .on_activate(
+                [weak](std::size_t i, SelectMod m) {
+                    if (auto* self = weak.get()) self->activate(i, m);
+                })
+            .on_is_checked([weak](std::size_t i) {
+                const auto* self = weak.get();
+                return self != nullptr && i < self->flat_.size() &&
+                       self->checked_.count(self->flat_[i].handle) != 0;
+            })
+            .on_set_checked([weak](std::size_t i, bool on) {
+                auto* self = weak.get();
+                if (self != nullptr && i < self->flat_.size()) {
+                    self->set_checked(self->flat_[i].handle, on);
+                }
             });
 
         // Row content: prefer a rich render from the resolved item pointer;
         // otherwise fall back to the label text. Both resolve the handle fresh
         // (locked data) and guard null, so a stale node never dangles.
-        if (render_ && resolve_) {
-            provider.on_build_item([this](View& v, std::size_t i) {
-                Item* item = item_at(i);  // handle → item, or null if gone
-                if (item) render_(v, item);
+        const auto* wired_self = weak.get();
+        if (wired_self != nullptr && wired_self->render_ &&
+            wired_self->resolve_) {
+            provider.on_build_item([weak](View& v, std::size_t i) {
+                auto* self = weak.get();
+                if (self == nullptr || i >= self->flat_.size()) return;
+                const auto data = self->data_;
+                const auto resolve = self->resolve_;
+                const auto render = self->render_;
+                const Handle handle = self->flat_[i].handle;
+                Data* source = data.get();
+                if (source == nullptr || !resolve || !render) return;
+                Item* item = resolve(source, handle);
+                // A resolver is arbitrary app code and may destroy its model.
+                if (item != nullptr && data.alive()) render(v, item);
             });
         } else {
-            provider.on_item_text([this](std::size_t i) {
-                Data* d = data_.lock();
-                return (d && label_ && i < flat_.size())
-                           ? label_(d, flat_[i].handle)
+            provider.on_item_text([weak](std::size_t i) {
+                const auto* self = weak.get();
+                if (self == nullptr || i >= self->flat_.size()) {
+                    return std::string{};
+                }
+                const auto data = self->data_;
+                const auto label = self->label_;
+                const Handle handle = self->flat_[i].handle;
+                Data* source = data.get();
+                return source != nullptr && label
+                           ? label(source, handle)
                            : std::string{};
             });
         }
@@ -649,12 +698,43 @@ public:
     /// Recompute the flattened view. Call when the underlying tree *structure*
     /// changes (nodes added/removed) — expand/collapse already rebuilds itself.
     void rebuild() {
-        flat_.clear();
-        Data* d = data_.lock();
-        if (!d || !roots_) return;
+        const auto weak_self = to_weak_ref(this);
+        const auto data = data_;
+        const auto roots_fn = roots_;
+        const auto children_fn = children_;
+        const auto has_children_fn = has_children_;
+        const auto expanded = expanded_;
+        std::vector<Entry> next;
+
+        Data* source = data.get();
+        if (source == nullptr || !roots_fn) {
+            flat_.clear();
+            return;
+        }
         std::vector<Handle> roots;
-        roots_(d, roots);
-        for (Handle r : roots) append(d, r, 0);
+        roots_fn(source, roots);
+        if (!weak_self.alive() || !data.alive()) return;
+
+        const auto append = [&](auto& self, Handle handle, int depth) -> void {
+            Data* current = data.get();
+            if (current == nullptr) return;
+            const bool has_children =
+                has_children_fn && has_children_fn(current, handle);
+            if (!data.alive()) return;
+            next.push_back({handle, depth, has_children});
+            if (!has_children || expanded.count(handle) == 0 ||
+                !children_fn) {
+                return;
+            }
+            std::vector<Handle> children;
+            current = data.get();
+            if (current == nullptr) return;
+            children_fn(current, handle, children);
+            if (!data.alive()) return;
+            for (Handle child : children) self(self, child, depth + 1);
+        };
+        for (Handle root : roots) append(append, root, 0);
+        if (auto* self = weak_self.get()) self->flat_ = std::move(next);
     }
 
 private:
@@ -663,16 +743,6 @@ private:
         int    depth{0};
         bool   has_children{false};
     };
-
-    void append(Data* d, Handle h, int depth) {
-        const bool kids = has_children_ && has_children_(d, h);
-        flat_.push_back({h, depth, kids});
-        if (kids && expanded_.count(h) != 0 && children_) {
-            std::vector<Handle> children;
-            children_(d, h, children);
-            for (Handle c : children) append(d, c, depth + 1);
-        }
-    }
 
     WeakRef<Data>            data_;
     RootsFn                  roots_;

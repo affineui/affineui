@@ -622,7 +622,8 @@ bool Client::css_box_model(const DomHandle& nid, BoxModel& out) {
     json::Value result;
     if (!impl_->wire_request("css.box_model", params, &result)) return false;
     const json::Value* laid = result.get("laid_out");
-    out.laid_out = laid != nullptr && laid->kind == json::Value::Kind::Bool &&
+    out.laid_out =
+        laid != nullptr && laid->kind == json::Value::Kind::Boolean &&
                    laid->boolean;
     if (!out.laid_out) return true;
     out.rect = rect_from_json(result.get("rect"));

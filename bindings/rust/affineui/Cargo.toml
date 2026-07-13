@@ -9,8 +9,13 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["vendored"]
+vendored = ["affineui-sys/vendored"]
+system = ["affineui-sys/system"]
+
 [dependencies]
-affineui-sys = { path = "../affineui-sys", version = "0.0.3" }
+affineui-sys = { path = "../affineui-sys", version = "0.0.3", default-features = false }
 
 [lib]
 doctest = false

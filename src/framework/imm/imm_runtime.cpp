@@ -40,7 +40,7 @@ ImmRuntime::~ImmRuntime() {
     }
 }
 
-void ImmRuntime::bind(Document* owner, lxb_html_document_t* doc) {
+void ImmRuntime::bind(DocumentImpl* owner, lxb_html_document_t* doc) {
     owner_ = owner;
     doc_   = doc;
 }
@@ -172,8 +172,7 @@ void ImmRuntime::run_view_fn() {
     // Kill any tail under body that this render didn't visit. Same
     // logic close_element runs at every level — this catches the
     // outermost level (body's leftover children).
-    destroy_from(owner_ ? owner_->impl_.get() : nullptr,
-                 cursor_stack_.back());
+    destroy_from(owner_, cursor_stack_.back());
 
     parent_stack_.clear();
     cursor_stack_.clear();
@@ -279,7 +278,7 @@ lxb_dom_element_t* ImmRuntime::open_element(std::string_view tag,
     // stale (different tag, different scope hash, different node
     // type, or just no more old children). Destroy it and append a
     // fresh element.
-    destroy_from(owner_ ? owner_->impl_.get() : nullptr, parent_cursor);
+    destroy_from(owner_, parent_cursor);
     parent_cursor = nullptr;
 
     auto* elem = lxb_dom_document_create_element(
@@ -317,8 +316,7 @@ void ImmRuntime::close_element() {
     if (parent_stack_.size() <= 1) return;
     // Tail-kill: anything left under the cursor for THIS element is
     // old content the view fn didn't visit on this render. Destroy it.
-    destroy_from(owner_ ? owner_->impl_.get() : nullptr,
-                 cursor_stack_.back());
+    destroy_from(owner_, cursor_stack_.back());
     parent_stack_.pop_back();
     cursor_stack_.pop_back();
 }
@@ -364,7 +362,7 @@ void ImmRuntime::append_text_to_current(std::string_view text) {
 
     // Mismatch (cursor was an element, or no cursor at all): destroy
     // tail then append a fresh text node.
-    destroy_from(owner_ ? owner_->impl_.get() : nullptr, cursor);
+    destroy_from(owner_, cursor);
     cursor = nullptr;
     auto* tn = lxb_dom_document_create_text_node(
         lxb_dom_interface_document(doc_),

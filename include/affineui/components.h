@@ -149,7 +149,7 @@ public:
     }
 
     Button& on_click(ClickCallback cb) {
-        if (valid()) ref_.on_click(std::move(cb));
+        if (valid()) ref_.on_click(cb.to_function());
         return *this;
     }
 };
@@ -172,7 +172,7 @@ public:
         return *this;
     }
     Checkbox& on_change(ChangeCallback cb) {
-        if (valid()) ref_.on_change(std::move(cb));
+        if (valid()) ref_.on_change(cb.to_function());
         return *this;
     }
 };
@@ -194,7 +194,7 @@ public:
         return *this;
     }
     TextField& on_change(ChangeCallback cb) {
-        if (valid()) ref_.on_change(std::move(cb));
+        if (valid()) ref_.on_change(cb.to_function());
         return *this;
     }
 };
@@ -217,7 +217,7 @@ public:
         return *this;
     }
     Dropdown& on_change(ChangeCallback cb) {
-        if (valid()) ref_.on_change(std::move(cb));
+        if (valid()) ref_.on_change(cb.to_function());
         return *this;
     }
 };
@@ -241,7 +241,7 @@ public:
         return std::strtod(std::string(text).c_str(), nullptr);
     }
     Slider& on_change(ChangeCallback cb) {
-        if (valid()) ref_.on_change(std::move(cb));
+        if (valid()) ref_.on_change(cb.to_function());
         return *this;
     }
 };
@@ -270,7 +270,7 @@ public:
         return *this;
     }
     ColorField& on_change(ChangeCallback cb) {
-        if (valid()) ref_.on_change(std::move(cb));
+        if (valid()) ref_.on_change(cb.to_function());
         return *this;
     }
 };

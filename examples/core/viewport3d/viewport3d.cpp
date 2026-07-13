@@ -73,19 +73,22 @@ Viewport3D::Viewport3D(Config config) : cfg_(std::move(config)) {
 Viewport3D::~Viewport3D() = default;
 
 void Viewport3D::attach(affineui::App& app, app::Context& ctx) {
-    app_ = &app;
-    ctx_ = &ctx;
+    app_ = app.handle();
+    ctx_ = affineui::to_weak_ref(&ctx);
     renderer_ = std::make_unique<Renderer>();
+    const auto weak = affineui::to_weak_ref(this);
 
     app.set_custom_paint(cfg_.scene_paint,
-                         [this](affineui::Painter& p, const Rect& r) {
-                             paint(p, r);
+                         [weak](affineui::Painter& p, const Rect& r) {
+                             if (auto* self = weak.get()) self->paint(p, r);
                          });
     app.set_custom_paint(cfg_.nav_paint,
-                         [this](affineui::Painter& p, const Rect& r) {
-                             paint_navball(p, r);
+                         [weak](affineui::Painter& p, const Rect& r) {
+                             if (auto* self = weak.get()) self->paint_navball(p, r);
                          });
-    app.on_frame([this](double dt) { frame(dt); });
+    app.on_frame([weak](double dt) {
+        if (auto* self = weak.get()) self->frame(dt);
+    });
 
     gizmo_->on_dragging_changed = [this](bool dragging) {
         if (dragging) {
@@ -180,8 +183,9 @@ ObjectPtr Viewport3D::make_default_node(const app::Object& obj,
 }
 
 void Viewport3D::sync_document() {
-    if (ctx_ == nullptr) return;
-    const auto& objects = ctx_->document().objects();
+    auto* context = ctx_.get();
+    if (context == nullptr) return;
+    const auto& objects = context->document().objects();
 
     // Drop nodes whose document object is gone.
     for (auto it = nodes_.begin(); it != nodes_.end();) {
@@ -210,7 +214,7 @@ void Viewport3D::sync_document() {
     // document commit.
     for (const app::Object& obj : objects) {
         if (!nodes_.contains(obj.id)) continue;
-        const auto& doc = ctx_->document();
+        const auto& doc = context->document();
         const app::PropValue tint_value =
             doc.property(obj.id, "tint", app::PropValue{std::string{}});
         if (const auto* tint = std::get_if<std::string>(&tint_value);
@@ -228,7 +232,8 @@ void Viewport3D::sync_document() {
 }
 
 void Viewport3D::sync_selection() {
-    if (ctx_ == nullptr) return;
+    auto* context = ctx_.get();
+    if (context == nullptr) return;
     ObjectPtr target;
     // The box + gizmo follow the ACTIVE object — the one the user last
     // clicked, in the 3D view or the hierarchy. This is the same
@@ -236,7 +241,7 @@ void Viewport3D::sync_selection() {
     // off (Selection::active), so all three views stay consistent (a
     // document-order "first selected" would drift from them under
     // multi-select).
-    const std::string_view active = ctx_->selection().active();
+    const std::string_view active = context->selection().active();
     if (!active.empty()) {
         const auto it = nodes_.find(std::string(active));
         if (it != nodes_.end()) target = it->second;
@@ -325,7 +330,8 @@ void Viewport3D::apply_transform_command(const ObjectPtr& node,
                                          const Vec3& old_p,
                                          const Quat& old_q,
                                          const Vec3& old_s) {
-    if (!node || ctx_ == nullptr) return;
+    auto* context = ctx_.get();
+    if (!node || context == nullptr) return;
     const Vec3 new_p = node->position;
     const Quat new_q = node->quaternion();
     const Vec3 new_s = node->scale;
@@ -336,13 +342,14 @@ void Viewport3D::apply_transform_command(const ObjectPtr& node,
     // The node is captured by shared_ptr so undo stays valid even after
     // the object is removed and re-added; `this` outlives the stack
     // (both are owned by the host controller).
-    auto apply = [this, node](const Vec3& p, const Quat& q, const Vec3& s) {
+    const auto weak = affineui::to_weak_ref(this);
+    auto apply = [weak, node](const Vec3& p, const Quat& q, const Vec3& s) {
         node->position = p;
         node->set_quaternion(q);
         node->scale = s;
-        mark_dirty();
+        if (auto* self = weak.get()) self->mark_dirty();
     };
-    ctx_->stack().push(std::make_unique<app::LambdaCommand>(
+    context->stack().push(std::make_unique<app::LambdaCommand>(
         "obj.transform", "Transform " + node->name,
         [apply, new_p, new_q, new_s](app::Document&) {
             apply(new_p, new_q, new_s);
@@ -392,7 +399,8 @@ void Viewport3D::commit_node_property(std::string_view id,
                                       std::string_view prop,
                                       const affineui::PropertyValue& value) {
     const auto it = nodes_.find(std::string(id));
-    if (it == nodes_.end() || ctx_ == nullptr) return;
+    auto* context = ctx_.get();
+    if (it == nodes_.end() || context == nullptr) return;
     const ObjectPtr& node = it->second;
     const affineui::ObjectClass& cls = get_class(*node);
     // Undo target: the pre-gesture value when previews ran, else the
@@ -411,12 +419,13 @@ void Viewport3D::commit_node_property(std::string_view id,
     // The node is captured by shared_ptr (undo stays valid after
     // remove/re-add) and the property by name, so redo/undo both go
     // through the same reflection mediator the inspector reads.
-    auto apply = [this, node, prop = std::string(prop)](
+    const auto weak = affineui::to_weak_ref(this);
+    auto apply = [weak, node, prop = std::string(prop)](
                      const affineui::PropertyValue& v) {
         get_class(*node).set(node.get(), prop, v);
-        mark_dirty();
+        if (auto* self = weak.get()) self->mark_dirty();
     };
-    ctx_->stack().push(std::make_unique<app::LambdaCommand>(
+    context->stack().push(std::make_unique<app::LambdaCommand>(
         "obj.prop", "Edit " + node->name,
         [apply, value](app::Document&) { apply(value); },
         [apply, old](app::Document&) { apply(old); }));
@@ -493,7 +502,7 @@ void Viewport3D::set_node_geometry(std::string_view id, GeometryPtr geometry) {
 
 void Viewport3D::mark_dirty() {
     dirty_ = true;
-    if (app_ != nullptr) app_->request_custom_repaint(cfg_.scene_paint);
+    app_.request_custom_repaint(cfg_.scene_paint);
 }
 
 void Viewport3D::frame(double /*dt*/) {
@@ -511,10 +520,10 @@ void Viewport3D::frame(double /*dt*/) {
     selection_box_->update_from(selected_node_.get());
     renderer_->render(*scene_, *camera_);
     dirty_ = false;
-    if (app_ != nullptr) {
-        app_->request_custom_repaint(cfg_.scene_paint);
+    if (app_) {
+        app_.request_custom_repaint(cfg_.scene_paint);
         // The axis ball tracks the camera; repaint it with the scene.
-        app_->request_custom_repaint(cfg_.nav_paint);
+        app_.request_custom_repaint(cfg_.nav_paint);
     }
 }
 
@@ -684,13 +693,14 @@ void Viewport3D::pick(double mx, double my, bool additive) {
             n = n->parent;
         }
     }
-    if (ctx_ == nullptr) return;
+    auto* context = ctx_.get();
+    if (context == nullptr) return;
     if (hit_id.empty()) {
-        if (!additive) ctx_->selection().clear();
+        if (!additive) context->selection().clear();
     } else if (additive) {
-        ctx_->selection().toggle(hit_id);
+        context->selection().toggle(hit_id);
     } else {
-        ctx_->selection().select(hit_id);
+        context->selection().select(hit_id);
     }
 }
 
@@ -710,7 +720,7 @@ bool Viewport3D::handle_event(
         if (ev.type == ET::MouseUp) {
             gizmo_dragging_ = false;
             gizmo_->pointer_up();
-            if (app_ != nullptr) app_->release_pointer();
+            app_.release_pointer();
             mark_dirty();
             return true;
         }
@@ -730,7 +740,7 @@ bool Viewport3D::handle_event(
         if (ev.type == ET::MouseUp) {
             cam_dragging_ = false;
             orbit_->pointer_up();
-            if (app_ != nullptr) app_->release_pointer();
+            app_.release_pointer();
             if (drag_left_ && !drag_moved_) pick(mx, my, ev.shift);
             return true;
         }
@@ -789,7 +799,7 @@ bool Viewport3D::handle_event(
         if (ev.button == affineui::MouseButton::Left &&
             gizmo_->pointer_down(to_ndc(mx, my))) {
             gizmo_dragging_ = true;
-            if (app_ != nullptr) app_->capture_pointer();
+            app_.capture_pointer();
             mark_dirty();
             return true;
         }
@@ -810,7 +820,7 @@ bool Viewport3D::handle_event(
         drag_moved_ = false;
         down_x_ = mx;
         down_y_ = my;
-        if (app_ != nullptr) app_->capture_pointer();
+        app_.capture_pointer();
         return true;
     }
     return false;

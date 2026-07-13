@@ -504,6 +504,13 @@ public:
     void delete_image(std::uint32_t image) override {
         if (device_painter_) device_painter_->delete_image(image);
     }
+    void draw_image(const ImageHandle& image,
+                    const Rect& dst,
+                    const Rect& src) override {
+        if (!image.is_valid()) return;
+        list_.managed_images.push_back(image);
+        Painter::draw_image(image, dst, src);
+    }
     void draw_image(std::uint32_t image, const Rect& dst, const Rect& src) override {
         PaintOp op{};
         op.kind = PaintOpKind::DrawImage;

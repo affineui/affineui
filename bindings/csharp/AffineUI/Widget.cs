@@ -10,26 +10,14 @@ namespace AffineUI;
 /// <summary>
 /// An id-addressed handle to a widget in a <see cref="View"/>. Survives
 /// reconciliation (re-finds its node by key) and degrades gracefully when the
-/// node is gone. Every widget holds a strong reference to its
-/// <see cref="View"/>, and the native view is kept alive until all widget
-/// handles are released, so use-after-free cannot occur in either order.
+/// node or owning View is gone. It does not keep the View alive.
 /// </summary>
 public sealed class Widget : IDisposable
 {
     internal sealed class WidgetSafeHandle : SafeHandle
     {
-        private readonly SafeHandle? _viewHandle;
-        private readonly bool _addRefed;
-
-        public WidgetSafeHandle(IntPtr h, SafeHandle viewHandle) : base(IntPtr.Zero, ownsHandle: true)
+        public WidgetSafeHandle(IntPtr h) : base(IntPtr.Zero, ownsHandle: true)
         {
-            if (h != IntPtr.Zero)
-            {
-                bool ok = false;
-                viewHandle.DangerousAddRef(ref ok);
-                _viewHandle = viewHandle;
-                _addRefed = ok;
-            }
             SetHandle(h);
         }
 
@@ -38,20 +26,15 @@ public sealed class Widget : IDisposable
         protected override bool ReleaseHandle()
         {
             NativeMethods.affineui_widget_destroy(handle);
-            if (_addRefed) _viewHandle!.DangerousRelease();
             return true;
         }
     }
 
     private readonly WidgetSafeHandle _handle;
 
-    /// <summary>The view this widget belongs to (kept alive by this widget).</summary>
-    public View View { get; }
-
-    internal Widget(IntPtr handle, View view)
+    internal Widget(IntPtr handle)
     {
-        View = view;
-        _handle = new WidgetSafeHandle(handle, view.SafeHandleForWidgets);
+        _handle = new WidgetSafeHandle(handle);
     }
 
     internal WidgetSafeHandle NativeHandle => _handle;
@@ -219,7 +202,8 @@ public sealed class Widget : IDisposable
     /// check <see cref="IsValid"/>.</summary>
     public Widget FindWidget(string name)
     {
-        var found = View.Wrap(NativeMethods.affineui_widget_find_widget(Handle, name));
+        var found = new Widget(
+            NativeMethods.affineui_widget_find_widget(Handle, name));
         GC.KeepAlive(this);
         return found;
     }

@@ -680,7 +680,7 @@ void DenderView::build_transform_vecs(View& v, std::string_view id,
             const auto vp_ref = affineui::to_weak_ref(vp);
             field.on_change(
                 [vp_ref, owner_id, prop, fallback](std::string_view value) {
-                    if (auto* v3 = vp_ref.lock()) {
+                    if (auto* v3 = vp_ref.get()) {
                         v3->preview_node_property(
                             owner_id, prop,
                             affineui::PropertyValue{
@@ -689,7 +689,7 @@ void DenderView::build_transform_vecs(View& v, std::string_view id,
                 });
             field.on_commit(
                 [vp_ref, owner_id, prop, fallback](std::string_view value) {
-                    if (auto* v3 = vp_ref.lock()) {
+                    if (auto* v3 = vp_ref.get()) {
                         v3->commit_node_property(
                             owner_id, prop,
                             affineui::PropertyValue{
@@ -741,14 +741,14 @@ void DenderView::build_npanel_item_body(View& v) const {
                                      static_cast<char>('x' + i);
             const auto vp_ref = affineui::to_weak_ref(vp);
             field.on_change([vp_ref, owner_id, prop](std::string_view value) {
-                if (auto* v3 = vp_ref.lock()) {
+                if (auto* v3 = vp_ref.get()) {
                     v3->preview_node_property(
                         owner_id, prop,
                         affineui::PropertyValue{parse_double_or(value, 0.0)});
                 }
             });
             field.on_commit([vp_ref, owner_id, prop](std::string_view value) {
-                if (auto* v3 = vp_ref.lock()) {
+                if (auto* v3 = vp_ref.get()) {
                     v3->commit_node_property(
                         owner_id, prop,
                         affineui::PropertyValue{parse_double_or(value, 0.0)});
@@ -772,10 +772,10 @@ void DenderView::build_npanel_item_body(View& v) const {
             auto field = v.find_widget("np-dim-" + std::to_string(i));
             field.attr("data-suffix", " m");
             field.on_change([app_ref, i](std::string_view value) {
-                if (auto* a = app_ref.lock()) a->preview_dimension(i, value);
+                if (auto* a = app_ref.get()) a->preview_dimension(i, value);
             });
             field.on_commit([app_ref, i](std::string_view value) {
-                if (auto* a = app_ref.lock()) a->commit_dimension(i, value);
+                if (auto* a = app_ref.get()) a->commit_dimension(i, value);
             });
         }
     }

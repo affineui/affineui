@@ -9,6 +9,7 @@ public:
     int fill_rects{0};
     int clips{0};
     int transforms{0};
+    int images{0};
     int native_images{0};
     std::uint64_t native_handle{0};
     int native_width{0};
@@ -51,7 +52,9 @@ public:
     std::uint32_t load_image(std::string_view) override { return 0; }
     affineui::Size image_size(std::uint32_t) override { return {}; }
     void draw_image(std::uint32_t, const affineui::Rect&,
-                    const affineui::Rect&) override {}
+                    const affineui::Rect&) override {
+        ++images;
+    }
     void draw_native_image(std::uint64_t handle, int width, int height,
                            bool flip_y,
                            const affineui::Rect& dst) override {
@@ -130,6 +133,17 @@ affineui::detail::PaintOp draw_text_box(affineui::detail::DisplayList& list,
 }
 
 }  // namespace
+
+TEST_CASE("invalid renderer image handles draw nothing") {
+    CountingPainter painter;
+    affineui::Painter& base = painter;
+    const affineui::ImageHandle image;
+
+    base.draw_image(image, affineui::Rect{0, 0, 10, 10},
+                    affineui::Rect{0, 0, 10, 10});
+
+    CHECK(painter.images == 0);
+}
 
 TEST_CASE("native GPU images are frame-scoped display-list draw commands") {
     affineui::detail::DisplayList list;

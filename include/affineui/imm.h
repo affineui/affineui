@@ -256,16 +256,22 @@ void unbind(Document& doc);
 // ── inline impl ─────────────────────────────────────────────────────
 
 inline std::uint64_t CallSite::hash() const noexcept {
-    // FNV-1a over (file pointer bits, line, column). Fast, stable for the
+    // FNV-1a over filename contents, line, and column. Stable for the
     // duration of the process — which is all we need.
     std::uint64_t h = 0xcbf29ce484222325ull;
+    if (file) {
+        for (const auto* p = reinterpret_cast<const unsigned char*>(file);
+             *p != 0; ++p) {
+            h ^= *p;
+            h *= 0x100000001b3ull;
+        }
+    }
     auto mix = [&](std::uint64_t x) {
         for (int i = 0; i < 8; ++i) {
             h ^= (x >> (i * 8)) & 0xff;
             h *= 0x100000001b3ull;
         }
     };
-    mix(reinterpret_cast<std::uintptr_t>(file));
     mix(line);
     mix(column);
     return h;

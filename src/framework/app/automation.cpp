@@ -5,11 +5,13 @@
 
 namespace affineui {
 
-UiScript::UiScript(Document& doc, int viewport_w, int viewport_h,
-                   Painter* measurer)
-    : doc_(doc), w_(viewport_w), h_(viewport_h), measurer_(measurer) {
+UiScript::UiScript(Document& doc, int viewport_w, int viewport_h)
+    : doc_(doc), w_(viewport_w), h_(viewport_h) {
+    const auto weak = to_weak_ref(this);
     detail::set_dock_trace_capture(
-        [this](const std::string& line) { log_.push_back(line); });
+        [weak](const std::string& line) {
+            if (auto* self = weak.get()) self->log_.push_back(line);
+        });
 }
 
 UiScript::~UiScript() { detail::set_dock_trace_capture(nullptr); }
@@ -19,7 +21,7 @@ void UiScript::set_step_hook(std::function<void(const DispatchResult&)> hook) {
 }
 
 Point UiScript::point_of(std::string_view target, Anchor anchor) {
-    doc_.layout(w_, h_, measurer_);
+    doc_.layout(w_, h_, nullptr);
     const Rect r = doc_.find_element_rect(target);
     if (r.w <= 0 || r.h <= 0) return {-1, -1};
     // Edge anchors land INSIDE the rect's edge band (a few px in), so dock
@@ -40,7 +42,7 @@ Point UiScript::point_of(std::string_view target, Anchor anchor) {
 bool UiScript::dispatch(const Event& ev) {
     const auto result = doc_.dispatch(ev);
     if (hook_) hook_(result);
-    doc_.layout(w_, h_, measurer_);
+    doc_.layout(w_, h_, nullptr);
     return true;
 }
 

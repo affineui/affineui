@@ -292,28 +292,34 @@ everything no-ops).
 
 ## Events and crash-safe callbacks
 
-Widgets take plain lambdas:
+Self-contained handlers may use plain lambdas. Retained controller state
+should use `bind()` or `guard()`:
 
 ```cpp
-v.button("Apply", true, "apply").on_click([&] { apply_changes(); });
-v.slider("Gain", 0.5, 0.0, 1.0, "gain")
-    .on_change([&](std::string_view value) { set_gain(value); });
+struct Controller : Trackable {
+    void apply_changes();
+    void set_gain(std::string_view value);
+    void select_item(int id);
+};
+
+Controller controller;
+v.button("Apply", true, "apply")
+    .on_click(bind(&controller, &Controller::apply_changes));
+v.slider("Gain", 0.5, 0.0, 1.0, "gain").on_change(
+    guard(&controller, [](Controller& self, std::string_view value) {
+        self.set_gain(value);
+    }));
 ```
 
 For handlers that live on an object — a controller, a document model — use
 `bind()`, which produces a **Qt-style safe callback**: it holds a versioned
 weak reference to the object and becomes a silent no-op the moment the
-object is destroyed. No dangling `this`, ever.
+object is destroyed. `guard()` handles the cases where a direct member call is
+not expressive enough, without retaining a raw `this` pointer.
 
 ```cpp
-struct Controller : Trackable {         // opt in to weak tracking
-    void save();
-    void select_item(int id);
-};
-
-v.icon_button("save", "save").on_click(bind(&ctl, &Controller::save));
 // bind can also carry per-item arguments:
-row.on_click(bind(&ctl, &Controller::select_item, item_id));
+row.on_click(bind(&controller, &Controller::select_item, item_id));
 ```
 
 Opting a class into tracking is one of: inherit `Trackable`, drop the
@@ -321,8 +327,9 @@ Opting a class into tracking is one of: inherit `Trackable`, drop the
 `WeaklyTrackable` concept structurally. Only long-lived objects that receive
 UI callbacks need this — plain value types should stay plain.
 
-Register handlers on the widget **before** `App::load_view` — `load_view`
-copies the view, callbacks included.
+For one-shot `App::load_view`, register handlers before loading the View. On
+the persistent View owned by `App::set_view`, replacing a handler through a
+live `WidgetRef` refreshes the App binding immediately.
 
 ## Application structure: menus, toolbars, docking
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "affineui/geom.h"
+#include "affineui/image.h"
 #include "affineui/types.h"
 #include <algorithm>
 #include <cmath>
@@ -10,6 +11,8 @@
 #include <vector>
 
 namespace affineui {
+
+namespace detail { class DisplayListBuilder; }
 
 /// Verb tags for the flat vector-path command stream accepted by
 /// Painter::fill_path / Painter::stroke_path. A path is an array of
@@ -404,6 +407,13 @@ public:
     virtual void          draw_image(std::uint32_t image,
                                      const Rect&   dst,
                                      const Rect&   src) = 0;
+    /// Draw a renderer-owned dynamic image. An invalid handle draws nothing.
+    virtual void draw_image(const ImageHandle& image,
+                            const Rect& dst,
+                            const Rect& src) {
+        if (!image.is_valid()) return;
+        draw_image(image.backend_id(), dst, src);
+    }
 
     // ── Native GPU images (renderer-owned textures) ─────────────────
     /// Draw a GPU texture owned by other rendering code (a 3D engine's
@@ -434,30 +444,25 @@ public:
         (void)dst;
     }
 
-    // ── Dynamic images (app-owned pixel surfaces) ───────────────────
-    /// Create an image from raw RGBA8 pixels (tightly packed, stride =
-    /// w * 4, non-premultiplied). Returns a handle usable with
-    /// draw_image / update_image_rgba / delete_image; zero on failure.
-    /// Unlike load_image the pixels come from the app (a raster
-    /// document, a video frame, a CPU-composited canvas), so the handle
-    /// is NOT cached/deduplicated — the caller owns its lifetime and
-    /// must delete_image() it. Resource ops, not draw ops: safe to call
-    /// from a custom-paint handler; the display-list recorder forwards
-    /// them straight to the device painter.
+protected:
+    // Backend-only dynamic-image hooks. Public callers create ImageHandle
+    // values through Renderer/App and update/reset those handles directly;
+    // transient Painter objects never own the public resource lifecycle.
     virtual std::uint32_t create_image_rgba(int w, int h,
                                             const std::uint8_t* pixels) {
         (void)w; (void)h; (void)pixels;
         return 0;
     }
-    /// Replace the full pixel contents of an image created by
-    /// create_image_rgba. Dimensions must match the creation size.
     virtual void update_image_rgba(std::uint32_t image,
                                    const std::uint8_t* pixels) {
         (void)image; (void)pixels;
     }
-    /// Release an image created by create_image_rgba. Handles from
-    /// load_image are cache-owned and must NOT be passed here.
     virtual void delete_image(std::uint32_t image) { (void)image; }
+
+    friend class detail::ImageRegistry;
+    friend class detail::DisplayListBuilder;
+
+public:
 
     // ── Clipping ────────────────────────────────────────────────────
     virtual void push_clip(const Rect& r) = 0;

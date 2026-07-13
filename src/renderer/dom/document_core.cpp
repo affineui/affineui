@@ -324,7 +324,7 @@ void Document::set_html(std::string_view html) {
         detail::snapshot_scroll_state(*impl_, /*include_elements=*/false);
     // The whole DOM is being replaced â€” any view-reconcile node mapping
     // is now stale.
-    if (impl_->view_sink_reset) impl_->view_sink_reset();
+    if (impl_->view_sink) impl_->view_sink->reset_mappings();
     impl_->html.assign(html);
     impl_->blocks.clear();
     impl_->style_store.reset();
@@ -1007,7 +1007,7 @@ class DocumentViewSink final : public ViewSink {
 public:
     explicit DocumentViewSink(detail::DocumentImpl& impl) : impl_(impl) {}
 
-    void reset() {
+    void reset_mappings() override {
         elems_.clear();
         texts_.clear();
         raw_groups_.clear();
@@ -1529,7 +1529,6 @@ ViewSink* Document::begin_view_mutations() {
     detail::debug_validate_attr_lists(*impl_, "begin-view-mutations");
     if (!impl_->view_sink) {
         auto sink = std::make_unique<DocumentViewSink>(*impl_);
-        impl_->view_sink_reset = [raw = sink.get()] { raw->reset(); };
         impl_->view_sink = std::move(sink);
     }
     if (!impl_->view_batch_active) {
@@ -1859,7 +1858,7 @@ void Document::set_imm_view(std::function<void()> view_fn) {
         // normal parse path and ends with an empty <body>.
         set_html("");
     }
-    impl_->imm->bind(this, impl_->doc);
+    impl_->imm->bind(impl_.get(), impl_->doc);
 #endif
     impl_->imm->set_view_fn(std::move(view_fn));
 }

@@ -23,7 +23,14 @@
 namespace affineui::detail::json {
 
 struct Value {
-    enum class Kind : std::uint8_t { Null, Bool, Number, String, Array, Object };
+    enum class Kind : std::uint8_t {
+        Null,
+        Boolean,
+        Number,
+        String,
+        Array,
+        Object
+    };
 
     Kind        kind{Kind::Null};
     bool        boolean{false};
@@ -32,34 +39,59 @@ struct Value {
     std::vector<Value> array;
     std::vector<std::pair<std::string, Value>> object;
 
+    Value();
+    ~Value();
+    Value(const Value&);
+    Value(Value&&) noexcept;
+    Value& operator=(const Value&);
+    Value& operator=(Value&&) noexcept;
+
     [[nodiscard]] bool is_object() const noexcept { return kind == Kind::Object; }
     [[nodiscard]] bool is_string() const noexcept { return kind == Kind::String; }
     [[nodiscard]] bool is_number() const noexcept { return kind == Kind::Number; }
 
     /// Object member lookup; nullptr when absent or not an object.
-    [[nodiscard]] const Value* get(std::string_view key) const noexcept {
-        if (kind != Kind::Object) return nullptr;
-        for (const auto& [k, v] : object) {
-            if (k == key) return &v;
-        }
-        return nullptr;
-    }
+    [[nodiscard]] const Value* get(std::string_view key) const noexcept;
 
     /// Convenience: object member as string ("" when absent/wrong type).
-    [[nodiscard]] std::string_view get_string(std::string_view key) const noexcept {
-        const Value* v = get(key);
-        return (v != nullptr && v->kind == Kind::String)
-                   ? std::string_view{v->string}
-                   : std::string_view{};
-    }
+    [[nodiscard]] std::string_view get_string(
+        std::string_view key) const noexcept;
 
     /// Convenience: object member as number (`fallback` when absent/wrong type).
     [[nodiscard]] double get_number(std::string_view key,
-                                    double fallback = 0.0) const noexcept {
-        const Value* v = get(key);
-        return (v != nullptr && v->kind == Kind::Number) ? v->number : fallback;
-    }
+                                    double fallback = 0.0) const noexcept;
 };
+
+inline Value::Value() = default;
+inline Value::~Value() = default;
+inline Value::Value(const Value&) = default;
+inline Value::Value(Value&&) noexcept = default;
+inline Value& Value::operator=(const Value&) = default;
+inline Value& Value::operator=(Value&&) noexcept = default;
+
+inline const Value* Value::get(std::string_view key) const noexcept {
+    if (kind != Kind::Object) return nullptr;
+    for (const auto& [member_key, member_value] : object) {
+        if (member_key == key) return &member_value;
+    }
+    return nullptr;
+}
+
+inline std::string_view Value::get_string(
+    std::string_view key) const noexcept {
+    const Value* value = get(key);
+    return (value != nullptr && value->kind == Kind::String)
+               ? std::string_view{value->string}
+               : std::string_view{};
+}
+
+inline double Value::get_number(std::string_view key,
+                                double fallback) const noexcept {
+    const Value* value = get(key);
+    return (value != nullptr && value->kind == Kind::Number)
+               ? value->number
+               : fallback;
+}
 
 namespace detail_impl {
 
@@ -260,11 +292,11 @@ struct Parser {
                 out.kind = Value::Kind::String;
                 return parse_string(out.string);
             case 't':
-                out.kind = Value::Kind::Bool;
+                out.kind = Value::Kind::Boolean;
                 out.boolean = true;
                 return literal("true");
             case 'f':
-                out.kind = Value::Kind::Bool;
+                out.kind = Value::Kind::Boolean;
                 out.boolean = false;
                 return literal("false");
             case 'n':

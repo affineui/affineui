@@ -27,6 +27,7 @@
 //   thread — same one that owns your graphics context.
 
 #include "affineui/embed.h"
+#include "affineui/image.h"
 #include "affineui/types.h"
 
 #include <cstdint>
@@ -135,6 +136,23 @@ public:
     /// frame-loop control flow — call this once per your-game's-frame
     /// from inside your render pass.
     void render(Document& doc, int fb_w, int fb_h, float dpi_scale);
+
+    /// Dispatch using the renderer-owned Painter for any exact interaction
+    /// relayout. No Painter escapes or is retained by the Document.
+    DispatchResult dispatch(Document& doc, const Event& ev) const;
+
+    /// Exact caret geometry using the renderer-owned measurer. No Painter is
+    /// exposed or retained by the Document.
+    [[nodiscard]] Rect caret_rect(Document& doc) const;
+
+    /// Create a renderer-owned dynamic RGBA8 image. The byte span must be
+    /// exactly width * height * 4. Returns an invalid handle when the renderer
+    /// is not ready, the input is invalid, or the call is made from a thread
+    /// other than the renderer's owner thread.
+    [[nodiscard]] ImageHandle create_image_rgba(
+        int width,
+        int height,
+        std::span<const std::uint8_t> rgba);
 
     /// Draw a lightweight native debug overlay into the current render
     /// pass. This intentionally bypasses the document tree so perf

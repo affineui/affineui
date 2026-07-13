@@ -447,15 +447,23 @@ affineui::Point find_hovered_button(affineui::Document& doc) {
 affineui::Point find_hovered_id(affineui::Document& doc,
                                 std::string_view elem_id,
                                 int width,
-                                int height) {
+                                int height,
+                                affineui::Painter* measurer = nullptr) {
     for (int y = 0; y < height; y += 4) {
         for (int x = 0; x < width; x += 4) {
             affineui::Event move{};
             move.type = affineui::EventType::MouseMove;
             move.pos = {x, y};
-            doc.dispatch(move);
+            if (measurer) doc.dispatch(move, *measurer);
+            else doc.dispatch(move);
             if (doc.hovered_info().elem_id == elem_id) {
-                return {x, y};
+                if (!measurer) return {x, y};
+                // A hover selector may have changed layout. Settle it and
+                // re-hit-test the same point so callers receive a coordinate
+                // that remains on the target for the following press.
+                doc.layout(width, height, measurer);
+                doc.dispatch(move, *measurer);
+                if (doc.hovered_info().elem_id == elem_id) return {x, y};
             }
         }
     }
@@ -465,20 +473,34 @@ affineui::Point find_hovered_id(affineui::Document& doc,
 affineui::Point find_hovered_chain_id(affineui::Document& doc,
                                       std::string_view elem_id,
                                       int width,
-                                      int height) {
+                                      int height,
+                                      affineui::Painter* measurer = nullptr) {
     for (int y = 0; y < height; y += 4) {
         for (int x = 0; x < width; x += 4) {
             affineui::Event move{};
             move.type = affineui::EventType::MouseMove;
             move.pos = {x, y};
-            doc.dispatch(move);
+            if (measurer) doc.dispatch(move, *measurer);
+            else doc.dispatch(move);
             const auto chain = doc.hovered_info_chain();
             const bool found = std::any_of(
                 chain.begin(), chain.end(),
                 [&](const affineui::Document::HoverInfo& info) {
                     return info.elem_id == elem_id;
                 });
-            if (found) return {x, y};
+            if (found) {
+                if (!measurer) return {x, y};
+                doc.layout(width, height, measurer);
+                doc.dispatch(move, *measurer);
+                const auto settled = doc.hovered_info_chain();
+                if (std::any_of(
+                        settled.begin(), settled.end(),
+                        [&](const affineui::Document::HoverInfo& info) {
+                            return info.elem_id == elem_id;
+                        })) {
+                    return {x, y};
+                }
+            }
         }
     }
     return {-1, -1};
@@ -815,7 +837,7 @@ TEST_CASE("checks toggle on mouse DOWN and are not re-toggled by the release") {
         e.type = type;
         e.button = affineui::MouseButton::Left;
         e.pos = pos;
-        return doc.dispatch(e);
+        return doc.dispatch(e, painter);
     };
 
     // decius.js wires pointerdown: the state flips the moment the button
@@ -901,13 +923,13 @@ TEST_CASE("UiControls script opt-in owns default widget behavior") {
         down.type = affineui::EventType::MouseDown;
         down.button = affineui::MouseButton::Left;
         down.pos = p;
-        doc.dispatch(down);
+        doc.dispatch(down, painter);
 
         affineui::Event up{};
         up.type = affineui::EventType::MouseUp;
         up.button = affineui::MouseButton::Left;
         up.pos = p;
-        doc.dispatch(up);
+        doc.dispatch(up, painter);
     };
     auto hovered_has_checked = [&] {
         const auto chain = doc.hovered_info_chain();
@@ -931,6 +953,28 @@ TEST_CASE("UiControls script opt-in owns default widget behavior") {
     doc.detach_script(affineui::DocumentScript::UiControls);
     click();
     CHECK(hovered_has_checked());
+}
+
+TEST_CASE("custom paint may unregister itself during invocation") {
+    affineui::Document doc;
+    RecordingPainter painter;
+    int calls = 0;
+    doc.set_custom_paint(
+        "self-removing",
+        [&](affineui::Painter&, const affineui::Rect&) {
+            ++calls;
+            doc.set_custom_paint("self-removing", {});
+        });
+    doc.set_html(R"HTML(
+        <div data-aui-paint="self-removing"
+             style="display:block;width:40px;height:20px"></div>
+    )HTML");
+    doc.layout(80, 40, &painter);
+
+    CHECK_NOTHROW(doc.draw(painter));
+    CHECK(calls == 1);
+    CHECK_NOTHROW(doc.draw(painter));
+    CHECK(calls == 1);
 }
 
 TEST_CASE("UiControls script updates range input and Decius knob markup") {
@@ -1365,13 +1409,13 @@ TEST_CASE("fixed Decius menus stay under scrolled triggers without changing scro
     wheel.type = affineui::EventType::MouseWheel;
     wheel.pos = {10, 10};
     wheel.wheel_dy = -3.0f;
-    CHECK(doc.dispatch(wheel).redraw_requested);
+    CHECK(doc.dispatch(wheel, painter).redraw_requested);
     doc.layout(240, 120, &painter);
 
-    auto file = find_hovered_id(doc, "file", 240, 120);
+    auto file = find_hovered_id(doc, "file", 240, 120, &painter);
     REQUIRE(file.x >= 0);
     doc.layout(240, 120, &painter);
-    file = find_hovered_id(doc, "file", 240, 120);
+    file = find_hovered_id(doc, "file", 240, 120, &painter);
     REQUIRE(file.x >= 0);
     const auto trigger_bounds = hovered_bounds_for_id(doc, "file");
     REQUIRE(trigger_bounds.y >= 0);
@@ -1382,20 +1426,21 @@ TEST_CASE("fixed Decius menus stay under scrolled triggers without changing scro
         down.type = affineui::EventType::MouseDown;
         down.button = affineui::MouseButton::Left;
         down.pos = p;
-        doc.dispatch(down);
+        doc.dispatch(down, painter);
 
         affineui::Event up{};
         up.type = affineui::EventType::MouseUp;
         up.button = affineui::MouseButton::Left;
         up.pos = p;
-        doc.dispatch(up);
+        doc.dispatch(up, painter);
     };
 
     click_at(file);
     doc.layout(240, 120, &painter);
     CHECK(doc.content_size().height == before_size.height);
 
-    const auto open = find_hovered_chain_id(doc, "open-item", 240, 120);
+    const auto open =
+        find_hovered_chain_id(doc, "open-item", 240, 120, &painter);
     REQUIRE(open.x >= 0);
     const auto open_bounds = hovered_bounds_for_id(doc, "open-item");
     REQUIRE(open_bounds.y >= 0);
@@ -1427,7 +1472,7 @@ TEST_CASE("fixed Decius menus flip upward to stay inside the viewport") {
     )HTML");
     doc.layout(180, 140, &painter);
 
-    auto file = find_hovered_id(doc, "file", 180, 140);
+    auto file = find_hovered_id(doc, "file", 180, 140, &painter);
     REQUIRE(file.x >= 0);
     const auto trigger_bounds = hovered_bounds_for_id(doc, "file");
 
@@ -1435,15 +1480,16 @@ TEST_CASE("fixed Decius menus flip upward to stay inside the viewport") {
     down.type = affineui::EventType::MouseDown;
     down.button = affineui::MouseButton::Left;
     down.pos = file;
-    doc.dispatch(down);
+    doc.dispatch(down, painter);
     affineui::Event up{};
     up.type = affineui::EventType::MouseUp;
     up.button = affineui::MouseButton::Left;
     up.pos = file;
-    doc.dispatch(up);
+    doc.dispatch(up, painter);
     doc.layout(180, 140, &painter);
 
-    const auto open = find_hovered_chain_id(doc, "open-item", 180, 140);
+    const auto open =
+        find_hovered_chain_id(doc, "open-item", 180, 140, &painter);
     REQUIRE(open.x >= 0);
     const auto item_bounds = hovered_bounds_for_id(doc, "open-item");
     const auto menu_bounds = hovered_bounds_for_id(doc, "menu-file");
@@ -4217,14 +4263,16 @@ TEST_CASE("dark synth unchecked checkbox keeps its box after hover leave and dra
     constexpr int h = 860;
     ui.document().layout(w, h, &painter);
 
-    const affineui::Point sync = find_hovered_id(ui.document(), "sync", w, h);
+    const affineui::Point sync =
+        find_hovered_id(ui.document(), "sync", w, h, &painter);
     REQUIRE(sync.x >= 0);
     affineui::Event move{};
     move.type = affineui::EventType::MouseMove;
     move.pos = sync;
     ui.dispatch(move);
 
-    const affineui::Point sub = find_hovered_id(ui.document(), "sub", w, h);
+    const affineui::Point sub =
+        find_hovered_id(ui.document(), "sub", w, h, &painter);
     REQUIRE(sub.x >= 0);
     move.pos = sub;
     ui.dispatch(move);
@@ -4350,12 +4398,13 @@ TEST_CASE("dark synth C++ value interactions keep checked checkbox visible") {
         ev.type = type;
         ev.pos = pos;
         ev.button = button;
-        ui.dispatch(ev);
+        ui.dispatch(ev, painter);
         ui.document().layout(w, h, &painter);
     };
 
     ui.document().layout(w, h, &painter);
-    const affineui::Point sync = find_hovered_id(ui.document(), "sync", w, h);
+    const affineui::Point sync =
+        find_hovered_id(ui.document(), "sync", w, h, &painter);
     REQUIRE(sync.x >= 0);
     send_mouse(affineui::EventType::MouseMove, sync);
     send_mouse(affineui::EventType::MouseDown, sync,
@@ -4364,7 +4413,8 @@ TEST_CASE("dark synth C++ value interactions keep checked checkbox visible") {
                affineui::MouseButton::Left);
     REQUIRE(state.sync);
 
-    const affineui::Point sub = find_hovered_id(ui.document(), "sub", w, h);
+    const affineui::Point sub =
+        find_hovered_id(ui.document(), "sub", w, h, &painter);
     REQUIRE(sub.x >= 0);
     send_mouse(affineui::EventType::MouseMove, sub);
     send_mouse(affineui::EventType::MouseDown, sub,
@@ -4374,7 +4424,7 @@ TEST_CASE("dark synth C++ value interactions keep checked checkbox visible") {
                affineui::MouseButton::Left);
 
     const affineui::Point fader =
-        find_hovered_id(ui.document(), "fader-a", w, h);
+        find_hovered_id(ui.document(), "fader-a", w, h, &painter);
     REQUIRE(fader.x >= 0);
     send_mouse(affineui::EventType::MouseMove, fader);
     send_mouse(affineui::EventType::MouseDown, fader,
@@ -4394,7 +4444,7 @@ TEST_CASE("dark synth C++ value interactions keep checked checkbox visible") {
     CHECK(state.values["fader-a"] > fader_after_down_drag);
 
     const affineui::Point shape =
-        find_hovered_id(ui.document(), "shape", w, h);
+        find_hovered_id(ui.document(), "shape", w, h, &painter);
     REQUIRE(shape.x >= 0);
     send_mouse(affineui::EventType::MouseMove, shape);
     send_mouse(affineui::EventType::MouseDown, shape,
@@ -4576,17 +4626,17 @@ TEST_CASE("game editor inspector keeps Decius check and switch interactive acros
         ev.type = type;
         ev.pos = pos;
         ev.button = button;
-        ui.dispatch(ev);
+        ui.dispatch(ev, painter);
         ui.document().layout(w, h, &painter);
     };
 
     ui.document().layout(w, h, &painter);
     const affineui::Point object =
-        find_hovered_chain_id(ui.document(), "object-0", w, h);
+        find_hovered_chain_id(ui.document(), "object-0", w, h, &painter);
     const affineui::Point check =
-        find_hovered_chain_id(ui.document(), "cast-shadows", w, h);
+        find_hovered_chain_id(ui.document(), "cast-shadows", w, h, &painter);
     const affineui::Point toggle =
-        find_hovered_chain_id(ui.document(), "gpu-skinning", w, h);
+        find_hovered_chain_id(ui.document(), "gpu-skinning", w, h, &painter);
     REQUIRE(object.x >= 0);
     REQUIRE(check.x >= 0);
     REQUIRE(toggle.x >= 0);
@@ -10654,7 +10704,7 @@ TEST_CASE("UiScript: deterministic docking gesture FUZZER (seeded; invariants "
     };
     rebuild();
 
-    affineui::UiScript ui(doc, W, H, &painter);
+    affineui::UiScript ui(doc, W, H);
     ui.set_step_hook([&](const affineui::DispatchResult& r) {
         if (r.layout_changed) rebuild();
     });
@@ -10753,7 +10803,7 @@ TEST_CASE("UiScript: bottom pane docks to the bottom of Hierarchy and back "
     };
     rebuild();
 
-    affineui::UiScript ui(doc, W, H, &painter);
+    affineui::UiScript ui(doc, W, H);
     ui.set_step_hook([&](const affineui::DispatchResult& r) {
         if (r.layout_changed) rebuild();
     });
@@ -12359,24 +12409,24 @@ TEST_CASE("caret_rect tracks the IME cursor inside the preedit") {
     affineui::Document doc;
     RecordingPainter painter;
     focus_ime_input(doc, painter);
-    const auto rect_before = doc.caret_rect();
+    const auto rect_before = doc.caret_rect(painter);
 
     // Cursor at the end of a two-codepoint preedit sits right of the
     // committed-caret position; cursor 0 sits back at it.
     doc.dispatch(composition_event("\xE3\x81\x8B\xE3\x82\x93", -1));
-    const auto rect_end = doc.caret_rect();
+    const auto rect_end = doc.caret_rect(painter);
     CHECK(rect_end.x > rect_before.x);
 
     doc.dispatch(composition_event("\xE3\x81\x8B\xE3\x82\x93", 0));
-    const auto rect_start = doc.caret_rect();
+    const auto rect_start = doc.caret_rect(painter);
     CHECK(rect_start.x == rect_before.x);
 
     // A cursor byte offset inside a codepoint snaps down to its start:
     // offsets 4 and 3 (mid-second-codepoint) land on the same boundary.
     doc.dispatch(composition_event("\xE3\x81\x8B\xE3\x82\x93", 4));
-    const auto rect_mid = doc.caret_rect();
+    const auto rect_mid = doc.caret_rect(painter);
     doc.dispatch(composition_event("\xE3\x81\x8B\xE3\x82\x93", 3));
-    CHECK(rect_mid.x == doc.caret_rect().x);
+    CHECK(rect_mid.x == doc.caret_rect(painter).x);
 }
 
 #if !defined(AFFINEUI_STUB_BUILD)
@@ -12427,13 +12477,13 @@ TEST_CASE("an end-of-preedit IME cursor lands past the last codepoint") {
     const std::string preedit = "\xE3\x81\x8B\xE3\x82\x93";  // "かん", 6 bytes
 
     doc.dispatch(composition_event(preedit, -1));
-    const auto rect_implicit_end = doc.caret_rect();
+    const auto rect_implicit_end = doc.caret_rect(painter);
 
     doc.dispatch(composition_event(preedit, static_cast<int>(preedit.size())));
-    const auto rect_explicit_end = doc.caret_rect();
+    const auto rect_explicit_end = doc.caret_rect(painter);
 
     doc.dispatch(composition_event(preedit, 3));
-    const auto rect_last_boundary = doc.caret_rect();
+    const auto rect_last_boundary = doc.caret_rect(painter);
 
     CHECK(rect_implicit_end.x == rect_explicit_end.x);
     CHECK(rect_implicit_end.x > rect_last_boundary.x);

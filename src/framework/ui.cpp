@@ -24,6 +24,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <mutex>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -95,23 +96,42 @@ struct UiImpl {
     std::vector<std::function<void(double)>> frame_callbacks;
     std::vector<Document::HoverInfo> hover_chain_scratch;
     bool pointer_captured{false};
+    std::uint64_t log_sink_registration{0};
 };
 
 // ── Internal log sink (embed_log.h) ─────────────────────────────────
 namespace {
-LogFn g_log_fn   = nullptr;
-void* g_log_user = nullptr;
+LogFn        g_log_fn{nullptr};
+void*        g_log_user{nullptr};
+std::uint64_t g_log_registration{0};
+std::uint64_t g_next_log_registration{1};
+std::mutex    g_log_mutex;
 }  // namespace
 
-void set_log_sink(LogFn fn, void* user) noexcept {
-    g_log_fn   = fn;
+std::uint64_t set_log_sink(LogFn fn, void* user) noexcept {
+    const std::lock_guard<std::mutex> lock(g_log_mutex);
+    std::uint64_t id = g_next_log_registration++;
+    if (id == 0) id = g_next_log_registration++;
     g_log_user = user;
+    g_log_fn = fn;
+    g_log_registration = id;
+    return id;
+}
+
+void clear_log_sink(std::uint64_t registration) noexcept {
+    const std::lock_guard<std::mutex> lock(g_log_mutex);
+    if (registration == 0 || g_log_registration != registration) return;
+    g_log_fn = nullptr;
+    g_log_user = nullptr;
+    g_log_registration = 0;
 }
 
 // Exposed to the log facility (log.cpp) so the embedder's raw-pointer sink
 // keeps firing alongside the new std::function handler.
-LogFn legacy_log_fn() noexcept   { return g_log_fn; }
-void* legacy_log_user() noexcept { return g_log_user; }
+LegacyLogSink legacy_log_sink() noexcept {
+    const std::lock_guard<std::mutex> lock(g_log_mutex);
+    return {g_log_fn, g_log_user};
+}
 
 void log_msg(LogLevel level, const char* msg) noexcept {
     // Route through the public facility: default = console + affinetools,
@@ -125,10 +145,10 @@ void log_msg(LogLevel level, const char* msg) noexcept {
 
 }  // namespace detail
 
-Ui::Ui() : impl_(std::make_unique<detail::UiImpl>()) {}
-Ui::~Ui() = default;
-Ui::Ui(Ui&&) noexcept            = default;
-Ui& Ui::operator=(Ui&&) noexcept = default;
+Ui::Ui() : impl_(std::make_shared<detail::UiImpl>()) {}
+Ui::~Ui() {
+    detail::clear_log_sink(impl_->log_sink_registration);
+}
 
 // ── Content ─────────────────────────────────────────────────────────
 
@@ -195,7 +215,9 @@ void Ui::invalidate() {
 
 void Ui::init(const InitDesc& desc) {
     if (desc.log) {
-        detail::set_log_sink(desc.log, desc.log_user);
+        detail::clear_log_sink(impl_->log_sink_registration);
+        impl_->log_sink_registration =
+            detail::set_log_sink(desc.log, desc.log_user);
     }
     if (desc.resource_loader) {
         impl_->document.set_resource_loader(desc.resource_loader);
@@ -305,51 +327,68 @@ void Ui::reset() {
 // ── Input ───────────────────────────────────────────────────────────
 
 bool Ui::dispatch(const Event& e) {
-    const auto event_capture_handlers = impl_->event_capture_handlers;
+    return dispatch_impl(e, nullptr);
+}
+
+bool Ui::dispatch(const Event& e, Painter& measurer) {
+    return dispatch_impl(e, &measurer);
+}
+
+bool Ui::dispatch_impl(const Event& e, Painter* measurer) {
+    const auto impl = impl_;
+    // Resize always requires a new frame, even when an application-level
+    // capture handler consumes the event before document dispatch.
+    if (e.type == EventType::Resize) {
+        impl->dirty = true;
+    }
+    const auto event_capture_handlers = impl->event_capture_handlers;
     if (!event_capture_handlers.empty()) {
-        impl_->document.hovered_info_chain(impl_->hover_chain_scratch);
+        impl->document.hovered_info_chain(impl->hover_chain_scratch);
         bool capture_consumed = false;
         for (const auto& cb : event_capture_handlers) {
             capture_consumed =
-                cb(e, impl_->hover_chain_scratch) || capture_consumed;
+                cb(e, impl->hover_chain_scratch) || capture_consumed;
         }
         if (capture_consumed) return true;
     }
-    const auto event_handlers = impl_->event_handlers;
-    if (impl_->pointer_captured && e.type == EventType::MouseMove &&
+    const auto event_handlers = impl->event_handlers;
+    if (impl->pointer_captured && e.type == EventType::MouseMove &&
         !event_handlers.empty()) {
-        impl_->document.hovered_info_chain(impl_->hover_chain_scratch);
+        impl->document.hovered_info_chain(impl->hover_chain_scratch);
         bool consumed = false;
         for (const auto& cb : event_handlers) {
-            consumed = cb(e, impl_->hover_chain_scratch) || consumed;
+            consumed = cb(e, impl->hover_chain_scratch) || consumed;
         }
         if (consumed) return true;
     }
 
-    if (e.type == EventType::Resize) {
-        impl_->dirty = true;
-    }
-    const auto result = impl_->document.dispatch(e);
+    const auto result = measurer != nullptr
+                            ? impl->document.dispatch(e, *measurer)
+                            : impl->renderer.dispatch(impl->document, e);
     if (result.redraw_requested || result.invalidate_view) {
-        impl_->dirty = true;  // a hover/focus/state change needs a repaint
+        impl->dirty = true;  // a hover/focus/state change needs a repaint
     }
-    if (result.event_consumed) return true;
 
     const bool mouse_up_left =
         e.type == EventType::MouseUp && e.button == MouseButton::Left;
     const bool needs_chain =
         !event_handlers.empty() || mouse_up_left;
     if (needs_chain) {
-        impl_->document.hovered_info_chain(impl_->hover_chain_scratch);
+        impl->document.hovered_info_chain(impl->hover_chain_scratch);
     } else {
-        impl_->hover_chain_scratch.clear();
+        impl->hover_chain_scratch.clear();
     }
-    const auto& chain = impl_->hover_chain_scratch;
-    bool event_consumed = false;
-    for (const auto& cb : event_handlers) {
-        event_consumed = cb(e, chain) || event_consumed;
+    const auto& chain = impl->hover_chain_scratch;
+    bool event_consumed = result.event_consumed;
+    if (!result.event_consumed) {
+        for (const auto& cb : event_handlers) {
+            event_consumed = cb(e, chain) || event_consumed;
+        }
     }
-    if (event_consumed) return true;
+    // A native handler that consumes MouseUp owns the gesture. A document
+    // control that consumes MouseUp still represents a click, so selector and
+    // imm callbacks below must observe it (checkbox/button activation).
+    if (event_consumed && !result.event_consumed) return true;
 
     // Click routing: on MouseUp, check (1) user-registered selectors
     // via on_click across the hovered ancestor chain, then (2) imm-mode
@@ -359,7 +398,7 @@ bool Ui::dispatch(const Event& e) {
     if (mouse_up_left) {
         if (!chain.empty()) {
             std::vector<std::function<void()>> callbacks;
-            const auto click_handlers = impl_->click_handlers;
+            const auto click_handlers = impl->click_handlers;
             for (const auto& [selector, cb] : click_handlers) {
                 const bool matched = std::any_of(
                     chain.begin(), chain.end(),
@@ -374,13 +413,13 @@ bool Ui::dispatch(const Event& e) {
             if (!callbacks.empty()) return true;
             // imm-mode handler hit?
             for (const auto& info : chain) {
-                if (impl_->document.invoke_imm_click(info.elem_id)) {
+                if (impl->document.invoke_imm_click(info.elem_id)) {
                     return true;
                 }
             }
         }
     }
-    return false;
+    return event_consumed;
 }
 
 int Ui::hovered_cursor() const {
@@ -392,7 +431,7 @@ bool Ui::text_input_active() const {
 }
 
 Rect Ui::caret_rect() const {
-    return impl_->document.caret_rect();
+    return impl_->renderer.caret_rect(impl_->document);
 }
 
 std::vector<Document::HoverInfo> Ui::hovered_info_chain() const {
@@ -430,7 +469,8 @@ void Ui::on_frame(std::function<void(double)> cb) {
 }
 
 void Ui::run_frame_callbacks(double dt_seconds) {
-    const auto callbacks = impl_->frame_callbacks;
+    const auto impl = impl_;
+    const auto callbacks = impl->frame_callbacks;
     for (const auto& cb : callbacks) {
         cb(dt_seconds);
     }

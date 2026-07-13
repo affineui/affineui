@@ -45,8 +45,8 @@ public:
 
     Ui(const Ui&)            = delete;
     Ui& operator=(const Ui&) = delete;
-    Ui(Ui&&) noexcept;
-    Ui& operator=(Ui&&) noexcept;
+    Ui(Ui&&) = delete;
+    Ui& operator=(Ui&&) = delete;
 
     // ── Content ─────────────────────────────────────────────────────
 
@@ -152,6 +152,9 @@ public:
     /// the UI "consumed" the event (e.g. a click hit a registered
     /// handler). If true, your game should suppress its own handling.
     bool dispatch(const Event& e);
+    /// Exact-dispatch overload for headless/custom-renderer hosts. `measurer`
+    /// is borrowed for this call only and is never retained.
+    bool dispatch(const Event& e, Painter& measurer);
 
     /// Current hovered element chain, deepest first. Native widgets use
     /// this to implement browser-like pointer capture against their own
@@ -243,7 +246,8 @@ public:
     Size content_size() const;
 
 private:
-    std::unique_ptr<detail::UiImpl> impl_;
+    bool dispatch_impl(const Event& e, Painter* measurer);
+    std::shared_ptr<detail::UiImpl> impl_;
 };
 
 }  // namespace affineui

@@ -1185,11 +1185,6 @@ std::size_t text_caret_offset_from_point(detail::DocumentImpl& impl,
     auto& block = impl.blocks[static_cast<std::size_t>(idx)];
     if (!block.text_control || block.text_value.empty()) return 0;
     const TextLayoutEntry* entry = cached_text_layout_entry(impl, idx);
-    if (entry == nullptr && impl.last_measurer != nullptr) {
-        const auto g = detail::text_control_geometry(impl, idx, *impl.last_measurer);
-        entry = &detail::ensure_text_layout_entry(
-            impl, idx, g, block, *impl.last_measurer);
-    }
     if (entry == nullptr) {
         const auto& cs = impl.style_store.computed(block.id);
         const int content_x = block.bounds.x + cs.used_border_left() +
@@ -1798,9 +1793,14 @@ bool Document::text_input_active() const {
 Rect Document::caret_rect() const {
     Block* control = nullptr;
     if (!detail::focused_text_control(*impl_, control)) return {};
-    if (impl_->last_measurer == nullptr) return {};
     return detail::text_caret_rect(*impl_, impl_->focused_idx,
-                                   *impl_->last_measurer);
+                                   nullptr);
+}
+
+Rect Document::caret_rect(Painter& measurer) const {
+    Block* control = nullptr;
+    if (!detail::focused_text_control(*impl_, control)) return {};
+    return detail::text_caret_rect(*impl_, impl_->focused_idx, &measurer);
 }
 
 void Document::set_caret_blink_interval(double milliseconds) {
@@ -1820,35 +1820,38 @@ bool Document::tick_caret_blink() {
 }
 
 namespace detail {
-Rect text_caret_rect(detail::DocumentImpl& impl, int idx, Painter& painter) {
+Rect text_caret_rect(detail::DocumentImpl& impl, int idx, Painter* painter) {
     if (idx < 0 || idx >= static_cast<int>(impl.blocks.size())) return {};
     auto& block = impl.blocks[static_cast<std::size_t>(idx)];
     if (!block.text_control) return {};
-    const auto g = detail::text_control_geometry(impl, idx, painter);
-    const auto& entry =
-        detail::ensure_text_layout_entry(impl, idx, g, block, painter);
-    if (entry.caret_offsets.empty()) return {};
+    const TextLayoutEntry* entry = cached_text_layout_entry(impl, idx);
+    if (entry == nullptr && painter != nullptr) {
+        const auto g = detail::text_control_geometry(impl, idx, *painter);
+        entry = &detail::ensure_text_layout_entry(
+            impl, idx, g, block, *painter);
+    }
+    if (entry == nullptr || entry->caret_offsets.empty()) return {};
     const auto& value = detail::composed_text_value(impl, idx, block);
     const std::size_t caret_offset =
         std::min(detail::composed_caret_offset(impl, idx, block),
                  value.size());
     // Same offset→(x, line) mapping the caret painter uses.
-    auto it = std::lower_bound(entry.caret_offsets.begin(),
-                               entry.caret_offsets.end(), caret_offset);
-    std::size_t caret_index = it == entry.caret_offsets.end()
-        ? entry.caret_offsets.size() - 1
+    auto it = std::lower_bound(entry->caret_offsets.begin(),
+                               entry->caret_offsets.end(), caret_offset);
+    std::size_t caret_index = it == entry->caret_offsets.end()
+        ? entry->caret_offsets.size() - 1
         : static_cast<std::size_t>(
-              std::distance(entry.caret_offsets.begin(), it));
-    if (entry.caret_offsets[caret_index] != caret_offset && caret_index > 0) {
+              std::distance(entry->caret_offsets.begin(), it));
+    if (entry->caret_offsets[caret_index] != caret_offset && caret_index > 0) {
         --caret_index;
     }
-    const auto line = entry.caret_lines[caret_index];
-    const float x = detail::aligned_line_origin_x(entry, line) +
-                    entry.caret_x[caret_index];
-    const float line_h = std::max(1.0f, entry.css_line_height);
+    const auto line = entry->caret_lines[caret_index];
+    const float x = detail::aligned_line_origin_x(*entry, line) +
+                    entry->caret_x[caret_index];
+    const float line_h = std::max(1.0f, entry->css_line_height);
     return Rect{static_cast<int>(std::floor(x)),
                 static_cast<int>(std::floor(
-                    static_cast<float>(entry.text_y) +
+                    static_cast<float>(entry->text_y) +
                     static_cast<float>(line) * line_h)),
                 1,
                 static_cast<int>(std::ceil(line_h))};
@@ -1936,7 +1939,7 @@ bool update_text_composition(detail::DocumentImpl&,
                              std::size_t) {
     return false;
 }
-Rect text_caret_rect(detail::DocumentImpl&, int, Painter&) { return {}; }
+Rect text_caret_rect(detail::DocumentImpl&, int, Painter*) { return {}; }
 void splice_composition_display(detail::DocumentImpl&,
                                 lxb_dom_node_t*,
                                 Block&) {}
@@ -1944,6 +1947,7 @@ void splice_composition_display(detail::DocumentImpl&,
 
 bool Document::text_input_active() const { return false; }
 Rect Document::caret_rect() const { return {}; }
+Rect Document::caret_rect(Painter&) const { return {}; }
 void Document::set_caret_blink_interval(double) {}
 double Document::caret_blink_interval() const noexcept { return 0.0; }
 bool Document::tick_caret_blink() { return false; }

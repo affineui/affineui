@@ -343,10 +343,9 @@ app.load_view(&view);
 app.run();
 ```
 
-- **Lifetimes via `Rc`, not borrows.** `View` is `Rc<ViewInner>`;
-  `Widget` holds a clone of that `Rc` plus its `*mut affineui_widget`.
-  A widget therefore keeps its view alive (the Rust analog of pybind's
-  `keep_alive<0,1>`), and `Drop` order is always safe. `App`, `View`,
+- **Invalidating widget handles.** `View` owns its native View; `Widget` owns
+  only the C ABI's heap-copied weak `WidgetRef`. A Widget does not retain its
+  View and becomes inert after View destruction; `Drop` order is safe. `App`, `View`,
   `Widget`, `Ui` all embed `PhantomData<*const ()>` → `!Send + !Sync`,
   encoding the thread-affinity contract at compile time.
 - **Closures:** `on_click(impl FnMut() + 'static)` boxes the closure,
@@ -450,9 +449,9 @@ app.Run();
   `Document`-owned, `Ui`, `Widget`) — correct finalization even under
   thread aborts. Borrowed documents wrap the raw pointer and hold a
   strong reference to their `App` (never finalized).
-- **Widget → View lifetime:** every `Widget` holds a strong reference to
-  its `View` object (the `keep_alive<0,1>` analog), so the GC cannot
-  collect/finalize a view that live widgets still address.
+- **Widget → View lifetime:** a `Widget` does not keep its `View` alive. The
+  native invalidating handle returns defaults/no-ops after View collection or
+  disposal, and the Widget can still be disposed independently.
 - **Callback lifetime — the load-bearing detail:** managed closures are
   held via `GCHandle.Alloc(closure)`; `user` = `GCHandle.ToIntPtr`;
   `fn` = a single static `[UnmanagedCallersOnly]` trampoline per

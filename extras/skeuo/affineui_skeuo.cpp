@@ -723,6 +723,10 @@ PatchBay::PatchBay()
     canvas_name_ = board_name_ + "-cables";
 }
 
+PatchBay::~PatchBay() {
+    if (drag_.active) app_.release_pointer();
+}
+
 View::Scope PatchBay::board(View& v, std::string_view classes,
                             std::string_view key) {
     jacks_.clear();
@@ -867,17 +871,22 @@ bool PatchBay::patched(std::string_view jack_id) const {
 }
 
 void PatchBay::attach(App& app) {
-    app_ = &app;
+    app_ = app.handle();
+    const auto weak = to_weak_ref(this);
     app.set_custom_paint(canvas_name_,
-                         [this](Painter& painter, const Rect& bounds) {
-                             paint_cables(painter, bounds);
+                         [weak](Painter& painter, const Rect& bounds) {
+                             if (auto* self = weak.get()) {
+                                 self->paint_cables(painter, bounds);
+                             }
                          });
-    app.on_event([this, &app](const Event& ev,
-                              const std::vector<Document::HoverInfo>&
-                                  chain) {
-        return handle_event(app, ev, chain);
+    app.on_event([weak](const Event& ev,
+                        const std::vector<Document::HoverInfo>& chain) {
+        auto* self = weak.get();
+        return self != nullptr && self->handle_event(ev, chain);
     });
-    app.on_frame([this](double dt) { tick(dt); });
+    app.on_frame([weak](double dt) {
+        if (auto* self = weak.get()) self->tick(dt);
+    });
 }
 
 int PatchBay::next_color() const {
@@ -898,7 +907,7 @@ bool PatchBay::jack_center(std::string_view jack_id, float& x,
     // Anchor to the SOCKET artwork, not the jack's named outer column —
     // the outer box includes the label, which would hang every plug half
     // a label below its port. The socket carries data-skeuo-jack.
-    const Rect r = app_->document().find_element_rect(
+    const Rect r = app_.find_element_rect(
         "[data-skeuo-jack=" + std::string(jack_id) + "]");
     if (r.w <= 0 || r.h <= 0) return false;
     x = static_cast<float>(r.x) + static_cast<float>(r.w) * 0.5f;
@@ -911,7 +920,7 @@ std::optional<std::string> PatchBay::jack_at(float doc_x,
                                              float doc_y) const {
     if (!app_) return std::nullopt;
     for (const auto& id : jacks_) {
-        const Rect r = app_->document().find_element_rect(id);
+        const Rect r = app_.find_element_rect(id);
         if (r.w <= 0 || r.h <= 0) continue;
         if (doc_x >= static_cast<float>(r.x) &&
             doc_x <= static_cast<float>(r.x + r.w) &&
@@ -945,7 +954,7 @@ int PatchBay::cable_at(float doc_x, float doc_y) const {
     return -1;
 }
 
-bool PatchBay::handle_event(App& app, const Event& ev,
+bool PatchBay::handle_event(const Event& ev,
                             const std::vector<Document::HoverInfo>&
                                 chain) {
     const float mx = static_cast<float>(ev.pos.x);
@@ -959,13 +968,17 @@ bool PatchBay::handle_event(App& app, const Event& ev,
 
     if (ev.type == EventType::MouseUp && drag_.active) {
         const auto hit = jack_at(mx, my);
+        std::function<void()> changed;
         if (hit && *hit != drag_.anchor) {
             connect(drag_.anchor, *hit, drag_.color);
-            if (on_change) on_change();
+            changed = on_change;
         }
         drag_.active = false;
+        auto app = app_;
+        auto render = request_render;
         app.release_pointer();
-        if (request_render) request_render();
+        if (changed) changed();
+        if (render) render();
         return true;
     }
 
@@ -986,6 +999,7 @@ bool PatchBay::handle_event(App& app, const Event& ev,
         if (!jack_id.empty()) {
             std::string anchor = jack_id;
             int color = next_color();
+            std::function<void()> changed;
             const auto existing = std::find_if(
                 cables_.begin(), cables_.end(), [&](const Cable& c) {
                     return c.from == jack_id || c.to == jack_id;
@@ -994,11 +1008,13 @@ bool PatchBay::handle_event(App& app, const Event& ev,
                 anchor = existing->from == jack_id ? existing->to
                                                    : existing->from;
                 color = existing->color;
-                cables_.erase(existing);
-                if (on_change) on_change();
             }
             float fx = 0, fy = 0;
             if (!jack_center(anchor, fx, fy)) return false;
+            if (existing != cables_.end()) {
+                cables_.erase(existing);
+                changed = on_change;
+            }
 
             drag_.anchor = anchor;
             drag_.color = color;
@@ -1011,8 +1027,11 @@ bool PatchBay::handle_event(App& app, const Event& ev,
             drag_.vel_x = 0.0f;
             drag_.vel_y = 0.0f;
             drag_.active = true;
+            auto app = app_;
+            auto render = request_render;
             app.capture_pointer();
-            if (request_render) request_render();
+            if (changed) changed();
+            if (render) render();
             return true;
         }
 
@@ -1020,8 +1039,10 @@ bool PatchBay::handle_event(App& app, const Event& ev,
         const int ci = cable_at(mx, my);
         if (ci >= 0) {
             cables_.erase(cables_.begin() + ci);
-            if (on_change) on_change();
-            if (request_render) request_render();
+            auto changed = on_change;
+            auto render = request_render;
+            if (changed) changed();
+            if (render) render();
             return true;
         }
     }
@@ -1051,7 +1072,7 @@ void PatchBay::tick(double dt) {
     drag_.bob_x += drag_.vel_x * step;
     drag_.bob_y += drag_.vel_y * step;
 
-    if (app_) app_->request_custom_repaint(canvas_name_);
+    app_.request_custom_repaint(canvas_name_);
 }
 
 }  // namespace affineui::skeuo

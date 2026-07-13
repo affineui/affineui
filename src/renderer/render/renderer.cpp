@@ -20,9 +20,12 @@
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <span>
 #include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 #include "core/embed_log.h"
 
@@ -52,10 +55,198 @@ namespace affineui {
 
 namespace detail {
 
+class ImageLease final {
+public:
+    ImageLease(std::weak_ptr<ImageRegistry> owner_registry,
+               std::uint32_t owner_slot,
+               std::uint32_t owner_generation) noexcept
+        : registry(std::move(owner_registry)),
+          slot(owner_slot),
+          generation(owner_generation) {}
+    ~ImageLease();
+
+    std::weak_ptr<ImageRegistry> registry;
+    std::uint32_t slot{0};
+    std::uint32_t generation{0};
+    bool armed{false};
+};
+
+class ImageRegistry final
+    : public std::enable_shared_from_this<ImageRegistry> {
+public:
+    ImageRegistry() { slots_.push_back({}); }  // slot 0 is always invalid
+
+    void set_painter(Painter* painter) noexcept {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        painter_ = painter;
+        owner_thread_ = std::this_thread::get_id();
+    }
+
+    ImageHandle create(int width,
+                       int height,
+                       std::span<const std::uint8_t> rgba) {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        if (painter_ == nullptr || width <= 0 || height <= 0) return {};
+        if (std::this_thread::get_id() != owner_thread_) return {};
+        collect_retired_locked();
+        const auto w = static_cast<std::size_t>(width);
+        const auto h = static_cast<std::size_t>(height);
+        if (w > std::numeric_limits<std::size_t>::max() / 4u / h) return {};
+        const std::size_t expected = w * h * 4u;
+        if (rgba.size() != expected) return {};
+
+        std::uint32_t slot = 0;
+        for (std::size_t i = 1; i < slots_.size(); ++i) {
+            if (slots_[i].backend == 0) {
+                slot = static_cast<std::uint32_t>(i);
+                break;
+            }
+        }
+        if (slot == 0) {
+            slot = static_cast<std::uint32_t>(slots_.size());
+            slots_.push_back({});
+        }
+        auto& entry = slots_[slot];
+        // Allocate every fallible bookkeeping object before creating the GPU
+        // resource. If allocation throws, there is no backend image to leak.
+        auto lease = std::shared_ptr<ImageLease>(
+            new ImageLease{weak_from_this(), slot, entry.generation});
+        const std::uint32_t backend =
+            painter_->create_image_rgba(width, height, rgba.data());
+        if (backend == 0) return {};
+        entry.backend = backend;
+        entry.bytes = expected;
+        lease->armed = true;
+        return ImageHandle{std::move(lease)};
+    }
+
+    [[nodiscard]] bool valid(std::uint32_t slot,
+                             std::uint32_t generation) const noexcept {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        return valid_locked(slot, generation);
+    }
+
+    [[nodiscard]] bool valid_locked(std::uint32_t slot,
+                                    std::uint32_t generation) const noexcept {
+        if (painter_ == nullptr || slot == 0 || slot >= slots_.size()) {
+            return false;
+        }
+        const auto& entry = slots_[slot];
+        return entry.generation == generation && entry.backend != 0 &&
+               !entry.retired;
+    }
+
+    [[nodiscard]] std::uint32_t backend_id(
+        std::uint32_t slot,
+        std::uint32_t generation) noexcept {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        if (std::this_thread::get_id() == owner_thread_) {
+            collect_retired_locked();
+        }
+        return valid_locked(slot, generation) ? slots_[slot].backend : 0u;
+    }
+
+    bool update(std::uint32_t slot,
+                std::uint32_t generation,
+                std::span<const std::uint8_t> rgba) {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        if (std::this_thread::get_id() != owner_thread_) return false;
+        collect_retired_locked();
+        if (!valid_locked(slot, generation)) return false;
+        const auto& entry = slots_[slot];
+        if (rgba.size() != entry.bytes) return false;
+        painter_->update_image_rgba(entry.backend, rgba.data());
+        return true;
+    }
+
+    void release(std::uint32_t slot, std::uint32_t generation) noexcept {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        if (!valid_locked(slot, generation)) return;
+        auto& entry = slots_[slot];
+        if (std::this_thread::get_id() != owner_thread_) {
+            // GPU destruction is renderer-thread-only. Retire the generation
+            // immediately so all handles become invalid, then let the next
+            // renderer-thread operation collect the backend resource.
+            entry.retired = true;
+            entry.bytes = 0;
+            ++entry.generation;
+            if (entry.generation == 0) entry.generation = 1;
+            return;
+        }
+        try {
+            painter_->delete_image(entry.backend);
+        } catch (...) {
+            // Handle destruction is a no-throw boundary. A backend that throws
+            // forfeits the resource, but cannot crash user teardown.
+        }
+        invalidate(entry);
+    }
+
+    void shutdown() noexcept {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        if (painter_) {
+            for (std::size_t i = 1; i < slots_.size(); ++i) {
+                auto& entry = slots_[i];
+                if (entry.backend != 0) {
+                    try {
+                        painter_->delete_image(entry.backend);
+                    } catch (...) {
+                    }
+                }
+                invalidate(entry);
+            }
+        }
+        painter_ = nullptr;
+    }
+
+private:
+    struct Slot {
+        std::uint32_t backend{0};
+        std::uint32_t generation{1};
+        std::size_t bytes{0};
+        bool retired{false};
+    };
+
+    static void invalidate(Slot& entry) noexcept {
+        entry.backend = 0;
+        entry.bytes = 0;
+        entry.retired = false;
+        ++entry.generation;
+        if (entry.generation == 0) entry.generation = 1;
+    }
+
+    void collect_retired_locked() noexcept {
+        if (painter_ == nullptr) return;
+        for (std::size_t i = 1; i < slots_.size(); ++i) {
+            auto& entry = slots_[i];
+            if (!entry.retired || entry.backend == 0) continue;
+            try {
+                painter_->delete_image(entry.backend);
+            } catch (...) {
+            }
+            entry.backend = 0;
+            entry.retired = false;
+        }
+    }
+
+    Painter* painter_{nullptr};
+    std::thread::id owner_thread_{};
+    mutable std::mutex mutex_;
+    std::vector<Slot> slots_;
+};
+
+ImageLease::~ImageLease() {
+    if (!armed) return;
+    if (const auto owner = registry.lock()) {
+        owner->release(slot, generation);
+    }
+}
+
 struct RendererImpl {
     Color clear_color{30, 30, 46, 255};
     bool  ready{false};
     RenderStats stats{};
+    std::shared_ptr<ImageRegistry> images{std::make_shared<ImageRegistry>()};
 
 #if !defined(AFFINEUI_STUB_BUILD)
     NVGcontext*              vg{nullptr};
@@ -114,6 +305,31 @@ struct RendererImpl {
 
 }  // namespace detail
 
+bool ImageHandle::is_valid() const noexcept {
+    if (!lease_) return false;
+    const auto registry = lease_->registry.lock();
+    return registry && registry->valid(lease_->slot, lease_->generation);
+}
+
+bool ImageHandle::update(std::span<const std::uint8_t> rgba) const {
+    if (!lease_) return false;
+    const auto registry = lease_->registry.lock();
+    return registry &&
+           registry->update(lease_->slot, lease_->generation, rgba);
+}
+
+void ImageHandle::reset() noexcept {
+    lease_.reset();
+}
+
+std::uint32_t ImageHandle::backend_id() const noexcept {
+    if (!lease_) return 0;
+    const auto registry = lease_->registry.lock();
+    return registry
+               ? registry->backend_id(lease_->slot, lease_->generation)
+               : 0u;
+}
+
 Renderer::Renderer() : impl_(std::make_unique<detail::RendererImpl>()) {}
 Renderer::~Renderer() { shutdown(); }
 
@@ -122,11 +338,48 @@ bool Renderer::ready() const noexcept { return impl_->ready; }
 void Renderer::set_clear_color(Color c) { impl_->clear_color = c; }
 Color Renderer::clear_color() const     { return impl_->clear_color; }
 
+ImageHandle Renderer::create_image_rgba(
+    int width,
+    int height,
+    std::span<const std::uint8_t> rgba) {
+    return impl_->images->create(width, height, rgba);
+}
+
+Rect Renderer::caret_rect(Document& doc) const {
+#if defined(AFFINEUI_STUB_BUILD)
+    return doc.caret_rect();
+#else
+    return impl_->painter ? doc.caret_rect(*impl_->painter)
+                          : doc.caret_rect();
+#endif
+}
+
+DispatchResult Renderer::dispatch(Document& doc, const Event& ev) const {
+#if defined(AFFINEUI_STUB_BUILD)
+    return doc.dispatch(ev);
+#else
+    return impl_->painter ? doc.dispatch(ev, *impl_->painter)
+                          : doc.dispatch(ev);
+#endif
+}
+
 #if defined(AFFINEUI_STUB_BUILD)
 
 void Renderer::init_gl() {}
 void Renderer::init_embedded(const GpuContext&, const Allocator*) {}
-void Renderer::shutdown() { impl_->ready = false; }
+void Renderer::shutdown() {
+    // Drop cached resource leases and force a complete re-record after any
+    // later reinitialization. Backend ids are scoped to one painter/context
+    // and must never cross shutdown.
+    impl_->cached_display_list.clear();
+    impl_->cached_display_list_valid = false;
+    impl_->first_frame = true;
+    impl_->last_w = -1;
+    impl_->last_h = -1;
+    impl_->last_dpi = 1.0f;
+    impl_->images->shutdown();
+    impl_->ready = false;
+}
 void Renderer::render(Document&, int, int, float) {}
 void Renderer::draw_debug_overlay(std::string_view,
                                   std::span<const float>,
@@ -153,6 +406,7 @@ void Renderer::init_gl() {
     // exist, text simply won't render — by design we never crash.
     detail::register_default_font(impl_->vg);
     impl_->painter = detail::make_nanovg_painter(impl_->vg);
+    impl_->images->set_painter(impl_->painter.get());
     impl_->ready = true;
 }
 
@@ -1236,6 +1490,7 @@ void Renderer::render_to(Document& doc, const FrameTarget& t) {
 }
 
 void Renderer::shutdown() {
+    impl_->images->shutdown();
     if (!impl_->ready && !impl_->owns_sg) return;
     impl_->painter.reset();
     destroy_root_layer(*impl_);

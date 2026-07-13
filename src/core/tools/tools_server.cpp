@@ -21,23 +21,20 @@
 #include "affineui/log.h"
 #include "affineui/version.h"
 #include "core/log_internal.h"
+#include "core/tools/json_reader.h"
 #include "core/tools/tools_commands.h"
-// Inbound wire messages are parsed with tiny-json (external/tinyjson) —
-// a ~600 LOC single-header C parser with zero heap allocations. Same
-// code path in modular + amalgamated builds; the parser vendors cleanly
-// into the two-file SDK.
-extern "C" {
-#include "tiny-json.h"
-}
-
+// Inbound wire messages use AffineUI's strict, depth-bounded internal JSON
+// reader in both modular and amalgamated builds.
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <deque>
+#include <limits>
 #include <mutex>
 #include <random>
 #include <string>
@@ -334,49 +331,55 @@ void send_result(Connection& c, long long id, std::string_view result_json) {
     (void) send_framed(c.sock, msg);
 }
 
-// Small helpers around tiny-json's C surface. tiny-json's json_t union
-// stores every non-container leaf as a null-terminated char*, so string
-// access just wraps the pointer; number access runs strtod once.
+// Protocol numeric fields are untrusted. Validate their exact integer range
+// before conversion so malformed input cannot trigger an out-of-range cast.
 namespace {
 
-std::string_view tj_str(json_t const* obj, const char* prop) noexcept {
-    if (!obj) return {};
-    json_t const* v = json_getProperty(obj, prop);
-    if (!v || v->type != JSON_TEXT || !v->u.value) return {};
-    return std::string_view{v->u.value};
+using JsonValue = detail::json::Value;
+
+template <typename Int>
+Int json_integer(const JsonValue* object, std::string_view key,
+                 Int fallback) noexcept {
+    const JsonValue* value = object != nullptr ? object->get(key) : nullptr;
+    if (value == nullptr || !value->is_number()) return fallback;
+
+    const long double number = static_cast<long double>(value->number);
+    if (!std::isfinite(value->number) || std::trunc(number) != number ||
+        number < static_cast<long double>(std::numeric_limits<Int>::lowest()) ||
+        number > static_cast<long double>(std::numeric_limits<Int>::max())) {
+        return fallback;
+    }
+    return static_cast<Int>(number);
 }
 
-double tj_num(json_t const* obj, const char* prop, double fallback) noexcept {
-    if (!obj) return fallback;
-    json_t const* v = json_getProperty(obj, prop);
-    if (!v || !v->u.value) return fallback;
-    if (v->type != JSON_INTEGER && v->type != JSON_REAL) return fallback;
-    return std::strtod(v->u.value, nullptr);
+bool json_uint32(const JsonValue& value, std::uint32_t& out) noexcept {
+    if (!value.is_number()) return false;
+    const long double number = static_cast<long double>(value.number);
+    if (!std::isfinite(value.number) || std::trunc(number) != number ||
+        number < 0.0L ||
+        number > static_cast<long double>(
+                     std::numeric_limits<std::uint32_t>::max())) {
+        return false;
+    }
+    out = static_cast<std::uint32_t>(number);
+    return true;
 }
-
-// Ceiling on tokens per inbound message — hello / subscribe / etc. are
-// tiny (top-level object + maybe one params sub-object with a couple of
-// leaves). 64 is roomy for anything the current protocol emits and still
-// fits comfortably on the stack.
-constexpr unsigned kJsonPoolSize = 64;
 
 /// Parse a `"nid":[document_id,node_slot,generation]` param. Returns an
 /// empty (falsy) handle when absent/malformed — commands that require a
 /// node answer a "stale node" error from the pump.
-affineui::DomHandle tj_nid(json_t const* params) noexcept {
+affineui::DomHandle json_nid(const JsonValue* params) noexcept {
     affineui::DomHandle out{};
     if (!params) return out;
-    json_t const* arr = json_getProperty(params, "nid");
-    if (!arr || json_getType(arr) != JSON_ARRAY) return out;
-    std::uint32_t vals[3] = {0, 0, 0};
-    int i = 0;
-    for (json_t const* item = json_getChild(arr); item != nullptr && i < 3;
-         item = json_getSibling(item), ++i) {
-        if (json_getType(item) != JSON_INTEGER || !item->u.value) return {};
-        vals[i] = static_cast<std::uint32_t>(
-            std::strtoul(item->u.value, nullptr, 10));
+    const JsonValue* arr = params->get("nid");
+    if (arr == nullptr || arr->kind != JsonValue::Kind::Array ||
+        arr->array.size() != 3) {
+        return out;
     }
-    if (i != 3) return {};
+    std::uint32_t vals[3] = {0, 0, 0};
+    for (std::size_t i = 0; i < arr->array.size(); ++i) {
+        if (!json_uint32(arr->array[i], vals[i])) return {};
+    }
     out.document_id = vals[0];
     out.node_slot = vals[1];
     out.generation = vals[2];
@@ -387,24 +390,21 @@ affineui::DomHandle tj_nid(json_t const* params) noexcept {
 
 /// Returns false when the connection must be dropped.
 bool handle_message(ServerState& st, Connection& c, std::string_view text) {
-    // tiny-json parses in place (writes '\0' terminators into the buffer),
-    // so hand it a mutable copy. Inbound frames are already size-bounded
-    // by drain_inbuf, so a std::string is fine here.
-    std::string buf(text);
-    json_t pool[kJsonPoolSize];
-    json_t const* msg = json_create(buf.data(), pool, kJsonPoolSize);
-    if (!msg || json_getType(msg) != JSON_OBJ) {
+    JsonValue msg;
+    if (!detail::json::parse(text, msg) || !msg.is_object()) {
         return false;  // malformed → disconnect (hard-to-crash rule)
     }
 
-    const std::string_view method = tj_str(msg, "method");
-    const long long id = static_cast<long long>(tj_num(msg, "id", -1.0));
+    const std::string_view method = msg.get_string("method");
+    const long long id = json_integer(&msg, "id", -1LL);
 
     if (!c.authed) {
         // Only hello is accepted before auth; a bad token disconnects.
         if (method != "hello") return false;
-        json_t const* params = json_getProperty(msg, "params");
-        const std::string_view token = tj_str(params, "token");
+        const JsonValue* params = msg.get("params");
+        const std::string_view token = params != nullptr
+                                           ? params->get_string("token")
+                                           : std::string_view{};
         if (token.empty() || token != st.token) return false;
         c.authed = true;
         std::string result;
@@ -457,23 +457,23 @@ bool handle_message(ServerState& st, Connection& c, std::string_view text) {
     ToolsCommand cmd;
     cmd.id = id;
     bool is_read_command = true;
-    json_t const* params = json_getProperty(msg, "params");
+    const JsonValue* params = msg.get("params");
     if (method == "dom.document") {
         cmd.kind = ToolsCommand::Kind::DomDocument;
     } else if (method == "dom.children") {
         cmd.kind = ToolsCommand::Kind::DomChildren;
-        cmd.nid = tj_nid(params);
+        cmd.nid = json_nid(params);
     } else if (method == "dom.html") {
         cmd.kind = ToolsCommand::Kind::DomHtml;
-        cmd.nid = tj_nid(params);  // empty handle = whole document
+        cmd.nid = json_nid(params);  // empty handle = whole document
     } else if (method == "css.box_model") {
         cmd.kind = ToolsCommand::Kind::CssBoxModel;
-        cmd.nid = tj_nid(params);
+        cmd.nid = json_nid(params);
     } else if (method == "resource.stylesheets") {
         cmd.kind = ToolsCommand::Kind::ResourceStylesheets;
     } else if (method == "resource.stylesheet_text") {
         cmd.kind = ToolsCommand::Kind::ResourceStylesheetText;
-        cmd.index = static_cast<int>(tj_num(params, "index", -1.0));
+        cmd.index = json_integer(params, "index", -1);
     } else {
         is_read_command = false;
     }

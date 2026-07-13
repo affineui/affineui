@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <utility>
 
 namespace ui = affineui::imm;
 
@@ -61,6 +62,25 @@ std::string imm_id(ui::CallSite here) {
 }
 
 }  // namespace
+
+TEST_CASE("immediate runtime stays bound to stable state across Document move") {
+    affineui::Document source;
+    int builds = 0;
+    source.set_imm_view([&] {
+        ++builds;
+        ui::text("Moved document");
+    });
+
+    affineui::Document moved{std::move(source)};
+    CHECK_NOTHROW(moved.tick_imm());
+    CHECK(builds == 1);
+
+    affineui::Document assigned;
+    assigned = std::move(moved);
+    assigned.invalidate_imm();
+    CHECK_NOTHROW(assigned.tick_imm());
+    CHECK(builds == 2);
+}
 
 TEST_CASE("imm clear-and-rebuild survives repeated css-backed dom replacement") {
     affineui::Document doc;

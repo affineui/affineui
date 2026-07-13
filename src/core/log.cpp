@@ -130,9 +130,10 @@ void log(LogLevel level, std::string_view msg) {
     }
 
     // Embedder's raw-pointer sink (InitDesc::log) still fires, if set.
-    if (auto fn = detail::legacy_log_fn()) {
+    const auto legacy = detail::legacy_log_sink();
+    if (legacy.fn) {
         std::string owned(msg);
-        fn(level, owned.c_str(), detail::legacy_log_user());
+        legacy.fn(level, owned.c_str(), legacy.user);
     }
 }
 

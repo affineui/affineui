@@ -15,17 +15,20 @@
 // HOW, AND WHY THIS SHAPE
 // -----------------------
 // We use the game-engine "handle" pattern: a small versioned slot table. A
-// live object owns one slot; a weak reference is just `{slot index,
-// generation}`. When the object dies it frees its slot and the generation is
-// bumped, so every outstanding weak reference to that slot fails to resolve —
+// live object owns one slot; a weak reference is `{registry, slot index,
+// generation}`. The registry identity matters when AffineUI is statically
+// linked into more than one extension module in a process: a reference must
+// always return to the table that issued its slot. When the object dies it
+// frees its slot and bumps the generation, so every outstanding weak reference
+// to that slot fails to resolve —
 // safely, never dereferencing freed memory, and never confusing a recycled
 // slot for the original object (that is exactly what the generation counter
 // defeats).
 //
 // We chose this over, say, shared_ptr/weak_ptr control blocks because:
-//   - It is cheap to retrofit: a participating object stores ONE 32-bit field
-//     (its slot index) and frees it on destruction — nothing more. Existing
-//     code does not have to convert ownership to shared_ptr.
+//   - It is cheap to retrofit: a participating object stores a registry
+//     identity and one 32-bit slot index, then frees that slot on destruction.
+//     Existing code does not have to convert ownership to shared_ptr.
 //   - The lookup table is plain integers and raw pointers, so *the tracking
 //     machinery itself cannot dangle* — the one thing that absolutely must not.
 //   - It is the same mechanism the DOM layer already uses for nodes
@@ -67,17 +70,22 @@ namespace affineui {
 
 namespace detail {
 
-/// One entry in the process-wide weak-object table. `payload` is the live
-/// object pointer (null when free); `generation` invalidates stale references
-/// when a slot is reused.
+struct WeakRefFactory;
+
+/// One entry in a weak-object table. `payload` is the live object pointer
+/// (null when free); `generation` invalidates stale references when a slot is
+/// reused.
 struct WeakObjectSlot {
     void*         payload{nullptr};
     std::uint32_t generation{1};
 };
 
-/// Process-wide, single-threaded versioned slot table backing object weak
-/// references. Slot 0 is reserved as "null", so a default WeakRef never
-/// resolves. Slots are recycled; each reuse bumps the generation.
+/// Single-threaded versioned slot table backing object weak references. A
+/// statically linked library or extension module may have its own instance;
+/// WeakSlot and WeakRef carry the issuing registry's identity so handles stay
+/// correct across those module boundaries. Slot 0 is reserved as "null", so a
+/// default WeakRef never resolves. Slots are recycled; each reuse bumps the
+/// generation.
 class WeakRegistry {
 public:
     /// Acquire a fresh slot for `payload`. Returns the 1-based slot index.
@@ -121,8 +129,10 @@ private:
     std::vector<WeakObjectSlot> slots_;
 };
 
-/// The single process-wide registry. Defined inline so the header is
-/// self-contained across translation units (C++17 inline variable).
+/// The registry selected by this linked copy of AffineUI. It intentionally
+/// remains header-inline so weak references do not add a compiled-library link
+/// dependency. Correctness does not rely on process-wide singleton coalescing:
+/// every WeakSlot and WeakRef carries the address returned here.
 inline WeakRegistry& weak_registry() {
     static WeakRegistry registry;
     return registry;
@@ -141,21 +151,26 @@ class WeakSlot {
 public:
     template <typename T>
     explicit WeakSlot(T* owner)
-        : slot_(detail::weak_registry().acquire(static_cast<void*>(owner))) {}
+        : registry_(&detail::weak_registry()),
+          slot_(registry_->acquire(static_cast<void*>(owner))) {}
 
     WeakSlot(const WeakSlot&)            = delete;
     WeakSlot& operator=(const WeakSlot&) = delete;
     WeakSlot(WeakSlot&&)                 = delete;
     WeakSlot& operator=(WeakSlot&&)      = delete;
 
-    ~WeakSlot() { detail::weak_registry().release(slot_); }
+    ~WeakSlot() { registry_->release(slot_); }
 
     [[nodiscard]] std::uint32_t slot() const noexcept { return slot_; }
     [[nodiscard]] std::uint32_t generation() const noexcept {
-        return detail::weak_registry().generation(slot_);
+        return registry_->generation(slot_);
+    }
+    [[nodiscard]] detail::WeakRegistry* registry() const noexcept {
+        return registry_;
     }
 
 private:
+    detail::WeakRegistry* registry_{nullptr};
     std::uint32_t slot_{0};
 };
 
@@ -175,8 +190,8 @@ concept WeaklyTrackable = requires(const T& t) {
 
 /// One-line opt-in for the weak-reference system, designed for retrofitting
 /// existing classes: drop `AFFINEUI_WEAK_TRACKABLE()` into the class body and
-/// it satisfies WeaklyTrackable. It adds exactly one 32-bit field (inside the
-/// WeakSlot) plus the accessor the concept checks for.
+/// it satisfies WeaklyTrackable. It adds one WeakSlot (a registry identity and
+/// 32-bit slot index) plus the accessor the concept checks for.
 ///
 /// No user-declared destructor is required: the embedded WeakSlot frees its
 /// registry slot in its own destructor, which the compiler runs as part of the
@@ -230,15 +245,23 @@ private:
     WeakSlot aui_weak_slot_{this};
 };
 
-/// A typed, copyable weak reference: `{slot, generation}`. Resolves to the live
-/// object via the registry, or null once the object has been destroyed (or the
-/// slot recycled). Default-constructed it never resolves.
+/// A typed, copyable weak reference: `{registry, slot, generation}`. Resolves
+/// to the live object via the registry that issued the slot, or null once the
+/// object has been destroyed (or the slot recycled). Default-constructed it
+/// never resolves.
 template <typename T>
 class WeakRef {
 public:
     WeakRef() = default;
-    WeakRef(std::uint32_t slot, std::uint32_t generation) noexcept
-        : slot_(slot), generation_(generation) {}
+
+private:
+    WeakRef(detail::WeakRegistry* registry, std::uint32_t slot,
+            std::uint32_t generation) noexcept
+        : registry_(registry), slot_(slot), generation_(generation) {}
+
+    friend struct detail::WeakRefFactory;
+
+public:
 
     /// A non-owning pointer to the live object, or null if it has been
     /// destroyed. This is a borrowed snapshot: it does not retain, pin, or
@@ -246,8 +269,19 @@ public:
     /// operation that could destroy the object, and do not store the returned
     /// pointer beyond a lifetime the caller independently knows is safe.
     [[nodiscard]] T* get() const noexcept {
-        return static_cast<T*>(
-            detail::weak_registry().resolve(slot_, generation_));
+        if (registry_ == nullptr) return nullptr;
+        void* payload = registry_->resolve(slot_, generation_);
+        if (payload == nullptr) return nullptr;
+        if constexpr (std::is_base_of_v<Trackable, std::remove_cv_t<T>>) {
+            // Trackable constructs its embedded slot with a Trackable*. Cast
+            // through that base so multiple inheritance adjusts the pointer
+            // back to the complete T object correctly.
+            return static_cast<T*>(static_cast<Trackable*>(payload));
+        } else {
+            // Macro-retrofitted types construct their slot with their exact
+            // owner pointer and therefore need no base-pointer adjustment.
+            return static_cast<T*>(payload);
+        }
     }
 
     /// Compatibility alias for get(). Despite its historical name, this does
@@ -261,12 +295,31 @@ public:
     [[nodiscard]] bool alive() const noexcept { return get() != nullptr; }
 
     /// True when this reference was ever bound to an object (vs default).
-    [[nodiscard]] bool bound() const noexcept { return slot_ != 0; }
+    [[nodiscard]] bool bound() const noexcept {
+        return registry_ != nullptr && slot_ != 0;
+    }
 
 private:
+    detail::WeakRegistry* registry_{nullptr};
     std::uint32_t slot_{0};
     std::uint32_t generation_{0};
 };
+
+namespace detail {
+
+/// Internal construction gate for a bound WeakRef. Public callers can only
+/// default-construct an invalid reference or obtain a valid one through
+/// to_weak_ref(), which derives all three identity fields from a live slot.
+struct WeakRefFactory {
+    template <typename T>
+    [[nodiscard]] static WeakRef<T> from_slot(
+        WeakRegistry* registry, std::uint32_t slot,
+        std::uint32_t generation) noexcept {
+        return WeakRef<T>(registry, slot, generation);
+    }
+};
+
+}  // namespace detail
 
 /// Obtain a weak reference to a trackable object from a bare pointer. Returns
 /// an empty (never-resolving) reference for null.
@@ -274,7 +327,8 @@ template <WeaklyTrackable T>
 [[nodiscard]] WeakRef<T> to_weak_ref(T* obj) noexcept {
     if (obj == nullptr) return WeakRef<T>{};
     const WeakSlot& s = obj->aui_weak_slot();
-    return WeakRef<T>(s.slot(), s.generation());
+    return detail::WeakRefFactory::from_slot<T>(
+        s.registry(), s.slot(), s.generation());
 }
 
 }  // namespace affineui

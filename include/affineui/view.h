@@ -227,12 +227,13 @@ enum class DockState { Docked, Detached /*floating OS window*/, Tearoff };
 enum class DockCorner { TopLeft, TopRight, BottomLeft, BottomRight };
 
 class View;  // for DockHandle::toolbar (defined out-of-line in view.cpp)
+namespace detail { class ViewLifetime; }
 
 /// A handle to a declared dockable — usable as another dockable's parent and
 /// as the target of the container's runtime add/remove API.
 struct DockHandle {
     std::string id;
-    [[nodiscard]] explicit operator bool() const noexcept { return !id.empty(); }
+    [[nodiscard]] explicit operator bool() const noexcept;
 
     /// Declare this pane's tab toolbar (the strip beside the tabs — filter
     /// buttons, a search field, a viewport's mode/tool controls). Optional;
@@ -242,8 +243,7 @@ struct DockHandle {
 
 private:
     friend class View;
-    View* owner_{nullptr};  // set by document()/dockpanel() so toolbar() can
-                            // reach back into the live dock recorder
+    WeakRef<detail::ViewLifetime> lifetime_{};
 };
 
 /// Everything about where a dockable is (or starts) — one value type passed to
@@ -377,8 +377,14 @@ struct RemotePatch {
     std::size_t index{0};
 };
 
-class RemotePatchQueue {
+class RemotePatchQueue : public Trackable {
 public:
+    RemotePatchQueue() = default;
+    RemotePatchQueue(const RemotePatchQueue&) = delete;
+    RemotePatchQueue& operator=(const RemotePatchQueue&) = delete;
+    RemotePatchQueue(RemotePatchQueue&&) = delete;
+    RemotePatchQueue& operator=(RemotePatchQueue&&) = delete;
+
     void clear();
     void push(RemotePatch patch);
 
@@ -397,6 +403,12 @@ private:
 class ViewSink {
 public:
     virtual ~ViewSink() = default;
+
+    /// Forget every backend mapping while retaining the sink object. The
+    /// default is appropriate for stateless sinks; retained backends override
+    /// it. Keeping reset on the owned sink avoids a separate callback that can
+    /// dangle from the object it is meant to reset.
+    virtual void reset_mappings() {}
 
     virtual void create_element(const WidgetNode& node,
                                 const WidgetNode* parent,
@@ -432,9 +444,11 @@ public:
 class RemotePatchSink final : public ViewSink {
 public:
     explicit RemotePatchSink(RemotePatchQueue* queue = nullptr) noexcept
-        : queue_(queue) {}
+        : queue_(to_weak_ref(queue)) {}
 
-    void reset(RemotePatchQueue* queue) noexcept { queue_ = queue; }
+    void reset(RemotePatchQueue* queue) noexcept {
+        queue_ = to_weak_ref(queue);
+    }
 
     void create_element(const WidgetNode& node,
                         const WidgetNode* parent,
@@ -451,10 +465,68 @@ public:
                           std::string_view name) override;
 
 private:
-    RemotePatchQueue* queue_{nullptr};
+    WeakRef<RemotePatchQueue> queue_{};
 };
 
 class View;
+
+namespace detail {
+
+// Stable liveness token for a View. Moving a View creates a fresh identity for
+// the destination and leaves the source identity attached to the (valid but
+// moved-from) source object. Existing references therefore never follow an
+// object move accidentally, and destruction always invalidates them.
+class ViewLifetime final {
+public:
+    explicit ViewLifetime(View* owner = nullptr)
+        : slot_(std::in_place, this), owner_(owner) {}
+    ViewLifetime(const ViewLifetime&) = delete;
+    ViewLifetime& operator=(const ViewLifetime&) = delete;
+    ViewLifetime(ViewLifetime&&) noexcept
+        : slot_(std::in_place, this) {}
+    ViewLifetime& operator=(ViewLifetime&&) noexcept {
+        slot_.emplace(this);
+        owner_ = nullptr;
+        return *this;
+    }
+
+    [[nodiscard]] const WeakSlot& aui_weak_slot() const noexcept {
+        return *slot_;
+    }
+    void bind(View* owner) noexcept { owner_ = owner; }
+    void invalidate() noexcept {
+        owner_ = nullptr;
+        slot_.reset();
+    }
+    void renew(View* owner) {
+        slot_.emplace(this);
+        owner_ = owner;
+    }
+    [[nodiscard]] View* owner() const noexcept { return owner_; }
+
+private:
+    std::optional<WeakSlot> slot_;
+    View*                   owner_{nullptr};
+};
+
+// An invalidating reference to a View. The raw address is never consulted
+// unless the independently tracked lifetime token still resolves.
+class WeakViewRef {
+public:
+    WeakViewRef() noexcept = default;
+    explicit WeakViewRef(View* view) noexcept;
+
+    [[nodiscard]] View* get() const noexcept;
+    [[nodiscard]] explicit operator bool() const noexcept {
+        return get() != nullptr;
+    }
+    [[nodiscard]] View* operator->() const noexcept { return get(); }
+
+private:
+    WeakRef<ViewLifetime> lifetime_{};
+};
+
+}  // namespace detail
 
 /// Validity of a strongly-typed component wrapper (see components.h). Lives
 /// here because View::component<T>() produces it and components.h depends on
@@ -469,7 +541,7 @@ enum class ComponentValidity {
 class WidgetRef {
 public:
     WidgetRef() noexcept = default;
-    WidgetRef(View* owner,
+    WidgetRef(detail::WeakViewRef owner,
               StableId panel_id,
               StableId id,
               std::string_view name = {});
@@ -520,7 +592,7 @@ public:
     [[nodiscard]] WidgetRef find_widget(std::string_view name) const;
 
 private:
-    View* owner_{nullptr};
+    detail::WeakViewRef owner_{};
     StableId panel_id_{};
     mutable StableId id_{};
     std::string name_;
@@ -545,7 +617,7 @@ public:
         Scope(const Scope&) = delete;
         Scope& operator=(const Scope&) = delete;
 
-        explicit operator bool() const noexcept { return owner_ != nullptr; }
+        explicit operator bool() const noexcept;
 
         WidgetRef ref() const;
         Scope& named(std::string_view name);
@@ -556,8 +628,11 @@ public:
         [[nodiscard]] WidgetRef find_widget(std::string_view name) const;
 
     private:
-        View*       owner_{nullptr};
-        WidgetNode* node_{nullptr};
+        [[nodiscard]] View* resolve_owner() const noexcept;
+        [[nodiscard]] WidgetNode* resolve_node() const noexcept;
+
+        WeakRef<detail::ViewLifetime> lifetime_{};
+        StableId                     node_id_{};
         std::size_t unwind_to_{0};
     };
 
@@ -568,19 +643,17 @@ public:
     // to opt into a different framework's class-name style.
     explicit View(ViewTheme theme = ViewTheme::Decius);
     ~View();
-    // Move-only: the string-list backing holds non-copyable providers (unique
-    // weak slots), so a View cannot be copied — but it moves (build helpers
-    // return a View by value; the unique_ptr-held state moves cleanly). Deleting
-    // copy keeps an accidental copy a clear error rather than a deep-STL
-    // diagnostic. Defined out-of-line where StringListState is complete.
+    // A View owns the stable identity used by WidgetRef, Scope, and DockHandle.
+    // It is not copyable. Moving transfers the declared UI state into a fresh
+    // identity and invalidates every handle issued by the source (and, for move
+    // assignment, every prior handle issued by the destination).
     View(const View&) = delete;
     View& operator=(const View&) = delete;
-    View(View&&) noexcept;
-    View& operator=(View&&) noexcept;
+    View(View&& other);
+    View& operator=(View&& other);
 
     void clear();
     View& selector(std::string_view name, std::string_view value);
-    void set_mutation_sink(ViewSink* sink) noexcept { mutation_sink_ = sink; }
     void begin(ViewSink* sink = nullptr);
     void begin(RemotePatchQueue* remote_patches);
     void end();
@@ -1154,7 +1227,16 @@ private:
                                                      std::string_view name);
     [[nodiscard]] WidgetNode* resolve_widget_ref(const WidgetRef& ref);
     [[nodiscard]] ViewSink* current_sink() const noexcept;
+    using MutationDispatch =
+        std::function<void(const std::function<void(ViewSink&)>&)>;
+    void set_mutation_dispatch(MutationDispatch dispatch);
+    void set_binding_dispatch(std::function<void()> dispatch);
+    void notify_bindings_changed();
+    void emit_mutation(const std::function<void(ViewSink&)>& mutation);
+    void with_mutation_sink(const std::function<void(ViewSink*)>& mutation);
+    void move_state_from(View& other);
 
+    detail::ViewLifetime lifetime_{this};
     ViewTheme theme_{ViewTheme::Bootstrap};
     std::string framework_version_;  // empty = personality default
     // True when an app-shell widget (menubar / toolbar / statusbar /
@@ -1177,13 +1259,19 @@ private:
         commit_handlers_;
     std::vector<std::string> diagnostics_;
     ViewSink* sink_{nullptr};
-    ViewSink* mutation_sink_{nullptr};
+    MutationDispatch mutation_dispatch_{};
+    std::function<void()> binding_dispatch_{};
+    WeakRef<RemotePatchQueue> mutation_remote_queue_{};
     bool reconciling_{false};
+    bool direct_mutation_{false};
     // Re-entrancy depth for begin()/end(). The App wraps the builder in its own
     // begin(sink)/end(); a builder that also calls begin()/end() nests inside
     // that session instead of replacing its sink. 0 = no active session.
     int begin_depth_{0};
     RemotePatchSink remote_patch_sink_{};
+
+    friend class App;
+    friend class detail::WeakViewRef;
 
     // Active dock-container recorder (set for the duration of a document_view
     // build callback). document()/dockpanel() record into it; the engine
@@ -1203,8 +1291,8 @@ private:
     struct StringListState {
         VirtualListProvider      provider;
         std::vector<std::string> items;
-        IndexSelection*          selection{nullptr};
-        IndexSelection*          checked{nullptr};
+        WeakRef<IndexSelection>  selection{};
+        WeakRef<IndexSelection>  checked{};
         bool                     wired{false};
     };
     std::vector<std::pair<std::string, std::unique_ptr<StringListState>>>

@@ -142,6 +142,9 @@ public:
     /// Route an OS / app event through litehtml. Returns whether a
     /// redraw and/or imm-view re-evaluation is needed.
     DispatchResult dispatch(const Event& ev);
+    /// Dispatch with a Painter borrowed only for exact relayouts triggered by
+    /// this event. The Painter is never retained by the Document.
+    DispatchResult dispatch(const Event& ev, Painter& measurer);
 
     /// Drain named widget activations produced by attached behavior scripts.
     /// Names are stable `data-aui-name` values when present, otherwise `id`.
@@ -406,6 +409,10 @@ public:
     /// document has not been measured yet. During an active composition
     /// this tracks the IME cursor inside the preedit.
     [[nodiscard]] Rect caret_rect() const;
+    /// Exact caret geometry using a painter borrowed only for this call. Use
+    /// after text/IME mutations when no render-layout pass has refreshed the
+    /// document's cached glyph geometry yet.
+    [[nodiscard]] Rect caret_rect(Painter& measurer) const;
 
     /// Set the caret visibility half-cycle in milliseconds. The default is
     /// 500 ms (visible for 500 ms, hidden for 500 ms). Zero disables blinking
@@ -421,6 +428,8 @@ public:
     bool tick_caret_blink();
 
 private:
+    DispatchResult dispatch_impl(const Event& ev, Painter* measurer);
+
     struct TransientState {
         struct Layer {
             std::string id;

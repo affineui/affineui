@@ -28,11 +28,12 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+#include <memory>
 #include <cstddef>
 #include <cmath>
+#include <span>
 #include <algorithm>
 #include <atomic>
-#include <memory>
 #include <any>
 #include <typeinfo>
 #include <variant>
@@ -42,7 +43,6 @@
 #include <cstdlib>
 #include <cerrno>
 #include <charconv>
-#include <span>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -248,17 +248,20 @@ using ResourceLoader = std::function<std::string(std::string_view url)>;
 // HOW, AND WHY THIS SHAPE
 // -----------------------
 // We use the game-engine "handle" pattern: a small versioned slot table. A
-// live object owns one slot; a weak reference is just `{slot index,
-// generation}`. When the object dies it frees its slot and the generation is
-// bumped, so every outstanding weak reference to that slot fails to resolve —
+// live object owns one slot; a weak reference is `{registry, slot index,
+// generation}`. The registry identity matters when AffineUI is statically
+// linked into more than one extension module in a process: a reference must
+// always return to the table that issued its slot. When the object dies it
+// frees its slot and bumps the generation, so every outstanding weak reference
+// to that slot fails to resolve —
 // safely, never dereferencing freed memory, and never confusing a recycled
 // slot for the original object (that is exactly what the generation counter
 // defeats).
 //
 // We chose this over, say, shared_ptr/weak_ptr control blocks because:
-//   - It is cheap to retrofit: a participating object stores ONE 32-bit field
-//     (its slot index) and frees it on destruction — nothing more. Existing
-//     code does not have to convert ownership to shared_ptr.
+//   - It is cheap to retrofit: a participating object stores a registry
+//     identity and one 32-bit slot index, then frees that slot on destruction.
+//     Existing code does not have to convert ownership to shared_ptr.
 //   - The lookup table is plain integers and raw pointers, so *the tracking
 //     machinery itself cannot dangle* — the one thing that absolutely must not.
 //   - It is the same mechanism the DOM layer already uses for nodes
@@ -296,17 +299,22 @@ namespace affineui {
 
 namespace detail {
 
-/// One entry in the process-wide weak-object table. `payload` is the live
-/// object pointer (null when free); `generation` invalidates stale references
-/// when a slot is reused.
+struct WeakRefFactory;
+
+/// One entry in a weak-object table. `payload` is the live object pointer
+/// (null when free); `generation` invalidates stale references when a slot is
+/// reused.
 struct WeakObjectSlot {
     void*         payload{nullptr};
     std::uint32_t generation{1};
 };
 
-/// Process-wide, single-threaded versioned slot table backing object weak
-/// references. Slot 0 is reserved as "null", so a default WeakRef never
-/// resolves. Slots are recycled; each reuse bumps the generation.
+/// Single-threaded versioned slot table backing object weak references. A
+/// statically linked library or extension module may have its own instance;
+/// WeakSlot and WeakRef carry the issuing registry's identity so handles stay
+/// correct across those module boundaries. Slot 0 is reserved as "null", so a
+/// default WeakRef never resolves. Slots are recycled; each reuse bumps the
+/// generation.
 class WeakRegistry {
 public:
     /// Acquire a fresh slot for `payload`. Returns the 1-based slot index.
@@ -350,8 +358,10 @@ private:
     std::vector<WeakObjectSlot> slots_;
 };
 
-/// The single process-wide registry. Defined inline so the header is
-/// self-contained across translation units (C++17 inline variable).
+/// The registry selected by this linked copy of AffineUI. It intentionally
+/// remains header-inline so weak references do not add a compiled-library link
+/// dependency. Correctness does not rely on process-wide singleton coalescing:
+/// every WeakSlot and WeakRef carries the address returned here.
 inline WeakRegistry& weak_registry() {
     static WeakRegistry registry;
     return registry;
@@ -370,21 +380,26 @@ class WeakSlot {
 public:
     template <typename T>
     explicit WeakSlot(T* owner)
-        : slot_(detail::weak_registry().acquire(static_cast<void*>(owner))) {}
+        : registry_(&detail::weak_registry()),
+          slot_(registry_->acquire(static_cast<void*>(owner))) {}
 
     WeakSlot(const WeakSlot&)            = delete;
     WeakSlot& operator=(const WeakSlot&) = delete;
     WeakSlot(WeakSlot&&)                 = delete;
     WeakSlot& operator=(WeakSlot&&)      = delete;
 
-    ~WeakSlot() { detail::weak_registry().release(slot_); }
+    ~WeakSlot() { registry_->release(slot_); }
 
     [[nodiscard]] std::uint32_t slot() const noexcept { return slot_; }
     [[nodiscard]] std::uint32_t generation() const noexcept {
-        return detail::weak_registry().generation(slot_);
+        return registry_->generation(slot_);
+    }
+    [[nodiscard]] detail::WeakRegistry* registry() const noexcept {
+        return registry_;
     }
 
 private:
+    detail::WeakRegistry* registry_{nullptr};
     std::uint32_t slot_{0};
 };
 
@@ -404,8 +419,8 @@ concept WeaklyTrackable = requires(const T& t) {
 
 /// One-line opt-in for the weak-reference system, designed for retrofitting
 /// existing classes: drop `AFFINEUI_WEAK_TRACKABLE()` into the class body and
-/// it satisfies WeaklyTrackable. It adds exactly one 32-bit field (inside the
-/// WeakSlot) plus the accessor the concept checks for.
+/// it satisfies WeaklyTrackable. It adds one WeakSlot (a registry identity and
+/// 32-bit slot index) plus the accessor the concept checks for.
 ///
 /// No user-declared destructor is required: the embedded WeakSlot frees its
 /// registry slot in its own destructor, which the compiler runs as part of the
@@ -459,15 +474,23 @@ private:
     WeakSlot aui_weak_slot_{this};
 };
 
-/// A typed, copyable weak reference: `{slot, generation}`. Resolves to the live
-/// object via the registry, or null once the object has been destroyed (or the
-/// slot recycled). Default-constructed it never resolves.
+/// A typed, copyable weak reference: `{registry, slot, generation}`. Resolves
+/// to the live object via the registry that issued the slot, or null once the
+/// object has been destroyed (or the slot recycled). Default-constructed it
+/// never resolves.
 template <typename T>
 class WeakRef {
 public:
     WeakRef() = default;
-    WeakRef(std::uint32_t slot, std::uint32_t generation) noexcept
-        : slot_(slot), generation_(generation) {}
+
+private:
+    WeakRef(detail::WeakRegistry* registry, std::uint32_t slot,
+            std::uint32_t generation) noexcept
+        : registry_(registry), slot_(slot), generation_(generation) {}
+
+    friend struct detail::WeakRefFactory;
+
+public:
 
     /// A non-owning pointer to the live object, or null if it has been
     /// destroyed. This is a borrowed snapshot: it does not retain, pin, or
@@ -475,8 +498,19 @@ public:
     /// operation that could destroy the object, and do not store the returned
     /// pointer beyond a lifetime the caller independently knows is safe.
     [[nodiscard]] T* get() const noexcept {
-        return static_cast<T*>(
-            detail::weak_registry().resolve(slot_, generation_));
+        if (registry_ == nullptr) return nullptr;
+        void* payload = registry_->resolve(slot_, generation_);
+        if (payload == nullptr) return nullptr;
+        if constexpr (std::is_base_of_v<Trackable, std::remove_cv_t<T>>) {
+            // Trackable constructs its embedded slot with a Trackable*. Cast
+            // through that base so multiple inheritance adjusts the pointer
+            // back to the complete T object correctly.
+            return static_cast<T*>(static_cast<Trackable*>(payload));
+        } else {
+            // Macro-retrofitted types construct their slot with their exact
+            // owner pointer and therefore need no base-pointer adjustment.
+            return static_cast<T*>(payload);
+        }
     }
 
     /// Compatibility alias for get(). Despite its historical name, this does
@@ -490,12 +524,31 @@ public:
     [[nodiscard]] bool alive() const noexcept { return get() != nullptr; }
 
     /// True when this reference was ever bound to an object (vs default).
-    [[nodiscard]] bool bound() const noexcept { return slot_ != 0; }
+    [[nodiscard]] bool bound() const noexcept {
+        return registry_ != nullptr && slot_ != 0;
+    }
 
 private:
+    detail::WeakRegistry* registry_{nullptr};
     std::uint32_t slot_{0};
     std::uint32_t generation_{0};
 };
+
+namespace detail {
+
+/// Internal construction gate for a bound WeakRef. Public callers can only
+/// default-construct an invalid reference or obtain a valid one through
+/// to_weak_ref(), which derives all three identity fields from a live slot.
+struct WeakRefFactory {
+    template <typename T>
+    [[nodiscard]] static WeakRef<T> from_slot(
+        WeakRegistry* registry, std::uint32_t slot,
+        std::uint32_t generation) noexcept {
+        return WeakRef<T>(registry, slot, generation);
+    }
+};
+
+}  // namespace detail
 
 /// Obtain a weak reference to a trackable object from a bare pointer. Returns
 /// an empty (never-resolving) reference for null.
@@ -503,7 +556,8 @@ template <WeaklyTrackable T>
 [[nodiscard]] WeakRef<T> to_weak_ref(T* obj) noexcept {
     if (obj == nullptr) return WeakRef<T>{};
     const WeakSlot& s = obj->aui_weak_slot();
-    return WeakRef<T>(s.slot(), s.generation());
+    return detail::WeakRefFactory::from_slot<T>(
+        s.registry(), s.slot(), s.generation());
 }
 
 }  // namespace affineui
@@ -517,7 +571,8 @@ template <WeaklyTrackable T>
 // A core invariant of AffineUI is that it must be *hard to crash* from C++.
 // The most common way a retained-mode UI crashes is a widget event firing
 // into a handler whose owning object has already been destroyed — a dangling
-// `this`. AffineUI makes that impossible: a callback may be bound to a
+// `this`. AffineUI's bind() and guard() helpers prevent that failure: a
+// callback may be bound to a
 // `(object, method)` pair guarded by a versioned weak reference (see
 // weak_ref.h). Once the object dies its weak reference stops resolving and
 // invoking the callback becomes a safe no-op. The lookup table that performs
@@ -538,8 +593,8 @@ template <WeaklyTrackable T>
 //   view.input("Zoom", "100").on_change(
 //       affineui::bind(&editor, &Editor::set_zoom));
 //
-//   // 3. A free lambda, exactly as before — no lifetime guard, for small
-//   //    self-contained handlers (as one would use in Qt).
+//   // 3. A free lambda — no lifetime guard. Use only when the handler is
+//   //    self-contained and captures no borrowed object state.
 //   view.button("Quit").on_click([] { /* ... */ });
 //
 // `Callback<Args...>` converts implicitly to `std::function<void(Args...)>`,
@@ -616,7 +671,7 @@ public:
     /// Convert to a std::function that still honours the liveness guard, so it
     /// can be stored in existing std::function-based handler slots. An unbound
     /// callback returns its function unwrapped (no per-call guard cost).
-    operator Fn() const {  // NOLINT(google-explicit-constructor)
+    [[nodiscard]] Fn to_function() const {
         if (!fn_) return Fn{};
         if (!guard_.bound()) return fn_;
         detail::LivenessGuard guard = guard_;
@@ -624,6 +679,10 @@ public:
         return [guard, fn](Args... args) {
             if (guard.alive()) fn(std::forward<Args>(args)...);
         };
+    }
+
+    operator Fn() const {  // NOLINT(google-explicit-constructor)
+        return to_function();
     }
 
 private:
@@ -636,10 +695,14 @@ private:
 template <WeaklyTrackable T, typename R, typename... Args>
 Callback<Args...> bind(T* obj, R (T::*method)(Args...)) {
     if (obj == nullptr) return Callback<Args...>{};
-    detail::LivenessGuard guard{to_weak_ref(obj)};
+    const auto weak = to_weak_ref(obj);
+    detail::LivenessGuard guard{weak};
     return Callback<Args...>(std::move(guard),
-                             [obj, method](Args... args) {
-                                 (obj->*method)(std::forward<Args>(args)...);
+                             [weak, method](Args... args) {
+                                 if (auto* target = weak.get()) {
+                                     (target->*method)(
+                                         std::forward<Args>(args)...);
+                                 }
                              });
 }
 
@@ -647,10 +710,14 @@ Callback<Args...> bind(T* obj, R (T::*method)(Args...)) {
 template <WeaklyTrackable T, typename R, typename... Args>
 Callback<Args...> bind(T* obj, R (T::*method)(Args...) const) {
     if (obj == nullptr) return Callback<Args...>{};
-    detail::LivenessGuard guard{to_weak_ref(obj)};
+    const auto weak = to_weak_ref(obj);
+    detail::LivenessGuard guard{weak};
     return Callback<Args...>(std::move(guard),
-                             [obj, method](Args... args) {
-                                 (obj->*method)(std::forward<Args>(args)...);
+                             [weak, method](Args... args) {
+                                 if (const auto* target = weak.get()) {
+                                     (target->*method)(
+                                         std::forward<Args>(args)...);
+                                 }
                              });
 }
 
@@ -668,10 +735,13 @@ Callback<> bind(T* obj, R (T::*method)(MArgs...), Bound... bound) {
     static_assert(sizeof...(Bound) == sizeof...(MArgs),
                   "bind with arguments must supply exactly the method's args");
     if (obj == nullptr) return Callback<>{};
-    detail::LivenessGuard guard{to_weak_ref(obj)};
+    const auto weak = to_weak_ref(obj);
+    detail::LivenessGuard guard{weak};
     return Callback<>(std::move(guard),
-                      [obj, method, bound...]() {
-                          (obj->*method)(bound...);
+                      [weak, method, bound...]() {
+                          if (auto* target = weak.get()) {
+                              (target->*method)(bound...);
+                          }
                       });
 }
 
@@ -682,16 +752,54 @@ Callback<> bind(T* obj, R (T::*method)(MArgs...) const, Bound... bound) {
     static_assert(sizeof...(Bound) == sizeof...(MArgs),
                   "bind with arguments must supply exactly the method's args");
     if (obj == nullptr) return Callback<>{};
-    detail::LivenessGuard guard{to_weak_ref(obj)};
+    const auto weak = to_weak_ref(obj);
+    detail::LivenessGuard guard{weak};
     return Callback<>(std::move(guard),
-                      [obj, method, bound...]() {
-                          (obj->*method)(bound...);
+                      [weak, method, bound...]() {
+                          if (const auto* target = weak.get()) {
+                              (target->*method)(bound...);
+                          }
                       });
 }
 
 /// Convenience aliases for the two handler shapes AffineUI uses today.
 using ClickCallback  = Callback<>;
 using ChangeCallback = Callback<std::string_view>;
+
+/// Guard an arbitrary callable (including non-void provider/event callbacks)
+/// with a target object's versioned lifetime. This is the general counterpart
+/// to bind(): the callable is never invoked after `owner` is destroyed, and a
+/// dead non-void callback returns a value-initialized result.
+///
+/// Prefer bind() for a direct member function. Use guard() when the callback
+/// needs captured value state or a non-void return:
+///
+///   app.on_event(guard(this, [](Editor& self, const Event& e,
+///                              const auto& chain) {
+///       return self.handle_event(e, chain);
+///   }));
+///
+/// The callable receives the live target as its first argument. That shape is
+/// deliberate: the retained closure stores only the WeakRef, never `owner` or
+/// a captured `this` pointer.
+template <WeaklyTrackable T, typename F>
+auto guard(T* owner, F&& callable) {
+    using Fn = std::decay_t<F>;
+    const auto weak = to_weak_ref(owner);
+    return [weak, fn = Fn(std::forward<F>(callable))](auto&&... args) mutable
+        -> std::invoke_result_t<Fn&, T&, decltype(args)...> {
+        using Result = std::invoke_result_t<Fn&, T&, decltype(args)...>;
+        if (auto* target = weak.get()) {
+            return std::invoke(fn, *target,
+                               std::forward<decltype(args)>(args)...);
+        }
+        if constexpr (!std::is_void_v<Result>) {
+            static_assert(std::is_default_constructible_v<Result>,
+                          "a guarded non-void callback needs a default result");
+            return Result{};
+        }
+    };
+}
 
 }  // namespace affineui
 
@@ -1740,11 +1848,65 @@ enum class PropertyId : std::uint16_t {
 }  // namespace affineui
 
 // ────────────────────────────────────────────────────────────────────────
+// include/affineui/image.h
+// ────────────────────────────────────────────────────────────────────────
+
+
+namespace affineui {
+
+namespace detail {
+class ImageLease;
+class ImageRegistry;
+}
+
+/// An invalidating handle to a renderer-owned RGBA image.
+///
+/// The handle never owns or exposes a Painter. It becomes invalid when the
+/// image is reset, its renderer shuts down, or the renderer is destroyed.
+/// Operations on an invalid handle are safe no-ops and return false.
+/// Copies share ownership; the final release is marshalled to the renderer
+/// thread before touching the GPU backend. Like the rest of AffineUI's UI API,
+/// updates and drawing belong on the renderer/UI thread.
+class ImageHandle {
+public:
+    ImageHandle() noexcept = default;
+
+    [[nodiscard]] bool is_valid() const noexcept;
+    [[nodiscard]] explicit operator bool() const noexcept {
+        return is_valid();
+    }
+
+    /// Replace the complete tightly-packed RGBA8 payload. The byte count must
+    /// exactly match width * height * 4 from creation.
+    bool update(std::span<const std::uint8_t> rgba) const;
+
+    /// Release this handle's ownership. The GPU image is destroyed when the
+    /// last handle copy releases it. Calls after renderer shutdown are safe.
+    void reset() noexcept;
+
+private:
+    explicit ImageHandle(std::shared_ptr<detail::ImageLease> lease) noexcept
+        : lease_(std::move(lease)) {}
+
+    [[nodiscard]] std::uint32_t backend_id() const noexcept;
+
+    std::shared_ptr<detail::ImageLease> lease_{};
+
+    friend class Painter;
+    friend class detail::ImageLease;
+    friend class detail::ImageRegistry;
+};
+
+}  // namespace affineui
+
+// ────────────────────────────────────────────────────────────────────────
 // include/affineui/painter.h
 // ────────────────────────────────────────────────────────────────────────
 
 
 namespace affineui {
+
+namespace detail { class DisplayListBuilder; }
 
 /// Verb tags for the flat vector-path command stream accepted by
 /// Painter::fill_path / Painter::stroke_path. A path is an array of
@@ -2139,6 +2301,13 @@ public:
     virtual void          draw_image(std::uint32_t image,
                                      const Rect&   dst,
                                      const Rect&   src) = 0;
+    /// Draw a renderer-owned dynamic image. An invalid handle draws nothing.
+    virtual void draw_image(const ImageHandle& image,
+                            const Rect& dst,
+                            const Rect& src) {
+        if (!image.is_valid()) return;
+        draw_image(image.backend_id(), dst, src);
+    }
 
     // ── Native GPU images (renderer-owned textures) ─────────────────
     /// Draw a GPU texture owned by other rendering code (a 3D engine's
@@ -2169,30 +2338,25 @@ public:
         (void)dst;
     }
 
-    // ── Dynamic images (app-owned pixel surfaces) ───────────────────
-    /// Create an image from raw RGBA8 pixels (tightly packed, stride =
-    /// w * 4, non-premultiplied). Returns a handle usable with
-    /// draw_image / update_image_rgba / delete_image; zero on failure.
-    /// Unlike load_image the pixels come from the app (a raster
-    /// document, a video frame, a CPU-composited canvas), so the handle
-    /// is NOT cached/deduplicated — the caller owns its lifetime and
-    /// must delete_image() it. Resource ops, not draw ops: safe to call
-    /// from a custom-paint handler; the display-list recorder forwards
-    /// them straight to the device painter.
+protected:
+    // Backend-only dynamic-image hooks. Public callers create ImageHandle
+    // values through Renderer/App and update/reset those handles directly;
+    // transient Painter objects never own the public resource lifecycle.
     virtual std::uint32_t create_image_rgba(int w, int h,
                                             const std::uint8_t* pixels) {
         (void)w; (void)h; (void)pixels;
         return 0;
     }
-    /// Replace the full pixel contents of an image created by
-    /// create_image_rgba. Dimensions must match the creation size.
     virtual void update_image_rgba(std::uint32_t image,
                                    const std::uint8_t* pixels) {
         (void)image; (void)pixels;
     }
-    /// Release an image created by create_image_rgba. Handles from
-    /// load_image are cache-owned and must NOT be passed here.
     virtual void delete_image(std::uint32_t image) { (void)image; }
+
+    friend class detail::ImageRegistry;
+    friend class detail::DisplayListBuilder;
+
+public:
 
     // ── Clipping ────────────────────────────────────────────────────
     virtual void push_clip(const Rect& r) = 0;
@@ -2923,6 +3087,9 @@ public:
     /// Route an OS / app event through litehtml. Returns whether a
     /// redraw and/or imm-view re-evaluation is needed.
     DispatchResult dispatch(const Event& ev);
+    /// Dispatch with a Painter borrowed only for exact relayouts triggered by
+    /// this event. The Painter is never retained by the Document.
+    DispatchResult dispatch(const Event& ev, Painter& measurer);
 
     /// Drain named widget activations produced by attached behavior scripts.
     /// Names are stable `data-aui-name` values when present, otherwise `id`.
@@ -3187,6 +3354,10 @@ public:
     /// document has not been measured yet. During an active composition
     /// this tracks the IME cursor inside the preedit.
     [[nodiscard]] Rect caret_rect() const;
+    /// Exact caret geometry using a painter borrowed only for this call. Use
+    /// after text/IME mutations when no render-layout pass has refreshed the
+    /// document's cached glyph geometry yet.
+    [[nodiscard]] Rect caret_rect(Painter& measurer) const;
 
     /// Set the caret visibility half-cycle in milliseconds. The default is
     /// 500 ms (visible for 500 ms, hidden for 500 ms). Zero disables blinking
@@ -3202,6 +3373,8 @@ public:
     bool tick_caret_blink();
 
 private:
+    DispatchResult dispatch_impl(const Event& ev, Painter* measurer);
+
     struct TransientState {
         struct Layer {
             std::string id;
@@ -3614,10 +3787,10 @@ public:
 // that outlives (or is wrongly shared past) its provider renders empty rather
 // than crashing — the same hard-to-crash contract the rest of AffineUI honours.
 //
-// Providers are populated fluently and carry guarded callbacks so they bind
-// cleanly from every language (Python callables, C#/Rust delegates over the C
-// ABI) — there is deliberately no virtual-method base class to override, which
-// would not survive the C ABI boundary.
+// Providers are populated fluently and accept callbacks from every language
+// (Python callables, C#/Rust delegates over the C ABI). A callback that borrows
+// controller state must use bind()/guard(); there is deliberately no virtual-
+// method base class to override across the C ABI boundary.
 //
 //   struct Outliner : affineui::Trackable {           // the panel controller
 //       std::vector<Node> nodes;
@@ -3626,14 +3799,15 @@ public:
 //
 //       Outliner() {
 //           rows = std::make_unique<affineui::VirtualListProvider>();
-//           rows->on_item_count([this] { return nodes.size(); })
-//               .on_item_text([this](std::size_t i) { return nodes[i].name; })
-//               .on_is_selected([this](std::size_t i) {
-//                   return selection.contains(nodes[i].id); })
-//               .on_activate([this](std::size_t i, affineui::SelectMod m) {
-//                   selection.apply(m, nodes[i].id); })
-//               .on_drop([this](std::size_t src, std::size_t dst,
-//                               affineui::DropPos p) { move_node(src, dst, p); });
+//           rows->on_item_count(affineui::guard(this,
+//               [](Outliner& self) { return self.nodes.size(); }))
+//               .on_item_text(affineui::guard(this,
+//                   [](Outliner& self, std::size_t i) {
+//                       return self.nodes[i].name; }))
+//               .on_activate(affineui::guard(this,
+//                   [](Outliner& self, std::size_t i,
+//                      affineui::SelectMod m) {
+//                       self.selection.apply(m, self.nodes[i].id); }));
 //       }
 //   };
 //
@@ -3683,14 +3857,16 @@ enum class DropPos {
 /// (never a DOM pointer — so it survives row recycling). Plug it into a
 /// provider in one line:
 ///
-///   sel_.on_change([this] { app_.rebuild_view(); });
-///   provider.on_is_selected([this](std::size_t i) { return sel_.contains(i); })
-///           .on_activate([this](std::size_t i, affineui::SelectMod m) {
-///               sel_.apply(i, m); });
+///   sel_.on_change(guard(this, [](Panel& self) { self.app_.rebuild_view(); }));
+///   provider.on_is_selected(guard(this, [](Panel& self, std::size_t i) {
+///               return self.sel_.contains(i); }))
+///           .on_activate(guard(this, [](Panel& self, std::size_t i,
+///                                      affineui::SelectMod m) {
+///               self.sel_.apply(i, m); }));
 ///
 /// Apps that track selection by id or need custom rules can ignore this and
 /// implement on_activate/on_is_selected directly.
-class IndexSelection {
+class IndexSelection : public Trackable {
 public:
     using ChangedFn = std::function<void()>;
 
@@ -3753,7 +3929,7 @@ private:
 };
 
 /// A stateless bridge between an app-owned list model and a virtual-list
-/// widget. Holds only guarded callbacks; stores no data. Trackable so the
+/// widget. Stores callbacks but no model data. Trackable so the
 /// widget can hold a WeakRef to it. Populated fluently — every setter returns
 /// the most-derived provider type (via CRTP) so chaining stays typed even when
 /// a base setter precedes a derived one on VirtualTreeProvider.
@@ -3762,13 +3938,10 @@ private:
 template <typename Self>
 class VirtualListProviderBase : public Trackable {
 public:
-    // Callback signatures. The provider itself is the crash guard: the widget
-    // holds a WeakRef and locks it before invoking any of these, so a destroyed
-    // provider degrades to an empty list rather than a dangling call. Callbacks
-    // are plain std::function (not the bound Callback form) so they bind
-    // uniformly from every language; the controller that owns the provider via
-    // unique_ptr is destroyed with it, keeping the captured `this` valid for the
-    // provider's whole lifetime.
+    // Callback signatures. The widget weakly guards the provider itself, so a
+    // destroyed provider degrades to an empty list. The callbacks are plain
+    // std::function for language-binding compatibility; any callback that
+    // borrows a separate controller/model must carry its own bind()/guard().
     using ItemCountFn = std::function<std::size_t()>;
     using ItemSizeFn  = std::function<double(std::size_t)>;
     using BuildItemFn = std::function<void(View&, std::size_t)>;
@@ -3993,7 +4166,7 @@ private:
 /// The item pointer used to draw a row is resolved from the handle transiently
 /// at render time, so it can never dangle. A `Handle` can be any of:
 ///   • a raw pointer      — static data that never moves/frees (resolve = cast)
-///   • a WeakRef<Item>     — dynamic data; resolve = handle.lock() (self-guards)
+///   • a WeakRef<Item>     — dynamic data; resolve = handle.get() (self-guards)
 ///   • a uint64 / id       — app-indexed; resolve looks it up
 ///   • a key into a map    — resolve = data->map.find(key)
 /// All are the same size (~8 bytes). The app supplies the walk (roots, children,
@@ -4008,7 +4181,7 @@ private:
 ///   flat.wire(tree_provider);            // provider now reflects the tree
 ///   flat.on_changed([this]{ app_.rebuild_view(); });
 template <typename Data, typename Item = void, typename Handle = std::uintptr_t>
-class TreeFlattener {
+class TreeFlattener : public Trackable {
 public:
     using RootsFn       = std::function<void(Data*, std::vector<Handle>&)>;
     using ChildrenFn    = std::function<void(Data*, Handle, std::vector<Handle>&)>;
@@ -4021,6 +4194,11 @@ public:
     using ChangedFn     = std::function<void()>;
 
     explicit TreeFlattener(WeakRef<Data> data) : data_(data) {}
+
+    TreeFlattener(const TreeFlattener&) = delete;
+    TreeFlattener& operator=(const TreeFlattener&) = delete;
+    TreeFlattener(TreeFlattener&&) = delete;
+    TreeFlattener& operator=(TreeFlattener&&) = delete;
 
     TreeFlattener& on_roots(RootsFn fn) { roots_ = std::move(fn); return *this; }
     TreeFlattener& on_children(ChildrenFn fn) {
@@ -4043,13 +4221,13 @@ public:
     /// Resolve the flattened row i to its live item pointer (locked from the
     /// weak-ref'd data). Returns null if the data is gone or i is out of range.
     [[nodiscard]] Item* item_at(std::size_t i) const {
-        Data* d = data_.lock();
+        Data* d = data_.get();
         if (!d || !resolve_ || i >= flat_.size()) return nullptr;
         return resolve_(d, flat_[i].handle);
     }
     /// Resolve an arbitrary handle to its item pointer.
     [[nodiscard]] Item* resolve(Handle h) const {
-        Data* d = data_.lock();
+        Data* d = data_.get();
         return (d && resolve_) ? resolve_(d, h) : nullptr;
     }
 
@@ -4169,54 +4347,98 @@ public:
     /// instead of dereferencing freed memory: the handle indirection is what
     /// makes the thing being drawn impossible to dangle.
     void wire(VirtualTreeProvider& provider) {
+        const auto weak = to_weak_ref(this);
         rebuild();
-        provider.on_item_count([this] { return flat_.size(); })
-            .on_depth([this](std::size_t i) {
-                return i < flat_.size() ? flat_[i].depth : 0;
+        provider.on_item_count([weak] {
+                const auto* self = weak.get();
+                return self != nullptr ? self->flat_.size() : std::size_t{0};
             })
-            .on_is_expandable([this](std::size_t i) {
-                return i < flat_.size() && flat_[i].has_children;
+            .on_depth([weak](std::size_t i) {
+                const auto* self = weak.get();
+                return self != nullptr && i < self->flat_.size()
+                           ? self->flat_[i].depth
+                           : 0;
             })
-            .on_is_expanded([this](std::size_t i) {
-                return i < flat_.size() &&
-                       expanded_.count(flat_[i].handle) != 0;
+            .on_is_expandable([weak](std::size_t i) {
+                const auto* self = weak.get();
+                return self != nullptr && i < self->flat_.size() &&
+                       self->flat_[i].has_children;
             })
-            .on_toggle([this](std::size_t i) {
-                if (i >= flat_.size() || !flat_[i].has_children) return;
-                const Handle h = flat_[i].handle;
-                if (!expanded_.erase(h)) expanded_.insert(h);
-                rebuild();
-                if (changed_) changed_();
+            .on_is_expanded([weak](std::size_t i) {
+                const auto* self = weak.get();
+                return self != nullptr && i < self->flat_.size() &&
+                       self->expanded_.count(self->flat_[i].handle) != 0;
+            })
+            .on_toggle([weak](std::size_t i) {
+                auto* self = weak.get();
+                if (self == nullptr || i >= self->flat_.size() ||
+                    !self->flat_[i].has_children) {
+                    return;
+                }
+                const Handle h = self->flat_[i].handle;
+                if (!self->expanded_.erase(h)) self->expanded_.insert(h);
+                self->rebuild();
+                self = weak.get();
+                if (self == nullptr) return;
+                const auto changed = self->changed_;
+                if (changed) changed();
             })
             // Selection and checked state are wired to the flattener's
             // HANDLE-keyed models, so both survive expand/collapse (indices
             // renumber, handles don't). Re-set these AFTER wire() to
             // substitute a custom model. Checkbox RENDERING stays off until
             // the app turns it on: provider.checkboxes(true).
-            .on_is_selected([this](std::size_t i) { return row_selected(i); })
-            .on_activate(
-                [this](std::size_t i, SelectMod m) { activate(i, m); })
-            .on_is_checked([this](std::size_t i) {
-                return i < flat_.size() &&
-                       checked_.count(flat_[i].handle) != 0;
+            .on_is_selected([weak](std::size_t i) {
+                const auto* self = weak.get();
+                return self != nullptr && self->row_selected(i);
             })
-            .on_set_checked([this](std::size_t i, bool on) {
-                if (i < flat_.size()) set_checked(flat_[i].handle, on);
+            .on_activate(
+                [weak](std::size_t i, SelectMod m) {
+                    if (auto* self = weak.get()) self->activate(i, m);
+                })
+            .on_is_checked([weak](std::size_t i) {
+                const auto* self = weak.get();
+                return self != nullptr && i < self->flat_.size() &&
+                       self->checked_.count(self->flat_[i].handle) != 0;
+            })
+            .on_set_checked([weak](std::size_t i, bool on) {
+                auto* self = weak.get();
+                if (self != nullptr && i < self->flat_.size()) {
+                    self->set_checked(self->flat_[i].handle, on);
+                }
             });
 
         // Row content: prefer a rich render from the resolved item pointer;
         // otherwise fall back to the label text. Both resolve the handle fresh
         // (locked data) and guard null, so a stale node never dangles.
-        if (render_ && resolve_) {
-            provider.on_build_item([this](View& v, std::size_t i) {
-                Item* item = item_at(i);  // handle → item, or null if gone
-                if (item) render_(v, item);
+        const auto* wired_self = weak.get();
+        if (wired_self != nullptr && wired_self->render_ &&
+            wired_self->resolve_) {
+            provider.on_build_item([weak](View& v, std::size_t i) {
+                auto* self = weak.get();
+                if (self == nullptr || i >= self->flat_.size()) return;
+                const auto data = self->data_;
+                const auto resolve = self->resolve_;
+                const auto render = self->render_;
+                const Handle handle = self->flat_[i].handle;
+                Data* source = data.get();
+                if (source == nullptr || !resolve || !render) return;
+                Item* item = resolve(source, handle);
+                // A resolver is arbitrary app code and may destroy its model.
+                if (item != nullptr && data.alive()) render(v, item);
             });
         } else {
-            provider.on_item_text([this](std::size_t i) {
-                Data* d = data_.lock();
-                return (d && label_ && i < flat_.size())
-                           ? label_(d, flat_[i].handle)
+            provider.on_item_text([weak](std::size_t i) {
+                const auto* self = weak.get();
+                if (self == nullptr || i >= self->flat_.size()) {
+                    return std::string{};
+                }
+                const auto data = self->data_;
+                const auto label = self->label_;
+                const Handle handle = self->flat_[i].handle;
+                Data* source = data.get();
+                return source != nullptr && label
+                           ? label(source, handle)
                            : std::string{};
             });
         }
@@ -4232,12 +4454,43 @@ public:
     /// Recompute the flattened view. Call when the underlying tree *structure*
     /// changes (nodes added/removed) — expand/collapse already rebuilds itself.
     void rebuild() {
-        flat_.clear();
-        Data* d = data_.lock();
-        if (!d || !roots_) return;
+        const auto weak_self = to_weak_ref(this);
+        const auto data = data_;
+        const auto roots_fn = roots_;
+        const auto children_fn = children_;
+        const auto has_children_fn = has_children_;
+        const auto expanded = expanded_;
+        std::vector<Entry> next;
+
+        Data* source = data.get();
+        if (source == nullptr || !roots_fn) {
+            flat_.clear();
+            return;
+        }
         std::vector<Handle> roots;
-        roots_(d, roots);
-        for (Handle r : roots) append(d, r, 0);
+        roots_fn(source, roots);
+        if (!weak_self.alive() || !data.alive()) return;
+
+        const auto append = [&](auto& self, Handle handle, int depth) -> void {
+            Data* current = data.get();
+            if (current == nullptr) return;
+            const bool has_children =
+                has_children_fn && has_children_fn(current, handle);
+            if (!data.alive()) return;
+            next.push_back({handle, depth, has_children});
+            if (!has_children || expanded.count(handle) == 0 ||
+                !children_fn) {
+                return;
+            }
+            std::vector<Handle> children;
+            current = data.get();
+            if (current == nullptr) return;
+            children_fn(current, handle, children);
+            if (!data.alive()) return;
+            for (Handle child : children) self(self, child, depth + 1);
+        };
+        for (Handle root : roots) append(append, root, 0);
+        if (auto* self = weak_self.get()) self->flat_ = std::move(next);
     }
 
 private:
@@ -4246,16 +4499,6 @@ private:
         int    depth{0};
         bool   has_children{false};
     };
-
-    void append(Data* d, Handle h, int depth) {
-        const bool kids = has_children_ && has_children_(d, h);
-        flat_.push_back({h, depth, kids});
-        if (kids && expanded_.count(h) != 0 && children_) {
-            std::vector<Handle> children;
-            children_(d, h, children);
-            for (Handle c : children) append(d, c, depth + 1);
-        }
-    }
 
     WeakRef<Data>            data_;
     RootsFn                  roots_;
@@ -4567,12 +4810,13 @@ enum class DockState { Docked, Detached /*floating OS window*/, Tearoff };
 enum class DockCorner { TopLeft, TopRight, BottomLeft, BottomRight };
 
 class View;  // for DockHandle::toolbar (defined out-of-line in view.cpp)
+namespace detail { class ViewLifetime; }
 
 /// A handle to a declared dockable — usable as another dockable's parent and
 /// as the target of the container's runtime add/remove API.
 struct DockHandle {
     std::string id;
-    [[nodiscard]] explicit operator bool() const noexcept { return !id.empty(); }
+    [[nodiscard]] explicit operator bool() const noexcept;
 
     /// Declare this pane's tab toolbar (the strip beside the tabs — filter
     /// buttons, a search field, a viewport's mode/tool controls). Optional;
@@ -4582,8 +4826,7 @@ struct DockHandle {
 
 private:
     friend class View;
-    View* owner_{nullptr};  // set by document()/dockpanel() so toolbar() can
-                            // reach back into the live dock recorder
+    WeakRef<detail::ViewLifetime> lifetime_{};
 };
 
 /// Everything about where a dockable is (or starts) — one value type passed to
@@ -4717,8 +4960,14 @@ struct RemotePatch {
     std::size_t index{0};
 };
 
-class RemotePatchQueue {
+class RemotePatchQueue : public Trackable {
 public:
+    RemotePatchQueue() = default;
+    RemotePatchQueue(const RemotePatchQueue&) = delete;
+    RemotePatchQueue& operator=(const RemotePatchQueue&) = delete;
+    RemotePatchQueue(RemotePatchQueue&&) = delete;
+    RemotePatchQueue& operator=(RemotePatchQueue&&) = delete;
+
     void clear();
     void push(RemotePatch patch);
 
@@ -4737,6 +4986,12 @@ private:
 class ViewSink {
 public:
     virtual ~ViewSink() = default;
+
+    /// Forget every backend mapping while retaining the sink object. The
+    /// default is appropriate for stateless sinks; retained backends override
+    /// it. Keeping reset on the owned sink avoids a separate callback that can
+    /// dangle from the object it is meant to reset.
+    virtual void reset_mappings() {}
 
     virtual void create_element(const WidgetNode& node,
                                 const WidgetNode* parent,
@@ -4772,9 +5027,11 @@ public:
 class RemotePatchSink final : public ViewSink {
 public:
     explicit RemotePatchSink(RemotePatchQueue* queue = nullptr) noexcept
-        : queue_(queue) {}
+        : queue_(to_weak_ref(queue)) {}
 
-    void reset(RemotePatchQueue* queue) noexcept { queue_ = queue; }
+    void reset(RemotePatchQueue* queue) noexcept {
+        queue_ = to_weak_ref(queue);
+    }
 
     void create_element(const WidgetNode& node,
                         const WidgetNode* parent,
@@ -4791,10 +5048,68 @@ public:
                           std::string_view name) override;
 
 private:
-    RemotePatchQueue* queue_{nullptr};
+    WeakRef<RemotePatchQueue> queue_{};
 };
 
 class View;
+
+namespace detail {
+
+// Stable liveness token for a View. Moving a View creates a fresh identity for
+// the destination and leaves the source identity attached to the (valid but
+// moved-from) source object. Existing references therefore never follow an
+// object move accidentally, and destruction always invalidates them.
+class ViewLifetime final {
+public:
+    explicit ViewLifetime(View* owner = nullptr)
+        : slot_(std::in_place, this), owner_(owner) {}
+    ViewLifetime(const ViewLifetime&) = delete;
+    ViewLifetime& operator=(const ViewLifetime&) = delete;
+    ViewLifetime(ViewLifetime&&) noexcept
+        : slot_(std::in_place, this) {}
+    ViewLifetime& operator=(ViewLifetime&&) noexcept {
+        slot_.emplace(this);
+        owner_ = nullptr;
+        return *this;
+    }
+
+    [[nodiscard]] const WeakSlot& aui_weak_slot() const noexcept {
+        return *slot_;
+    }
+    void bind(View* owner) noexcept { owner_ = owner; }
+    void invalidate() noexcept {
+        owner_ = nullptr;
+        slot_.reset();
+    }
+    void renew(View* owner) {
+        slot_.emplace(this);
+        owner_ = owner;
+    }
+    [[nodiscard]] View* owner() const noexcept { return owner_; }
+
+private:
+    std::optional<WeakSlot> slot_;
+    View*                   owner_{nullptr};
+};
+
+// An invalidating reference to a View. The raw address is never consulted
+// unless the independently tracked lifetime token still resolves.
+class WeakViewRef {
+public:
+    WeakViewRef() noexcept = default;
+    explicit WeakViewRef(View* view) noexcept;
+
+    [[nodiscard]] View* get() const noexcept;
+    [[nodiscard]] explicit operator bool() const noexcept {
+        return get() != nullptr;
+    }
+    [[nodiscard]] View* operator->() const noexcept { return get(); }
+
+private:
+    WeakRef<ViewLifetime> lifetime_{};
+};
+
+}  // namespace detail
 
 /// Validity of a strongly-typed component wrapper (see components.h). Lives
 /// here because View::component<T>() produces it and components.h depends on
@@ -4809,7 +5124,7 @@ enum class ComponentValidity {
 class WidgetRef {
 public:
     WidgetRef() noexcept = default;
-    WidgetRef(View* owner,
+    WidgetRef(detail::WeakViewRef owner,
               StableId panel_id,
               StableId id,
               std::string_view name = {});
@@ -4860,7 +5175,7 @@ public:
     [[nodiscard]] WidgetRef find_widget(std::string_view name) const;
 
 private:
-    View* owner_{nullptr};
+    detail::WeakViewRef owner_{};
     StableId panel_id_{};
     mutable StableId id_{};
     std::string name_;
@@ -4885,7 +5200,7 @@ public:
         Scope(const Scope&) = delete;
         Scope& operator=(const Scope&) = delete;
 
-        explicit operator bool() const noexcept { return owner_ != nullptr; }
+        explicit operator bool() const noexcept;
 
         WidgetRef ref() const;
         Scope& named(std::string_view name);
@@ -4896,8 +5211,11 @@ public:
         [[nodiscard]] WidgetRef find_widget(std::string_view name) const;
 
     private:
-        View*       owner_{nullptr};
-        WidgetNode* node_{nullptr};
+        [[nodiscard]] View* resolve_owner() const noexcept;
+        [[nodiscard]] WidgetNode* resolve_node() const noexcept;
+
+        WeakRef<detail::ViewLifetime> lifetime_{};
+        StableId                     node_id_{};
         std::size_t unwind_to_{0};
     };
 
@@ -4908,19 +5226,17 @@ public:
     // to opt into a different framework's class-name style.
     explicit View(ViewTheme theme = ViewTheme::Decius);
     ~View();
-    // Move-only: the string-list backing holds non-copyable providers (unique
-    // weak slots), so a View cannot be copied — but it moves (build helpers
-    // return a View by value; the unique_ptr-held state moves cleanly). Deleting
-    // copy keeps an accidental copy a clear error rather than a deep-STL
-    // diagnostic. Defined out-of-line where StringListState is complete.
+    // A View owns the stable identity used by WidgetRef, Scope, and DockHandle.
+    // It is not copyable. Moving transfers the declared UI state into a fresh
+    // identity and invalidates every handle issued by the source (and, for move
+    // assignment, every prior handle issued by the destination).
     View(const View&) = delete;
     View& operator=(const View&) = delete;
-    View(View&&) noexcept;
-    View& operator=(View&&) noexcept;
+    View(View&& other);
+    View& operator=(View&& other);
 
     void clear();
     View& selector(std::string_view name, std::string_view value);
-    void set_mutation_sink(ViewSink* sink) noexcept { mutation_sink_ = sink; }
     void begin(ViewSink* sink = nullptr);
     void begin(RemotePatchQueue* remote_patches);
     void end();
@@ -5494,7 +5810,16 @@ private:
                                                      std::string_view name);
     [[nodiscard]] WidgetNode* resolve_widget_ref(const WidgetRef& ref);
     [[nodiscard]] ViewSink* current_sink() const noexcept;
+    using MutationDispatch =
+        std::function<void(const std::function<void(ViewSink&)>&)>;
+    void set_mutation_dispatch(MutationDispatch dispatch);
+    void set_binding_dispatch(std::function<void()> dispatch);
+    void notify_bindings_changed();
+    void emit_mutation(const std::function<void(ViewSink&)>& mutation);
+    void with_mutation_sink(const std::function<void(ViewSink*)>& mutation);
+    void move_state_from(View& other);
 
+    detail::ViewLifetime lifetime_{this};
     ViewTheme theme_{ViewTheme::Bootstrap};
     std::string framework_version_;  // empty = personality default
     // True when an app-shell widget (menubar / toolbar / statusbar /
@@ -5517,13 +5842,19 @@ private:
         commit_handlers_;
     std::vector<std::string> diagnostics_;
     ViewSink* sink_{nullptr};
-    ViewSink* mutation_sink_{nullptr};
+    MutationDispatch mutation_dispatch_{};
+    std::function<void()> binding_dispatch_{};
+    WeakRef<RemotePatchQueue> mutation_remote_queue_{};
     bool reconciling_{false};
+    bool direct_mutation_{false};
     // Re-entrancy depth for begin()/end(). The App wraps the builder in its own
     // begin(sink)/end(); a builder that also calls begin()/end() nests inside
     // that session instead of replacing its sink. 0 = no active session.
     int begin_depth_{0};
     RemotePatchSink remote_patch_sink_{};
+
+    friend class App;
+    friend class detail::WeakViewRef;
 
     // Active dock-container recorder (set for the duration of a document_view
     // build callback). document()/dockpanel() record into it; the engine
@@ -5543,8 +5874,8 @@ private:
     struct StringListState {
         VirtualListProvider      provider;
         std::vector<std::string> items;
-        IndexSelection*          selection{nullptr};
-        IndexSelection*          checked{nullptr};
+        WeakRef<IndexSelection>  selection{};
+        WeakRef<IndexSelection>  checked{};
         bool                     wired{false};
     };
     std::vector<std::pair<std::string, std::unique_ptr<StringListState>>>
@@ -5736,7 +6067,7 @@ public:
     }
 
     Button& on_click(ClickCallback cb) {
-        if (valid()) ref_.on_click(std::move(cb));
+        if (valid()) ref_.on_click(cb.to_function());
         return *this;
     }
 };
@@ -5759,7 +6090,7 @@ public:
         return *this;
     }
     Checkbox& on_change(ChangeCallback cb) {
-        if (valid()) ref_.on_change(std::move(cb));
+        if (valid()) ref_.on_change(cb.to_function());
         return *this;
     }
 };
@@ -5781,7 +6112,7 @@ public:
         return *this;
     }
     TextField& on_change(ChangeCallback cb) {
-        if (valid()) ref_.on_change(std::move(cb));
+        if (valid()) ref_.on_change(cb.to_function());
         return *this;
     }
 };
@@ -5804,7 +6135,7 @@ public:
         return *this;
     }
     Dropdown& on_change(ChangeCallback cb) {
-        if (valid()) ref_.on_change(std::move(cb));
+        if (valid()) ref_.on_change(cb.to_function());
         return *this;
     }
 };
@@ -5828,7 +6159,7 @@ public:
         return std::strtod(std::string(text).c_str(), nullptr);
     }
     Slider& on_change(ChangeCallback cb) {
-        if (valid()) ref_.on_change(std::move(cb));
+        if (valid()) ref_.on_change(cb.to_function());
         return *this;
     }
 };
@@ -5857,7 +6188,7 @@ public:
         return *this;
     }
     ColorField& on_change(ChangeCallback cb) {
-        if (valid()) ref_.on_change(std::move(cb));
+        if (valid()) ref_.on_change(cb.to_function());
         return *this;
     }
 };
@@ -6062,7 +6393,7 @@ void inspect(View& v, const T& obj,
 // assertions, and validate_dock_layout() checks the structural invariants
 // every dock arrangement must satisfy.
 //
-//   affineui::UiScript ui(doc, 640, 360, &painter);
+//   affineui::UiScript ui(doc, 640, 360);
 //   ui.set_step_hook([&](const DispatchResult& r) {
 //       if (r.layout_changed) rebuild();   // emulate the app
 //   });
@@ -6084,7 +6415,7 @@ namespace detail {
 void set_dock_trace_capture(std::function<void(const std::string&)> fn);
 }  // namespace detail
 
-class UiScript {
+class UiScript : public Trackable {
 public:
     /// Where inside a target rect a pointer op lands.
     enum class Anchor {
@@ -6096,10 +6427,9 @@ public:
         TopLeft  ///< near the top-left corner (e.g. a tab's label area)
     };
 
-    /// `measurer` is the painter used for relayout after each event (tests
-    /// pass their RecordingPainter; nullptr falls back to estimates).
-    UiScript(Document& doc, int viewport_w, int viewport_h,
-             Painter* measurer = nullptr);
+    /// Relayout after each event uses Document's painterless measurement
+    /// fallback. UiScript never retains a frame-scoped Painter.
+    UiScript(Document& doc, int viewport_w, int viewport_h);
     ~UiScript();
 
     UiScript(const UiScript&) = delete;
@@ -6155,7 +6485,6 @@ private:
     Document&  doc_;
     int        w_;
     int        h_;
-    Painter*   measurer_;
     Point      cursor_{0, 0};
     std::function<void(const DispatchResult&)> hook_;
     std::vector<std::string> log_;
@@ -6296,6 +6625,23 @@ public:
     /// frame-loop control flow — call this once per your-game's-frame
     /// from inside your render pass.
     void render(Document& doc, int fb_w, int fb_h, float dpi_scale);
+
+    /// Dispatch using the renderer-owned Painter for any exact interaction
+    /// relayout. No Painter escapes or is retained by the Document.
+    DispatchResult dispatch(Document& doc, const Event& ev) const;
+
+    /// Exact caret geometry using the renderer-owned measurer. No Painter is
+    /// exposed or retained by the Document.
+    [[nodiscard]] Rect caret_rect(Document& doc) const;
+
+    /// Create a renderer-owned dynamic RGBA8 image. The byte span must be
+    /// exactly width * height * 4. Returns an invalid handle when the renderer
+    /// is not ready, the input is invalid, or the call is made from a thread
+    /// other than the renderer's owner thread.
+    [[nodiscard]] ImageHandle create_image_rgba(
+        int width,
+        int height,
+        std::span<const std::uint8_t> rgba);
 
     /// Draw a lightweight native debug overlay into the current render
     /// pass. This intentionally bypasses the document tree so perf
@@ -6639,8 +6985,8 @@ public:
 
     Ui(const Ui&)            = delete;
     Ui& operator=(const Ui&) = delete;
-    Ui(Ui&&) noexcept;
-    Ui& operator=(Ui&&) noexcept;
+    Ui(Ui&&) = delete;
+    Ui& operator=(Ui&&) = delete;
 
     // ── Content ─────────────────────────────────────────────────────
 
@@ -6746,6 +7092,9 @@ public:
     /// the UI "consumed" the event (e.g. a click hit a registered
     /// handler). If true, your game should suppress its own handling.
     bool dispatch(const Event& e);
+    /// Exact-dispatch overload for headless/custom-renderer hosts. `measurer`
+    /// is borrowed for this call only and is never retained.
+    bool dispatch(const Event& e, Painter& measurer);
 
     /// Current hovered element chain, deepest first. Native widgets use
     /// this to implement browser-like pointer capture against their own
@@ -6837,7 +7186,8 @@ public:
     Size content_size() const;
 
 private:
-    std::unique_ptr<detail::UiImpl> impl_;
+    bool dispatch_impl(const Event& e, Painter* measurer);
+    std::shared_ptr<detail::UiImpl> impl_;
 };
 
 }  // namespace affineui
@@ -6853,6 +7203,35 @@ namespace affineui {
 namespace detail {
 struct AppImpl;
 }
+
+/// Invalidating, non-owning access to the small set of App operations that
+/// retained helpers need. It never exposes App, Document, Renderer, or Painter
+/// pointers; every operation safely no-ops after the App is destroyed.
+class AppHandle {
+public:
+    AppHandle() noexcept = default;
+
+    [[nodiscard]] bool is_valid() const noexcept;
+    [[nodiscard]] explicit operator bool() const noexcept { return is_valid(); }
+
+    void set_custom_paint(std::string_view name,
+                          Document::CustomPaintFn fn) const;
+    bool request_custom_repaint(std::string_view name) const;
+    [[nodiscard]] Rect find_element_rect(std::string_view target) const;
+    [[nodiscard]] ImageHandle create_image_rgba(
+        int width,
+        int height,
+        std::span<const std::uint8_t> rgba) const;
+    void capture_pointer() const;
+    void release_pointer() const;
+
+private:
+    explicit AppHandle(std::weak_ptr<detail::AppImpl> impl) noexcept
+        : impl_(std::move(impl)) {}
+
+    std::weak_ptr<detail::AppImpl> impl_{};
+    friend class App;
+};
 
 class App {
 public:
@@ -6956,6 +7335,15 @@ public:
     /// the cheap path for per-frame animated geometry (drag previews,
     /// meters): no restyle, no layout, no reconcile.
     void request_custom_repaint(std::string_view name);
+
+    /// Create a renderer-owned dynamic RGBA8 image. Safe handles invalidate
+    /// on reset or renderer shutdown and never retain a Painter.
+    [[nodiscard]] ImageHandle create_image_rgba(
+        int width,
+        int height,
+        std::span<const std::uint8_t> rgba);
+
+    [[nodiscard]] AppHandle handle() const noexcept { return AppHandle{impl_}; }
 
     /// Programmatically set the value a named widget displays, in place
     /// (no view rebuild) and without echoing an on_change — the
@@ -7081,7 +7469,7 @@ public:
     float dpi_scale() const;
 
 private:
-    std::unique_ptr<detail::AppImpl> impl_;
+    std::shared_ptr<detail::AppImpl> impl_;
 };
 
 }  // namespace affineui
@@ -7339,16 +7727,22 @@ void unbind(Document& doc);
 // ── inline impl ─────────────────────────────────────────────────────
 
 inline std::uint64_t CallSite::hash() const noexcept {
-    // FNV-1a over (file pointer bits, line, column). Fast, stable for the
+    // FNV-1a over filename contents, line, and column. Stable for the
     // duration of the process — which is all we need.
     std::uint64_t h = 0xcbf29ce484222325ull;
+    if (file) {
+        for (const auto* p = reinterpret_cast<const unsigned char*>(file);
+             *p != 0; ++p) {
+            h ^= *p;
+            h *= 0x100000001b3ull;
+        }
+    }
     auto mix = [&](std::uint64_t x) {
         for (int i = 0; i < 8; ++i) {
             h ^= (x >> (i * 8)) & 0xff;
             h *= 0x100000001b3ull;
         }
     };
-    mix(reinterpret_cast<std::uintptr_t>(file));
     mix(line);
     mix(column);
     return h;

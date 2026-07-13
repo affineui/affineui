@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
@@ -49,6 +50,23 @@ TEST_CASE("Ui handler iteration snapshots re-entrant registrations") {
     CHECK(late_calls == 1);
 }
 
+TEST_CASE("Ui resize stays dirty when a capture handler consumes it") {
+    affineui::Ui ui;
+    ui.render(1, 1, 1.0f);
+    REQUIRE_FALSE(ui.needs_update());
+
+    ui.on_event_capture(
+        [](const affineui::Event& event,
+           const std::vector<affineui::Document::HoverInfo>&) {
+            return event.type == affineui::EventType::Resize;
+        });
+
+    affineui::Event resize{};
+    resize.type = affineui::EventType::Resize;
+    CHECK(ui.dispatch(resize));
+    CHECK(ui.needs_update());
+}
+
 TEST_CASE("Ui frame callbacks snapshot re-entrant registrations") {
     affineui::Ui ui;
     int original_calls = 0;
@@ -65,6 +83,19 @@ TEST_CASE("Ui frame callbacks snapshot re-entrant registrations") {
     ui.run_frame_callbacks(1.0 / 60.0);
     CHECK(original_calls == 2);
     CHECK(late_calls == 1);
+}
+
+TEST_CASE("Ui dispatch pins implementation through re-entrant destruction") {
+    auto ui = std::make_unique<affineui::Ui>();
+    ui->on_event([&](const affineui::Event&,
+                     const std::vector<affineui::Document::HoverInfo>&) {
+        ui.reset();
+        return false;
+    });
+    affineui::Event resize{};
+    resize.type = affineui::EventType::Resize;
+    CHECK_NOTHROW(ui->dispatch(resize));
+    CHECK(ui == nullptr);
 }
 
 TEST_CASE("Ui click callbacks survive a re-entrant reset") {
@@ -123,6 +154,32 @@ TEST_CASE("App handler iteration snapshots re-entrant registrations") {
     app.dispatch(resize);
     CHECK(original_calls == 2);
     CHECK(late_calls == 1);
+}
+
+TEST_CASE("App dispatch pins implementation through re-entrant destruction") {
+    auto app = std::make_unique<affineui::App>();
+    app->on_event([&](const affineui::Event&,
+                      const std::vector<affineui::Document::HoverInfo>&) {
+        app.reset();
+        return false;
+    });
+    affineui::Event resize{};
+    resize.type = affineui::EventType::Resize;
+    CHECK_NOTHROW(app->dispatch(resize));
+    CHECK(app == nullptr);
+}
+
+TEST_CASE("App rebuild pins implementation through re-entrant destruction") {
+    auto app = std::make_unique<affineui::App>();
+    int builds = 0;
+    app->set_view([&](affineui::View& view) {
+        view.paragraph("Pinned", {}, "pinned");
+        if (++builds == 2) app.reset();
+    });
+
+    REQUIRE(app != nullptr);
+    CHECK_NOTHROW(app->rebuild_view());
+    CHECK(app == nullptr);
 }
 
 TEST_CASE("App dispatch preserves every pointer sample in order") {

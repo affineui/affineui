@@ -805,7 +805,11 @@ void Document::draw(Painter& painter) {
                     !handler_name.empty()) {
                     if (auto it = impl_->paint_handlers.find(handler_name);
                         it != impl_->paint_handlers.end() && it->second) {
-                        it->second(painter, eff);
+                        // The callback may unregister itself. Invoke a copy so
+                        // erasing the map entry cannot destroy the callable
+                        // whose operator() is currently on the stack.
+                        auto handler = it->second;
+                        handler(painter, eff);
                     }
                 }
             }

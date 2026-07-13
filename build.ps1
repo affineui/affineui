@@ -279,15 +279,32 @@ function Invoke-Run([string]$name) {
     # until someone deletes it by hand. That is a miserable trap for something
     # as ordinary as closing a sample the wrong way, so do what the linker asks
     # and retry once, rather than making the user decode LNK1285.
-    $buildLog = cmake --build $Build --target $name --parallel 2>&1
+    # Windows PowerShell 5 turns native stderr redirected through 2>&1 into
+    # ErrorRecord objects. With ErrorActionPreference=Stop, harmless CMake
+    # diagnostics such as "-- GLOB mismatch!" abort the script before CMake
+    # can reconfigure and return its real exit code. Capture the merged stream
+    # with native-error promotion disabled, then make the decision from the
+    # process exit code.
+    $savedErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $buildLog = cmake --build $Build --target $name --parallel 2>&1
+        $buildExit = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+    }
     $buildLog | ForEach-Object { Write-Host $_ }
-    if ($LASTEXITCODE -ne 0 -and ($buildLog -match 'LNK1285')) {
+    if ($buildExit -ne 0 -and ($buildLog -match 'LNK1285')) {
         Write-Host "stale PDB from an interrupted link - clearing and retrying..." -ForegroundColor Yellow
         Get-ChildItem -Path $Build -Recurse -Include "$name.pdb", "$name.ilk" `
                       -ErrorAction SilentlyContinue | Remove-Item -Force
         cmake --build $Build --target $name --parallel
+        $buildExit = $LASTEXITCODE
     }
-    Assert-LastExit "build example '$name'"
+    if ($buildExit -ne 0) {
+        Write-Host "error: build example '$name' failed (exit $buildExit)" -ForegroundColor Red
+        exit $buildExit
+    }
     $exe = Get-ChildItem -Path $Build -Recurse -Filter "$name.exe" -ErrorAction SilentlyContinue |
         Select-Object -First 1
     if (-not $exe) {

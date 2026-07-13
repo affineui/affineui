@@ -8,9 +8,9 @@
 //! gracefully (reads return defaults, writes no-op) once its node is
 //! gone.
 //!
-//! Lifetimes: a `Widget` holds an `Rc` to its view, so widgets keep the
-//! view alive and can never dangle (the Rust analog of the Python
-//! binding's `keep_alive`).
+//! Lifetimes: a `Widget` owns only an invalidating native handle. It does not
+//! retain its `View`; after the View or node is gone, reads return defaults and
+//! writes safely no-op.
 
 use crate::sys;
 use crate::util::{cstring, ensure_abi, take_string, NotThreadSafe};
@@ -132,19 +132,18 @@ unsafe extern "C" fn change_free(user: *mut c_void) {
 
 // Scope-builder env: the closure runs synchronously inside the builder
 // call, so it borrows locals; the env only lives for that call.
-struct BuildEnv<'a, F: FnOnce(&View)> {
-    view: &'a View,
+struct BuildEnv<F: FnOnce(&View)> {
     f: Option<F>,
 }
 
 unsafe extern "C" fn build_trampoline<F: FnOnce(&View)>(
     user: *mut c_void,
-    _view: *mut sys::affineui_view,
+    raw_view: *mut sys::affineui_view,
 ) {
-    let env = &mut *(user as *mut BuildEnv<'_, F>);
+    let env = &mut *(user as *mut BuildEnv<F>);
     if let Some(f) = env.f.take() {
-        let view = env.view;
-        if catch_unwind(AssertUnwindSafe(|| f(view))).is_err() {
+        let view = View::borrowed(raw_view);
+        if catch_unwind(AssertUnwindSafe(|| f(&view))).is_err() {
             eprintln!("affineui: panic in build callback (suppressed)");
         }
     }
@@ -176,7 +175,7 @@ impl View {
     }
 
     fn wrap(&self, raw: *mut sys::affineui_widget) -> Widget {
-        Widget { raw, view: Rc::clone(&self.inner), _not_send: NotThreadSafe::default() }
+        Widget { raw, _not_send: NotThreadSafe::default() }
     }
 
     fn with_build<F: FnOnce(&View), R>(
@@ -184,7 +183,7 @@ impl View {
         f: F,
         call: impl FnOnce(sys::affineui_build_fn, *mut c_void) -> R,
     ) -> R {
-        let mut env = BuildEnv { view: self, f: Some(f) };
+        let mut env = BuildEnv { f: Some(f) };
         call(Some(build_trampoline::<F>), &mut env as *mut _ as *mut c_void)
     }
 
@@ -539,11 +538,10 @@ impl View {
     }
 }
 
-/// Safe handle over a widget in a [`View`]. Keeps the view alive; stays
-/// safe (inert) after its node is gone.
+/// Invalidating handle over a widget in a [`View`]. It does not retain the
+/// View and becomes safely inert after either the View or node is gone.
 pub struct Widget {
     raw: *mut sys::affineui_widget,
-    pub(crate) view: Rc<ViewInner>,
     _not_send: NotThreadSafe,
 }
 
@@ -554,10 +552,6 @@ impl Drop for Widget {
 }
 
 impl Widget {
-    pub(crate) fn view_handle(&self) -> View {
-        View { inner: Rc::clone(&self.view) }
-    }
-
     /// True when the handle resolves to a live node.
     pub fn is_valid(&self) -> bool {
         unsafe { sys::affineui_widget_valid(self.raw) != 0 }
@@ -644,8 +638,7 @@ impl Widget {
 
     /// Append children built by the closure (runs synchronously).
     pub fn append<F: FnOnce(&View)>(&self, build: F) -> &Self {
-        let view = self.view_handle();
-        let mut env = BuildEnv { view: &view, f: Some(build) };
+        let mut env = BuildEnv { f: Some(build) };
         unsafe {
             sys::affineui_widget_append(
                 self.raw,
@@ -658,8 +651,7 @@ impl Widget {
 
     /// Replace children with ones built by the closure.
     pub fn replace<F: FnOnce(&View)>(&self, build: F) -> &Self {
-        let view = self.view_handle();
-        let mut env = BuildEnv { view: &view, f: Some(build) };
+        let mut env = BuildEnv { f: Some(build) };
         unsafe {
             sys::affineui_widget_replace(
                 self.raw,
@@ -675,6 +667,6 @@ impl Widget {
     pub fn find_widget(&self, name: &str) -> Widget {
         let name = cstring(name);
         let raw = unsafe { sys::affineui_widget_find_widget(self.raw, name.as_ptr()) };
-        Widget { raw, view: Rc::clone(&self.view), _not_send: NotThreadSafe::default() }
+        Widget { raw, _not_send: NotThreadSafe::default() }
     }
 }
