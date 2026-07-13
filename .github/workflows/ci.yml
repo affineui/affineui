@@ -311,6 +311,15 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/consumer/src
           cd /tmp/consumer
+
+          # $GITHUB_WORKSPACE is a Windows path (D:\a\affineui\affineui). In a
+          # TOML basic string (double quotes) the backslashes are escape
+          # sequences — `\a` is not a valid one, so Cargo.toml fails to parse.
+          # Normalise to forward slashes (which cargo accepts on Windows) and
+          # emit a TOML *literal* string (single quotes), which does no escape
+          # processing at all.
+          ws=$(printf '%s' "$GITHUB_WORKSPACE" | tr '\\' '/')
+
           cat > Cargo.toml <<EOF
           [package]
           name = "consumer"
@@ -318,8 +327,10 @@ jobs:
           edition = "2021"
 
           [dependencies]
-          affineui = { path = "$GITHUB_WORKSPACE/bindings/rust/affineui" }
+          affineui = { path = '${ws}/bindings/rust/affineui' }
           EOF
+          cat Cargo.toml
+
           cat > src/main.rs <<'EOF'
           fn main() {
               println!("affineui {}", affineui::version());
