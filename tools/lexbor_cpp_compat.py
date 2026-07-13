@@ -719,6 +719,13 @@ def patch_designated_initializers(staged_source: Path) -> None:
 def patch_generated_headers(staged_source: Path) -> None:
     for path in (staged_source / "lexbor").rglob("*.h"):
         text = replace_compound_pointer_literals(read_text(path))
+        if "lexbor_shs_entry_t" in text:
+            # Generated perfect-hash tables use a mutable `char*` key
+            # field even though every key is a string literal. C accepts that;
+            # standard C++ and MSVC do not. Other generated Lexbor tables
+            # already emit this exact cast, so normalize SHS entries too.
+            text = re.sub(r'(\{\s*)(")',
+                          r'\1(char *) \2', text)
         if path.as_posix().endswith("/lexbor/html/tokenizer/res.h"):
             text = re.sub(r"(\{0x[0-9A-Fa-f]+,\s*)(\")", r"\1(void *) \2", text)
         write_text(path, text)
@@ -1102,7 +1109,10 @@ def apply_diagnostic_fixes(path: Path, stderr: str, symbol_prefix: str) -> bool:
 
     while i < len(diag_lines):
         line = diag_lines[i]
-        match = re.match(r"([^:]+):(\d+):(\d+): error: (.*)", line)
+        # Greedy path capture is intentional: Windows diagnostics start with
+        # a drive prefix (`C:\\...:line:column`). Stopping at the first colon
+        # silently disabled every compiler-guided repair on Windows.
+        match = re.match(r"(.+):(\d+):(\d+): error: (.*)", line)
         if match is None:
             i += 1
             continue

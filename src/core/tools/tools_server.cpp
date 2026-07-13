@@ -59,18 +59,24 @@ extern "C" {
 using socket_t = SOCKET;
 static constexpr socket_t kInvalidSocket = INVALID_SOCKET;
 #else
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/select.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <unistd.h>
+    #include <arpa/inet.h>
+    #include <netinet/in.h>
+    #include <sys/select.h>
+    #include <sys/socket.h>
+    #include <sys/stat.h>
+    #include <unistd.h>
 #if defined(__APPLE__)
     #include <mach-o/dyld.h>   // _NSGetExecutablePath
     #include <sys/syslimits.h> // PATH_MAX
 #endif
 using socket_t = int;
 static constexpr socket_t kInvalidSocket = -1;
+#endif
+
+#if defined(_WIN32) && defined(small)
+// Legacy RPC token from the Windows headers. In the amalgamated build it
+// would otherwise rewrite later C++ members such as `opts.small`.
+    #undef small
 #endif
 
 namespace affineui {

@@ -20,6 +20,23 @@
 
 #include "affineui.h"
 
+#if defined(_WIN32)
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+// Lexbor's hash code uses the GCC byte-order macros. Every Windows
+// target supported by AffineUI is little-endian.
+#  ifndef __ORDER_LITTLE_ENDIAN__
+#    define __ORDER_LITTLE_ENDIAN__ 1234
+#  endif
+#  ifndef __BYTE_ORDER__
+#    define __BYTE_ORDER__ __ORDER_LITTLE_ENDIAN__
+#  endif
+#endif
+
 #include <cstdint>
 #include <utility>
 #include <cstdlib>
@@ -47,14 +64,8 @@
 #include <map>
 #include <thread>
 #include <ctime>
-#include <unistd.h>
 #include <deque>
 #include <random>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/select.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -25870,9 +25881,9 @@ static const lexbor_shs_entry_t lxb_css_at_rule_shs[6] =
     {NULL, NULL, 5, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"media", (void *) &lxb_css_at_rule_data[LXB_CSS_AT_RULE_MEDIA], 5, 0},
+    {(char *) "media", (void *) &lxb_css_at_rule_data[LXB_CSS_AT_RULE_MEDIA], 5, 0},
     {NULL, NULL, 0, 0},
-    {"namespace", (void *) &lxb_css_at_rule_data[LXB_CSS_AT_RULE_NAMESPACE], 9, 0}
+    {(char *) "namespace", (void *) &lxb_css_at_rule_data[LXB_CSS_AT_RULE_NAMESPACE], 9, 0}
 };
 
 
@@ -30146,149 +30157,149 @@ static const lxb_css_entry_data_t lxb_css_property_data[LXB_CSS_PROPERTY__LAST_E
 static const lexbor_shs_entry_t lxb_css_property_shs[249] =
 {
     {NULL, NULL, 248, 0},
-    {"text-combine-upright", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_COMBINE_UPRIGHT], 20, 0},
-    {"text-decoration-style", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_DECORATION_STYLE], 21, 0},
-    {"float-reference", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLOAT_REFERENCE], 15, 0},
-    {"font-family", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FONT_FAMILY], 11, 0},
-    {"font-stretch", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FONT_STRETCH], 12, 1},
-    {"flex-grow", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLEX_GROW], 9, 0},
-    {"vertical-align", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_VERTICAL_ALIGN], 14, 0},
-    {"min-height", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MIN_HEIGHT], 10, 0},
-    {"wrap-flow", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_WRAP_FLOW], 9, 0},
-    {"align-content", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_ALIGN_CONTENT], 13, 0},
-    {"color", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_COLOR], 5, 0},
-    {"min-width", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MIN_WIDTH], 9, 0},
-    {"padding-right", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_PADDING_RIGHT], 13, 0},
-    {"word-spacing", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_WORD_SPACING], 12, 0},
-    {"hanging-punctuation", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_HANGING_PUNCTUATION], 19, 0},
-    {"display", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_DISPLAY], 7, 0},
-    {"text-decoration-color", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_DECORATION_COLOR], 21, 0},
-    {"border-radius", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_RADIUS], 13, 0},
-    {"unicode-bidi", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_UNICODE_BIDI], 12, 0},
-    {"padding-top", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_PADDING_TOP], 11, 0},
-    {"border-top-color", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_TOP_COLOR], 16, 0},
-    {"border-right-color", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_RIGHT_COLOR], 18, 0},
-    {"align-items", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_ALIGN_ITEMS], 11, 0},
-    {"inset-inline-start", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_INSET_INLINE_START], 18, 0},
-    {"tab-size", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TAB_SIZE], 8, 0},
-    {"alignment-baseline", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_ALIGNMENT_BASELINE], 18, 0},
+    {(char *) "text-combine-upright", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_COMBINE_UPRIGHT], 20, 0},
+    {(char *) "text-decoration-style", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_DECORATION_STYLE], 21, 0},
+    {(char *) "float-reference", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLOAT_REFERENCE], 15, 0},
+    {(char *) "font-family", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FONT_FAMILY], 11, 0},
+    {(char *) "font-stretch", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FONT_STRETCH], 12, 1},
+    {(char *) "flex-grow", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLEX_GROW], 9, 0},
+    {(char *) "vertical-align", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_VERTICAL_ALIGN], 14, 0},
+    {(char *) "min-height", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MIN_HEIGHT], 10, 0},
+    {(char *) "wrap-flow", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_WRAP_FLOW], 9, 0},
+    {(char *) "align-content", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_ALIGN_CONTENT], 13, 0},
+    {(char *) "color", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_COLOR], 5, 0},
+    {(char *) "min-width", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MIN_WIDTH], 9, 0},
+    {(char *) "padding-right", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_PADDING_RIGHT], 13, 0},
+    {(char *) "word-spacing", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_WORD_SPACING], 12, 0},
+    {(char *) "hanging-punctuation", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_HANGING_PUNCTUATION], 19, 0},
+    {(char *) "display", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_DISPLAY], 7, 0},
+    {(char *) "text-decoration-color", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_DECORATION_COLOR], 21, 0},
+    {(char *) "border-radius", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_RADIUS], 13, 0},
+    {(char *) "unicode-bidi", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_UNICODE_BIDI], 12, 0},
+    {(char *) "padding-top", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_PADDING_TOP], 11, 0},
+    {(char *) "border-top-color", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_TOP_COLOR], 16, 0},
+    {(char *) "border-right-color", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_RIGHT_COLOR], 18, 0},
+    {(char *) "align-items", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_ALIGN_ITEMS], 11, 0},
+    {(char *) "inset-inline-start", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_INSET_INLINE_START], 18, 0},
+    {(char *) "tab-size", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TAB_SIZE], 8, 0},
+    {(char *) "alignment-baseline", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_ALIGNMENT_BASELINE], 18, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"height", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_HEIGHT], 6, 0},
-    {"overflow", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_OVERFLOW], 8, 0},
+    {(char *) "height", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_HEIGHT], 6, 0},
+    {(char *) "overflow", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_OVERFLOW], 8, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"bottom", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BOTTOM], 6, 0},
+    {(char *) "bottom", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BOTTOM], 6, 0},
     {NULL, NULL, 0, 0},
-    {"text-decoration-line", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_DECORATION_LINE], 20, 0},
-    {"font-size", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FONT_SIZE], 9, 2},
-    {"font-style", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FONT_STYLE], 10, 0},
+    {(char *) "text-decoration-line", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_DECORATION_LINE], 20, 0},
+    {(char *) "font-size", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FONT_SIZE], 9, 2},
+    {(char *) "font-style", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FONT_STYLE], 10, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"border-bottom", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_BOTTOM], 13, 0},
+    {(char *) "border-bottom", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_BOTTOM], 13, 0},
     {NULL, NULL, 0, 0},
-    {"gap", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_GAP], 3, 3},
+    {(char *) "gap", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_GAP], 3, 3},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"text-transform", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_TRANSFORM], 14, 0},
-    {"row-gap", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_ROW_GAP], 7, 4},
+    {(char *) "text-transform", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_TRANSFORM], 14, 0},
+    {(char *) "row-gap", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_ROW_GAP], 7, 4},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"flex", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLEX], 4, 0},
+    {(char *) "flex", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLEX], 4, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"white-space", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_WHITE_SPACE], 11, 0},
-    {"writing-mode", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_WRITING_MODE], 12, 0},
+    {(char *) "white-space", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_WHITE_SPACE], 11, 0},
+    {(char *) "writing-mode", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_WRITING_MODE], 12, 0},
     {NULL, NULL, 0, 0},
-    {"border-left", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_LEFT], 11, 0},
-    {"border-right", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_RIGHT], 12, 0},
+    {(char *) "border-left", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_LEFT], 11, 0},
+    {(char *) "border-right", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_RIGHT], 12, 0},
     {NULL, NULL, 0, 0},
-    {"baseline-shift", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BASELINE_SHIFT], 14, 0},
+    {(char *) "baseline-shift", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BASELINE_SHIFT], 14, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"text-justify", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_JUSTIFY], 12, 0},
-    {"flex-flow", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLEX_FLOW], 9, 6},
-    {"max-height", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MAX_HEIGHT], 10, 8},
-    {"margin-left", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MARGIN_LEFT], 11, 0},
-    {"margin-right", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MARGIN_RIGHT], 12, 0},
+    {(char *) "text-justify", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_JUSTIFY], 12, 0},
+    {(char *) "flex-flow", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLEX_FLOW], 9, 6},
+    {(char *) "max-height", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MAX_HEIGHT], 10, 8},
+    {(char *) "margin-left", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MARGIN_LEFT], 11, 0},
+    {(char *) "margin-right", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MARGIN_RIGHT], 12, 0},
     {NULL, NULL, 0, 0},
-    {"column-gap", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_COLUMN_GAP], 10, 0},
+    {(char *) "column-gap", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_COLUMN_GAP], 10, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"clear", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_CLEAR], 5, 11},
+    {(char *) "clear", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_CLEAR], 5, 11},
     {NULL, NULL, 0, 0},
-    {"word-wrap", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_WORD_WRAP], 9, 0},
-    {"border-top", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_TOP], 10, 0},
+    {(char *) "word-wrap", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_WORD_WRAP], 9, 0},
+    {(char *) "border-top", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_TOP], 10, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"padding-bottom", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_PADDING_BOTTOM], 14, 0},
+    {(char *) "padding-bottom", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_PADDING_BOTTOM], 14, 0},
     {NULL, NULL, 0, 0},
-    {"border-style", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_STYLE], 12, 0},
+    {(char *) "border-style", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_STYLE], 12, 0},
     {NULL, NULL, 0, 0},
-    {"baseline-source", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BASELINE_SOURCE], 15, 0},
-    {"border-collapse", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_COLLAPSE], 15, 96},
-    {"background-image", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BACKGROUND_IMAGE], 16, 0},
-    {"overflow-wrap", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_OVERFLOW_WRAP], 13, 0},
-    {"letter-spacing", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_LETTER_SPACING], 14, 0},
-    {"background-size", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BACKGROUND_SIZE], 15, 91},
+    {(char *) "baseline-source", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BASELINE_SOURCE], 15, 0},
+    {(char *) "border-collapse", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_COLLAPSE], 15, 96},
+    {(char *) "background-image", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BACKGROUND_IMAGE], 16, 0},
+    {(char *) "overflow-wrap", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_OVERFLOW_WRAP], 13, 0},
+    {(char *) "letter-spacing", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_LETTER_SPACING], 14, 0},
+    {(char *) "background-size", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BACKGROUND_SIZE], 15, 91},
     {NULL, NULL, 0, 0},
-    {"max-width", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MAX_WIDTH], 9, 12},
+    {(char *) "max-width", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MAX_WIDTH], 9, 12},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"font", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FONT], 4, 246},
-    {"float", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLOAT], 5, 13},
-    {"box-shadow", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BOX_SHADOW], 10, 0},
+    {(char *) "font", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FONT], 4, 246},
+    {(char *) "float", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLOAT], 5, 13},
+    {(char *) "box-shadow", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BOX_SHADOW], 10, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"text-align", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_ALIGN], 10, 0},
-    {"font-weight", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FONT_WEIGHT], 11, 14},
-    {"float-offset", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLOAT_OFFSET], 12, 0},
+    {(char *) "text-align", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_ALIGN], 10, 0},
+    {(char *) "font-weight", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FONT_WEIGHT], 11, 14},
+    {(char *) "float-offset", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLOAT_OFFSET], 12, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"text-decoration", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_DECORATION], 15, 0},
-    {"text-orientation", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_ORIENTATION], 16, 0},
+    {(char *) "text-decoration", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_DECORATION], 15, 0},
+    {(char *) "text-orientation", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_ORIENTATION], 16, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"flex-basis", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLEX_BASIS], 10, 0},
+    {(char *) "flex-basis", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLEX_BASIS], 10, 0},
     {NULL, NULL, 0, 0},
-    {"opacity", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_OPACITY], 7, 0},
+    {(char *) "opacity", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_OPACITY], 7, 0},
     {NULL, NULL, 0, 0},
-    {"line-break", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_LINE_BREAK], 10, 0},
-    {"overflow-y", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_OVERFLOW_Y], 10, 15},
+    {(char *) "line-break", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_LINE_BREAK], 10, 0},
+    {(char *) "overflow-y", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_OVERFLOW_Y], 10, 15},
     {NULL, NULL, 0, 0},
-    {"width", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_WIDTH], 5, 17},
+    {(char *) "width", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_WIDTH], 5, 17},
     {NULL, NULL, 0, 0},
-    {"hyphens", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_HYPHENS], 7, 0},
+    {(char *) "hyphens", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_HYPHENS], 7, 0},
     {NULL, NULL, 0, 0},
-    {"direction", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_DIRECTION], 9, 18},
+    {(char *) "direction", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_DIRECTION], 9, 18},
     {NULL, NULL, 0, 0},
-    {"float-defer", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLOAT_DEFER], 11, 0},
-    {"wrap-through", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_WRAP_THROUGH], 12, 134},
-    {"border-width", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_WIDTH], 12, 0},
-    {"border-top-left-radius", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_TOP_LEFT_RADIUS], 22, 0},
+    {(char *) "float-defer", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLOAT_DEFER], 11, 0},
+    {(char *) "wrap-through", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_WRAP_THROUGH], 12, 134},
+    {(char *) "border-width", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_WIDTH], 12, 0},
+    {(char *) "border-top-left-radius", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_TOP_LEFT_RADIUS], 22, 0},
     {NULL, NULL, 0, 0},
-    {"border-top-width", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_TOP_WIDTH], 16, 0},
-    {"border-left-width", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_LEFT_WIDTH], 17, 0},
-    {"border-right-width", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_RIGHT_WIDTH], 18, 135},
-    {"border-bottom-width", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_BOTTOM_WIDTH], 19, 141},
-    {"border-top-right-radius", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_TOP_RIGHT_RADIUS], 23, 0},
-    {"border-bottom-left-radius", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_BOTTOM_LEFT_RADIUS], 25, 0},
-    {"border-bottom-right-radius", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_BOTTOM_RIGHT_RADIUS], 26, 0},
+    {(char *) "border-top-width", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_TOP_WIDTH], 16, 0},
+    {(char *) "border-left-width", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_LEFT_WIDTH], 17, 0},
+    {(char *) "border-right-width", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_RIGHT_WIDTH], 18, 135},
+    {(char *) "border-bottom-width", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_BOTTOM_WIDTH], 19, 141},
+    {(char *) "border-top-right-radius", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_TOP_RIGHT_RADIUS], 23, 0},
+    {(char *) "border-bottom-left-radius", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_BOTTOM_LEFT_RADIUS], 25, 0},
+    {(char *) "border-bottom-right-radius", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_BOTTOM_RIGHT_RADIUS], 26, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
@@ -30296,19 +30307,19 @@ static const lexbor_shs_entry_t lxb_css_property_shs[249] =
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"visibility", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_VISIBILITY], 10, 0},
-    {"justify-content", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_JUSTIFY_CONTENT], 15, 0},
+    {(char *) "visibility", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_VISIBILITY], 10, 0},
+    {(char *) "justify-content", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_JUSTIFY_CONTENT], 15, 0},
     {NULL, NULL, 0, 0},
-    {"flex-wrap", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLEX_WRAP], 9, 0},
-    {"background", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BACKGROUND], 10, 0},
-    {"inset-block-end", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_INSET_BLOCK_END], 15, 0},
-    {"inset-inline-end", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_INSET_INLINE_END], 16, 0},
+    {(char *) "flex-wrap", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLEX_WRAP], 9, 0},
+    {(char *) "background", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BACKGROUND], 10, 0},
+    {(char *) "inset-block-end", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_INSET_BLOCK_END], 15, 0},
+    {(char *) "inset-inline-end", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_INSET_INLINE_END], 16, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"dominant-baseline", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_DOMINANT_BASELINE], 17, 0},
-    {"margin-top", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MARGIN_TOP], 10, 0},
+    {(char *) "dominant-baseline", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_DOMINANT_BASELINE], 17, 0},
+    {(char *) "margin-top", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MARGIN_TOP], 10, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
@@ -30321,39 +30332,39 @@ static const lexbor_shs_entry_t lxb_css_property_shs[249] =
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"order", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_ORDER], 5, 0},
+    {(char *) "order", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_ORDER], 5, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"flex-direction", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLEX_DIRECTION], 14, 0},
+    {(char *) "flex-direction", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLEX_DIRECTION], 14, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"left", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_LEFT], 4, 0},
-    {"text-overflow", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_OVERFLOW], 13, 0},
-    {"border", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER], 6, 0},
+    {(char *) "left", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_LEFT], 4, 0},
+    {(char *) "text-overflow", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_OVERFLOW], 13, 0},
+    {(char *) "border", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER], 6, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"line-height", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_LINE_HEIGHT], 11, 0},
-    {"border-color", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_COLOR], 12, 0},
-    {"right", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_RIGHT], 5, 19},
-    {"box-sizing", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BOX_SIZING], 10, 0},
+    {(char *) "line-height", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_LINE_HEIGHT], 11, 0},
+    {(char *) "border-color", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_COLOR], 12, 0},
+    {(char *) "right", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_RIGHT], 5, 19},
+    {(char *) "box-sizing", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BOX_SIZING], 10, 0},
     {NULL, NULL, 0, 0},
-    {"background-color", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BACKGROUND_COLOR], 16, 21},
-    {"border-left-color", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_LEFT_COLOR], 17, 0},
-    {"overflow-x", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_OVERFLOW_X], 10, 22},
-    {"border-bottom-color", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_BOTTOM_COLOR], 19, 0},
-    {"margin", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MARGIN], 6, 0},
-    {"word-break", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_WORD_BREAK], 10, 0},
+    {(char *) "background-color", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BACKGROUND_COLOR], 16, 21},
+    {(char *) "border-left-color", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_LEFT_COLOR], 17, 0},
+    {(char *) "overflow-x", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_OVERFLOW_X], 10, 22},
+    {(char *) "border-bottom-color", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_BORDER_BOTTOM_COLOR], 19, 0},
+    {(char *) "margin", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MARGIN], 6, 0},
+    {(char *) "word-break", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_WORD_BREAK], 10, 0},
     {NULL, NULL, 0, 0},
-    {"padding", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_PADDING], 7, 0},
+    {(char *) "padding", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_PADDING], 7, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
@@ -30361,39 +30372,39 @@ static const lexbor_shs_entry_t lxb_css_property_shs[249] =
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"flex-shrink", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLEX_SHRINK], 11, 0},
-    {"align-self", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_ALIGN_SELF], 10, 0},
-    {"inset", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_INSET], 5, 0},
+    {(char *) "flex-shrink", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_FLEX_SHRINK], 11, 0},
+    {(char *) "align-self", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_ALIGN_SELF], 10, 0},
+    {(char *) "inset", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_INSET], 5, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"overflow-inline", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_OVERFLOW_INLINE], 15, 0},
+    {(char *) "overflow-inline", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_OVERFLOW_INLINE], 15, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"position", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_POSITION], 8, 0},
+    {(char *) "position", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_POSITION], 8, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"top", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TOP], 3, 0},
+    {(char *) "top", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TOP], 3, 0},
     {NULL, NULL, 0, 0},
-    {"inset-block-start", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_INSET_BLOCK_START], 17, 0},
-    {"text-align-all", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_ALIGN_ALL], 14, 24},
+    {(char *) "inset-block-start", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_INSET_BLOCK_START], 17, 0},
+    {(char *) "text-align-all", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_ALIGN_ALL], 14, 24},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"margin-bottom", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MARGIN_BOTTOM], 13, 0},
+    {(char *) "margin-bottom", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_MARGIN_BOTTOM], 13, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"z-index", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_Z_INDEX], 7, 26},
+    {(char *) "z-index", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_Z_INDEX], 7, 26},
     {NULL, NULL, 0, 0},
-    {"overflow-block", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_OVERFLOW_BLOCK], 14, 0},
+    {(char *) "overflow-block", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_OVERFLOW_BLOCK], 14, 0},
     {NULL, NULL, 0, 0},
-    {"text-indent", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_INDENT], 11, 0},
+    {(char *) "text-indent", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_INDENT], 11, 0},
     {NULL, NULL, 0, 0},
-    {"padding-left", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_PADDING_LEFT], 12, 0},
+    {(char *) "padding-left", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_PADDING_LEFT], 12, 0},
     {NULL, NULL, 0, 0},
-    {"text-align-last", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_ALIGN_LAST], 15, 0}
+    {(char *) "text-align-last", (void *) &lxb_css_property_data[LXB_CSS_PROPERTY_TEXT_ALIGN_LAST], 15, 0}
 };
 
 
@@ -44854,83 +44865,83 @@ static const lxb_css_selectors_pseudo_data_func_t lxb_css_selectors_pseudo_data_
 static const lexbor_shs_entry_t lxb_css_selectors_pseudo_class_shs[79] =
 {
     {NULL, NULL, 78, 0},
-    {"focus-visible", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_FOCUS_VISIBLE], 13, 0},
-    {"first-of-type", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_FIRST_OF_TYPE], 13, 1},
-    {"in-range", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_IN_RANGE], 8, 0},
-    {"out-of-range", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_OUT_OF_RANGE], 12, 0},
-    {"read-write", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_READ_WRITE], 10, 0},
-    {"hover", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_HOVER], 5, 3},
-    {"enabled", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_ENABLED], 7, 0},
-    {"fullscreen", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_FULLSCREEN], 10, 0},
-    {"placeholder-shown", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_PLACEHOLDER_SHOWN], 17, 0},
-    {"target-within", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_TARGET_WITHIN], 13, 0},
-    {"indeterminate", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_INDETERMINATE], 13, 0},
-    {"local-link", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_LOCAL_LINK], 10, 0},
-    {"user-invalid", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_USER_INVALID], 12, 0},
+    {(char *) "focus-visible", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_FOCUS_VISIBLE], 13, 0},
+    {(char *) "first-of-type", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_FIRST_OF_TYPE], 13, 1},
+    {(char *) "in-range", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_IN_RANGE], 8, 0},
+    {(char *) "out-of-range", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_OUT_OF_RANGE], 12, 0},
+    {(char *) "read-write", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_READ_WRITE], 10, 0},
+    {(char *) "hover", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_HOVER], 5, 3},
+    {(char *) "enabled", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_ENABLED], 7, 0},
+    {(char *) "fullscreen", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_FULLSCREEN], 10, 0},
+    {(char *) "placeholder-shown", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_PLACEHOLDER_SHOWN], 17, 0},
+    {(char *) "target-within", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_TARGET_WITHIN], 13, 0},
+    {(char *) "indeterminate", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_INDETERMINATE], 13, 0},
+    {(char *) "local-link", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_LOCAL_LINK], 10, 0},
+    {(char *) "user-invalid", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_USER_INVALID], 12, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"past", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_PAST], 4, 0},
+    {(char *) "past", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_PAST], 4, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"only-of-type", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_ONLY_OF_TYPE], 12, 4},
-    {"only-child", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_ONLY_CHILD], 10, 5},
-    {"focus", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_FOCUS], 5, 7},
+    {(char *) "only-of-type", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_ONLY_OF_TYPE], 12, 4},
+    {(char *) "only-child", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_ONLY_CHILD], 10, 5},
+    {(char *) "focus", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_FOCUS], 5, 7},
     {NULL, NULL, 0, 0},
-    {"any-link", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_ANY_LINK], 8, 0},
+    {(char *) "any-link", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_ANY_LINK], 8, 0},
     {NULL, NULL, 0, 0},
-    {"valid", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_VALID], 5, 0},
+    {(char *) "valid", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_VALID], 5, 0},
     {NULL, NULL, 0, 0},
-    {"visited", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_VISITED], 7, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"root", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_ROOT], 4, 8},
-    {NULL, NULL, 0, 0},
-    {"focus-within", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_FOCUS_WITHIN], 12, 0},
-    {"checked", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_CHECKED], 7, 9},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"active", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_ACTIVE], 6, 0},
-    {"last-of-type", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_LAST_OF_TYPE], 12, 0},
-    {NULL, NULL, 0, 0},
-    {"target", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_TARGET], 6, 0},
-    {"read-only", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_READ_ONLY], 9, 10},
-    {NULL, NULL, 0, 0},
-    {"first-child", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_FIRST_CHILD], 11, 0},
-    {"disabled", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_DISABLED], 8, 0},
-    {NULL, NULL, 0, 0},
-    {"required", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_REQUIRED], 8, 0},
-    {NULL, NULL, 0, 0},
-    {"link", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_LINK], 4, 0},
-    {NULL, NULL, 0, 0},
-    {"empty", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_EMPTY], 5, 0},
-    {"invalid", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_INVALID], 7, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"scope", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_SCOPE], 5, 12},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"blank", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_BLANK], 5, 0},
+    {(char *) "visited", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_VISITED], 7, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
+    {(char *) "root", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_ROOT], 4, 8},
+    {NULL, NULL, 0, 0},
+    {(char *) "focus-within", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_FOCUS_WITHIN], 12, 0},
+    {(char *) "checked", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_CHECKED], 7, 9},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"warning", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_WARNING], 7, 0},
-    {"default", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_DEFAULT], 7, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "active", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_ACTIVE], 6, 0},
+    {(char *) "last-of-type", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_LAST_OF_TYPE], 12, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "target", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_TARGET], 6, 0},
+    {(char *) "read-only", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_READ_ONLY], 9, 10},
+    {NULL, NULL, 0, 0},
+    {(char *) "first-child", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_FIRST_CHILD], 11, 0},
+    {(char *) "disabled", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_DISABLED], 8, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "required", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_REQUIRED], 8, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "link", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_LINK], 4, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "empty", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_EMPTY], 5, 0},
+    {(char *) "invalid", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_INVALID], 7, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"future", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUTURE], 6, 0},
-    {"current", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_CURRENT], 7, 0},
-    {"optional", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_OPTIONAL], 8, 0},
+    {(char *) "scope", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_SCOPE], 5, 12},
     {NULL, NULL, 0, 0},
-    {"last-child", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_LAST_CHILD], 10, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "blank", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_BLANK], 5, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "warning", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_WARNING], 7, 0},
+    {(char *) "default", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_DEFAULT], 7, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "future", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUTURE], 6, 0},
+    {(char *) "current", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_CURRENT], 7, 0},
+    {(char *) "optional", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_OPTIONAL], 8, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "last-child", (void *) &lxb_css_selectors_pseudo_data_pseudo_class[LXB_CSS_SELECTOR_PSEUDO_CLASS_LAST_CHILD], 10, 0},
     {NULL, NULL, 0, 0}
 };
 
@@ -44938,42 +44949,42 @@ static const lexbor_shs_entry_t lxb_css_selectors_pseudo_class_function_shs[39] 
 {
     {NULL, NULL, 38, 0},
     {NULL, NULL, 0, 0},
-    {"current", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_CURRENT], 7, 0},
+    {(char *) "current", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_CURRENT], 7, 0},
     {NULL, NULL, 0, 0},
-    {"dir", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_DIR], 3, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"is", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_IS], 2, 0},
+    {(char *) "dir", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_DIR], 3, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"nth-child", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_NTH_CHILD], 9, 0},
+    {(char *) "is", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_IS], 2, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"nth-last-child", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_NTH_LAST_CHILD], 14, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "nth-child", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_NTH_CHILD], 9, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"where", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_WHERE], 5, 0},
     {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"nth-col", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_NTH_COL], 7, 0},
-    {"lang", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_LANG], 4, 0},
-    {"has", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_HAS], 3, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"nth-last-col", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_NTH_LAST_COL], 12, 0},
-    {"nth-of-type", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_NTH_OF_TYPE], 11, 0},
+    {(char *) "nth-last-child", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_NTH_LAST_CHILD], 14, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"not", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_NOT], 3, 0},
-    {"nth-last-of-type", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_NTH_LAST_OF_TYPE], 16, 0},
+    {(char *) "where", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_WHERE], 5, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "nth-col", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_NTH_COL], 7, 0},
+    {(char *) "lang", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_LANG], 4, 0},
+    {(char *) "has", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_HAS], 3, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "nth-last-col", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_NTH_LAST_COL], 12, 0},
+    {(char *) "nth-of-type", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_NTH_OF_TYPE], 11, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "not", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_NOT], 3, 0},
+    {(char *) "nth-last-of-type", (void *) &lxb_css_selectors_pseudo_data_pseudo_class_function[LXB_CSS_SELECTOR_PSEUDO_CLASS_FUNCTION_NTH_LAST_OF_TYPE], 16, 0},
     {NULL, NULL, 0, 0}
 };
 
@@ -44981,22 +44992,22 @@ static const lexbor_shs_entry_t lxb_css_selectors_pseudo_element_shs[24] =
 {
     {NULL, NULL, 23, 0},
     {NULL, NULL, 0, 0},
-    {"inactive-selection", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_INACTIVE_SELECTION], 18, 0},
-    {"placeholder", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_PLACEHOLDER], 11, 0},
-    {"after", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_AFTER], 5, 0},
-    {"first-letter", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_FIRST_LETTER], 12, 0},
+    {(char *) "inactive-selection", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_INACTIVE_SELECTION], 18, 0},
+    {(char *) "placeholder", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_PLACEHOLDER], 11, 0},
+    {(char *) "after", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_AFTER], 5, 0},
+    {(char *) "first-letter", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_FIRST_LETTER], 12, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"grammar-error", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_GRAMMAR_ERROR], 13, 0},
-    {"before", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_BEFORE], 6, 0},
-    {"selection", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_SELECTION], 9, 0},
+    {(char *) "grammar-error", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_GRAMMAR_ERROR], 13, 0},
+    {(char *) "before", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_BEFORE], 6, 0},
+    {(char *) "selection", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_SELECTION], 9, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"target-text", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_TARGET_TEXT], 11, 0},
-    {"first-line", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_FIRST_LINE], 10, 0},
-    {"spelling-error", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_SPELLING_ERROR], 14, 0},
-    {"backdrop", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_BACKDROP], 8, 0},
-    {"marker", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_MARKER], 6, 0},
+    {(char *) "target-text", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_TARGET_TEXT], 11, 0},
+    {(char *) "first-line", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_FIRST_LINE], 10, 0},
+    {(char *) "spelling-error", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_SPELLING_ERROR], 14, 0},
+    {(char *) "backdrop", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_BACKDROP], 8, 0},
+    {(char *) "marker", (void *) &lxb_css_selectors_pseudo_data_pseudo_element[LXB_CSS_SELECTOR_PSEUDO_ELEMENT_MARKER], 6, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
@@ -59082,51 +59093,51 @@ static const lexbor_shs_entry_t lxb_css_syntax_token_res_name_shs_map[] =
 {
     {NULL, NULL, 92, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"end-of-file", (void *) LXB_CSS_SYNTAX_TOKEN__EOF, 11, 0},
+    {NULL, NULL, 0, 0}, {(char *) "end-of-file", (void *) LXB_CSS_SYNTAX_TOKEN__EOF, 11, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {"ident", (void *) LXB_CSS_SYNTAX_TOKEN_IDENT, 5, 0}, {"cdo", (void *) LXB_CSS_SYNTAX_TOKEN_CDO, 3, 0},
-    {NULL, NULL, 0, 0}, {"left-parenthesis", (void *) LXB_CSS_SYNTAX_TOKEN_L_PARENTHESIS, 16, 0},
-    {"right-parenthesis", (void *) LXB_CSS_SYNTAX_TOKEN_R_PARENTHESIS, 17, 0}, {NULL, NULL, 0, 0},
+    {(char *) "ident", (void *) LXB_CSS_SYNTAX_TOKEN_IDENT, 5, 0}, {(char *) "cdo", (void *) LXB_CSS_SYNTAX_TOKEN_CDO, 3, 0},
+    {NULL, NULL, 0, 0}, {(char *) "left-parenthesis", (void *) LXB_CSS_SYNTAX_TOKEN_L_PARENTHESIS, 16, 0},
+    {(char *) "right-parenthesis", (void *) LXB_CSS_SYNTAX_TOKEN_R_PARENTHESIS, 17, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"percentage", (void *) LXB_CSS_SYNTAX_TOKEN_PERCENTAGE, 10, 0},
+    {NULL, NULL, 0, 0}, {(char *) "percentage", (void *) LXB_CSS_SYNTAX_TOKEN_PERCENTAGE, 10, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"at-keyword", (void *) LXB_CSS_SYNTAX_TOKEN_AT_KEYWORD, 10, 0},
+    {NULL, NULL, 0, 0}, {(char *) "at-keyword", (void *) LXB_CSS_SYNTAX_TOKEN_AT_KEYWORD, 10, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {"string", (void *) LXB_CSS_SYNTAX_TOKEN_STRING, 6, 0}, {NULL, NULL, 0, 0},
-    {"bad-url", (void *) LXB_CSS_SYNTAX_TOKEN_BAD_URL, 7, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"bad-string", (void *) LXB_CSS_SYNTAX_TOKEN_BAD_STRING, 10, 0},
-    {"whitespace", (void *) LXB_CSS_SYNTAX_TOKEN_WHITESPACE, 10, 0}, {NULL, NULL, 0, 0},
-    {"undefined", (void *) LXB_CSS_SYNTAX_TOKEN_UNDEF, 9, 0}, {NULL, NULL, 0, 0},
-    {"right-curly-bracket", (void *) LXB_CSS_SYNTAX_TOKEN_RC_BRACKET, 19, 0}, {"right-square-bracket", (void *) LXB_CSS_SYNTAX_TOKEN_RS_BRACKET, 20, 0},
+    {(char *) "string", (void *) LXB_CSS_SYNTAX_TOKEN_STRING, 6, 0}, {NULL, NULL, 0, 0},
+    {(char *) "bad-url", (void *) LXB_CSS_SYNTAX_TOKEN_BAD_URL, 7, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"number", (void *) LXB_CSS_SYNTAX_TOKEN_NUMBER, 6, 0},
+    {NULL, NULL, 0, 0}, {(char *) "bad-string", (void *) LXB_CSS_SYNTAX_TOKEN_BAD_STRING, 10, 0},
+    {(char *) "whitespace", (void *) LXB_CSS_SYNTAX_TOKEN_WHITESPACE, 10, 0}, {NULL, NULL, 0, 0},
+    {(char *) "undefined", (void *) LXB_CSS_SYNTAX_TOKEN_UNDEF, 9, 0}, {NULL, NULL, 0, 0},
+    {(char *) "right-curly-bracket", (void *) LXB_CSS_SYNTAX_TOKEN_RC_BRACKET, 19, 0}, {(char *) "right-square-bracket", (void *) LXB_CSS_SYNTAX_TOKEN_RS_BRACKET, 20, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {"semicolon", (void *) LXB_CSS_SYNTAX_TOKEN_SEMICOLON, 9, 0}, {NULL, NULL, 0, 0},
-    {"dimension", (void *) LXB_CSS_SYNTAX_TOKEN_DIMENSION, 9, 0}, {NULL, NULL, 0, 0},
-    {"colon", (void *) LXB_CSS_SYNTAX_TOKEN_COLON, 5, 0}, {"function", (void *) LXB_CSS_SYNTAX_TOKEN_FUNCTION, 8, 0},
+    {NULL, NULL, 0, 0}, {(char *) "number", (void *) LXB_CSS_SYNTAX_TOKEN_NUMBER, 6, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"comma", (void *) LXB_CSS_SYNTAX_TOKEN_COMMA, 5, 0},
-    {"url", (void *) LXB_CSS_SYNTAX_TOKEN_URL, 3, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"cdc", (void *) LXB_CSS_SYNTAX_TOKEN_CDC, 3, 0},
+    {(char *) "semicolon", (void *) LXB_CSS_SYNTAX_TOKEN_SEMICOLON, 9, 0}, {NULL, NULL, 0, 0},
+    {(char *) "dimension", (void *) LXB_CSS_SYNTAX_TOKEN_DIMENSION, 9, 0}, {NULL, NULL, 0, 0},
+    {(char *) "colon", (void *) LXB_CSS_SYNTAX_TOKEN_COLON, 5, 0}, {(char *) "function", (void *) LXB_CSS_SYNTAX_TOKEN_FUNCTION, 8, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"hash", (void *) LXB_CSS_SYNTAX_TOKEN_HASH, 4, 0},
-    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {"comment", (void *) LXB_CSS_SYNTAX_TOKEN_COMMENT, 7, 0}, {NULL, NULL, 0, 0},
-    {"delim", (void *) LXB_CSS_SYNTAX_TOKEN_DELIM, 5, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0}, {(char *) "comma", (void *) LXB_CSS_SYNTAX_TOKEN_COMMA, 5, 0},
+    {(char *) "url", (void *) LXB_CSS_SYNTAX_TOKEN_URL, 3, 0}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0}, {(char *) "cdc", (void *) LXB_CSS_SYNTAX_TOKEN_CDC, 3, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"left-curly-bracket", (void *) LXB_CSS_SYNTAX_TOKEN_LC_BRACKET, 18, 0},
-    {"left-square-bracket", (void *) LXB_CSS_SYNTAX_TOKEN_LS_BRACKET, 19, 0}
+    {NULL, NULL, 0, 0}, {(char *) "hash", (void *) LXB_CSS_SYNTAX_TOKEN_HASH, 4, 0},
+    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
+    {(char *) "comment", (void *) LXB_CSS_SYNTAX_TOKEN_COMMENT, 7, 0}, {NULL, NULL, 0, 0},
+    {(char *) "delim", (void *) LXB_CSS_SYNTAX_TOKEN_DELIM, 5, 0}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0}, {(char *) "left-curly-bracket", (void *) LXB_CSS_SYNTAX_TOKEN_LC_BRACKET, 18, 0},
+    {(char *) "left-square-bracket", (void *) LXB_CSS_SYNTAX_TOKEN_LS_BRACKET, 19, 0}
 };
 #endif /* LXB_CSS_SYNTAX_TOKEN_RES_NAME_SHS_MAP_ENABLED */
 #endif /* LXB_CSS_SYNTAX_TOKEN_RES_NAME_SHS_MAP */
@@ -62227,46 +62238,19 @@ static const lexbor_shs_entry_t lxb_css_unit_absolute_relative_shs[84] =
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"rem", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_REM], 3, 0},
+    {(char *) "rem", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_REM], 3, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"vmax", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VMAX], 4, 0},
-    {"pc", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_PC], 2, 0},
-    {"lh", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_LH], 2, 0},
+    {(char *) "vmax", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VMAX], 4, 0},
+    {(char *) "pc", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_PC], 2, 0},
+    {(char *) "lh", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_LH], 2, 0},
     {NULL, NULL, 0, 0},
-    {"rlh", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_RLH], 3, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"cm", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_CM], 2, 0},
+    {(char *) "rlh", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_RLH], 3, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"q", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_Q], 1, 0},
-    {"ic", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_IC], 2, 0},
-    {NULL, NULL, 0, 0},
-    {"vw", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VW], 2, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"pt", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_PT], 2, 0},
-    {"vb", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VB], 2, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"ex", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_EX], 2, 0},
-    {"in", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_IN], 2, 0},
-    {"cap", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_CAP], 3, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"em", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_EM], 2, 0},
-    {NULL, NULL, 0, 0},
-    {"vmin", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VMIN], 4, 0},
+    {(char *) "cm", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_CM], 2, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
@@ -62274,20 +62258,26 @@ static const lexbor_shs_entry_t lxb_css_unit_absolute_relative_shs[84] =
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
+    {(char *) "q", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_Q], 1, 0},
+    {(char *) "ic", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_IC], 2, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "vw", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VW], 2, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
+    {(char *) "pt", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_PT], 2, 0},
+    {(char *) "vb", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VB], 2, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
+    {(char *) "ex", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_EX], 2, 0},
+    {(char *) "in", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_IN], 2, 0},
+    {(char *) "cap", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_CAP], 3, 0},
     {NULL, NULL, 0, 0},
-    {"vi", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VI], 2, 0},
     {NULL, NULL, 0, 0},
+    {(char *) "em", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_EM], 2, 0},
     {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"mm", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_MM], 2, 0},
-    {"ch", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_CH], 2, 0},
+    {(char *) "vmin", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VMIN], 4, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
@@ -62298,10 +62288,31 @@ static const lexbor_shs_entry_t lxb_css_unit_absolute_relative_shs[84] =
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"px", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_PX], 2, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"vh", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VH], 2, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "vi", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VI], 2, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "mm", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_MM], 2, 0},
+    {(char *) "ch", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_CH], 2, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "px", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_PX], 2, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "vh", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VH], 2, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}
 };
@@ -62310,26 +62321,26 @@ static const lexbor_shs_entry_t lxb_css_unit_absolute_shs[30] =
 {
     {NULL, NULL, 29, 0},
     {NULL, NULL, 0, 0},
-    {"in", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_IN], 2, 0},
-    {"pt", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_PT], 2, 0},
-    {"q", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_Q], 1, 0},
+    {(char *) "in", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_IN], 2, 0},
+    {(char *) "pt", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_PT], 2, 0},
+    {(char *) "q", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_Q], 1, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"mm", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_MM], 2, 0},
-    {"px", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_PX], 2, 0},
-    {"cm", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_CM], 2, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
+    {(char *) "mm", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_MM], 2, 0},
+    {(char *) "px", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_PX], 2, 0},
+    {(char *) "cm", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_CM], 2, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"pc", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_PC], 2, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "pc", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_PC], 2, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
@@ -62345,8 +62356,8 @@ static const lexbor_shs_entry_t lxb_css_unit_relative_shs[64] =
     {NULL, NULL, 63, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"ic", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_IC], 2, 0},
-    {"cap", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_CAP], 3, 0},
+    {(char *) "ic", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_IC], 2, 0},
+    {(char *) "cap", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_CAP], 3, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
@@ -62355,7 +62366,7 @@ static const lexbor_shs_entry_t lxb_css_unit_relative_shs[64] =
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"rem", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_REM], 3, 0},
+    {(char *) "rem", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_REM], 3, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
@@ -62367,54 +62378,54 @@ static const lexbor_shs_entry_t lxb_css_unit_relative_shs[64] =
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"em", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_EM], 2, 0},
+    {(char *) "em", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_EM], 2, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"ch", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_CH], 2, 0},
+    {(char *) "ch", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_CH], 2, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"ex", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_EX], 2, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"vb", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VB], 2, 0},
+    {(char *) "ex", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_EX], 2, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"vh", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VH], 2, 0},
-    {"vi", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VI], 2, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"rlh", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_RLH], 3, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
-    {"vmin", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VMIN], 4, 0},
+    {(char *) "vb", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VB], 2, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"lh", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_LH], 2, 0},
     {NULL, NULL, 0, 0},
-    {"vw", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VW], 2, 0},
+    {(char *) "vh", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VH], 2, 0},
+    {(char *) "vi", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VI], 2, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"vmax", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VMAX], 4, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "rlh", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_RLH], 3, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "vmin", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VMIN], 4, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "lh", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_LH], 2, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "vw", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VW], 2, 0},
+    {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "vmax", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_VMAX], 4, 0},
     {NULL, NULL, 0, 0}
 };
 
 static const lexbor_shs_entry_t lxb_css_unit_angel_shs[7] =
 {
     {NULL, NULL, 6, 0},
-    {"turn", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_TURN], 4, 0},
-    {"deg", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_DEG], 3, 0},
-    {"grad", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_GRAD], 4, 0},
-    {"rad", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_RAD], 3, 0},
+    {(char *) "turn", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_TURN], 4, 0},
+    {(char *) "deg", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_DEG], 3, 0},
+    {(char *) "grad", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_GRAD], 4, 0},
+    {(char *) "rad", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_RAD], 3, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}
 };
@@ -62423,20 +62434,20 @@ static const lexbor_shs_entry_t lxb_css_unit_frequency_shs[6] =
 {
     {NULL, NULL, 5, 0},
     {NULL, NULL, 0, 0},
-    {"khz", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_KHZ], 3, 0},
+    {(char *) "khz", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_KHZ], 3, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"hz", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_HZ], 2, 0}
+    {(char *) "hz", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_HZ], 2, 0}
 };
 
 static const lexbor_shs_entry_t lxb_css_unit_resolution_shs[7] =
 {
     {NULL, NULL, 6, 0},
     {NULL, NULL, 0, 0},
-    {"x", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_X], 1, 0},
-    {"dpcm", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_DPCM], 4, 0},
-    {"dpi", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_DPI], 3, 0},
-    {"dppx", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_DPPX], 4, 0},
+    {(char *) "x", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_X], 1, 0},
+    {(char *) "dpcm", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_DPCM], 4, 0},
+    {(char *) "dpi", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_DPI], 3, 0},
+    {(char *) "dppx", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_DPPX], 4, 0},
     {NULL, NULL, 0, 0}
 };
 
@@ -62444,8 +62455,8 @@ static const lexbor_shs_entry_t lxb_css_unit_duration_shs[6] =
 {
     {NULL, NULL, 5, 0},
     {NULL, NULL, 0, 0},
-    {"s", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_S], 1, 0},
-    {"ms", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_MS], 2, 0},
+    {(char *) "s", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_S], 1, 0},
+    {(char *) "ms", (void *) &lxb_css_unit_data[LXB_CSS_UNIT_MS], 2, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}
 };
@@ -63237,379 +63248,379 @@ static const lxb_css_data_t lxb_css_value_data[LXB_CSS_VALUE__LAST_ENTRY] =
 static const lexbor_shs_entry_t lxb_css_value_shs[374] =
 {
     {NULL, NULL, 253, 0},
-    {"salmon", (void *) LXB_CSS_VALUE_SALMON, 6, 2},
-    {"canvas", (void *) LXB_CSS_VALUE_CANVAS, 6, 4},
-    {"allow-end", (void *) LXB_CSS_VALUE_ALLOW_END, 9, 0},
-    {"static", (void *) LXB_CSS_VALUE_STATIC, 6, 5},
-    {"sticky", (void *) LXB_CSS_VALUE_STICKY, 6, 0},
-    {"darkviolet", (void *) LXB_CSS_VALUE_DARKVIOLET, 10, 0},
-    {"blue", (void *) LXB_CSS_VALUE_BLUE, 4, 1},
-    {"end", (void *) LXB_CSS_VALUE_END, 3, 24},
-    {"middle", (void *) LXB_CSS_VALUE_MIDDLE, 6, 32},
-    {"rgb", (void *) LXB_CSS_VALUE_RGB, 3, 59},
-    {"baseline", (void *) LXB_CSS_VALUE_BASELINE, 8, 69},
-    {"mistyrose", (void *) LXB_CSS_VALUE_MISTYROSE, 9, 71},
-    {"expanded", (void *) LXB_CSS_VALUE_EXPANDED, 8, 92},
-    {"space-between", (void *) LXB_CSS_VALUE_SPACE_BETWEEN, 13, 0},
-    {"mediumpurple", (void *) LXB_CSS_VALUE_MEDIUMPURPLE, 12, 99},
-    {"bidi-override", (void *) LXB_CSS_VALUE_BIDI_OVERRIDE, 13, 0},
-    {"bold", (void *) LXB_CSS_VALUE_BOLD, 4, 103},
-    {"mixed", (void *) LXB_CSS_VALUE_MIXED, 5, 105},
-    {"extra-expanded", (void *) LXB_CSS_VALUE_EXTRA_EXPANDED, 14, 119},
-    {"auto", (void *) LXB_CSS_VALUE_AUTO, 4, 129},
-    {"teal", (void *) LXB_CSS_VALUE_TEAL, 4, 130},
-    {"lab", (void *) LXB_CSS_VALUE_LAB, 3, 131},
-    {"break-word", (void *) LXB_CSS_VALUE_BREAK_WORD, 10, 0},
-    {"beige", (void *) LXB_CSS_VALUE_BEIGE, 5, 0},
-    {"mediumorchid", (void *) LXB_CSS_VALUE_MEDIUMORCHID, 12, 0},
-    {"vertical-lr", (void *) LXB_CSS_VALUE_VERTICAL_LR, 11, 0},
-    {"table-cell", (void *) LXB_CSS_VALUE_TABLE_CELL, 10, 135},
-    {"pre-wrap", (void *) LXB_CSS_VALUE_PRE_WRAP, 8, 136},
-    {"super", (void *) LXB_CSS_VALUE_SUPER, 5, 0},
-    {"silver", (void *) LXB_CSS_VALUE_SILVER, 6, 137},
-    {"hsl", (void *) LXB_CSS_VALUE_HSL, 3, 140},
-    {"bisque", (void *) LXB_CSS_VALUE_BISQUE, 6, 53},
-    {"darkblue", (void *) LXB_CSS_VALUE_DARKBLUE, 8, 0},
-    {"hex", (void *) LXB_CSS_VALUE_HEX, 3, 0},
-    {"darkorange", (void *) LXB_CSS_VALUE_DARKORANGE, 10, 143},
-    {"lightcoral", (void *) LXB_CSS_VALUE_LIGHTCORAL, 10, 145},
-    {"table-row", (void *) LXB_CSS_VALUE_TABLE_ROW, 9, 0},
-    {"ridge", (void *) LXB_CSS_VALUE_RIDGE, 5, 149},
-    {"violet", (void *) LXB_CSS_VALUE_VIOLET, 6, 156},
-    {"italic", (void *) LXB_CSS_VALUE_ITALIC, 6, 157},
-    {"relative", (void *) LXB_CSS_VALUE_RELATIVE, 8, 0},
-    {"royalblue", (void *) LXB_CSS_VALUE_ROYALBLUE, 9, 179},
-    {"highlighttext", (void *) LXB_CSS_VALUE_HIGHLIGHTTEXT, 13, 0},
-    {"visitedtext", (void *) LXB_CSS_VALUE_VISITEDTEXT, 11, 193},
-    {"ideographic", (void *) LXB_CSS_VALUE_IDEOGRAPHIC, 11, 0},
-    {"outset", (void *) LXB_CSS_VALUE_OUTSET, 6, 194},
-    {"azure", (void *) LXB_CSS_VALUE_AZURE, 5, 0},
-    {"pink", (void *) LXB_CSS_VALUE_PINK, 4, 0},
-    {"near", (void *) LXB_CSS_VALUE_NEAR, 4, 0},
-    {"magenta", (void *) LXB_CSS_VALUE_MAGENTA, 7, 204},
-    {"aliceblue", (void *) LXB_CSS_VALUE_ALICEBLUE, 9, 0},
-    {"aquamarine", (void *) LXB_CSS_VALUE_AQUAMARINE, 10, 0},
-    {"seagreen", (void *) LXB_CSS_VALUE_SEAGREEN, 8, 55},
-    {"antiquewhite", (void *) LXB_CSS_VALUE_ANTIQUEWHITE, 12, 0},
-    {"contents", (void *) LXB_CSS_VALUE_CONTENTS, 8, 56},
-    {"lightpink", (void *) LXB_CSS_VALUE_LIGHTPINK, 9, 0},
-    {"snap-block", (void *) LXB_CSS_VALUE_SNAP_BLOCK, 10, 0},
-    {"white", (void *) LXB_CSS_VALUE_WHITE, 5, 0},
-    {"embed", (void *) LXB_CSS_VALUE_EMBED, 5, 66},
-    {"first", (void *) LXB_CSS_VALUE_FIRST, 5, 211},
-    {"groove", (void *) LXB_CSS_VALUE_GROOVE, 6, 212},
-    {"normal", (void *) LXB_CSS_VALUE_NORMAL, 6, 0},
-    {"whitesmoke", (void *) LXB_CSS_VALUE_WHITESMOKE, 10, 0},
-    {"fieldtext", (void *) LXB_CSS_VALUE_FIELDTEXT, 9, 221},
-    {"flex-start", (void *) LXB_CSS_VALUE_FLEX_START, 10, 227},
-    {"slategray", (void *) LXB_CSS_VALUE_SLATEGRAY, 9, 67},
-    {"slategrey", (void *) LXB_CSS_VALUE_SLATEGREY, 9, 68},
-    {"darkmagenta", (void *) LXB_CSS_VALUE_DARKMAGENTA, 11, 0},
-    {"sandybrown", (void *) LXB_CSS_VALUE_SANDYBROWN, 10, 0},
-    {"field", (void *) LXB_CSS_VALUE_FIELD, 5, 234},
-    {"monospace", (void *) LXB_CSS_VALUE_MONOSPACE, 9, 78},
-    {"color", (void *) LXB_CSS_VALUE_COLOR, 5, 236},
-    {"center", (void *) LXB_CSS_VALUE_CENTER, 6, 240},
-    {"force-end", (void *) LXB_CSS_VALUE_FORCE_END, 9, 0},
-    {"solid", (void *) LXB_CSS_VALUE_SOLID, 5, 243},
-    {"gold", (void *) LXB_CSS_VALUE_GOLD, 4, 248},
-    {"peachpuff", (void *) LXB_CSS_VALUE_PEACHPUFF, 9, 0},
-    {"saddlebrown", (void *) LXB_CSS_VALUE_SADDLEBROWN, 11, 86},
-    {"inline", (void *) LXB_CSS_VALUE_INLINE, 6, 254},
-    {"isolate", (void *) LXB_CSS_VALUE_ISOLATE, 7, 0},
-    {"goldenrod", (void *) LXB_CSS_VALUE_GOLDENROD, 9, 0},
-    {"cyan", (void *) LXB_CSS_VALUE_CYAN, 4, 256},
-    {"linen", (void *) LXB_CSS_VALUE_LINEN, 5, 257},
-    {"column", (void *) LXB_CSS_VALUE_COLUMN, 6, 258},
-    {"crimson", (void *) LXB_CSS_VALUE_CRIMSON, 7, 259},
-    {"springgreen", (void *) LXB_CSS_VALUE_SPRINGGREEN, 11, 0},
-    {"lawngreen", (void *) LXB_CSS_VALUE_LAWNGREEN, 9, 260},
-    {"lightgreen", (void *) LXB_CSS_VALUE_LIGHTGREEN, 10, 0},
-    {"plum", (void *) LXB_CSS_VALUE_PLUM, 4, 262},
-    {"initial", (void *) LXB_CSS_VALUE_INITIAL, 7, 264},
-    {"lightseagreen", (void *) LXB_CSS_VALUE_LIGHTSEAGREEN, 13, 0},
-    {"mediumblue", (void *) LXB_CSS_VALUE_MEDIUMBLUE, 10, 93},
-    {"activetext", (void *) LXB_CSS_VALUE_ACTIVETEXT, 10, 94},
-    {"buttonface", (void *) LXB_CSS_VALUE_BUTTONFACE, 10, 96},
-    {"each-line", (void *) LXB_CSS_VALUE_EACH_LINE, 9, 0},
-    {"greenyellow", (void *) LXB_CSS_VALUE_GREENYELLOW, 11, 373},
-    {"hanging", (void *) LXB_CSS_VALUE_HANGING, 7, 0},
-    {"hotpink", (void *) LXB_CSS_VALUE_HOTPINK, 7, 0},
-    {"midnightblue", (void *) LXB_CSS_VALUE_MIDNIGHTBLUE, 12, 0},
-    {"stretch", (void *) LXB_CSS_VALUE_STRETCH, 7, 0},
-    {"lime", (void *) LXB_CSS_VALUE_LIME, 4, 266},
-    {"unset", (void *) LXB_CSS_VALUE_UNSET, 5, 267},
-    {"x-small", (void *) LXB_CSS_VALUE_X_SMALL, 7, 0},
-    {"upright", (void *) LXB_CSS_VALUE_UPRIGHT, 7, 0},
-    {"xx-small", (void *) LXB_CSS_VALUE_XX_SMALL, 8, 108},
-    {"lightblue", (void *) LXB_CSS_VALUE_LIGHTBLUE, 9, 270},
-    {"aqua", (void *) LXB_CSS_VALUE_AQUA, 4, 271},
-    {"mediumslateblue", (void *) LXB_CSS_VALUE_MEDIUMSLATEBLUE, 15, 110},
-    {"lightskyblue", (void *) LXB_CSS_VALUE_LIGHTSKYBLUE, 12, 0},
-    {"mediumturquoise", (void *) LXB_CSS_VALUE_MEDIUMTURQUOISE, 15, 113},
-    {"plaintext", (void *) LXB_CSS_VALUE_PLAINTEXT, 9, 272},
-    {"justify-all", (void *) LXB_CSS_VALUE_JUSTIFY_ALL, 11, 0},
-    {"accentcolortext", (void *) LXB_CSS_VALUE_ACCENTCOLORTEXT, 15, 0},
-    {"tan", (void *) LXB_CSS_VALUE_TAN, 3, 273},
-    {"thin", (void *) LXB_CSS_VALUE_THIN, 4, 274},
-    {"blueviolet", (void *) LXB_CSS_VALUE_BLUEVIOLET, 10, 275},
-    {"run-in", (void *) LXB_CSS_VALUE_RUN_IN, 6, 276},
-    {"match-parent", (void *) LXB_CSS_VALUE_MATCH_PARENT, 12, 0},
-    {"mediumaquamarine", (void *) LXB_CSS_VALUE_MEDIUMAQUAMARINE, 16, 0},
-    {"snow", (void *) LXB_CSS_VALUE_SNOW, 4, 280},
-    {"small", (void *) LXB_CSS_VALUE_SMALL, 5, 0},
-    {"sienna", (void *) LXB_CSS_VALUE_SIENNA, 6, 283},
-    {"table-column", (void *) LXB_CSS_VALUE_TABLE_COLUMN, 12, 0},
-    {"seashell", (void *) LXB_CSS_VALUE_SEASHELL, 8, 286},
-    {"lightslategray", (void *) LXB_CSS_VALUE_LIGHTSLATEGRAY, 14, 287},
-    {"ruby", (void *) LXB_CSS_VALUE_RUBY, 4, 0},
-    {"sideways-rl", (void *) LXB_CSS_VALUE_SIDEWAYS_RL, 11, 0},
-    {"all", (void *) LXB_CSS_VALUE_ALL, 3, 288},
-    {"extra-condensed", (void *) LXB_CSS_VALUE_EXTRA_CONDENSED, 15, 0},
-    {"indigo", (void *) LXB_CSS_VALUE_INDIGO, 6, 0},
-    {"block-end", (void *) LXB_CSS_VALUE_BLOCK_END, 9, 134},
-    {"bolder", (void *) LXB_CSS_VALUE_BOLDER, 6, 0},
-    {"forestgreen", (void *) LXB_CSS_VALUE_FORESTGREEN, 11, 0},
-    {"burlywood", (void *) LXB_CSS_VALUE_BURLYWOOD, 9, 0},
-    {"blanchedalmond", (void *) LXB_CSS_VALUE_BLANCHEDALMOND, 14, 0},
-    {"mediumvioletred", (void *) LXB_CSS_VALUE_MEDIUMVIOLETRED, 15, 0},
-    {"papayawhip", (void *) LXB_CSS_VALUE_PAPAYAWHIP, 10, 0},
-    {"buttonborder", (void *) LXB_CSS_VALUE_BUTTONBORDER, 12, 0},
-    {"nowrap", (void *) LXB_CSS_VALUE_NOWRAP, 6, 0},
-    {"double", (void *) LXB_CSS_VALUE_DOUBLE, 6, 141},
-    {"smaller", (void *) LXB_CSS_VALUE_SMALLER, 7, 142},
-    {"cornsilk", (void *) LXB_CSS_VALUE_CORNSILK, 8, 0},
-    {"dodgerblue", (void *) LXB_CSS_VALUE_DODGERBLUE, 10, 144},
-    {"sideways-lr", (void *) LXB_CSS_VALUE_SIDEWAYS_LR, 11, 0},
-    {"deepskyblue", (void *) LXB_CSS_VALUE_DEEPSKYBLUE, 11, 0},
-    {"skyblue", (void *) LXB_CSS_VALUE_SKYBLUE, 7, 0},
-    {"gainsboro", (void *) LXB_CSS_VALUE_GAINSBORO, 9, 0},
-    {"khaki", (void *) LXB_CSS_VALUE_KHAKI, 5, 290},
-    {"firebrick", (void *) LXB_CSS_VALUE_FIREBRICK, 9, 153},
-    {"snap-inline", (void *) LXB_CSS_VALUE_SNAP_INLINE, 11, 0},
-    {"dotted", (void *) LXB_CSS_VALUE_DOTTED, 6, 293},
-    {"flow", (void *) LXB_CSS_VALUE_FLOW, 4, 295},
-    {"darkslateblue", (void *) LXB_CSS_VALUE_DARKSLATEBLUE, 13, 154},
-    {"darkturquoise", (void *) LXB_CSS_VALUE_DARKTURQUOISE, 13, 0},
-    {"hwb", (void *) LXB_CSS_VALUE_HWB, 3, 297},
-    {"highlight", (void *) LXB_CSS_VALUE_HIGHLIGHT, 9, 0},
-    {"palegoldenrod", (void *) LXB_CSS_VALUE_PALEGOLDENROD, 13, 159},
-    {"visible", (void *) LXB_CSS_VALUE_VISIBLE, 7, 298},
-    {"palevioletred", (void *) LXB_CSS_VALUE_PALEVIOLETRED, 13, 0},
-    {"green", (void *) LXB_CSS_VALUE_GREEN, 5, 299},
-    {"hidden", (void *) LXB_CSS_VALUE_HIDDEN, 6, 300},
-    {"emoji", (void *) LXB_CSS_VALUE_EMOJI, 5, 301},
-    {"darkgray", (void *) LXB_CSS_VALUE_DARKGRAY, 8, 303},
-    {"tomato", (void *) LXB_CSS_VALUE_TOMATO, 6, 304},
-    {"xx-large", (void *) LXB_CSS_VALUE_XX_LARGE, 8, 305},
-    {"fangsong", (void *) LXB_CSS_VALUE_FANGSONG, 8, 306},
-    {"start", (void *) LXB_CSS_VALUE_START, 5, 0},
-    {"right", (void *) LXB_CSS_VALUE_RIGHT, 5, 307},
-    {"revert", (void *) LXB_CSS_VALUE_REVERT, 6, 0},
-    {"wavy", (void *) LXB_CSS_VALUE_WAVY, 4, 0},
-    {"rgba", (void *) LXB_CSS_VALUE_RGBA, 4, 310},
-    {"maroon", (void *) LXB_CSS_VALUE_MAROON, 6, 313},
-    {"olive", (void *) LXB_CSS_VALUE_OLIVE, 5, 314},
-    {"orange", (void *) LXB_CSS_VALUE_ORANGE, 6, 315},
-    {"oldlace", (void *) LXB_CSS_VALUE_OLDLACE, 7, 317},
-    {"overline", (void *) LXB_CSS_VALUE_OVERLINE, 8, 320},
-    {"pre", (void *) LXB_CSS_VALUE_PRE, 3, 322},
-    {"lch", (void *) LXB_CSS_VALUE_LCH, 3, 323},
-    {"ruby-base", (void *) LXB_CSS_VALUE_RUBY_BASE, 9, 0},
-    {"purple", (void *) LXB_CSS_VALUE_PURPLE, 6, 325},
-    {"rtl", (void *) LXB_CSS_VALUE_RTL, 3, 328},
-    {"bottom", (void *) LXB_CSS_VALUE_BOTTOM, 6, 329},
-    {"flex", (void *) LXB_CSS_VALUE_FLEX, 4, 331},
-    {"powderblue", (void *) LXB_CSS_VALUE_POWDERBLUE, 10, 0},
-    {"ltr", (void *) LXB_CSS_VALUE_LTR, 3, 334},
-    {"ultra-condensed", (void *) LXB_CSS_VALUE_ULTRA_CONDENSED, 15, 0},
-    {"line-through", (void *) LXB_CSS_VALUE_LINE_THROUGH, 12, 336},
-    {"sub", (void *) LXB_CSS_VALUE_SUB, 3, 337},
-    {"lighter", (void *) LXB_CSS_VALUE_LIGHTER, 7, 340},
-    {"lavender", (void *) LXB_CSS_VALUE_LAVENDER, 8, 341},
-    {"inline-grid", (void *) LXB_CSS_VALUE_INLINE_GRID, 11, 0},
-    {"row", (void *) LXB_CSS_VALUE_ROW, 3, 343},
-    {"row-reverse", (void *) LXB_CSS_VALUE_ROW_REVERSE, 11, 0},
-    {"rebeccapurple", (void *) LXB_CSS_VALUE_REBECCAPURPLE, 13, 0},
-    {"content", (void *) LXB_CSS_VALUE_CONTENT, 7, 344},
-    {"red", (void *) LXB_CSS_VALUE_RED, 3, 0},
-    {"selecteditem", (void *) LXB_CSS_VALUE_SELECTEDITEM, 12, 0},
-    {"oklch", (void *) LXB_CSS_VALUE_OKLCH, 5, 346},
-    {"table", (void *) LXB_CSS_VALUE_TABLE, 5, 348},
-    {"mark", (void *) LXB_CSS_VALUE_MARK, 4, 0},
-    {"black", (void *) LXB_CSS_VALUE_BLACK, 5, 349},
-    {"inline-block", (void *) LXB_CSS_VALUE_INLINE_BLOCK, 12, 0},
-    {"clip", (void *) LXB_CSS_VALUE_CLIP, 4, 352},
-    {"anywhere", (void *) LXB_CSS_VALUE_ANYWHERE, 8, 205},
-    {"absolute", (void *) LXB_CSS_VALUE_ABSOLUTE, 8, 0},
-    {"wheat", (void *) LXB_CSS_VALUE_WHEAT, 5, 0},
-    {"underline", (void *) LXB_CSS_VALUE_UNDERLINE, 9, 353},
-    {"top", (void *) LXB_CSS_VALUE_TOP, 3, 0},
-    {"alphabetic", (void *) LXB_CSS_VALUE_ALPHABETIC, 10, 0},
-    {"ui-monospace", (void *) LXB_CSS_VALUE_UI_MONOSPACE, 12, 0},
-    {"darkkhaki", (void *) LXB_CSS_VALUE_DARKKHAKI, 9, 0},
-    {"graytext", (void *) LXB_CSS_VALUE_GRAYTEXT, 8, 214},
-    {"serif", (void *) LXB_CSS_VALUE_SERIF, 5, 354},
-    {"list-item", (void *) LXB_CSS_VALUE_LIST_ITEM, 9, 0},
-    {"coral", (void *) LXB_CSS_VALUE_CORAL, 5, 355},
-    {"ellipsis", (void *) LXB_CSS_VALUE_ELLIPSIS, 8, 0},
-    {"central", (void *) LXB_CSS_VALUE_CENTRAL, 7, 357},
-    {"darkcyan", (void *) LXB_CSS_VALUE_DARKCYAN, 8, 358},
-    {"hsla", (void *) LXB_CSS_VALUE_HSLA, 4, 359},
-    {"darksalmon", (void *) LXB_CSS_VALUE_DARKSALMON, 10, 360},
-    {"flow-root", (void *) LXB_CSS_VALUE_FLOW_ROOT, 9, 0},
-    {"darkseagreen", (void *) LXB_CSS_VALUE_DARKSEAGREEN, 12, 0},
-    {"table-header-group", (void *) LXB_CSS_VALUE_TABLE_HEADER_GROUP, 18, 361},
-    {"darkolivegreen", (void *) LXB_CSS_VALUE_DARKOLIVEGREEN, 14, 0},
-    {"gray", (void *) LXB_CSS_VALUE_GRAY, 4, 363},
-    {"_angle", (void *) LXB_CSS_VALUE__ANGLE, 6, 0},
-    {"ghostwhite", (void *) LXB_CSS_VALUE_GHOSTWHITE, 10, 229},
-    {"thick", (void *) LXB_CSS_VALUE_THICK, 5, 0},
-    {"wrap-reverse", (void *) LXB_CSS_VALUE_WRAP_REVERSE, 12, 0},
-    {"math", (void *) LXB_CSS_VALUE_MATH, 4, 365},
-    {"_length", (void *) LXB_CSS_VALUE__LENGTH, 7, 366},
-    {"fuchsia", (void *) LXB_CSS_VALUE_FUCHSIA, 7, 0},
-    {"wrap", (void *) LXB_CSS_VALUE_WRAP, 4, 367},
-    {"fixed", (void *) LXB_CSS_VALUE_FIXED, 5, 235},
-    {"lightyellow", (void *) LXB_CSS_VALUE_LIGHTYELLOW, 11, 0},
-    {"clear", (void *) LXB_CSS_VALUE_CLEAR, 5, 237},
-    {"deeppink", (void *) LXB_CSS_VALUE_DEEPPINK, 8, 0},
-    {"last", (void *) LXB_CSS_VALUE_LAST, 4, 368},
-    {"full-size-kana", (void *) LXB_CSS_VALUE_FULL_SIZE_KANA, 14, 0},
-    {"flex-end", (void *) LXB_CSS_VALUE_FLEX_END, 8, 0},
-    {"palegreen", (void *) LXB_CSS_VALUE_PALEGREEN, 9, 370},
-    {"linktext", (void *) LXB_CSS_VALUE_LINKTEXT, 8, 0},
-    {"text-bottom", (void *) LXB_CSS_VALUE_TEXT_BOTTOM, 11, 245},
-    {"inset", (void *) LXB_CSS_VALUE_INSET, 5, 0},
-    {"inline-flex", (void *) LXB_CSS_VALUE_INLINE_FLEX, 11, 0},
-    {"inherit", (void *) LXB_CSS_VALUE_INHERIT, 7, 0},
-    {"navy", (void *) LXB_CSS_VALUE_NAVY, 4, 0},
-    {"grid", (void *) LXB_CSS_VALUE_GRID, 4, 252},
-    {"ruby-base-container", (void *) LXB_CSS_VALUE_RUBY_BASE_CONTAINER, 19, 371},
-    {"orchid", (void *) LXB_CSS_VALUE_ORCHID, 6, 0},
-    {"inline-start", (void *) LXB_CSS_VALUE_INLINE_START, 12, 0},
-    {"border-box", (void *) LXB_CSS_VALUE_BORDER_BOX, 10, 0},
-    {"peru", (void *) LXB_CSS_VALUE_PERU, 4, 372},
-    {"currentcolor", (void *) LXB_CSS_VALUE_CURRENTCOLOR, 12, 255},
-    {"lightgoldenrodyellow", (void *) LXB_CSS_VALUE_LIGHTGOLDENRODYELLOW, 20, 0},
-    {"space-around", (void *) LXB_CSS_VALUE_SPACE_AROUND, 12, 0},
-    {"semi-expanded", (void *) LXB_CSS_VALUE_SEMI_EXPANDED, 13, 0},
-    {"semi-condensed", (void *) LXB_CSS_VALUE_SEMI_CONDENSED, 14, 0},
-    {"inline-table", (void *) LXB_CSS_VALUE_INLINE_TABLE, 12, 0},
-    {"lightcyan", (void *) LXB_CSS_VALUE_LIGHTCYAN, 9, 261},
-    {"limegreen", (void *) LXB_CSS_VALUE_LIMEGREEN, 9, 0},
-    {"lightsalmon", (void *) LXB_CSS_VALUE_LIGHTSALMON, 11, 263},
-    {"isolate-override", (void *) LXB_CSS_VALUE_ISOLATE_OVERRIDE, 16, 0},
-    {"keep-all", (void *) LXB_CSS_VALUE_KEEP_ALL, 8, 265},
-    {"lemonchiffon", (void *) LXB_CSS_VALUE_LEMONCHIFFON, 12, 0},
-    {"sideways", (void *) LXB_CSS_VALUE_SIDEWAYS, 8, 0},
-    {"large", (void *) LXB_CSS_VALUE_LARGE, 5, 268},
-    {"loose", (void *) LXB_CSS_VALUE_LOOSE, 5, 269},
-    {"honeydew", (void *) LXB_CSS_VALUE_HONEYDEW, 8, 0},
-    {"lowercase", (void *) LXB_CSS_VALUE_LOWERCASE, 9, 0},
-    {"floralwhite", (void *) LXB_CSS_VALUE_FLORALWHITE, 11, 0},
-    {"lightsteelblue", (void *) LXB_CSS_VALUE_LIGHTSTEELBLUE, 14, 0},
-    {"marktext", (void *) LXB_CSS_VALUE_MARKTEXT, 8, 0},
-    {"none", (void *) LXB_CSS_VALUE_NONE, 4, 0},
-    {"buttontext", (void *) LXB_CSS_VALUE_BUTTONTEXT, 10, 0},
-    {"region", (void *) LXB_CSS_VALUE_REGION, 6, 277},
-    {"block-start", (void *) LXB_CSS_VALUE_BLOCK_START, 11, 278},
-    {"min-content", (void *) LXB_CSS_VALUE_MIN_CONTENT, 11, 279},
-    {"max-content", (void *) LXB_CSS_VALUE_MAX_CONTENT, 11, 0},
-    {"lightgray", (void *) LXB_CSS_VALUE_LIGHTGRAY, 9, 281},
-    {"lightgrey", (void *) LXB_CSS_VALUE_LIGHTGREY, 9, 282},
-    {"rosybrown", (void *) LXB_CSS_VALUE_ROSYBROWN, 9, 0},
-    {"scroll", (void *) LXB_CSS_VALUE_SCROLL, 6, 284},
-    {"digits", (void *) LXB_CSS_VALUE_DIGITS, 6, 285},
-    {"navajowhite", (void *) LXB_CSS_VALUE_NAVAJOWHITE, 11, 0},
-    {"table-caption", (void *) LXB_CSS_VALUE_TABLE_CAPTION, 13, 0},
-    {"lightslategrey", (void *) LXB_CSS_VALUE_LIGHTSLATEGREY, 14, 0},
-    {"yellow", (void *) LXB_CSS_VALUE_YELLOW, 6, 289},
-    {"break-spaces", (void *) LXB_CSS_VALUE_BREAK_SPACES, 12, 0},
-    {"oklab", (void *) LXB_CSS_VALUE_OKLAB, 5, 291},
-    {"slateblue", (void *) LXB_CSS_VALUE_SLATEBLUE, 9, 292},
-    {"steelblue", (void *) LXB_CSS_VALUE_STEELBLUE, 9, 0},
-    {"dashed", (void *) LXB_CSS_VALUE_DASHED, 6, 294},
-    {"transparent", (void *) LXB_CSS_VALUE_TRANSPARENT, 11, 0},
-    {"darkred", (void *) LXB_CSS_VALUE_DARKRED, 7, 296},
-    {"olivedrab", (void *) LXB_CSS_VALUE_OLIVEDRAB, 9, 0},
-    {"darkorchid", (void *) LXB_CSS_VALUE_DARKORCHID, 10, 0},
-    {"darkgoldenrod", (void *) LXB_CSS_VALUE_DARKGOLDENROD, 13, 0},
-    {"_number", (void *) LXB_CSS_VALUE__NUMBER, 7, 0},
-    {"_integer", (void *) LXB_CSS_VALUE__INTEGER, 8, 0},
-    {"dimgray", (void *) LXB_CSS_VALUE_DIMGRAY, 7, 302},
-    {"dimgrey", (void *) LXB_CSS_VALUE_DIMGREY, 7, 0},
-    {"darkgrey", (void *) LXB_CSS_VALUE_DARKGREY, 8, 0},
-    {"x-large", (void *) LXB_CSS_VALUE_X_LARGE, 7, 0},
-    {"horizontal-tb", (void *) LXB_CSS_VALUE_HORIZONTAL_TB, 13, 0},
-    {"xxx-large", (void *) LXB_CSS_VALUE_XXX_LARGE, 9, 0},
-    {"strict", (void *) LXB_CSS_VALUE_STRICT, 6, 308},
-    {"darkslategray", (void *) LXB_CSS_VALUE_DARKSLATEGRAY, 13, 309},
-    {"darkslategrey", (void *) LXB_CSS_VALUE_DARKSLATEGREY, 13, 0},
-    {"brown", (void *) LXB_CSS_VALUE_BROWN, 5, 311},
-    {"system-ui", (void *) LXB_CSS_VALUE_SYSTEM_UI, 9, 312},
-    {"accentcolor", (void *) LXB_CSS_VALUE_ACCENTCOLOR, 11, 0},
-    {"ruby-text", (void *) LXB_CSS_VALUE_RUBY_TEXT, 9, 0},
-    {"cursive", (void *) LXB_CSS_VALUE_CURSIVE, 7, 0},
-    {"moccasin", (void *) LXB_CSS_VALUE_MOCCASIN, 8, 316},
-    {"collapse", (void *) LXB_CSS_VALUE_COLLAPSE, 8, 0},
-    {"oblique", (void *) LXB_CSS_VALUE_OBLIQUE, 7, 318},
-    {"cadetblue", (void *) LXB_CSS_VALUE_CADETBLUE, 9, 319},
-    {"chocolate", (void *) LXB_CSS_VALUE_CHOCOLATE, 9, 0},
-    {"chartreuse", (void *) LXB_CSS_VALUE_CHARTREUSE, 10, 321},
-    {"capitalize", (void *) LXB_CSS_VALUE_CAPITALIZE, 10, 0},
-    {"yellowgreen", (void *) LXB_CSS_VALUE_YELLOWGREEN, 11, 0},
-    {"page", (void *) LXB_CSS_VALUE_PAGE, 4, 324},
-    {"selecteditemtext", (void *) LXB_CSS_VALUE_SELECTEDITEMTEXT, 16, 0},
-    {"cornflowerblue", (void *) LXB_CSS_VALUE_CORNFLOWERBLUE, 14, 326},
-    {"mediumseagreen", (void *) LXB_CSS_VALUE_MEDIUMSEAGREEN, 14, 327},
-    {"column-reverse", (void *) LXB_CSS_VALUE_COLUMN_REVERSE, 14, 0},
-    {"ui-rounded", (void *) LXB_CSS_VALUE_UI_ROUNDED, 10, 0},
-    {"medium", (void *) LXB_CSS_VALUE_MEDIUM, 6, 330},
-    {"pre-line", (void *) LXB_CSS_VALUE_PRE_LINE, 8, 0},
-    {"minimum", (void *) LXB_CSS_VALUE_MINIMUM, 7, 332},
-    {"maximum", (void *) LXB_CSS_VALUE_MAXIMUM, 7, 333},
-    {"mediumspringgreen", (void *) LXB_CSS_VALUE_MEDIUMSPRINGGREEN, 17, 0},
-    {"mintcream", (void *) LXB_CSS_VALUE_MINTCREAM, 9, 335},
-    {"ultra-expanded", (void *) LXB_CSS_VALUE_ULTRA_EXPANDED, 14, 0},
-    {"paleturquoise", (void *) LXB_CSS_VALUE_PALETURQUOISE, 13, 0},
-    {"larger", (void *) LXB_CSS_VALUE_LARGER, 6, 338},
-    {"content-box", (void *) LXB_CSS_VALUE_CONTENT_BOX, 11, 339},
-    {"lavenderblush", (void *) LXB_CSS_VALUE_LAVENDERBLUSH, 13, 0},
-    {"indianred", (void *) LXB_CSS_VALUE_INDIANRED, 9, 0},
-    {"inline-end", (void *) LXB_CSS_VALUE_INLINE_END, 10, 342},
-    {"inter-word", (void *) LXB_CSS_VALUE_INTER_WORD, 10, 0},
-    {"manual", (void *) LXB_CSS_VALUE_MANUAL, 6, 0},
-    {"justify", (void *) LXB_CSS_VALUE_JUSTIFY, 7, 345},
-    {"break-all", (void *) LXB_CSS_VALUE_BREAK_ALL, 9, 0},
-    {"canvastext", (void *) LXB_CSS_VALUE_CANVASTEXT, 10, 347},
-    {"mathematical", (void *) LXB_CSS_VALUE_MATHEMATICAL, 12, 0},
-    {"full-width", (void *) LXB_CSS_VALUE_FULL_WIDTH, 10, 0},
-    {"block", (void *) LXB_CSS_VALUE_BLOCK, 5, 350},
-    {"blink", (void *) LXB_CSS_VALUE_BLINK, 5, 351},
-    {"thistle", (void *) LXB_CSS_VALUE_THISTLE, 7, 0},
-    {"turquoise", (void *) LXB_CSS_VALUE_TURQUOISE, 9, 0},
-    {"uppercase", (void *) LXB_CSS_VALUE_UPPERCASE, 9, 0},
-    {"text-top", (void *) LXB_CSS_VALUE_TEXT_TOP, 8, 0},
-    {"ivory", (void *) LXB_CSS_VALUE_IVORY, 5, 356},
-    {"inter-character", (void *) LXB_CSS_VALUE_INTER_CHARACTER, 15, 0},
-    {"fantasy", (void *) LXB_CSS_VALUE_FANTASY, 7, 0},
-    {"sans-serif", (void *) LXB_CSS_VALUE_SANS_SERIF, 10, 0},
-    {"darkgreen", (void *) LXB_CSS_VALUE_DARKGREEN, 9, 0},
-    {"table-row-group", (void *) LXB_CSS_VALUE_TABLE_ROW_GROUP, 15, 0},
-    {"table-footer-group", (void *) LXB_CSS_VALUE_TABLE_FOOTER_GROUP, 18, 362},
-    {"table-column-group", (void *) LXB_CSS_VALUE_TABLE_COLUMN_GROUP, 18, 0},
-    {"grey", (void *) LXB_CSS_VALUE_GREY, 4, 364},
-    {"vertical-rl", (void *) LXB_CSS_VALUE_VERTICAL_RL, 11, 0},
-    {"both", (void *) LXB_CSS_VALUE_BOTH, 4, 0},
-    {"_percentage", (void *) LXB_CSS_VALUE__PERCENTAGE, 11, 0},
-    {"ui-serif", (void *) LXB_CSS_VALUE_UI_SERIF, 8, 0},
-    {"left", (void *) LXB_CSS_VALUE_LEFT, 4, 369},
-    {"ui-sans-serif", (void *) LXB_CSS_VALUE_UI_SANS_SERIF, 13, 0},
-    {"condensed", (void *) LXB_CSS_VALUE_CONDENSED, 9, 0},
-    {"ruby-text-container", (void *) LXB_CSS_VALUE_RUBY_TEXT_CONTAINER, 19, 0},
-    {"orangered", (void *) LXB_CSS_VALUE_ORANGERED, 9, 0},
-    {"space-evenly", (void *) LXB_CSS_VALUE_SPACE_EVENLY, 12, 0}
+    {(char *) "salmon", (void *) LXB_CSS_VALUE_SALMON, 6, 2},
+    {(char *) "canvas", (void *) LXB_CSS_VALUE_CANVAS, 6, 4},
+    {(char *) "allow-end", (void *) LXB_CSS_VALUE_ALLOW_END, 9, 0},
+    {(char *) "static", (void *) LXB_CSS_VALUE_STATIC, 6, 5},
+    {(char *) "sticky", (void *) LXB_CSS_VALUE_STICKY, 6, 0},
+    {(char *) "darkviolet", (void *) LXB_CSS_VALUE_DARKVIOLET, 10, 0},
+    {(char *) "blue", (void *) LXB_CSS_VALUE_BLUE, 4, 1},
+    {(char *) "end", (void *) LXB_CSS_VALUE_END, 3, 24},
+    {(char *) "middle", (void *) LXB_CSS_VALUE_MIDDLE, 6, 32},
+    {(char *) "rgb", (void *) LXB_CSS_VALUE_RGB, 3, 59},
+    {(char *) "baseline", (void *) LXB_CSS_VALUE_BASELINE, 8, 69},
+    {(char *) "mistyrose", (void *) LXB_CSS_VALUE_MISTYROSE, 9, 71},
+    {(char *) "expanded", (void *) LXB_CSS_VALUE_EXPANDED, 8, 92},
+    {(char *) "space-between", (void *) LXB_CSS_VALUE_SPACE_BETWEEN, 13, 0},
+    {(char *) "mediumpurple", (void *) LXB_CSS_VALUE_MEDIUMPURPLE, 12, 99},
+    {(char *) "bidi-override", (void *) LXB_CSS_VALUE_BIDI_OVERRIDE, 13, 0},
+    {(char *) "bold", (void *) LXB_CSS_VALUE_BOLD, 4, 103},
+    {(char *) "mixed", (void *) LXB_CSS_VALUE_MIXED, 5, 105},
+    {(char *) "extra-expanded", (void *) LXB_CSS_VALUE_EXTRA_EXPANDED, 14, 119},
+    {(char *) "auto", (void *) LXB_CSS_VALUE_AUTO, 4, 129},
+    {(char *) "teal", (void *) LXB_CSS_VALUE_TEAL, 4, 130},
+    {(char *) "lab", (void *) LXB_CSS_VALUE_LAB, 3, 131},
+    {(char *) "break-word", (void *) LXB_CSS_VALUE_BREAK_WORD, 10, 0},
+    {(char *) "beige", (void *) LXB_CSS_VALUE_BEIGE, 5, 0},
+    {(char *) "mediumorchid", (void *) LXB_CSS_VALUE_MEDIUMORCHID, 12, 0},
+    {(char *) "vertical-lr", (void *) LXB_CSS_VALUE_VERTICAL_LR, 11, 0},
+    {(char *) "table-cell", (void *) LXB_CSS_VALUE_TABLE_CELL, 10, 135},
+    {(char *) "pre-wrap", (void *) LXB_CSS_VALUE_PRE_WRAP, 8, 136},
+    {(char *) "super", (void *) LXB_CSS_VALUE_SUPER, 5, 0},
+    {(char *) "silver", (void *) LXB_CSS_VALUE_SILVER, 6, 137},
+    {(char *) "hsl", (void *) LXB_CSS_VALUE_HSL, 3, 140},
+    {(char *) "bisque", (void *) LXB_CSS_VALUE_BISQUE, 6, 53},
+    {(char *) "darkblue", (void *) LXB_CSS_VALUE_DARKBLUE, 8, 0},
+    {(char *) "hex", (void *) LXB_CSS_VALUE_HEX, 3, 0},
+    {(char *) "darkorange", (void *) LXB_CSS_VALUE_DARKORANGE, 10, 143},
+    {(char *) "lightcoral", (void *) LXB_CSS_VALUE_LIGHTCORAL, 10, 145},
+    {(char *) "table-row", (void *) LXB_CSS_VALUE_TABLE_ROW, 9, 0},
+    {(char *) "ridge", (void *) LXB_CSS_VALUE_RIDGE, 5, 149},
+    {(char *) "violet", (void *) LXB_CSS_VALUE_VIOLET, 6, 156},
+    {(char *) "italic", (void *) LXB_CSS_VALUE_ITALIC, 6, 157},
+    {(char *) "relative", (void *) LXB_CSS_VALUE_RELATIVE, 8, 0},
+    {(char *) "royalblue", (void *) LXB_CSS_VALUE_ROYALBLUE, 9, 179},
+    {(char *) "highlighttext", (void *) LXB_CSS_VALUE_HIGHLIGHTTEXT, 13, 0},
+    {(char *) "visitedtext", (void *) LXB_CSS_VALUE_VISITEDTEXT, 11, 193},
+    {(char *) "ideographic", (void *) LXB_CSS_VALUE_IDEOGRAPHIC, 11, 0},
+    {(char *) "outset", (void *) LXB_CSS_VALUE_OUTSET, 6, 194},
+    {(char *) "azure", (void *) LXB_CSS_VALUE_AZURE, 5, 0},
+    {(char *) "pink", (void *) LXB_CSS_VALUE_PINK, 4, 0},
+    {(char *) "near", (void *) LXB_CSS_VALUE_NEAR, 4, 0},
+    {(char *) "magenta", (void *) LXB_CSS_VALUE_MAGENTA, 7, 204},
+    {(char *) "aliceblue", (void *) LXB_CSS_VALUE_ALICEBLUE, 9, 0},
+    {(char *) "aquamarine", (void *) LXB_CSS_VALUE_AQUAMARINE, 10, 0},
+    {(char *) "seagreen", (void *) LXB_CSS_VALUE_SEAGREEN, 8, 55},
+    {(char *) "antiquewhite", (void *) LXB_CSS_VALUE_ANTIQUEWHITE, 12, 0},
+    {(char *) "contents", (void *) LXB_CSS_VALUE_CONTENTS, 8, 56},
+    {(char *) "lightpink", (void *) LXB_CSS_VALUE_LIGHTPINK, 9, 0},
+    {(char *) "snap-block", (void *) LXB_CSS_VALUE_SNAP_BLOCK, 10, 0},
+    {(char *) "white", (void *) LXB_CSS_VALUE_WHITE, 5, 0},
+    {(char *) "embed", (void *) LXB_CSS_VALUE_EMBED, 5, 66},
+    {(char *) "first", (void *) LXB_CSS_VALUE_FIRST, 5, 211},
+    {(char *) "groove", (void *) LXB_CSS_VALUE_GROOVE, 6, 212},
+    {(char *) "normal", (void *) LXB_CSS_VALUE_NORMAL, 6, 0},
+    {(char *) "whitesmoke", (void *) LXB_CSS_VALUE_WHITESMOKE, 10, 0},
+    {(char *) "fieldtext", (void *) LXB_CSS_VALUE_FIELDTEXT, 9, 221},
+    {(char *) "flex-start", (void *) LXB_CSS_VALUE_FLEX_START, 10, 227},
+    {(char *) "slategray", (void *) LXB_CSS_VALUE_SLATEGRAY, 9, 67},
+    {(char *) "slategrey", (void *) LXB_CSS_VALUE_SLATEGREY, 9, 68},
+    {(char *) "darkmagenta", (void *) LXB_CSS_VALUE_DARKMAGENTA, 11, 0},
+    {(char *) "sandybrown", (void *) LXB_CSS_VALUE_SANDYBROWN, 10, 0},
+    {(char *) "field", (void *) LXB_CSS_VALUE_FIELD, 5, 234},
+    {(char *) "monospace", (void *) LXB_CSS_VALUE_MONOSPACE, 9, 78},
+    {(char *) "color", (void *) LXB_CSS_VALUE_COLOR, 5, 236},
+    {(char *) "center", (void *) LXB_CSS_VALUE_CENTER, 6, 240},
+    {(char *) "force-end", (void *) LXB_CSS_VALUE_FORCE_END, 9, 0},
+    {(char *) "solid", (void *) LXB_CSS_VALUE_SOLID, 5, 243},
+    {(char *) "gold", (void *) LXB_CSS_VALUE_GOLD, 4, 248},
+    {(char *) "peachpuff", (void *) LXB_CSS_VALUE_PEACHPUFF, 9, 0},
+    {(char *) "saddlebrown", (void *) LXB_CSS_VALUE_SADDLEBROWN, 11, 86},
+    {(char *) "inline", (void *) LXB_CSS_VALUE_INLINE, 6, 254},
+    {(char *) "isolate", (void *) LXB_CSS_VALUE_ISOLATE, 7, 0},
+    {(char *) "goldenrod", (void *) LXB_CSS_VALUE_GOLDENROD, 9, 0},
+    {(char *) "cyan", (void *) LXB_CSS_VALUE_CYAN, 4, 256},
+    {(char *) "linen", (void *) LXB_CSS_VALUE_LINEN, 5, 257},
+    {(char *) "column", (void *) LXB_CSS_VALUE_COLUMN, 6, 258},
+    {(char *) "crimson", (void *) LXB_CSS_VALUE_CRIMSON, 7, 259},
+    {(char *) "springgreen", (void *) LXB_CSS_VALUE_SPRINGGREEN, 11, 0},
+    {(char *) "lawngreen", (void *) LXB_CSS_VALUE_LAWNGREEN, 9, 260},
+    {(char *) "lightgreen", (void *) LXB_CSS_VALUE_LIGHTGREEN, 10, 0},
+    {(char *) "plum", (void *) LXB_CSS_VALUE_PLUM, 4, 262},
+    {(char *) "initial", (void *) LXB_CSS_VALUE_INITIAL, 7, 264},
+    {(char *) "lightseagreen", (void *) LXB_CSS_VALUE_LIGHTSEAGREEN, 13, 0},
+    {(char *) "mediumblue", (void *) LXB_CSS_VALUE_MEDIUMBLUE, 10, 93},
+    {(char *) "activetext", (void *) LXB_CSS_VALUE_ACTIVETEXT, 10, 94},
+    {(char *) "buttonface", (void *) LXB_CSS_VALUE_BUTTONFACE, 10, 96},
+    {(char *) "each-line", (void *) LXB_CSS_VALUE_EACH_LINE, 9, 0},
+    {(char *) "greenyellow", (void *) LXB_CSS_VALUE_GREENYELLOW, 11, 373},
+    {(char *) "hanging", (void *) LXB_CSS_VALUE_HANGING, 7, 0},
+    {(char *) "hotpink", (void *) LXB_CSS_VALUE_HOTPINK, 7, 0},
+    {(char *) "midnightblue", (void *) LXB_CSS_VALUE_MIDNIGHTBLUE, 12, 0},
+    {(char *) "stretch", (void *) LXB_CSS_VALUE_STRETCH, 7, 0},
+    {(char *) "lime", (void *) LXB_CSS_VALUE_LIME, 4, 266},
+    {(char *) "unset", (void *) LXB_CSS_VALUE_UNSET, 5, 267},
+    {(char *) "x-small", (void *) LXB_CSS_VALUE_X_SMALL, 7, 0},
+    {(char *) "upright", (void *) LXB_CSS_VALUE_UPRIGHT, 7, 0},
+    {(char *) "xx-small", (void *) LXB_CSS_VALUE_XX_SMALL, 8, 108},
+    {(char *) "lightblue", (void *) LXB_CSS_VALUE_LIGHTBLUE, 9, 270},
+    {(char *) "aqua", (void *) LXB_CSS_VALUE_AQUA, 4, 271},
+    {(char *) "mediumslateblue", (void *) LXB_CSS_VALUE_MEDIUMSLATEBLUE, 15, 110},
+    {(char *) "lightskyblue", (void *) LXB_CSS_VALUE_LIGHTSKYBLUE, 12, 0},
+    {(char *) "mediumturquoise", (void *) LXB_CSS_VALUE_MEDIUMTURQUOISE, 15, 113},
+    {(char *) "plaintext", (void *) LXB_CSS_VALUE_PLAINTEXT, 9, 272},
+    {(char *) "justify-all", (void *) LXB_CSS_VALUE_JUSTIFY_ALL, 11, 0},
+    {(char *) "accentcolortext", (void *) LXB_CSS_VALUE_ACCENTCOLORTEXT, 15, 0},
+    {(char *) "tan", (void *) LXB_CSS_VALUE_TAN, 3, 273},
+    {(char *) "thin", (void *) LXB_CSS_VALUE_THIN, 4, 274},
+    {(char *) "blueviolet", (void *) LXB_CSS_VALUE_BLUEVIOLET, 10, 275},
+    {(char *) "run-in", (void *) LXB_CSS_VALUE_RUN_IN, 6, 276},
+    {(char *) "match-parent", (void *) LXB_CSS_VALUE_MATCH_PARENT, 12, 0},
+    {(char *) "mediumaquamarine", (void *) LXB_CSS_VALUE_MEDIUMAQUAMARINE, 16, 0},
+    {(char *) "snow", (void *) LXB_CSS_VALUE_SNOW, 4, 280},
+    {(char *) "small", (void *) LXB_CSS_VALUE_SMALL, 5, 0},
+    {(char *) "sienna", (void *) LXB_CSS_VALUE_SIENNA, 6, 283},
+    {(char *) "table-column", (void *) LXB_CSS_VALUE_TABLE_COLUMN, 12, 0},
+    {(char *) "seashell", (void *) LXB_CSS_VALUE_SEASHELL, 8, 286},
+    {(char *) "lightslategray", (void *) LXB_CSS_VALUE_LIGHTSLATEGRAY, 14, 287},
+    {(char *) "ruby", (void *) LXB_CSS_VALUE_RUBY, 4, 0},
+    {(char *) "sideways-rl", (void *) LXB_CSS_VALUE_SIDEWAYS_RL, 11, 0},
+    {(char *) "all", (void *) LXB_CSS_VALUE_ALL, 3, 288},
+    {(char *) "extra-condensed", (void *) LXB_CSS_VALUE_EXTRA_CONDENSED, 15, 0},
+    {(char *) "indigo", (void *) LXB_CSS_VALUE_INDIGO, 6, 0},
+    {(char *) "block-end", (void *) LXB_CSS_VALUE_BLOCK_END, 9, 134},
+    {(char *) "bolder", (void *) LXB_CSS_VALUE_BOLDER, 6, 0},
+    {(char *) "forestgreen", (void *) LXB_CSS_VALUE_FORESTGREEN, 11, 0},
+    {(char *) "burlywood", (void *) LXB_CSS_VALUE_BURLYWOOD, 9, 0},
+    {(char *) "blanchedalmond", (void *) LXB_CSS_VALUE_BLANCHEDALMOND, 14, 0},
+    {(char *) "mediumvioletred", (void *) LXB_CSS_VALUE_MEDIUMVIOLETRED, 15, 0},
+    {(char *) "papayawhip", (void *) LXB_CSS_VALUE_PAPAYAWHIP, 10, 0},
+    {(char *) "buttonborder", (void *) LXB_CSS_VALUE_BUTTONBORDER, 12, 0},
+    {(char *) "nowrap", (void *) LXB_CSS_VALUE_NOWRAP, 6, 0},
+    {(char *) "double", (void *) LXB_CSS_VALUE_DOUBLE, 6, 141},
+    {(char *) "smaller", (void *) LXB_CSS_VALUE_SMALLER, 7, 142},
+    {(char *) "cornsilk", (void *) LXB_CSS_VALUE_CORNSILK, 8, 0},
+    {(char *) "dodgerblue", (void *) LXB_CSS_VALUE_DODGERBLUE, 10, 144},
+    {(char *) "sideways-lr", (void *) LXB_CSS_VALUE_SIDEWAYS_LR, 11, 0},
+    {(char *) "deepskyblue", (void *) LXB_CSS_VALUE_DEEPSKYBLUE, 11, 0},
+    {(char *) "skyblue", (void *) LXB_CSS_VALUE_SKYBLUE, 7, 0},
+    {(char *) "gainsboro", (void *) LXB_CSS_VALUE_GAINSBORO, 9, 0},
+    {(char *) "khaki", (void *) LXB_CSS_VALUE_KHAKI, 5, 290},
+    {(char *) "firebrick", (void *) LXB_CSS_VALUE_FIREBRICK, 9, 153},
+    {(char *) "snap-inline", (void *) LXB_CSS_VALUE_SNAP_INLINE, 11, 0},
+    {(char *) "dotted", (void *) LXB_CSS_VALUE_DOTTED, 6, 293},
+    {(char *) "flow", (void *) LXB_CSS_VALUE_FLOW, 4, 295},
+    {(char *) "darkslateblue", (void *) LXB_CSS_VALUE_DARKSLATEBLUE, 13, 154},
+    {(char *) "darkturquoise", (void *) LXB_CSS_VALUE_DARKTURQUOISE, 13, 0},
+    {(char *) "hwb", (void *) LXB_CSS_VALUE_HWB, 3, 297},
+    {(char *) "highlight", (void *) LXB_CSS_VALUE_HIGHLIGHT, 9, 0},
+    {(char *) "palegoldenrod", (void *) LXB_CSS_VALUE_PALEGOLDENROD, 13, 159},
+    {(char *) "visible", (void *) LXB_CSS_VALUE_VISIBLE, 7, 298},
+    {(char *) "palevioletred", (void *) LXB_CSS_VALUE_PALEVIOLETRED, 13, 0},
+    {(char *) "green", (void *) LXB_CSS_VALUE_GREEN, 5, 299},
+    {(char *) "hidden", (void *) LXB_CSS_VALUE_HIDDEN, 6, 300},
+    {(char *) "emoji", (void *) LXB_CSS_VALUE_EMOJI, 5, 301},
+    {(char *) "darkgray", (void *) LXB_CSS_VALUE_DARKGRAY, 8, 303},
+    {(char *) "tomato", (void *) LXB_CSS_VALUE_TOMATO, 6, 304},
+    {(char *) "xx-large", (void *) LXB_CSS_VALUE_XX_LARGE, 8, 305},
+    {(char *) "fangsong", (void *) LXB_CSS_VALUE_FANGSONG, 8, 306},
+    {(char *) "start", (void *) LXB_CSS_VALUE_START, 5, 0},
+    {(char *) "right", (void *) LXB_CSS_VALUE_RIGHT, 5, 307},
+    {(char *) "revert", (void *) LXB_CSS_VALUE_REVERT, 6, 0},
+    {(char *) "wavy", (void *) LXB_CSS_VALUE_WAVY, 4, 0},
+    {(char *) "rgba", (void *) LXB_CSS_VALUE_RGBA, 4, 310},
+    {(char *) "maroon", (void *) LXB_CSS_VALUE_MAROON, 6, 313},
+    {(char *) "olive", (void *) LXB_CSS_VALUE_OLIVE, 5, 314},
+    {(char *) "orange", (void *) LXB_CSS_VALUE_ORANGE, 6, 315},
+    {(char *) "oldlace", (void *) LXB_CSS_VALUE_OLDLACE, 7, 317},
+    {(char *) "overline", (void *) LXB_CSS_VALUE_OVERLINE, 8, 320},
+    {(char *) "pre", (void *) LXB_CSS_VALUE_PRE, 3, 322},
+    {(char *) "lch", (void *) LXB_CSS_VALUE_LCH, 3, 323},
+    {(char *) "ruby-base", (void *) LXB_CSS_VALUE_RUBY_BASE, 9, 0},
+    {(char *) "purple", (void *) LXB_CSS_VALUE_PURPLE, 6, 325},
+    {(char *) "rtl", (void *) LXB_CSS_VALUE_RTL, 3, 328},
+    {(char *) "bottom", (void *) LXB_CSS_VALUE_BOTTOM, 6, 329},
+    {(char *) "flex", (void *) LXB_CSS_VALUE_FLEX, 4, 331},
+    {(char *) "powderblue", (void *) LXB_CSS_VALUE_POWDERBLUE, 10, 0},
+    {(char *) "ltr", (void *) LXB_CSS_VALUE_LTR, 3, 334},
+    {(char *) "ultra-condensed", (void *) LXB_CSS_VALUE_ULTRA_CONDENSED, 15, 0},
+    {(char *) "line-through", (void *) LXB_CSS_VALUE_LINE_THROUGH, 12, 336},
+    {(char *) "sub", (void *) LXB_CSS_VALUE_SUB, 3, 337},
+    {(char *) "lighter", (void *) LXB_CSS_VALUE_LIGHTER, 7, 340},
+    {(char *) "lavender", (void *) LXB_CSS_VALUE_LAVENDER, 8, 341},
+    {(char *) "inline-grid", (void *) LXB_CSS_VALUE_INLINE_GRID, 11, 0},
+    {(char *) "row", (void *) LXB_CSS_VALUE_ROW, 3, 343},
+    {(char *) "row-reverse", (void *) LXB_CSS_VALUE_ROW_REVERSE, 11, 0},
+    {(char *) "rebeccapurple", (void *) LXB_CSS_VALUE_REBECCAPURPLE, 13, 0},
+    {(char *) "content", (void *) LXB_CSS_VALUE_CONTENT, 7, 344},
+    {(char *) "red", (void *) LXB_CSS_VALUE_RED, 3, 0},
+    {(char *) "selecteditem", (void *) LXB_CSS_VALUE_SELECTEDITEM, 12, 0},
+    {(char *) "oklch", (void *) LXB_CSS_VALUE_OKLCH, 5, 346},
+    {(char *) "table", (void *) LXB_CSS_VALUE_TABLE, 5, 348},
+    {(char *) "mark", (void *) LXB_CSS_VALUE_MARK, 4, 0},
+    {(char *) "black", (void *) LXB_CSS_VALUE_BLACK, 5, 349},
+    {(char *) "inline-block", (void *) LXB_CSS_VALUE_INLINE_BLOCK, 12, 0},
+    {(char *) "clip", (void *) LXB_CSS_VALUE_CLIP, 4, 352},
+    {(char *) "anywhere", (void *) LXB_CSS_VALUE_ANYWHERE, 8, 205},
+    {(char *) "absolute", (void *) LXB_CSS_VALUE_ABSOLUTE, 8, 0},
+    {(char *) "wheat", (void *) LXB_CSS_VALUE_WHEAT, 5, 0},
+    {(char *) "underline", (void *) LXB_CSS_VALUE_UNDERLINE, 9, 353},
+    {(char *) "top", (void *) LXB_CSS_VALUE_TOP, 3, 0},
+    {(char *) "alphabetic", (void *) LXB_CSS_VALUE_ALPHABETIC, 10, 0},
+    {(char *) "ui-monospace", (void *) LXB_CSS_VALUE_UI_MONOSPACE, 12, 0},
+    {(char *) "darkkhaki", (void *) LXB_CSS_VALUE_DARKKHAKI, 9, 0},
+    {(char *) "graytext", (void *) LXB_CSS_VALUE_GRAYTEXT, 8, 214},
+    {(char *) "serif", (void *) LXB_CSS_VALUE_SERIF, 5, 354},
+    {(char *) "list-item", (void *) LXB_CSS_VALUE_LIST_ITEM, 9, 0},
+    {(char *) "coral", (void *) LXB_CSS_VALUE_CORAL, 5, 355},
+    {(char *) "ellipsis", (void *) LXB_CSS_VALUE_ELLIPSIS, 8, 0},
+    {(char *) "central", (void *) LXB_CSS_VALUE_CENTRAL, 7, 357},
+    {(char *) "darkcyan", (void *) LXB_CSS_VALUE_DARKCYAN, 8, 358},
+    {(char *) "hsla", (void *) LXB_CSS_VALUE_HSLA, 4, 359},
+    {(char *) "darksalmon", (void *) LXB_CSS_VALUE_DARKSALMON, 10, 360},
+    {(char *) "flow-root", (void *) LXB_CSS_VALUE_FLOW_ROOT, 9, 0},
+    {(char *) "darkseagreen", (void *) LXB_CSS_VALUE_DARKSEAGREEN, 12, 0},
+    {(char *) "table-header-group", (void *) LXB_CSS_VALUE_TABLE_HEADER_GROUP, 18, 361},
+    {(char *) "darkolivegreen", (void *) LXB_CSS_VALUE_DARKOLIVEGREEN, 14, 0},
+    {(char *) "gray", (void *) LXB_CSS_VALUE_GRAY, 4, 363},
+    {(char *) "_angle", (void *) LXB_CSS_VALUE__ANGLE, 6, 0},
+    {(char *) "ghostwhite", (void *) LXB_CSS_VALUE_GHOSTWHITE, 10, 229},
+    {(char *) "thick", (void *) LXB_CSS_VALUE_THICK, 5, 0},
+    {(char *) "wrap-reverse", (void *) LXB_CSS_VALUE_WRAP_REVERSE, 12, 0},
+    {(char *) "math", (void *) LXB_CSS_VALUE_MATH, 4, 365},
+    {(char *) "_length", (void *) LXB_CSS_VALUE__LENGTH, 7, 366},
+    {(char *) "fuchsia", (void *) LXB_CSS_VALUE_FUCHSIA, 7, 0},
+    {(char *) "wrap", (void *) LXB_CSS_VALUE_WRAP, 4, 367},
+    {(char *) "fixed", (void *) LXB_CSS_VALUE_FIXED, 5, 235},
+    {(char *) "lightyellow", (void *) LXB_CSS_VALUE_LIGHTYELLOW, 11, 0},
+    {(char *) "clear", (void *) LXB_CSS_VALUE_CLEAR, 5, 237},
+    {(char *) "deeppink", (void *) LXB_CSS_VALUE_DEEPPINK, 8, 0},
+    {(char *) "last", (void *) LXB_CSS_VALUE_LAST, 4, 368},
+    {(char *) "full-size-kana", (void *) LXB_CSS_VALUE_FULL_SIZE_KANA, 14, 0},
+    {(char *) "flex-end", (void *) LXB_CSS_VALUE_FLEX_END, 8, 0},
+    {(char *) "palegreen", (void *) LXB_CSS_VALUE_PALEGREEN, 9, 370},
+    {(char *) "linktext", (void *) LXB_CSS_VALUE_LINKTEXT, 8, 0},
+    {(char *) "text-bottom", (void *) LXB_CSS_VALUE_TEXT_BOTTOM, 11, 245},
+    {(char *) "inset", (void *) LXB_CSS_VALUE_INSET, 5, 0},
+    {(char *) "inline-flex", (void *) LXB_CSS_VALUE_INLINE_FLEX, 11, 0},
+    {(char *) "inherit", (void *) LXB_CSS_VALUE_INHERIT, 7, 0},
+    {(char *) "navy", (void *) LXB_CSS_VALUE_NAVY, 4, 0},
+    {(char *) "grid", (void *) LXB_CSS_VALUE_GRID, 4, 252},
+    {(char *) "ruby-base-container", (void *) LXB_CSS_VALUE_RUBY_BASE_CONTAINER, 19, 371},
+    {(char *) "orchid", (void *) LXB_CSS_VALUE_ORCHID, 6, 0},
+    {(char *) "inline-start", (void *) LXB_CSS_VALUE_INLINE_START, 12, 0},
+    {(char *) "border-box", (void *) LXB_CSS_VALUE_BORDER_BOX, 10, 0},
+    {(char *) "peru", (void *) LXB_CSS_VALUE_PERU, 4, 372},
+    {(char *) "currentcolor", (void *) LXB_CSS_VALUE_CURRENTCOLOR, 12, 255},
+    {(char *) "lightgoldenrodyellow", (void *) LXB_CSS_VALUE_LIGHTGOLDENRODYELLOW, 20, 0},
+    {(char *) "space-around", (void *) LXB_CSS_VALUE_SPACE_AROUND, 12, 0},
+    {(char *) "semi-expanded", (void *) LXB_CSS_VALUE_SEMI_EXPANDED, 13, 0},
+    {(char *) "semi-condensed", (void *) LXB_CSS_VALUE_SEMI_CONDENSED, 14, 0},
+    {(char *) "inline-table", (void *) LXB_CSS_VALUE_INLINE_TABLE, 12, 0},
+    {(char *) "lightcyan", (void *) LXB_CSS_VALUE_LIGHTCYAN, 9, 261},
+    {(char *) "limegreen", (void *) LXB_CSS_VALUE_LIMEGREEN, 9, 0},
+    {(char *) "lightsalmon", (void *) LXB_CSS_VALUE_LIGHTSALMON, 11, 263},
+    {(char *) "isolate-override", (void *) LXB_CSS_VALUE_ISOLATE_OVERRIDE, 16, 0},
+    {(char *) "keep-all", (void *) LXB_CSS_VALUE_KEEP_ALL, 8, 265},
+    {(char *) "lemonchiffon", (void *) LXB_CSS_VALUE_LEMONCHIFFON, 12, 0},
+    {(char *) "sideways", (void *) LXB_CSS_VALUE_SIDEWAYS, 8, 0},
+    {(char *) "large", (void *) LXB_CSS_VALUE_LARGE, 5, 268},
+    {(char *) "loose", (void *) LXB_CSS_VALUE_LOOSE, 5, 269},
+    {(char *) "honeydew", (void *) LXB_CSS_VALUE_HONEYDEW, 8, 0},
+    {(char *) "lowercase", (void *) LXB_CSS_VALUE_LOWERCASE, 9, 0},
+    {(char *) "floralwhite", (void *) LXB_CSS_VALUE_FLORALWHITE, 11, 0},
+    {(char *) "lightsteelblue", (void *) LXB_CSS_VALUE_LIGHTSTEELBLUE, 14, 0},
+    {(char *) "marktext", (void *) LXB_CSS_VALUE_MARKTEXT, 8, 0},
+    {(char *) "none", (void *) LXB_CSS_VALUE_NONE, 4, 0},
+    {(char *) "buttontext", (void *) LXB_CSS_VALUE_BUTTONTEXT, 10, 0},
+    {(char *) "region", (void *) LXB_CSS_VALUE_REGION, 6, 277},
+    {(char *) "block-start", (void *) LXB_CSS_VALUE_BLOCK_START, 11, 278},
+    {(char *) "min-content", (void *) LXB_CSS_VALUE_MIN_CONTENT, 11, 279},
+    {(char *) "max-content", (void *) LXB_CSS_VALUE_MAX_CONTENT, 11, 0},
+    {(char *) "lightgray", (void *) LXB_CSS_VALUE_LIGHTGRAY, 9, 281},
+    {(char *) "lightgrey", (void *) LXB_CSS_VALUE_LIGHTGREY, 9, 282},
+    {(char *) "rosybrown", (void *) LXB_CSS_VALUE_ROSYBROWN, 9, 0},
+    {(char *) "scroll", (void *) LXB_CSS_VALUE_SCROLL, 6, 284},
+    {(char *) "digits", (void *) LXB_CSS_VALUE_DIGITS, 6, 285},
+    {(char *) "navajowhite", (void *) LXB_CSS_VALUE_NAVAJOWHITE, 11, 0},
+    {(char *) "table-caption", (void *) LXB_CSS_VALUE_TABLE_CAPTION, 13, 0},
+    {(char *) "lightslategrey", (void *) LXB_CSS_VALUE_LIGHTSLATEGREY, 14, 0},
+    {(char *) "yellow", (void *) LXB_CSS_VALUE_YELLOW, 6, 289},
+    {(char *) "break-spaces", (void *) LXB_CSS_VALUE_BREAK_SPACES, 12, 0},
+    {(char *) "oklab", (void *) LXB_CSS_VALUE_OKLAB, 5, 291},
+    {(char *) "slateblue", (void *) LXB_CSS_VALUE_SLATEBLUE, 9, 292},
+    {(char *) "steelblue", (void *) LXB_CSS_VALUE_STEELBLUE, 9, 0},
+    {(char *) "dashed", (void *) LXB_CSS_VALUE_DASHED, 6, 294},
+    {(char *) "transparent", (void *) LXB_CSS_VALUE_TRANSPARENT, 11, 0},
+    {(char *) "darkred", (void *) LXB_CSS_VALUE_DARKRED, 7, 296},
+    {(char *) "olivedrab", (void *) LXB_CSS_VALUE_OLIVEDRAB, 9, 0},
+    {(char *) "darkorchid", (void *) LXB_CSS_VALUE_DARKORCHID, 10, 0},
+    {(char *) "darkgoldenrod", (void *) LXB_CSS_VALUE_DARKGOLDENROD, 13, 0},
+    {(char *) "_number", (void *) LXB_CSS_VALUE__NUMBER, 7, 0},
+    {(char *) "_integer", (void *) LXB_CSS_VALUE__INTEGER, 8, 0},
+    {(char *) "dimgray", (void *) LXB_CSS_VALUE_DIMGRAY, 7, 302},
+    {(char *) "dimgrey", (void *) LXB_CSS_VALUE_DIMGREY, 7, 0},
+    {(char *) "darkgrey", (void *) LXB_CSS_VALUE_DARKGREY, 8, 0},
+    {(char *) "x-large", (void *) LXB_CSS_VALUE_X_LARGE, 7, 0},
+    {(char *) "horizontal-tb", (void *) LXB_CSS_VALUE_HORIZONTAL_TB, 13, 0},
+    {(char *) "xxx-large", (void *) LXB_CSS_VALUE_XXX_LARGE, 9, 0},
+    {(char *) "strict", (void *) LXB_CSS_VALUE_STRICT, 6, 308},
+    {(char *) "darkslategray", (void *) LXB_CSS_VALUE_DARKSLATEGRAY, 13, 309},
+    {(char *) "darkslategrey", (void *) LXB_CSS_VALUE_DARKSLATEGREY, 13, 0},
+    {(char *) "brown", (void *) LXB_CSS_VALUE_BROWN, 5, 311},
+    {(char *) "system-ui", (void *) LXB_CSS_VALUE_SYSTEM_UI, 9, 312},
+    {(char *) "accentcolor", (void *) LXB_CSS_VALUE_ACCENTCOLOR, 11, 0},
+    {(char *) "ruby-text", (void *) LXB_CSS_VALUE_RUBY_TEXT, 9, 0},
+    {(char *) "cursive", (void *) LXB_CSS_VALUE_CURSIVE, 7, 0},
+    {(char *) "moccasin", (void *) LXB_CSS_VALUE_MOCCASIN, 8, 316},
+    {(char *) "collapse", (void *) LXB_CSS_VALUE_COLLAPSE, 8, 0},
+    {(char *) "oblique", (void *) LXB_CSS_VALUE_OBLIQUE, 7, 318},
+    {(char *) "cadetblue", (void *) LXB_CSS_VALUE_CADETBLUE, 9, 319},
+    {(char *) "chocolate", (void *) LXB_CSS_VALUE_CHOCOLATE, 9, 0},
+    {(char *) "chartreuse", (void *) LXB_CSS_VALUE_CHARTREUSE, 10, 321},
+    {(char *) "capitalize", (void *) LXB_CSS_VALUE_CAPITALIZE, 10, 0},
+    {(char *) "yellowgreen", (void *) LXB_CSS_VALUE_YELLOWGREEN, 11, 0},
+    {(char *) "page", (void *) LXB_CSS_VALUE_PAGE, 4, 324},
+    {(char *) "selecteditemtext", (void *) LXB_CSS_VALUE_SELECTEDITEMTEXT, 16, 0},
+    {(char *) "cornflowerblue", (void *) LXB_CSS_VALUE_CORNFLOWERBLUE, 14, 326},
+    {(char *) "mediumseagreen", (void *) LXB_CSS_VALUE_MEDIUMSEAGREEN, 14, 327},
+    {(char *) "column-reverse", (void *) LXB_CSS_VALUE_COLUMN_REVERSE, 14, 0},
+    {(char *) "ui-rounded", (void *) LXB_CSS_VALUE_UI_ROUNDED, 10, 0},
+    {(char *) "medium", (void *) LXB_CSS_VALUE_MEDIUM, 6, 330},
+    {(char *) "pre-line", (void *) LXB_CSS_VALUE_PRE_LINE, 8, 0},
+    {(char *) "minimum", (void *) LXB_CSS_VALUE_MINIMUM, 7, 332},
+    {(char *) "maximum", (void *) LXB_CSS_VALUE_MAXIMUM, 7, 333},
+    {(char *) "mediumspringgreen", (void *) LXB_CSS_VALUE_MEDIUMSPRINGGREEN, 17, 0},
+    {(char *) "mintcream", (void *) LXB_CSS_VALUE_MINTCREAM, 9, 335},
+    {(char *) "ultra-expanded", (void *) LXB_CSS_VALUE_ULTRA_EXPANDED, 14, 0},
+    {(char *) "paleturquoise", (void *) LXB_CSS_VALUE_PALETURQUOISE, 13, 0},
+    {(char *) "larger", (void *) LXB_CSS_VALUE_LARGER, 6, 338},
+    {(char *) "content-box", (void *) LXB_CSS_VALUE_CONTENT_BOX, 11, 339},
+    {(char *) "lavenderblush", (void *) LXB_CSS_VALUE_LAVENDERBLUSH, 13, 0},
+    {(char *) "indianred", (void *) LXB_CSS_VALUE_INDIANRED, 9, 0},
+    {(char *) "inline-end", (void *) LXB_CSS_VALUE_INLINE_END, 10, 342},
+    {(char *) "inter-word", (void *) LXB_CSS_VALUE_INTER_WORD, 10, 0},
+    {(char *) "manual", (void *) LXB_CSS_VALUE_MANUAL, 6, 0},
+    {(char *) "justify", (void *) LXB_CSS_VALUE_JUSTIFY, 7, 345},
+    {(char *) "break-all", (void *) LXB_CSS_VALUE_BREAK_ALL, 9, 0},
+    {(char *) "canvastext", (void *) LXB_CSS_VALUE_CANVASTEXT, 10, 347},
+    {(char *) "mathematical", (void *) LXB_CSS_VALUE_MATHEMATICAL, 12, 0},
+    {(char *) "full-width", (void *) LXB_CSS_VALUE_FULL_WIDTH, 10, 0},
+    {(char *) "block", (void *) LXB_CSS_VALUE_BLOCK, 5, 350},
+    {(char *) "blink", (void *) LXB_CSS_VALUE_BLINK, 5, 351},
+    {(char *) "thistle", (void *) LXB_CSS_VALUE_THISTLE, 7, 0},
+    {(char *) "turquoise", (void *) LXB_CSS_VALUE_TURQUOISE, 9, 0},
+    {(char *) "uppercase", (void *) LXB_CSS_VALUE_UPPERCASE, 9, 0},
+    {(char *) "text-top", (void *) LXB_CSS_VALUE_TEXT_TOP, 8, 0},
+    {(char *) "ivory", (void *) LXB_CSS_VALUE_IVORY, 5, 356},
+    {(char *) "inter-character", (void *) LXB_CSS_VALUE_INTER_CHARACTER, 15, 0},
+    {(char *) "fantasy", (void *) LXB_CSS_VALUE_FANTASY, 7, 0},
+    {(char *) "sans-serif", (void *) LXB_CSS_VALUE_SANS_SERIF, 10, 0},
+    {(char *) "darkgreen", (void *) LXB_CSS_VALUE_DARKGREEN, 9, 0},
+    {(char *) "table-row-group", (void *) LXB_CSS_VALUE_TABLE_ROW_GROUP, 15, 0},
+    {(char *) "table-footer-group", (void *) LXB_CSS_VALUE_TABLE_FOOTER_GROUP, 18, 362},
+    {(char *) "table-column-group", (void *) LXB_CSS_VALUE_TABLE_COLUMN_GROUP, 18, 0},
+    {(char *) "grey", (void *) LXB_CSS_VALUE_GREY, 4, 364},
+    {(char *) "vertical-rl", (void *) LXB_CSS_VALUE_VERTICAL_RL, 11, 0},
+    {(char *) "both", (void *) LXB_CSS_VALUE_BOTH, 4, 0},
+    {(char *) "_percentage", (void *) LXB_CSS_VALUE__PERCENTAGE, 11, 0},
+    {(char *) "ui-serif", (void *) LXB_CSS_VALUE_UI_SERIF, 8, 0},
+    {(char *) "left", (void *) LXB_CSS_VALUE_LEFT, 4, 369},
+    {(char *) "ui-sans-serif", (void *) LXB_CSS_VALUE_UI_SANS_SERIF, 13, 0},
+    {(char *) "condensed", (void *) LXB_CSS_VALUE_CONDENSED, 9, 0},
+    {(char *) "ruby-text-container", (void *) LXB_CSS_VALUE_RUBY_TEXT_CONTAINER, 19, 0},
+    {(char *) "orangered", (void *) LXB_CSS_VALUE_ORANGERED, 9, 0},
+    {(char *) "space-evenly", (void *) LXB_CSS_VALUE_SPACE_EVENLY, 12, 0}
 };
 
 
@@ -68385,44 +68396,44 @@ static const lxb_dom_attr_data_t lxb_dom_attr_res_data_default[LXB_DOM_ATTR__LAS
 static const lexbor_shs_entry_t lxb_dom_attr_res_shs_data[40] =
 {
     {NULL, NULL, 39, 0},
-    {"slot", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_SLOT], 4, 2},
-    {"#undef", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR__UNDEF], 6, 0},
-    {"active", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_ACTIVE], 6, 0},
-    {"html", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_HTML], 4, 0},
-    {"href", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_HREF], 4, 4},
-    {"hover", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_HOVER], 5, 7},
-    {"readonly", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_READONLY], 8, 0},
-    {"disabled", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_DISABLED], 8, 0},
-    {"color", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_COLOR], 5, 0},
-    {"src", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_SRC], 3, 8},
-    {"required", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_REQUIRED], 8, 0},
-    {"id", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_ID], 2, 11},
-    {"system", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_SYSTEM], 6, 0},
-    {"pool", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_POOL], 4, 13},
-    {"placeholder", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_PLACEHOLDER], 11, 0},
-    {"selected", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_SELECTED], 8, 0},
-    {"scheme", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_SCHEME], 6, 0},
-    {"http-equiv", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_HTTP_EQUIV], 10, 0},
-    {"size", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_SIZE], 4, 16},
-    {"style", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_STYLE], 5, 0},
-    {"class", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_CLASS], 5, 17},
-    {"width", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_WIDTH], 5, 0},
-    {"height", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_HEIGHT], 6, 0},
-    {"focus", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_FOCUS], 5, 18},
-    {"public", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_PUBLIC], 6, 0},
-    {"content", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_CONTENT], 7, 0},
-    {"is", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_IS], 2, 0},
-    {"type", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_TYPE], 4, 0},
-    {"title", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_TITLE], 5, 0},
+    {(char *) "slot", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_SLOT], 4, 2},
+    {(char *) "#undef", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR__UNDEF], 6, 0},
+    {(char *) "active", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_ACTIVE], 6, 0},
+    {(char *) "html", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_HTML], 4, 0},
+    {(char *) "href", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_HREF], 4, 4},
+    {(char *) "hover", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_HOVER], 5, 7},
+    {(char *) "readonly", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_READONLY], 8, 0},
+    {(char *) "disabled", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_DISABLED], 8, 0},
+    {(char *) "color", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_COLOR], 5, 0},
+    {(char *) "src", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_SRC], 3, 8},
+    {(char *) "required", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_REQUIRED], 8, 0},
+    {(char *) "id", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_ID], 2, 11},
+    {(char *) "system", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_SYSTEM], 6, 0},
+    {(char *) "pool", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_POOL], 4, 13},
+    {(char *) "placeholder", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_PLACEHOLDER], 11, 0},
+    {(char *) "selected", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_SELECTED], 8, 0},
+    {(char *) "scheme", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_SCHEME], 6, 0},
+    {(char *) "http-equiv", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_HTTP_EQUIV], 10, 0},
+    {(char *) "size", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_SIZE], 4, 16},
+    {(char *) "style", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_STYLE], 5, 0},
+    {(char *) "class", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_CLASS], 5, 17},
+    {(char *) "width", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_WIDTH], 5, 0},
+    {(char *) "height", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_HEIGHT], 6, 0},
+    {(char *) "focus", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_FOCUS], 5, 18},
+    {(char *) "public", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_PUBLIC], 6, 0},
+    {(char *) "content", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_CONTENT], 7, 0},
+    {(char *) "is", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_IS], 2, 0},
+    {(char *) "type", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_TYPE], 4, 0},
+    {(char *) "title", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_TITLE], 5, 0},
     {NULL, NULL, 0, 0},
-    {"for", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_FOR], 3, 0},
-    {"face", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_FACE], 4, 22},
-    {"alt", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_ALT], 3, 23},
-    {"dir", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_DIR], 3, 0},
-    {"charset", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_CHARSET], 7, 26},
-    {"maxlength", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_MAXLENGTH], 9, 0},
+    {(char *) "for", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_FOR], 3, 0},
+    {(char *) "face", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_FACE], 4, 22},
+    {(char *) "alt", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_ALT], 3, 23},
+    {(char *) "dir", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_DIR], 3, 0},
+    {(char *) "charset", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_CHARSET], 7, 26},
+    {(char *) "maxlength", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_MAXLENGTH], 9, 0},
     {NULL, NULL, 0, 0},
-    {"checked", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_CHECKED], 7, 0},
+    {(char *) "checked", (void *) &lxb_dom_attr_res_data_default[LXB_DOM_ATTR_CHECKED], 7, 0},
     {NULL, NULL, 0, 0}
 };
 
@@ -161104,47 +161115,47 @@ static const lxb_ns_prefix_data_t lxb_ns_prefix_res_data[LXB_NS__LAST_ENTRY] =
 
 static const lexbor_shs_entry_t lxb_ns_res_shs_data[] =
 {
-    {NULL, NULL, 28, 0}, {"html", (void *) &lxb_ns_prefix_res_data[2], 4, 0},
-    {"xmlns", (void *) &lxb_ns_prefix_res_data[7], 5, 0}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 28, 0}, {(char *) "html", (void *) &lxb_ns_prefix_res_data[2], 4, 0},
+    {(char *) "xmlns", (void *) &lxb_ns_prefix_res_data[7], 5, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"svg", (void *) &lxb_ns_prefix_res_data[4], 3, 0},
-    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0}, {(char *) "svg", (void *) &lxb_ns_prefix_res_data[4], 3, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"math", (void *) &lxb_ns_prefix_res_data[3], 4, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"#undef", (void *) &lxb_ns_prefix_res_data[0], 6, 0},
-    {"xlink", (void *) &lxb_ns_prefix_res_data[5], 5, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {"#any", (void *) &lxb_ns_prefix_res_data[1], 4, 0}, {NULL, NULL, 0, 0},
-    {"xml", (void *) &lxb_ns_prefix_res_data[6], 3, 0}
+    {NULL, NULL, 0, 0}, {(char *) "math", (void *) &lxb_ns_prefix_res_data[3], 4, 0},
+    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0}, {(char *) "#undef", (void *) &lxb_ns_prefix_res_data[0], 6, 0},
+    {(char *) "xlink", (void *) &lxb_ns_prefix_res_data[5], 5, 0}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
+    {(char *) "#any", (void *) &lxb_ns_prefix_res_data[1], 4, 0}, {NULL, NULL, 0, 0},
+    {(char *) "xml", (void *) &lxb_ns_prefix_res_data[6], 3, 0}
 };
 
 static const lexbor_shs_entry_t lxb_ns_res_shs_link_data[] =
 {
     {NULL, NULL, 22, 0},
-    {"http://www.w3.org/1999/xhtml", (void *) &lxb_ns_res_data[2], 28, 0},
+    {(char *) "http://www.w3.org/1999/xhtml", (void *) &lxb_ns_res_data[2], 28, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"http://www.w3.org/2000/xmlns/", (void *) &lxb_ns_res_data[7], 29, 0},
-    {"http://www.w3.org/1998/math/mathml", (void *) &lxb_ns_res_data[3], 34, 0},
+    {(char *) "http://www.w3.org/2000/xmlns/", (void *) &lxb_ns_res_data[7], 29, 0},
+    {(char *) "http://www.w3.org/1998/math/mathml", (void *) &lxb_ns_res_data[3], 34, 0},
     {NULL, NULL, 0, 0},
-    {"http://www.w3.org/1999/xlink", (void *) &lxb_ns_res_data[5], 28, 0},
-    {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0},
+    {(char *) "http://www.w3.org/1999/xlink", (void *) &lxb_ns_res_data[5], 28, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0},
-    {"#any", (void *) &lxb_ns_res_data[1], 4, 0},
-    {"http://www.w3.org/2000/svg", (void *) &lxb_ns_res_data[4], 26, 0},
     {NULL, NULL, 0, 0},
-    {"#undef", (void *) &lxb_ns_res_data[0], 6, 0},
     {NULL, NULL, 0, 0},
-    {"http://www.w3.org/xml/1998/namespace", (void *) &lxb_ns_res_data[6], 36, 0},
+    {(char *) "#any", (void *) &lxb_ns_res_data[1], 4, 0},
+    {(char *) "http://www.w3.org/2000/svg", (void *) &lxb_ns_res_data[4], 26, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "#undef", (void *) &lxb_ns_res_data[0], 6, 0},
+    {NULL, NULL, 0, 0},
+    {(char *) "http://www.w3.org/xml/1998/namespace", (void *) &lxb_ns_res_data[6], 36, 0},
     {NULL, NULL, 0, 0}
 };
 
@@ -161551,6 +161562,1289 @@ lxb_ns_prefix_data_by_name(lexbor_hash_t *hash,
 
 
 
+#if defined(_WIN32)
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/ports/windows_nt/lexbor/core/fs.c
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2018 Alexander Borisov
+ *
+ * Author: Vincent Torri <vincent.torri@gmail.com>
+ */
+
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE
+#endif
+
+
+#include <string.h>
+#include <sys/stat.h>
+
+#include <windows.h>
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/core/fs.h
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2018 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+#ifndef LEXBOR_FS_H
+#define LEXBOR_FS_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+
+typedef lexbor_action_t (*lexbor_fs_dir_file_f)(const lxb_char_t *fullpath,
+                                                size_t fullpath_len,
+                                                const lxb_char_t *filename,
+                                                size_t filename_len, void *ctx);
+
+typedef int lexbor_fs_dir_opt_t;
+
+enum lexbor_fs_dir_opt {
+    LEXBOR_FS_DIR_OPT_UNDEF          = 0x00,
+    LEXBOR_FS_DIR_OPT_WITHOUT_DIR    = 0x01,
+    LEXBOR_FS_DIR_OPT_WITHOUT_FILE   = 0x02,
+    LEXBOR_FS_DIR_OPT_WITHOUT_HIDDEN = 0x04,
+};
+
+typedef enum {
+    LEXBOR_FS_FILE_TYPE_UNDEF            = 0x00,
+    LEXBOR_FS_FILE_TYPE_FILE             = 0x01,
+    LEXBOR_FS_FILE_TYPE_DIRECTORY        = 0x02,
+    LEXBOR_FS_FILE_TYPE_BLOCK_DEVICE     = 0x03,
+    LEXBOR_FS_FILE_TYPE_CHARACTER_DEVICE = 0x04,
+    LEXBOR_FS_FILE_TYPE_PIPE             = 0x05,
+    LEXBOR_FS_FILE_TYPE_SYMLINK          = 0x06,
+    LEXBOR_FS_FILE_TYPE_SOCKET           = 0x07
+}
+lexbor_fs_file_type_t;
+
+
+LXB_API lxb_status_t
+lexbor_fs_dir_read(const lxb_char_t *dirpath, lexbor_fs_dir_opt_t opt,
+                   lexbor_fs_dir_file_f callback, void *ctx);
+
+LXB_API lexbor_fs_file_type_t
+lexbor_fs_file_type(const lxb_char_t *full_path);
+
+LXB_API lxb_char_t *
+lexbor_fs_file_easy_read(const lxb_char_t *full_path, size_t *len);
+
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+#endif /* LEXBOR_FS_H */
+
+
+#define new lexbor_cpp_new
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/core/cpp_compat.h
+// ────────────────────────────────────────────────────────────────────────
+
+/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
+#ifdef __cplusplus
+#ifndef LEXBOR_CPP_COMPAT_TYPES_H
+#define LEXBOR_CPP_COMPAT_TYPES_H
+namespace lexbor_cpp_compat {
+struct ptr_proxy {
+    void *p;
+    template <class T> operator T *() const { return static_cast<T *>(p); }
+    template <class T> operator const T *() const { return static_cast<const T *>(p); }
+    operator void *() const { return p; }
+    operator const void *() const { return p; }
+};
+inline ptr_proxy ptr(void *p) { return {p}; }
+inline ptr_proxy ptr(const void *p) { return {const_cast<void *>(p)}; }
+}  // namespace lexbor_cpp_compat
+#endif  /* LEXBOR_CPP_COMPAT_TYPES_H */
+
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#define aui_lexbor_array_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_get)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#define aui_lexbor_array_obj_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_get)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#define aui_lexbor_array_obj_last(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_last)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#define aui_lexbor_array_obj_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_pop)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#define aui_lexbor_array_obj_push(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#define aui_lexbor_array_obj_push_n(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_n)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#define aui_lexbor_array_obj_push_wo_cls(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_wo_cls)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#define aui_lexbor_array_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_pop)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#define aui_lexbor_bst_entry_data(...) ::lexbor_cpp_compat::ptr((aui_lexbor_bst_entry_data)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#define aui_lexbor_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#define aui_lexbor_dobject_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#define aui_lexbor_dobject_by_absolute_position(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_by_absolute_position)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#define aui_lexbor_dobject_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#define aui_lexbor_dobject_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_free
+#define aui_lexbor_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#define aui_lexbor_hash_insert(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_insert)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#define aui_lexbor_hash_search(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_search)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#define aui_lexbor_malloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_malloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#define aui_lexbor_mem_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#define aui_lexbor_mem_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#define aui_lexbor_mraw_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#define aui_lexbor_mraw_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#define aui_lexbor_mraw_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#define aui_lexbor_mraw_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_realloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#define aui_lexbor_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_realloc)(__VA_ARGS__))
+#endif
+#endif  /* __cplusplus */
+
+
+
+
+lxb_status_t
+lexbor_fs_dir_read(const lxb_char_t *dirpath, lexbor_fs_dir_opt_t opt,
+                   lexbor_fs_dir_file_f callback, void *ctx)
+{
+    WIN32_FIND_DATA data;
+    HANDLE h;
+    size_t path_len, free_len, d_namlen;
+    lexbor_action_t action;
+    lexbor_fs_file_type_t f_type;
+
+    char *file_begin;
+    char full_path[4096];
+
+    path_len = strlen((const char *) dirpath);
+    if (path_len == 0 || path_len >= (sizeof(full_path) - 1)) {
+        return LXB_STATUS_ERROR;
+    }
+
+    memcpy(full_path, dirpath, path_len);
+
+    /* Check for a separating character at the end dirpath */
+    if (full_path[(path_len - 1)] != '/') {
+        path_len++;
+
+        if (path_len >= (sizeof(full_path) - 1)) {
+            return LXB_STATUS_ERROR;
+        }
+
+        full_path[(path_len - 1)] = '/';
+    }
+
+    file_begin = &full_path[path_len];
+    free_len = (sizeof(full_path) - 1) - path_len;
+
+    if (opt == LEXBOR_FS_DIR_OPT_UNDEF)
+    {
+        h = FindFirstFile((LPCSTR)dirpath, &data);
+        if (h == INVALID_HANDLE_VALUE) {
+            return LXB_STATUS_ERROR;
+        }
+
+        do {
+            if (opt & LEXBOR_FS_DIR_OPT_WITHOUT_HIDDEN
+                && *data.cFileName == '.')
+            {
+                continue;
+            }
+
+            d_namlen = strlen(data.cFileName);
+
+            if (d_namlen >= free_len) {
+                goto error;
+            }
+
+            /* +1 copy terminating null byte '\0' */
+            memcpy(file_begin, data.cFileName, (d_namlen + 1));
+
+            action = callback((const lxb_char_t *) full_path,
+                              (path_len + d_namlen),
+                              (const lxb_char_t *) data.cFileName,
+                              d_namlen, ctx);
+            if (action == LEXBOR_ACTION_STOP) {
+                break;
+            }
+        }
+        while (FindNextFile(h, &data));
+
+        goto done;
+    }
+
+    h = FindFirstFile((LPCSTR)dirpath, &data);
+    if (h == INVALID_HANDLE_VALUE) {
+        return LXB_STATUS_ERROR;
+    }
+
+    do {
+        if (opt & LEXBOR_FS_DIR_OPT_WITHOUT_HIDDEN
+            && *data.cFileName == '.') {
+            continue;
+        }
+
+        d_namlen = strlen(data.cFileName);
+
+        if (d_namlen >= free_len) {
+            goto error;
+        }
+
+        if ((data.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_NORMAL)) != 0) {
+            f_type = lexbor_fs_file_type((const lxb_char_t *) data.cFileName);
+
+            if (opt & LEXBOR_FS_DIR_OPT_WITHOUT_DIR
+                && f_type == LEXBOR_FS_FILE_TYPE_DIRECTORY) {
+                continue;
+            }
+
+            if (opt & LEXBOR_FS_DIR_OPT_WITHOUT_FILE
+                && f_type == LEXBOR_FS_FILE_TYPE_FILE)
+            {
+                continue;
+            }
+        }
+        else {
+            if (opt & LEXBOR_FS_DIR_OPT_WITHOUT_DIR
+                && (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == FILE_ATTRIBUTE_DIRECTORY)
+            {
+                continue;
+            }
+
+            if (opt & LEXBOR_FS_DIR_OPT_WITHOUT_FILE
+                && (data.dwFileAttributes & FILE_ATTRIBUTE_NORMAL) == FILE_ATTRIBUTE_NORMAL)
+            {
+                continue;
+            }
+        }
+
+        /* +1 copy terminating null byte '\0' */
+        memcpy(file_begin, data.cFileName, (d_namlen + 1));
+
+        action = callback((const lxb_char_t *) full_path,
+                          (path_len + d_namlen),
+                          (const lxb_char_t *) data.cFileName,
+                          d_namlen, ctx);
+        if (action == LEXBOR_ACTION_STOP) {
+            break;
+        }
+    }
+    while (FindNextFile(h, &data));
+
+done:
+
+    FindClose(h);
+
+    return LXB_STATUS_OK;
+
+error:
+
+    FindClose(h);
+
+    return LXB_STATUS_ERROR;
+}
+
+lexbor_fs_file_type_t
+lexbor_fs_file_type(const lxb_char_t *full_path)
+{
+    struct stat sb;
+
+    if (stat((const char *) full_path, &sb) == -1) {
+        return LEXBOR_FS_FILE_TYPE_UNDEF;
+    }
+
+    switch (sb.st_mode & S_IFMT) {
+        case S_IFCHR:
+            return LEXBOR_FS_FILE_TYPE_CHARACTER_DEVICE;
+
+        case S_IFDIR:
+            return LEXBOR_FS_FILE_TYPE_DIRECTORY;
+
+        case S_IFREG:
+            return LEXBOR_FS_FILE_TYPE_FILE;
+
+        default:
+            return LEXBOR_FS_FILE_TYPE_UNDEF;
+    }
+
+    return LEXBOR_FS_FILE_TYPE_UNDEF;
+}
+
+lxb_char_t *
+lexbor_fs_file_easy_read(const lxb_char_t *full_path, size_t *len)
+{
+    LARGE_INTEGER size;
+    HANDLE fh;
+    char *data;
+    DWORD nread = 0;
+
+    fh = CreateFile((LPCSTR)full_path, GENERIC_READ, FILE_SHARE_READ,
+                    NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (fh == INVALID_HANDLE_VALUE) {
+        goto error;
+    }
+
+    if (GetFileSizeEx(fh, &size) == FALSE) {
+        goto error_close;
+    }
+
+    data = lexbor_malloc(size.QuadPart + 1);
+    if (data == NULL) {
+        goto error_close;
+    }
+
+    if (ReadFile(fh, data, (DWORD) size.QuadPart, &nread, NULL) != TRUE) {
+        goto error_close;
+    }
+
+    CloseHandle(fh);
+
+    if ((LONGLONG) nread != size.QuadPart) {
+            goto error;
+    }
+
+    if (len != NULL) {
+        *len = (size_t)size.QuadPart;
+    }
+
+    data[size.QuadPart] = '\0';
+
+    return (lxb_char_t *)data;
+
+error_close:
+
+    CloseHandle(fh);
+
+error:
+
+    if (len != NULL) {
+        *len = 0;
+    }
+
+    return NULL;
+}
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/core/cpp_compat_undef.h
+// ────────────────────────────────────────────────────────────────────────
+
+/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
+#ifdef aui_lexbor_array_get
+#undef aui_lexbor_array_get
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#endif
+#ifdef aui_lexbor_array_obj_get
+#undef aui_lexbor_array_obj_get
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#endif
+#ifdef aui_lexbor_array_obj_last
+#undef aui_lexbor_array_obj_last
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#endif
+#ifdef aui_lexbor_array_obj_pop
+#undef aui_lexbor_array_obj_pop
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#endif
+#ifdef aui_lexbor_array_obj_push
+#undef aui_lexbor_array_obj_push
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#endif
+#ifdef aui_lexbor_array_obj_push_n
+#undef aui_lexbor_array_obj_push_n
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#endif
+#ifdef aui_lexbor_array_obj_push_wo_cls
+#undef aui_lexbor_array_obj_push_wo_cls
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#endif
+#ifdef aui_lexbor_array_pop
+#undef aui_lexbor_array_pop
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#endif
+#ifdef aui_lexbor_bst_entry_data
+#undef aui_lexbor_bst_entry_data
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#undef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#endif
+#ifdef aui_lexbor_calloc
+#undef aui_lexbor_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#endif
+#ifdef aui_lexbor_dobject_alloc
+#undef aui_lexbor_dobject_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#endif
+#ifdef aui_lexbor_dobject_by_absolute_position
+#undef aui_lexbor_dobject_by_absolute_position
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#endif
+#ifdef aui_lexbor_dobject_calloc
+#undef aui_lexbor_dobject_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#endif
+#ifdef aui_lexbor_dobject_free
+#undef aui_lexbor_dobject_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#endif
+#ifdef aui_lexbor_free
+#undef aui_lexbor_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_free
+#endif
+#ifdef aui_lexbor_hash_insert
+#undef aui_lexbor_hash_insert
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#endif
+#ifdef aui_lexbor_hash_search
+#undef aui_lexbor_hash_search
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#endif
+#ifdef aui_lexbor_malloc
+#undef aui_lexbor_malloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#endif
+#ifdef aui_lexbor_mem_alloc
+#undef aui_lexbor_mem_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#endif
+#ifdef aui_lexbor_mem_calloc
+#undef aui_lexbor_mem_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#endif
+#ifdef aui_lexbor_mraw_alloc
+#undef aui_lexbor_mraw_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#endif
+#ifdef aui_lexbor_mraw_calloc
+#undef aui_lexbor_mraw_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#endif
+#ifdef aui_lexbor_mraw_free
+#undef aui_lexbor_mraw_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#endif
+#ifdef aui_lexbor_mraw_realloc
+#undef aui_lexbor_mraw_realloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#endif
+#ifdef aui_lexbor_realloc
+#undef aui_lexbor_realloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#endif
+#ifdef new
+#undef new
+#endif
+
+
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/ports/windows_nt/lexbor/core/memory.c
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2018 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+
+#define new lexbor_cpp_new
+#define LXB_CPP_COMPAT_SKIP_lexbor_calloc 1
+#define LXB_CPP_COMPAT_SKIP_lexbor_free 1
+#define LXB_CPP_COMPAT_SKIP_lexbor_malloc 1
+#define LXB_CPP_COMPAT_SKIP_lexbor_realloc 1
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/core/cpp_compat.h
+// ────────────────────────────────────────────────────────────────────────
+
+/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
+#ifdef __cplusplus
+#ifndef LEXBOR_CPP_COMPAT_TYPES_H
+#define LEXBOR_CPP_COMPAT_TYPES_H
+namespace lexbor_cpp_compat {
+struct ptr_proxy {
+    void *p;
+    template <class T> operator T *() const { return static_cast<T *>(p); }
+    template <class T> operator const T *() const { return static_cast<const T *>(p); }
+    operator void *() const { return p; }
+    operator const void *() const { return p; }
+};
+inline ptr_proxy ptr(void *p) { return {p}; }
+inline ptr_proxy ptr(const void *p) { return {const_cast<void *>(p)}; }
+}  // namespace lexbor_cpp_compat
+#endif  /* LEXBOR_CPP_COMPAT_TYPES_H */
+
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#define aui_lexbor_array_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_get)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#define aui_lexbor_array_obj_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_get)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#define aui_lexbor_array_obj_last(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_last)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#define aui_lexbor_array_obj_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_pop)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#define aui_lexbor_array_obj_push(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#define aui_lexbor_array_obj_push_n(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_n)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#define aui_lexbor_array_obj_push_wo_cls(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_wo_cls)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#define aui_lexbor_array_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_pop)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#define aui_lexbor_bst_entry_data(...) ::lexbor_cpp_compat::ptr((aui_lexbor_bst_entry_data)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#define aui_lexbor_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#define aui_lexbor_dobject_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#define aui_lexbor_dobject_by_absolute_position(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_by_absolute_position)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#define aui_lexbor_dobject_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#define aui_lexbor_dobject_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_free
+#define aui_lexbor_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#define aui_lexbor_hash_insert(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_insert)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#define aui_lexbor_hash_search(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_search)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#define aui_lexbor_malloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_malloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#define aui_lexbor_mem_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#define aui_lexbor_mem_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#define aui_lexbor_mraw_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#define aui_lexbor_mraw_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#define aui_lexbor_mraw_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#define aui_lexbor_mraw_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_realloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#define aui_lexbor_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_realloc)(__VA_ARGS__))
+#endif
+#endif  /* __cplusplus */
+
+
+
+static lexbor_memory_malloc_f aui_lexbor_static_e8b96bd94e_lexbor_memory_malloc = malloc;
+static lexbor_memory_realloc_f aui_lexbor_static_e8b96bd94e_lexbor_memory_realloc = realloc;
+static lexbor_memory_calloc_f aui_lexbor_static_e8b96bd94e_lexbor_memory_calloc = calloc;
+static lexbor_memory_free_f aui_lexbor_static_e8b96bd94e_lexbor_memory_free = free;
+
+void *
+lexbor_malloc(size_t size)
+{
+    return aui_lexbor_static_e8b96bd94e_lexbor_memory_malloc(size);
+}
+
+void *
+lexbor_realloc(void *dst, size_t size)
+{
+    return aui_lexbor_static_e8b96bd94e_lexbor_memory_realloc(dst, size);
+}
+
+void *
+lexbor_calloc(size_t num, size_t size)
+{
+    return aui_lexbor_static_e8b96bd94e_lexbor_memory_calloc(num, size);
+}
+
+void *
+lexbor_free(void *dst)
+{
+    aui_lexbor_static_e8b96bd94e_lexbor_memory_free(dst);
+    return NULL;
+}
+
+lxb_status_t
+lexbor_memory_setup(lexbor_memory_malloc_f new_malloc, lexbor_memory_realloc_f new_realloc,
+                    lexbor_memory_calloc_f new_calloc, lexbor_memory_free_f new_free)
+{
+    if (new_malloc == NULL || new_realloc == NULL || new_calloc == NULL || new_free == NULL) {
+        return LXB_STATUS_ERROR_OBJECT_IS_NULL;
+    }
+
+    aui_lexbor_static_e8b96bd94e_lexbor_memory_malloc = new_malloc;
+    aui_lexbor_static_e8b96bd94e_lexbor_memory_realloc = new_realloc;
+    aui_lexbor_static_e8b96bd94e_lexbor_memory_calloc = new_calloc;
+    aui_lexbor_static_e8b96bd94e_lexbor_memory_free = new_free;
+
+    return LXB_STATUS_OK;
+}
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/core/cpp_compat_undef.h
+// ────────────────────────────────────────────────────────────────────────
+
+/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
+#ifdef aui_lexbor_array_get
+#undef aui_lexbor_array_get
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#endif
+#ifdef aui_lexbor_array_obj_get
+#undef aui_lexbor_array_obj_get
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#endif
+#ifdef aui_lexbor_array_obj_last
+#undef aui_lexbor_array_obj_last
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#endif
+#ifdef aui_lexbor_array_obj_pop
+#undef aui_lexbor_array_obj_pop
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#endif
+#ifdef aui_lexbor_array_obj_push
+#undef aui_lexbor_array_obj_push
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#endif
+#ifdef aui_lexbor_array_obj_push_n
+#undef aui_lexbor_array_obj_push_n
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#endif
+#ifdef aui_lexbor_array_obj_push_wo_cls
+#undef aui_lexbor_array_obj_push_wo_cls
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#endif
+#ifdef aui_lexbor_array_pop
+#undef aui_lexbor_array_pop
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#endif
+#ifdef aui_lexbor_bst_entry_data
+#undef aui_lexbor_bst_entry_data
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#undef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#endif
+#ifdef aui_lexbor_calloc
+#undef aui_lexbor_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#endif
+#ifdef aui_lexbor_dobject_alloc
+#undef aui_lexbor_dobject_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#endif
+#ifdef aui_lexbor_dobject_by_absolute_position
+#undef aui_lexbor_dobject_by_absolute_position
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#endif
+#ifdef aui_lexbor_dobject_calloc
+#undef aui_lexbor_dobject_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#endif
+#ifdef aui_lexbor_dobject_free
+#undef aui_lexbor_dobject_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#endif
+#ifdef aui_lexbor_free
+#undef aui_lexbor_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_free
+#endif
+#ifdef aui_lexbor_hash_insert
+#undef aui_lexbor_hash_insert
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#endif
+#ifdef aui_lexbor_hash_search
+#undef aui_lexbor_hash_search
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#endif
+#ifdef aui_lexbor_malloc
+#undef aui_lexbor_malloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#endif
+#ifdef aui_lexbor_mem_alloc
+#undef aui_lexbor_mem_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#endif
+#ifdef aui_lexbor_mem_calloc
+#undef aui_lexbor_mem_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#endif
+#ifdef aui_lexbor_mraw_alloc
+#undef aui_lexbor_mraw_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#endif
+#ifdef aui_lexbor_mraw_calloc
+#undef aui_lexbor_mraw_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#endif
+#ifdef aui_lexbor_mraw_free
+#undef aui_lexbor_mraw_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#endif
+#ifdef aui_lexbor_mraw_realloc
+#undef aui_lexbor_mraw_realloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#endif
+#ifdef aui_lexbor_realloc
+#undef aui_lexbor_realloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#endif
+#ifdef new
+#undef new
+#endif
+
+
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/ports/windows_nt/lexbor/core/perf.c
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2018 Alexander Borisov
+ *
+ * Author: Vincent Torri <vincent.torri@gmail.com>
+ */
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/core/perf.h
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2018-2024 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+#ifndef LEXBOR_PERF_H
+#define LEXBOR_PERF_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+
+LXB_API void *
+lexbor_perf_create(void);
+
+LXB_API void
+lexbor_perf_clean(void *perf);
+
+LXB_API void
+lexbor_perf_destroy(void *perf);
+
+LXB_API lxb_status_t
+lexbor_perf_begin(void *perf);
+
+LXB_API lxb_status_t
+lexbor_perf_end(void *perf);
+
+LXB_API double
+lexbor_perf_in_sec(void *perf);
+
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+#endif /* LEXBOR_PERF_H */
+
+
+
+#include <windows.h>
+#define new lexbor_cpp_new
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/core/cpp_compat.h
+// ────────────────────────────────────────────────────────────────────────
+
+/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
+#ifdef __cplusplus
+#ifndef LEXBOR_CPP_COMPAT_TYPES_H
+#define LEXBOR_CPP_COMPAT_TYPES_H
+namespace lexbor_cpp_compat {
+struct ptr_proxy {
+    void *p;
+    template <class T> operator T *() const { return static_cast<T *>(p); }
+    template <class T> operator const T *() const { return static_cast<const T *>(p); }
+    operator void *() const { return p; }
+    operator const void *() const { return p; }
+};
+inline ptr_proxy ptr(void *p) { return {p}; }
+inline ptr_proxy ptr(const void *p) { return {const_cast<void *>(p)}; }
+}  // namespace lexbor_cpp_compat
+#endif  /* LEXBOR_CPP_COMPAT_TYPES_H */
+
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#define aui_lexbor_array_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_get)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#define aui_lexbor_array_obj_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_get)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#define aui_lexbor_array_obj_last(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_last)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#define aui_lexbor_array_obj_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_pop)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#define aui_lexbor_array_obj_push(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#define aui_lexbor_array_obj_push_n(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_n)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#define aui_lexbor_array_obj_push_wo_cls(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_wo_cls)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#define aui_lexbor_array_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_pop)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#define aui_lexbor_bst_entry_data(...) ::lexbor_cpp_compat::ptr((aui_lexbor_bst_entry_data)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#define aui_lexbor_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#define aui_lexbor_dobject_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#define aui_lexbor_dobject_by_absolute_position(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_by_absolute_position)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#define aui_lexbor_dobject_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#define aui_lexbor_dobject_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_free
+#define aui_lexbor_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#define aui_lexbor_hash_insert(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_insert)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#define aui_lexbor_hash_search(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_search)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#define aui_lexbor_malloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_malloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#define aui_lexbor_mem_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#define aui_lexbor_mem_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#define aui_lexbor_mraw_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#define aui_lexbor_mraw_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#define aui_lexbor_mraw_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#define aui_lexbor_mraw_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_realloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#define aui_lexbor_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_realloc)(__VA_ARGS__))
+#endif
+#endif  /* __cplusplus */
+
+
+
+
+typedef struct lexbor_perf {
+    LARGE_INTEGER start;
+    LARGE_INTEGER end;
+    LARGE_INTEGER freq;
+}
+lexbor_perf_t;
+
+
+void *
+lexbor_perf_create(void)
+{
+    lexbor_perf_t *perf = lexbor_calloc(1, sizeof(lexbor_perf_t));
+    if (perf == NULL) {
+        return NULL;
+    }
+
+    /*
+     * According to MSDN, QueryPerformanceFrequency() never fails
+     * on Windows XP or later
+     */
+    QueryPerformanceFrequency(&perf->freq);
+    return perf;
+}
+
+void
+lexbor_perf_clean(void *perf)
+{
+    memset(perf, 0, sizeof(lexbor_perf_t));
+}
+
+void
+lexbor_perf_destroy(void *perf)
+{
+    if (perf != NULL) {
+        lexbor_free(perf);
+    }
+}
+
+lxb_status_t
+lexbor_perf_begin(void *perf)
+{
+    /*
+     * According to MSDN, QueryPerformanceCounter() never fails
+     * on Windows XP or later
+     */
+    QueryPerformanceCounter(&(((lexbor_perf_t *) (perf))->start));
+
+    return LXB_STATUS_OK;
+}
+
+lxb_status_t
+lexbor_perf_end(void *perf)
+{
+    /*
+     * According to MSDN, QueryPerformanceCounter() never fails
+     * on Windows XP or later
+     */
+    QueryPerformanceCounter(&(((lexbor_perf_t *) (perf))->end));
+
+    return LXB_STATUS_OK;
+}
+
+double
+lexbor_perf_in_sec(void *perf)
+{
+    lexbor_perf_t *obj_perf = (lexbor_perf_t *) perf;
+
+    return ((double) (obj_perf->end.QuadPart - obj_perf->start.QuadPart)
+            / (double)obj_perf->freq.QuadPart);
+}
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/core/cpp_compat_undef.h
+// ────────────────────────────────────────────────────────────────────────
+
+/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
+#ifdef aui_lexbor_array_get
+#undef aui_lexbor_array_get
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#endif
+#ifdef aui_lexbor_array_obj_get
+#undef aui_lexbor_array_obj_get
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#endif
+#ifdef aui_lexbor_array_obj_last
+#undef aui_lexbor_array_obj_last
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#endif
+#ifdef aui_lexbor_array_obj_pop
+#undef aui_lexbor_array_obj_pop
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#endif
+#ifdef aui_lexbor_array_obj_push
+#undef aui_lexbor_array_obj_push
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#endif
+#ifdef aui_lexbor_array_obj_push_n
+#undef aui_lexbor_array_obj_push_n
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#endif
+#ifdef aui_lexbor_array_obj_push_wo_cls
+#undef aui_lexbor_array_obj_push_wo_cls
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#endif
+#ifdef aui_lexbor_array_pop
+#undef aui_lexbor_array_pop
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#endif
+#ifdef aui_lexbor_bst_entry_data
+#undef aui_lexbor_bst_entry_data
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#undef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#endif
+#ifdef aui_lexbor_calloc
+#undef aui_lexbor_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#endif
+#ifdef aui_lexbor_dobject_alloc
+#undef aui_lexbor_dobject_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#endif
+#ifdef aui_lexbor_dobject_by_absolute_position
+#undef aui_lexbor_dobject_by_absolute_position
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#endif
+#ifdef aui_lexbor_dobject_calloc
+#undef aui_lexbor_dobject_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#endif
+#ifdef aui_lexbor_dobject_free
+#undef aui_lexbor_dobject_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#endif
+#ifdef aui_lexbor_free
+#undef aui_lexbor_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_free
+#endif
+#ifdef aui_lexbor_hash_insert
+#undef aui_lexbor_hash_insert
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#endif
+#ifdef aui_lexbor_hash_search
+#undef aui_lexbor_hash_search
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#endif
+#ifdef aui_lexbor_malloc
+#undef aui_lexbor_malloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#endif
+#ifdef aui_lexbor_mem_alloc
+#undef aui_lexbor_mem_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#endif
+#ifdef aui_lexbor_mem_calloc
+#undef aui_lexbor_mem_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#endif
+#ifdef aui_lexbor_mraw_alloc
+#undef aui_lexbor_mraw_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#endif
+#ifdef aui_lexbor_mraw_calloc
+#undef aui_lexbor_mraw_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#endif
+#ifdef aui_lexbor_mraw_free
+#undef aui_lexbor_mraw_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#endif
+#ifdef aui_lexbor_mraw_realloc
+#undef aui_lexbor_mraw_realloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#endif
+#ifdef aui_lexbor_realloc
+#undef aui_lexbor_realloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#endif
+#ifdef new
+#undef new
+#endif
+
+
+
+#else
 // ────────────────────────────────────────────────────────────────────────
 // external/lexbor/lexbor/ports/posix/lexbor/core/fs.c
 // ────────────────────────────────────────────────────────────────────────
@@ -162941,6 +164235,8 @@ aui_lexbor_static_96c6df07ce_lexbor_perf_frequency(void)
 #endif
 
 
+
+#endif
 
 // ────────────────────────────────────────────────────────────────────────
 // external/lexbor/lexbor/selectors/selectors.c
@@ -165182,137 +166478,137 @@ static const lxb_tag_data_t lxb_tag_res_data_upper_default[LXB_TAG__LAST_ENTRY] 
 
 static const lexbor_shs_entry_t lxb_tag_res_shs_data_default[] =
 {
-    {NULL, NULL, 262, 0}, {"radialgradient", (void *) &lxb_tag_res_data_default[153], 14, 0},
-    {"fecomponenttransfer", (void *) &lxb_tag_res_data_default[58], 19, 0}, {"abbr", (void *) &lxb_tag_res_data_default[7], 4, 1},
-    {"feflood", (void *) &lxb_tag_res_data_default[65], 7, 0}, {"marquee", (void *) &lxb_tag_res_data_default[121], 7, 0},
-    {"feblend", (void *) &lxb_tag_res_data_default[56], 7, 4}, {"optgroup", (void *) &lxb_tag_res_data_default[142], 8, 0},
-    {"video", (void *) &lxb_tag_res_data_default[193], 5, 10}, {"u", (void *) &lxb_tag_res_data_default[190], 1, 0},
-    {"iframe", (void *) &lxb_tag_res_data_default[103], 6, 0}, {"animatecolor", (void *) &lxb_tag_res_data_default[13], 12, 0},
-    {"output", (void *) &lxb_tag_res_data_default[144], 6, 0}, {"figcaption", (void *) &lxb_tag_res_data_default[82], 10, 0},
-    {"mglyph", (void *) &lxb_tag_res_data_default[127], 6, 0}, {"!--", (void *) &lxb_tag_res_data_default[4], 3, 0},
-    {"fefuncg", (void *) &lxb_tag_res_data_default[68], 7, 0}, {"aside", (void *) &lxb_tag_res_data_default[20], 5, 0},
-    {"style", (void *) &lxb_tag_res_data_default[171], 5, 0}, {"strike", (void *) &lxb_tag_res_data_default[169], 6, 0},
-    {"header", (void *) &lxb_tag_res_data_default[98], 6, 0}, {"glyphref", (void *) &lxb_tag_res_data_default[90], 8, 23},
-    {"label", (void *) &lxb_tag_res_data_default[111], 5, 0}, {"feconvolvematrix", (void *) &lxb_tag_res_data_default[60], 16, 0},
-    {"altglyphdef", (void *) &lxb_tag_res_data_default[11], 11, 0}, {"title", (void *) &lxb_tag_res_data_default[186], 5, 0},
-    {"head", (void *) &lxb_tag_res_data_default[97], 4, 0}, {"noframes", (void *) &lxb_tag_res_data_default[138], 8, 0},
-    {"code", (void *) &lxb_tag_res_data_default[39], 4, 30}, {"rb", (void *) &lxb_tag_res_data_default[154], 2, 5},
-    {"blink", (void *) &lxb_tag_res_data_default[29], 5, 0}, {"image", (void *) &lxb_tag_res_data_default[104], 5, 0},
-    {"col", (void *) &lxb_tag_res_data_default[40], 3, 8}, {"object", (void *) &lxb_tag_res_data_default[140], 6, 12},
-    {"template", (void *) &lxb_tag_res_data_default[179], 8, 36}, {"h2", (void *) &lxb_tag_res_data_default[92], 2, 13},
-    {"lineargradient", (void *) &lxb_tag_res_data_default[114], 14, 0}, {"math", (void *) &lxb_tag_res_data_default[122], 4, 0},
-    {"base", (void *) &lxb_tag_res_data_default[23], 4, 45}, {"dl", (void *) &lxb_tag_res_data_default[52], 2, 14},
-    {"del", (void *) &lxb_tag_res_data_default[45], 3, 16}, {"svg", (void *) &lxb_tag_res_data_default[175], 3, 17},
-    {"dir", (void *) &lxb_tag_res_data_default[50], 3, 0}, {"article", (void *) &lxb_tag_res_data_default[19], 7, 0},
-    {"strong", (void *) &lxb_tag_res_data_default[170], 6, 0}, {"dialog", (void *) &lxb_tag_res_data_default[49], 6, 0},
-    {"details", (void *) &lxb_tag_res_data_default[47], 7, 0}, {"textpath", (void *) &lxb_tag_res_data_default[181], 8, 52},
-    {"mark", (void *) &lxb_tag_res_data_default[120], 4, 0}, {"basefont", (void *) &lxb_tag_res_data_default[24], 8, 0},
-    {"fediffuselighting", (void *) &lxb_tag_res_data_default[61], 17, 0}, {"fespecularlighting", (void *) &lxb_tag_res_data_default[77], 18, 0},
-    {"blockquote", (void *) &lxb_tag_res_data_default[30], 10, 0}, {"script", (void *) &lxb_tag_res_data_default[161], 6, 58},
-    {"malignmark", (void *) &lxb_tag_res_data_default[118], 10, 0}, {"hr", (void *) &lxb_tag_res_data_default[100], 2, 18},
-    {"source", (void *) &lxb_tag_res_data_default[166], 6, 19}, {"mn", (void *) &lxb_tag_res_data_default[129], 2, 0},
-    {"select", (void *) &lxb_tag_res_data_default[163], 6, 0}, {"main", (void *) &lxb_tag_res_data_default[117], 4, 20},
-    {"fieldset", (void *) &lxb_tag_res_data_default[81], 8, 62}, {"ins", (void *) &lxb_tag_res_data_default[107], 3, 0},
-    {"frameset", (void *) &lxb_tag_res_data_default[89], 8, 0}, {"button", (void *) &lxb_tag_res_data_default[33], 6, 0},
-    {"fecolormatrix", (void *) &lxb_tag_res_data_default[57], 13, 0}, {"q", (void *) &lxb_tag_res_data_default[152], 1, 0},
-    {"animatemotion", (void *) &lxb_tag_res_data_default[14], 13, 0}, {"time", (void *) &lxb_tag_res_data_default[185], 4, 21},
-    {"table", (void *) &lxb_tag_res_data_default[176], 5, 25}, {"h6", (void *) &lxb_tag_res_data_default[96], 2, 26},
-    {"cite", (void *) &lxb_tag_res_data_default[37], 4, 28}, {"img", (void *) &lxb_tag_res_data_default[105], 3, 34},
-    {"fepointlight", (void *) &lxb_tag_res_data_default[76], 12, 0}, {"audio", (void *) &lxb_tag_res_data_default[21], 5, 0},
-    {"#end-of-file", (void *) &lxb_tag_res_data_default[1], 12, 0}, {"noscript", (void *) &lxb_tag_res_data_default[139], 8, 0},
-    {"foreignobject", (void *) &lxb_tag_res_data_default[86], 13, 0}, {"spacer", (void *) &lxb_tag_res_data_default[167], 6, 0},
-    {"samp", (void *) &lxb_tag_res_data_default[160], 4, 0}, {"altglyphitem", (void *) &lxb_tag_res_data_default[12], 12, 0},
-    {"dt", (void *) &lxb_tag_res_data_default[53], 2, 0}, {"data", (void *) &lxb_tag_res_data_default[42], 4, 0},
-    {"mtext", (void *) &lxb_tag_res_data_default[132], 5, 0}, {"path", (void *) &lxb_tag_res_data_default[147], 4, 0},
-    {"input", (void *) &lxb_tag_res_data_default[106], 5, 0}, {"th", (void *) &lxb_tag_res_data_default[183], 2, 38},
-    {"p", (void *) &lxb_tag_res_data_default[145], 1, 0}, {"animatetransform", (void *) &lxb_tag_res_data_default[15], 16, 0},
-    {"datalist", (void *) &lxb_tag_res_data_default[43], 8, 0}, {"small", (void *) &lxb_tag_res_data_default[165], 5, 0},
-    {"b", (void *) &lxb_tag_res_data_default[22], 1, 46}, {"nextid", (void *) &lxb_tag_res_data_default[135], 6, 47},
-    {"noembed", (void *) &lxb_tag_res_data_default[137], 7, 0}, {"nav", (void *) &lxb_tag_res_data_default[134], 3, 0},
-    {"bgsound", (void *) &lxb_tag_res_data_default[27], 7, 0}, {"slot", (void *) &lxb_tag_res_data_default[164], 4, 0},
-    {"param", (void *) &lxb_tag_res_data_default[146], 5, 0}, {"font", (void *) &lxb_tag_res_data_default[84], 4, 53},
-    {"figure", (void *) &lxb_tag_res_data_default[83], 6, 0}, {"femerge", (void *) &lxb_tag_res_data_default[72], 7, 0},
-    {"femergenode", (void *) &lxb_tag_res_data_default[73], 11, 0}, {"feoffset", (void *) &lxb_tag_res_data_default[75], 8, 60},
-    {"#text", (void *) &lxb_tag_res_data_default[2], 5, 0}, {"ul", (void *) &lxb_tag_res_data_default[191], 2, 0},
-    {"fespotlight", (void *) &lxb_tag_res_data_default[78], 11, 66}, {"form", (void *) &lxb_tag_res_data_default[87], 4, 72},
-    {"#document", (void *) &lxb_tag_res_data_default[3], 9, 76}, {"fedistantlight", (void *) &lxb_tag_res_data_default[63], 14, 0},
-    {"track", (void *) &lxb_tag_res_data_default[188], 5, 0}, {"h3", (void *) &lxb_tag_res_data_default[93], 2, 77},
-    {"h1", (void *) &lxb_tag_res_data_default[91], 2, 0}, {"i", (void *) &lxb_tag_res_data_default[102], 1, 0},
-    {"altglyph", (void *) &lxb_tag_res_data_default[10], 8, 0}, {"legend", (void *) &lxb_tag_res_data_default[112], 6, 115},
-    {"tbody", (void *) &lxb_tag_res_data_default[177], 5, 0}, {"address", (void *) &lxb_tag_res_data_default[9], 7, 0},
-    {"caption", (void *) &lxb_tag_res_data_default[35], 7, 0}, {"option", (void *) &lxb_tag_res_data_default[143], 6, 0},
-    {"sup", (void *) &lxb_tag_res_data_default[174], 3, 0}, {"body", (void *) &lxb_tag_res_data_default[31], 4, 78},
-    {"progress", (void *) &lxb_tag_res_data_default[151], 8, 122}, {"acronym", (void *) &lxb_tag_res_data_default[8], 7, 0},
-    {"fegaussianblur", (void *) &lxb_tag_res_data_default[70], 14, 0}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 262, 0}, {(char *) "radialgradient", (void *) &lxb_tag_res_data_default[153], 14, 0},
+    {(char *) "fecomponenttransfer", (void *) &lxb_tag_res_data_default[58], 19, 0}, {(char *) "abbr", (void *) &lxb_tag_res_data_default[7], 4, 1},
+    {(char *) "feflood", (void *) &lxb_tag_res_data_default[65], 7, 0}, {(char *) "marquee", (void *) &lxb_tag_res_data_default[121], 7, 0},
+    {(char *) "feblend", (void *) &lxb_tag_res_data_default[56], 7, 4}, {(char *) "optgroup", (void *) &lxb_tag_res_data_default[142], 8, 0},
+    {(char *) "video", (void *) &lxb_tag_res_data_default[193], 5, 10}, {(char *) "u", (void *) &lxb_tag_res_data_default[190], 1, 0},
+    {(char *) "iframe", (void *) &lxb_tag_res_data_default[103], 6, 0}, {(char *) "animatecolor", (void *) &lxb_tag_res_data_default[13], 12, 0},
+    {(char *) "output", (void *) &lxb_tag_res_data_default[144], 6, 0}, {(char *) "figcaption", (void *) &lxb_tag_res_data_default[82], 10, 0},
+    {(char *) "mglyph", (void *) &lxb_tag_res_data_default[127], 6, 0}, {(char *) "!--", (void *) &lxb_tag_res_data_default[4], 3, 0},
+    {(char *) "fefuncg", (void *) &lxb_tag_res_data_default[68], 7, 0}, {(char *) "aside", (void *) &lxb_tag_res_data_default[20], 5, 0},
+    {(char *) "style", (void *) &lxb_tag_res_data_default[171], 5, 0}, {(char *) "strike", (void *) &lxb_tag_res_data_default[169], 6, 0},
+    {(char *) "header", (void *) &lxb_tag_res_data_default[98], 6, 0}, {(char *) "glyphref", (void *) &lxb_tag_res_data_default[90], 8, 23},
+    {(char *) "label", (void *) &lxb_tag_res_data_default[111], 5, 0}, {(char *) "feconvolvematrix", (void *) &lxb_tag_res_data_default[60], 16, 0},
+    {(char *) "altglyphdef", (void *) &lxb_tag_res_data_default[11], 11, 0}, {(char *) "title", (void *) &lxb_tag_res_data_default[186], 5, 0},
+    {(char *) "head", (void *) &lxb_tag_res_data_default[97], 4, 0}, {(char *) "noframes", (void *) &lxb_tag_res_data_default[138], 8, 0},
+    {(char *) "code", (void *) &lxb_tag_res_data_default[39], 4, 30}, {(char *) "rb", (void *) &lxb_tag_res_data_default[154], 2, 5},
+    {(char *) "blink", (void *) &lxb_tag_res_data_default[29], 5, 0}, {(char *) "image", (void *) &lxb_tag_res_data_default[104], 5, 0},
+    {(char *) "col", (void *) &lxb_tag_res_data_default[40], 3, 8}, {(char *) "object", (void *) &lxb_tag_res_data_default[140], 6, 12},
+    {(char *) "template", (void *) &lxb_tag_res_data_default[179], 8, 36}, {(char *) "h2", (void *) &lxb_tag_res_data_default[92], 2, 13},
+    {(char *) "lineargradient", (void *) &lxb_tag_res_data_default[114], 14, 0}, {(char *) "math", (void *) &lxb_tag_res_data_default[122], 4, 0},
+    {(char *) "base", (void *) &lxb_tag_res_data_default[23], 4, 45}, {(char *) "dl", (void *) &lxb_tag_res_data_default[52], 2, 14},
+    {(char *) "del", (void *) &lxb_tag_res_data_default[45], 3, 16}, {(char *) "svg", (void *) &lxb_tag_res_data_default[175], 3, 17},
+    {(char *) "dir", (void *) &lxb_tag_res_data_default[50], 3, 0}, {(char *) "article", (void *) &lxb_tag_res_data_default[19], 7, 0},
+    {(char *) "strong", (void *) &lxb_tag_res_data_default[170], 6, 0}, {(char *) "dialog", (void *) &lxb_tag_res_data_default[49], 6, 0},
+    {(char *) "details", (void *) &lxb_tag_res_data_default[47], 7, 0}, {(char *) "textpath", (void *) &lxb_tag_res_data_default[181], 8, 52},
+    {(char *) "mark", (void *) &lxb_tag_res_data_default[120], 4, 0}, {(char *) "basefont", (void *) &lxb_tag_res_data_default[24], 8, 0},
+    {(char *) "fediffuselighting", (void *) &lxb_tag_res_data_default[61], 17, 0}, {(char *) "fespecularlighting", (void *) &lxb_tag_res_data_default[77], 18, 0},
+    {(char *) "blockquote", (void *) &lxb_tag_res_data_default[30], 10, 0}, {(char *) "script", (void *) &lxb_tag_res_data_default[161], 6, 58},
+    {(char *) "malignmark", (void *) &lxb_tag_res_data_default[118], 10, 0}, {(char *) "hr", (void *) &lxb_tag_res_data_default[100], 2, 18},
+    {(char *) "source", (void *) &lxb_tag_res_data_default[166], 6, 19}, {(char *) "mn", (void *) &lxb_tag_res_data_default[129], 2, 0},
+    {(char *) "select", (void *) &lxb_tag_res_data_default[163], 6, 0}, {(char *) "main", (void *) &lxb_tag_res_data_default[117], 4, 20},
+    {(char *) "fieldset", (void *) &lxb_tag_res_data_default[81], 8, 62}, {(char *) "ins", (void *) &lxb_tag_res_data_default[107], 3, 0},
+    {(char *) "frameset", (void *) &lxb_tag_res_data_default[89], 8, 0}, {(char *) "button", (void *) &lxb_tag_res_data_default[33], 6, 0},
+    {(char *) "fecolormatrix", (void *) &lxb_tag_res_data_default[57], 13, 0}, {(char *) "q", (void *) &lxb_tag_res_data_default[152], 1, 0},
+    {(char *) "animatemotion", (void *) &lxb_tag_res_data_default[14], 13, 0}, {(char *) "time", (void *) &lxb_tag_res_data_default[185], 4, 21},
+    {(char *) "table", (void *) &lxb_tag_res_data_default[176], 5, 25}, {(char *) "h6", (void *) &lxb_tag_res_data_default[96], 2, 26},
+    {(char *) "cite", (void *) &lxb_tag_res_data_default[37], 4, 28}, {(char *) "img", (void *) &lxb_tag_res_data_default[105], 3, 34},
+    {(char *) "fepointlight", (void *) &lxb_tag_res_data_default[76], 12, 0}, {(char *) "audio", (void *) &lxb_tag_res_data_default[21], 5, 0},
+    {(char *) "#end-of-file", (void *) &lxb_tag_res_data_default[1], 12, 0}, {(char *) "noscript", (void *) &lxb_tag_res_data_default[139], 8, 0},
+    {(char *) "foreignobject", (void *) &lxb_tag_res_data_default[86], 13, 0}, {(char *) "spacer", (void *) &lxb_tag_res_data_default[167], 6, 0},
+    {(char *) "samp", (void *) &lxb_tag_res_data_default[160], 4, 0}, {(char *) "altglyphitem", (void *) &lxb_tag_res_data_default[12], 12, 0},
+    {(char *) "dt", (void *) &lxb_tag_res_data_default[53], 2, 0}, {(char *) "data", (void *) &lxb_tag_res_data_default[42], 4, 0},
+    {(char *) "mtext", (void *) &lxb_tag_res_data_default[132], 5, 0}, {(char *) "path", (void *) &lxb_tag_res_data_default[147], 4, 0},
+    {(char *) "input", (void *) &lxb_tag_res_data_default[106], 5, 0}, {(char *) "th", (void *) &lxb_tag_res_data_default[183], 2, 38},
+    {(char *) "p", (void *) &lxb_tag_res_data_default[145], 1, 0}, {(char *) "animatetransform", (void *) &lxb_tag_res_data_default[15], 16, 0},
+    {(char *) "datalist", (void *) &lxb_tag_res_data_default[43], 8, 0}, {(char *) "small", (void *) &lxb_tag_res_data_default[165], 5, 0},
+    {(char *) "b", (void *) &lxb_tag_res_data_default[22], 1, 46}, {(char *) "nextid", (void *) &lxb_tag_res_data_default[135], 6, 47},
+    {(char *) "noembed", (void *) &lxb_tag_res_data_default[137], 7, 0}, {(char *) "nav", (void *) &lxb_tag_res_data_default[134], 3, 0},
+    {(char *) "bgsound", (void *) &lxb_tag_res_data_default[27], 7, 0}, {(char *) "slot", (void *) &lxb_tag_res_data_default[164], 4, 0},
+    {(char *) "param", (void *) &lxb_tag_res_data_default[146], 5, 0}, {(char *) "font", (void *) &lxb_tag_res_data_default[84], 4, 53},
+    {(char *) "figure", (void *) &lxb_tag_res_data_default[83], 6, 0}, {(char *) "femerge", (void *) &lxb_tag_res_data_default[72], 7, 0},
+    {(char *) "femergenode", (void *) &lxb_tag_res_data_default[73], 11, 0}, {(char *) "feoffset", (void *) &lxb_tag_res_data_default[75], 8, 60},
+    {(char *) "#text", (void *) &lxb_tag_res_data_default[2], 5, 0}, {(char *) "ul", (void *) &lxb_tag_res_data_default[191], 2, 0},
+    {(char *) "fespotlight", (void *) &lxb_tag_res_data_default[78], 11, 66}, {(char *) "form", (void *) &lxb_tag_res_data_default[87], 4, 72},
+    {(char *) "#document", (void *) &lxb_tag_res_data_default[3], 9, 76}, {(char *) "fedistantlight", (void *) &lxb_tag_res_data_default[63], 14, 0},
+    {(char *) "track", (void *) &lxb_tag_res_data_default[188], 5, 0}, {(char *) "h3", (void *) &lxb_tag_res_data_default[93], 2, 77},
+    {(char *) "h1", (void *) &lxb_tag_res_data_default[91], 2, 0}, {(char *) "i", (void *) &lxb_tag_res_data_default[102], 1, 0},
+    {(char *) "altglyph", (void *) &lxb_tag_res_data_default[10], 8, 0}, {(char *) "legend", (void *) &lxb_tag_res_data_default[112], 6, 115},
+    {(char *) "tbody", (void *) &lxb_tag_res_data_default[177], 5, 0}, {(char *) "address", (void *) &lxb_tag_res_data_default[9], 7, 0},
+    {(char *) "caption", (void *) &lxb_tag_res_data_default[35], 7, 0}, {(char *) "option", (void *) &lxb_tag_res_data_default[143], 6, 0},
+    {(char *) "sup", (void *) &lxb_tag_res_data_default[174], 3, 0}, {(char *) "body", (void *) &lxb_tag_res_data_default[31], 4, 78},
+    {(char *) "progress", (void *) &lxb_tag_res_data_default[151], 8, 122}, {(char *) "acronym", (void *) &lxb_tag_res_data_default[8], 7, 0},
+    {(char *) "fegaussianblur", (void *) &lxb_tag_res_data_default[70], 14, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {"mi", (void *) &lxb_tag_res_data_default[128], 2, 79}, {NULL, NULL, 0, 0},
-    {"dfn", (void *) &lxb_tag_res_data_default[48], 3, 0}, {"a", (void *) &lxb_tag_res_data_default[6], 1, 80},
-    {"listing", (void *) &lxb_tag_res_data_default[116], 7, 87}, {"span", (void *) &lxb_tag_res_data_default[168], 4, 0},
-    {"area", (void *) &lxb_tag_res_data_default[18], 4, 0}, {"clippath", (void *) &lxb_tag_res_data_default[38], 8, 0},
-    {"section", (void *) &lxb_tag_res_data_default[162], 7, 0}, {"li", (void *) &lxb_tag_res_data_default[113], 2, 88},
-    {NULL, NULL, 0, 0}, {"html", (void *) &lxb_tag_res_data_default[101], 4, 0},
-    {NULL, NULL, 0, 0}, {"fedropshadow", (void *) &lxb_tag_res_data_default[64], 12, 0},
-    {"embed", (void *) &lxb_tag_res_data_default[55], 5, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"multicol", (void *) &lxb_tag_res_data_default[133], 8, 0},
-    {"var", (void *) &lxb_tag_res_data_default[192], 3, 89}, {"rp", (void *) &lxb_tag_res_data_default[155], 2, 0},
-    {NULL, NULL, 0, 0}, {"link", (void *) &lxb_tag_res_data_default[115], 4, 0},
-    {"mo", (void *) &lxb_tag_res_data_default[130], 2, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"annotation-xml", (void *) &lxb_tag_res_data_default[16], 14, 0},
-    {"fedisplacementmap", (void *) &lxb_tag_res_data_default[62], 17, 0}, {"center", (void *) &lxb_tag_res_data_default[36], 6, 0},
-    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {"fefuncb", (void *) &lxb_tag_res_data_default[67], 7, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {"meter", (void *) &lxb_tag_res_data_default[125], 5, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"tt", (void *) &lxb_tag_res_data_default[189], 2, 0},
-    {"big", (void *) &lxb_tag_res_data_default[28], 3, 93}, {NULL, NULL, 0, 0},
-    {"tfoot", (void *) &lxb_tag_res_data_default[182], 5, 0}, {"desc", (void *) &lxb_tag_res_data_default[46], 4, 0},
-    {"isindex", (void *) &lxb_tag_res_data_default[108], 7, 0}, {NULL, NULL, 0, 0},
-    {"menu", (void *) &lxb_tag_res_data_default[123], 4, 0}, {"hgroup", (void *) &lxb_tag_res_data_default[99], 6, 0},
-    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {"wbr", (void *) &lxb_tag_res_data_default[194], 3, 0}, {NULL, NULL, 0, 0},
-    {"pre", (void *) &lxb_tag_res_data_default[150], 3, 94}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {"picture", (void *) &lxb_tag_res_data_default[148], 7, 0}, {"h4", (void *) &lxb_tag_res_data_default[94], 2, 0},
-    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {"meta", (void *) &lxb_tag_res_data_default[124], 4, 96}, {NULL, NULL, 0, 0},
-    {"rtc", (void *) &lxb_tag_res_data_default[157], 3, 0}, {NULL, NULL, 0, 0},
-    {"frame", (void *) &lxb_tag_res_data_default[88], 5, 0}, {"fetile", (void *) &lxb_tag_res_data_default[79], 6, 98},
-    {"feimage", (void *) &lxb_tag_res_data_default[71], 7, 99}, {NULL, NULL, 0, 0},
-    {"xmp", (void *) &lxb_tag_res_data_default[195], 3, 0}, {NULL, NULL, 0, 0},
-    {"fecomposite", (void *) &lxb_tag_res_data_default[59], 11, 100}, {"feturbulence", (void *) &lxb_tag_res_data_default[80], 12, 0},
-    {NULL, NULL, 0, 0}, {"summary", (void *) &lxb_tag_res_data_default[173], 7, 0},
-    {"mfenced", (void *) &lxb_tag_res_data_default[126], 7, 0}, {NULL, NULL, 0, 0},
-    {"sub", (void *) &lxb_tag_res_data_default[172], 3, 0}, {"colgroup", (void *) &lxb_tag_res_data_default[41], 8, 0},
+    {(char *) "mi", (void *) &lxb_tag_res_data_default[128], 2, 79}, {NULL, NULL, 0, 0},
+    {(char *) "dfn", (void *) &lxb_tag_res_data_default[48], 3, 0}, {(char *) "a", (void *) &lxb_tag_res_data_default[6], 1, 80},
+    {(char *) "listing", (void *) &lxb_tag_res_data_default[116], 7, 87}, {(char *) "span", (void *) &lxb_tag_res_data_default[168], 4, 0},
+    {(char *) "area", (void *) &lxb_tag_res_data_default[18], 4, 0}, {(char *) "clippath", (void *) &lxb_tag_res_data_default[38], 8, 0},
+    {(char *) "section", (void *) &lxb_tag_res_data_default[162], 7, 0}, {(char *) "li", (void *) &lxb_tag_res_data_default[113], 2, 88},
+    {NULL, NULL, 0, 0}, {(char *) "html", (void *) &lxb_tag_res_data_default[101], 4, 0},
+    {NULL, NULL, 0, 0}, {(char *) "fedropshadow", (void *) &lxb_tag_res_data_default[64], 12, 0},
+    {(char *) "embed", (void *) &lxb_tag_res_data_default[55], 5, 0}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0}, {(char *) "multicol", (void *) &lxb_tag_res_data_default[133], 8, 0},
+    {(char *) "var", (void *) &lxb_tag_res_data_default[192], 3, 89}, {(char *) "rp", (void *) &lxb_tag_res_data_default[155], 2, 0},
+    {NULL, NULL, 0, 0}, {(char *) "link", (void *) &lxb_tag_res_data_default[115], 4, 0},
+    {(char *) "mo", (void *) &lxb_tag_res_data_default[130], 2, 0}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0}, {(char *) "annotation-xml", (void *) &lxb_tag_res_data_default[16], 14, 0},
+    {(char *) "fedisplacementmap", (void *) &lxb_tag_res_data_default[62], 17, 0}, {(char *) "center", (void *) &lxb_tag_res_data_default[36], 6, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
+    {(char *) "fefuncb", (void *) &lxb_tag_res_data_default[67], 7, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"dd", (void *) &lxb_tag_res_data_default[44], 2, 103},
+    {(char *) "meter", (void *) &lxb_tag_res_data_default[125], 5, 0}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0}, {(char *) "tt", (void *) &lxb_tag_res_data_default[189], 2, 0},
+    {(char *) "big", (void *) &lxb_tag_res_data_default[28], 3, 93}, {NULL, NULL, 0, 0},
+    {(char *) "tfoot", (void *) &lxb_tag_res_data_default[182], 5, 0}, {(char *) "desc", (void *) &lxb_tag_res_data_default[46], 4, 0},
+    {(char *) "isindex", (void *) &lxb_tag_res_data_default[108], 7, 0}, {NULL, NULL, 0, 0},
+    {(char *) "menu", (void *) &lxb_tag_res_data_default[123], 4, 0}, {(char *) "hgroup", (void *) &lxb_tag_res_data_default[99], 6, 0},
+    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
+    {(char *) "wbr", (void *) &lxb_tag_res_data_default[194], 3, 0}, {NULL, NULL, 0, 0},
+    {(char *) "pre", (void *) &lxb_tag_res_data_default[150], 3, 94}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
+    {(char *) "picture", (void *) &lxb_tag_res_data_default[148], 7, 0}, {(char *) "h4", (void *) &lxb_tag_res_data_default[94], 2, 0},
+    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
+    {(char *) "meta", (void *) &lxb_tag_res_data_default[124], 4, 96}, {NULL, NULL, 0, 0},
+    {(char *) "rtc", (void *) &lxb_tag_res_data_default[157], 3, 0}, {NULL, NULL, 0, 0},
+    {(char *) "frame", (void *) &lxb_tag_res_data_default[88], 5, 0}, {(char *) "fetile", (void *) &lxb_tag_res_data_default[79], 6, 98},
+    {(char *) "feimage", (void *) &lxb_tag_res_data_default[71], 7, 99}, {NULL, NULL, 0, 0},
+    {(char *) "xmp", (void *) &lxb_tag_res_data_default[195], 3, 0}, {NULL, NULL, 0, 0},
+    {(char *) "fecomposite", (void *) &lxb_tag_res_data_default[59], 11, 100}, {(char *) "feturbulence", (void *) &lxb_tag_res_data_default[80], 12, 0},
+    {NULL, NULL, 0, 0}, {(char *) "summary", (void *) &lxb_tag_res_data_default[173], 7, 0},
+    {(char *) "mfenced", (void *) &lxb_tag_res_data_default[126], 7, 0}, {NULL, NULL, 0, 0},
+    {(char *) "sub", (void *) &lxb_tag_res_data_default[172], 3, 0}, {(char *) "colgroup", (void *) &lxb_tag_res_data_default[41], 8, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {"div", (void *) &lxb_tag_res_data_default[51], 3, 0}, {"textarea", (void *) &lxb_tag_res_data_default[180], 8, 0},
-    {"!doctype", (void *) &lxb_tag_res_data_default[5], 8, 0}, {"applet", (void *) &lxb_tag_res_data_default[17], 6, 0},
-    {NULL, NULL, 0, 0}, {"br", (void *) &lxb_tag_res_data_default[32], 2, 110},
-    {NULL, NULL, 0, 0}, {"keygen", (void *) &lxb_tag_res_data_default[110], 6, 0},
-    {"kbd", (void *) &lxb_tag_res_data_default[109], 3, 0}, {NULL, NULL, 0, 0},
-    {"plaintext", (void *) &lxb_tag_res_data_default[149], 9, 0}, {"s", (void *) &lxb_tag_res_data_default[159], 1, 0},
+    {NULL, NULL, 0, 0}, {(char *) "dd", (void *) &lxb_tag_res_data_default[44], 2, 103},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {"bdo", (void *) &lxb_tag_res_data_default[26], 3, 0}, {"td", (void *) &lxb_tag_res_data_default[178], 2, 0},
-    {"fefunca", (void *) &lxb_tag_res_data_default[66], 7, 0}, {"ol", (void *) &lxb_tag_res_data_default[141], 2, 0},
-    {"thead", (void *) &lxb_tag_res_data_default[184], 5, 0}, {"nobr", (void *) &lxb_tag_res_data_default[136], 4, 112},
-    {NULL, NULL, 0, 0}, {"tr", (void *) &lxb_tag_res_data_default[187], 2, 0},
-    {"map", (void *) &lxb_tag_res_data_default[119], 3, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"#undef", (void *) &lxb_tag_res_data_default[0], 6, 113},
-    {"em", (void *) &lxb_tag_res_data_default[54], 2, 0}, {NULL, NULL, 0, 0},
-    {"bdi", (void *) &lxb_tag_res_data_default[25], 3, 0}, {"femorphology", (void *) &lxb_tag_res_data_default[74], 12, 0},
-    {"ms", (void *) &lxb_tag_res_data_default[131], 2, 116}, {"footer", (void *) &lxb_tag_res_data_default[85], 6, 0},
-    {"fefuncr", (void *) &lxb_tag_res_data_default[69], 7, 0}, {"rt", (void *) &lxb_tag_res_data_default[156], 2, 117},
     {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
-    {NULL, NULL, 0, 0}, {"h5", (void *) &lxb_tag_res_data_default[95], 2, 0},
-    {NULL, NULL, 0, 0}, {"ruby", (void *) &lxb_tag_res_data_default[158], 4, 120},
-    {"canvas", (void *) &lxb_tag_res_data_default[34], 6, 0}, {NULL, NULL, 0, 0},
+    {(char *) "div", (void *) &lxb_tag_res_data_default[51], 3, 0}, {(char *) "textarea", (void *) &lxb_tag_res_data_default[180], 8, 0},
+    {(char *) "!doctype", (void *) &lxb_tag_res_data_default[5], 8, 0}, {(char *) "applet", (void *) &lxb_tag_res_data_default[17], 6, 0},
+    {NULL, NULL, 0, 0}, {(char *) "br", (void *) &lxb_tag_res_data_default[32], 2, 110},
+    {NULL, NULL, 0, 0}, {(char *) "keygen", (void *) &lxb_tag_res_data_default[110], 6, 0},
+    {(char *) "kbd", (void *) &lxb_tag_res_data_default[109], 3, 0}, {NULL, NULL, 0, 0},
+    {(char *) "plaintext", (void *) &lxb_tag_res_data_default[149], 9, 0}, {(char *) "s", (void *) &lxb_tag_res_data_default[159], 1, 0},
+    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
+    {(char *) "bdo", (void *) &lxb_tag_res_data_default[26], 3, 0}, {(char *) "td", (void *) &lxb_tag_res_data_default[178], 2, 0},
+    {(char *) "fefunca", (void *) &lxb_tag_res_data_default[66], 7, 0}, {(char *) "ol", (void *) &lxb_tag_res_data_default[141], 2, 0},
+    {(char *) "thead", (void *) &lxb_tag_res_data_default[184], 5, 0}, {(char *) "nobr", (void *) &lxb_tag_res_data_default[136], 4, 112},
+    {NULL, NULL, 0, 0}, {(char *) "tr", (void *) &lxb_tag_res_data_default[187], 2, 0},
+    {(char *) "map", (void *) &lxb_tag_res_data_default[119], 3, 0}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0}, {(char *) "#undef", (void *) &lxb_tag_res_data_default[0], 6, 113},
+    {(char *) "em", (void *) &lxb_tag_res_data_default[54], 2, 0}, {NULL, NULL, 0, 0},
+    {(char *) "bdi", (void *) &lxb_tag_res_data_default[25], 3, 0}, {(char *) "femorphology", (void *) &lxb_tag_res_data_default[74], 12, 0},
+    {(char *) "ms", (void *) &lxb_tag_res_data_default[131], 2, 116}, {(char *) "footer", (void *) &lxb_tag_res_data_default[85], 6, 0},
+    {(char *) "fefuncr", (void *) &lxb_tag_res_data_default[69], 7, 0}, {(char *) "rt", (void *) &lxb_tag_res_data_default[156], 2, 117},
+    {NULL, NULL, 0, 0}, {NULL, NULL, 0, 0},
+    {NULL, NULL, 0, 0}, {(char *) "h5", (void *) &lxb_tag_res_data_default[95], 2, 0},
+    {NULL, NULL, 0, 0}, {(char *) "ruby", (void *) &lxb_tag_res_data_default[158], 4, 120},
+    {(char *) "canvas", (void *) &lxb_tag_res_data_default[34], 6, 0}, {NULL, NULL, 0, 0},
     {NULL, NULL, 0, 0}
 };
 
@@ -167856,6 +169152,11 @@ lxb_utils_warc_content_length_noi(lxb_utils_warc_t *warc)
 
 #if defined(__clang__)
 #  pragma clang diagnostic pop
+#endif
+
+#if defined(_WIN32) && defined(small)
+// windows.h legacy RPC token; do not leak it into AffineUI C++.
+#  undef small
 #endif
 
 // ─── vendored-C wrappers (C linkage) ────────────────────────────────────
@@ -387317,6 +388618,7 @@ enum class PaintOpKind : std::uint8_t {
     DrawText,
     DrawTextBox,
     DrawImage,
+    DrawNativeImage,
     PushClip,
     PopClip,
     PushAlpha,
@@ -387443,6 +388745,19 @@ struct PaintOp {
             std::int16_t  x, y, w, h;
             std::int16_t  sx, sy, sw, sh;
         } draw_image;
+
+        // A renderer-owned GPU texture. Unlike DrawImage this stores the
+        // backend-native texture identity directly; replay creates a
+        // frame-scoped rasterizer wrapper, so app code never retains a
+        // Painter or painter-owned image handle.
+        struct {
+            std::uint32_t native_handle_lo;    // 4
+            std::uint32_t native_handle_hi;    // 4
+            std::int16_t  x, y, w, h;          // 8
+            std::uint16_t native_w, native_h;  // 4
+            std::uint8_t  flip_y;              // 1
+            std::uint8_t  pad_[3];             // 3
+        } draw_native_image;                   // = 24 bytes
 
         // Gradient fills: angle_deg is CSS-convention (0=up, 90=right).
         // Corner radii are capped to u8 (0–255 px), sufficient for CSS
@@ -388143,19 +389458,6 @@ public:
     void delete_image(std::uint32_t image) override {
         if (device_painter_) device_painter_->delete_image(image);
     }
-    // Resource ops (not draw ops): forwarded straight to the device
-    // painter so the returned handle is usable in recorded draw_image
-    // ops replayed later.
-    std::uint32_t adopt_native_image(std::uint64_t native_handle, int w,
-                                     int h, bool flip_y) override {
-        return device_painter_
-                   ? device_painter_->adopt_native_image(native_handle, w, h,
-                                                         flip_y)
-                   : 0u;
-    }
-    void release_native_image(std::uint32_t image) override {
-        if (device_painter_) device_painter_->release_native_image(image);
-    }
     void draw_image(std::uint32_t image, const Rect& dst, const Rect& src) override {
         PaintOp op{};
         op.kind = PaintOpKind::DrawImage;
@@ -388168,6 +389470,35 @@ public:
         op.p.draw_image.sy = static_cast<std::int16_t>(src.y);
         op.p.draw_image.sw = static_cast<std::int16_t>(src.w);
         op.p.draw_image.sh = static_cast<std::int16_t>(src.h);
+        list_.ops.push_back(op);
+    }
+
+    void draw_native_image(std::uint64_t native_handle,
+                           int native_width,
+                           int native_height,
+                           bool flip_y,
+                           const Rect& dst) override {
+        if (native_handle == 0 || native_width <= 0 || native_height <= 0 ||
+            dst.w <= 0 || dst.h <= 0) {
+            return;
+        }
+        PaintOp op{};
+        op.kind = PaintOpKind::DrawNativeImage;
+        op.p.draw_native_image.native_handle_lo =
+            static_cast<std::uint32_t>(native_handle);
+        op.p.draw_native_image.native_handle_hi =
+            static_cast<std::uint32_t>(native_handle >> 32u);
+        op.p.draw_native_image.x = static_cast<std::int16_t>(dst.x);
+        op.p.draw_native_image.y = static_cast<std::int16_t>(dst.y);
+        op.p.draw_native_image.w = static_cast<std::int16_t>(dst.w);
+        op.p.draw_native_image.h = static_cast<std::int16_t>(dst.h);
+        op.p.draw_native_image.native_w = static_cast<std::uint16_t>(
+            std::min(native_width, static_cast<int>(
+                std::numeric_limits<std::uint16_t>::max())));
+        op.p.draw_native_image.native_h = static_cast<std::uint16_t>(
+            std::min(native_height, static_cast<int>(
+                std::numeric_limits<std::uint16_t>::max())));
+        op.p.draw_native_image.flip_y = flip_y ? 1u : 0u;
         list_.ops.push_back(op);
     }
 
@@ -388467,6 +389798,18 @@ inline void replay_op(const DisplayList& list, const PaintOp& op,
                                   Rect{i.sx, i.sy, i.sw, i.sh});
                 break;
             }
+            case PaintOpKind::DrawNativeImage: {
+                const auto& i = op.p.draw_native_image;
+                const std::uint64_t native_handle =
+                    static_cast<std::uint64_t>(i.native_handle_lo) |
+                    (static_cast<std::uint64_t>(i.native_handle_hi) << 32u);
+                target.draw_native_image(native_handle,
+                                         i.native_w,
+                                         i.native_h,
+                                         i.flip_y != 0,
+                                         Rect{i.x, i.y, i.w, i.h});
+                break;
+            }
             case PaintOpKind::PushClip: {
                 const auto& c = op.p.clip;
                 target.push_clip(Rect{c.x, c.y, c.w, c.h});
@@ -388643,6 +389986,11 @@ inline bool replay_op_bounds(const PaintOp& op, Rect& out) {
         }
         case PaintOpKind::DrawImage: {
             const auto& r = op.p.draw_image;
+            out = Rect{r.x, r.y, r.w, r.h};
+            return true;
+        }
+        case PaintOpKind::DrawNativeImage: {
+            const auto& r = op.p.draw_native_image;
             out = Rect{r.x, r.y, r.w, r.h};
             return true;
         }
@@ -403016,6 +404364,7 @@ void maybe_start_stack_sampler() {}
 #if defined(_WIN32)
     #include <process.h>
 #else
+    #include <unistd.h>
 #endif
 
 namespace affineui {
@@ -403291,12 +404640,24 @@ extern "C" {
 using socket_t = SOCKET;
 static constexpr socket_t kInvalidSocket = INVALID_SOCKET;
 #else
+    #include <arpa/inet.h>
+    #include <netinet/in.h>
+    #include <sys/select.h>
+    #include <sys/socket.h>
+    #include <sys/stat.h>
+    #include <unistd.h>
 #if defined(__APPLE__)
     #include <mach-o/dyld.h>   // _NSGetExecutablePath
     #include <sys/syslimits.h> // PATH_MAX
 #endif
 using socket_t = int;
 static constexpr socket_t kInvalidSocket = -1;
+#endif
+
+#if defined(_WIN32) && defined(small)
+// Legacy RPC token from the Windows headers. In the amalgamated build it
+// would otherwise rewrite later C++ members such as `opts.small`.
+    #undef small
 #endif
 
 namespace affineui {
@@ -439523,8 +440884,9 @@ void image_loader_stub() {
 
 #if !defined(AFFINEUI_STUB_BUILD)
 #    if !defined(AFFINEUI_HOST_PROVIDES_NANOVG)
-// adopt_native_image wraps an existing sg_image via the NanoVG-on-sokol
-// backend (declarations only; the backend TU is nanovg_sokol.c).
+// draw_native_image wraps an sg_image for one paint frame via the
+// NanoVG-on-sokol backend (declarations only; the backend TU is
+// nanovg_sokol.c).
 #    endif
 #    if defined(AFFINEUI_HAVE_EMBEDDED_FONTS)
 // Byte arrays generated at build time from assets/fonts/*.ttf by bin2c.
@@ -440001,7 +441363,18 @@ public:
         nvgBeginFrame(vg_, static_cast<float>(width), static_cast<float>(height), dpi_scale);
     }
 
-    void end_frame() override { nvgEndFrame(vg_); }
+    void end_frame() override {
+        nvgEndFrame(vg_);
+        // Native-image wrappers are paint-frame scratch. NanoVG has emitted
+        // every draw that references them, and NVG_IMAGE_NODELETE guarantees
+        // that deleting the wrapper does not delete the renderer-owned
+        // texture. Keeping these wrappers across frames would recreate the
+        // exact lifetime coupling draw_native_image is designed to avoid.
+        for (int image : native_images_in_frame_) {
+            nvgDeleteImage(vg_, image);
+        }
+        native_images_in_frame_.clear();
+    }
 
     void fill_rect(const Rect& r, Color c) override {
         nvgBeginPath(vg_);
@@ -441460,11 +442833,19 @@ public:
         nvgDeleteImage(vg_, static_cast<int>(image));
     }
 
-    std::uint32_t adopt_native_image(std::uint64_t native_handle, int w,
-                                     int h, bool flip_y) override {
+    void draw_native_image(std::uint64_t native_handle,
+                           int native_width,
+                           int native_height,
+                           bool flip_y,
+                           const Rect& dst) override {
 #if !defined(AFFINEUI_HOST_PROVIDES_NANOVG)
+        if (native_handle == 0 || native_width <= 0 || native_height <= 0 ||
+            dst.w <= 0 || dst.h <= 0) {
+            return;
+        }
         // The texture stays owned by the caller (NVG_IMAGE_NODELETE);
-        // the {0} sampler falls back to the backend's default.
+        // the {0} sampler falls back to the backend's default. The wrapper is
+        // retained only until end_frame(), after NanoVG has emitted the draw.
         sg_image img;
         img.id = static_cast<std::uint32_t>(native_handle);
         sg_sampler smp;
@@ -441472,17 +442853,20 @@ public:
         const int flags =
             NVG_IMAGE_NODELETE | (flip_y ? NVG_IMAGE_FLIPY : 0);
         const int id =
-            nvsgCreateImageFromHandle(vg_, img, smp, w, h, flags);
-        return id > 0 ? static_cast<std::uint32_t>(id) : 0u;
+            nvsgCreateImageFromHandle(vg_, img, smp, native_width,
+                                      native_height, flags);
+        if (id <= 0) return;
+        native_images_in_frame_.push_back(id);
+        draw_image(static_cast<std::uint32_t>(id), dst,
+                   Rect{0, 0, native_width, native_height});
 #else
         // Host-provided NanoVG backend: no sokol texture injection.
-        (void)native_handle; (void)w; (void)h; (void)flip_y;
-        return 0u;
+        (void)native_handle;
+        (void)native_width;
+        (void)native_height;
+        (void)flip_y;
+        (void)dst;
 #endif
-    }
-
-    void release_native_image(std::uint32_t image) override {
-        if (image != 0) nvgDeleteImage(vg_, static_cast<int>(image));
     }
 
     void push_clip(const Rect& r) override {
@@ -441778,6 +443162,7 @@ private:
     std::vector<int>                             cjk_fallback_faces_;
     std::vector<int>                             cjk_fallback_bold_faces_;
     std::unordered_map<std::string, int>         image_cache_;
+    std::vector<int>                             native_images_in_frame_;
     std::unordered_map<std::uint64_t, int>       stripe_cache_;
     std::unordered_map<std::uint64_t, int>       gradient_luts_;
     std::unordered_map<std::uint64_t, int>       grid_cache_;
