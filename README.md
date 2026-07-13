@@ -24,7 +24,9 @@ a two file no-dep header/cpp lib.**
 
 [Watch on YouTube](https://youtu.be/Wblf3O26ZEc)
 
-Download (right click, Save link as..): [affineui.cpp](https://github.com/affineui/affineui/blob/main/dist/affineui.cpp) and [affineui.h](https://github.com/affineui/affineui/blob/main/dist/affineui.h)
+Download C++ (right click, Save link as..): [affineui.cpp](https://github.com/affineui/affineui/blob/main/dist/affineui.cpp) and [affineui.h](https://github.com/affineui/affineui/blob/main/dist/affineui.h)
+
+[Python PyPI](https://pypi.org/project/affineui/) [Rust crates.io](https://crates.io/crates/affineui) [.net NuGet](https://www.nuget.org/packages/AffineUI)
 
 <img src="images/affineui_dender.png" width="720" alt="AffineUI running the Dender 3D-print slicer">
 
