@@ -22,11 +22,7 @@
 component framework — a native replacement for Electron and Qt. Written in C++ as 
 a two file no-dep header/cpp lib.**
 
-<p align="center">
-  <a href="https://youtu.be/Wblf3O26ZE">
-    <img src="https://youtube.com" alt="Watch the video" width="560">
-  </a>
-</p>
+[Watch YouTube Video](https://youtu.be/Wblf3O26ZE)
 
 <img src="images/affineui_dender.png" width="720" alt="AffineUI running the Dender 3D-print slicer">
 
