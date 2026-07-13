@@ -20,7 +20,7 @@
 
 **एक छोटा, HTML5-अनुरूप, GPU-त्वरित UI renderer, जिसमें एक एकीकृत component framework शामिल है — Electron और Qt का एक native विकल्प।**
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_dender.png" width="720" alt="Dender 3D-print slicer चलाता हुआ AffineUI">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_dender.png" width="720" alt="Dender 3D-print slicer चलाता हुआ AffineUI">
 
 *Dender — एक 3D-print slicer जो AffineUI का डिफ़ॉल्ट Decius CSS look दिखा रहा है। Docked panels, एक custom viewport, और पूरे-app का layout — सब कुछ natively रेंडर किया गया।*
 
@@ -39,7 +39,7 @@ AffineUI एक असली browser-style HTML/CSS layout और paint engine �
 
 **यह एक existing project में drop-in हो जाता है और बस काम करता है।** अगर आपके पास पहले से कोई SDL2 या sokol_app application है, तो AffineUI जोड़ना बस दो फ़ाइलें और एक wire-up call है — कोई build-system fork नहीं, कोई runtime download नहीं, कोई अलग window नहीं। Include, load, render, हो गया।
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="AffineUI से बनाया गया skeuomorphic synth demo">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="AffineUI से बनाया गया skeuomorphic synth demo">
 
 *एक skeuomorphic modular synth demo — screen पर दिखने वाली हर चीज़ standard HTML + CSS है: knobs, cables, panel textures, animations। कोई custom widget toolkit नहीं, कोई plugins नहीं।*
 
@@ -361,7 +361,7 @@ Tailwind-style utility classes, और Ant-style component markup — सब
 [`examples/01_bootstrap`](../../examples/01_bootstrap) और
 [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard)।
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_bootstrap.png" width="720" alt="Bootstrap CSS को render करता हुआ AffineUI">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_bootstrap.png" width="720" alt="Bootstrap CSS को render करता हुआ AffineUI">
 
 *अनसंशोधित Bootstrap 4.6 CSS library natively render हो रही है — cards, navbars, buttons, और hover/active states, सीधे असली `.min.css` से।*
 
@@ -436,7 +436,7 @@ Repo को clone करें और CMake से build करें — `examp
 UIs, और framework compatibility को कवर करती हैं।
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 cmake -S . -B build -G Ninja
 cmake --build build
@@ -461,7 +461,7 @@ cmake --build build
 ./build.sh list
 ```
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="Game editor demo">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_game_editor.png" width="720" alt="Game editor demo">
 
 *Decius Game Editor demo — AffineUI के डिफ़ॉल्ट Decius CSS look में docked panels, tree view, inspector, और toolbars।*
 

@@ -11,7 +11,7 @@ name: Wheels
 #
 # Publishing uses PyPI's Trusted Publisher (OIDC) flow — no API tokens in
 # repo secrets. You configure the publisher once in the PyPI project's
-# "Publishing" settings (owner = benjcooley, repo = affineui, workflow =
+# "Publishing" settings (owner = affineui, repo = affineui, workflow =
 # wheels.yml, environment = pypi). After that, pushing a `v*.*.*` tag
 # triggers a build + publish; PRs and main-branch pushes only build (no
 # publish) so wheels stay smoke-tested on every change.

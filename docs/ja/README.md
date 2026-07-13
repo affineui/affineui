@@ -20,7 +20,7 @@
 
 **小さく、HTML5準拠で、GPUアクセラレーションを備えたUIレンダラー。コンポーネントフレームワークを統合しており、ElectronやQtのネイティブな代替となります。**
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_dender.png" width="720" alt="Dender 3Dプリントスライサーを動作させているAffineUI">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_dender.png" width="720" alt="Dender 3Dプリントスライサーを動作させているAffineUI">
 
 *Dender — AffineUIのデフォルトであるDecius CSSの見た目を示す3Dプリントスライサー。ドッキング可能なパネル、カスタムビューポート、そしてアプリ全体のレイアウトが、すべてネイティブでレンダリングされています。*
 
@@ -35,7 +35,7 @@ AffineUIは、本物のブラウザ相当のHTML/CSSレイアウトおよびペ�
 
 **既存のプロジェクトにそのまま組み込むだけで動作します。** すでにSDL2やsokol_appを使ったアプリケーションがあるなら、AffineUIの追加は2ファイルと配線用の呼び出し1つで済みます。ビルドシステムをフォークする必要も、ランタイムをダウンロードする必要も、別ウィンドウを用意する必要もありません。インクルードしてロードしてレンダリングすれば完了です。
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="AffineUIで構築されたスキューモーフィックなシンセデモ">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="AffineUIで構築されたスキューモーフィックなシンセデモ">
 
 *スキューモーフィックなモジュラーシンセのデモ — 画面上のすべては標準のHTML + CSSです。ノブ、ケーブル、パネルのテクスチャ、アニメーションのすべてがそうです。カスタムウィジェットツールキットもプラグインもありません。*
 
@@ -303,7 +303,7 @@ AffineUIはHTML風のレイアウトソルバではなく、本物のHTML5 / CSS
 
 Deciusはデフォルトですが、**必須ではありません**。AffineUIが出力するクラス名にセレクタが一致するCSSはすべて組み込みコンポーネントをスタイリングでき、生のパスからロードした手書きのHTMLは、好きなCSSをいくらでも持ち込むことができます。Bootstrap 4.6、Tailwind風のユーティリティクラス、Ant風のコンポーネントマークアップはすべて、そのままレンダリングできます — [`examples/01_bootstrap`](../../examples/01_bootstrap) と [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard) を参照してください。
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_bootstrap.png" width="720" alt="Bootstrap CSSをレンダリングするAffineUI">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_bootstrap.png" width="720" alt="Bootstrap CSSをレンダリングするAffineUI">
 
 *無改造のBootstrap 4.6 CSSライブラリがネイティブにレンダリングされています — カード、ナビゲーションバー、ボタン、ホバー/アクティブ状態のいずれも、本物の `.min.css` からそのまま動作しています。*
 
@@ -369,7 +369,7 @@ int main() {
 リポジトリをクローンしてCMakeでビルドしてください — `examples/` フォルダには、ゲームツール、DCC UI、フレームワーク互換性をカバーするおよそ20本のエンドツーエンドアプリケーションが同梱されています。
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 cmake -S . -B build -G Ninja
 cmake --build build
@@ -394,7 +394,7 @@ cmake --build build
 ./build.sh list
 ```
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="ゲームエディタのデモ">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_game_editor.png" width="720" alt="ゲームエディタのデモ">
 
 *Decius Game Editorデモ — AffineUIのデフォルトであるDecius CSSの見た目における、ドッキング可能なパネル、ツリービュー、インスペクタ、ツールバー。*
 

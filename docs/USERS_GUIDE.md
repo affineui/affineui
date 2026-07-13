@@ -785,7 +785,7 @@ A good path through `examples/`:
 ## Getting help
 
 Found a bug? File it at
-[github.com/benjcooley/affineui/issues](https://github.com/benjcooley/affineui/issues)
+[github.com/affineui/affineui/issues](https://github.com/affineui/affineui/issues)
 — it's alpha, so bug reports are genuinely useful. To ask questions or
 discuss AffineUI, head to [r/affineui](https://www.reddit.com/r/affineui/).
 

@@ -1,4 +1,4 @@
-> ⚠️ **This is an [AffineUI](https://github.com/benjcooley/affineui) fork of NanoVG.**
+> ⚠️ **This is an [AffineUI](https://github.com/affineui/affineui) fork of NanoVG.**
 > It adds a **sokol_gfx render backend** (`src/nanovg_sokol.h`) plus a few patches,
 > so NanoVG runs on D3D11/Metal/GL/WebGPU with no raw GL/D3D/Metal in the consumer.
 > **See [AFFINEUI_README.md](AFFINEUI_README.md)** for exactly what's different and why.

@@ -21,7 +21,7 @@
 **Ein kleiner, HTML5-konformer, GPU-beschleunigter UI-Renderer mit integriertem
 Komponenten-Framework — ein nativer Ersatz für Electron und Qt.**
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_dender.png" width="720" alt="AffineUI beim Ausführen des 3D-Druck-Slicers Dender">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_dender.png" width="720" alt="AffineUI beim Ausführen des 3D-Druck-Slicers Dender">
 
 *Dender — ein 3D-Druck-Slicer, der den standardmäßigen Decius-CSS-Look von AffineUI zeigt. Andockbare Panels, ein eigener Viewport und ein komplettes App-Layout, alles nativ gerendert.*
 
@@ -48,7 +48,7 @@ von AffineUI zwei Dateien und ein Verdrahtungsaufruf nötig — kein Fork des
 Build-Systems, kein Runtime-Download, kein separates Fenster. Einbinden, laden,
 rendern, fertig.
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="Skeuomorphe Synth-Demo, gebaut mit AffineUI">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="Skeuomorphe Synth-Demo, gebaut mit AffineUI">
 
 *Eine skeuomorphe modulare Synth-Demo — alles auf dem Bildschirm ist standardmäßiges HTML + CSS: Regler, Kabel, Panel-Texturen, Animationen. Kein eigenes Widget-Toolkit, keine Plugins.*
 
@@ -373,7 +373,7 @@ gerendert — siehe
 [`examples/01_bootstrap`](../../examples/01_bootstrap) und
 [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard).
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_bootstrap.png" width="720" alt="AffineUI rendert Bootstrap CSS">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_bootstrap.png" width="720" alt="AffineUI rendert Bootstrap CSS">
 
 *Die unveränderte Bootstrap-4.6-CSS-Bibliothek, nativ gerendert — Cards, Navbars, Buttons und Hover-/Active-States, direkt aus der echten `.min.css`.*
 
@@ -449,7 +449,7 @@ rund zwanzig End-to-End-Anwendungen, die Game-Tools, DCC-UIs und
 Framework-Kompatibilität abdecken.
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 cmake -S . -B build -G Ninja
 cmake --build build
@@ -474,7 +474,7 @@ Mit dem Task-Runner starten – er baut, was die Demo braucht, und führt sie au
 ./build.sh list
 ```
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="Game-Editor-Demo">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_game_editor.png" width="720" alt="Game-Editor-Demo">
 
 *Decius-Game-Editor-Demo — andockbare Panels, Tree-View, Inspector und Toolbars im standardmäßigen Decius-CSS-Look von AffineUI.*
 

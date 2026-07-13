@@ -18,8 +18,8 @@
     <Version>0.0.3-alpha</Version>
     <Authors>Benjamin Cooley</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/benjcooley/affineui</RepositoryUrl>
-    <PackageProjectUrl>https://github.com/benjcooley/affineui</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/affineui/affineui</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/affineui/affineui</PackageProjectUrl>
     <PackageTags>gui;ui;html;css;native;gamedev;imgui</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <!-- Where the native affineui_c.dll comes from (repo dev build by

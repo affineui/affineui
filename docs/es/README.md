@@ -20,7 +20,7 @@
 
 **Un renderizador de UI pequeño, compatible con HTML5 y acelerado por GPU, con un framework de componentes integrado — un reemplazo nativo para Electron y Qt.**
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_dender.png" width="720" alt="AffineUI ejecutando el laminador de impresión 3D Dender">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_dender.png" width="720" alt="AffineUI ejecutando el laminador de impresión 3D Dender">
 
 *Dender — un laminador de impresión 3D que muestra el aspecto por defecto de AffineUI con Decius CSS. Paneles acoplables, un viewport personalizado y un layout de aplicación completo, todo renderizado de forma nativa.*
 
@@ -35,7 +35,7 @@ Está pensado para:
 
 **Se integra en un proyecto existente y simplemente funciona.** Si ya tienes una aplicación con SDL2 o sokol_app, añadir AffineUI son dos archivos y una llamada de conexión — sin fork del sistema de build, sin descarga en tiempo de ejecución, sin ventana aparte. Incluir, cargar, renderizar, listo.
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="Demo de un sintetizador skeuomórfico construido con AffineUI">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="Demo de un sintetizador skeuomórfico construido con AffineUI">
 
 *Una demo skeuomórfica de sintetizador modular — todo lo que aparece en pantalla es HTML + CSS estándar: perillas, cables, texturas de panel, animaciones. Sin toolkit de widgets a medida, sin plugins.*
 
@@ -360,7 +360,7 @@ todos sin configuración adicional — mira
 [`examples/01_bootstrap`](../../examples/01_bootstrap) y
 [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard).
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_bootstrap.png" width="720" alt="AffineUI renderizando CSS de Bootstrap">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_bootstrap.png" width="720" alt="AffineUI renderizando CSS de Bootstrap">
 
 *La librería CSS Bootstrap 4.6 sin modificar renderizando de forma nativa — tarjetas, navbars, botones y estados hover/active, directamente del `.min.css` real.*
 
@@ -436,7 +436,7 @@ aproximadamente veinte aplicaciones de extremo a extremo que cubren
 herramientas de juegos, UIs de tipo DCC y compatibilidad con frameworks.
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 cmake -S . -B build -G Ninja
 cmake --build build
@@ -461,7 +461,7 @@ Ejecuta cualquiera con el task runner: compila lo necesario y la lanza (`./build
 ./build.sh list
 ```
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="Demo del editor de juegos">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_game_editor.png" width="720" alt="Demo del editor de juegos">
 
 *Demo del Decius Game Editor — paneles acoplables, vista de árbol, inspector y barras de herramientas con el aspecto por defecto de AffineUI con Decius CSS.*
 

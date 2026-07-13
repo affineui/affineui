@@ -20,7 +20,7 @@
 
 **작고 HTML5 표준을 준수하며 GPU 가속을 지원하는 UI 렌더러 — 컴포넌트 프레임워크가 통합된, Electron 및 Qt의 네이티브 대체품.**
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_dender.png" width="720" alt="AffineUI로 실행 중인 Dender 3D 프린트 슬라이서">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_dender.png" width="720" alt="AffineUI로 실행 중인 Dender 3D 프린트 슬라이서">
 
 *Dender — AffineUI의 기본 Decius CSS 룩을 보여주는 3D 프린트 슬라이서. 도킹된 패널, 커스텀 뷰포트, 그리고 전체 앱 레이아웃까지 모두 네이티브로 렌더링됩니다.*
 
@@ -35,7 +35,7 @@ AffineUI는 실제 브라우저 스타일의 HTML/CSS 레이아웃 및 페인트
 
 **기존 프로젝트에 그대로 넣기만 하면 동작합니다.** 이미 SDL2 또는 sokol_app 애플리케이션이 있다면, AffineUI를 추가하는 데 필요한 것은 파일 두 개와 연결 호출 한 번뿐입니다 — 빌드 시스템을 갈아엎을 필요도, 런타임을 다운로드할 필요도, 별도의 창을 띄울 필요도 없습니다. 포함하고, 로드하고, 렌더링하면 끝.
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="AffineUI로 만든 스큐어모픽 신디사이저 데모">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="AffineUI로 만든 스큐어모픽 신디사이저 데모">
 
 *스큐어모픽 모듈러 신디사이저 데모 — 화면상의 모든 것이 표준 HTML + CSS입니다: 노브, 케이블, 패널 텍스처, 애니메이션. 커스텀 위젯 툴킷도, 플러그인도 사용하지 않았습니다.*
 
@@ -303,7 +303,7 @@ AffineUI는 HTML 모양의 레이아웃 솔버가 아니라 실제 HTML5 / CSS �
 
 Decius는 기본값일 뿐 **필수 요구 사항은 아닙니다**. AffineUI가 방출하는 클래스 이름에 셀렉터가 매칭되는 어떤 CSS라도 내장 컴포넌트에 스타일을 적용할 수 있고, 원시 경로로 로드하는 직접 작성한 HTML은 원하는 어떤 CSS든 가져올 수 있습니다. Bootstrap 4.6, Tailwind 스타일의 유틸리티 클래스, Ant 스타일의 컴포넌트 마크업이 모두 그대로 렌더링됩니다 — [`examples/01_bootstrap`](../../examples/01_bootstrap)과 [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard)를 참조하세요.
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_bootstrap.png" width="720" alt="Bootstrap CSS를 렌더링하는 AffineUI">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_bootstrap.png" width="720" alt="Bootstrap CSS를 렌더링하는 AffineUI">
 
 *수정 없는 Bootstrap 4.6 CSS 라이브러리가 네이티브로 렌더링되는 모습 — 카드, 내비바, 버튼, 그리고 호버/액티브 상태까지 실제 `.min.css`에서 곧바로 나온 것입니다.*
 
@@ -369,7 +369,7 @@ int main() {
 레포지토리를 클론하고 CMake로 빌드하세요 — `examples/` 폴더에는 게임 도구, DCC UI, 프레임워크 호환성을 다루는 약 스무 개 정도의 엔드투엔드 애플리케이션이 포함되어 있습니다.
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 cmake -S . -B build -G Ninja
 cmake --build build
@@ -394,7 +394,7 @@ cmake --build build
 ./build.sh list
 ```
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="게임 에디터 데모">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_game_editor.png" width="720" alt="게임 에디터 데모">
 
 *Decius Game Editor 데모 — AffineUI의 기본 Decius CSS 룩으로 만든 도킹된 패널, 트리 뷰, 인스펙터, 툴바.*
 

@@ -21,7 +21,7 @@
 **Небольшой, HTML5-совместимый, GPU-ускоренный UI-рендерер со встроенным
 фреймворком компонентов — нативная замена Electron и Qt.**
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_dender.png" width="720" alt="AffineUI, запускающий слайсер для 3D-печати Dender">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_dender.png" width="720" alt="AffineUI, запускающий слайсер для 3D-печати Dender">
 
 *Dender — слайсер для 3D-печати, демонстрирующий стандартный внешний вид AffineUI на CSS Decius. Стыкуемые панели, кастомный вьюпорт и полноценный лейаут приложения — всё отрисовано нативно.*
 
@@ -49,7 +49,7 @@ Gradio), Rust-крейта и C#-пакета NuGet. Один рендерер, 
 загрузки рантайма, никакого отдельного окна. Подключил, загрузил,
 отрисовал — готово.
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="Скевоморфное демо синтезатора, собранное на AffineUI">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="Скевоморфное демо синтезатора, собранное на AffineUI">
 
 *Демо скевоморфного модульного синтезатора — всё на экране это стандартные HTML + CSS: ручки, кабели, текстуры панелей, анимации. Никакого кастомного тулкита виджетов, никаких плагинов.*
 
@@ -372,7 +372,7 @@ Bootstrap 4.6, утилитарные классы в стиле Tailwind и р�
 [`examples/01_bootstrap`](../../examples/01_bootstrap) и
 [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard).
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_bootstrap.png" width="720" alt="AffineUI отрисовывает Bootstrap CSS">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_bootstrap.png" width="720" alt="AffineUI отрисовывает Bootstrap CSS">
 
 *Немодифицированная библиотека Bootstrap 4.6, рендерящаяся нативно — карточки, навбары, кнопки и состояния hover/active, прямо из настоящего `.min.css`.*
 
@@ -448,7 +448,7 @@ int main() {
 инструменты, DCC UI и совместимость с фреймворками.
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 cmake -S . -B build -G Ninja
 cmake --build build
@@ -473,7 +473,7 @@ cmake --build build
 ./build.sh list
 ```
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="Демо редактора игр">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_game_editor.png" width="720" alt="Демо редактора игр">
 
 *Демо Decius Game Editor — стыкуемые панели, дерево, инспектор и тулбары в стандартном виде AffineUI на CSS Decius.*
 

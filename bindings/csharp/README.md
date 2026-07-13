@@ -1,8 +1,8 @@
 # AffineUI — C# / .NET binding
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_dender.png" width="720" alt="AffineUI running the Dender 3D-print slicer — the default Decius CSS look">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_dender.png" width="720" alt="AffineUI running the Dender 3D-print slicer — the default Decius CSS look">
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_bootstrap.png" width="720" alt="AffineUI rendering a Bootstrap dashboard">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_bootstrap.png" width="720" alt="AffineUI rendering a Bootstrap dashboard">
 
 An idiomatic .NET wrapper over the AffineUI C ABI (`affineui_c`), shaped like
 the Python binding: a gradio/imgui-style `View` builder, typed components,

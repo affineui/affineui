@@ -22,7 +22,7 @@
 
 **عارض واجهات مستخدم صغير، متوافق مع HTML5، ومُسرَّع بواسطة GPU، مع إطار عمل مدمج للمكوّنات — بديل أصلي (native) لـ Electron و Qt.**
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_dender.png" width="720" alt="AffineUI يشغّل مُشرِّح الطباعة ثلاثية الأبعاد Dender">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_dender.png" width="720" alt="AffineUI يشغّل مُشرِّح الطباعة ثلاثية الأبعاد Dender">
 
 *Dender — مُشرِّح طباعة ثلاثية الأبعاد يُظهر المظهر الافتراضي لـ Decius CSS في AffineUI. لوحات مُثبَّتة (docked)، ومنفذ عرض مخصَّص، وتخطيط تطبيق كامل، كل ذلك مُقدَّم بشكل أصلي.*
 
@@ -37,7 +37,7 @@
 
 **يندمج في مشروع قائم ويعمل مباشرة.** إذا كان لديك تطبيق يستخدم SDL2 أو sokol_app بالفعل، فإن إضافة AffineUI تعني ملفَّين ونداء توصيل واحد — لا انقسام في نظام البناء، ولا تنزيل لزمن تشغيل، ولا نافذة منفصلة. ضمِّن، حمِّل، اعرض، انتهيت.
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="عرض توضيحي لمُركِّب صوتي معياري بأسلوب سكوومورفي مبني على AffineUI">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="عرض توضيحي لمُركِّب صوتي معياري بأسلوب سكوومورفي مبني على AffineUI">
 
 *عرض توضيحي لمُركِّب صوتي معياري بأسلوب سكوومورفي — كل ما على الشاشة هو HTML + CSS قياسي: مقابض، وكابلات، وخامات لوحات، ورسوم متحركة. لا مجموعة أدوات widget مخصَّصة، ولا إضافات.*
 
@@ -315,7 +315,7 @@ Decius هو الافتراضي، **وليس اشتراطًا**. أي CSS تتط�
 [`examples/01_bootstrap`](../../examples/01_bootstrap) و
 [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard).
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_bootstrap.png" width="720" alt="AffineUI يعرض Bootstrap CSS">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_bootstrap.png" width="720" alt="AffineUI يعرض Bootstrap CSS">
 
 *مكتبة Bootstrap 4.6 CSS غير المُعدَّلة تُعرض بشكل أصلي — بطاقات، وأشرطة تنقُّل، وأزرار، وحالات hover و active، مباشرة من ملف `.min.css` الحقيقي.*
 
@@ -384,7 +384,7 @@ int main() {
 استنسخ المستودع وابنِ باستخدام CMake — يشحن مجلد `examples/` نحو عشرين تطبيقًا متكاملًا من طرف إلى طرف يغطي أدوات الألعاب، وواجهات DCC، وتوافق الأُطر.
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 cmake -S . -B build -G Ninja
 cmake --build build
@@ -409,7 +409,7 @@ cmake --build build
 ./build.sh list
 ```
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="عرض توضيحي لمحرِّر الألعاب">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_game_editor.png" width="720" alt="عرض توضيحي لمحرِّر الألعاب">
 
 *عرض توضيحي لـ Decius Game Editor — لوحات مثبَّتة، وعرض شجري، ومُفتِّش، وأشرطة أدوات في المظهر الافتراضي لـ Decius CSS في AffineUI.*
 
