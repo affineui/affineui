@@ -28,7 +28,7 @@ pip install affineui
 Prebuilt wheels ship for CPython 3.9 – 3.13 on Linux (`manylinux_2_28`
 x86_64), macOS (universal2 — Intel + Apple Silicon), and Windows AMD64.
 
-For a source install from a clone of the [main repo](https://github.com/benjcooley/affineui):
+For a source install from a clone of the [main repo](https://github.com/affineui/affineui):
 
 ```bash
 pip install ./bindings/python           # regular install
@@ -122,7 +122,7 @@ app.load_view(build_view())
 raise SystemExit(app.run())
 ```
 
-The main repo's [`bindings/python/examples/`](https://github.com/benjcooley/affineui/tree/main/bindings/python/examples)
+The main repo's [`bindings/python/examples/`](https://github.com/affineui/affineui/tree/main/bindings/python/examples)
 ships larger runnable programs — a component gallery, a photo editor,
 and a full Bootstrap-styled panel demo.
 
@@ -166,7 +166,7 @@ HTML-shaped layout solver.
 - **Not (yet) a JS runtime.** JS + React support is on the roadmap as
   an opt-in extension.
 
-See the [main README](https://github.com/benjcooley/affineui) for the
+See the [main README](https://github.com/affineui/affineui) for the
 full picture, embedding notes, C++ / Rust / C# APIs, and the demo
 gallery.
 
@@ -174,7 +174,7 @@ gallery.
 
 ## Links
 
-- **Repository:** <https://github.com/benjcooley/affineui>
-- **Docs:** <https://github.com/benjcooley/affineui/tree/main/docs>
-- **Issues:** <https://github.com/benjcooley/affineui/issues>
+- **Repository:** <https://github.com/affineui/affineui>
+- **Docs:** <https://github.com/affineui/affineui/tree/main/docs>
+- **Issues:** <https://github.com/affineui/affineui/issues>
 - **License:** MIT

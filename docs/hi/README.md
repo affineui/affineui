@@ -436,7 +436,7 @@ Repo को clone करें और CMake से build करें — `examp
 UIs, और framework compatibility को कवर करती हैं।
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 cmake -S . -B build -G Ninja
 cmake --build build

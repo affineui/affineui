@@ -369,7 +369,7 @@ int main() {
 リポジトリをクローンしてCMakeでビルドしてください — `examples/` フォルダには、ゲームツール、DCC UI、フレームワーク互換性をカバーするおよそ20本のエンドツーエンドアプリケーションが同梱されています。
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 cmake -S . -B build -G Ninja
 cmake --build build

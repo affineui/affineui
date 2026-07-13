@@ -384,7 +384,7 @@ int main() {
 استنسخ المستودع وابنِ باستخدام CMake — يشحن مجلد `examples/` نحو عشرين تطبيقًا متكاملًا من طرف إلى طرف يغطي أدوات الألعاب، وواجهات DCC، وتوافق الأُطر.
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 cmake -S . -B build -G Ninja
 cmake --build build

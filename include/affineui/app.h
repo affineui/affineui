@@ -45,6 +45,8 @@ private:
     explicit AppHandle(std::weak_ptr<detail::AppImpl> impl) noexcept
         : impl_(std::move(impl)) {}
 
+    [[nodiscard]] std::shared_ptr<detail::AppImpl> lock_impl() const noexcept;
+
     std::weak_ptr<detail::AppImpl> impl_{};
     friend class App;
 };

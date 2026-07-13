@@ -436,7 +436,7 @@ aproximadamente veinte aplicaciones de extremo a extremo que cubren
 herramientas de juegos, UIs de tipo DCC y compatibilidad con frameworks.
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 cmake -S . -B build -G Ninja
 cmake --build build

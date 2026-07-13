@@ -240,6 +240,34 @@ TEST_CASE("App rebuild recovers after a throwing retained-view builder") {
     CHECK(app.document().find_element_rect("#recovered").w > 0);
 }
 
+TEST_CASE("App retained rebuild closes its mutation window after a nested builder throws") {
+    affineui::App app;
+    bool fail = false;
+    std::string element_id = "nested-initial";
+    app.set_view([&](affineui::View& view) {
+        view.begin();
+        auto node = view.container({}, "nested-lifecycle-node");
+        node.attr("id", element_id);
+        if (fail) throw std::runtime_error("expected nested rebuild failure");
+        view.paragraph("tail", {}, "nested-lifecycle-tail");
+        view.end();
+    });
+
+    app.document().layout(160, 80);
+    REQUIRE(app.document().find_element_rect("#nested-initial").w > 0);
+
+    fail = true;
+    element_id = "nested-partial";
+    CHECK_THROWS_AS(app.rebuild_view(), std::runtime_error);
+
+    fail = false;
+    element_id = "nested-recovered";
+    CHECK_NOTHROW(app.rebuild_view());
+    app.document().layout(160, 80);
+    CHECK(app.document().find_element_rect("#nested-recovered").w > 0);
+    CHECK(app.document().find_element_rect("#nested-partial").w == 0);
+}
+
 TEST_CASE("App bootstrap recovers after a nested view builder throws") {
     affineui::App app;
     bool fail = true;

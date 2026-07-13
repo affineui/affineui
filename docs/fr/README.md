@@ -369,7 +369,7 @@ Les deux adaptateurs vous fournissent le HiDPI, les changements de curseur, l'en
 Clonez le dépôt et construisez avec CMake — le dossier `examples/` embarque une vingtaine d'applications de bout en bout couvrant les outils de jeu, les interfaces DCC et la compatibilité avec les frameworks.
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 cmake -S . -B build -G Ninja
 cmake --build build

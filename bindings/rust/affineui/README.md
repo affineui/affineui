@@ -5,7 +5,7 @@
 <img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_bootstrap.png" width="720" alt="AffineUI rendering a Bootstrap dashboard">
 
 Safe, idiomatic Rust bindings for
-[AffineUI](https://github.com/benjcooley/affineui) — a tiny
+[AffineUI](https://github.com/affineui/affineui) — a tiny
 GPU-accelerated HTML/CSS UI renderer for tools and game engines.
 Build UIs with a gradio/imgui-style component tree; AffineUI renders
 them natively (D3D11/Metal/GL) with real CSS. No JS, no webview.

@@ -389,14 +389,14 @@ attached. Contains `affineui.h`, `affineui.cpp`, `LICENSE`, `README.md`.
 Latest stable:
 
 ```bash
-curl -LO https://github.com/benjcooley/affineui/releases/latest/download/affineui-latest.zip
+curl -LO https://github.com/affineui/affineui/releases/latest/download/affineui-latest.zip
 ```
 
 Note: GitHub's `latest` redirect is only to the newest **non-prerelease**
 Release. Pre-release SDK zips must be named by version:
 
 ```bash
-curl -LO https://github.com/benjcooley/affineui/releases/download/v1.2.4-rc.1/affineui-1.2.4-rc.1.zip
+curl -LO https://github.com/affineui/affineui/releases/download/v1.2.4-rc.1/affineui-1.2.4-rc.1.zip
 ```
 
 ## Troubleshooting

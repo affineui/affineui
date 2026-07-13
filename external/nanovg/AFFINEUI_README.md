@@ -1,6 +1,6 @@
 # affineui_nanovg — AffineUI's NanoVG fork
 
-This repository is a **maintained fork of [NanoVG](https://github.com/memononen/nanovg)** (Mikko Mononen, zlib), kept as part of the [**AffineUI**](https://github.com/benjcooley/affineui) project — a two-file, zero-dependency C++ HTML/CSS renderer for native apps and games.
+This repository is a **maintained fork of [NanoVG](https://github.com/memononen/nanovg)** (Mikko Mononen, zlib), kept as part of the [**AffineUI**](https://github.com/affineui/affineui) project — a two-file, zero-dependency C++ HTML/CSS renderer for native apps and games.
 
 It is the **source of truth** for the NanoVG code AffineUI ships. AffineUI doesn't depend on this repo at build time; instead the relevant files in [`src/`](src/) are **vendored** (copied) into `affineui/external/nanovg/`. Develop here, then sync into AffineUI. (See [README.md](README.md) for upstream NanoVG's own documentation.)
 

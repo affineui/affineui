@@ -449,7 +449,7 @@ rund zwanzig End-to-End-Anwendungen, die Game-Tools, DCC-UIs und
 Framework-Kompatibilität abdecken.
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 cmake -S . -B build -G Ninja
 cmake --build build

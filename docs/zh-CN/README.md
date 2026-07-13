@@ -383,7 +383,7 @@ int main() {
 克隆仓库并使用 CMake 构建——`examples/` 文件夹中提供了大约 20 个端到端应用，覆盖游戏工具、DCC UI 以及框架兼容性。
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 cmake -S . -B build -G Ninja
 cmake --build build

@@ -445,7 +445,7 @@ Clone the repo and use the task runner — `./build.sh run <name>` builds
 whatever that demo needs and launches it. There is nothing to install first.
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 
 ./build.sh run                    # the default demo (hello)
@@ -508,7 +508,7 @@ cargo run --manifest-path bindings/rust/affineui/Cargo.toml --example component_
 ## Community
 
 - **Found a bug?** File it at
-  [github.com/benjcooley/affineui/issues](https://github.com/benjcooley/affineui/issues).
+  [github.com/affineui/affineui/issues](https://github.com/affineui/affineui/issues).
   It's alpha — expect bugs, and bug reports are genuinely useful.
 - **Want to talk about AffineUI?** Discussion, questions, and show-and-tell
   live at [r/affineui](https://www.reddit.com/r/affineui/).

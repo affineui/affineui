@@ -1,5 +1,5 @@
 <!-- AFFINEUI FORK -->
-> ⚠️ **This is an [AffineUI](https://github.com/benjcooley/affineui) fork of Lexbor.**
+> ⚠️ **This is an [AffineUI](https://github.com/affineui/affineui) fork of Lexbor.**
 > The **`affineui`** branch carries a small patch set on top of upstream `v2.4.0`
 > (framework CSS shorthands like `border-radius`/`box-shadow`/`gap`, pseudo-class
 > specificity, and an `event_destroy` null guard). **See [AFFINEUI_README.md](AFFINEUI_README.md)**

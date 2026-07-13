@@ -178,6 +178,12 @@ struct AppImpl {
     mem::Stats            mem_prev{};
 };
 
+void refresh_view_bindings(AppImpl& impl, const View& view) {
+    impl.view_click_bindings = view.click_bindings();
+    impl.view_change_bindings = view.change_bindings();
+    impl.view_commit_bindings = view.commit_bindings();
+}
+
 bool local_asset_url(std::string_view url) {
     return !url.empty() &&
            url.find("://") == std::string_view::npos &&
@@ -604,53 +610,56 @@ void replay_view_node(ViewSink& sink, const WidgetNode& node,
 }
 }  // namespace detail
 
+std::shared_ptr<detail::AppImpl> AppHandle::lock_impl() const noexcept {
+    auto impl = impl_.lock();
+    if (!impl || impl->owner == nullptr) return {};
+    return impl;
+}
+
 bool AppHandle::is_valid() const noexcept {
-    const auto impl = impl_.lock();
-    return impl && impl->owner != nullptr;
+    return static_cast<bool>(lock_impl());
 }
 
 void AppHandle::set_custom_paint(std::string_view name,
                                  Document::CustomPaintFn fn) const {
-    const auto impl = impl_.lock();
-    if (!impl || impl->owner == nullptr) return;
+    const auto impl = lock_impl();
+    if (!impl) return;
     impl->document.set_custom_paint(name, std::move(fn));
     impl->dirty = true;
     impl->animations_active = false;
 }
 
 bool AppHandle::request_custom_repaint(std::string_view name) const {
-    const auto impl = impl_.lock();
-    if (!impl || impl->owner == nullptr) return false;
+    const auto impl = lock_impl();
+    if (!impl) return false;
     if (!impl->document.request_custom_repaint(name)) return false;
     impl->dirty = true;
     return true;
 }
 
 Rect AppHandle::find_element_rect(std::string_view target) const {
-    const auto impl = impl_.lock();
-    return impl && impl->owner != nullptr
-               ? impl->document.find_element_rect(target)
-               : Rect{};
+    const auto impl = lock_impl();
+    return impl ? impl->document.find_element_rect(target) : Rect{};
 }
 
 ImageHandle AppHandle::create_image_rgba(
     int width,
     int height,
     std::span<const std::uint8_t> rgba) const {
-    const auto impl = impl_.lock();
-    return impl && impl->owner != nullptr
+    const auto impl = lock_impl();
+    return impl
                ? impl->renderer.create_image_rgba(width, height, rgba)
                : ImageHandle{};
 }
 
 void AppHandle::capture_pointer() const {
-    const auto impl = impl_.lock();
-    if (impl && impl->owner != nullptr) impl->pointer_captured = true;
+    const auto impl = lock_impl();
+    if (impl) impl->pointer_captured = true;
 }
 
 void AppHandle::release_pointer() const {
-    const auto impl = impl_.lock();
-    if (impl && impl->owner != nullptr) impl->pointer_captured = false;
+    const auto impl = lock_impl();
+    if (impl) impl->pointer_captured = false;
 }
 
 void App::set_view(std::function<void(View&)> builder) {
@@ -691,12 +700,8 @@ void App::rebuild_view() {
             }
             locked_impl->document.end_view_mutations();
             if (locked_impl->retained_view) {
-                locked_impl->view_click_bindings =
-                    locked_impl->retained_view->click_bindings();
-                locked_impl->view_change_bindings =
-                    locked_impl->retained_view->change_bindings();
-                locked_impl->view_commit_bindings =
-                    locked_impl->retained_view->commit_bindings();
+                detail::refresh_view_bindings(
+                    *locked_impl, *locked_impl->retained_view);
             }
             locked_impl->dirty = true;
             locked_impl->animations_active = false;
@@ -705,12 +710,8 @@ void App::rebuild_view() {
     view.set_binding_dispatch([weak_impl] {
         const auto locked_impl = weak_impl.lock();
         if (!locked_impl || !locked_impl->retained_view) return;
-        locked_impl->view_click_bindings =
-            locked_impl->retained_view->click_bindings();
-        locked_impl->view_change_bindings =
-            locked_impl->retained_view->change_bindings();
-        locked_impl->view_commit_bindings =
-            locked_impl->retained_view->commit_bindings();
+        detail::refresh_view_bindings(
+            *locked_impl, *locked_impl->retained_view);
     });
 
     // Feed each virtual list its container's live scroll geometry so the build
@@ -762,13 +763,25 @@ void App::rebuild_view() {
         // Steady state: rebuild into the persistent view; only actual
         // differences reach the document (attribute/text mutations on
         // the cheap path; structural edits settle in one restyle).
-        auto* sink = impl->document.begin_view_mutations();
-        view.begin(sink);
+        bool view_begin_attempted = false;
         bool view_end_attempted = false;
         try {
+            auto* sink = impl->document.begin_view_mutations();
+            view_begin_attempted = true;
+            view.begin(sink);
             impl->view_builder(view);
             view_end_attempted = true;
             view.end();
+
+            // Document-level selector attributes (density / accent / theme)
+            // only reach the DOM through the bootstrap shell; a retained-view
+            // rebuild must re-stamp them on the live <body> or selector()
+            // flips are silent no-ops. Stamped INSIDE the mutation window so
+            // the flip and reconcile settle once, together. No-op unchanged.
+            for (const auto& attr : view.resolved_document_attrs()) {
+                impl->document.set_body_attribute(attr.name, attr.value);
+            }
+            impl->document.end_view_mutations();
         } catch (...) {
             const auto failure = std::current_exception();
             // A builder exception mid-batch must not leave the mutation
@@ -779,7 +792,7 @@ void App::rebuild_view() {
             // swallows the resulting faults, so the app limps on corrupt).
             // Close the window so the document settles what was applied,
             // then propagate.
-            if (!view_end_attempted) {
+            if (view_begin_attempted && !view_end_attempted) {
                 view_end_attempted = true;
                 // The builder may have thrown between its own begin()/end();
                 // collapse that nesting so this end() actually settles the
@@ -797,7 +810,20 @@ void App::rebuild_view() {
                                  "AffineUI view cleanup failed\n");
                 }
             }
-            impl->document.end_view_mutations();
+            // begin_view_mutations() may throw after opening the window, and
+            // end_view_mutations() itself may throw while settling it. It is
+            // idempotent when no batch is active, so always attempt cleanup
+            // without replacing the original failure.
+            try {
+                impl->document.end_view_mutations();
+            } catch (const std::exception& e) {
+                std::fprintf(stderr,
+                             "AffineUI document cleanup failed: %s\n",
+                             e.what());
+            } catch (...) {
+                std::fprintf(stderr,
+                             "AffineUI document cleanup failed\n");
+            }
             try {
                 std::rethrow_exception(failure);
             } catch (const std::exception& e) {
@@ -808,15 +834,6 @@ void App::rebuild_view() {
             }
             std::rethrow_exception(failure);
         }
-        // Document-level selector attributes (density / accent / theme) only
-        // reach the DOM through the bootstrap shell; a retained-view rebuild
-        // must re-stamp them on the live <body> or selector() flips are
-        // silent no-ops. Stamped INSIDE the mutation window so the flip and
-        // the reconcile settle once, together. No-op when unchanged.
-        for (const auto& attr : view.resolved_document_attrs()) {
-            impl->document.set_body_attribute(attr.name, attr.value);
-        }
-        impl->document.end_view_mutations();
     }
 
     // Builder-misuse diagnostics (undeclared dock panels, bad selectors, …)
@@ -829,9 +846,7 @@ void App::rebuild_view() {
     }
     view.clear_diagnostics();
 
-    impl->view_click_bindings = view.click_bindings();
-    impl->view_change_bindings = view.change_bindings();
-    impl->view_commit_bindings = view.commit_bindings();
+    detail::refresh_view_bindings(*impl, view);
     impl->dirty = true;
     impl->animations_active = false;
     // The reconcile has landed; nothing further to rebuild until the next

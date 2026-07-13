@@ -369,7 +369,7 @@ int main() {
 레포지토리를 클론하고 CMake로 빌드하세요 — `examples/` 폴더에는 게임 도구, DCC UI, 프레임워크 호환성을 다루는 약 스무 개 정도의 엔드투엔드 애플리케이션이 포함되어 있습니다.
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 cmake -S . -B build -G Ninja
 cmake --build build
