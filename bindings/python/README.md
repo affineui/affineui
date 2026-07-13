@@ -17,11 +17,13 @@ render out of the box; the bundled default is
 **Status:** alpha. Broad standards coverage, real UIs run today, but
 expect bugs and expect APIs to move.
 
-> **Alpha, but tested.** The version number carries no pre-release suffix,
-> yet AffineUI is still pre-1.0 — APIs will move. That said: the full suite
-> (600+ tests) passes on **Linux (Ubuntu, x86-64)**, **macOS (Apple Silicon)**,
-> and **Windows (x86-64)**, and real applications run on all three today.
-> Alpha here means "the API isn't frozen", not "it doesn't work".
+> **Note:** this release carries no `-alpha` suffix in its version number,
+> but AffineUI is alpha and pre-1.0. Features, APIs, and the set of supported
+> platforms are all still in flux.
+>
+> Verified on: **Linux (Ubuntu, x86-64)**, **macOS (Apple Silicon)**, and
+> **Windows (x86-64)** — the full suite (600+ tests) passes on each. Other
+> platforms and architectures are not yet supported.
 
 ---
 
