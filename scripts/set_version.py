@@ -149,11 +149,14 @@ def main() -> int:
         f'version = "{version}"',
     )
     # affineui/Cargo.toml also pins affineui-sys by version — bump that
-    # in lock-step so cargo publish accepts the workspace.
+    # in lock-step so cargo publish accepts the workspace. Rewrite only the
+    # `version = "..."` field and leave the rest of the dependency line alone;
+    # it also carries `default-features = false`, which gates the
+    # vendored/system features and must survive the bump.
     patch(
         "bindings/rust/affineui/Cargo.toml",
-        r'^affineui-sys = \{ path = "\.\./affineui-sys", version = "[^"]*" \}$',
-        f'affineui-sys = {{ path = "../affineui-sys", version = "{version}" }}',
+        r'^(affineui-sys = \{[^}]*?version = ")[^"]*(")',
+        rf'\g<1>{version}\g<2>',
     )
 
     # C# csproj: <Version>...</Version> — NuGet supports semver pre-release.

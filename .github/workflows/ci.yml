@@ -245,3 +245,47 @@ jobs:
           AFFINEUI_DUMP_HTML=1 ./build/examples/decius_game_editor/decius_game_editor \
             > /tmp/ge.html
           test -s /tmp/ge.html
+
+  version_stamp:
+    name: Version stamping (release manifests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # scripts/set_version.py rewrites the version in five manifests, and the
+      # release workflows run it to stamp a tag's version before publishing.
+      # It matches each file with an anchored regex and exits non-zero the moment
+      # one stops matching — so a routine edit to any of those lines silently
+      # breaks the release, and nothing notices until a tag is pushed and every
+      # publish job dies. That is exactly what happened: a `default-features` key
+      # was added to the affineui-sys dependency line, and the stamper had been
+      # aborting partway through — leaving the C# and CMake versions unstamped —
+      # ever since. Run it for real against a throwaway version and assert that
+      # every manifest actually took it.
+      - name: Stamp a scratch version and verify every manifest took it
+        run: |
+          set -euo pipefail
+          python3 scripts/set_version.py 9.9.9-ci
+
+          fail=0
+          check() {  # file, expected-substring
+            if grep -qF -- "$2" "$1"; then
+              echo "ok    $1"
+            else
+              echo "FAIL  $1 — expected to contain: $2"
+              fail=1
+            fi
+          }
+          check bindings/python/pyproject.toml            'version = "9.9.9-ci"'
+          check bindings/rust/Cargo.toml                  'version = "9.9.9-ci"'
+          check bindings/rust/affineui/Cargo.toml         'version = "9.9.9-ci"'
+          check bindings/csharp/AffineUI/AffineUI.csproj  '<Version>9.9.9-ci</Version>'
+          check CMakeLists.txt                            'VERSION 9.9.9'
+
+          # The affineui-sys dependency line also carries `default-features = false`,
+          # which gates the vendored/system features. A careless rewrite drops it.
+          check bindings/rust/affineui/Cargo.toml 'default-features = false'
+
+          exit "$fail"
