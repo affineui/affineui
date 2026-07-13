@@ -13,6 +13,15 @@ import pytest
 
 import affineui as ui
 
+# The sample's raster core is a SAMPLE sidecar, deliberately not shipped in the
+# wheel (see bindings/python/CMakeLists.txt). conftest loads it in a repo build,
+# so these run there; against an installed wheel they skip.
+pytest.importorskip(
+    "photo_core",
+    reason="photo_core is a sample sidecar, not shipped in the wheel; "
+           "run from a repo build (./build.sh run py_photo_edit)",
+)
+
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
 

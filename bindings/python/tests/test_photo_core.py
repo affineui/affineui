@@ -7,7 +7,16 @@ window is opened — everything runs against the CPU raster engine.
 
 import math
 
-import photo_core
+import pytest
+
+# photo_core is a SAMPLE sidecar, not part of affineui, and is deliberately not
+# shipped in the wheel (see bindings/python/CMakeLists.txt). It exists in a repo
+# build, so these tests run there and skip against an installed wheel.
+photo_core = pytest.importorskip(
+    "photo_core",
+    reason="photo_core is a sample sidecar, not shipped in the wheel; "
+           "run from a repo build (./build.sh run py_photo_edit)",
+)
 
 
 def make_doc(w=320, h=200):

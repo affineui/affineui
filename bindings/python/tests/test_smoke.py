@@ -2,8 +2,19 @@ import gc
 import sys
 from pathlib import Path
 
+import pytest
+
 import affineui as ui
-import photo_core
+
+# photo_core is a SAMPLE sidecar, deliberately not shipped in the wheel (see
+# bindings/python/CMakeLists.txt). It must not gate the LIBRARY smoke test —
+# only the two cases below actually need it, so they skip individually and the
+# rest of this file still runs against an installed wheel.
+_needs_photo_core = pytest.mark.skipif(
+    __import__("importlib.util", fromlist=["util"]).find_spec("photo_core") is None,
+    reason="photo_core is a sample sidecar, not shipped in the wheel; "
+           "run from a repo build (./build.sh run py_photo_edit)",
+)
 
 
 def test_version_is_available():
@@ -435,7 +446,10 @@ def test_append_is_illegal_during_generation():
     assert "append" in view.diagnostics()[0]
 
 
+@_needs_photo_core
 def test_photo_document_core_layer_history_operations():
+    import photo_core
+
     doc = photo_core.PhotoDocument(640, 480)
 
     assert doc.width() == 640
@@ -465,7 +479,10 @@ def test_photo_document_core_layer_history_operations():
     assert doc.redo() == "Delete Layer"
 
 
+@_needs_photo_core
 def test_photo_edit_sample_uses_cpp_core_and_is_clickable():
+    import photo_core
+
     examples = Path(__file__).resolve().parents[1] / "examples"
     sys.path.insert(0, str(examples))
     try:
