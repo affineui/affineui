@@ -32,6 +32,40 @@ fn shared_lib_name() -> &'static str {
     }
 }
 
+/// On-disk filename of a static archive built by CMake.
+fn static_lib_file(stem: &str) -> String {
+    if cfg!(target_env = "msvc") {
+        format!("{stem}.lib")
+    } else {
+        format!("lib{stem}.a")
+    }
+}
+
+/// System libraries the AffineUI static archive needs, mirroring the
+/// `target_link_libraries(affineui PUBLIC ...)` block in the top-level
+/// CMakeLists. A shared affineui_c resolved these internally; a static
+/// archive cannot, so the final Rust binary has to pull them in.
+fn emit_platform_link_libs() {
+    if cfg!(target_os = "macos") {
+        for fw in ["Cocoa", "QuartzCore", "AudioToolbox", "Metal", "MetalKit"] {
+            println!("cargo:rustc-link-lib=framework={fw}");
+        }
+        println!("cargo:rustc-link-lib=dylib=c++");
+    } else if cfg!(target_os = "windows") {
+        // MSVC links the C++ runtime automatically.
+        for lib in [
+            "user32", "gdi32", "ole32", "shell32", "ws2_32", "d3d11", "dxgi",
+        ] {
+            println!("cargo:rustc-link-lib=dylib={lib}");
+        }
+    } else {
+        for lib in ["X11", "Xi", "Xcursor", "GL", "dl", "m", "pthread"] {
+            println!("cargo:rustc-link-lib=dylib={lib}");
+        }
+        println!("cargo:rustc-link-lib=dylib=stdc++");
+    }
+}
+
 fn import_lib_name() -> &'static str {
     // On Windows, the linker consumes `affineui_c.lib` (the import lib).
     // On Unix, there's no separate import lib — the shared object is
@@ -168,8 +202,16 @@ fn build_vendored(src_dir: &Path) {
         }
     }
 
+    // Link the C ABI STATICALLY. The C ABI (affineui_* symbols) is compiled
+    // into the `affineui` static archive already — AFFINEUI_BUILD_C_SHARED
+    // only exists to additionally emit a shared affineui_c for bindings that
+    // *must* load a dynamic library at runtime (C# P/Invoke, the Python
+    // extension). Rust doesn't: linking the archive gives the single
+    // self-contained executable Rust users expect, instead of a binary that
+    // dies at startup unless libaffineui_c.so happens to be on the loader
+    // path. (`system` remains available for linking a prebuilt shared lib.)
     let dst = config
-        .define("AFFINEUI_BUILD_C_SHARED", "ON")
+        .define("AFFINEUI_BUILD_C_SHARED", "OFF")
         .define("AFFINEUI_BUILD_EXAMPLES", "OFF")
         .define("AFFINEUI_BUILD_TESTS", "OFF")
         .define("AFFINEUI_BUILD_TOOLS", "OFF")
@@ -180,27 +222,32 @@ fn build_vendored(src_dir: &Path) {
         // source tree smaller and avoids one more moving part.
         .define("AFFINEUI_NO_EMBEDDED_FONTS", "ON")
         .define("CMAKE_BUILD_TYPE", "Release")
-        .build_target("affineui_c")
+        .build_target("affineui")
         .build();
 
     let build_dir = dst.join("build");
 
-    // The library might land in either the top of the build tree
-    // (single-config generators — Ninja, Make) or under a subdir
-    // (multi-config generators — Xcode, VS).
-    let shared_lib_search = find_containing_dir(&build_dir, shared_lib_name())
-        .unwrap_or_else(|| build_dir.clone());
+    // affineui's archive does NOT bundle its vendored dependencies: lexbor and
+    // yoga are built as their own archives under _deps/. All three have to be
+    // linked, dependents before dependencies.
+    //
+    // Each may land at the top of the build tree (single-config generators —
+    // Ninja, Make) or under a config subdir (multi-config — Xcode, VS), so
+    // each is located rather than assumed.
+    for stem in ["affineui", "lexbor_static", "yogacore"] {
+        let file = static_lib_file(stem);
+        let dir = find_containing_dir(&build_dir, &file).unwrap_or_else(|| {
+            panic!(
+                "affineui-sys: built the vendored source but could not find {file} \
+                 under {}. This is a bug in the crate's build script.",
+                build_dir.display()
+            )
+        });
+        println!("cargo:rustc-link-search=native={}", dir.display());
+        println!("cargo:rustc-link-lib=static={stem}");
+    }
 
-    println!(
-        "cargo:rustc-link-search=native={}",
-        shared_lib_search.display()
-    );
-    println!("cargo:rustc-link-lib=dylib=affineui_c");
-
-    // Copy the shared lib next to the eventual Rust binary so
-    // `cargo run` / `cargo test` find it at runtime without any
-    // PATH setup (matches the previous DX).
-    copy_shared_lib_to_target(&shared_lib_search);
+    emit_platform_link_libs();
 }
 
 // ─── system-installed fallback (feature = "system", or vendored miss) ─
