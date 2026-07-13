@@ -51,3 +51,14 @@ the repo root — no env var needed once cmake has built the target.
 
 Use [`affineui`](https://crates.io/crates/affineui) for the safe,
 idiomatic surface. This crate only exposes the raw `unsafe` FFI.
+
+---
+
+## Links
+
+- **Repository:** <https://github.com/affineui/affineui>
+- **Docs:** <https://github.com/affineui/affineui/tree/main/docs>
+- **Issues:** <https://github.com/affineui/affineui/issues>
+- **Discussion:** [r/affineui](https://www.reddit.com/r/affineui/) — questions,
+  show-and-tell, and general chat
+- **License:** MIT
