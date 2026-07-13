@@ -2,7 +2,6 @@
 
 #include "affineui/geom.h"
 #include "affineui/types.h"
-
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -407,24 +406,33 @@ public:
                                      const Rect&   src) = 0;
 
     // ── Native GPU images (renderer-owned textures) ─────────────────
-    /// Adopt a GPU texture owned by other rendering code (a 3D engine's
-    /// offscreen render target, a video decoder surface, ...) as a
-    /// drawable image. `native_handle` is rasterizer-specific — for the
-    /// sokol/NanoVG rasterizer it is the sg_image id. The painter does
-    /// NOT take ownership of the texture: release_native_image() frees
-    /// only the wrapper, and the texture must outlive it. `flip_y`
-    /// marks textures whose row 0 is the bottom scanline (GL render
-    /// targets). Resource ops, not draw ops: safe to call from a
-    /// custom-paint handler. Returns 0 when this painter cannot draw
-    /// native textures (headless/stub rasterizers).
-    virtual std::uint32_t adopt_native_image(std::uint64_t native_handle,
-                                             int w, int h, bool flip_y) {
-        (void)native_handle; (void)w; (void)h; (void)flip_y;
-        return 0;
+    /// Draw a GPU texture owned by other rendering code (a 3D engine's
+    /// offscreen render target, a video decoder surface, ...).
+    /// `native_handle` is rasterizer-specific — for the sokol/NanoVG
+    /// rasterizer it is the sg_image id. The texture must remain alive until
+    /// the host's current render completes; the painter never takes ownership
+    /// of it. A zero handle, non-positive native dimensions, or an empty
+    /// destination is invalid and draws nothing.
+    /// `flip_y` marks textures whose row 0 is the bottom scanline (GL render
+    /// targets).
+    ///
+    /// This is deliberately one frame-scoped DRAW operation, not an
+    /// adopt/release resource API. A Painter passed to a custom-paint callback
+    /// may be a transient display-list recorder, so retaining that Painter (or
+    /// a handle that must later be released through it) is invalid by design.
+    /// Recording painters record this command; device painters create any
+    /// backend wrapper they need only for the duration of the paint.
+    virtual void draw_native_image(std::uint64_t native_handle,
+                                   int native_width,
+                                   int native_height,
+                                   bool flip_y,
+                                   const Rect& dst) {
+        (void)native_handle;
+        (void)native_width;
+        (void)native_height;
+        (void)flip_y;
+        (void)dst;
     }
-    /// Release a wrapper created by adopt_native_image. Handles from
-    /// load_image are cache-owned and must NOT be passed here.
-    virtual void release_native_image(std::uint32_t image) { (void)image; }
 
     // ── Dynamic images (app-owned pixel surfaces) ───────────────────
     /// Create an image from raw RGBA8 pixels (tightly packed, stride =

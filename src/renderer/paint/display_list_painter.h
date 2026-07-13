@@ -504,19 +504,6 @@ public:
     void delete_image(std::uint32_t image) override {
         if (device_painter_) device_painter_->delete_image(image);
     }
-    // Resource ops (not draw ops): forwarded straight to the device
-    // painter so the returned handle is usable in recorded draw_image
-    // ops replayed later.
-    std::uint32_t adopt_native_image(std::uint64_t native_handle, int w,
-                                     int h, bool flip_y) override {
-        return device_painter_
-                   ? device_painter_->adopt_native_image(native_handle, w, h,
-                                                         flip_y)
-                   : 0u;
-    }
-    void release_native_image(std::uint32_t image) override {
-        if (device_painter_) device_painter_->release_native_image(image);
-    }
     void draw_image(std::uint32_t image, const Rect& dst, const Rect& src) override {
         PaintOp op{};
         op.kind = PaintOpKind::DrawImage;
@@ -529,6 +516,35 @@ public:
         op.p.draw_image.sy = static_cast<std::int16_t>(src.y);
         op.p.draw_image.sw = static_cast<std::int16_t>(src.w);
         op.p.draw_image.sh = static_cast<std::int16_t>(src.h);
+        list_.ops.push_back(op);
+    }
+
+    void draw_native_image(std::uint64_t native_handle,
+                           int native_width,
+                           int native_height,
+                           bool flip_y,
+                           const Rect& dst) override {
+        if (native_handle == 0 || native_width <= 0 || native_height <= 0 ||
+            dst.w <= 0 || dst.h <= 0) {
+            return;
+        }
+        PaintOp op{};
+        op.kind = PaintOpKind::DrawNativeImage;
+        op.p.draw_native_image.native_handle_lo =
+            static_cast<std::uint32_t>(native_handle);
+        op.p.draw_native_image.native_handle_hi =
+            static_cast<std::uint32_t>(native_handle >> 32u);
+        op.p.draw_native_image.x = static_cast<std::int16_t>(dst.x);
+        op.p.draw_native_image.y = static_cast<std::int16_t>(dst.y);
+        op.p.draw_native_image.w = static_cast<std::int16_t>(dst.w);
+        op.p.draw_native_image.h = static_cast<std::int16_t>(dst.h);
+        op.p.draw_native_image.native_w = static_cast<std::uint16_t>(
+            std::min(native_width, static_cast<int>(
+                std::numeric_limits<std::uint16_t>::max())));
+        op.p.draw_native_image.native_h = static_cast<std::uint16_t>(
+            std::min(native_height, static_cast<int>(
+                std::numeric_limits<std::uint16_t>::max())));
+        op.p.draw_native_image.flip_y = flip_y ? 1u : 0u;
         list_.ops.push_back(op);
     }
 
@@ -828,6 +844,18 @@ inline void replay_op(const DisplayList& list, const PaintOp& op,
                                   Rect{i.sx, i.sy, i.sw, i.sh});
                 break;
             }
+            case PaintOpKind::DrawNativeImage: {
+                const auto& i = op.p.draw_native_image;
+                const std::uint64_t native_handle =
+                    static_cast<std::uint64_t>(i.native_handle_lo) |
+                    (static_cast<std::uint64_t>(i.native_handle_hi) << 32u);
+                target.draw_native_image(native_handle,
+                                         i.native_w,
+                                         i.native_h,
+                                         i.flip_y != 0,
+                                         Rect{i.x, i.y, i.w, i.h});
+                break;
+            }
             case PaintOpKind::PushClip: {
                 const auto& c = op.p.clip;
                 target.push_clip(Rect{c.x, c.y, c.w, c.h});
@@ -1004,6 +1032,11 @@ inline bool replay_op_bounds(const PaintOp& op, Rect& out) {
         }
         case PaintOpKind::DrawImage: {
             const auto& r = op.p.draw_image;
+            out = Rect{r.x, r.y, r.w, r.h};
+            return true;
+        }
+        case PaintOpKind::DrawNativeImage: {
+            const auto& r = op.p.draw_native_image;
             out = Rect{r.x, r.y, r.w, r.h};
             return true;
         }

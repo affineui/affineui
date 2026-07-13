@@ -165,10 +165,6 @@ struct Renderer::Impl {
 
     std::unordered_map<const BufferGeometry*, GpuGeometry> geometries;
 
-    affineui::Painter* painter{nullptr};
-    std::uint32_t      painter_handle{0};
-    std::uint32_t      painter_image_id{0};
-
     // Per-frame scratch, reused across renders.
     std::vector<DrawItem> opaque;
     std::vector<DrawItem> transparent;
@@ -384,9 +380,6 @@ Renderer::~Renderer() {
     if (live.empty()) detail::geometry_release_hook = nullptr;
     if (!sg_isvalid()) return;
 
-    if (impl_->painter && impl_->painter_handle) {
-        impl_->painter->release_native_image(impl_->painter_handle);
-    }
     for (auto& [geo, gg] : impl_->geometries) Impl::destroy_geometry(gg);
     for (auto& [key, pip] : impl_->pipelines) sg_destroy_pipeline(pip);
     if (impl_->mesh_shader.id) sg_destroy_shader(impl_->mesh_shader);
@@ -427,20 +420,12 @@ bool Renderer::flip_y() const {
     return !sg_query_features().origin_top_left;
 }
 
-std::uint32_t Renderer::painter_image(affineui::Painter& painter) {
+void Renderer::draw_to(affineui::Painter& painter,
+                       const affineui::Rect& dst) const {
     const std::uint32_t image = color_image_id();
-    if (image == 0) return 0;
-    if (impl_->painter == &painter && impl_->painter_image_id == image) {
-        return impl_->painter_handle;
-    }
-    if (impl_->painter && impl_->painter_handle) {
-        impl_->painter->release_native_image(impl_->painter_handle);
-    }
-    impl_->painter = &painter;
-    impl_->painter_image_id = image;
-    impl_->painter_handle = painter.adopt_native_image(
-        image, impl_->width, impl_->height, flip_y());
-    return impl_->painter_handle;
+    if (image == 0 || impl_->width <= 0 || impl_->height <= 0) return;
+    painter.draw_native_image(image, impl_->width, impl_->height, flip_y(),
+                              dst);
 }
 
 // ── Frame internals ─────────────────────────────────────────────────
@@ -453,17 +438,6 @@ void ensure_targets(Renderer::Impl& im) {
     im.targets_dirty = false;
     im.width = im.req_width;
     im.height = im.req_height;
-
-    // Release the painter's adopted-image wrapper BEFORE destroying the sokol
-    // images it references (the wrapper is NVG_IMAGE_NODELETE — it points at
-    // im.color_resolve/color_msaa). Destroying the image first would leave the
-    // wrapper releasing a stale native handle.
-    if (im.painter && im.painter_handle) {
-        im.painter->release_native_image(im.painter_handle);
-        im.painter_handle = 0;
-        im.painter_image_id = 0;
-        im.painter = nullptr;
-    }
 
     if (im.color_att.id) sg_destroy_view(im.color_att);
     if (im.resolve_att.id) sg_destroy_view(im.resolve_att);
@@ -512,8 +486,6 @@ void ensure_targets(Renderer::Impl& im) {
     sg_view_desc dv{};
     dv.depth_stencil_attachment.image = im.depth;
     im.depth_att = sg_make_view(&dv);
-    // (The stale painter wrapper was released above, before the old images
-    // it referenced were destroyed.)
 }
 
 void ensure_shadow_map(Renderer::Impl& im, int size) {

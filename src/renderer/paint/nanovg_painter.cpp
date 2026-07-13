@@ -36,8 +36,9 @@
 #    include "nanovg.h"
 #    include "stb_image.h"
 #    if !defined(AFFINEUI_HOST_PROVIDES_NANOVG)
-// adopt_native_image wraps an existing sg_image via the NanoVG-on-sokol
-// backend (declarations only; the backend TU is nanovg_sokol.c).
+// draw_native_image wraps an sg_image for one paint frame via the
+// NanoVG-on-sokol backend (declarations only; the backend TU is
+// nanovg_sokol.c).
 #        include "sokol_gfx.h"
 #        include "nanovg_sokol.h"
 #    endif
@@ -516,7 +517,18 @@ public:
         nvgBeginFrame(vg_, static_cast<float>(width), static_cast<float>(height), dpi_scale);
     }
 
-    void end_frame() override { nvgEndFrame(vg_); }
+    void end_frame() override {
+        nvgEndFrame(vg_);
+        // Native-image wrappers are paint-frame scratch. NanoVG has emitted
+        // every draw that references them, and NVG_IMAGE_NODELETE guarantees
+        // that deleting the wrapper does not delete the renderer-owned
+        // texture. Keeping these wrappers across frames would recreate the
+        // exact lifetime coupling draw_native_image is designed to avoid.
+        for (int image : native_images_in_frame_) {
+            nvgDeleteImage(vg_, image);
+        }
+        native_images_in_frame_.clear();
+    }
 
     void fill_rect(const Rect& r, Color c) override {
         nvgBeginPath(vg_);
@@ -1975,11 +1987,19 @@ public:
         nvgDeleteImage(vg_, static_cast<int>(image));
     }
 
-    std::uint32_t adopt_native_image(std::uint64_t native_handle, int w,
-                                     int h, bool flip_y) override {
+    void draw_native_image(std::uint64_t native_handle,
+                           int native_width,
+                           int native_height,
+                           bool flip_y,
+                           const Rect& dst) override {
 #if !defined(AFFINEUI_HOST_PROVIDES_NANOVG)
+        if (native_handle == 0 || native_width <= 0 || native_height <= 0 ||
+            dst.w <= 0 || dst.h <= 0) {
+            return;
+        }
         // The texture stays owned by the caller (NVG_IMAGE_NODELETE);
-        // the {0} sampler falls back to the backend's default.
+        // the {0} sampler falls back to the backend's default. The wrapper is
+        // retained only until end_frame(), after NanoVG has emitted the draw.
         sg_image img;
         img.id = static_cast<std::uint32_t>(native_handle);
         sg_sampler smp;
@@ -1987,17 +2007,20 @@ public:
         const int flags =
             NVG_IMAGE_NODELETE | (flip_y ? NVG_IMAGE_FLIPY : 0);
         const int id =
-            nvsgCreateImageFromHandle(vg_, img, smp, w, h, flags);
-        return id > 0 ? static_cast<std::uint32_t>(id) : 0u;
+            nvsgCreateImageFromHandle(vg_, img, smp, native_width,
+                                      native_height, flags);
+        if (id <= 0) return;
+        native_images_in_frame_.push_back(id);
+        draw_image(static_cast<std::uint32_t>(id), dst,
+                   Rect{0, 0, native_width, native_height});
 #else
         // Host-provided NanoVG backend: no sokol texture injection.
-        (void)native_handle; (void)w; (void)h; (void)flip_y;
-        return 0u;
+        (void)native_handle;
+        (void)native_width;
+        (void)native_height;
+        (void)flip_y;
+        (void)dst;
 #endif
-    }
-
-    void release_native_image(std::uint32_t image) override {
-        if (image != 0) nvgDeleteImage(vg_, static_cast<int>(image));
     }
 
     void push_clip(const Rect& r) override {
@@ -2293,6 +2316,7 @@ private:
     std::vector<int>                             cjk_fallback_faces_;
     std::vector<int>                             cjk_fallback_bold_faces_;
     std::unordered_map<std::string, int>         image_cache_;
+    std::vector<int>                             native_images_in_frame_;
     std::unordered_map<std::uint64_t, int>       stripe_cache_;
     std::unordered_map<std::uint64_t, int>       gradient_luts_;
     std::unordered_map<std::uint64_t, int>       grid_cache_;

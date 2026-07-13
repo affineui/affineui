@@ -9,6 +9,12 @@ public:
     int fill_rects{0};
     int clips{0};
     int transforms{0};
+    int native_images{0};
+    std::uint64_t native_handle{0};
+    int native_width{0};
+    int native_height{0};
+    bool native_flip_y{false};
+    affineui::Rect native_dst{};
 
     void begin_frame(int, int, float) override {}
     void end_frame() override {}
@@ -46,6 +52,16 @@ public:
     affineui::Size image_size(std::uint32_t) override { return {}; }
     void draw_image(std::uint32_t, const affineui::Rect&,
                     const affineui::Rect&) override {}
+    void draw_native_image(std::uint64_t handle, int width, int height,
+                           bool flip_y,
+                           const affineui::Rect& dst) override {
+        ++native_images;
+        native_handle = handle;
+        native_width = width;
+        native_height = height;
+        native_flip_y = flip_y;
+        native_dst = dst;
+    }
     void push_clip(const affineui::Rect&) override { ++clips; }
     void pop_clip() override {}
     void push_alpha(float) override {}
@@ -114,6 +130,41 @@ affineui::detail::PaintOp draw_text_box(affineui::detail::DisplayList& list,
 }
 
 }  // namespace
+
+TEST_CASE("native GPU images are frame-scoped display-list draw commands") {
+    affineui::detail::DisplayList list;
+    {
+        affineui::detail::DisplayListBuilder builder(nullptr);
+        builder.begin_frame(640, 480, 1.0f);
+        builder.draw_native_image(0, 1280, 960, false,
+                                  affineui::Rect{20, 30, 320, 240});
+        builder.draw_native_image(0x1234u, 0, 960, false,
+                                  affineui::Rect{20, 30, 320, 240});
+        builder.draw_native_image(0x1234u, 1280, 960, false,
+                                  affineui::Rect{20, 30, 0, 240});
+        builder.draw_native_image(0x12345678u, 1280, 960, true,
+                                  affineui::Rect{20, 30, 320, 240});
+        builder.end_frame();
+        list = std::move(builder.list());
+    }
+
+    REQUIRE(list.ops.size() == 1);
+    CHECK(list.ops.front().kind ==
+          affineui::detail::PaintOpKind::DrawNativeImage);
+
+    CountingPainter painter;
+    affineui::detail::replay(list, painter);
+
+    CHECK(painter.native_images == 1);
+    CHECK(painter.native_handle == 0x12345678u);
+    CHECK(painter.native_width == 1280);
+    CHECK(painter.native_height == 960);
+    CHECK(painter.native_flip_y);
+    CHECK(painter.native_dst.x == 20);
+    CHECK(painter.native_dst.y == 30);
+    CHECK(painter.native_dst.w == 320);
+    CHECK(painter.native_dst.h == 240);
+}
 
 TEST_CASE("clipped replay culls paint inside translated transform") {
     affineui::detail::DisplayList list;

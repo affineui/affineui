@@ -20,12 +20,9 @@
 //   renderer.set_size(width_px, height_px);
 //   renderer.render(*scene, *camera);          // outside any sg pass!
 //
-//   // In the custom-paint handler. The source rect is in TEXEL space, so it
-//   // is the render target's own size (physical px) — NOT the destination
-//   // rect, which is in CSS points and would sample a corner of the texture
-//   // on any display with dpi != 1.
-//   painter.draw_image(renderer.painter_image(painter), rect,
-//                      Rect{0, 0, renderer.width(), renderer.height()});
+//   // In the custom-paint handler. This emits a frame-scoped native-texture
+//   // paint command; neither side retains the Painter or a painter handle.
+//   renderer.draw_to(painter, rect);
 //
 // Picking goes through e3d::Raycaster, camera interaction through
 // e3d::OrbitControls, and object manipulation through
