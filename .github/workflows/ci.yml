@@ -92,6 +92,38 @@ jobs:
         run: |
           cmake --preset release
           cmake --build build/release --target amalgamate
+
+      # The steps below compile the FRESHLY generated SDK in build/release/dist.
+      # But that is not what ships — consumers get the COMMITTED dist/, and until
+      # now nothing ever compared the two. So a stale dist/ passed CI every time:
+      # CI validated an artifact nobody uses while the shipped one drifted.
+      #
+      # It drifted four times in one release cycle (#80 "regenerate the stale
+      # dist/ SDK", #82 "regenerate dist/ with the IME fix, before tagging", #95
+      # after the org rename, and again after the Painter vtable fix in #103) —
+      # every one caught by hand, twice mid-release. dist/ IS the deliverable for
+      # two-file SDK users; shipping one that doesn't match its source is exactly
+      # the class of bug a release gate exists to stop.
+      #
+      # Costs nothing: the generated copy is already sitting there.
+      - name: Committed dist/ must match a fresh regeneration
+        run: |
+          set -euo pipefail
+          stale=0
+          for f in affineui.h affineui.cpp; do
+            if ! cmp -s "build/release/dist/$f" "dist/$f"; then
+              echo "::error file=dist/$f::dist/$f is STALE — it does not match a regeneration from the current source."
+              stale=1
+            fi
+          done
+          if [ "$stale" -ne 0 ]; then
+            echo ""
+            echo "The committed two-file SDK is out of date. Regenerate and commit it:"
+            echo "    ./build.sh codefiles"
+            exit 1
+          fi
+          echo "dist/ matches a fresh regeneration."
+
       - name: Compile amalgamation (Metal default)
         run: |
           clang++ -std=c++20 -x objective-c++ \
