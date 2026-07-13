@@ -27,8 +27,30 @@ pybind11_add_module(_affineui MODULE
 
 target_link_libraries(_affineui PRIVATE affineui::affineui)
 target_compile_features(_affineui PRIVATE cxx_std_20)
+
+# `affineui.__version__` must be the version that was actually packaged.
+#
+# This used to bake in ${PROJECT_VERSION} — i.e. the `project(affineui_python
+# VERSION ...)` literal at the top of THIS file, which is a second source of
+# truth that nothing stamps: scripts/set_version.py patches pyproject.toml,
+# the root CMakeLists, and the Rust/C# manifests, but never this one. So the
+# wheel's pip metadata and affineui.version() both tracked the release while
+# __version__ stayed pinned at the hardcoded literal (0.4.0 shipped reporting
+# __version__ == "0.0.1").
+#
+# scikit-build-core hands us the real packaged version in
+# SKBUILD_PROJECT_VERSION, sourced from pyproject.toml — the file that IS
+# stamped. Prefer it, and fall back to PROJECT_VERSION only for a plain
+# non-scikit-build CMake configure (a dev build, where the value is cosmetic).
+if(DEFINED SKBUILD_PROJECT_VERSION)
+    set(AFFINEUI_PY_VERSION_STR "${SKBUILD_PROJECT_VERSION}")
+else()
+    set(AFFINEUI_PY_VERSION_STR "${PROJECT_VERSION}")
+endif()
+message(STATUS "affineui.__version__ = ${AFFINEUI_PY_VERSION_STR}")
+
 target_compile_definitions(_affineui PRIVATE
-    AFFINEUI_PY_VERSION="${PROJECT_VERSION}"
+    AFFINEUI_PY_VERSION="${AFFINEUI_PY_VERSION_STR}"
 )
 
 install(TARGETS _affineui
