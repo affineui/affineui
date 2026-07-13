@@ -88,7 +88,13 @@ Include, load, render, done.
 for real UIs today — Bootstrap dashboards, custom DCC layouts, and full
 tool UIs all render. Standards coverage is broad but incomplete, edge
 cases exist, and some CSS features are still landing. Expect bugs.
-Expect to file bugs. Do not ship it to customers yet.
+Expect to file bugs.
+
+**Alpha here means "the API isn't frozen", not "it doesn't work."** The
+full suite — 600+ tests — passes on **Linux (Ubuntu, x86-64)**, **macOS
+(Apple Silicon)**, and **Windows (x86-64)**, and every demo in this repo
+runs on all three. What's still moving is the shape of the API, not the
+foundation under it.
 
 ---
 

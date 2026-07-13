@@ -18,9 +18,11 @@ one assembly (see `docs/LANGUAGE_BINDINGS.md` §5 for the full design):
 **Status:** alpha. Broad standards coverage and real UIs run today, but
 expect bugs and expect APIs to move.
 
-> **This is alpha software.** The version number carries no pre-release
-> suffix, but AffineUI has not reached a stable release. Don't ship it in
-> production yet.
+> **Alpha, but tested.** The version number carries no pre-release suffix,
+> yet AffineUI is still pre-1.0 — APIs will move. That said: the full suite
+> (600+ tests) passes on **Linux (Ubuntu, x86-64)**, **macOS (Apple Silicon)**,
+> and **Windows (x86-64)**, and real applications run on all three today.
+> Alpha here means "the API isn't frozen", not "it doesn't work".
 
 ## Layout
 
