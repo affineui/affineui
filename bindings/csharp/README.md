@@ -130,3 +130,14 @@ bool consumed = ui.Dispatch(in evt);   // host suppresses its own input if true
   alive, and degrades to a no-op after the app is disposed.
 - **Hard to crash:** operations on a widget whose node is gone read defaults
   and no-op on writes, exactly like the C++ `WidgetRef`.
+
+---
+
+## Links
+
+- **Repository:** <https://github.com/affineui/affineui>
+- **Docs:** <https://github.com/affineui/affineui/tree/main/docs>
+- **Issues:** <https://github.com/affineui/affineui/issues>
+- **Discussion:** [r/affineui](https://www.reddit.com/r/affineui/) — questions,
+  show-and-tell, and general chat
+- **License:** MIT
