@@ -345,6 +345,24 @@ jobs:
           elif [ "$RUNNER_OS" = "Windows" ]; then
             choco install ninja -y --no-progress
           fi
+      # The tag does NOT carry the stamped version — every other job in this
+      # workflow re-runs set_version.py after checkout for exactly that reason
+      # (see the rust and nuget jobs). This one didn't, so the natives were
+      # compiled from the 0.0.1 literal in the root CMakeLists: project(VERSION)
+      # feeds AFFINEUI_VERSION_* -> affineui::version_string(), which is what
+      # the C ABI's affineui_version() returns. The nuget job stamped the csproj
+      # afterwards, so the PACKAGE said 0.4.2 while the native inside it still
+      # reported 0.0.1 — which is what AffineUIRuntime.Version reads.
+      #
+      # `python3` is not on PATH in Git Bash on the Windows runner, and this job
+      # is a three-OS matrix, so resolve the interpreter rather than assume it.
+      - name: Set version everywhere
+        shell: bash
+        run: |
+          set -euo pipefail
+          PY=python3
+          command -v python3 >/dev/null 2>&1 || PY=python
+          "$PY" scripts/set_version.py "${{ needs.prepare.outputs.version }}"
       - name: Configure + build affineui_c
         shell: bash
         run: |
