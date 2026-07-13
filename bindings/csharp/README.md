@@ -15,6 +15,17 @@ one assembly (see `docs/LANGUAGE_BINDINGS.md` §5 for the full design):
   GPU device, window, loop, and input pump; AffineUI renders into
   render-target views the host supplies each frame and never presents.
 
+**Status:** alpha. Broad standards coverage and real UIs run today, but
+expect bugs and expect APIs to move.
+
+> **Note:** this release carries no `-alpha` suffix in its version number,
+> but AffineUI is alpha and pre-1.0. Features, APIs, and the set of supported
+> platforms are all still in flux.
+>
+> Verified on: **Linux (Ubuntu, x86-64)**, **macOS (Apple Silicon)**, and
+> **Windows (x86-64)** — the full suite (600+ tests) passes on each. Other
+> platforms and architectures are not yet supported.
+
 ## Layout
 
 ```
