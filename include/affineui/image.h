@@ -37,6 +37,15 @@ public:
     /// last handle copy releases it. Calls after renderer shutdown are safe.
     void reset() noexcept;
 
+    /// The painter-level image id — exactly what
+    /// `Painter::draw_image(std::uint32_t, ...)` takes. 0 when invalid.
+    ///
+    /// Exposed so a native rendering core can draw an app-owned image while
+    /// linking NOTHING of the affineui runtime: it needs only the abstract
+    /// Painter (pure-virtual, so vtable dispatch) plus this id. The photoedit
+    /// raster core does exactly that — see examples/core/photoedit.
+    [[nodiscard]] std::uint32_t id() const noexcept { return backend_id(); }
+
 private:
     explicit ImageHandle(std::shared_ptr<detail::ImageLease> lease) noexcept
         : lease_(std::move(lease)) {}

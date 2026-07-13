@@ -22,7 +22,21 @@ target_include_directories(affineui_photoedit PUBLIC
 # The brush/type tooling rasterizes glyphs with the vendored stb_truetype.
 target_include_directories(affineui_photoedit PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../external/stb")
-target_link_libraries(affineui_photoedit PUBLIC affineui::affineui)
+# HEADERS ONLY — this raster core deliberately links NO affineui runtime.
+#
+# It used to link affineui::affineui (for App/AppHandle/ImageHandle/
+# embedded_font_data), which dragged the entire library in — and with it a
+# SECOND copy of sokol_app. Two _sapp_macos_view ObjC classes in one process is
+# something macOS warns about as "spurious casting failures and mysterious
+# crashes", and it can't be fixed by symbol visibility: ObjC classes register by
+# NAME at load, so even the amalgamated build (0 exported sokol C symbols) still
+# collides.
+#
+# The core now takes PhotoDoc::Host — plain callbacks — so the only affineui
+# types it touches are header-only: Painter is pure-virtual (vtable dispatch,
+# nothing to link) and Rect/Color are PODs.
+target_include_directories(affineui_photoedit PUBLIC
+    "${CMAKE_CURRENT_LIST_DIR}/../../../include")
 target_compile_features(affineui_photoedit PUBLIC cxx_std_20)
 # This static lib is linked into the photo_core SHARED python module, so its
 # objects must be position-independent — otherwise the manylinux GCC link
