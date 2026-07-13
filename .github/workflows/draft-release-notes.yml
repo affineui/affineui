@@ -1,19 +1,18 @@
 name: Draft release notes
 
-# Dispatch UI for humans cutting a release. Pick which segment to bump
-# (patch / minor / major / none) and which channel (release / rc / beta /
-# alpha); the workflow computes the next version, has Copilot CLI draft
-# release notes from the commit log since the last tag, and opens a PR
-# with the notes file at `docs/release-notes/v<CORE>.md` (keyed on the
-# MAJOR.MINOR.PATCH triplet, shared across every -rc/-beta/-alpha in the
-# cycle and the final release). Reviewer
-# edits the file inline in the PR. Once merged, dispatch `cut-release.yml`
-# with the same version to actually create + push the annotated tag —
-# release.yml + wheels.yml take it from there.
+# Type the release version (e.g. 0.5.0). Copilot CLI drafts release notes from
+# the commit log since the last release, and this opens a PR with the notes file
+# at `docs/release-notes/v<VERSION>.md`. That one file is shared by every
+# -rc/-beta/-alpha in the cycle AND the final release — they all use it as their
+# tag body — so you only ever name the core MAJOR.MINOR.PATCH.
 #
-# Idempotent: dispatching again with the same (bump, mode) rebuilds
-# the notes and force-pushes the PR branch. Any human edits already
-# merged into main are preserved — only the still-open PR gets refreshed.
+# Then: merge this PR, merge the version bump (`scripts/set_version.py <VERSION>`
+# — the manifests must carry the number or the release refuses to run), and
+# dispatch `Cut release`. Full process: docs/RELEASE_PROCESS.md.
+#
+# Idempotent: dispatching again for the same version rebuilds the notes and
+# force-pushes the PR branch. Human edits already merged to main are preserved —
+# only the still-open PR gets refreshed.
 #
 # ────────────────────────────────────────────────────────────────────
 # Copilot CLI needs a PAT with `Copilot Requests: Read`. The workflow's
@@ -39,18 +38,10 @@ name: Draft release notes
 on:
   workflow_dispatch:
     inputs:
-      bump:
-        description: 'Which core segment to bump. Pick `none` when just incrementing a pre-release counter (e.g. rc.1 → rc.2) or promoting a pre-release to a stable release.'
+      version:
+        description: 'Release version the notes are for, typed. e.g. 0.5.0 — no `v`, no suffix. Notes are keyed on MAJOR.MINOR.PATCH and shared by every rc/beta/alpha in the cycle plus the final release, so only the core is needed.'
         required: true
-        type: choice
-        default: 'patch'
-        options: ['none', 'patch', 'minor', 'major']
-      mode:
-        description: 'Release channel. `release` = plain triplet (v1.2.3). rc/beta/alpha = pre-release with auto-incremented counter (v1.2.3-rc.1, v1.2.3-rc.2 …).'
-        required: true
-        type: choice
-        default: 'rc'
-        options: ['release', 'rc', 'beta', 'alpha']
+        type: string
 
 permissions:
   contents: read
@@ -60,7 +51,7 @@ concurrency:
   # Only one active draft run per (bump,mode) combo — a re-dispatch
   # supersedes the previous. Prevents the "two parallel drafts fought
   # over the same PR branch" failure mode.
-  group: draft-release-notes-${{ inputs.bump }}-${{ inputs.mode }}
+  group: draft-release-notes-${{ inputs.version }}
   cancel-in-progress: true
 
 jobs:
@@ -109,14 +100,24 @@ jobs:
           echo "resolved last_any=${last_any:-<none>} last_stable=${last_stable:-<none>}"
 
       - id: next
-        name: Compute next version
+        name: Validate the typed version
         env:
-          LAST_ANY: ${{ steps.last.outputs.last_any }}
-          BUMP: ${{ inputs.bump }}
-          MODE: ${{ inputs.mode }}
+          VERSION: ${{ inputs.version }}
+        # Nothing to compute any more — the operator types the release number
+        # (see docs/RELEASE_PROCESS.md). Notes are keyed on MAJOR.MINOR.PATCH
+        # and shared by every rc/beta/alpha in the cycle plus the final tag, so
+        # `core` and `next` are the same value here. Still parse it through the
+        # shared validator so a typo is caught before the AI drafts anything.
         run: |
           set -euo pipefail
-          python3 scripts/next_version.py --last "$LAST_ANY" --bump "$BUMP" --mode "$MODE"
+          v="${VERSION#v}"
+          if ! printf '%s' "$v" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::version must be MAJOR.MINOR.PATCH (got '${VERSION}') — no 'v', no -rc/-beta suffix."
+            exit 1
+          fi
+          echo "next=$v" >> "$GITHUB_OUTPUT"
+          echo "core=$v" >> "$GITHUB_OUTPUT"
+          echo "drafting notes for v${v}"
 
       # ───── draft the notes with Copilot CLI ─────
       - name: Install Copilot CLI
@@ -280,8 +281,6 @@ jobs:
           NEXT: ${{ steps.next.outputs.next }}
           CORE: ${{ steps.next.outputs.core }}
           LAST: ${{ steps.last.outputs.last_stable }}
-          BUMP: ${{ inputs.bump }}
-          MODE: ${{ inputs.mode }}
         # Idempotent update — if the branch/PR already exist from a prior
         # dispatch (same core), force-with-lease refreshes them; if not,
         # we create both. force-with-lease guards against overwriting
@@ -316,7 +315,7 @@ jobs:
             echo "::warning::No change to $notes_path — skipping push."
             exit 0
           fi
-          git commit -m "docs: draft AI release notes for v${CORE} (drafted as ${BUMP}/${MODE} → v${NEXT})"
+          git commit -m "docs: draft AI release notes for v${CORE}"
           # --force-with-lease uses the just-refreshed origin/${branch} as
           # the expected state, so a concurrent human push to the same
           # branch fails loud rather than silently getting clobbered.
@@ -325,7 +324,7 @@ jobs:
           if gh pr view "$branch" --json number 2>/dev/null >/dev/null; then
             echo "PR for $branch already exists — refreshed with new commit."
             gh pr comment "$branch" --body \
-              "🔄 Release notes refreshed (drafted as bump=${BUMP}, mode=${MODE} → v${NEXT}). Latest commit head: \`$(git rev-parse --short HEAD)\`. Same v${CORE} notes will apply to every -rc / -beta / -alpha in this cycle and to the final v${CORE} tag."
+              "🔄 Release notes refreshed for v${CORE}. Latest commit head: \`$(git rev-parse --short HEAD)\`. The same v${CORE} notes apply to every -rc / -beta / -alpha in this cycle and to the final v${CORE} tag."
           else
             gh pr create \
               --base main \
@@ -336,14 +335,12 @@ jobs:
                 "" \
                 "These notes cover **every version cut in this cycle** — v${CORE}-rc.N, v${CORE}-beta.N, and the eventual final v${CORE} tag all use this same file as their tag body. Iterate the RC series without regenerating the file; only re-run \`Draft release notes\` if the log of merged PRs has changed enough to warrant a new draft." \
                 "" \
-                "- First drafted as: v${NEXT}" \
-                "- Bump: \`${BUMP}\`" \
-                "- Mode: \`${MODE}\`" \
-                "- Previous tag: \`${LAST:-<none>}\`" \
+                "- Version: \`v${CORE}\`" \
+                "- Previous release: \`${LAST:-<none>}\`" \
                 "" \
-                "Review + edit \`${notes_path}\` inline in this PR. When you're happy, merge this PR, then dispatch \`Cut release\` with any version in the v${CORE} cycle (e.g. \`${NEXT}\`) to create + push the annotated tag. The existing \`release.yml\` + \`wheels.yml\` workflows will pick up the tag push and publish to crates.io / nuget.org / PyPI or TestPyPI / GitHub Release." \
+                "Review + edit \`${notes_path}\` inline in this PR. When you're happy, merge it — then make sure the version bump has also merged (\`scripts/set_version.py ${CORE}\`; the manifests must carry \`${CORE}\` or the release will refuse to run), and dispatch \`Cut release\` with version \`${CORE}\`. See \`docs/RELEASE_PROCESS.md\`." \
                 "" \
-                "_Re-dispatching \`Draft release notes\` with any (bump, mode) that resolves to the same core version refreshes this PR in place._" \
+                "_Re-dispatching \`Draft release notes\` for the same version refreshes this PR in place._" \
               )"
           fi
 
@@ -360,8 +357,6 @@ jobs:
           LAST_STABLE: ${{ steps.last.outputs.last_stable }}
           LAST_ANY: ${{ steps.last.outputs.last_any }}
           COUNT: ${{ steps.log.outputs.count }}
-          BUMP: ${{ inputs.bump }}
-          MODE: ${{ inputs.mode }}
         run: |
           set -euo pipefail
           branch="release-notes/v${CORE}"
@@ -385,7 +380,7 @@ jobs:
             echo "| --- | --- |"
             echo "| Next version | \`v${NEXT}\` |"
             echo "| Core (notes-file key) | \`${CORE}\` |"
-            echo "| Bump / Mode | \`${BUMP}\` / \`${MODE}\` |"
+            echo "| Version | \`v${CORE}\` |"
             echo "| Previous stable tag | \`${LAST_STABLE:-<none>}\` |"
             echo "| Previous any tag | \`${LAST_ANY:-<none>}\` |"
             echo "| Commits covered | ${COUNT:-<unknown>} |"

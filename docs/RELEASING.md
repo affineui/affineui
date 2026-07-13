@@ -1,94 +1,148 @@
 # Releasing
 
-The AffineUI release process is a two-step, human-in-the-loop flow driven
-entirely by two `workflow_dispatch` UIs on the GitHub Actions tab. Nobody
-tags by hand, nobody edits `pyproject.toml` by hand, nobody types a version
-number twice. This document describes the model and the concrete steps.
+Two rules shape everything here:
 
-## The model
+1. **A final release ships an RC's commit.** It does not build something new.
+   You cannot cut `0.5.0` without first cutting and testing `0.5.0-rc.N`.
+2. **The version lives in the repo, not in the workflow.** You type the number;
+   the workflow verifies it matches what is committed and refuses otherwise.
 
-We ship four artifacts on every release:
+Rule 2 is not bureaucracy. Every version bug we shipped in the 0.4.x series came
+from a number being stamped in at build time from a source nobody reviewed — most
+memorably `affineui.__version__ == "0.0.1"` inside a wheel whose `pip` metadata
+correctly said `0.4.0`, because the stamper wrote four manifests and silently
+missed a fifth. When the number is committed and reviewed, that cannot happen.
 
-| Artifact         | Ecosystem   | Registry           | Trigger                     |
-|------------------|-------------|--------------------|-----------------------------|
-| Python wheels    | PyPI        | pypi.org           | tag `vX.Y.Z` (final)        |
-| Python wheels    | TestPyPI    | test.pypi.org      | any prerelease tag (`vX.Y.Z-rc.N`, `-beta.N`, `-alpha.N`) |
-| Rust crates      | crates.io   | crates.io          | any `v*` tag                |
-| .NET / NuGet     | nuget.org   | nuget.org          | any `v*` tag                |
-| Amalgamated SDK  | GitHub      | GitHub Release     | any `v*` tag                |
+Rule 1 comes from the same series. We published four times in one day, and twice
+a fix verified on one platform shipped a regression on another that no build had
+ever exercised. Promoting a tested RC's commit means the thing you release *is*
+the thing that passed.
 
-Every published version MUST correspond to a merged, reviewed release
-notes file. Notes are keyed on the **core** version (`MAJOR.MINOR.PATCH`),
-so `v1.1.3-rc.1`, `v1.1.3-rc.2`, and the final `v1.1.3` all share the
-SAME `docs/release-notes/v1.1.3.md` file — one story per release cycle,
-iterated through its pre-releases and its eventual final. That's the
-enforceable contract — the publish jobs fail loud if the core-versioned
-notes file is missing. This makes the two-step flow the only sanctioned
-path to a release.
+## The version lives in five manifests
 
-The notes cover **everything since the last stable release**, not just
-the diff since the interim pre-release. If the last stable was `v1.1.2`,
-then `docs/release-notes/v1.1.3.md` covers everything from `v1.1.2..HEAD`
-regardless of which iteration (`-rc.1`, `-rc.2`, or the final) you're
-about to cut. Re-drafting during RC iteration picks up any newly-merged
-PRs.
+```
+bindings/python/pyproject.toml              version = "0.5.0"
+bindings/rust/Cargo.toml                    workspace.package.version = "0.5.0"
+bindings/rust/affineui/Cargo.toml           affineui-sys = { …, version = "0.5.0" }
+bindings/csharp/AffineUI/AffineUI.csproj    <Version>0.5.0</Version>
+CMakeLists.txt                              project(… VERSION 0.5.0 …)
+```
 
-### The two steps
+They all carry the **release** number — `0.5.0` — even while you are cutting
+release candidates. The `-rc.N` / `-alpha.N` / `-beta.N` suffix is appended at
+**publish time only**; it never appears in a manifest. That is what lets the
+final release republish the RC's commit unchanged: the manifests already say
+`0.5.0`, so there is nothing to rewrite.
 
-**Step 1 — [Draft release notes](../.github/workflows/draft-release-notes.yml)** —
-`workflow_dispatch`. Pick which segment to bump (`patch`, `minor`, `major`,
-or `none`) and which channel (`release`, `rc`, `beta`, `alpha`). The job:
+`python scripts/set_version.py 0.5.0` writes all five. Run it, review the diff,
+open a PR. That PR is the bump.
 
-1. Reads the last `v*` tag on `origin` (both "last of any kind" and
-   "last stable" — the former for series continuation, the latter for
-   the changelog range).
-2. Runs [`scripts/next_version.py`](../scripts/next_version.py) to compute
-   the next version. Understands series continuation
-   (`v1.1.3-rc.1` + bump=none + mode=rc → `1.1.3-rc.2`), promotion
-   (`v1.1.3-rc.2` + bump=none + mode=release → `1.1.3`), and refuses
-   no-ops. Also emits the `core` (MAJOR.MINOR.PATCH) for the file path.
-3. Installs `@github/copilot` (the GitHub Copilot CLI) and feeds it the
-   git log since the last **stable** tag.
-4. Copilot drafts `docs/release-notes/v<CORE>.md` in the requested
-   Highlights / New features / Changes / Bug fixes shape. Same file
-   regardless of whether we're drafting an rc.1, rc.2, or final —
-   the whole cycle shares one notes doc.
-5. Opens (or refreshes) a PR titled `Release notes for v<CORE>` off
-   the branch `release-notes/v<CORE>`.
+## Cutting a release
 
-The workflow is **idempotent**. Both the branch and the notes file are
-keyed on `<CORE>`, so:
+The **Cut release** workflow takes three inputs:
 
-- Re-drafting from `-rc.1` to `-rc.2` (bump=none, mode=rc, same core)
-  refreshes the SAME PR with any newly-merged PRs picked up from the
-  log range.
-- Drafting from `-rc.N` to final (bump=none, mode=release, same core)
-  refreshes the SAME PR — usually with only cosmetic tightening.
+| Input | Meaning |
+|---|---|
+| `version` | The release number, typed. `0.5.0`. No `v`, no suffix. |
+| `mode` | `rc` · `beta` · `alpha` · `release` |
+| `source_tag` | Which commit to tag. Blank = HEAD of main. For `mode=release`, **required**: the RC tag being promoted. |
 
-Force-with-lease guards against clobbering human edits merged to `main`.
-Concurrency-gated so a re-dispatch supersedes an in-flight draft.
+The pre-release **counter is automatic** — you never type `rc.2`.
 
-**Step 2 — reviewer merges the notes PR.** Edit `docs/release-notes/v<CORE>.md`
-inline in the PR — the AI draft is a starting point, not the final copy.
-The Highlights section in particular usually wants a human pass. Squash-
-or rebase-merge as usual.
+### A normal cycle
 
-**Step 3 — [Cut release](../.github/workflows/cut-release.yml)** —
-`workflow_dispatch`. Pass the same version (bare, e.g. `1.2.4-rc.1`). The
-job:
+```
+1.  Draft release notes  →  review  →  merge
+        docs/release-notes/v0.5.0.md
 
-1. Re-validates the version via `scripts/set_version.py --check`.
-2. Confirms `docs/release-notes/v<CORE>.md` exists on `main` (same file
-   shared across every pre-release + the final in this cycle).
-3. Confirms `origin` has no tag with that name yet.
-4. Creates an annotated tag `v<VERSION>` (the FULL version, including any
-   `-rc.N` suffix) **with the notes file's contents as the tag message**.
-5. Pushes.
+2.  PR: python scripts/set_version.py 0.5.0  →  review  →  merge
+        (manifests now say 0.5.0)
 
-The existing [`release.yml`](../.github/workflows/release.yml) and
-[`wheels.yml`](../.github/workflows/wheels.yml) workflows already trigger
-on `push: tags: 'v*'` and take it from there — cargo, nuget, PyPI or
-TestPyPI, GitHub Release with the amalgamation zip attached.
+3.  Cut release:  version=0.5.0  mode=rc  source_tag=(blank)
+        → tags v0.5.0-rc.1 on main's HEAD
+        → publishes 0.5.0-rc.1
+
+4.  Test it. Found a bug? Fix it, merge, cut again with the SAME inputs —
+    the counter increments itself to rc.2.
+
+5.  Cut release:  version=0.5.0  mode=release  source_tag=v0.5.0-rc.2
+        → tags v0.5.0 on rc.2's EXACT COMMIT
+        → publishes 0.5.0
+```
+
+Step 5 builds nothing new. It republishes the commit you already tested, under
+the number the manifests already carry.
+
+### What the workflow refuses
+
+All of this lives in [`scripts/resolve_release.py`](../scripts/resolve_release.py),
+which is the entire rulebook in one testable place:
+
+- **A release with no RC.** `mode=release` without a `source_tag` naming a
+  pre-release of the same version. You ship what you tested.
+- **A version that doesn't move forward.** Not greater than the last published
+  release. Registries are immutable — a burned number can never be reused.
+- **A version typed with a suffix.** You type `0.5.0` and pick `mode`; the
+  counter is computed.
+- **A version the manifests don't carry.** You forgot the bump PR.
+- **Missing release notes** at `docs/release-notes/v<MAJOR.MINOR.PATCH>.md`.
+- **A tag that already exists.**
+
+### Promoting an RC whose commit is behind main
+
+Expected and allowed. `mode=release` tags **the RC's commit**, not main's.
+Anything merged to main after that RC is simply not in the release. The workflow
+logs exactly which commits are being left behind, so the omission is never
+silent.
+
+If you want those commits, cut a new RC and test that instead.
+
+## Release notes
+
+Notes are keyed on the **core** version, so `v0.5.0-rc.1`, `v0.5.0-rc.2`, and
+the final `v0.5.0` all share one `docs/release-notes/v0.5.0.md`. One story per
+cycle, iterated through its pre-releases. The publish jobs fail loudly if the
+file is missing, which is what makes reviewed notes the only path to a release.
+
+The notes cover **everything since the last stable release** — if the last was
+`v0.4.2`, then `v0.5.0.md` covers `v0.4.2..HEAD`, regardless of which RC you are
+cutting.
+
+**Draft release notes** (`workflow_dispatch`) takes the typed version, has
+Copilot CLI draft from the commit log, and opens a PR. Edit it inline; it is a
+starting point, not an oracle.
+
+## What ships
+
+| Artifact         | Registry           | Trigger                     |
+|------------------|--------------------|-----------------------------|
+| Python wheels    | pypi.org           | tag `vX.Y.Z` (final)        |
+| Python wheels    | test.pypi.org      | any pre-release tag         |
+| Rust crates      | crates.io          | any `v*` tag                |
+| .NET / NuGet     | nuget.org          | any `v*` tag                |
+| Amalgamated SDK  | GitHub Release     | any `v*` tag                |
+
+### What each publisher does with a pre-release
+
+- **crates.io** accepts `0.5.0-rc.1` verbatim. `cargo add affineui` picks the
+  newest stable by default; users opt into pre-releases explicitly.
+- **nuget.org** accepts it verbatim. `dotnet add package` skips pre-releases
+  unless you pass `--prerelease`.
+- **PyPI** has no hidden pre-release bucket, so pre-release tags publish to
+  **TestPyPI** instead.
+- **GitHub Release** is marked pre-release (badge; not "latest").
+
+## What lives where
+
+| File | Role |
+|---|---|
+| [`scripts/resolve_release.py`](../scripts/resolve_release.py) | The rulebook. Turns (version, mode, source_tag) into the tag + the commit to tag, and refuses bad publishes. |
+| [`scripts/set_version.py`](../scripts/set_version.py) | Writes the version into the five manifests (`set_version.py 0.5.0`), and `--verify` asserts they already carry it. |
+| [`.github/workflows/draft-release-notes.yml`](../.github/workflows/draft-release-notes.yml) | Drafts the notes, opens the PR. |
+| [`.github/workflows/cut-release.yml`](../.github/workflows/cut-release.yml) | Validates, tags, pushes. |
+| [`.github/workflows/release.yml`](../.github/workflows/release.yml) | On tag push: amalgamated SDK, crates.io, nuget.org, GitHub Release. |
+| [`.github/workflows/wheels.yml`](../.github/workflows/wheels.yml) | On tag push: wheels + sdist across three OSes → PyPI or TestPyPI. |
+| `docs/release-notes/v<CORE>.md` | The reviewed notes for a cycle. Shared by every tag in it. |
 
 ## Repo secrets
 
@@ -107,156 +161,6 @@ That's the full list. Two ecosystems don't need a secret:
   works directly — no PAT required. Per the GitHub docs, "using
   `GITHUB_TOKEN` (recommended for organization-owned repositories) — no
   PAT or stored secrets required."
-
-## The initial retro-tag
-
-On a fresh repo (no `v*` tags on `origin`), the workflows need a baseline
-tag to compute "since when". Because the binding manifests
-(`bindings/python/pyproject.toml`, `bindings/rust/Cargo.toml`) have been
-declaring `0.0.3` for a while, we retro-tag the current baseline as
-`v0.3.0` — that becomes the last-stable reference for the first real
-release cycle.
-
-```bash
-# From a clean origin/main checkout:
-git tag -a v0.3.0 -m "baseline tag for release automation (retro-tag; not a published release)"
-git push origin v0.3.0
-```
-
-Because there is no `docs/release-notes/v0.3.0.md`, the publish gate in
-`release.yml` + `wheels.yml` fails fast on the retro-tag — the tag is
-created on `origin` (so `next_version.py` has something to read), but
-nothing gets published to any registry. That's the intended shape:
-`v0.3.0` is a REFERENCE POINT, not a published release.
-
-After that, the first real cycle runs through the Draft → Cut flow like
-any other release. Typical first move: dispatch **Draft release notes**
-with `bump=minor`, `mode=release` → produces `v0.4.0` (or higher, if you
-want a bigger bump). The notes cover everything since `v0.3.0`, which is
-what you want.
-
-## Version scheme
-
-Semver 2.0.0 with a `v` prefix on tags:
-
-```text
-vMAJOR.MINOR.PATCH[-PRE][+BUILD]
-```
-
-`MAJOR.MINOR.PATCH` are non-negative integers. `-PRE` is optional and
-identifies pre-releases (`-rc.1`, `-beta.2`, `-alpha.3`). `+BUILD` is
-optional build metadata — **not** a pre-release marker, even though it
-also contains a `-`.
-
-### Bump semantics
-
-| bump   | Effect on `X.Y.Z`      |
-|--------|------------------------|
-| `major`| `(X+1).0.0`            |
-| `minor`| `X.(Y+1).0`            |
-| `patch`| `X.Y.(Z+1)`            |
-| `none` | `X.Y.Z` (unchanged)    |
-
-`none` is the right pick when you want to bump only the pre-release
-counter (e.g. rc.1 → rc.2) or promote a pre-release to the stable
-triplet.
-
-### Mode semantics
-
-| mode      | Suffix     | Counter                                                                 |
-|-----------|------------|-------------------------------------------------------------------------|
-| `release` | (none)     | n/a — strips any existing pre-release                                   |
-| `rc`      | `-rc.N`    | Continues if last tag was same-core `-rc.M` (`N = M+1`); else starts at 1 |
-| `beta`    | `-beta.N`  | Same continuation rule                                                  |
-| `alpha`   | `-alpha.N` | Same continuation rule                                                  |
-
-The counter continues only when both bump=none AND the mode matches the
-last tag's suffix. Bumping the core (patch/minor/major) always starts a
-fresh series at `.1`. Switching modes (rc → beta) also starts fresh.
-
-## Cutting a release: five common recipes
-
-### Cut a bug-fix patch release
-
-Last stable `v1.2.3`. Want `v1.2.4`.
-
-1. Draft: bump=`patch`, mode=`release` → PR opens with
-   `docs/release-notes/v1.2.4.md` (notes covering `v1.2.3..HEAD`).
-2. Review + merge.
-3. Cut: version=`1.2.4`.
-
-### Cut a patch RC series and iterate
-
-Last stable `v1.2.3`. Want `v1.2.4-rc.1`, then iterate through `-rc.2`,
-`-rc.3`, then promote to final.
-
-1. Draft: bump=`patch`, mode=`rc` → PR opens with
-   `docs/release-notes/v1.2.4.md`. Same core, same file. Merge.
-2. Cut: version=`1.2.4-rc.1`. → wheels ship to TestPyPI; cargo + nuget
-   publish as pre-release; both use `docs/release-notes/v1.2.4.md` as
-   the release body.
-3. Fix issues, land PRs on `main`.
-4. Draft: bump=`none`, mode=`rc` → **refreshes the SAME PR** with an
-   updated `docs/release-notes/v1.2.4.md` (Copilot re-drafts against
-   `v1.2.3..HEAD`, picking up the freshly-merged PRs). Merge. Cut
-   version=`1.2.4-rc.2`.
-5. Repeat.
-6. Promote: draft with bump=`none`, mode=`release` → SAME PR refreshes
-   one last time (notes still against `v1.2.3`, still in the same file).
-   Merge. Cut version=`1.2.4` → wheels ship to real PyPI, `-rc` suffix
-   drops.
-
-Key point: **one PR + one notes file per release cycle.** Every dispatch
-during the v1.2.4 cycle updates `docs/release-notes/v1.2.4.md` — never a
-separate file per RC.
-
-### Cut a minor release
-
-Last stable `v1.2.3`. Want `v1.3.0`.
-
-1. Draft: bump=`minor`, mode=`release` → PR for
-   `docs/release-notes/v1.3.0.md`. Merge.
-2. Cut: version=`1.3.0`.
-
-Skip the RC dance when you're confident. A minor bump directly to
-`release` is normal — the RC flow is for when you want a soak period
-against real users first.
-
-### Cut a major release
-
-Same as minor, with bump=`major`. Consider running an RC series first
-for anything users have been depending on for a while.
-
-### Promote an RC to release without any new commits
-
-Last cut `v1.2.4-rc.2` (last stable is still `v1.2.3`). You're ready to
-ship.
-
-1. Draft: bump=`none`, mode=`release`. → refreshes
-   `docs/release-notes/v1.2.4.md` (notes still range against `v1.2.3`,
-   still cover the same delta). Usually only cosmetic edits over the
-   RC's notes. Merge.
-2. Cut: version=`1.2.4`. → wheels ship to real PyPI, cargo + nuget drop
-   the `-rc` suffix, GitHub Release is marked final.
-
-## What lives where
-
-| File                                                  | Role                                                                                  |
-|-------------------------------------------------------|---------------------------------------------------------------------------------------|
-| [`scripts/set_version.py`](../scripts/set_version.py) | Patches every version-holding file in the repo to a given version, then validates. Also runs in `--check` mode to classify pre-release vs stable. |
-| [`scripts/next_version.py`](../scripts/next_version.py) | Computes the next version from `(last_tag, bump, mode)`.                              |
-| [`.github/workflows/draft-release-notes.yml`](../.github/workflows/draft-release-notes.yml) | Step 1 — draft + PR.                                                                  |
-| [`.github/workflows/cut-release.yml`](../.github/workflows/cut-release.yml)                 | Step 3 — validate + tag + push.                                                       |
-| [`.github/workflows/release.yml`](../.github/workflows/release.yml)                         | Triggered by tag push. Amalgamates the two-file SDK, publishes cargo + nuget, creates GitHub Release. |
-| [`.github/workflows/wheels.yml`](../.github/workflows/wheels.yml)                           | Triggered by tag push. Builds Python wheels + sdist across three OSes, publishes to PyPI (final) or TestPyPI (pre-release). |
-| `docs/release-notes/v<CORE>.md`                       | The reviewed notes for a release cycle. Committed to `main` before cutting. Same file is used for every `-rc/-beta/-alpha` in the cycle and for the final. |
-
-## What each publisher does with a pre-release
-
-- **crates.io** accepts `1.2.4-rc.1` verbatim. `cargo add affineui` picks the newest stable version by default; users opt into pre-releases explicitly.
-- **nuget.org** accepts `1.2.4-rc.1` verbatim. `dotnet add package` skips pre-releases by default; users opt in with `--prerelease` or an explicit version.
-- **PyPI** doesn't have a "hidden pre-release" bucket — for us, pre-release tags publish to **TestPyPI** instead. Users install pre-releases from that index.
-- **GitHub Release** is marked as pre-release (a UI badge, and it doesn't count as "latest").
 
 ## Consuming AffineUI
 

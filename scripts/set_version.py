@@ -103,7 +103,72 @@ def classify(version: str) -> tuple[str, bool]:
     return v, m["pre"] is not None
 
 
+def read_manifest_versions() -> dict[str, str | None]:
+    """Pull the version currently committed in each manifest.
+
+    The counterpart to the patch() calls in main(): same five files, same five
+    lines. Used by --verify to prove the release the operator typed matches the
+    version that is actually in the repo.
+    """
+    want = {
+        "bindings/python/pyproject.toml": r'^version = "([^"]*)"$',
+        "bindings/rust/Cargo.toml": r'^version = "([^"]*)"$',
+        "bindings/rust/affineui/Cargo.toml": r'^affineui-sys = \{[^}]*?version = "([^"]*)"',
+        "bindings/csharp/AffineUI/AffineUI.csproj": r"^\s*<Version>([^<]*)</Version>$",
+        "CMakeLists.txt": r"^\s*VERSION (\d+\.\d+\.\d+)\s*$",
+    }
+    found: dict[str, str | None] = {}
+    for rel, pat in want.items():
+        text = (REPO_ROOT / rel).read_text()
+        m = re.search(pat, text, flags=re.MULTILINE)
+        found[rel] = m.group(1) if m else None
+    return found
+
+
+def verify(version: str) -> int:
+    """Assert every manifest already carries this release's version.
+
+    We do NOT stamp versions at build time any more. The number is committed and
+    reviewed, and the release refuses to run if what you typed isn't what's in
+    the repo. That kills the bug class that shipped `__version__ == "0.0.1"` in
+    a wheel whose pip metadata said 0.4.0: a stamper that wrote four manifests
+    and silently skipped a fifth.
+
+    Manifests carry the RELEASE core (0.5.0) even while cutting 0.5.0-rc.2 — the
+    pre-release suffix is a publish-time concern and never lands in a file. So
+    compare on core, which also lets CMake (which cannot express a suffix)
+    compare equal to everything else.
+    """
+    v, _ = classify(version)
+    core = core_version(v)
+
+    bad = []
+    for rel, got in read_manifest_versions().items():
+        if got is None:
+            bad.append(f"  {rel}: could not find the version line at all")
+        elif core_version(got) != core:
+            bad.append(f"  {rel}: has {got!r}, expected {core!r}")
+
+    if bad:
+        print(f"[set_version] manifest mismatch - release {v} was requested:")
+        for b in bad:
+            print(b)
+        print()
+        print("The version lives in the repo, not in the workflow. Bump it first:")
+        print(f"    python scripts/set_version.py {core}")
+        print("    ...then commit, review, and merge that change.")
+        return 1
+
+    print(f"[set_version] all manifests carry {core} - OK to release {v}")
+    return 0
+
+
 def main() -> int:
+    if len(sys.argv) >= 2 and sys.argv[1] == "--verify":
+        if len(sys.argv) != 3:
+            raise SystemExit("[set_version] --verify requires a VERSION argument")
+        return verify(sys.argv[2])
+
     if len(sys.argv) >= 2 and sys.argv[1] == "--check":
         if len(sys.argv) != 3:
             raise SystemExit("[set_version] --check requires a VERSION argument")

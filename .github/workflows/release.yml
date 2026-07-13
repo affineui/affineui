@@ -149,8 +149,20 @@ jobs:
           persist-credentials: false   # amalgamate doesn't push
       - name: Install Ninja
         run: brew install ninja
-      - name: Set version everywhere
-        run: python3 scripts/set_version.py "${{ needs.prepare.outputs.version }}"
+      # The version's CORE (0.5.0) comes from the repo — committed and reviewed.
+      # --verify refuses to build if the manifests don't carry it, so a release
+      # can never publish a version nobody signed off on. (That is the bug that
+      # shipped __version__ == "0.0.1" inside a 0.4.0 wheel.)
+      #
+      # We then still write the full string, because an RC's artifacts must
+      # carry `0.5.0-rc.1` internally while the manifests hold the bare `0.5.0`
+      # — the suffix is a publish-time concern and never lands in a file. The
+      # core cannot change here; --verify already pinned it.
+      - name: Verify manifests, then apply the publish version
+        run: |
+          set -euo pipefail
+          python3 scripts/set_version.py --verify "${{ needs.prepare.outputs.version }}"
+          python3 scripts/set_version.py "${{ needs.prepare.outputs.version }}"
       - name: Configure + amalgamate
         run: |
           cmake --preset release
@@ -219,8 +231,20 @@ jobs:
           sudo apt-get install -y \
             libx11-dev libxi-dev libxcursor-dev \
             libxkbcommon-dev libgl1-mesa-dev libasound2-dev
-      - name: Set version everywhere
-        run: python3 scripts/set_version.py "${{ needs.prepare.outputs.version }}"
+      # The version's CORE (0.5.0) comes from the repo — committed and reviewed.
+      # --verify refuses to build if the manifests don't carry it, so a release
+      # can never publish a version nobody signed off on. (That is the bug that
+      # shipped __version__ == "0.0.1" inside a 0.4.0 wheel.)
+      #
+      # We then still write the full string, because an RC's artifacts must
+      # carry `0.5.0-rc.1` internally while the manifests hold the bare `0.5.0`
+      # — the suffix is a publish-time concern and never lands in a file. The
+      # core cannot change here; --verify already pinned it.
+      - name: Verify manifests, then apply the publish version
+        run: |
+          set -euo pipefail
+          python3 scripts/set_version.py --verify "${{ needs.prepare.outputs.version }}"
+          python3 scripts/set_version.py "${{ needs.prepare.outputs.version }}"
       # affineui-sys ships as a source-build crate: its build.rs invokes
       # cmake on a vendored copy of the repo's C++ source. The vendor
       # tree is gitignored (see .gitignore) and populated here from the
@@ -393,8 +417,20 @@ jobs:
           test -f build/ninja/affineui_c.dll        || { echo "::error::missing affineui_c.dll (win-x64)";     exit 1; }
           test -f build/ninja/libaffineui_c.so      || { echo "::error::missing libaffineui_c.so (linux-x64)"; exit 1; }
           test -f build/ninja/libaffineui_c.dylib   || { echo "::error::missing libaffineui_c.dylib (osx-arm64)"; exit 1; }
-      - name: Set version everywhere
-        run: python3 scripts/set_version.py "${{ needs.prepare.outputs.version }}"
+      # The version's CORE (0.5.0) comes from the repo — committed and reviewed.
+      # --verify refuses to build if the manifests don't carry it, so a release
+      # can never publish a version nobody signed off on. (That is the bug that
+      # shipped __version__ == "0.0.1" inside a 0.4.0 wheel.)
+      #
+      # We then still write the full string, because an RC's artifacts must
+      # carry `0.5.0-rc.1` internally while the manifests hold the bare `0.5.0`
+      # — the suffix is a publish-time concern and never lands in a file. The
+      # core cannot change here; --verify already pinned it.
+      - name: Verify manifests, then apply the publish version
+        run: |
+          set -euo pipefail
+          python3 scripts/set_version.py --verify "${{ needs.prepare.outputs.version }}"
+          python3 scripts/set_version.py "${{ needs.prepare.outputs.version }}"
       - name: Pack
         working-directory: bindings/csharp/AffineUI
         # csproj Version was patched above; -c Release enforces a clean build.
