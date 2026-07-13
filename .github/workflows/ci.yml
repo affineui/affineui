@@ -289,3 +289,61 @@ jobs:
           check bindings/rust/affineui/Cargo.toml 'default-features = false'
 
           exit "$fail"
+
+      # Stamping the manifests is necessary but not sufficient: a version can
+      # still be baked in from a source the stamper never touches, and the
+      # check above — which only looks at files set_version.py writes — is
+      # blind to exactly that. It happened. `affineui.__version__` was compiled
+      # from `project(affineui_python VERSION ...)` in bindings/python/
+      # CMakeLists.txt, a second source of truth nothing stamps, so 0.4.0
+      # shipped to PyPI reporting `__version__ == "0.0.1"` while pip metadata
+      # and version() were both correct.
+      #
+      # So assert what a user actually observes: build the wheel from the
+      # stamped tree, install it, and require all three to agree.
+      - name: Install X11 / GL / ALSA dev packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build \
+            libx11-dev libxi-dev libxcursor-dev libgl1-mesa-dev libasound2-dev
+
+      - name: Build the wheel and check the version a user sees
+        run: |
+          set -euo pipefail
+          # The tree is still stamped to 9.9.9-ci from the step above.
+          python3 -m venv /tmp/v
+          . /tmp/v/bin/activate
+          pip install --upgrade pip
+          pip install ./bindings/python
+
+          python3 - <<'PY'
+          import importlib.metadata as md
+          import sys
+          import affineui as ui
+
+          expected = "9.9.9-ci"
+          seen = {
+              "__version__":  ui.__version__,
+              "version()":    ui.version(),
+              "pip metadata": md.version("affineui"),
+          }
+          for k, v in seen.items():
+              print(f"  {k:<13} = {v}")
+
+          # version() reports the core MAJOR.MINOR.PATCH (CMake project()
+          # cannot carry a pre-release suffix), so compare it on that basis.
+          bad = []
+          if seen["__version__"] != expected:
+              bad.append("__version__")
+              print(f"FAIL __version__ is {seen['__version__']!r}, expected {expected!r}")
+          if md.version("affineui") != expected:
+              bad.append("pip metadata")
+              print(f"FAIL pip metadata is {md.version('affineui')!r}, expected {expected!r}")
+          if not seen["version()"].startswith("9.9.9"):
+              bad.append("version()")
+              print(f"FAIL version() is {seen['version()']!r}, expected to start with '9.9.9'")
+
+          if bad:
+              sys.exit(f"version mismatch in: {', '.join(bad)}")
+          print("  all three agree")
+          PY
