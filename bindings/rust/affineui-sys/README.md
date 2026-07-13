@@ -4,9 +4,14 @@ Raw, hand-written FFI declarations for the
 [AffineUI](https://github.com/affineui/affineui) C ABI
 (`affineui_c` shared library).
 
-**EXPERIMENTAL** — the C ABI is versioned (`affineui_c_abi_version()`)
-but not yet stable; expect breaking releases while AffineUI is
-pre-1.0.
+**Status:** alpha. Broad standards coverage and real UIs run today, but
+expect bugs and expect APIs to move. The C ABI is versioned
+(`affineui_c_abi_version()`) but not yet stable — expect breaking releases
+while AffineUI is pre-1.0.
+
+> **This is alpha software.** The version number carries no pre-release
+> suffix, but AffineUI has not reached a stable release. Don't ship it in
+> production yet.
 
 ## Build modes
 

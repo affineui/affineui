@@ -17,6 +17,10 @@ render out of the box; the bundled default is
 **Status:** alpha. Broad standards coverage, real UIs run today, but
 expect bugs and expect APIs to move.
 
+> **This is alpha software.** The version number carries no pre-release
+> suffix, but AffineUI has not reached a stable release. Don't ship it in
+> production yet.
+
 ---
 
 ## Install

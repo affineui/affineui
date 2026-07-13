@@ -14,6 +14,10 @@ them natively (D3D11/Metal/GL) with real CSS. No JS, no webview.
 expect bugs, and expect the API and the underlying C ABI to move while
 AffineUI is pre-1.0.
 
+> **This is alpha software.** The version number carries no pre-release
+> suffix, but AffineUI has not reached a stable release. Don't ship it in
+> production yet.
+
 ---
 
 ## Getting started
