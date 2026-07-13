@@ -38,6 +38,7 @@ enum class PaintOpKind : std::uint8_t {
     DrawText,
     DrawTextBox,
     DrawImage,
+    DrawNativeImage,
     PushClip,
     PopClip,
     PushAlpha,
@@ -164,6 +165,19 @@ struct PaintOp {
             std::int16_t  x, y, w, h;
             std::int16_t  sx, sy, sw, sh;
         } draw_image;
+
+        // A renderer-owned GPU texture. Unlike DrawImage this stores the
+        // backend-native texture identity directly; replay creates a
+        // frame-scoped rasterizer wrapper, so app code never retains a
+        // Painter or painter-owned image handle.
+        struct {
+            std::uint32_t native_handle_lo;    // 4
+            std::uint32_t native_handle_hi;    // 4
+            std::int16_t  x, y, w, h;          // 8
+            std::uint16_t native_w, native_h;  // 4
+            std::uint8_t  flip_y;              // 1
+            std::uint8_t  pad_[3];             // 3
+        } draw_native_image;                   // = 24 bytes
 
         // Gradient fills: angle_deg is CSS-convention (0=up, 90=right).
         // Corner radii are capped to u8 (0–255 px), sufficient for CSS

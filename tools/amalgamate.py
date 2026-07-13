@@ -560,7 +560,10 @@ def expand_external_file(root: Path, path: Path,
 
 def yoga_cpp_sources(root: Path) -> list[Path]:
     yoga_root = root / "external" / "yoga" / "yoga"
-    sources = sorted(yoga_root.rglob("*.cpp"))
+    # Native Path ordering differs between Windows and POSIX (notably around
+    # case), which used to reorder thousands of generated lines by host.
+    sources = sorted(yoga_root.rglob("*.cpp"),
+                     key=lambda path: path.relative_to(yoga_root).as_posix())
     event_cpp = yoga_root / "event" / "event.cpp"
     return [p for p in sources if p != event_cpp] + [event_cpp]
 
@@ -649,8 +652,43 @@ def emit_lexbor_block(root: Path, cxx: str) -> str:
         parts.append(expand_lexbor_file(staged_source,
                                         staged_source / "lexbor" / "core" / "base.h",
                                         emitted_headers))
-        for path in lexbor_c_sources(staged_source, default_platform()):
-            parts.append(expand_lexbor_file(staged_source, path, emitted_headers))
+        # The committed two-file SDK must be host-independent. Historically
+        # this selected the generator host's Lexbor port, which made a Linux-
+        # generated dist/ include unistd.h on Windows and a Windows-generated
+        # dist/ embed windows.h on Linux. The port is only three translation
+        # units, so emit both variants behind the consumer's platform guard.
+        # Keep the block at the ports/ position in the sorted source order so
+        # the rest of the deterministic amalgamation does not churn.
+        all_sources = lexbor_c_sources(staged_source, "all")
+        port_sources = [
+            path for path in all_sources if "/ports/" in path.as_posix()
+        ]
+        emitted_ports = False
+        for path in all_sources:
+            if "/ports/" not in path.as_posix():
+                parts.append(expand_lexbor_file(staged_source, path,
+                                                emitted_headers))
+                continue
+            if emitted_ports:
+                continue
+            emitted_ports = True
+
+            windows_headers = set(emitted_headers)
+            posix_headers = set(emitted_headers)
+            parts.append("#if defined(_WIN32)\n")
+            for port_path in port_sources:
+                if "/ports/windows_nt/" in port_path.as_posix():
+                    parts.append(expand_lexbor_file(
+                        staged_source, port_path, windows_headers))
+            parts.append("#else\n")
+            for port_path in port_sources:
+                if "/ports/posix/" in port_path.as_posix():
+                    parts.append(expand_lexbor_file(
+                        staged_source, port_path, posix_headers))
+            parts.append("#endif\n\n")
+            # Preserve the POSIX generation's header-suppression baseline; all
+            # shared headers were already emitted before this port block.
+            emitted_headers.update(posix_headers)
 
         parts.extend([
             "#if defined(__clang__)\n",
@@ -891,6 +929,23 @@ def emit_impl(root: Path, out_path: Path, version: str, cxx: str) -> int:
         "\n",
         '#include "affineui.h"\n',
         "\n",
+        "#if defined(_WIN32)\n",
+        "#  ifndef WIN32_LEAN_AND_MEAN\n",
+        "#    define WIN32_LEAN_AND_MEAN\n",
+        "#  endif\n",
+        "#  ifndef NOMINMAX\n",
+        "#    define NOMINMAX\n",
+        "#  endif\n",
+        "// Lexbor's hash code uses the GCC byte-order macros. Every Windows\n",
+        "// target supported by AffineUI is little-endian.\n",
+        "#  ifndef __ORDER_LITTLE_ENDIAN__\n",
+        "#    define __ORDER_LITTLE_ENDIAN__ 1234\n",
+        "#  endif\n",
+        "#  ifndef __BYTE_ORDER__\n",
+        "#    define __BYTE_ORDER__ __ORDER_LITTLE_ENDIAN__\n",
+        "#  endif\n",
+        "#endif\n",
+        "\n",
     ]
     for s in sys_order:
         parts.append(f"#include <{s}>\n")
@@ -933,6 +988,12 @@ def emit_impl(root: Path, out_path: Path, version: str, cxx: str) -> int:
     )
 
     parts.append(emit_lexbor_block(root, cxx))
+    parts.append(
+        "#if defined(_WIN32) && defined(small)\n"
+        "// windows.h legacy RPC token; do not leak it into AffineUI C++.\n"
+        "#  undef small\n"
+        "#endif\n\n"
+    )
     parts.append(emit_vendored_c_block(root, cwrap_blocks,
                                        vendored_external_headers))
     parts.append(emit_yoga_block(root))

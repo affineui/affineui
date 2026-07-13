@@ -2,7 +2,7 @@
 //
 // Renders a Scene through a PerspectiveCamera into an offscreen,
 // MSAA-resolved color target that UI code composites via the Painter
-// (see painter_image()). Draw order follows three.js: opaque
+// (see draw_to()). Draw order follows three.js: opaque
 // front-to-back, then transparent back-to-front, with
 // Object3D::render_order overriding both.
 //
@@ -24,6 +24,7 @@
 
 namespace affineui {
 class Painter;
+struct Rect;
 }
 
 namespace e3d {
@@ -50,12 +51,12 @@ public:
     /// True when the target's row 0 is the bottom scanline (GL).
     bool flip_y() const;
 
-    /// Painter-image wrapper for the color target, created via
-    /// Painter::adopt_native_image and re-created automatically after a
-    /// resize. Returns 0 until the first render() and on painters that
-    /// cannot draw native textures. The wrapper is released in the
-    /// destructor; the painter must outlive this renderer.
-    std::uint32_t painter_image(affineui::Painter& painter);
+    /// Emit the resolved color target as one frame-scoped paint command.
+    /// Neither this renderer nor the caller retains the Painter or a
+    /// painter-owned resource handle. Before the first successful render the
+    /// target is invalid and this is a no-op.
+    void draw_to(affineui::Painter& painter,
+                 const affineui::Rect& dst) const;
 
     struct Impl;  // implementation detail (e3d_renderer.cpp)
 

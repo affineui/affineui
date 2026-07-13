@@ -371,6 +371,10 @@ component markup all render out of the box — see
 
 *The unmodified Bootstrap 4.6 CSS library rendering natively — cards, navbars, buttons, and hover/active states, straight off the real `.min.css`.*
 
+<img src="images/affineui_bootstrap_dashboard.png" width="720" alt="Bootstrap dashboard rendered natively by AffineUI">
+
+*The Bootstrap dashboard demo — a complete responsive application shell with navigation, metric cards, charts, progress bars, and a data table.*
+
 ### Framework JavaScript
 
 There is no JS engine (see [What AffineUI is *not*](#what-affineui-is-not)).
@@ -487,6 +491,10 @@ under `build-python/` — so the demos always run against *this* checkout, and
 nothing is installed into your system Python. (If you'd rather work against an
 installed package, `pip install -e ./bindings/python` still does what you
 expect.)
+
+<img src="images/affineui_photoedit.png" width="720" alt="Photo editor demo driven from Python">
+
+*Decius Photo Edit — a Python-driven native image editor with floating panels, toolbars, layers, history, color controls, and a live canvas.*
 
 ### Rust demos
 
