@@ -12,16 +12,21 @@
 
 #include "photo_core.h"
 
-// NOTE: no <affineui/app.h>. This module links NO affineui runtime — see
-// examples/core/photoedit/CMakeLists.txt. Everything the core needs from the
-// app is fetched by CALLING INTO PYTHON on the affineui.App object, so the only
-// affineui types here are header-only (Painter is pure-virtual, Rect is POD).
-#include <affineui/painter.h>
-#include <affineui/types.h>
+// NOTE: this module includes NO affineui header at all, and links no affineui
+// runtime (see examples/core/photoedit/CMakeLists.txt). Everything the core needs
+// from the app is fetched by CALLING INTO PYTHON on the affineui.App object.
+//
+// That includes painting. The core asks for a photo::Canvas; we implement it over
+// the Python painter object. Taking a C++ `affineui::Painter&` here instead would
+// pin this separately-compiled module to the runtime's exact vtable layout, and
+// would make pybind demand `typeid(affineui::Painter)` — whose typeinfo lives only
+// in _affineui (Painter has a key function). Python loads extension modules
+// RTLD_LOCAL, so we could not borrow it, and this module failed to import outright.
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <cstdint>
 #include <optional>
 #include <tuple>
 #include <utility>
@@ -32,6 +37,39 @@ namespace {
 
 using photo::PhotoDoc;
 using photo::RectI;
+
+// The core's drawing surface, satisfied by calling methods on affineui's Painter
+// object. Rects/colors go over as plain tuples — no affineui type crosses.
+class PyCanvas final : public photo::Canvas {
+public:
+    explicit PyCanvas(const py::object& painter) : painter_(painter) {}
+
+    void draw_image(std::uint32_t image_id, const RectI& dst,
+                    const RectI& src) override {
+        painter_.attr("draw_image")(image_id, tup(dst), tup(src));
+    }
+    void fill_rect(const RectI& r, photo::Color c) override {
+        painter_.attr("fill_rect")(tup(r), tup(c));
+    }
+    void stroke_rect(const RectI& r, photo::Color c, float width) override {
+        painter_.attr("stroke_rect")(tup(r), tup(c), width);
+    }
+    void stroke_line(float x0, float y0, float x1, float y1, photo::Color c,
+                     float width) override {
+        painter_.attr("stroke_line")(x0, y0, x1, y1, tup(c), width);
+    }
+
+private:
+    static py::tuple tup(const RectI& r) {
+        return py::make_tuple(r.x, r.y, r.w, r.h);
+    }
+    static py::tuple tup(photo::Color c) {
+        return py::make_tuple(static_cast<int>(c.r), static_cast<int>(c.g),
+                              static_cast<int>(c.b), static_cast<int>(c.a));
+    }
+
+    py::object painter_;   // refcounted; the canvas never outlives the call anyway
+};
 
 // Build the raster core's Host by calling into Python on an affineui.App.
 //
@@ -53,12 +91,20 @@ PhotoDoc::Host make_host(py::object app) {
             return;
         }
         // Wrap the core's C++ paint fn as a Python callable. affineui hands it
-        // the live Painter; pybind resolves affineui.Painter across module
-        // boundaries, so it arrives back here as a real Painter& — no link.
+        // the live painter and the element rect; both arrive as plain Python
+        // objects (NOT typed affineui C++ params — see the note at the top), and
+        // we adapt them to the core's own Canvas / RectI before calling in.
         app.attr("set_custom_paint")(
             std::string(name),
-            py::cpp_function([fn](affineui::Painter& p,
-                                  const affineui::Rect& r) { fn(p, r); }));
+            py::cpp_function([fn](const py::object& painter,
+                                  const py::object& rect) {
+                PyCanvas canvas{painter};
+                const RectI r{rect.attr("x").cast<int>(),
+                              rect.attr("y").cast<int>(),
+                              rect.attr("w").cast<int>(),
+                              rect.attr("h").cast<int>()};
+                fn(canvas, r);
+            }));
     };
 
     host.request_custom_repaint = [app](std::string_view name) {
