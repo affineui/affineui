@@ -23,7 +23,7 @@ classifiers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/benjcooley/affineui"
+Repository = "https://github.com/affineui/affineui"
 
 [tool.scikit-build]
 cmake.source-dir = "."

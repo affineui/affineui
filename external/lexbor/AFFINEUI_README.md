@@ -1,8 +1,8 @@
 # affineui_lexbor — AffineUI's Lexbor fork
 
-This repository is a **maintained fork of [Lexbor](https://github.com/lexbor/lexbor)** (Apache-2.0), kept as part of the [**AffineUI**](https://github.com/benjcooley/affineui) project — a two-file, zero-dependency C++ HTML/CSS renderer for native apps and games.
+This repository is a **maintained fork of [Lexbor](https://github.com/lexbor/lexbor)** (Apache-2.0), kept as part of the [**AffineUI**](https://github.com/affineui/affineui) project — a two-file, zero-dependency C++ HTML/CSS renderer for native apps and games.
 
-It is the **source of truth** for the Lexbor code AffineUI ships. The patched source is **vendored** (copied) into `affineui/external/lexbor` via [`scripts/sync_lexbor_from_fork.sh`](https://github.com/benjcooley/affineui/blob/main/scripts/sync_lexbor_from_fork.sh) — AffineUI builds self-contained from that copy and does not depend on this repo at build time. Develop here, then sync.
+It is the **source of truth** for the Lexbor code AffineUI ships. The patched source is **vendored** (copied) into `affineui/external/lexbor` via [`scripts/sync_lexbor_from_fork.sh`](https://github.com/affineui/affineui/blob/main/scripts/sync_lexbor_from_fork.sh) — AffineUI builds self-contained from that copy and does not depend on this repo at build time. Develop here, then sync.
 
 ## Branches
 - **`affineui`** — the AffineUI patch set on top of upstream **`v2.4.0`** (this is the source of truth; `external/lexbor` mirrors it).

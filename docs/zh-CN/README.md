@@ -20,7 +20,7 @@
 
 **一个小巧、兼容 HTML5、GPU 加速的 UI 渲染器，内置组件框架——用于原生取代 Electron 和 Qt。**
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_dender.png" width="720" alt="AffineUI 运行 Dender 3D 打印切片器">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_dender.png" width="720" alt="AffineUI 运行 Dender 3D 打印切片器">
 
 *Dender——一个 3D 打印切片器，展示了 AffineUI 默认的 Decius CSS 外观。停靠面板、自定义视口以及完整的应用布局，全部原生渲染。*
 
@@ -35,7 +35,7 @@ AffineUI 以两文件 C++ 即插即用库、Python 库（Gradio 风格）、Rust
 
 **它可以直接接入现有项目并即刻工作。**如果你已经有一个 SDL2 或 sokol_app 应用程序，接入 AffineUI 只需两个文件加一次接线调用——无需分叉构建系统，无需运行时下载，无需独立窗口。包含、加载、渲染，搞定。
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="使用 AffineUI 构建的拟物化合成器演示">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="使用 AffineUI 构建的拟物化合成器演示">
 
 *一个拟物化的模块化合成器演示——屏幕上的一切都是标准 HTML + CSS：旋钮、连接线、面板纹理、动画。没有自定义的控件工具包，没有插件。*
 
@@ -314,7 +314,7 @@ Decius 是默认，**但不是强制要求**。任何选择器与 AffineUI 发�
 [`examples/01_bootstrap`](../../examples/01_bootstrap) 与
 [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard)。
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_bootstrap.png" width="720" alt="AffineUI 渲染 Bootstrap CSS">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_bootstrap.png" width="720" alt="AffineUI 渲染 Bootstrap CSS">
 
 *未经修改的 Bootstrap 4.6 CSS 库正在原生渲染——卡片、导航栏、按钮，以及 hover / active 状态，全部直接来自真实的 `.min.css`。*
 
@@ -383,7 +383,7 @@ int main() {
 克隆仓库并使用 CMake 构建——`examples/` 文件夹中提供了大约 20 个端到端应用，覆盖游戏工具、DCC UI 以及框架兼容性。
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 cmake -S . -B build -G Ninja
 cmake --build build
@@ -408,7 +408,7 @@ cmake --build build
 ./build.sh list
 ```
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="游戏编辑器演示">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_game_editor.png" width="720" alt="游戏编辑器演示">
 
 *Decius Game Editor 演示——以 AffineUI 默认的 Decius CSS 外观呈现的停靠面板、树视图、检查器和工具栏。*
 

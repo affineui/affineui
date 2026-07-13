@@ -1,7 +1,7 @@
 # affineui-sys
 
 Raw, hand-written FFI declarations for the
-[AffineUI](https://github.com/benjcooley/affineui) C ABI
+[AffineUI](https://github.com/affineui/affineui) C ABI
 (`affineui_c` shared library).
 
 **EXPERIMENTAL** — the C ABI is versioned (`affineui_c_abi_version()`)

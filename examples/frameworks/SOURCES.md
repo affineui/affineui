@@ -7,7 +7,7 @@ These are test inputs, not AffineUI runtime dependencies.
 | --- | ---: | --- | --- |
 | Bootstrap | 5.3.8 | `css/bootstrap-5.3.8.min.css` | https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css |
 | Bulma | 1.0.4 | `css/bulma-1.0.4.min.css` | https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css |
-| decius.css | 0.5.2 | `css/decius-css-0.5.2.bundle.min.css` | https://github.com/benjcooley/decius-css |
+| decius.css | 0.5.2 | `css/decius-css-0.5.2.bundle.min.css` | https://github.com/affineui/decius-css |
 | Foundation Sites | 6.9.0 | `css/foundation-sites-6.9.0.min.css` | https://cdn.jsdelivr.net/npm/foundation-sites@6.9.0/dist/css/foundation.min.css |
 | Material Components Web | 14.0.0 | `css/material-components-web-14.0.0.min.css` | https://cdn.jsdelivr.net/npm/material-components-web@14.0.0/dist/material-components-web.min.css |
 | Pico CSS | 2.1.1 | `css/pico-2.1.1.min.css` | https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css |

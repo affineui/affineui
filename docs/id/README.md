@@ -21,7 +21,7 @@
 **Renderer UI berukuran kecil, patuh terhadap HTML5, dengan akselerasi GPU
 dan framework komponen terintegrasi — pengganti native untuk Electron dan Qt.**
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_dender.png" width="720" alt="AffineUI menjalankan slicer cetak 3D Dender">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_dender.png" width="720" alt="AffineUI menjalankan slicer cetak 3D Dender">
 
 *Dender — slicer cetak 3D yang menampilkan tampilan default Decius CSS pada AffineUI. Panel docked, viewport kustom, dan tata letak aplikasi penuh, semuanya di-render secara native.*
 
@@ -47,7 +47,7 @@ sudah memiliki aplikasi SDL2 atau sokol_app, menambahkan AffineUI hanya butuh du
 file dan satu pemanggilan wire-up — tanpa fork sistem build, tanpa unduh runtime,
 tanpa jendela terpisah. Include, load, render, selesai.
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="Demo synth skeuomorfik dibangun dengan AffineUI">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_skeuomorphic.png" width="720" alt="Demo synth skeuomorfik dibangun dengan AffineUI">
 
 *Demo synth modular skeuomorfik — semua yang tampil di layar adalah HTML + CSS standar: kenop, kabel, tekstur panel, animasi. Tanpa toolkit widget kustom, tanpa plugin.*
 
@@ -366,7 +366,7 @@ markup komponen bergaya Ant semuanya ter-render out of the box — lihat
 [`examples/01_bootstrap`](../../examples/01_bootstrap) dan
 [`examples/10_bootstrap_dashboard`](../../examples/10_bootstrap_dashboard).
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_bootstrap.png" width="720" alt="AffineUI me-render Bootstrap CSS">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_bootstrap.png" width="720" alt="AffineUI me-render Bootstrap CSS">
 
 *Library CSS Bootstrap 4.6 tanpa modifikasi ter-render secara native — cards, navbar, tombol, dan state hover/active, langsung dari file `.min.css` asli.*
 
@@ -441,7 +441,7 @@ puluh aplikasi end-to-end yang mencakup alat game, UI DCC, dan kompatibilitas
 framework.
 
 ```bash
-git clone https://github.com/benjcooley/affineui.git
+git clone https://github.com/affineui/affineui.git
 cd affineui
 cmake -S . -B build -G Ninja
 cmake --build build
@@ -466,7 +466,7 @@ Jalankan salah satunya dengan task runner — ia membangun yang diperlukan lalu 
 ./build.sh list
 ```
 
-<img src="https://raw.githubusercontent.com/benjcooley/affineui/main/images/affineui_game_editor.png" width="720" alt="Demo editor game">
+<img src="https://raw.githubusercontent.com/affineui/affineui/main/images/affineui_game_editor.png" width="720" alt="Demo editor game">
 
 *Demo Decius Game Editor — panel docked, tree view, inspector, dan toolbar dalam tampilan default Decius CSS pada AffineUI.*
 
