@@ -177,4 +177,6 @@ gallery.
 - **Repository:** <https://github.com/affineui/affineui>
 - **Docs:** <https://github.com/affineui/affineui/tree/main/docs>
 - **Issues:** <https://github.com/affineui/affineui/issues>
+- **Discussion:** [r/affineui](https://www.reddit.com/r/affineui/) — questions,
+  show-and-tell, and general chat
 - **License:** MIT
