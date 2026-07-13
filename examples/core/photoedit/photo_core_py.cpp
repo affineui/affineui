@@ -12,13 +12,19 @@
 
 #include "photo_core.h"
 
-#include <affineui/app.h>
+// NOTE: no <affineui/app.h>. This module links NO affineui runtime — see
+// examples/core/photoedit/CMakeLists.txt. Everything the core needs from the
+// app is fetched by CALLING INTO PYTHON on the affineui.App object, so the only
+// affineui types here are header-only (Painter is pure-virtual, Rect is POD).
+#include <affineui/painter.h>
+#include <affineui/types.h>
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
 #include <optional>
 #include <tuple>
+#include <utility>
 
 namespace py = pybind11;
 
@@ -26,6 +32,74 @@ namespace {
 
 using photo::PhotoDoc;
 using photo::RectI;
+
+// Build the raster core's Host by calling into Python on an affineui.App.
+//
+// This is the whole point of the decoupling: the core asks for callbacks, and
+// we satisfy them through Python rather than by linking affineui — so this
+// module carries no second copy of sokol.
+//
+// Cost is only at the boundary: paint-handler registration, image create/update
+// (zero-copy — the pixels go over as a memoryview, not a bytes copy), and
+// repaint requests. The per-pixel raster work never touches Python.
+PhotoDoc::Host make_host(py::object app) {
+    PhotoDoc::Host host;
+
+    host.set_custom_paint = [app](std::string_view name,
+                                  PhotoDoc::Host::PaintFn fn) {
+        py::gil_scoped_acquire gil;
+        if (!fn) {
+            app.attr("set_custom_paint")(std::string(name), py::none());
+            return;
+        }
+        // Wrap the core's C++ paint fn as a Python callable. affineui hands it
+        // the live Painter; pybind resolves affineui.Painter across module
+        // boundaries, so it arrives back here as a real Painter& — no link.
+        app.attr("set_custom_paint")(
+            std::string(name),
+            py::cpp_function([fn](affineui::Painter& p,
+                                  const affineui::Rect& r) { fn(p, r); }));
+    };
+
+    host.request_custom_repaint = [app](std::string_view name) {
+        py::gil_scoped_acquire gil;
+        app.attr("request_custom_repaint")(std::string(name));
+    };
+
+    host.create_image_rgba = [app](int w, int h,
+                                   PhotoDoc::Host::Pixels px) -> std::uint32_t {
+        py::gil_scoped_acquire gil;
+        // memoryview over our buffer: no copy, and it does not outlive the call.
+        auto view = py::memoryview::from_memory(px.data(), px.size_bytes());
+        return app.attr("create_image_rgba")(w, h, view).cast<std::uint32_t>();
+    };
+
+    host.update_image = [app](std::uint32_t id,
+                              PhotoDoc::Host::Pixels px) -> bool {
+        py::gil_scoped_acquire gil;
+        auto view = py::memoryview::from_memory(px.data(), px.size_bytes());
+        return app.attr("update_image")(id, view).cast<bool>();
+    };
+
+    host.destroy_image = [app](std::uint32_t id) {
+        py::gil_scoped_acquire gil;
+        app.attr("destroy_image")(id);
+    };
+
+    host.font_data = [](bool bold) -> std::string_view {
+        // Cached: the core parses the face once and keeps it for the process.
+        static std::string regular, boldface;
+        std::string& slot = bold ? boldface : regular;
+        if (slot.empty()) {
+            py::gil_scoped_acquire gil;
+            const auto mod = py::module_::import("affineui");
+            slot = mod.attr("embedded_font_data")(bold).cast<std::string>();
+        }
+        return slot;
+    };
+
+    return host;
+}
 
 std::optional<std::tuple<int, int, int, int>> rect_or_none(const RectI& r) {
     if (r.empty()) return std::nullopt;
@@ -231,12 +305,16 @@ PYBIND11_MODULE(photo_core, m) {
         .def("export_png", &PhotoDoc::export_png, py::arg("path"),
              py::arg("scale") = 1.0, py::arg("opaque_white") = false)
         // UI integration
-        .def("attach", &PhotoDoc::attach, py::arg("app"),
-             py::keep_alive<1, 2>(),
+        .def("attach",
+             [](PhotoDoc& doc, py::object app) {
+                 doc.attach(make_host(std::move(app)));
+             },
+             py::arg("app"), py::keep_alive<1, 2>(),
              "Register the core's custom-paint handlers (\"ps-stage\", "
              "\"ps-nav\", \"ps-thumb-<id>\") with the app. The document "
              "then owns the whole canvas render path — no Python in the "
-             "frame loop.")
+             "frame loop. (Registration and image uploads DO call into "
+             "Python; per-pixel work never does.)")
         .def("detach", &PhotoDoc::detach)
         .def("request_repaint", &PhotoDoc::request_repaint)
         .def("thumb_paint_name", &PhotoDoc::thumb_paint_name,

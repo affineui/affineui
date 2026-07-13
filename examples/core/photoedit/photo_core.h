@@ -16,12 +16,25 @@
 
 #pragma once
 
-#include "affineui/app.h"
-#include "affineui/weak_ref.h"
+// NOTE: this core links NO affineui runtime — deliberately. It used to take an
+// `affineui::App&`, which dragged in the whole library (and with it a SECOND
+// copy of sokol_app: two `_sapp_macos_view` ObjC classes in one process, which
+// macOS warns "may cause spurious casting failures and mysterious crashes").
+// A raster engine has no business knowing what a window is. It now takes a Host
+// of plain callbacks; the caller supplies them.
+//
+// Only header-only affineui types are used: Painter is a pure-virtual interface
+// (dispatch through the vtable, nothing to link) and Rect/Color are PODs.
+#include "affineui/painter.h"
+#include "affineui/types.h"
+#include "affineui/weak_ref.h"   // header-only; nothing to link
 
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <span>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -231,13 +244,48 @@ public:
                     bool opaque_white) const;
 
     // ── UI integration ──────────────────────────────────────────────────
-    // Registers the custom-paint handlers with the app:
+    // Everything the core needs from whatever is hosting it. No App, no window,
+    // no sokol — just callbacks. The host wires these to its own app (the
+    // Python binding builds them from an affineui.App).
+    //
+    // Image ids are opaque to the core: 0 means "none/failed". Pixel spans are
+    // borrowed for the duration of the call — the host must not retain them.
+    struct Host {
+        using PaintFn =
+            std::function<void(affineui::Painter&, const affineui::Rect&)>;
+        using Pixels = std::span<const std::uint8_t>;
+
+        // Register (or, with a null fn, unregister) a custom-paint handler.
+        std::function<void(std::string_view name, PaintFn fn)> set_custom_paint;
+        // Mark every element bound to `name` for repaint next frame.
+        std::function<void(std::string_view name)> request_custom_repaint;
+        // Dynamic RGBA images. create returns 0 on failure.
+        std::function<std::uint32_t(int w, int h, Pixels px)> create_image_rgba;
+        std::function<bool(std::uint32_t id, Pixels px)>      update_image;
+        std::function<void(std::uint32_t id)>                 destroy_image;
+        // Bytes of the embedded UI font, for glyph rasterization (the type
+        // tool). Empty span is tolerated — text just won't render.
+        std::function<std::string_view(bool bold)> font_data;
+
+        // A host is usable once it can register paint handlers.
+        explicit operator bool() const noexcept {
+            return static_cast<bool>(set_custom_paint);
+        }
+    };
+
+    // Registers the custom-paint handlers through the host:
     //   "ps-stage"          document composite w/ zoom+pan + pen preview
     //   "ps-nav"            navigator thumbnail
     //   "ps-thumb-<id>"     per-layer thumbnails (kept in sync with the
     //                       layer stack; stale names are unregistered)
-    void attach(affineui::App& app);
+    void attach(Host host);
     void detach();
+
+private:
+    // Hand an image back to the host and zero the id. No-op on 0 / detached.
+    void destroy_image(std::uint32_t& id);
+
+public:
     // Mark the stage + navigator (+ dirty thumbs) for repaint next frame.
     void request_repaint();
     std::string thumb_paint_name(int layer_id) const;
@@ -335,15 +383,17 @@ private:
     struct PenPt { double x, y; };
     std::vector<PenPt> pen_pts_;
 
-    // GPU side (valid only while attached; handles live in the device
-    // painter and are refreshed lazily against *_rev counters).
-    affineui::AppHandle app_{};
-    affineui::ImageHandle stage_img_{};
+    // GPU side (valid only while attached; images live in the host's painter
+    // and are refreshed lazily against *_rev counters). Ids are opaque; 0 =
+    // none. The host owns their lifetime — we hand them back via
+    // Host::destroy_image.
+    Host host_{};
+    std::uint32_t stage_img_ = 0;
     int stage_img_w_ = 0, stage_img_h_ = 0;
     std::uint64_t uploaded_rev_ = 0;
     std::uint64_t revision_ = 1;
     struct ThumbTex {
-        affineui::ImageHandle img{};
+        std::uint32_t img = 0;
         std::uint64_t rev = 0;   // layer pixel_rev the texture reflects
     };
     std::unordered_map<int, ThumbTex> thumbs_;      // by layer id

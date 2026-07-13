@@ -617,13 +617,24 @@ struct Font {
     bool ok = false;
 };
 
+// The font bytes come from the host (they used to come from
+// affineui::embedded_font_data, which is what forced this raster core to link
+// the whole affineui runtime). Process-wide, like the parsed Font statics it
+// feeds — PhotoDoc::attach installs it.
+std::function<std::string_view(bool)>& font_provider() {
+    static std::function<std::string_view(bool)> fn;
+    return fn;
+}
+
 Font& get_font(bool bold) {
     static Font regular, boldf;
     Font& f = bold ? boldf : regular;
     static bool init[2] = {false, false};
     if (!init[bold ? 1 : 0]) {
         init[bold ? 1 : 0] = true;
-        const std::string_view data = affineui::embedded_font_data(bold);
+        const auto& provider = font_provider();
+        const std::string_view data =
+            provider ? provider(bold) : std::string_view{};
         if (!data.empty()) {
             const auto* bytes =
                 reinterpret_cast<const unsigned char*>(data.data());
@@ -2499,44 +2510,52 @@ std::string PhotoDoc::thumb_paint_name(int layer_id) const {
     return "ps-thumb-" + std::to_string(layer_id);
 }
 
-void PhotoDoc::attach(affineui::App& app) {
-    app_ = app.handle();
+void PhotoDoc::attach(Host host) {
+    host_ = std::move(host);
+    if (!host_) return;
+    if (host_.font_data) font_provider() = host_.font_data;
     const auto weak = affineui::to_weak_ref(this);
-    app.set_custom_paint("ps-stage",
-                         [weak](affineui::Painter& p, const affineui::Rect& r) {
-                             if (auto* self = weak.get()) self->paint_stage(p, r);
-                         });
-    app.set_custom_paint("ps-nav",
-                         [weak](affineui::Painter& p, const affineui::Rect& r) {
-                             if (auto* self = weak.get()) self->paint_nav(p, r);
-                         });
+    host_.set_custom_paint(
+        "ps-stage", [weak](affineui::Painter& p, const affineui::Rect& r) {
+            if (auto* self = weak.get()) self->paint_stage(p, r);
+        });
+    host_.set_custom_paint(
+        "ps-nav", [weak](affineui::Painter& p, const affineui::Rect& r) {
+            if (auto* self = weak.get()) self->paint_nav(p, r);
+        });
     sync_thumb_handlers();
 }
 
 void PhotoDoc::detach() {
-    if (app_) {
-        app_.set_custom_paint("ps-stage", nullptr);
-        app_.set_custom_paint("ps-nav", nullptr);
+    if (host_) {
+        host_.set_custom_paint("ps-stage", nullptr);
+        host_.set_custom_paint("ps-nav", nullptr);
         for (int id : thumb_names_)
-            app_.set_custom_paint(thumb_paint_name(id), nullptr);
+            host_.set_custom_paint(thumb_paint_name(id), nullptr);
     }
     thumb_names_.clear();
-    stage_img_.reset();
-    for (auto& entry : thumbs_) entry.second.img.reset();
+    destroy_image(stage_img_);
+    for (auto& entry : thumbs_) destroy_image(entry.second.img);
     thumbs_.clear();
-    app_ = {};
+    host_ = {};
+}
+
+// Hand an image back to the host and forget it. Safe on 0 / detached.
+void PhotoDoc::destroy_image(std::uint32_t& id) {
+    if (id != 0 && host_ && host_.destroy_image) host_.destroy_image(id);
+    id = 0;
 }
 
 void PhotoDoc::sync_thumb_handlers() {
-    if (!app_) return;
+    if (!host_) return;
     std::unordered_set<int> want;
     for (const auto& l : layers_) want.insert(l.id);
     for (auto it = thumb_names_.begin(); it != thumb_names_.end();) {
         if (want.count(*it) == 0) {
-            app_.set_custom_paint(thumb_paint_name(*it), nullptr);
+            host_.set_custom_paint(thumb_paint_name(*it), nullptr);
             auto tex = thumbs_.find(*it);
             if (tex != thumbs_.end()) {
-                tex->second.img.reset();
+                destroy_image(tex->second.img);
                 thumbs_.erase(tex);
             }
             it = thumb_names_.erase(it);
@@ -2548,7 +2567,7 @@ void PhotoDoc::sync_thumb_handlers() {
         if (thumb_names_.count(id)) continue;
         thumb_names_.insert(id);
         const auto weak = affineui::to_weak_ref(this);
-        app_.set_custom_paint(
+        host_.set_custom_paint(
             thumb_paint_name(id),
             [weak, id](affineui::Painter& p, const affineui::Rect& r) {
                 if (auto* self = weak.get()) self->paint_thumb(id, p, r);
@@ -2557,13 +2576,13 @@ void PhotoDoc::sync_thumb_handlers() {
 }
 
 void PhotoDoc::request_repaint() {
-    if (!app_) return;
-    app_.request_custom_repaint("ps-stage");
-    app_.request_custom_repaint("ps-nav");
+    if (!host_) return;
+    host_.request_custom_repaint("ps-stage");
+    host_.request_custom_repaint("ps-nav");
     for (const auto& l : layers_) {
         const auto it = thumbs_.find(l.id);
         if (it == thumbs_.end() || it->second.rev != l.pixel_rev)
-            app_.request_custom_repaint(thumb_paint_name(l.id));
+            host_.request_custom_repaint(thumb_paint_name(l.id));
     }
 }
 
@@ -2572,19 +2591,19 @@ void PhotoDoc::paint_stage(affineui::Painter& p, const affineui::Rect& r) {
     if (need_fit_) fit_to_screen();
 
     flush_composite();
-    if (!stage_img_.is_valid() || stage_img_w_ != w_ || stage_img_h_ != h_) {
-        stage_img_.reset();
-        if (app_) {
-            stage_img_ = app_.create_image_rgba(w_, h_, display_.px);
+    if (stage_img_ == 0 || stage_img_w_ != w_ || stage_img_h_ != h_) {
+        destroy_image(stage_img_);
+        if (host_ && host_.create_image_rgba) {
+            stage_img_ = host_.create_image_rgba(w_, h_, display_.px);
         }
         stage_img_w_ = w_;
         stage_img_h_ = h_;
         uploaded_rev_ = revision_;
     } else if (uploaded_rev_ != revision_) {
-        (void) stage_img_.update(display_.px);
+        if (host_.update_image) (void) host_.update_image(stage_img_, display_.px);
         uploaded_rev_ = revision_;
     }
-    if (!stage_img_.is_valid()) return;
+    if (stage_img_ == 0) return;
 
     double ox = 0, oy = 0;
     doc_origin(ox, oy);
@@ -2639,7 +2658,7 @@ void PhotoDoc::paint_stage(affineui::Painter& p, const affineui::Rect& r) {
 }
 
 void PhotoDoc::paint_nav(affineui::Painter& p, const affineui::Rect& r) {
-    if (!stage_img_.is_valid() || r.w <= 2 || r.h <= 2) return;
+    if (stage_img_ == 0 || r.w <= 2 || r.h <= 2) return;
     const double s = std::min(r.w / static_cast<double>(w_),
                               r.h / static_cast<double>(h_));
     const int tw = std::max(1, static_cast<int>(w_ * s));
@@ -2670,7 +2689,7 @@ void PhotoDoc::paint_thumb(int layer_id, affineui::Painter& p,
     if (l == nullptr) return;
     ThumbTex& tex = thumbs_[layer_id];
     constexpr int kThumb = 34;
-    if (!tex.img.is_valid() || tex.rev != l->pixel_rev) {
+    if (tex.img == 0 || tex.rev != l->pixel_rev) {
         // box-downsample the layer into a 34×34 tile, centered like the web
         Buffer tile(kThumb, kThumb);
         const double s =
@@ -2687,14 +2706,15 @@ void PhotoDoc::paint_thumb(int layer_id, affineui::Painter& p,
                 &small.px[static_cast<std::size_t>(y) * tw * 4],
                 static_cast<std::size_t>(tw) * 4);
         }
-        if (!tex.img.is_valid()) {
-            if (app_) tex.img = app_.create_image_rgba(kThumb, kThumb, tile.px);
-        } else {
-            (void) tex.img.update(tile.px);
+        if (tex.img == 0) {
+            if (host_ && host_.create_image_rgba)
+                tex.img = host_.create_image_rgba(kThumb, kThumb, tile.px);
+        } else if (host_.update_image) {
+            (void) host_.update_image(tex.img, tile.px);
         }
         tex.rev = l->pixel_rev;
     }
-    if (tex.img.is_valid()) {
+    if (tex.img != 0) {
         p.draw_image(tex.img, r, affineui::Rect{0, 0, kThumb, kThumb});
     }
 }

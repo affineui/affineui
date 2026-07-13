@@ -2,6 +2,8 @@
 #include <affineui/components.h>
 #include <affineui/decius_bundle.h>
 #include <affineui/document.h>
+#include <affineui/image.h>
+#include <affineui/painter.h>
 #include <affineui/tools.h>
 #include <affineui/types.h>
 #include <affineui/view.h>
@@ -19,6 +21,23 @@
 #include <vector>
 
 namespace py = pybind11;
+
+namespace detail {
+
+// Dynamic images created from Python are owned HERE, keyed by their painter id.
+// Python (and any native core it wires up) only ever sees the plain int id, so
+// a core can draw app-owned images while linking none of the affineui runtime.
+// Keyed by App so two Apps can't collide; entries die with the App.
+inline std::unordered_map<std::uint32_t, affineui::ImageHandle>&
+py_image_registry(affineui::App& app) {
+    static std::unordered_map<const affineui::App*,
+                              std::unordered_map<std::uint32_t,
+                                                 affineui::ImageHandle>>
+        by_app;
+    return by_app[&app];
+}
+
+}  // namespace detail
 
 namespace {
 
@@ -88,6 +107,24 @@ PYBIND11_MODULE(_affineui, m) {
     m.attr("__version__") = AFFINEUI_PY_VERSION;
     m.def("version", [] { return std::string{affineui::version_string()}; });
     m.def("native_backend", [] { return std::string{"sokol"}; });
+
+    // Painter — an OPAQUE handle. Deliberately has no methods: it exists so a
+    // paint callback can carry the live Painter across the Python boundary and
+    // back into a native core's C++ (pybind resolves the type across modules).
+    // That is what lets the photoedit raster core draw without linking affineui.
+    py::class_<affineui::Painter>(
+        m, "Painter",
+        "Opaque handle to the live painter, passed to App.set_custom_paint "
+        "handlers. Hand it to a native core; it has no Python-side methods.");
+
+    m.def("embedded_font_data",
+          [](bool bold) {
+              const std::string_view data = affineui::embedded_font_data(bold);
+              return py::bytes(data.data(), data.size());
+          },
+          py::arg("bold") = false,
+          "Raw bytes of the embedded UI font — for a native core that "
+          "rasterizes its own glyphs.");
 
     // ── Bundled Decius CSS framework ──────────────────────────────────
     // Exposed as module-level `_decius_apply` and `_decius_available`
@@ -2015,6 +2052,70 @@ PYBIND11_MODULE(_affineui, m) {
              py::arg("name"),
              "Repaint every data-aui-paint=name element on the next frame — "
              "no restyle, no layout, no reconcile.")
+        // ── Custom paint + dynamic images ────────────────────────────────
+        // The seam a NATIVE RENDERING CORE plugs into. A core (e.g. the
+        // photoedit raster engine) receives these as plain callbacks, so it
+        // links no affineui runtime — and therefore no second copy of sokol.
+        // Ids are plain ints: the ImageHandle stays here, owned by the App.
+        .def("set_custom_paint",
+             [](affineui::App& app, const std::string& name, py::object fn) {
+                 if (fn.is_none()) {
+                     app.set_custom_paint(name, nullptr);
+                     return;
+                 }
+                 auto cb = std::make_shared<py::object>(std::move(fn));
+                 app.set_custom_paint(
+                     name,
+                     [cb](affineui::Painter& p, const affineui::Rect& r) {
+                         py::gil_scoped_acquire gil;
+                         (*cb)(py::cast(&p, py::return_value_policy::reference),
+                               r);
+                     });
+             },
+             py::arg("name"), py::arg("fn"),
+             "Register a handler for every data-aui-paint=name element: "
+             "fn(painter, rect) draws its content each frame. Pass None to "
+             "unregister.")
+        .def("create_image_rgba",
+             [](affineui::App& app, int w, int h, py::buffer px) -> std::uint32_t {
+                 const py::buffer_info info = px.request();
+                 const auto* bytes =
+                     static_cast<const std::uint8_t*>(info.ptr);
+                 auto handle = app.create_image_rgba(
+                     w, h,
+                     std::span<const std::uint8_t>(
+                         bytes, static_cast<std::size_t>(info.size *
+                                                        info.itemsize)));
+                 if (!handle.is_valid()) return 0;
+                 const std::uint32_t id = handle.id();
+                 detail::py_image_registry(app)[id] = std::move(handle);
+                 return id;
+             },
+             py::arg("width"), py::arg("height"), py::arg("rgba"),
+             "Create a renderer-owned dynamic RGBA8 image; returns its painter "
+             "id (0 on failure). The App keeps the handle alive until "
+             "destroy_image.")
+        .def("update_image",
+             [](affineui::App& app, std::uint32_t id, py::buffer px) -> bool {
+                 auto& reg = detail::py_image_registry(app);
+                 const auto it = reg.find(id);
+                 if (it == reg.end()) return false;
+                 const py::buffer_info info = px.request();
+                 const auto* bytes =
+                     static_cast<const std::uint8_t*>(info.ptr);
+                 return it->second.update(std::span<const std::uint8_t>(
+                     bytes,
+                     static_cast<std::size_t>(info.size * info.itemsize)));
+             },
+             py::arg("image_id"), py::arg("rgba"),
+             "Replace an image's pixels. The byte count must match "
+             "width * height * 4 from creation.")
+        .def("destroy_image",
+             [](affineui::App& app, std::uint32_t id) {
+                 detail::py_image_registry(app).erase(id);
+             },
+             py::arg("image_id"),
+             "Release an image created with create_image_rgba.")
         .def("document",
              static_cast<affineui::Document& (affineui::App::*)()>(
                  &affineui::App::document),
