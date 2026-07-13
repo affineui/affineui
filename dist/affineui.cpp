@@ -17980,7 +17980,17 @@ lexbor_utils_hash_hash(const lxb_char_t *key, size_t key_size)
 
 
 // ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/css/at_rule/state.c
+// external/lexbor/lexbor/css/at_rule.c
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2021 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/css/at_rule.h
 // ────────────────────────────────────────────────────────────────────────
 
 /*
@@ -17989,18 +17999,8 @@ lexbor_utils_hash_hash(const lxb_char_t *key, size_t key_size)
  * Author: Alexander Borisov <borisov@lexbor.com>
  */
 
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/css/css.h
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2020-2022 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-#ifndef LXB_CSS_H
-#define LXB_CSS_H
+#ifndef LXB_CSS_AT_RULE_H
+#define LXB_CSS_AT_RULE_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -18132,6 +18132,100 @@ lxb_css_memory_ref_dec_destroy(lxb_css_memory_t *memory);
 
 
 // ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/css/syntax/syntax.h
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2022 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+#ifndef LEXBOR_CSS_SYNTAX_H
+#define LEXBOR_CSS_SYNTAX_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/css/syntax/tokenizer.h
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2018-2020 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+#ifndef LEXBOR_CSS_SYNTAX_TOKENIZER_H
+#define LEXBOR_CSS_SYNTAX_TOKENIZER_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/css/syntax/base.h
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2018-2024 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+#ifndef LEXBOR_CSS_SYNTAX_BASE_H
+#define LEXBOR_CSS_SYNTAX_BASE_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+
+
+
+#define LXB_CSS_SYNTAX_VERSION_MAJOR 1
+#define LXB_CSS_SYNTAX_VERSION_MINOR 2
+#define LXB_CSS_SYNTAX_VERSION_PATCH 0
+
+#define LXB_CSS_SYNTAX_VERSION_STRING                                          \
+    LEXBOR_STRINGIZE(LXB_CSS_SYNTAX_VERSION_MAJOR) "."                         \
+    LEXBOR_STRINGIZE(LXB_CSS_SYNTAX_VERSION_MINOR) "."                         \
+    LEXBOR_STRINGIZE(LXB_CSS_SYNTAX_VERSION_PATCH)
+
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+#endif /* LEXBOR_CSS_SYNTAX_BASE_H */
+
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/css/syntax/token.h
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2018-2020 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+#ifndef LEXBOR_CSS_SYNTAX_TOKEN_H
+#define LEXBOR_CSS_SYNTAX_TOKEN_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+// ────────────────────────────────────────────────────────────────────────
 // external/lexbor/lexbor/css/log.h
 // ────────────────────────────────────────────────────────────────────────
 
@@ -18238,173 +18332,6 @@ lxb_css_log_length(lxb_css_log_t *log)
 #endif
 
 #endif /* LEXBOR_CSS_LOG_H */
-
-
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/css/parser.h
-// ────────────────────────────────────────────────────────────────────────
-
-/*
-
- * Copyright (C) 2021-2022 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-#ifndef LEXBOR_CSS_PARSER_H
-#define LEXBOR_CSS_PARSER_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/css/stylesheet.h
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2020-2023 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-#ifndef LXB_CSS_STYLESHEET_H
-#define LXB_CSS_STYLESHEET_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/css/rule.h
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2021-2023 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-#ifndef LXB_CSS_RULE_H
-#define LXB_CSS_RULE_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/css/at_rule.h
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2021-2022 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-#ifndef LXB_CSS_AT_RULE_H
-#define LXB_CSS_AT_RULE_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/css/syntax/syntax.h
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2022 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-#ifndef LEXBOR_CSS_SYNTAX_H
-#define LEXBOR_CSS_SYNTAX_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/css/syntax/tokenizer.h
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2018-2020 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-#ifndef LEXBOR_CSS_SYNTAX_TOKENIZER_H
-#define LEXBOR_CSS_SYNTAX_TOKENIZER_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-
-
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/css/syntax/base.h
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2018-2024 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-#ifndef LEXBOR_CSS_SYNTAX_BASE_H
-#define LEXBOR_CSS_SYNTAX_BASE_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-
-
-
-
-
-#define LXB_CSS_SYNTAX_VERSION_MAJOR 1
-#define LXB_CSS_SYNTAX_VERSION_MINOR 2
-#define LXB_CSS_SYNTAX_VERSION_PATCH 0
-
-#define LXB_CSS_SYNTAX_VERSION_STRING                                          \
-    LEXBOR_STRINGIZE(LXB_CSS_SYNTAX_VERSION_MAJOR) "."                         \
-    LEXBOR_STRINGIZE(LXB_CSS_SYNTAX_VERSION_MINOR) "."                         \
-    LEXBOR_STRINGIZE(LXB_CSS_SYNTAX_VERSION_PATCH)
-
-
-#ifdef __cplusplus
-} /* extern "C" */
-#endif
-
-#endif /* LEXBOR_CSS_SYNTAX_BASE_H */
-
-
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/css/syntax/token.h
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2018-2020 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-#ifndef LEXBOR_CSS_SYNTAX_TOKEN_H
-#define LEXBOR_CSS_SYNTAX_TOKEN_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-
 
 
 
@@ -19558,6 +19485,80 @@ lxb_css_at_rule_namespace_serialize(const void *style, lexbor_serialize_cb_f cb,
 #endif
 
 #endif /* LXB_CSS_AT_RULE_H */
+
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/css/css.h
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2020-2022 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+#ifndef LXB_CSS_H
+#define LXB_CSS_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/css/parser.h
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+
+ * Copyright (C) 2021-2022 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+#ifndef LEXBOR_CSS_PARSER_H
+#define LEXBOR_CSS_PARSER_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/css/stylesheet.h
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2020-2023 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+#ifndef LXB_CSS_STYLESHEET_H
+#define LXB_CSS_STYLESHEET_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/css/rule.h
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2021-2023 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+#ifndef LXB_CSS_RULE_H
+#define LXB_CSS_RULE_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 
 // ────────────────────────────────────────────────────────────────────────
@@ -25795,7 +25796,6 @@ lxb_css_serialize_str_handler(const void *style, lexbor_str_t *str,
 
 
 
-
 // ────────────────────────────────────────────────────────────────────────
 // external/lexbor/lexbor/css/at_rule/state.h
 // ────────────────────────────────────────────────────────────────────────
@@ -25888,388 +25888,6 @@ static const lexbor_shs_entry_t lxb_css_at_rule_shs[6] =
 
 
 #endif /* LXB_CSS_AT_RULE_RES_H */
-
-
-#define new lexbor_cpp_new
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/core/cpp_compat.h
-// ────────────────────────────────────────────────────────────────────────
-
-/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
-#ifdef __cplusplus
-#ifndef LEXBOR_CPP_COMPAT_TYPES_H
-#define LEXBOR_CPP_COMPAT_TYPES_H
-namespace lexbor_cpp_compat {
-struct ptr_proxy {
-    void *p;
-    template <class T> operator T *() const { return static_cast<T *>(p); }
-    template <class T> operator const T *() const { return static_cast<const T *>(p); }
-    operator void *() const { return p; }
-    operator const void *() const { return p; }
-};
-inline ptr_proxy ptr(void *p) { return {p}; }
-inline ptr_proxy ptr(const void *p) { return {const_cast<void *>(p)}; }
-}  // namespace lexbor_cpp_compat
-#endif  /* LEXBOR_CPP_COMPAT_TYPES_H */
-
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_get
-#define aui_lexbor_array_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_get)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
-#define aui_lexbor_array_obj_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_get)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
-#define aui_lexbor_array_obj_last(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_last)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
-#define aui_lexbor_array_obj_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_pop)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
-#define aui_lexbor_array_obj_push(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
-#define aui_lexbor_array_obj_push_n(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_n)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
-#define aui_lexbor_array_obj_push_wo_cls(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_wo_cls)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
-#define aui_lexbor_array_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_pop)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
-#define aui_lexbor_bst_entry_data(...) ::lexbor_cpp_compat::ptr((aui_lexbor_bst_entry_data)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_calloc
-#define aui_lexbor_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_calloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
-#define aui_lexbor_dobject_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_alloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
-#define aui_lexbor_dobject_by_absolute_position(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_by_absolute_position)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
-#define aui_lexbor_dobject_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_calloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
-#define aui_lexbor_dobject_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_free)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_free
-#define aui_lexbor_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_free)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
-#define aui_lexbor_hash_insert(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_insert)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
-#define aui_lexbor_hash_search(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_search)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_malloc
-#define aui_lexbor_malloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_malloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
-#define aui_lexbor_mem_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_alloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
-#define aui_lexbor_mem_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_calloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
-#define aui_lexbor_mraw_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_alloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
-#define aui_lexbor_mraw_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_calloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
-#define aui_lexbor_mraw_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_free)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
-#define aui_lexbor_mraw_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_realloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_realloc
-#define aui_lexbor_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_realloc)(__VA_ARGS__))
-#endif
-#endif  /* __cplusplus */
-
-
-
-
-static bool
-aui_lexbor_static_04d3573884_lxb_css_property_state__custom_block(lxb_css_parser_t *parser,
-                                     const lxb_css_syntax_token_t *token,
-                                     void *ctx);
-
-
-bool
-lxb_css_at_rule_state__undef(lxb_css_parser_t *parser,
-                             const lxb_css_syntax_token_t *token, void *ctx)
-{
-    return lxb_css_parser_failed(parser);
-}
-
-bool
-lxb_css_at_rule_state__custom(lxb_css_parser_t *parser,
-                              const lxb_css_syntax_token_t *token, void *ctx)
-{
-    lxb_status_t status;
-    lxb_css_rule_at_t *at = (lxb_css_rule_at_t *) (ctx);
-    lxb_css_at_rule__custom_t *custom = at->u.custom;
-
-    /* Name. */
-
-    (void) lexbor_str_init(&custom->name, parser->memory->mraw,
-                           lxb_css_syntax_token_at_keyword(token)->length);
-    if (custom->name.data == NULL) {
-        return lxb_css_parser_memory_fail(parser);
-    }
-
-    memcpy(custom->name.data, lxb_css_syntax_token_at_keyword(token)->data,
-           lxb_css_syntax_token_at_keyword(token)->length);
-
-    custom->name.length = lxb_css_syntax_token_at_keyword(token)->length;
-    custom->name.data[custom->name.length] = 0x00;
-
-    /* Prelude. */
-
-    (void) lexbor_str_init(&custom->prelude, parser->memory->mraw, 0);
-    if (custom->prelude.data == NULL) {
-        return lxb_css_parser_memory_fail(parser);
-    }
-
-    lxb_css_syntax_parser_consume(parser);
-    token = lxb_css_syntax_parser_token(parser);
-
-    while (token != NULL && token->type != LXB_CSS_SYNTAX_TOKEN__END) {
-        status = lxb_css_syntax_token_serialize_str(token, &custom->prelude,
-                                                    parser->memory->mraw);
-        if (status != LXB_STATUS_OK) {
-            return lxb_css_parser_memory_fail(parser);
-        }
-
-        lxb_css_syntax_parser_consume(parser);
-        token = lxb_css_syntax_parser_token(parser);
-    }
-
-    lxb_css_parser_state_value_set(parser,
-                                   aui_lexbor_static_04d3573884_lxb_css_property_state__custom_block);
-
-    return lxb_css_parser_success(parser);
-}
-
-static bool
-aui_lexbor_static_04d3573884_lxb_css_property_state__custom_block(lxb_css_parser_t *parser,
-                                     const lxb_css_syntax_token_t *token,
-                                     void *ctx)
-{
-    lxb_status_t status;
-    lxb_css_rule_at_t *at = (lxb_css_rule_at_t *) (ctx);
-    lxb_css_at_rule__custom_t *custom = at->u.custom;
-
-    (void) lexbor_str_init(&custom->block, parser->memory->mraw, 0);
-    if (custom->block.data == NULL) {
-        return lxb_css_parser_memory_fail(parser);
-    }
-
-    while (token != NULL && token->type != LXB_CSS_SYNTAX_TOKEN__END) {
-        status = lxb_css_syntax_token_serialize_str(token, &custom->block,
-                                                    parser->memory->mraw);
-        if (status != LXB_STATUS_OK) {
-            return lxb_css_parser_memory_fail(parser);
-        }
-
-        lxb_css_syntax_parser_consume(parser);
-        token = lxb_css_syntax_parser_token(parser);
-    }
-
-    return lxb_css_parser_success(parser);
-}
-
-bool
-lxb_css_at_rule_state_media(lxb_css_parser_t *parser,
-                            const lxb_css_syntax_token_t *token, void *ctx)
-{
-    return lxb_css_parser_failed(parser);
-}
-
-bool
-lxb_css_at_rule_state_namespace(lxb_css_parser_t *parser,
-                                const lxb_css_syntax_token_t *token, void *ctx)
-{
-    return lxb_css_parser_failed(parser);
-}
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/core/cpp_compat_undef.h
-// ────────────────────────────────────────────────────────────────────────
-
-/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
-#ifdef aui_lexbor_array_get
-#undef aui_lexbor_array_get
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_get
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_get
-#endif
-#ifdef aui_lexbor_array_obj_get
-#undef aui_lexbor_array_obj_get
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
-#endif
-#ifdef aui_lexbor_array_obj_last
-#undef aui_lexbor_array_obj_last
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
-#endif
-#ifdef aui_lexbor_array_obj_pop
-#undef aui_lexbor_array_obj_pop
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
-#endif
-#ifdef aui_lexbor_array_obj_push
-#undef aui_lexbor_array_obj_push
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
-#endif
-#ifdef aui_lexbor_array_obj_push_n
-#undef aui_lexbor_array_obj_push_n
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
-#endif
-#ifdef aui_lexbor_array_obj_push_wo_cls
-#undef aui_lexbor_array_obj_push_wo_cls
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
-#endif
-#ifdef aui_lexbor_array_pop
-#undef aui_lexbor_array_pop
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
-#endif
-#ifdef aui_lexbor_bst_entry_data
-#undef aui_lexbor_bst_entry_data
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
-#undef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
-#endif
-#ifdef aui_lexbor_calloc
-#undef aui_lexbor_calloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_calloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_calloc
-#endif
-#ifdef aui_lexbor_dobject_alloc
-#undef aui_lexbor_dobject_alloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
-#endif
-#ifdef aui_lexbor_dobject_by_absolute_position
-#undef aui_lexbor_dobject_by_absolute_position
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
-#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
-#endif
-#ifdef aui_lexbor_dobject_calloc
-#undef aui_lexbor_dobject_calloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
-#endif
-#ifdef aui_lexbor_dobject_free
-#undef aui_lexbor_dobject_free
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
-#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
-#endif
-#ifdef aui_lexbor_free
-#undef aui_lexbor_free
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_free
-#undef LXB_CPP_COMPAT_SKIP_lexbor_free
-#endif
-#ifdef aui_lexbor_hash_insert
-#undef aui_lexbor_hash_insert
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
-#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
-#endif
-#ifdef aui_lexbor_hash_search
-#undef aui_lexbor_hash_search
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
-#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
-#endif
-#ifdef aui_lexbor_malloc
-#undef aui_lexbor_malloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_malloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_malloc
-#endif
-#ifdef aui_lexbor_mem_alloc
-#undef aui_lexbor_mem_alloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
-#endif
-#ifdef aui_lexbor_mem_calloc
-#undef aui_lexbor_mem_calloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
-#endif
-#ifdef aui_lexbor_mraw_alloc
-#undef aui_lexbor_mraw_alloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
-#endif
-#ifdef aui_lexbor_mraw_calloc
-#undef aui_lexbor_mraw_calloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
-#endif
-#ifdef aui_lexbor_mraw_free
-#undef aui_lexbor_mraw_free
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
-#endif
-#ifdef aui_lexbor_mraw_realloc
-#undef aui_lexbor_mraw_realloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
-#endif
-#ifdef aui_lexbor_realloc
-#undef aui_lexbor_realloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_realloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_realloc
-#endif
-#ifdef new
-#undef new
-#endif
-
-
-
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/css/at_rule.c
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2021 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-
-
-
-
 
 
 
@@ -26711,6 +26329,388 @@ lxb_css_at_rule_namespace_serialize(const void *style, lexbor_serialize_cb_f cb,
                                     void *ctx)
 {
     return LXB_STATUS_OK;
+}
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/core/cpp_compat_undef.h
+// ────────────────────────────────────────────────────────────────────────
+
+/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
+#ifdef aui_lexbor_array_get
+#undef aui_lexbor_array_get
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#endif
+#ifdef aui_lexbor_array_obj_get
+#undef aui_lexbor_array_obj_get
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#endif
+#ifdef aui_lexbor_array_obj_last
+#undef aui_lexbor_array_obj_last
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#endif
+#ifdef aui_lexbor_array_obj_pop
+#undef aui_lexbor_array_obj_pop
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#endif
+#ifdef aui_lexbor_array_obj_push
+#undef aui_lexbor_array_obj_push
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#endif
+#ifdef aui_lexbor_array_obj_push_n
+#undef aui_lexbor_array_obj_push_n
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#endif
+#ifdef aui_lexbor_array_obj_push_wo_cls
+#undef aui_lexbor_array_obj_push_wo_cls
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#endif
+#ifdef aui_lexbor_array_pop
+#undef aui_lexbor_array_pop
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#endif
+#ifdef aui_lexbor_bst_entry_data
+#undef aui_lexbor_bst_entry_data
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#undef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#endif
+#ifdef aui_lexbor_calloc
+#undef aui_lexbor_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#endif
+#ifdef aui_lexbor_dobject_alloc
+#undef aui_lexbor_dobject_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#endif
+#ifdef aui_lexbor_dobject_by_absolute_position
+#undef aui_lexbor_dobject_by_absolute_position
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#endif
+#ifdef aui_lexbor_dobject_calloc
+#undef aui_lexbor_dobject_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#endif
+#ifdef aui_lexbor_dobject_free
+#undef aui_lexbor_dobject_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#endif
+#ifdef aui_lexbor_free
+#undef aui_lexbor_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_free
+#endif
+#ifdef aui_lexbor_hash_insert
+#undef aui_lexbor_hash_insert
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#endif
+#ifdef aui_lexbor_hash_search
+#undef aui_lexbor_hash_search
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#endif
+#ifdef aui_lexbor_malloc
+#undef aui_lexbor_malloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#endif
+#ifdef aui_lexbor_mem_alloc
+#undef aui_lexbor_mem_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#endif
+#ifdef aui_lexbor_mem_calloc
+#undef aui_lexbor_mem_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#endif
+#ifdef aui_lexbor_mraw_alloc
+#undef aui_lexbor_mraw_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#endif
+#ifdef aui_lexbor_mraw_calloc
+#undef aui_lexbor_mraw_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#endif
+#ifdef aui_lexbor_mraw_free
+#undef aui_lexbor_mraw_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#endif
+#ifdef aui_lexbor_mraw_realloc
+#undef aui_lexbor_mraw_realloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#endif
+#ifdef aui_lexbor_realloc
+#undef aui_lexbor_realloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#endif
+#ifdef new
+#undef new
+#endif
+
+
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/css/at_rule/state.c
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2021-2022 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+
+
+
+
+
+
+#define new lexbor_cpp_new
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/core/cpp_compat.h
+// ────────────────────────────────────────────────────────────────────────
+
+/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
+#ifdef __cplusplus
+#ifndef LEXBOR_CPP_COMPAT_TYPES_H
+#define LEXBOR_CPP_COMPAT_TYPES_H
+namespace lexbor_cpp_compat {
+struct ptr_proxy {
+    void *p;
+    template <class T> operator T *() const { return static_cast<T *>(p); }
+    template <class T> operator const T *() const { return static_cast<const T *>(p); }
+    operator void *() const { return p; }
+    operator const void *() const { return p; }
+};
+inline ptr_proxy ptr(void *p) { return {p}; }
+inline ptr_proxy ptr(const void *p) { return {const_cast<void *>(p)}; }
+}  // namespace lexbor_cpp_compat
+#endif  /* LEXBOR_CPP_COMPAT_TYPES_H */
+
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#define aui_lexbor_array_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_get)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#define aui_lexbor_array_obj_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_get)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#define aui_lexbor_array_obj_last(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_last)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#define aui_lexbor_array_obj_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_pop)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#define aui_lexbor_array_obj_push(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#define aui_lexbor_array_obj_push_n(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_n)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#define aui_lexbor_array_obj_push_wo_cls(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_wo_cls)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#define aui_lexbor_array_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_pop)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#define aui_lexbor_bst_entry_data(...) ::lexbor_cpp_compat::ptr((aui_lexbor_bst_entry_data)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#define aui_lexbor_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#define aui_lexbor_dobject_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#define aui_lexbor_dobject_by_absolute_position(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_by_absolute_position)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#define aui_lexbor_dobject_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#define aui_lexbor_dobject_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_free
+#define aui_lexbor_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#define aui_lexbor_hash_insert(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_insert)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#define aui_lexbor_hash_search(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_search)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#define aui_lexbor_malloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_malloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#define aui_lexbor_mem_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#define aui_lexbor_mem_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#define aui_lexbor_mraw_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#define aui_lexbor_mraw_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#define aui_lexbor_mraw_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#define aui_lexbor_mraw_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_realloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#define aui_lexbor_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_realloc)(__VA_ARGS__))
+#endif
+#endif  /* __cplusplus */
+
+
+
+
+static bool
+aui_lexbor_static_04d3573884_lxb_css_property_state__custom_block(lxb_css_parser_t *parser,
+                                     const lxb_css_syntax_token_t *token,
+                                     void *ctx);
+
+
+bool
+lxb_css_at_rule_state__undef(lxb_css_parser_t *parser,
+                             const lxb_css_syntax_token_t *token, void *ctx)
+{
+    return lxb_css_parser_failed(parser);
+}
+
+bool
+lxb_css_at_rule_state__custom(lxb_css_parser_t *parser,
+                              const lxb_css_syntax_token_t *token, void *ctx)
+{
+    lxb_status_t status;
+    lxb_css_rule_at_t *at = (lxb_css_rule_at_t *) (ctx);
+    lxb_css_at_rule__custom_t *custom = at->u.custom;
+
+    /* Name. */
+
+    (void) lexbor_str_init(&custom->name, parser->memory->mraw,
+                           lxb_css_syntax_token_at_keyword(token)->length);
+    if (custom->name.data == NULL) {
+        return lxb_css_parser_memory_fail(parser);
+    }
+
+    memcpy(custom->name.data, lxb_css_syntax_token_at_keyword(token)->data,
+           lxb_css_syntax_token_at_keyword(token)->length);
+
+    custom->name.length = lxb_css_syntax_token_at_keyword(token)->length;
+    custom->name.data[custom->name.length] = 0x00;
+
+    /* Prelude. */
+
+    (void) lexbor_str_init(&custom->prelude, parser->memory->mraw, 0);
+    if (custom->prelude.data == NULL) {
+        return lxb_css_parser_memory_fail(parser);
+    }
+
+    lxb_css_syntax_parser_consume(parser);
+    token = lxb_css_syntax_parser_token(parser);
+
+    while (token != NULL && token->type != LXB_CSS_SYNTAX_TOKEN__END) {
+        status = lxb_css_syntax_token_serialize_str(token, &custom->prelude,
+                                                    parser->memory->mraw);
+        if (status != LXB_STATUS_OK) {
+            return lxb_css_parser_memory_fail(parser);
+        }
+
+        lxb_css_syntax_parser_consume(parser);
+        token = lxb_css_syntax_parser_token(parser);
+    }
+
+    lxb_css_parser_state_value_set(parser,
+                                   aui_lexbor_static_04d3573884_lxb_css_property_state__custom_block);
+
+    return lxb_css_parser_success(parser);
+}
+
+static bool
+aui_lexbor_static_04d3573884_lxb_css_property_state__custom_block(lxb_css_parser_t *parser,
+                                     const lxb_css_syntax_token_t *token,
+                                     void *ctx)
+{
+    lxb_status_t status;
+    lxb_css_rule_at_t *at = (lxb_css_rule_at_t *) (ctx);
+    lxb_css_at_rule__custom_t *custom = at->u.custom;
+
+    (void) lexbor_str_init(&custom->block, parser->memory->mraw, 0);
+    if (custom->block.data == NULL) {
+        return lxb_css_parser_memory_fail(parser);
+    }
+
+    while (token != NULL && token->type != LXB_CSS_SYNTAX_TOKEN__END) {
+        status = lxb_css_syntax_token_serialize_str(token, &custom->block,
+                                                    parser->memory->mraw);
+        if (status != LXB_STATUS_OK) {
+            return lxb_css_parser_memory_fail(parser);
+        }
+
+        lxb_css_syntax_parser_consume(parser);
+        token = lxb_css_syntax_parser_token(parser);
+    }
+
+    return lxb_css_parser_success(parser);
+}
+
+bool
+lxb_css_at_rule_state_media(lxb_css_parser_t *parser,
+                            const lxb_css_syntax_token_t *token, void *ctx)
+{
+    return lxb_css_parser_failed(parser);
+}
+
+bool
+lxb_css_at_rule_state_namespace(lxb_css_parser_t *parser,
+                                const lxb_css_syntax_token_t *token, void *ctx)
+{
+    return lxb_css_parser_failed(parser);
 }
 // ────────────────────────────────────────────────────────────────────────
 // external/lexbor/lexbor/core/cpp_compat_undef.h
@@ -29247,7 +29247,7 @@ lxb_css_parser_memory_fail_status(lxb_css_parser_t *parser)
 
 
 // ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/css/property/state.c
+// external/lexbor/lexbor/css/property.c
 // ────────────────────────────────────────────────────────────────────────
 
 /*
@@ -29255,7 +29255,6 @@ lxb_css_parser_memory_fail_status(lxb_css_parser_t *parser)
  *
  * Author: Alexander Borisov <borisov@lexbor.com>
  */
-
 
 
 
@@ -30409,6 +30408,4469 @@ static const lexbor_shs_entry_t lxb_css_property_shs[249] =
 
 
 #endif /* LXB_CSS_PROPERTY_RES_H */
+
+
+
+
+#define new lexbor_cpp_new
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/core/cpp_compat.h
+// ────────────────────────────────────────────────────────────────────────
+
+/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
+#ifdef __cplusplus
+#ifndef LEXBOR_CPP_COMPAT_TYPES_H
+#define LEXBOR_CPP_COMPAT_TYPES_H
+namespace lexbor_cpp_compat {
+struct ptr_proxy {
+    void *p;
+    template <class T> operator T *() const { return static_cast<T *>(p); }
+    template <class T> operator const T *() const { return static_cast<const T *>(p); }
+    operator void *() const { return p; }
+    operator const void *() const { return p; }
+};
+inline ptr_proxy ptr(void *p) { return {p}; }
+inline ptr_proxy ptr(const void *p) { return {const_cast<void *>(p)}; }
+}  // namespace lexbor_cpp_compat
+#endif  /* LEXBOR_CPP_COMPAT_TYPES_H */
+
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#define aui_lexbor_array_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_get)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#define aui_lexbor_array_obj_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_get)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#define aui_lexbor_array_obj_last(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_last)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#define aui_lexbor_array_obj_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_pop)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#define aui_lexbor_array_obj_push(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#define aui_lexbor_array_obj_push_n(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_n)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#define aui_lexbor_array_obj_push_wo_cls(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_wo_cls)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#define aui_lexbor_array_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_pop)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#define aui_lexbor_bst_entry_data(...) ::lexbor_cpp_compat::ptr((aui_lexbor_bst_entry_data)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#define aui_lexbor_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#define aui_lexbor_dobject_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#define aui_lexbor_dobject_by_absolute_position(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_by_absolute_position)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#define aui_lexbor_dobject_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#define aui_lexbor_dobject_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_free
+#define aui_lexbor_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#define aui_lexbor_hash_insert(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_insert)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#define aui_lexbor_hash_search(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_search)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#define aui_lexbor_malloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_malloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#define aui_lexbor_mem_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#define aui_lexbor_mem_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#define aui_lexbor_mraw_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#define aui_lexbor_mraw_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#define aui_lexbor_mraw_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#define aui_lexbor_mraw_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_realloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#define aui_lexbor_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_realloc)(__VA_ARGS__))
+#endif
+#endif  /* __cplusplus */
+
+
+
+
+const lxb_css_entry_data_t *
+lxb_css_property_by_name(const lxb_char_t *name, size_t length)
+{
+    const lexbor_shs_entry_t *entry;
+
+    if (length == 15 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "list-style-type", 15)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_LIST_STYLE_TYPE];
+    }
+    if (length == 10 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "list-style", 10)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_LIST_STYLE];
+    }
+    if (length == 7 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "content", 7)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_CONTENT];
+    }
+    if (length == 9 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "transform", 9)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_TRANSFORM];
+    }
+    if (length == 16 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "transform-origin", 16)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_TRANSFORM_ORIGIN];
+    }
+    if (length == 9 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation", 9)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION];
+    }
+    if (length == 14 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-name", 14)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_NAME];
+    }
+    if (length == 18 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-duration", 18)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_DURATION];
+    }
+    if (length == 25 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-timing-function", 25)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_TIMING_FUNCTION];
+    }
+    if (length == 15 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-delay", 15)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_DELAY];
+    }
+    if (length == 25 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-iteration-count", 25)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_ITERATION_COUNT];
+    }
+    if (length == 19 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-direction", 19)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_DIRECTION];
+    }
+    if (length == 19 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-fill-mode", 19)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_FILL_MODE];
+    }
+    if (length == 20 &&
+        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-play-state", 20)) {
+        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_PLAY_STATE];
+    }
+
+    entry = lexbor_shs_entry_get_lower_static(lxb_css_property_shs,
+                                              name, length);
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    return (const lxb_css_entry_data_t *) (entry->value);
+}
+
+const lxb_css_entry_data_t *
+lxb_css_property_by_id(uintptr_t id)
+{
+    return &lxb_css_property_data[id];
+}
+
+const void *
+lxb_css_property_initial_by_id(uintptr_t id)
+{
+    if (id >= LXB_CSS_PROPERTY__LAST_ENTRY) {
+        return NULL;
+    }
+
+    return lxb_css_property_data[id].initial;
+}
+
+void *
+lxb_css_property_destroy(lxb_css_memory_t *memory, void *style,
+                         lxb_css_property_type_t type, bool self_destroy)
+{
+    const lxb_css_entry_data_t *data;
+
+    data = lxb_css_property_by_id(type);
+    if (data == NULL) {
+        return style;
+    }
+
+    return data->destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_serialize(const void *style, lxb_css_property_type_t type,
+                           lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_entry_data_t *data;
+
+    data = lxb_css_property_by_id(type);
+    if (data == NULL) {
+        return LXB_STATUS_ERROR_NOT_EXISTS;
+    }
+
+    return data->serialize(style, cb, ctx);
+}
+
+lxb_status_t
+lxb_css_property_serialize_str(const void *style, lxb_css_property_type_t type,
+                               lexbor_mraw_t *mraw, lexbor_str_t *str)
+{
+    const lxb_css_entry_data_t *data;
+
+    data = lxb_css_property_by_id(type);
+    if (data == NULL) {
+        return LXB_STATUS_ERROR_NOT_EXISTS;
+    }
+
+    return lxb_css_serialize_str_handler(style, str, mraw, data->serialize);
+}
+
+lxb_status_t
+lxb_css_property_serialize_name(const void *style, lxb_css_property_type_t type,
+                                lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_entry_data_t *data;
+
+    switch (type) {
+        case LXB_CSS_PROPERTY__UNDEF:
+            return lxb_css_property__undef_serialize_name(style, cb, ctx);
+
+        case LXB_CSS_PROPERTY__CUSTOM:
+            return lxb_css_property__custom_serialize_name(style, cb, ctx);
+
+        default:
+            break;
+    }
+
+    data = lxb_css_property_by_id(type);
+    if (data == NULL) {
+        return LXB_STATUS_ERROR_NOT_EXISTS;
+    }
+
+    return cb(data->name, data->length, ctx);
+}
+
+lxb_status_t
+lxb_css_property_serialize_name_str(const void *style, lxb_css_property_type_t type,
+                                    lexbor_mraw_t *mraw, lexbor_str_t *str)
+{
+    const lxb_css_entry_data_t *data;
+
+    switch (type) {
+        case LXB_CSS_PROPERTY__UNDEF:
+            return lxb_css_serialize_str_handler(style, str, mraw,
+                                       lxb_css_property__undef_serialize_name);
+
+        case LXB_CSS_PROPERTY__CUSTOM:
+            return lxb_css_serialize_str_handler(style, str, mraw,
+                                      lxb_css_property__custom_serialize_name);
+
+        default:
+            break;
+    }
+
+    data = lxb_css_property_by_id(type);
+    if (data == NULL) {
+        return LXB_STATUS_ERROR_NOT_EXISTS;
+    }
+
+    if (str->data == NULL) {
+        lexbor_str_init(str, mraw, data->length);
+        if (str->data == NULL) {
+            return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
+        }
+    }
+
+    (void) lexbor_str_append(str, mraw, data->name, data->length);
+
+    return LXB_STATUS_OK;
+}
+
+/* _undef. */
+
+void *
+lxb_css_property__undef_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property__undef_t));
+}
+
+void *
+lxb_css_property__undef_destroy(lxb_css_memory_t *memory,
+                                void *style, bool self_destroy)
+{
+    if (style == NULL) {
+        return NULL;
+    }
+
+    if (self_destroy) {
+        return lexbor_mraw_free(memory->mraw, style);
+    }
+
+    return style;
+}
+
+lxb_status_t
+lxb_css_property__undef_serialize(const void *style,
+                                  lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property__undef_t *undef = (const lxb_css_property__undef_t *) (style);
+
+    return cb(undef->value.data, undef->value.length, ctx);
+}
+
+lxb_status_t
+lxb_css_property__undef_serialize_name(const void *style,
+                                       lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property__undef_t *undef = (const lxb_css_property__undef_t *) (style);
+    const lxb_css_entry_data_t *data;
+
+    if (undef->type == LXB_CSS_PROPERTY__UNDEF) {
+        return LXB_STATUS_OK;
+    }
+
+    data = lxb_css_property_by_id(undef->type);
+    if (data == NULL) {
+        return LXB_STATUS_ERROR_NOT_EXISTS;
+    }
+
+    return cb(data->name, data->length, ctx);
+}
+
+lxb_status_t
+lxb_css_property__undef_serialize_value(const void *style,
+                                        lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property__undef_t *undef = (const lxb_css_property__undef_t *) (style);
+
+    if (undef->type == LXB_CSS_PROPERTY__UNDEF) {
+        return cb(undef->value.data, undef->value.length, ctx);
+    }
+
+    return LXB_STATUS_OK;
+}
+
+/* _custom. */
+
+void *
+lxb_css_property__custom_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property__custom_t));
+}
+
+void *
+lxb_css_property__custom_destroy(lxb_css_memory_t *memory,
+                                 void *style, bool self_destroy)
+{
+    if (style == NULL) {
+        return NULL;
+    }
+
+    if (self_destroy) {
+        return lexbor_mraw_free(memory->mraw, style);
+    }
+
+    return style;
+}
+
+lxb_status_t
+lxb_css_property__custom_serialize(const void *style,
+                                   lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property__custom_t *custom = (const lxb_css_property__custom_t *) (style);
+
+    if (custom->value.data == NULL) {
+        return LXB_STATUS_OK;
+    }
+
+    return cb(custom->value.data, custom->value.length, ctx);
+}
+
+lxb_status_t
+lxb_css_property__custom_serialize_name(const void *style,
+                                        lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property__custom_t *custom = (const lxb_css_property__custom_t *) (style);
+
+    return cb(custom->name.data, custom->name.length, ctx);
+}
+
+lxb_status_t
+lxb_css_property__custom_serialize_value(const void *style,
+                                         lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property__custom_t *custom = (const lxb_css_property__custom_t *) (style);
+
+    if (custom->value.data == NULL) {
+        return LXB_STATUS_OK;
+    }
+
+    return cb(custom->value.data, custom->value.length, ctx);
+}
+
+/* Display. */
+
+void *
+lxb_css_property_display_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_display_t));
+}
+
+void *
+lxb_css_property_display_destroy(lxb_css_memory_t *memory,
+                                 void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_display_serialize(const void *property,
+                                   lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_data_t *data;
+    const lxb_css_property_display_t *display = (const lxb_css_property_display_t *) (property);
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    data = lxb_css_value_by_id(display->a);
+    if (data == NULL) {
+        return LXB_STATUS_ERROR_NOT_EXISTS;
+    }
+
+    lexbor_serialize_write(cb, data->name, data->length, ctx, status);
+
+    if (display->b == LXB_CSS_PROPERTY__UNDEF) {
+        return LXB_STATUS_OK;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    data = lxb_css_value_by_id(display->b);
+    if (data == NULL) {
+        return LXB_STATUS_ERROR_NOT_EXISTS;
+    }
+
+    lexbor_serialize_write(cb, data->name, data->length, ctx, status);
+
+    if (display->c == LXB_CSS_PROPERTY__UNDEF) {
+        return LXB_STATUS_OK;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    data = lxb_css_value_by_id(display->c);
+    if (data == NULL) {
+        return LXB_STATUS_ERROR_NOT_EXISTS;
+    }
+
+    lexbor_serialize_write(cb, data->name, data->length, ctx, status);
+
+    return LXB_STATUS_OK;
+}
+
+/* Order. */
+
+void *
+lxb_css_property_order_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_order_t));
+}
+
+void *
+lxb_css_property_order_destroy(lxb_css_memory_t *memory,
+                               void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_order_serialize(const void *style,
+                                 lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_integer_type_sr((const lxb_css_value_integer_type_t *) (style), cb, ctx);
+}
+
+/* Visibility. */
+
+void *
+lxb_css_property_visibility_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_visibility_t));
+}
+
+void *
+lxb_css_property_visibility_destroy(lxb_css_memory_t *memory,
+                                    void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_visibility_serialize(const void *style,
+                                      lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_visibility_t *vb = (const lxb_css_property_visibility_t *) (style);
+
+    return lxb_css_value_serialize(vb->type, cb, ctx);
+}
+
+/* Width. */
+
+void *
+lxb_css_property_width_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_width_t));
+}
+
+void *
+lxb_css_property_width_destroy(lxb_css_memory_t *memory,
+                               void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_width_serialize(const void *property,
+                                 lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_width_t *width = (const lxb_css_property_width_t *) (property);
+
+    switch (width->type) {
+        case LXB_CSS_VALUE__LENGTH:
+        case LXB_CSS_VALUE__NUMBER:
+            return lxb_css_value_length_sr(&width->u.length, cb, ctx);
+
+        case LXB_CSS_VALUE__PERCENTAGE:
+            return lxb_css_value_percentage_sr(&width->u.percentage, cb, ctx);
+
+        case LXB_CSS_VALUE__UNDEF:
+            /* FIXME: ???? */
+            break;
+
+        default:
+            return lxb_css_value_serialize(width->type, cb, ctx);
+    }
+
+    return LXB_STATUS_OK;
+}
+
+/* Height. */
+
+void *
+lxb_css_property_height_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_height_t));
+}
+
+void *
+lxb_css_property_height_destroy(lxb_css_memory_t *memory,
+                                void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_height_serialize(const void *property,
+                                  lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_width_serialize(property, cb, ctx);
+}
+
+/* Box-sizing. */
+
+void *
+lxb_css_property_box_sizing_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_box_sizing_t));
+}
+
+void *
+lxb_css_property_box_sizing_destroy(lxb_css_memory_t *memory,
+                                    void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_box_sizing_serialize(const void *property,
+                                      lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_box_sizing_t *bsize = (const lxb_css_property_box_sizing_t *) (property);
+
+    return lxb_css_value_serialize(bsize->type, cb, ctx);
+}
+
+/* Box-shadow. */
+
+void *
+lxb_css_property_box_shadow_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_box_shadow_t));
+}
+
+void *
+lxb_css_property_box_shadow_destroy(lxb_css_memory_t *memory,
+                                    void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_box_shadow_serialize(const void *property,
+                                      lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_box_shadow_t *shadow = (const lxb_css_property_box_shadow_t *) (property);
+    const lxb_css_property_box_shadow_layer_t *layer;
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+    static const lexbor_str_t str_comma = lexbor_str(", ");
+
+    switch (shadow->type) {
+        case LXB_CSS_VALUE_INITIAL:
+        case LXB_CSS_VALUE_INHERIT:
+        case LXB_CSS_VALUE_UNSET:
+        case LXB_CSS_VALUE_REVERT:
+        case LXB_CSS_BOX_SHADOW_NONE:
+            return lxb_css_value_serialize(shadow->type, cb, ctx);
+
+        default:
+            break;
+    }
+
+    for (uint8_t i = 0; i < shadow->layer_count; i++) {
+        layer = &shadow->layers[i];
+        if (i != 0) {
+            lexbor_serialize_write(cb, str_comma.data, str_comma.length, ctx, status);
+        }
+
+        if (layer->inset) {
+            status = lxb_css_value_serialize(LXB_CSS_VALUE_INSET, cb, ctx);
+            if (status != LXB_STATUS_OK) {
+                return status;
+            }
+
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        }
+
+        status = lxb_css_value_length_type_sr(&layer->offset_x, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+        status = lxb_css_value_length_type_sr(&layer->offset_y, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        if (layer->blur_radius.type != LXB_CSS_VALUE__UNDEF) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+            status = lxb_css_value_length_type_sr(&layer->blur_radius, cb, ctx);
+            if (status != LXB_STATUS_OK) {
+                return status;
+            }
+        }
+
+        if (layer->spread_radius.type != LXB_CSS_VALUE__UNDEF) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+            status = lxb_css_value_length_type_sr(&layer->spread_radius, cb, ctx);
+            if (status != LXB_STATUS_OK) {
+                return status;
+            }
+        }
+
+        if (layer->color.type != LXB_CSS_VALUE__UNDEF) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+            status = lxb_css_value_color_serialize(&layer->color, cb, ctx);
+            if (status != LXB_STATUS_OK) {
+                return status;
+            }
+        }
+    }
+
+    return LXB_STATUS_OK;
+}
+
+/* Min-width. */
+
+void *
+lxb_css_property_min_width_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_min_width_t));
+}
+
+void *
+lxb_css_property_min_width_destroy(lxb_css_memory_t *memory,
+                                   void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_min_width_serialize(const void *property,
+                                     lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_width_serialize(property, cb, ctx);
+}
+
+/* Min-height. */
+
+void *
+lxb_css_property_min_height_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_min_height_t));
+}
+
+void *
+lxb_css_property_min_height_destroy(lxb_css_memory_t *memory,
+                                    void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_min_height_serialize(const void *property,
+                                      lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_width_serialize(property, cb, ctx);
+}
+
+/* Max-width. */
+
+void *
+lxb_css_property_max_width_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_max_width_t));
+}
+
+void *
+lxb_css_property_max_width_destroy(lxb_css_memory_t *memory,
+                                   void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_max_width_serialize(const void *property,
+                                     lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_width_serialize(property, cb, ctx);
+}
+
+/* Max-height. */
+
+void *
+lxb_css_property_max_height_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_max_height_t));
+}
+
+void *
+lxb_css_property_max_height_destroy(lxb_css_memory_t *memory,
+                                    void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_max_height_serialize(const void *property,
+                                      lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_width_serialize(property, cb, ctx);
+}
+
+/* Margin. */
+
+void *
+lxb_css_property_margin_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_margin_t));
+}
+
+void *
+lxb_css_property_margin_destroy(lxb_css_memory_t *memory,
+                                void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_margin_serialize(const void *property,
+                                  lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_margin_t *margin = (const lxb_css_property_margin_t *) (property);
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    /* Top. */
+
+    status = lxb_css_value_length_percentage_sr(&margin->top, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    if (margin->right.type == LXB_CSS_VALUE__UNDEF) {
+        return LXB_STATUS_OK;
+    }
+
+    /* Right. */
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    status = lxb_css_value_length_percentage_sr(&margin->right, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    if (margin->bottom.type == LXB_CSS_VALUE__UNDEF) {
+        return LXB_STATUS_OK;
+    }
+
+    /* Bottom. */
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    status = lxb_css_value_length_percentage_sr(&margin->bottom, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    if (margin->left.type == LXB_CSS_VALUE__UNDEF) {
+        return LXB_STATUS_OK;
+    }
+
+    /* Left. */
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    return lxb_css_value_length_percentage_sr(&margin->left, cb, ctx);
+}
+
+/* Margin-top. */
+
+void *
+lxb_css_property_margin_top_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_margin_top_t));
+}
+
+void *
+lxb_css_property_margin_top_destroy(lxb_css_memory_t *memory,
+                                    void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_margin_top_serialize(const void *property,
+                                      lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (property), cb, ctx);
+}
+
+/* Margin-right. */
+
+void *
+lxb_css_property_margin_right_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_margin_right_t));
+}
+
+void *
+lxb_css_property_margin_right_destroy(lxb_css_memory_t *memory,
+                                      void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_margin_right_serialize(const void *property,
+                                        lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (property), cb, ctx);
+}
+
+/* Margin-bottom. */
+
+void *
+lxb_css_property_margin_bottom_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_margin_bottom_t));
+}
+
+void *
+lxb_css_property_margin_bottom_destroy(lxb_css_memory_t *memory,
+                                       void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_margin_bottom_serialize(const void *property,
+                                         lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (property), cb, ctx);
+}
+
+/* Margin-left. */
+
+void *
+lxb_css_property_margin_left_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_margin_left_t));
+}
+
+void *
+lxb_css_property_margin_left_destroy(lxb_css_memory_t *memory,
+                                     void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_margin_left_serialize(const void *property,
+                                       lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (property), cb, ctx);
+}
+
+/* Padding. */
+
+void *
+lxb_css_property_padding_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_padding_t));
+}
+
+void *
+lxb_css_property_padding_destroy(lxb_css_memory_t *memory,
+                                 void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_padding_serialize(const void *property,
+                                   lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_margin_serialize(property, cb, ctx);
+}
+
+/* Padding-top. */
+
+void *
+lxb_css_property_padding_top_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_padding_top_t));
+}
+
+void *
+lxb_css_property_padding_top_destroy(lxb_css_memory_t *memory,
+                                     void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_padding_top_serialize(const void *property,
+                                       lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (property), cb, ctx);
+}
+
+/* Padding-right. */
+
+void *
+lxb_css_property_padding_right_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_padding_right_t));
+}
+
+void *
+lxb_css_property_padding_right_destroy(lxb_css_memory_t *memory,
+                                       void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_padding_right_serialize(const void *property,
+                                         lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (property), cb, ctx);
+}
+
+/* Padding-bottom. */
+
+void *
+lxb_css_property_padding_bottom_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_padding_bottom_t));
+}
+
+void *
+lxb_css_property_padding_bottom_destroy(lxb_css_memory_t *memory,
+                                        void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_padding_bottom_serialize(const void *property,
+                                          lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (property), cb, ctx);
+}
+
+/* Padding-left. */
+
+void *
+lxb_css_property_padding_left_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_padding_left_t));
+}
+
+void *
+lxb_css_property_padding_left_destroy(lxb_css_memory_t *memory,
+                                      void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_padding_left_serialize(const void *property,
+                                        lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (property), cb, ctx);
+}
+
+/* Border. */
+
+void *
+lxb_css_property_border_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_border_t));
+}
+
+void *
+lxb_css_property_border_destroy(lxb_css_memory_t *memory,
+                                void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_serialize(const void *property,
+                                  lexbor_serialize_cb_f cb, void *ctx)
+{
+    bool ws_print;
+    lxb_status_t status;
+    const lxb_css_property_border_t *border = (const lxb_css_property_border_t *) (property);
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    ws_print = false;
+
+    if (border->width.type != LXB_CSS_VALUE__UNDEF) {
+        status = lxb_css_value_length_type_sr(&border->width, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        ws_print = true;
+    }
+
+    if (border->style != LXB_CSS_VALUE__UNDEF) {
+        if (ws_print) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        }
+
+        status = lxb_css_value_serialize(border->style, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        ws_print = true;
+    }
+
+    if (border->color.type != LXB_CSS_VALUE__UNDEF) {
+        if (ws_print) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        }
+
+        return lxb_css_value_color_serialize(&border->color, cb, ctx);
+    }
+
+    return LXB_STATUS_OK;
+}
+
+/* Border-top. */
+
+void *
+lxb_css_property_border_top_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_border_top_t));
+}
+
+void *
+lxb_css_property_border_top_destroy(lxb_css_memory_t *memory,
+                                    void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_top_serialize(const void *property,
+                                      lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_border_serialize(property, cb, ctx);
+}
+
+/* Border-right. */
+
+void *
+lxb_css_property_border_right_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_border_right_t));
+}
+
+void *
+lxb_css_property_border_right_destroy(lxb_css_memory_t *memory,
+                                      void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_right_serialize(const void *property,
+                                        lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_border_serialize(property, cb, ctx);
+}
+
+/* Border-bottom. */
+
+void *
+lxb_css_property_border_bottom_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_border_bottom_t));
+}
+
+void *
+lxb_css_property_border_bottom_destroy(lxb_css_memory_t *memory,
+                                       void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_bottom_serialize(const void *property,
+                                         lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_border_serialize(property, cb, ctx);
+}
+
+/* Border-left. */
+
+void *
+lxb_css_property_border_left_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_border_left_t));
+}
+
+void *
+lxb_css_property_border_left_destroy(lxb_css_memory_t *memory,
+                                     void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_left_serialize(const void *property,
+                                       lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_border_serialize(property, cb, ctx);
+}
+
+/* Border-color. */
+
+void *
+lxb_css_property_border_color_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_color_t));
+}
+
+void *
+lxb_css_property_border_color_destroy(lxb_css_memory_t *memory,
+                                      void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_color_serialize(const void *style,
+                                        lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_border_color_t *border = (const lxb_css_property_border_color_t *) (style);
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    status = lxb_css_value_color_serialize(&border->top, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    status = lxb_css_value_color_serialize(&border->right, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    status = lxb_css_value_color_serialize(&border->bottom, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    return lxb_css_value_color_serialize(&border->left, cb, ctx);
+}
+
+void *
+lxb_css_property_border_top_color_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_top_color_t));
+}
+
+void *
+lxb_css_property_border_top_color_destroy(lxb_css_memory_t *memory,
+                                          void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_top_color_serialize(const void *style,
+                                            lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_color_serialize((const lxb_css_value_color_t *) (style), cb, ctx);
+}
+
+void *
+lxb_css_property_border_right_color_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_right_color_t));
+}
+
+void *
+lxb_css_property_border_right_color_destroy(lxb_css_memory_t *memory,
+                                            void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_right_color_serialize(const void *style,
+                                              lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_color_serialize((const lxb_css_value_color_t *) (style), cb, ctx);
+}
+
+void *
+lxb_css_property_border_bottom_color_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_bottom_color_t));
+}
+
+void *
+lxb_css_property_border_bottom_color_destroy(lxb_css_memory_t *memory,
+                                             void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_bottom_color_serialize(const void *style,
+                                               lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_color_serialize((const lxb_css_value_color_t *) (style), cb, ctx);
+}
+
+void *
+lxb_css_property_border_left_color_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_left_color_t));
+}
+
+void *
+lxb_css_property_border_left_color_destroy(lxb_css_memory_t *memory,
+                                           void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_left_color_serialize(const void *style,
+                                             lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_color_serialize((const lxb_css_value_color_t *) (style), cb, ctx);
+}
+
+/* Border-style shorthand. */
+
+void *
+lxb_css_property_border_style_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_style_t));
+}
+
+void *
+lxb_css_property_border_style_destroy(lxb_css_memory_t *memory,
+                                      void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_style_serialize(const void *style,
+                                        lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_border_style_t *bs = (const lxb_css_property_border_style_t *) (style);
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    status = lxb_css_value_serialize(bs->top, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    status = lxb_css_value_serialize(bs->right, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    status = lxb_css_value_serialize(bs->bottom, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    return lxb_css_value_serialize(bs->left, cb, ctx);
+}
+
+/* Border-width shorthand. */
+
+void *
+lxb_css_property_border_width_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_width_t));
+}
+
+void *
+lxb_css_property_border_width_destroy(lxb_css_memory_t *memory,
+                                      void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_width_serialize(const void *style,
+                                        lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_border_width_t *bw = (const lxb_css_property_border_width_t *) (style);
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    status = lxb_css_value_length_type_sr(&bw->top, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    status = lxb_css_value_length_type_sr(&bw->right, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    status = lxb_css_value_length_type_sr(&bw->bottom, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    return lxb_css_value_length_type_sr(&bw->left, cb, ctx);
+}
+
+/* Border-top-width. */
+
+void *
+lxb_css_property_border_top_width_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_top_width_t));
+}
+
+void *
+lxb_css_property_border_top_width_destroy(lxb_css_memory_t *memory,
+                                          void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_top_width_serialize(const void *style,
+                                            lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_type_sr((const lxb_css_value_length_type_t *) (style), cb, ctx);
+}
+
+/* Border-right-width. */
+
+void *
+lxb_css_property_border_right_width_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_right_width_t));
+}
+
+void *
+lxb_css_property_border_right_width_destroy(lxb_css_memory_t *memory,
+                                            void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_right_width_serialize(const void *style,
+                                              lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_type_sr((const lxb_css_value_length_type_t *) (style), cb, ctx);
+}
+
+/* Border-bottom-width. */
+
+void *
+lxb_css_property_border_bottom_width_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_bottom_width_t));
+}
+
+void *
+lxb_css_property_border_bottom_width_destroy(lxb_css_memory_t *memory,
+                                             void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_bottom_width_serialize(const void *style,
+                                               lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_type_sr((const lxb_css_value_length_type_t *) (style), cb, ctx);
+}
+
+/* Border-left-width. */
+
+void *
+lxb_css_property_border_left_width_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_left_width_t));
+}
+
+void *
+lxb_css_property_border_left_width_destroy(lxb_css_memory_t *memory,
+                                           void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_left_width_serialize(const void *style,
+                                             lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_type_sr((const lxb_css_value_length_type_t *) (style), cb, ctx);
+}
+
+/* border-collapse: a single keyword value (collapse | separate). */
+
+void *
+lxb_css_property_border_collapse_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_border_collapse_t));
+}
+
+void *
+lxb_css_property_border_collapse_destroy(lxb_css_memory_t *memory,
+                                         void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_collapse_serialize(const void *style,
+                                           lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_border_collapse_t *bc =
+        (const lxb_css_property_border_collapse_t *) style;
+    return lxb_css_value_serialize(*bc, cb, ctx);
+}
+
+/* list-style-type: disc | circle | square | decimal | none. */
+
+void *
+lxb_css_property_list_style_type_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_list_style_type_t));
+}
+
+void *
+lxb_css_property_list_style_type_destroy(lxb_css_memory_t *memory,
+                                         void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_list_style_type_serialize(const void *style,
+                                           lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_list_style_type_t *lst =
+        (const lxb_css_property_list_style_type_t *) style;
+
+    switch (lst->type) {
+        case LXB_CSS_LIST_STYLE_TYPE_DISC:
+            lexbor_serialize_write(cb, "disc", 4, ctx, status);
+            return LXB_STATUS_OK;
+        case LXB_CSS_LIST_STYLE_TYPE_CIRCLE:
+            lexbor_serialize_write(cb, "circle", 6, ctx, status);
+            return LXB_STATUS_OK;
+        case LXB_CSS_LIST_STYLE_TYPE_SQUARE:
+            lexbor_serialize_write(cb, "square", 6, ctx, status);
+            return LXB_STATUS_OK;
+        case LXB_CSS_LIST_STYLE_TYPE_DECIMAL:
+            lexbor_serialize_write(cb, "decimal", 7, ctx, status);
+            return LXB_STATUS_OK;
+        case LXB_CSS_LIST_STYLE_TYPE_NONE:
+            lexbor_serialize_write(cb, "none", 4, ctx, status);
+            return LXB_STATUS_OK;
+        default:
+            return lxb_css_value_serialize(lst->type, cb, ctx);
+    }
+}
+
+static bool
+aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(const lxb_css_value_length_percentage_t *a,
+                                      const lxb_css_value_length_percentage_t *b)
+{
+    if (a->type != b->type) {
+        return false;
+    }
+
+    switch (a->type) {
+        case LXB_CSS_VALUE__LENGTH:
+        case LXB_CSS_VALUE__NUMBER:
+            return a->u.length.num == b->u.length.num
+                && a->u.length.unit == b->u.length.unit;
+
+        case LXB_CSS_VALUE__PERCENTAGE:
+            return a->u.percentage.num == b->u.percentage.num;
+
+        default:
+            return true;
+    }
+}
+
+static lxb_status_t
+aui_lexbor_static_d922d2611e_lxb_css_property_border_radius_corner_serialize(
+    const lxb_css_property_border_radius_corner_t *corner,
+    lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    status = lxb_css_value_length_percentage_sr(&corner->h, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    if (aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&corner->h, &corner->v)) {
+        return LXB_STATUS_OK;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    return lxb_css_value_length_percentage_sr(&corner->v, cb, ctx);
+}
+
+static lxb_status_t
+aui_lexbor_static_d922d2611e_lxb_css_property_border_radius_values_serialize(
+    const lxb_css_value_length_percentage_t values[4],
+    lexbor_serialize_cb_f cb, void *ctx)
+{
+    unsigned count;
+    lxb_status_t status;
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    if (aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&values[0], &values[1])
+        && aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&values[0], &values[2])
+        && aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&values[0], &values[3]))
+    {
+        count = 1;
+    }
+    else if (aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&values[0], &values[2])
+             && aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&values[1], &values[3]))
+    {
+        count = 2;
+    }
+    else if (aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&values[1], &values[3])) {
+        count = 3;
+    }
+    else {
+        count = 4;
+    }
+
+    for (unsigned i = 0; i < count; i++) {
+        if (i != 0) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        }
+
+        status = lxb_css_value_length_percentage_sr(&values[i], cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+    }
+
+    return LXB_STATUS_OK;
+}
+
+/* Border-radius. */
+
+void *
+lxb_css_property_border_radius_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_radius_t));
+}
+
+void *
+lxb_css_property_border_radius_destroy(lxb_css_memory_t *memory,
+                                       void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_radius_serialize(const void *style,
+                                         lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_border_radius_t *radius = (const lxb_css_property_border_radius_t *) (style);
+
+    static const lexbor_str_t str_slash = lexbor_str(" / ");
+
+    const lxb_css_value_length_percentage_t h[4] = {
+        radius->top_left.h,
+        radius->top_right.h,
+        radius->bottom_right.h,
+        radius->bottom_left.h
+    };
+    const lxb_css_value_length_percentage_t v[4] = {
+        radius->top_left.v,
+        radius->top_right.v,
+        radius->bottom_right.v,
+        radius->bottom_left.v
+    };
+
+    status = aui_lexbor_static_d922d2611e_lxb_css_property_border_radius_values_serialize(h, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    if (aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&h[0], &v[0])
+        && aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&h[1], &v[1])
+        && aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&h[2], &v[2])
+        && aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&h[3], &v[3]))
+    {
+        return LXB_STATUS_OK;
+    }
+
+    lexbor_serialize_write(cb, str_slash.data, str_slash.length, ctx, status);
+
+    return aui_lexbor_static_d922d2611e_lxb_css_property_border_radius_values_serialize(v, cb, ctx);
+}
+
+/* Border-top-left-radius. */
+
+void *
+lxb_css_property_border_top_left_radius_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_top_left_radius_t));
+}
+
+void *
+lxb_css_property_border_top_left_radius_destroy(lxb_css_memory_t *memory,
+                                                void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_top_left_radius_serialize(const void *style,
+                                                  lexbor_serialize_cb_f cb,
+                                                  void *ctx)
+{
+    return aui_lexbor_static_d922d2611e_lxb_css_property_border_radius_corner_serialize((const lxb_css_property_border_radius_corner_t *) (style), cb, ctx);
+}
+
+/* Border-top-right-radius. */
+
+void *
+lxb_css_property_border_top_right_radius_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_top_right_radius_t));
+}
+
+void *
+lxb_css_property_border_top_right_radius_destroy(lxb_css_memory_t *memory,
+                                                 void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_top_right_radius_serialize(const void *style,
+                                                   lexbor_serialize_cb_f cb,
+                                                   void *ctx)
+{
+    return aui_lexbor_static_d922d2611e_lxb_css_property_border_radius_corner_serialize((const lxb_css_property_border_radius_corner_t *) (style), cb, ctx);
+}
+
+/* Border-bottom-right-radius. */
+
+void *
+lxb_css_property_border_bottom_right_radius_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                         sizeof(lxb_css_property_border_bottom_right_radius_t));
+}
+
+void *
+lxb_css_property_border_bottom_right_radius_destroy(lxb_css_memory_t *memory,
+                                                   void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_bottom_right_radius_serialize(const void *style,
+                                                      lexbor_serialize_cb_f cb,
+                                                      void *ctx)
+{
+    return aui_lexbor_static_d922d2611e_lxb_css_property_border_radius_corner_serialize((const lxb_css_property_border_radius_corner_t *) (style), cb, ctx);
+}
+
+/* Border-bottom-left-radius. */
+
+void *
+lxb_css_property_border_bottom_left_radius_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_border_bottom_left_radius_t));
+}
+
+void *
+lxb_css_property_border_bottom_left_radius_destroy(lxb_css_memory_t *memory,
+                                                  void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_border_bottom_left_radius_serialize(const void *style,
+                                                     lexbor_serialize_cb_f cb,
+                                                     void *ctx)
+{
+    return aui_lexbor_static_d922d2611e_lxb_css_property_border_radius_corner_serialize((const lxb_css_property_border_radius_corner_t *) (style), cb, ctx);
+}
+
+/* Gap. */
+
+void *
+lxb_css_property_gap_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_gap_t));
+}
+
+void *
+lxb_css_property_gap_destroy(lxb_css_memory_t *memory,
+                             void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_gap_serialize(const void *style,
+                               lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_gap_t *gap = (const lxb_css_property_gap_t *) (style);
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    status = lxb_css_value_length_percentage_sr(&gap->row, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    if (aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&gap->row, &gap->column)) {
+        return LXB_STATUS_OK;
+    }
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    return lxb_css_value_length_percentage_sr(&gap->column, cb, ctx);
+}
+
+/* Row-gap. */
+
+void *
+lxb_css_property_row_gap_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_row_gap_t));
+}
+
+void *
+lxb_css_property_row_gap_destroy(lxb_css_memory_t *memory,
+                                 void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_row_gap_serialize(const void *style,
+                                   lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (style), cb, ctx);
+}
+
+/* Column-gap. */
+
+void *
+lxb_css_property_column_gap_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_column_gap_t));
+}
+
+void *
+lxb_css_property_column_gap_destroy(lxb_css_memory_t *memory,
+                                    void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_column_gap_serialize(const void *style,
+                                      lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (style), cb, ctx);
+}
+
+/* Background. */
+
+void *
+lxb_css_property_background_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_background_t));
+}
+
+void *
+lxb_css_property_background_destroy(lxb_css_memory_t *memory,
+                                    void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_background_serialize(const void *style,
+                                      lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_background_t *background = (const lxb_css_property_background_t *) (style);
+
+    return lxb_css_value_color_serialize(&background->color, cb, ctx);
+}
+
+void *
+lxb_css_property_background_color_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_background_color_t));
+}
+
+void *
+lxb_css_property_background_color_destroy(lxb_css_memory_t *memory,
+                                          void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_background_color_serialize(const void *style,
+                                            lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_color_serialize((const lxb_css_value_color_t *) (style), cb, ctx);
+}
+
+void *
+lxb_css_property_background_size_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_background_size_t));
+}
+
+void *
+lxb_css_property_background_size_destroy(lxb_css_memory_t *memory,
+                                         void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_background_size_serialize(const void *style,
+                                           lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_background_size_t *size = (const lxb_css_property_background_size_t *) (style);
+
+    if (size->layer_count == 0) {
+        return lxb_css_value_serialize(LXB_CSS_VALUE_AUTO, cb, ctx);
+    }
+
+    return lxb_css_property_width_serialize(&size->layers[0].width, cb, ctx);
+}
+
+/* Color. */
+
+void *
+lxb_css_property_color_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_color_t));
+}
+
+void *
+lxb_css_property_color_destroy(lxb_css_memory_t *memory,
+                               void *property, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, property, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_color_serialize(const void *property,
+                                 lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_color_serialize((const lxb_css_value_color_t *) (property), cb, ctx);
+}
+
+void *
+lxb_css_property_content_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_content_t));
+}
+
+void *
+lxb_css_property_content_destroy(lxb_css_memory_t *memory,
+                                 void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_content_serialize(const void *style,
+                                   lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_content_t *content = (const lxb_css_property_content_t *) (style);
+
+    if (content->type == LXB_CSS_CONTENT_STRING) {
+        return cb(content->value.data, content->value.length, ctx);
+    }
+
+    return lxb_css_value_serialize(content->type, cb, ctx);
+}
+
+void *
+lxb_css_property_opacity_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_opacity_t));
+}
+
+void *
+lxb_css_property_opacity_destroy(lxb_css_memory_t *memory,
+                                 void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_opacity_serialize(const void *style,
+                                   lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_number_percentage_sr((const lxb_css_value_number_percentage_t *) (style), cb, ctx);
+}
+
+void *
+lxb_css_property_transform_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_transform_t));
+}
+
+void *
+lxb_css_property_transform_destroy(lxb_css_memory_t *memory,
+                                   void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_transform_serialize(const void *style,
+                                     lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_transform_t *transform = (const lxb_css_property_transform_t *) (style);
+
+    if (transform == NULL || transform->type == LXB_CSS_TRANSFORM_VALUE_NONE) {
+        return lxb_css_value_serialize(LXB_CSS_VALUE_NONE, cb, ctx);
+    }
+
+    return cb((const lxb_char_t *) "transform-list", 14, ctx);
+}
+
+void *
+lxb_css_property_transform_origin_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_transform_origin_t));
+}
+
+void *
+lxb_css_property_transform_origin_destroy(lxb_css_memory_t *memory,
+                                          void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_transform_origin_serialize(const void *style,
+                                            lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+    const lxb_css_property_transform_origin_t *origin = (const lxb_css_property_transform_origin_t *) (style);
+
+    status = lxb_css_value_length_percentage_sr(&origin->x, cb, ctx);
+    if (status != LXB_STATUS_OK) return status;
+
+    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+    return lxb_css_value_length_percentage_sr(&origin->y, cb, ctx);
+}
+
+void *
+lxb_css_property_animation_create(lxb_css_memory_t *memory)
+{
+    lxb_css_property_animation_t *animation;
+
+    animation = lexbor_mraw_calloc(memory->mraw,
+                                   sizeof(lxb_css_property_animation_t));
+    if (animation != NULL) {
+        animation->iteration_count = 1;
+        animation->timing = LXB_CSS_ANIMATION_TIMING_EASE;
+        animation->direction = LXB_CSS_ANIMATION_DIRECTION_NORMAL;
+        animation->fill_mode = LXB_CSS_ANIMATION_FILL_MODE_NONE;
+        animation->play_state = LXB_CSS_ANIMATION_PLAY_STATE_RUNNING;
+    }
+
+    return animation;
+}
+
+void *
+lxb_css_property_animation_destroy(lxb_css_memory_t *memory,
+                                   void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_animation_serialize(const void *style,
+                                     lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_animation_t *animation = (const lxb_css_property_animation_t *) (style);
+
+    if (animation != NULL && animation->has_name &&
+        animation->name.data != NULL) {
+        return cb(animation->name.data, animation->name.length, ctx);
+    }
+
+    return lxb_css_value_serialize(LXB_CSS_VALUE_NONE, cb, ctx);
+}
+
+void *
+lxb_css_property_position_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_position_t));
+}
+
+void *
+lxb_css_property_position_destroy(lxb_css_memory_t *memory,
+                                  void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_position_serialize(const void *style,
+                                    lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_position_t *position = (const lxb_css_property_position_t *) (style);
+
+    return lxb_css_value_serialize(position->type, cb, ctx);
+}
+
+void *
+lxb_css_property_inset_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_inset_t));
+}
+
+void *
+lxb_css_property_inset_destroy(lxb_css_memory_t *memory,
+                               void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_inset_serialize(const void *style,
+                                 lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_margin_serialize(style, cb, ctx);
+}
+
+void *
+lxb_css_property_top_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_top_t));
+}
+
+void *
+lxb_css_property_top_destroy(lxb_css_memory_t *memory,
+                             void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_top_serialize(const void *style,
+                               lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (style), cb, ctx);
+}
+
+void *
+lxb_css_property_right_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_right_t));
+}
+
+void *
+lxb_css_property_right_destroy(lxb_css_memory_t *memory,
+                               void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_right_serialize(const void *style,
+                                 lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_top_serialize(style, cb, ctx);
+}
+
+void *
+lxb_css_property_bottom_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_bottom_t));
+}
+
+void *
+lxb_css_property_bottom_destroy(lxb_css_memory_t *memory,
+                                void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_bottom_serialize(const void *style,
+                                  lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_top_serialize(style, cb, ctx);
+}
+
+void *
+lxb_css_property_left_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_left_t));
+}
+
+void *
+lxb_css_property_left_destroy(lxb_css_memory_t *memory,
+                              void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_left_serialize(const void *style,
+                                lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_top_serialize(style, cb, ctx);
+}
+
+void *
+lxb_css_property_inset_block_start_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_inset_block_start_t));
+}
+
+void *
+lxb_css_property_inset_block_start_destroy(lxb_css_memory_t *memory,
+                                           void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_inset_block_start_serialize(const void *style,
+                                             lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_top_serialize(style, cb, ctx);
+}
+
+void *
+lxb_css_property_inset_inline_start_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_inset_inline_start_t));
+}
+
+void *
+lxb_css_property_inset_inline_start_destroy(lxb_css_memory_t *memory,
+                                            void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_inset_inline_start_serialize(const void *style,
+                                              lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_top_serialize(style, cb, ctx);
+}
+
+void *
+lxb_css_property_inset_block_end_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_inset_block_end_t));
+}
+
+void *
+lxb_css_property_inset_block_end_destroy(lxb_css_memory_t *memory,
+                                         void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_inset_block_end_serialize(const void *style,
+                                           lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_top_serialize(style, cb, ctx);
+}
+
+void *
+lxb_css_property_inset_inline_end_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_inset_inline_end_t));
+}
+
+void *
+lxb_css_property_inset_inline_end_destroy(lxb_css_memory_t *memory,
+                                          void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_inset_inline_end_serialize(const void *style,
+                                            lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_top_serialize(style, cb, ctx);
+}
+
+/* Text-transform. */
+
+LXB_API void *
+lxb_css_property_text_transform_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_text_transform_t));
+}
+
+LXB_API void *
+lxb_css_property_text_transform_destroy(lxb_css_memory_t *memory,
+                                        void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_text_transform_serialize(const void *style,
+                                          lexbor_serialize_cb_f cb, void *ctx)
+{
+    bool ws_print;
+    lxb_status_t status;
+    const lxb_css_property_text_transform_t *tt = (const lxb_css_property_text_transform_t *) (style);
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    ws_print = false;
+
+    if (tt->type_case != LXB_CSS_VALUE__UNDEF) {
+        status = lxb_css_value_serialize(tt->type_case, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        ws_print = true;
+    }
+
+    if (tt->full_width != LXB_CSS_VALUE__UNDEF) {
+        if (ws_print) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        }
+
+        status = lxb_css_value_serialize(tt->full_width, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        ws_print = true;
+    }
+
+    if (tt->full_size_kana != LXB_CSS_VALUE__UNDEF) {
+        if (ws_print) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        }
+
+        return lxb_css_value_serialize(tt->full_size_kana, cb, ctx);
+    }
+
+    return LXB_STATUS_OK;
+}
+
+/* Text-align. */
+
+LXB_API void *
+lxb_css_property_text_align_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_text_align_t));
+}
+
+LXB_API void *
+lxb_css_property_text_align_destroy(lxb_css_memory_t *memory,
+                                    void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_text_align_serialize(const void *style,
+                                      lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_text_align_t *ta = (const lxb_css_property_text_align_t *) (style);
+
+    return lxb_css_value_serialize(ta->type, cb, ctx);
+}
+
+/* Text-align-all. */
+
+LXB_API void *
+lxb_css_property_text_align_all_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_text_align_all_t));
+}
+
+LXB_API void *
+lxb_css_property_text_align_all_destroy(lxb_css_memory_t *memory,
+                                        void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_text_align_all_serialize(const void *style,
+                                          lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_text_align_all_t *taa = (const lxb_css_property_text_align_all_t *) (style);
+
+    return lxb_css_value_serialize(taa->type, cb, ctx);
+}
+
+/* Text-align-last. */
+
+LXB_API void *
+lxb_css_property_text_align_last_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_text_align_last_t));
+}
+
+LXB_API void *
+lxb_css_property_text_align_last_destroy(lxb_css_memory_t *memory,
+                                         void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_text_align_last_serialize(const void *style,
+                                           lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_text_align_last_t *tal = (const lxb_css_property_text_align_last_t *) (style);
+
+    return lxb_css_value_serialize(tal->type, cb, ctx);
+}
+
+/* Text-justify. */
+
+LXB_API void *
+lxb_css_property_text_justify_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_text_justify_t));
+}
+
+LXB_API void *
+lxb_css_property_text_justify_destroy(lxb_css_memory_t *memory,
+                                      void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_text_justify_serialize(const void *style,
+                                        lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_text_justify_t *tj = (const lxb_css_property_text_justify_t *) (style);
+
+    return lxb_css_value_serialize(tj->type, cb, ctx);
+}
+
+/* Text-indent. */
+
+LXB_API void *
+lxb_css_property_text_indent_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_text_indent_t));
+}
+
+LXB_API void *
+lxb_css_property_text_indent_destroy(lxb_css_memory_t *memory,
+                                     void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_text_indent_serialize(const void *style,
+                                       lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_text_indent_t *ti = (const lxb_css_property_text_indent_t *) (style);
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    if (ti->type == LXB_CSS_VALUE__LENGTH) {
+        status = lxb_css_value_length_percentage_sr(&ti->length, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+    }
+    else if (ti->type != LXB_CSS_VALUE__UNDEF) {
+        status = lxb_css_value_serialize(ti->type, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+    }
+
+    if (ti->hanging != LXB_CSS_VALUE__UNDEF) {
+        lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+        status = lxb_css_value_serialize(ti->hanging, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+    }
+
+    if (ti->each_line != LXB_CSS_VALUE__UNDEF) {
+        lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+        return lxb_css_value_serialize(ti->each_line, cb, ctx);
+    }
+
+    return LXB_STATUS_OK;
+}
+
+/* White-space. */
+
+LXB_API void *
+lxb_css_property_white_space_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_white_space_t));
+}
+
+LXB_API void *
+lxb_css_property_white_space_destroy(lxb_css_memory_t *memory,
+                                     void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_white_space_serialize(const void *style,
+                                       lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_white_space_t *ws = (const lxb_css_property_white_space_t *) (style);
+
+    return lxb_css_value_serialize(ws->type, cb, ctx);
+}
+
+/* Tab-size. */
+
+LXB_API void *
+lxb_css_property_tab_size_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_tab_size_t));
+}
+
+LXB_API void *
+lxb_css_property_tab_size_destroy(lxb_css_memory_t *memory,
+                                  void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_tab_size_serialize(const void *style,
+                                    lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_number_length_sr((const lxb_css_value_number_length_t *) (style), cb, ctx);
+}
+
+/* Word-break. */
+
+LXB_API void *
+lxb_css_property_word_break_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_word_break_t));
+}
+
+LXB_API void *
+lxb_css_property_word_break_destroy(lxb_css_memory_t *memory,
+                                    void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_word_break_serialize(const void *style,
+                                      lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_word_break_t *wb = (const lxb_css_property_word_break_t *) (style);
+
+    return lxb_css_value_serialize(wb->type, cb, ctx);
+}
+
+/* Line-break. */
+
+LXB_API void *
+lxb_css_property_line_break_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_line_break_t));
+}
+
+LXB_API void *
+lxb_css_property_line_break_destroy(lxb_css_memory_t *memory,
+                                    void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_line_break_serialize(const void *style,
+                                      lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_line_break_t *lb = (const lxb_css_property_line_break_t *) (style);
+
+    return lxb_css_value_serialize(lb->type, cb, ctx);
+}
+
+/* Hyphens. */
+
+LXB_API void *
+lxb_css_property_hyphens_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_hyphens_t));
+}
+
+LXB_API void *
+lxb_css_property_hyphens_destroy(lxb_css_memory_t *memory,
+                                 void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_hyphens_serialize(const void *style,
+                                   lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_hyphens_t *hpns = (const lxb_css_property_hyphens_t *) (style);
+
+    return lxb_css_value_serialize(hpns->type, cb, ctx);
+}
+
+/* Overflow-wrap. */
+
+LXB_API void *
+lxb_css_property_overflow_wrap_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_overflow_wrap_t));
+}
+
+LXB_API void *
+lxb_css_property_overflow_wrap_destroy(lxb_css_memory_t *memory,
+                                       void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_overflow_wrap_serialize(const void *style,
+                                         lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_overflow_wrap_t *ow = (const lxb_css_property_overflow_wrap_t *) (style);
+
+    return lxb_css_value_serialize(ow->type, cb, ctx);
+}
+
+/* Word-wrap. */
+
+LXB_API void *
+lxb_css_property_word_wrap_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_word_wrap_t));
+}
+
+LXB_API void *
+lxb_css_property_word_wrap_destroy(lxb_css_memory_t *memory,
+                                   void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_word_wrap_serialize(const void *style,
+                                     lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_word_wrap_t *ww = (const lxb_css_property_word_wrap_t *) (style);
+
+    return lxb_css_value_serialize(ww->type, cb, ctx);
+}
+
+/* Word-spacing. */
+
+LXB_API void *
+lxb_css_property_word_spacing_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_word_spacing_t));
+}
+
+LXB_API void *
+lxb_css_property_word_spacing_destroy(lxb_css_memory_t *memory,
+                                      void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_word_spacing_serialize(const void *style,
+                                        lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_type_sr((const lxb_css_value_length_type_t *) (style), cb, ctx);
+}
+
+/* Letter-spacing. */
+
+LXB_API void *
+lxb_css_property_letter_spacing_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_letter_spacing_t));
+}
+
+LXB_API void *
+lxb_css_property_letter_spacing_destroy(lxb_css_memory_t *memory,
+                                        void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_letter_spacing_serialize(const void *style,
+                                          lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_type_sr((const lxb_css_value_length_type_t *) (style), cb, ctx);
+}
+
+/* Hanging-punctuation. */
+
+LXB_API void *
+lxb_css_property_hanging_punctuation_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_hanging_punctuation_t));
+}
+
+LXB_API void *
+lxb_css_property_hanging_punctuation_destroy(lxb_css_memory_t *memory,
+                                             void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_hanging_punctuation_serialize(const void *style,
+                                               lexbor_serialize_cb_f cb, void *ctx)
+{
+    bool ws_print;
+    lxb_status_t status;
+    const lxb_css_property_hanging_punctuation_t *hp = (const lxb_css_property_hanging_punctuation_t *) (style);
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    ws_print = false;
+
+    if (hp->type_first != LXB_CSS_VALUE__UNDEF) {
+        status = lxb_css_value_serialize(hp->type_first, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        ws_print = true;
+    }
+
+    if (hp->force_allow != LXB_CSS_VALUE__UNDEF) {
+        if (ws_print) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        }
+
+        status = lxb_css_value_serialize(hp->force_allow, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        ws_print = true;
+    }
+
+    if (hp->last != LXB_CSS_VALUE__UNDEF) {
+        if (ws_print) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        }
+
+        return lxb_css_value_serialize(hp->last, cb, ctx);
+    }
+
+    return LXB_STATUS_OK;
+}
+
+/* Font-family. */
+
+void *
+lxb_css_property_font_family_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_font_family_t));
+}
+
+void *
+lxb_css_property_font_family_destroy(lxb_css_memory_t *memory,
+                                     void *style, bool self_destroy)
+{
+    lxb_css_property_font_family_t *ff = (lxb_css_property_font_family_t *) (style);
+    lxb_css_property_family_name_t *name, *next;
+
+    name = ff->first;
+
+    while (name != NULL) {
+        next = name->next;
+
+        if (!name->generic) {
+            (void) lexbor_str_destroy(&name->u.str, memory->mraw, false);
+        }
+
+        lexbor_mraw_free(memory->mraw, name);
+
+        name = next;
+    }
+
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_font_family_serialize(const void *style,
+                                       lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_font_family_t *ff = (const lxb_css_property_font_family_t *) (style);
+    const lxb_css_property_family_name_t *name;
+
+    static const lexbor_str_t str_comma = lexbor_str(", ");
+
+    name = ff->first;
+
+    while (name != NULL) {
+        if (name->generic) {
+            status = lxb_css_value_serialize(name->u.type, cb, ctx);
+        }
+        else {
+            status = lxb_css_syntax_ident_or_string_serialize(name->u.str.data,
+                                                              name->u.str.length,
+                                                              cb, ctx);
+        }
+
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        name = name->next;
+
+        if (name != NULL) {
+            lexbor_serialize_write(cb, str_comma.data, str_comma.length,
+                                   ctx, status);
+        }
+    }
+
+    return LXB_STATUS_OK;
+}
+
+/* Font-weight. */
+
+void *
+lxb_css_property_font_weight_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_font_weight_t));
+}
+
+void *
+lxb_css_property_font_weight_destroy(lxb_css_memory_t *memory,
+                                     void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_font_weight_serialize(const void *style,
+                                       lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_number_type_sr((const lxb_css_value_number_type_t *) (style), cb, ctx);
+}
+
+/* Font-stretch. */
+
+void *
+lxb_css_property_font_stretch_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_font_stretch_t));
+}
+
+void *
+lxb_css_property_font_stretch_destroy(lxb_css_memory_t *memory,
+                                      void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_font_stretch_serialize(const void *style,
+                                        lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_percentage_type_sr((const lxb_css_value_percentage_type_t *) (style), cb, ctx);
+}
+
+/* Font-style. */
+
+void *
+lxb_css_property_font_style_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_font_style_t));
+}
+
+void *
+lxb_css_property_font_style_destroy(lxb_css_memory_t *memory,
+                                    void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_font_style_serialize(const void *style,
+                                      lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_font_style_t *fs = (const lxb_css_property_font_style_t *) (style);
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    status = lxb_css_value_serialize(fs->type, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    if (fs->angle.unit != (lxb_css_unit_angel_t) LXB_CSS_UNIT__UNDEF) {
+        lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+        status = lxb_css_value_angle_sr(&fs->angle, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+    }
+
+    return LXB_STATUS_OK;
+}
+
+/* Font-size. */
+
+LXB_API void *
+lxb_css_property_font_size_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_font_size_t));
+}
+
+LXB_API void *
+lxb_css_property_font_size_destroy(lxb_css_memory_t *memory,
+                                   void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_font_size_serialize(const void *style,
+                                     lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_percentage_type_sr((const lxb_css_value_length_percentage_type_t *) (style), cb, ctx);
+}
+
+/* Float-reference. */
+
+LXB_API void *
+lxb_css_property_float_reference_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_float_reference_t));
+}
+
+LXB_API void *
+lxb_css_property_float_reference_destroy(lxb_css_memory_t *memory,
+                                         void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_float_reference_serialize(const void *style,
+                                           lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_float_reference_t *fr = (const lxb_css_property_float_reference_t *) (style);
+
+    return lxb_css_value_serialize(fr->type, cb, ctx);
+}
+
+/* Float. */
+
+LXB_API void *
+lxb_css_property_float_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_float_t));
+}
+
+LXB_API void *
+lxb_css_property_float_destroy(lxb_css_memory_t *memory,
+                               void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_float_serialize(const void *style,
+                                 lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_float_t *flt = (const lxb_css_property_float_t *) (style);
+
+    static const lexbor_str_t str_o = lexbor_str("(");
+    static const lexbor_str_t str_cm = lexbor_str(", ");
+    static const lexbor_str_t str_c = lexbor_str(")");
+
+    status = lxb_css_value_serialize(flt->type, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    if (flt->length.type != LXB_CSS_VALUE__LENGTH) {
+        return LXB_STATUS_OK;
+    }
+
+    lexbor_serialize_write(cb, str_o.data, str_o.length, ctx, status);
+
+    status = lxb_css_value_length_sr(&flt->length.length, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    if (flt->snap_type == LXB_CSS_VALUE__UNDEF) {
+        return cb(str_c.data, str_c.length, ctx);
+    }
+
+    lexbor_serialize_write(cb, str_cm.data, str_cm.length, ctx, status);
+
+    status = lxb_css_value_serialize(flt->snap_type, cb, ctx);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    return cb(str_c.data, str_c.length, ctx);
+}
+
+/* Clear. */
+
+LXB_API void *
+lxb_css_property_clear_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_clear_t));
+}
+
+LXB_API void *
+lxb_css_property_clear_destroy(lxb_css_memory_t *memory,
+                               void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_clear_serialize(const void *style,
+                                 lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_clear_t *cls = (const lxb_css_property_clear_t *) (style);
+
+    return lxb_css_value_serialize(cls->type, cb, ctx);
+}
+
+/* Float-defer. */
+
+LXB_API void *
+lxb_css_property_float_defer_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_float_defer_t));
+}
+
+LXB_API void *
+lxb_css_property_float_defer_destroy(lxb_css_memory_t *memory,
+                                     void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_float_defer_serialize(const void *style,
+                                       lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_float_defer_t *def = (const lxb_css_property_float_defer_t *) (style);
+
+    if (def->type == LXB_CSS_FLOAT_DEFER__INTEGER) {
+        return lxb_css_value_integer_sr(&def->integer, cb, ctx);
+    }
+
+    return lxb_css_value_serialize(def->type, cb, ctx);
+}
+
+/* Float-offset. */
+
+LXB_API void *
+lxb_css_property_float_offset_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_float_offset_t));
+}
+
+LXB_API void *
+lxb_css_property_float_offset_destroy(lxb_css_memory_t *memory,
+                                      void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_float_offset_serialize(const void *style,
+                                        lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (style), cb, ctx);
+}
+
+/* Wrap-flow. */
+
+LXB_API void *
+lxb_css_property_wrap_flow_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_wrap_flow_t));
+}
+
+LXB_API void *
+lxb_css_property_wrap_flow_destroy(lxb_css_memory_t *memory,
+                                   void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_wrap_flow_serialize(const void *style,
+                                     lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_wrap_flow_t *wf = (const lxb_css_property_wrap_flow_t *) (style);
+
+    return lxb_css_value_serialize(wf->type, cb, ctx);
+}
+
+/* Wrap-through. */
+
+LXB_API void *
+lxb_css_property_wrap_through_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_wrap_through_t));
+}
+
+LXB_API void *
+lxb_css_property_wrap_through_destroy(lxb_css_memory_t *memory,
+                                      void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_wrap_through_serialize(const void *style,
+                                        lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_wrap_through_t *wt = (const lxb_css_property_wrap_through_t *) (style);
+
+    return lxb_css_value_serialize(wt->type, cb, ctx);
+}
+
+/* Flex-direction. */
+
+LXB_API void *
+lxb_css_property_flex_direction_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_flex_direction_t));
+}
+
+LXB_API void *
+lxb_css_property_flex_direction_destroy(lxb_css_memory_t *memory,
+                                        void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_flex_direction_serialize(const void *style,
+                                          lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_flex_direction_t *fd = (const lxb_css_property_flex_direction_t *) (style);
+
+    return lxb_css_value_serialize(fd->type, cb, ctx);
+}
+
+/* Flex-wrap. */
+
+LXB_API void *
+lxb_css_property_flex_wrap_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_flex_wrap_t));
+}
+
+LXB_API void *
+lxb_css_property_flex_wrap_destroy(lxb_css_memory_t *memory,
+                                   void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_flex_wrap_serialize(const void *style,
+                                     lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_flex_wrap_t *fw = (const lxb_css_property_flex_wrap_t *) (style);
+
+    return lxb_css_value_serialize(fw->type, cb, ctx);
+}
+
+/* Flex-flow. */
+
+LXB_API void *
+lxb_css_property_flex_flow_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_flex_flow_t));
+}
+
+LXB_API void *
+lxb_css_property_flex_flow_destroy(lxb_css_memory_t *memory,
+                                   void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_flex_flow_serialize(const void *style,
+                                     lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_flex_flow_t *ff = (const lxb_css_property_flex_flow_t *) (style);
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    if (ff->type_direction != LXB_CSS_VALUE__UNDEF) {
+        status = lxb_css_value_serialize(ff->type_direction, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+    }
+
+    if (ff->wrap != LXB_CSS_VALUE__UNDEF) {
+        if (ff->type_direction != LXB_CSS_VALUE__UNDEF) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        }
+
+        return lxb_css_value_serialize(ff->wrap, cb, ctx);
+    }
+
+    return LXB_STATUS_OK;
+}
+
+/* Flex. */
+
+LXB_API void *
+lxb_css_property_flex_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_flex_t));
+}
+
+LXB_API void *
+lxb_css_property_flex_destroy(lxb_css_memory_t *memory,
+                              void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_flex_serialize(const void *style,
+                                lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_flex_t *flex = (const lxb_css_property_flex_t *) (style);
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    if (flex->type != LXB_CSS_VALUE__UNDEF) {
+        return lxb_css_value_serialize(flex->type, cb, ctx);
+    }
+
+    if (flex->grow.type != LXB_CSS_VALUE__UNDEF) {
+        status = lxb_css_value_number_sr(&flex->grow.number, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        if (flex->shrink.type != LXB_CSS_VALUE__UNDEF) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+            status = lxb_css_value_number_sr(&flex->shrink.number, cb, ctx);
+            if (status != LXB_STATUS_OK) {
+                return status;
+            }
+        }
+    }
+
+    if (flex->basis.type == LXB_CSS_VALUE__UNDEF) {
+        return LXB_STATUS_OK;
+    }
+
+    if (flex->grow.type != LXB_CSS_VALUE__UNDEF) {
+        lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+    }
+
+    return lxb_css_property_flex_basis_serialize(&flex->basis, cb, ctx);
+}
+
+/* Flex-grow. */
+
+LXB_API void *
+lxb_css_property_flex_grow_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_flex_grow_t));
+}
+
+LXB_API void *
+lxb_css_property_flex_grow_destroy(lxb_css_memory_t *memory,
+                                   void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_flex_grow_serialize(const void *style,
+                                     lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_number_type_sr((const lxb_css_value_number_type_t *) (style), cb, ctx);
+}
+
+/* Flex-shrink. */
+
+LXB_API void *
+lxb_css_property_flex_shrink_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_flex_shrink_t));
+}
+
+LXB_API void *
+lxb_css_property_flex_shrink_destroy(lxb_css_memory_t *memory,
+                                     void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_flex_shrink_serialize(const void *style,
+                                       lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_number_type_sr((const lxb_css_value_number_type_t *) (style), cb, ctx);
+}
+
+/* Flex-basis. */
+
+LXB_API void *
+lxb_css_property_flex_basis_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_flex_basis_t));
+}
+
+LXB_API void *
+lxb_css_property_flex_basis_destroy(lxb_css_memory_t *memory,
+                                    void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_flex_basis_serialize(const void *style,
+                                      lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_width_serialize(style, cb, ctx);
+}
+
+/* Justify-content. */
+
+LXB_API void *
+lxb_css_property_justify_content_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_justify_content_t));
+}
+
+LXB_API void *
+lxb_css_property_justify_content_destroy(lxb_css_memory_t *memory,
+                                         void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_justify_content_serialize(const void *style,
+                                           lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_justify_content_t *jc = (const lxb_css_property_justify_content_t *) (style);
+
+    return lxb_css_value_serialize(jc->type, cb, ctx);
+}
+
+/* Align-items. */
+
+LXB_API void *
+lxb_css_property_align_items_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_align_items_t));
+}
+
+LXB_API void *
+lxb_css_property_align_items_destroy(lxb_css_memory_t *memory,
+                                     void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_align_items_serialize(const void *style,
+                                       lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_align_items_t *ai = (const lxb_css_property_align_items_t *) (style);
+
+    return lxb_css_value_serialize(ai->type, cb, ctx);
+}
+
+/* Align-self. */
+
+LXB_API void *
+lxb_css_property_align_self_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_align_self_t));
+}
+
+LXB_API void *
+lxb_css_property_align_self_destroy(lxb_css_memory_t *memory,
+                                    void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_align_self_serialize(const void *style,
+                                      lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_align_self_t *as = (const lxb_css_property_align_self_t *) (style);
+
+    return lxb_css_value_serialize(as->type, cb, ctx);
+}
+
+/* Align-content. */
+
+LXB_API void *
+lxb_css_property_align_content_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_align_content_t));
+}
+
+LXB_API void *
+lxb_css_property_align_content_destroy(lxb_css_memory_t *memory,
+                                       void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_align_content_serialize(const void *style,
+                                         lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_align_content_t *ac = (const lxb_css_property_align_content_t *) (style);
+
+    return lxb_css_value_serialize(ac->type, cb, ctx);
+}
+
+/* Dominant-baseline. */
+
+LXB_API void *
+lxb_css_property_dominant_baseline_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_dominant_baseline_t));
+}
+
+LXB_API void *
+lxb_css_property_dominant_baseline_destroy(lxb_css_memory_t *memory,
+                                           void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_dominant_baseline_serialize(const void *style,
+                                             lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_dominant_baseline_t *db = (const lxb_css_property_dominant_baseline_t *) (style);
+
+    return lxb_css_value_serialize(db->type, cb, ctx);
+}
+
+/* Vertical-align. */
+
+LXB_API void *
+lxb_css_property_vertical_align_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_vertical_align_t));
+}
+
+LXB_API void *
+lxb_css_property_vertical_align_destroy(lxb_css_memory_t *memory,
+                                        void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_vertical_align_serialize(const void *style,
+                                          lexbor_serialize_cb_f cb, void *ctx)
+{
+    bool is;
+    lxb_status_t status;
+    const lxb_css_property_vertical_align_t *va = (const lxb_css_property_vertical_align_t *) (style);
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    is = false;
+
+    if (va->type != LXB_CSS_VALUE__UNDEF) {
+        status = lxb_css_value_serialize(va->type, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        is = true;
+    }
+
+    if (va->alignment.type != LXB_CSS_VALUE__UNDEF) {
+        if (is) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        }
+
+        status = lxb_css_value_serialize(va->alignment.type, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        is = true;
+    }
+
+    if (va->shift.type != LXB_CSS_VALUE__UNDEF) {
+        if (is) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        }
+
+        status = lxb_css_value_length_percentage_sr(&va->shift, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+    }
+
+    return LXB_STATUS_OK;
+}
+
+/* Baseline-source. */
+
+LXB_API void *
+lxb_css_property_baseline_source_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_baseline_source_t));
+}
+
+LXB_API void *
+lxb_css_property_baseline_source_destroy(lxb_css_memory_t *memory,
+                                         void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_baseline_source_serialize(const void *style,
+                                           lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_baseline_source_t *bs = (const lxb_css_property_baseline_source_t *) (style);
+
+    return lxb_css_value_serialize(bs->type, cb, ctx);
+}
+
+/* Alignment-baseline. */
+
+LXB_API void *
+lxb_css_property_alignment_baseline_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_alignment_baseline_t));
+}
+
+LXB_API void *
+lxb_css_property_alignment_baseline_destroy(lxb_css_memory_t *memory,
+                                            void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_alignment_baseline_serialize(const void *style,
+                                              lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_alignment_baseline_t *ab = (const lxb_css_property_alignment_baseline_t *) (style);
+
+    return lxb_css_value_serialize(ab->type, cb, ctx);
+}
+
+/* Baseline-shift. */
+
+LXB_API void *
+lxb_css_property_baseline_shift_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_baseline_shift_t));
+}
+
+LXB_API void *
+lxb_css_property_baseline_shift_destroy(lxb_css_memory_t *memory,
+                                        void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_baseline_shift_serialize(const void *style,
+                                          lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (style), cb, ctx);
+}
+
+/* Line-height. */
+
+LXB_API void *
+lxb_css_property_line_height_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_line_height_t));
+}
+
+LXB_API void *
+lxb_css_property_line_height_destroy(lxb_css_memory_t *memory,
+                                     void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_line_height_serialize(const void *style,
+                                       lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_number_length_percentage_type_sr((const lxb_css_value_number_length_percentage_t *) (style), cb, ctx);
+}
+
+/* Z-index. */
+
+LXB_API void *
+lxb_css_property_z_index_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_z_index_t));
+}
+
+LXB_API void *
+lxb_css_property_z_index_destroy(lxb_css_memory_t *memory,
+                                 void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_z_index_serialize(const void *style,
+                                   lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_value_integer_type_sr((const lxb_css_value_integer_type_t *) (style), cb, ctx);
+}
+
+/* Direction. */
+
+LXB_API void *
+lxb_css_property_direction_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_direction_t));
+}
+
+LXB_API void *
+lxb_css_property_direction_destroy(lxb_css_memory_t *memory,
+                                   void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_direction_serialize(const void *style,
+                                     lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_direction_t *dr = (const lxb_css_property_direction_t *) (style);
+
+    return lxb_css_value_serialize(dr->type, cb, ctx);
+}
+
+/* Unicode-bidi. */
+
+LXB_API void *
+lxb_css_property_unicode_bidi_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_unicode_bidi_t));
+}
+
+LXB_API void *
+lxb_css_property_unicode_bidi_destroy(lxb_css_memory_t *memory,
+                                      void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_unicode_bidi_serialize(const void *style,
+                                        lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_unicode_bidi_t *ub = (const lxb_css_property_unicode_bidi_t *) (style);
+
+    return lxb_css_value_serialize(ub->type, cb, ctx);
+}
+
+/* Writing-mode. */
+
+LXB_API void *
+lxb_css_property_writing_mode_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_writing_mode_t));
+}
+
+LXB_API void *
+lxb_css_property_writing_mode_destroy(lxb_css_memory_t *memory,
+                                      void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_writing_mode_serialize(const void *style,
+                                        lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_writing_mode_t *wm = (const lxb_css_property_writing_mode_t *) (style);
+
+    return lxb_css_value_serialize(wm->type, cb, ctx);
+}
+
+/* Text-orientation. */
+
+LXB_API void *
+lxb_css_property_text_orientation_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_text_orientation_t));
+}
+
+LXB_API void *
+lxb_css_property_text_orientation_destroy(lxb_css_memory_t *memory,
+                                          void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_text_orientation_serialize(const void *style,
+                                            lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_text_orientation_t *to = (const lxb_css_property_text_orientation_t *) (style);
+
+    return lxb_css_value_serialize(to->type, cb, ctx);
+}
+
+/* Text-combine-upright. */
+
+LXB_API void *
+lxb_css_property_text_combine_upright_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_text_combine_upright_t));
+}
+
+LXB_API void *
+lxb_css_property_text_combine_upright_destroy(lxb_css_memory_t *memory,
+                                              void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_text_combine_upright_serialize(const void *style,
+                                                lexbor_serialize_cb_f cb, void *ctx)
+{
+    lxb_status_t status;
+    const lxb_css_property_text_combine_upright_t *tcu = (const lxb_css_property_text_combine_upright_t *) (style);
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    if (tcu->type == LXB_CSS_TEXT_COMBINE_UPRIGHT_DIGITS) {
+        status = lxb_css_value_serialize(tcu->type, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        if (tcu->digits.num != 0) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+
+            return lxb_css_value_integer_sr(&tcu->digits, cb, ctx);
+        }
+
+        return LXB_STATUS_OK;
+    }
+
+    return lxb_css_value_serialize(tcu->type, cb, ctx);
+}
+
+/* Overflow-x. */
+
+LXB_API void *
+lxb_css_property_overflow_x_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_overflow_x_t));
+}
+
+LXB_API void *
+lxb_css_property_overflow_x_destroy(lxb_css_memory_t *memory,
+                                    void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_overflow_x_serialize(const void *style,
+                                      lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_overflow_x_t *ox = (const lxb_css_property_overflow_x_t *) (style);
+
+    return lxb_css_value_serialize(ox->type, cb, ctx);
+}
+
+/* Overflow-y. */
+
+LXB_API void *
+lxb_css_property_overflow_y_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_overflow_y_t));
+}
+
+LXB_API void *
+lxb_css_property_overflow_y_destroy(lxb_css_memory_t *memory,
+                                    void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_overflow_y_serialize(const void *style,
+                                      lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_overflow_y_t *oy = (const lxb_css_property_overflow_y_t *) (style);
+
+    return lxb_css_value_serialize(oy->type, cb, ctx);
+}
+
+/* Overflow shorthand. */
+
+LXB_API void *
+lxb_css_property_overflow_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_overflow_t));
+}
+
+LXB_API void *
+lxb_css_property_overflow_destroy(lxb_css_memory_t *memory,
+                                  void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_overflow_serialize(const void *style,
+                                    lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_overflow_t *ov = (const lxb_css_property_overflow_t *) (style);
+
+    return lxb_css_value_serialize(ov->type, cb, ctx);
+}
+
+/* Overflow-block. */
+
+LXB_API void *
+lxb_css_property_overflow_block_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_overflow_block_t));
+}
+
+LXB_API void *
+lxb_css_property_overflow_block_destroy(lxb_css_memory_t *memory,
+                                        void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_overflow_block_serialize(const void *style,
+                                          lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_overflow_block_t *ob = (const lxb_css_property_overflow_block_t *) (style);
+
+    return lxb_css_value_serialize(ob->type, cb, ctx);
+}
+
+/* Overflow-inline. */
+
+LXB_API void *
+lxb_css_property_overflow_inline_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_overflow_inline_t));
+}
+
+LXB_API void *
+lxb_css_property_overflow_inline_destroy(lxb_css_memory_t *memory,
+                                         void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_overflow_inline_serialize(const void *style,
+                                           lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_overflow_inline_t *oi = (const lxb_css_property_overflow_inline_t *) (style);
+
+    return lxb_css_value_serialize(oi->type, cb, ctx);
+}
+
+/* Text-overflow. */
+
+LXB_API void *
+lxb_css_property_text_overflow_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_text_overflow_t));
+}
+
+LXB_API void *
+lxb_css_property_text_overflow_destroy(lxb_css_memory_t *memory,
+                                       void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_text_overflow_serialize(const void *style,
+                                         lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_text_overflow_t *to = (const lxb_css_property_text_overflow_t *) (style);
+
+    return lxb_css_value_serialize(to->type, cb, ctx);
+}
+
+/* Text-decoration-line. */
+
+LXB_API void *
+lxb_css_property_text_decoration_line_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_text_decoration_line_t));
+}
+
+LXB_API void *
+lxb_css_property_text_decoration_line_destroy(lxb_css_memory_t *memory,
+                                              void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_text_decoration_line_serialize(const void *style,
+                                                lexbor_serialize_cb_f cb, void *ctx)
+{
+    bool itis;
+    lxb_status_t status;
+    const lxb_css_property_text_decoration_line_t *tdl = (const lxb_css_property_text_decoration_line_t *) (style);
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    itis = false;
+
+    if (tdl->underline != LXB_CSS_VALUE__UNDEF) {
+        status = lxb_css_value_serialize(tdl->underline, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        itis = true;
+    }
+
+    if (tdl->overline != LXB_CSS_VALUE__UNDEF) {
+        if (itis) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        }
+
+        status = lxb_css_value_serialize(tdl->overline, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        itis = true;
+    }
+
+    if (tdl->line_through != LXB_CSS_VALUE__UNDEF) {
+        if (itis) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        }
+
+        status = lxb_css_value_serialize(tdl->line_through, cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        itis = true;
+    }
+
+    if (tdl->blink != LXB_CSS_VALUE__UNDEF) {
+        if (itis) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        }
+
+        return lxb_css_value_serialize(tdl->blink, cb, ctx);
+    }
+
+    if (itis) {
+        return LXB_STATUS_OK;
+    }
+
+    return lxb_css_value_serialize(tdl->type, cb, ctx);
+}
+
+/* Text-decoration-style. */
+
+LXB_API void *
+lxb_css_property_text_decoration_style_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_text_decoration_style_t));
+}
+
+LXB_API void *
+lxb_css_property_text_decoration_style_destroy(lxb_css_memory_t *memory,
+                                               void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_text_decoration_style_serialize(const void *style,
+                                                 lexbor_serialize_cb_f cb, void *ctx)
+{
+    const lxb_css_property_text_decoration_style_t *tds = (const lxb_css_property_text_decoration_style_t *) (style);
+
+    return lxb_css_value_serialize(tds->type, cb, ctx);
+}
+
+/* Text-decoration-color. */
+
+LXB_API void *
+lxb_css_property_text_decoration_color_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_text_decoration_color_t));
+}
+
+LXB_API void *
+lxb_css_property_text_decoration_color_destroy(lxb_css_memory_t *memory,
+                                               void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_text_decoration_color_serialize(const void *style,
+                                                 lexbor_serialize_cb_f cb, void *ctx)
+{
+    return lxb_css_property_color_serialize(style, cb, ctx);
+}
+
+/* Text-decoration. */
+
+LXB_API void *
+lxb_css_property_text_decoration_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw,
+                              sizeof(lxb_css_property_text_decoration_t));
+}
+
+LXB_API void *
+lxb_css_property_text_decoration_destroy(lxb_css_memory_t *memory,
+                                         void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+LXB_API lxb_status_t
+lxb_css_property_text_decoration_serialize(const void *style,
+                                           lexbor_serialize_cb_f cb, void *ctx)
+{
+    bool itis;
+    lxb_status_t status;
+    const lxb_css_property_text_decoration_t *td = (const lxb_css_property_text_decoration_t *) (style);
+
+    static const lexbor_str_t str_ws = lexbor_str(" ");
+
+    itis = false;
+
+    if (td->line.type != LXB_CSS_VALUE__UNDEF
+        || td->line.underline != LXB_CSS_VALUE__UNDEF
+        || td->line.overline != LXB_CSS_VALUE__UNDEF
+        || td->line.line_through != LXB_CSS_VALUE__UNDEF
+        || td->line.blink != LXB_CSS_VALUE__UNDEF)
+    {
+        status = lxb_css_property_text_decoration_line_serialize(&td->line,
+                                                                 cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        itis = true;
+    }
+
+    if (td->style.type != LXB_CSS_VALUE__UNDEF) {
+        if (itis) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        }
+
+        status = lxb_css_property_text_decoration_style_serialize(&td->style,
+                                                                  cb, ctx);
+        if (status != LXB_STATUS_OK) {
+            return status;
+        }
+
+        itis = true;
+    }
+
+    if (td->color.type != LXB_CSS_VALUE__UNDEF) {
+        if (itis) {
+            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
+        }
+
+        return lxb_css_property_text_decoration_color_serialize(&td->color,
+                                                                cb, ctx);
+    }
+
+    return LXB_STATUS_OK;
+}
+
+/* Font (shorthand). */
+
+void *
+lxb_css_property_font_create(lxb_css_memory_t *memory)
+{
+    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_font_t));
+}
+
+void *
+lxb_css_property_font_destroy(lxb_css_memory_t *memory,
+                              void *style, bool self_destroy)
+{
+    return lxb_css_property__undef_destroy(memory, style, self_destroy);
+}
+
+lxb_status_t
+lxb_css_property_font_serialize(const void *style,
+                                lexbor_serialize_cb_f cb, void *ctx)
+{
+    /* Serialize as the font-size component (sufficient for cascade use). */
+    const lxb_css_property_font_t *font =
+        (const lxb_css_property_font_t *) style;
+    return lxb_css_value_length_percentage_type_sr(&font->size, cb, ctx);
+}
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/core/cpp_compat_undef.h
+// ────────────────────────────────────────────────────────────────────────
+
+/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
+#ifdef aui_lexbor_array_get
+#undef aui_lexbor_array_get
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#endif
+#ifdef aui_lexbor_array_obj_get
+#undef aui_lexbor_array_obj_get
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#endif
+#ifdef aui_lexbor_array_obj_last
+#undef aui_lexbor_array_obj_last
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#endif
+#ifdef aui_lexbor_array_obj_pop
+#undef aui_lexbor_array_obj_pop
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#endif
+#ifdef aui_lexbor_array_obj_push
+#undef aui_lexbor_array_obj_push
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#endif
+#ifdef aui_lexbor_array_obj_push_n
+#undef aui_lexbor_array_obj_push_n
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#endif
+#ifdef aui_lexbor_array_obj_push_wo_cls
+#undef aui_lexbor_array_obj_push_wo_cls
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#endif
+#ifdef aui_lexbor_array_pop
+#undef aui_lexbor_array_pop
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#endif
+#ifdef aui_lexbor_bst_entry_data
+#undef aui_lexbor_bst_entry_data
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#undef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#endif
+#ifdef aui_lexbor_calloc
+#undef aui_lexbor_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#endif
+#ifdef aui_lexbor_dobject_alloc
+#undef aui_lexbor_dobject_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#endif
+#ifdef aui_lexbor_dobject_by_absolute_position
+#undef aui_lexbor_dobject_by_absolute_position
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#endif
+#ifdef aui_lexbor_dobject_calloc
+#undef aui_lexbor_dobject_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#endif
+#ifdef aui_lexbor_dobject_free
+#undef aui_lexbor_dobject_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#endif
+#ifdef aui_lexbor_free
+#undef aui_lexbor_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_free
+#endif
+#ifdef aui_lexbor_hash_insert
+#undef aui_lexbor_hash_insert
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#endif
+#ifdef aui_lexbor_hash_search
+#undef aui_lexbor_hash_search
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#endif
+#ifdef aui_lexbor_malloc
+#undef aui_lexbor_malloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#endif
+#ifdef aui_lexbor_mem_alloc
+#undef aui_lexbor_mem_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#endif
+#ifdef aui_lexbor_mem_calloc
+#undef aui_lexbor_mem_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#endif
+#ifdef aui_lexbor_mraw_alloc
+#undef aui_lexbor_mraw_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#endif
+#ifdef aui_lexbor_mraw_calloc
+#undef aui_lexbor_mraw_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#endif
+#ifdef aui_lexbor_mraw_free
+#undef aui_lexbor_mraw_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#endif
+#ifdef aui_lexbor_mraw_realloc
+#undef aui_lexbor_mraw_realloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#endif
+#ifdef aui_lexbor_realloc
+#undef aui_lexbor_realloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#endif
+#ifdef new
+#undef new
+#endif
+
+
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/css/property/state.c
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2021-2023 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+
+
+
+
+
 
 
 
@@ -39244,4468 +43706,6 @@ lsc:
     }
 
     return lxb_css_parser_success(parser);
-}
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/core/cpp_compat_undef.h
-// ────────────────────────────────────────────────────────────────────────
-
-/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
-#ifdef aui_lexbor_array_get
-#undef aui_lexbor_array_get
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_get
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_get
-#endif
-#ifdef aui_lexbor_array_obj_get
-#undef aui_lexbor_array_obj_get
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
-#endif
-#ifdef aui_lexbor_array_obj_last
-#undef aui_lexbor_array_obj_last
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
-#endif
-#ifdef aui_lexbor_array_obj_pop
-#undef aui_lexbor_array_obj_pop
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
-#endif
-#ifdef aui_lexbor_array_obj_push
-#undef aui_lexbor_array_obj_push
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
-#endif
-#ifdef aui_lexbor_array_obj_push_n
-#undef aui_lexbor_array_obj_push_n
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
-#endif
-#ifdef aui_lexbor_array_obj_push_wo_cls
-#undef aui_lexbor_array_obj_push_wo_cls
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
-#endif
-#ifdef aui_lexbor_array_pop
-#undef aui_lexbor_array_pop
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
-#endif
-#ifdef aui_lexbor_bst_entry_data
-#undef aui_lexbor_bst_entry_data
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
-#undef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
-#endif
-#ifdef aui_lexbor_calloc
-#undef aui_lexbor_calloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_calloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_calloc
-#endif
-#ifdef aui_lexbor_dobject_alloc
-#undef aui_lexbor_dobject_alloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
-#endif
-#ifdef aui_lexbor_dobject_by_absolute_position
-#undef aui_lexbor_dobject_by_absolute_position
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
-#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
-#endif
-#ifdef aui_lexbor_dobject_calloc
-#undef aui_lexbor_dobject_calloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
-#endif
-#ifdef aui_lexbor_dobject_free
-#undef aui_lexbor_dobject_free
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
-#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
-#endif
-#ifdef aui_lexbor_free
-#undef aui_lexbor_free
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_free
-#undef LXB_CPP_COMPAT_SKIP_lexbor_free
-#endif
-#ifdef aui_lexbor_hash_insert
-#undef aui_lexbor_hash_insert
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
-#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
-#endif
-#ifdef aui_lexbor_hash_search
-#undef aui_lexbor_hash_search
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
-#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
-#endif
-#ifdef aui_lexbor_malloc
-#undef aui_lexbor_malloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_malloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_malloc
-#endif
-#ifdef aui_lexbor_mem_alloc
-#undef aui_lexbor_mem_alloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
-#endif
-#ifdef aui_lexbor_mem_calloc
-#undef aui_lexbor_mem_calloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
-#endif
-#ifdef aui_lexbor_mraw_alloc
-#undef aui_lexbor_mraw_alloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
-#endif
-#ifdef aui_lexbor_mraw_calloc
-#undef aui_lexbor_mraw_calloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
-#endif
-#ifdef aui_lexbor_mraw_free
-#undef aui_lexbor_mraw_free
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
-#endif
-#ifdef aui_lexbor_mraw_realloc
-#undef aui_lexbor_mraw_realloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
-#endif
-#ifdef aui_lexbor_realloc
-#undef aui_lexbor_realloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_realloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_realloc
-#endif
-#ifdef new
-#undef new
-#endif
-
-
-
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/css/property.c
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2021-2023 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-
-
-
-
-
-
-
-
-#define new lexbor_cpp_new
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/core/cpp_compat.h
-// ────────────────────────────────────────────────────────────────────────
-
-/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
-#ifdef __cplusplus
-#ifndef LEXBOR_CPP_COMPAT_TYPES_H
-#define LEXBOR_CPP_COMPAT_TYPES_H
-namespace lexbor_cpp_compat {
-struct ptr_proxy {
-    void *p;
-    template <class T> operator T *() const { return static_cast<T *>(p); }
-    template <class T> operator const T *() const { return static_cast<const T *>(p); }
-    operator void *() const { return p; }
-    operator const void *() const { return p; }
-};
-inline ptr_proxy ptr(void *p) { return {p}; }
-inline ptr_proxy ptr(const void *p) { return {const_cast<void *>(p)}; }
-}  // namespace lexbor_cpp_compat
-#endif  /* LEXBOR_CPP_COMPAT_TYPES_H */
-
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_get
-#define aui_lexbor_array_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_get)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
-#define aui_lexbor_array_obj_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_get)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
-#define aui_lexbor_array_obj_last(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_last)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
-#define aui_lexbor_array_obj_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_pop)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
-#define aui_lexbor_array_obj_push(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
-#define aui_lexbor_array_obj_push_n(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_n)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
-#define aui_lexbor_array_obj_push_wo_cls(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_wo_cls)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
-#define aui_lexbor_array_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_pop)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
-#define aui_lexbor_bst_entry_data(...) ::lexbor_cpp_compat::ptr((aui_lexbor_bst_entry_data)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_calloc
-#define aui_lexbor_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_calloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
-#define aui_lexbor_dobject_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_alloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
-#define aui_lexbor_dobject_by_absolute_position(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_by_absolute_position)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
-#define aui_lexbor_dobject_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_calloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
-#define aui_lexbor_dobject_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_free)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_free
-#define aui_lexbor_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_free)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
-#define aui_lexbor_hash_insert(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_insert)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
-#define aui_lexbor_hash_search(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_search)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_malloc
-#define aui_lexbor_malloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_malloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
-#define aui_lexbor_mem_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_alloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
-#define aui_lexbor_mem_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_calloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
-#define aui_lexbor_mraw_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_alloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
-#define aui_lexbor_mraw_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_calloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
-#define aui_lexbor_mraw_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_free)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
-#define aui_lexbor_mraw_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_realloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_realloc
-#define aui_lexbor_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_realloc)(__VA_ARGS__))
-#endif
-#endif  /* __cplusplus */
-
-
-
-
-const lxb_css_entry_data_t *
-lxb_css_property_by_name(const lxb_char_t *name, size_t length)
-{
-    const lexbor_shs_entry_t *entry;
-
-    if (length == 15 &&
-        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "list-style-type", 15)) {
-        return &lxb_css_property_data[LXB_CSS_PROPERTY_LIST_STYLE_TYPE];
-    }
-    if (length == 10 &&
-        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "list-style", 10)) {
-        return &lxb_css_property_data[LXB_CSS_PROPERTY_LIST_STYLE];
-    }
-    if (length == 7 &&
-        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "content", 7)) {
-        return &lxb_css_property_data[LXB_CSS_PROPERTY_CONTENT];
-    }
-    if (length == 9 &&
-        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "transform", 9)) {
-        return &lxb_css_property_data[LXB_CSS_PROPERTY_TRANSFORM];
-    }
-    if (length == 16 &&
-        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "transform-origin", 16)) {
-        return &lxb_css_property_data[LXB_CSS_PROPERTY_TRANSFORM_ORIGIN];
-    }
-    if (length == 9 &&
-        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation", 9)) {
-        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION];
-    }
-    if (length == 14 &&
-        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-name", 14)) {
-        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_NAME];
-    }
-    if (length == 18 &&
-        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-duration", 18)) {
-        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_DURATION];
-    }
-    if (length == 25 &&
-        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-timing-function", 25)) {
-        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_TIMING_FUNCTION];
-    }
-    if (length == 15 &&
-        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-delay", 15)) {
-        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_DELAY];
-    }
-    if (length == 25 &&
-        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-iteration-count", 25)) {
-        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_ITERATION_COUNT];
-    }
-    if (length == 19 &&
-        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-direction", 19)) {
-        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_DIRECTION];
-    }
-    if (length == 19 &&
-        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-fill-mode", 19)) {
-        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_FILL_MODE];
-    }
-    if (length == 20 &&
-        lexbor_str_data_ncasecmp(name, (const lxb_char_t *) "animation-play-state", 20)) {
-        return &lxb_css_property_data[LXB_CSS_PROPERTY_ANIMATION_PLAY_STATE];
-    }
-
-    entry = lexbor_shs_entry_get_lower_static(lxb_css_property_shs,
-                                              name, length);
-    if (entry == NULL) {
-        return NULL;
-    }
-
-    return (const lxb_css_entry_data_t *) (entry->value);
-}
-
-const lxb_css_entry_data_t *
-lxb_css_property_by_id(uintptr_t id)
-{
-    return &lxb_css_property_data[id];
-}
-
-const void *
-lxb_css_property_initial_by_id(uintptr_t id)
-{
-    if (id >= LXB_CSS_PROPERTY__LAST_ENTRY) {
-        return NULL;
-    }
-
-    return lxb_css_property_data[id].initial;
-}
-
-void *
-lxb_css_property_destroy(lxb_css_memory_t *memory, void *style,
-                         lxb_css_property_type_t type, bool self_destroy)
-{
-    const lxb_css_entry_data_t *data;
-
-    data = lxb_css_property_by_id(type);
-    if (data == NULL) {
-        return style;
-    }
-
-    return data->destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_serialize(const void *style, lxb_css_property_type_t type,
-                           lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_entry_data_t *data;
-
-    data = lxb_css_property_by_id(type);
-    if (data == NULL) {
-        return LXB_STATUS_ERROR_NOT_EXISTS;
-    }
-
-    return data->serialize(style, cb, ctx);
-}
-
-lxb_status_t
-lxb_css_property_serialize_str(const void *style, lxb_css_property_type_t type,
-                               lexbor_mraw_t *mraw, lexbor_str_t *str)
-{
-    const lxb_css_entry_data_t *data;
-
-    data = lxb_css_property_by_id(type);
-    if (data == NULL) {
-        return LXB_STATUS_ERROR_NOT_EXISTS;
-    }
-
-    return lxb_css_serialize_str_handler(style, str, mraw, data->serialize);
-}
-
-lxb_status_t
-lxb_css_property_serialize_name(const void *style, lxb_css_property_type_t type,
-                                lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_entry_data_t *data;
-
-    switch (type) {
-        case LXB_CSS_PROPERTY__UNDEF:
-            return lxb_css_property__undef_serialize_name(style, cb, ctx);
-
-        case LXB_CSS_PROPERTY__CUSTOM:
-            return lxb_css_property__custom_serialize_name(style, cb, ctx);
-
-        default:
-            break;
-    }
-
-    data = lxb_css_property_by_id(type);
-    if (data == NULL) {
-        return LXB_STATUS_ERROR_NOT_EXISTS;
-    }
-
-    return cb(data->name, data->length, ctx);
-}
-
-lxb_status_t
-lxb_css_property_serialize_name_str(const void *style, lxb_css_property_type_t type,
-                                    lexbor_mraw_t *mraw, lexbor_str_t *str)
-{
-    const lxb_css_entry_data_t *data;
-
-    switch (type) {
-        case LXB_CSS_PROPERTY__UNDEF:
-            return lxb_css_serialize_str_handler(style, str, mraw,
-                                       lxb_css_property__undef_serialize_name);
-
-        case LXB_CSS_PROPERTY__CUSTOM:
-            return lxb_css_serialize_str_handler(style, str, mraw,
-                                      lxb_css_property__custom_serialize_name);
-
-        default:
-            break;
-    }
-
-    data = lxb_css_property_by_id(type);
-    if (data == NULL) {
-        return LXB_STATUS_ERROR_NOT_EXISTS;
-    }
-
-    if (str->data == NULL) {
-        lexbor_str_init(str, mraw, data->length);
-        if (str->data == NULL) {
-            return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
-        }
-    }
-
-    (void) lexbor_str_append(str, mraw, data->name, data->length);
-
-    return LXB_STATUS_OK;
-}
-
-/* _undef. */
-
-void *
-lxb_css_property__undef_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property__undef_t));
-}
-
-void *
-lxb_css_property__undef_destroy(lxb_css_memory_t *memory,
-                                void *style, bool self_destroy)
-{
-    if (style == NULL) {
-        return NULL;
-    }
-
-    if (self_destroy) {
-        return lexbor_mraw_free(memory->mraw, style);
-    }
-
-    return style;
-}
-
-lxb_status_t
-lxb_css_property__undef_serialize(const void *style,
-                                  lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property__undef_t *undef = (const lxb_css_property__undef_t *) (style);
-
-    return cb(undef->value.data, undef->value.length, ctx);
-}
-
-lxb_status_t
-lxb_css_property__undef_serialize_name(const void *style,
-                                       lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property__undef_t *undef = (const lxb_css_property__undef_t *) (style);
-    const lxb_css_entry_data_t *data;
-
-    if (undef->type == LXB_CSS_PROPERTY__UNDEF) {
-        return LXB_STATUS_OK;
-    }
-
-    data = lxb_css_property_by_id(undef->type);
-    if (data == NULL) {
-        return LXB_STATUS_ERROR_NOT_EXISTS;
-    }
-
-    return cb(data->name, data->length, ctx);
-}
-
-lxb_status_t
-lxb_css_property__undef_serialize_value(const void *style,
-                                        lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property__undef_t *undef = (const lxb_css_property__undef_t *) (style);
-
-    if (undef->type == LXB_CSS_PROPERTY__UNDEF) {
-        return cb(undef->value.data, undef->value.length, ctx);
-    }
-
-    return LXB_STATUS_OK;
-}
-
-/* _custom. */
-
-void *
-lxb_css_property__custom_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property__custom_t));
-}
-
-void *
-lxb_css_property__custom_destroy(lxb_css_memory_t *memory,
-                                 void *style, bool self_destroy)
-{
-    if (style == NULL) {
-        return NULL;
-    }
-
-    if (self_destroy) {
-        return lexbor_mraw_free(memory->mraw, style);
-    }
-
-    return style;
-}
-
-lxb_status_t
-lxb_css_property__custom_serialize(const void *style,
-                                   lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property__custom_t *custom = (const lxb_css_property__custom_t *) (style);
-
-    if (custom->value.data == NULL) {
-        return LXB_STATUS_OK;
-    }
-
-    return cb(custom->value.data, custom->value.length, ctx);
-}
-
-lxb_status_t
-lxb_css_property__custom_serialize_name(const void *style,
-                                        lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property__custom_t *custom = (const lxb_css_property__custom_t *) (style);
-
-    return cb(custom->name.data, custom->name.length, ctx);
-}
-
-lxb_status_t
-lxb_css_property__custom_serialize_value(const void *style,
-                                         lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property__custom_t *custom = (const lxb_css_property__custom_t *) (style);
-
-    if (custom->value.data == NULL) {
-        return LXB_STATUS_OK;
-    }
-
-    return cb(custom->value.data, custom->value.length, ctx);
-}
-
-/* Display. */
-
-void *
-lxb_css_property_display_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_display_t));
-}
-
-void *
-lxb_css_property_display_destroy(lxb_css_memory_t *memory,
-                                 void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_display_serialize(const void *property,
-                                   lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-    const lxb_css_data_t *data;
-    const lxb_css_property_display_t *display = (const lxb_css_property_display_t *) (property);
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    data = lxb_css_value_by_id(display->a);
-    if (data == NULL) {
-        return LXB_STATUS_ERROR_NOT_EXISTS;
-    }
-
-    lexbor_serialize_write(cb, data->name, data->length, ctx, status);
-
-    if (display->b == LXB_CSS_PROPERTY__UNDEF) {
-        return LXB_STATUS_OK;
-    }
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    data = lxb_css_value_by_id(display->b);
-    if (data == NULL) {
-        return LXB_STATUS_ERROR_NOT_EXISTS;
-    }
-
-    lexbor_serialize_write(cb, data->name, data->length, ctx, status);
-
-    if (display->c == LXB_CSS_PROPERTY__UNDEF) {
-        return LXB_STATUS_OK;
-    }
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    data = lxb_css_value_by_id(display->c);
-    if (data == NULL) {
-        return LXB_STATUS_ERROR_NOT_EXISTS;
-    }
-
-    lexbor_serialize_write(cb, data->name, data->length, ctx, status);
-
-    return LXB_STATUS_OK;
-}
-
-/* Order. */
-
-void *
-lxb_css_property_order_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_order_t));
-}
-
-void *
-lxb_css_property_order_destroy(lxb_css_memory_t *memory,
-                               void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_order_serialize(const void *style,
-                                 lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_integer_type_sr((const lxb_css_value_integer_type_t *) (style), cb, ctx);
-}
-
-/* Visibility. */
-
-void *
-lxb_css_property_visibility_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_visibility_t));
-}
-
-void *
-lxb_css_property_visibility_destroy(lxb_css_memory_t *memory,
-                                    void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_visibility_serialize(const void *style,
-                                      lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_visibility_t *vb = (const lxb_css_property_visibility_t *) (style);
-
-    return lxb_css_value_serialize(vb->type, cb, ctx);
-}
-
-/* Width. */
-
-void *
-lxb_css_property_width_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_width_t));
-}
-
-void *
-lxb_css_property_width_destroy(lxb_css_memory_t *memory,
-                               void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_width_serialize(const void *property,
-                                 lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_width_t *width = (const lxb_css_property_width_t *) (property);
-
-    switch (width->type) {
-        case LXB_CSS_VALUE__LENGTH:
-        case LXB_CSS_VALUE__NUMBER:
-            return lxb_css_value_length_sr(&width->u.length, cb, ctx);
-
-        case LXB_CSS_VALUE__PERCENTAGE:
-            return lxb_css_value_percentage_sr(&width->u.percentage, cb, ctx);
-
-        case LXB_CSS_VALUE__UNDEF:
-            /* FIXME: ???? */
-            break;
-
-        default:
-            return lxb_css_value_serialize(width->type, cb, ctx);
-    }
-
-    return LXB_STATUS_OK;
-}
-
-/* Height. */
-
-void *
-lxb_css_property_height_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_height_t));
-}
-
-void *
-lxb_css_property_height_destroy(lxb_css_memory_t *memory,
-                                void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_height_serialize(const void *property,
-                                  lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_width_serialize(property, cb, ctx);
-}
-
-/* Box-sizing. */
-
-void *
-lxb_css_property_box_sizing_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_box_sizing_t));
-}
-
-void *
-lxb_css_property_box_sizing_destroy(lxb_css_memory_t *memory,
-                                    void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_box_sizing_serialize(const void *property,
-                                      lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_box_sizing_t *bsize = (const lxb_css_property_box_sizing_t *) (property);
-
-    return lxb_css_value_serialize(bsize->type, cb, ctx);
-}
-
-/* Box-shadow. */
-
-void *
-lxb_css_property_box_shadow_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_box_shadow_t));
-}
-
-void *
-lxb_css_property_box_shadow_destroy(lxb_css_memory_t *memory,
-                                    void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_box_shadow_serialize(const void *property,
-                                      lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-    const lxb_css_property_box_shadow_t *shadow = (const lxb_css_property_box_shadow_t *) (property);
-    const lxb_css_property_box_shadow_layer_t *layer;
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-    static const lexbor_str_t str_comma = lexbor_str(", ");
-
-    switch (shadow->type) {
-        case LXB_CSS_VALUE_INITIAL:
-        case LXB_CSS_VALUE_INHERIT:
-        case LXB_CSS_VALUE_UNSET:
-        case LXB_CSS_VALUE_REVERT:
-        case LXB_CSS_BOX_SHADOW_NONE:
-            return lxb_css_value_serialize(shadow->type, cb, ctx);
-
-        default:
-            break;
-    }
-
-    for (uint8_t i = 0; i < shadow->layer_count; i++) {
-        layer = &shadow->layers[i];
-        if (i != 0) {
-            lexbor_serialize_write(cb, str_comma.data, str_comma.length, ctx, status);
-        }
-
-        if (layer->inset) {
-            status = lxb_css_value_serialize(LXB_CSS_VALUE_INSET, cb, ctx);
-            if (status != LXB_STATUS_OK) {
-                return status;
-            }
-
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-        }
-
-        status = lxb_css_value_length_type_sr(&layer->offset_x, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-        status = lxb_css_value_length_type_sr(&layer->offset_y, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        if (layer->blur_radius.type != LXB_CSS_VALUE__UNDEF) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-            status = lxb_css_value_length_type_sr(&layer->blur_radius, cb, ctx);
-            if (status != LXB_STATUS_OK) {
-                return status;
-            }
-        }
-
-        if (layer->spread_radius.type != LXB_CSS_VALUE__UNDEF) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-            status = lxb_css_value_length_type_sr(&layer->spread_radius, cb, ctx);
-            if (status != LXB_STATUS_OK) {
-                return status;
-            }
-        }
-
-        if (layer->color.type != LXB_CSS_VALUE__UNDEF) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-            status = lxb_css_value_color_serialize(&layer->color, cb, ctx);
-            if (status != LXB_STATUS_OK) {
-                return status;
-            }
-        }
-    }
-
-    return LXB_STATUS_OK;
-}
-
-/* Min-width. */
-
-void *
-lxb_css_property_min_width_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_min_width_t));
-}
-
-void *
-lxb_css_property_min_width_destroy(lxb_css_memory_t *memory,
-                                   void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_min_width_serialize(const void *property,
-                                     lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_width_serialize(property, cb, ctx);
-}
-
-/* Min-height. */
-
-void *
-lxb_css_property_min_height_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_min_height_t));
-}
-
-void *
-lxb_css_property_min_height_destroy(lxb_css_memory_t *memory,
-                                    void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_min_height_serialize(const void *property,
-                                      lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_width_serialize(property, cb, ctx);
-}
-
-/* Max-width. */
-
-void *
-lxb_css_property_max_width_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_max_width_t));
-}
-
-void *
-lxb_css_property_max_width_destroy(lxb_css_memory_t *memory,
-                                   void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_max_width_serialize(const void *property,
-                                     lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_width_serialize(property, cb, ctx);
-}
-
-/* Max-height. */
-
-void *
-lxb_css_property_max_height_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_max_height_t));
-}
-
-void *
-lxb_css_property_max_height_destroy(lxb_css_memory_t *memory,
-                                    void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_max_height_serialize(const void *property,
-                                      lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_width_serialize(property, cb, ctx);
-}
-
-/* Margin. */
-
-void *
-lxb_css_property_margin_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_margin_t));
-}
-
-void *
-lxb_css_property_margin_destroy(lxb_css_memory_t *memory,
-                                void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_margin_serialize(const void *property,
-                                  lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-    const lxb_css_property_margin_t *margin = (const lxb_css_property_margin_t *) (property);
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    /* Top. */
-
-    status = lxb_css_value_length_percentage_sr(&margin->top, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    if (margin->right.type == LXB_CSS_VALUE__UNDEF) {
-        return LXB_STATUS_OK;
-    }
-
-    /* Right. */
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    status = lxb_css_value_length_percentage_sr(&margin->right, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    if (margin->bottom.type == LXB_CSS_VALUE__UNDEF) {
-        return LXB_STATUS_OK;
-    }
-
-    /* Bottom. */
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    status = lxb_css_value_length_percentage_sr(&margin->bottom, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    if (margin->left.type == LXB_CSS_VALUE__UNDEF) {
-        return LXB_STATUS_OK;
-    }
-
-    /* Left. */
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    return lxb_css_value_length_percentage_sr(&margin->left, cb, ctx);
-}
-
-/* Margin-top. */
-
-void *
-lxb_css_property_margin_top_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_margin_top_t));
-}
-
-void *
-lxb_css_property_margin_top_destroy(lxb_css_memory_t *memory,
-                                    void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_margin_top_serialize(const void *property,
-                                      lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (property), cb, ctx);
-}
-
-/* Margin-right. */
-
-void *
-lxb_css_property_margin_right_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_margin_right_t));
-}
-
-void *
-lxb_css_property_margin_right_destroy(lxb_css_memory_t *memory,
-                                      void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_margin_right_serialize(const void *property,
-                                        lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (property), cb, ctx);
-}
-
-/* Margin-bottom. */
-
-void *
-lxb_css_property_margin_bottom_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_margin_bottom_t));
-}
-
-void *
-lxb_css_property_margin_bottom_destroy(lxb_css_memory_t *memory,
-                                       void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_margin_bottom_serialize(const void *property,
-                                         lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (property), cb, ctx);
-}
-
-/* Margin-left. */
-
-void *
-lxb_css_property_margin_left_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_margin_left_t));
-}
-
-void *
-lxb_css_property_margin_left_destroy(lxb_css_memory_t *memory,
-                                     void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_margin_left_serialize(const void *property,
-                                       lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (property), cb, ctx);
-}
-
-/* Padding. */
-
-void *
-lxb_css_property_padding_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_padding_t));
-}
-
-void *
-lxb_css_property_padding_destroy(lxb_css_memory_t *memory,
-                                 void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_padding_serialize(const void *property,
-                                   lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_margin_serialize(property, cb, ctx);
-}
-
-/* Padding-top. */
-
-void *
-lxb_css_property_padding_top_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_padding_top_t));
-}
-
-void *
-lxb_css_property_padding_top_destroy(lxb_css_memory_t *memory,
-                                     void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_padding_top_serialize(const void *property,
-                                       lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (property), cb, ctx);
-}
-
-/* Padding-right. */
-
-void *
-lxb_css_property_padding_right_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_padding_right_t));
-}
-
-void *
-lxb_css_property_padding_right_destroy(lxb_css_memory_t *memory,
-                                       void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_padding_right_serialize(const void *property,
-                                         lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (property), cb, ctx);
-}
-
-/* Padding-bottom. */
-
-void *
-lxb_css_property_padding_bottom_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_padding_bottom_t));
-}
-
-void *
-lxb_css_property_padding_bottom_destroy(lxb_css_memory_t *memory,
-                                        void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_padding_bottom_serialize(const void *property,
-                                          lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (property), cb, ctx);
-}
-
-/* Padding-left. */
-
-void *
-lxb_css_property_padding_left_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_padding_left_t));
-}
-
-void *
-lxb_css_property_padding_left_destroy(lxb_css_memory_t *memory,
-                                      void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_padding_left_serialize(const void *property,
-                                        lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (property), cb, ctx);
-}
-
-/* Border. */
-
-void *
-lxb_css_property_border_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_border_t));
-}
-
-void *
-lxb_css_property_border_destroy(lxb_css_memory_t *memory,
-                                void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_serialize(const void *property,
-                                  lexbor_serialize_cb_f cb, void *ctx)
-{
-    bool ws_print;
-    lxb_status_t status;
-    const lxb_css_property_border_t *border = (const lxb_css_property_border_t *) (property);
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    ws_print = false;
-
-    if (border->width.type != LXB_CSS_VALUE__UNDEF) {
-        status = lxb_css_value_length_type_sr(&border->width, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        ws_print = true;
-    }
-
-    if (border->style != LXB_CSS_VALUE__UNDEF) {
-        if (ws_print) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-        }
-
-        status = lxb_css_value_serialize(border->style, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        ws_print = true;
-    }
-
-    if (border->color.type != LXB_CSS_VALUE__UNDEF) {
-        if (ws_print) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-        }
-
-        return lxb_css_value_color_serialize(&border->color, cb, ctx);
-    }
-
-    return LXB_STATUS_OK;
-}
-
-/* Border-top. */
-
-void *
-lxb_css_property_border_top_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_border_top_t));
-}
-
-void *
-lxb_css_property_border_top_destroy(lxb_css_memory_t *memory,
-                                    void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_top_serialize(const void *property,
-                                      lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_border_serialize(property, cb, ctx);
-}
-
-/* Border-right. */
-
-void *
-lxb_css_property_border_right_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_border_right_t));
-}
-
-void *
-lxb_css_property_border_right_destroy(lxb_css_memory_t *memory,
-                                      void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_right_serialize(const void *property,
-                                        lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_border_serialize(property, cb, ctx);
-}
-
-/* Border-bottom. */
-
-void *
-lxb_css_property_border_bottom_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_border_bottom_t));
-}
-
-void *
-lxb_css_property_border_bottom_destroy(lxb_css_memory_t *memory,
-                                       void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_bottom_serialize(const void *property,
-                                         lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_border_serialize(property, cb, ctx);
-}
-
-/* Border-left. */
-
-void *
-lxb_css_property_border_left_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_border_left_t));
-}
-
-void *
-lxb_css_property_border_left_destroy(lxb_css_memory_t *memory,
-                                     void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_left_serialize(const void *property,
-                                       lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_border_serialize(property, cb, ctx);
-}
-
-/* Border-color. */
-
-void *
-lxb_css_property_border_color_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_border_color_t));
-}
-
-void *
-lxb_css_property_border_color_destroy(lxb_css_memory_t *memory,
-                                      void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_color_serialize(const void *style,
-                                        lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-    const lxb_css_property_border_color_t *border = (const lxb_css_property_border_color_t *) (style);
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    status = lxb_css_value_color_serialize(&border->top, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    status = lxb_css_value_color_serialize(&border->right, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    status = lxb_css_value_color_serialize(&border->bottom, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    return lxb_css_value_color_serialize(&border->left, cb, ctx);
-}
-
-void *
-lxb_css_property_border_top_color_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_border_top_color_t));
-}
-
-void *
-lxb_css_property_border_top_color_destroy(lxb_css_memory_t *memory,
-                                          void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_top_color_serialize(const void *style,
-                                            lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_color_serialize((const lxb_css_value_color_t *) (style), cb, ctx);
-}
-
-void *
-lxb_css_property_border_right_color_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_border_right_color_t));
-}
-
-void *
-lxb_css_property_border_right_color_destroy(lxb_css_memory_t *memory,
-                                            void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_right_color_serialize(const void *style,
-                                              lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_color_serialize((const lxb_css_value_color_t *) (style), cb, ctx);
-}
-
-void *
-lxb_css_property_border_bottom_color_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_border_bottom_color_t));
-}
-
-void *
-lxb_css_property_border_bottom_color_destroy(lxb_css_memory_t *memory,
-                                             void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_bottom_color_serialize(const void *style,
-                                               lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_color_serialize((const lxb_css_value_color_t *) (style), cb, ctx);
-}
-
-void *
-lxb_css_property_border_left_color_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_border_left_color_t));
-}
-
-void *
-lxb_css_property_border_left_color_destroy(lxb_css_memory_t *memory,
-                                           void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_left_color_serialize(const void *style,
-                                             lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_color_serialize((const lxb_css_value_color_t *) (style), cb, ctx);
-}
-
-/* Border-style shorthand. */
-
-void *
-lxb_css_property_border_style_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_border_style_t));
-}
-
-void *
-lxb_css_property_border_style_destroy(lxb_css_memory_t *memory,
-                                      void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_style_serialize(const void *style,
-                                        lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-    const lxb_css_property_border_style_t *bs = (const lxb_css_property_border_style_t *) (style);
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    status = lxb_css_value_serialize(bs->top, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    status = lxb_css_value_serialize(bs->right, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    status = lxb_css_value_serialize(bs->bottom, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    return lxb_css_value_serialize(bs->left, cb, ctx);
-}
-
-/* Border-width shorthand. */
-
-void *
-lxb_css_property_border_width_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_border_width_t));
-}
-
-void *
-lxb_css_property_border_width_destroy(lxb_css_memory_t *memory,
-                                      void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_width_serialize(const void *style,
-                                        lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-    const lxb_css_property_border_width_t *bw = (const lxb_css_property_border_width_t *) (style);
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    status = lxb_css_value_length_type_sr(&bw->top, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    status = lxb_css_value_length_type_sr(&bw->right, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    status = lxb_css_value_length_type_sr(&bw->bottom, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    return lxb_css_value_length_type_sr(&bw->left, cb, ctx);
-}
-
-/* Border-top-width. */
-
-void *
-lxb_css_property_border_top_width_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_border_top_width_t));
-}
-
-void *
-lxb_css_property_border_top_width_destroy(lxb_css_memory_t *memory,
-                                          void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_top_width_serialize(const void *style,
-                                            lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_type_sr((const lxb_css_value_length_type_t *) (style), cb, ctx);
-}
-
-/* Border-right-width. */
-
-void *
-lxb_css_property_border_right_width_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_border_right_width_t));
-}
-
-void *
-lxb_css_property_border_right_width_destroy(lxb_css_memory_t *memory,
-                                            void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_right_width_serialize(const void *style,
-                                              lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_type_sr((const lxb_css_value_length_type_t *) (style), cb, ctx);
-}
-
-/* Border-bottom-width. */
-
-void *
-lxb_css_property_border_bottom_width_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_border_bottom_width_t));
-}
-
-void *
-lxb_css_property_border_bottom_width_destroy(lxb_css_memory_t *memory,
-                                             void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_bottom_width_serialize(const void *style,
-                                               lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_type_sr((const lxb_css_value_length_type_t *) (style), cb, ctx);
-}
-
-/* Border-left-width. */
-
-void *
-lxb_css_property_border_left_width_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_border_left_width_t));
-}
-
-void *
-lxb_css_property_border_left_width_destroy(lxb_css_memory_t *memory,
-                                           void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_left_width_serialize(const void *style,
-                                             lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_type_sr((const lxb_css_value_length_type_t *) (style), cb, ctx);
-}
-
-/* border-collapse: a single keyword value (collapse | separate). */
-
-void *
-lxb_css_property_border_collapse_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_border_collapse_t));
-}
-
-void *
-lxb_css_property_border_collapse_destroy(lxb_css_memory_t *memory,
-                                         void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_collapse_serialize(const void *style,
-                                           lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_border_collapse_t *bc =
-        (const lxb_css_property_border_collapse_t *) style;
-    return lxb_css_value_serialize(*bc, cb, ctx);
-}
-
-/* list-style-type: disc | circle | square | decimal | none. */
-
-void *
-lxb_css_property_list_style_type_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_list_style_type_t));
-}
-
-void *
-lxb_css_property_list_style_type_destroy(lxb_css_memory_t *memory,
-                                         void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_list_style_type_serialize(const void *style,
-                                           lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-    const lxb_css_property_list_style_type_t *lst =
-        (const lxb_css_property_list_style_type_t *) style;
-
-    switch (lst->type) {
-        case LXB_CSS_LIST_STYLE_TYPE_DISC:
-            lexbor_serialize_write(cb, "disc", 4, ctx, status);
-            return LXB_STATUS_OK;
-        case LXB_CSS_LIST_STYLE_TYPE_CIRCLE:
-            lexbor_serialize_write(cb, "circle", 6, ctx, status);
-            return LXB_STATUS_OK;
-        case LXB_CSS_LIST_STYLE_TYPE_SQUARE:
-            lexbor_serialize_write(cb, "square", 6, ctx, status);
-            return LXB_STATUS_OK;
-        case LXB_CSS_LIST_STYLE_TYPE_DECIMAL:
-            lexbor_serialize_write(cb, "decimal", 7, ctx, status);
-            return LXB_STATUS_OK;
-        case LXB_CSS_LIST_STYLE_TYPE_NONE:
-            lexbor_serialize_write(cb, "none", 4, ctx, status);
-            return LXB_STATUS_OK;
-        default:
-            return lxb_css_value_serialize(lst->type, cb, ctx);
-    }
-}
-
-static bool
-aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(const lxb_css_value_length_percentage_t *a,
-                                      const lxb_css_value_length_percentage_t *b)
-{
-    if (a->type != b->type) {
-        return false;
-    }
-
-    switch (a->type) {
-        case LXB_CSS_VALUE__LENGTH:
-        case LXB_CSS_VALUE__NUMBER:
-            return a->u.length.num == b->u.length.num
-                && a->u.length.unit == b->u.length.unit;
-
-        case LXB_CSS_VALUE__PERCENTAGE:
-            return a->u.percentage.num == b->u.percentage.num;
-
-        default:
-            return true;
-    }
-}
-
-static lxb_status_t
-aui_lexbor_static_d922d2611e_lxb_css_property_border_radius_corner_serialize(
-    const lxb_css_property_border_radius_corner_t *corner,
-    lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    status = lxb_css_value_length_percentage_sr(&corner->h, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    if (aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&corner->h, &corner->v)) {
-        return LXB_STATUS_OK;
-    }
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    return lxb_css_value_length_percentage_sr(&corner->v, cb, ctx);
-}
-
-static lxb_status_t
-aui_lexbor_static_d922d2611e_lxb_css_property_border_radius_values_serialize(
-    const lxb_css_value_length_percentage_t values[4],
-    lexbor_serialize_cb_f cb, void *ctx)
-{
-    unsigned count;
-    lxb_status_t status;
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    if (aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&values[0], &values[1])
-        && aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&values[0], &values[2])
-        && aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&values[0], &values[3]))
-    {
-        count = 1;
-    }
-    else if (aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&values[0], &values[2])
-             && aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&values[1], &values[3]))
-    {
-        count = 2;
-    }
-    else if (aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&values[1], &values[3])) {
-        count = 3;
-    }
-    else {
-        count = 4;
-    }
-
-    for (unsigned i = 0; i < count; i++) {
-        if (i != 0) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-        }
-
-        status = lxb_css_value_length_percentage_sr(&values[i], cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-    }
-
-    return LXB_STATUS_OK;
-}
-
-/* Border-radius. */
-
-void *
-lxb_css_property_border_radius_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_border_radius_t));
-}
-
-void *
-lxb_css_property_border_radius_destroy(lxb_css_memory_t *memory,
-                                       void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_radius_serialize(const void *style,
-                                         lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-    const lxb_css_property_border_radius_t *radius = (const lxb_css_property_border_radius_t *) (style);
-
-    static const lexbor_str_t str_slash = lexbor_str(" / ");
-
-    const lxb_css_value_length_percentage_t h[4] = {
-        radius->top_left.h,
-        radius->top_right.h,
-        radius->bottom_right.h,
-        radius->bottom_left.h
-    };
-    const lxb_css_value_length_percentage_t v[4] = {
-        radius->top_left.v,
-        radius->top_right.v,
-        radius->bottom_right.v,
-        radius->bottom_left.v
-    };
-
-    status = aui_lexbor_static_d922d2611e_lxb_css_property_border_radius_values_serialize(h, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    if (aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&h[0], &v[0])
-        && aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&h[1], &v[1])
-        && aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&h[2], &v[2])
-        && aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&h[3], &v[3]))
-    {
-        return LXB_STATUS_OK;
-    }
-
-    lexbor_serialize_write(cb, str_slash.data, str_slash.length, ctx, status);
-
-    return aui_lexbor_static_d922d2611e_lxb_css_property_border_radius_values_serialize(v, cb, ctx);
-}
-
-/* Border-top-left-radius. */
-
-void *
-lxb_css_property_border_top_left_radius_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_border_top_left_radius_t));
-}
-
-void *
-lxb_css_property_border_top_left_radius_destroy(lxb_css_memory_t *memory,
-                                                void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_top_left_radius_serialize(const void *style,
-                                                  lexbor_serialize_cb_f cb,
-                                                  void *ctx)
-{
-    return aui_lexbor_static_d922d2611e_lxb_css_property_border_radius_corner_serialize((const lxb_css_property_border_radius_corner_t *) (style), cb, ctx);
-}
-
-/* Border-top-right-radius. */
-
-void *
-lxb_css_property_border_top_right_radius_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_border_top_right_radius_t));
-}
-
-void *
-lxb_css_property_border_top_right_radius_destroy(lxb_css_memory_t *memory,
-                                                 void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_top_right_radius_serialize(const void *style,
-                                                   lexbor_serialize_cb_f cb,
-                                                   void *ctx)
-{
-    return aui_lexbor_static_d922d2611e_lxb_css_property_border_radius_corner_serialize((const lxb_css_property_border_radius_corner_t *) (style), cb, ctx);
-}
-
-/* Border-bottom-right-radius. */
-
-void *
-lxb_css_property_border_bottom_right_radius_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                         sizeof(lxb_css_property_border_bottom_right_radius_t));
-}
-
-void *
-lxb_css_property_border_bottom_right_radius_destroy(lxb_css_memory_t *memory,
-                                                   void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_bottom_right_radius_serialize(const void *style,
-                                                      lexbor_serialize_cb_f cb,
-                                                      void *ctx)
-{
-    return aui_lexbor_static_d922d2611e_lxb_css_property_border_radius_corner_serialize((const lxb_css_property_border_radius_corner_t *) (style), cb, ctx);
-}
-
-/* Border-bottom-left-radius. */
-
-void *
-lxb_css_property_border_bottom_left_radius_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_border_bottom_left_radius_t));
-}
-
-void *
-lxb_css_property_border_bottom_left_radius_destroy(lxb_css_memory_t *memory,
-                                                  void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_border_bottom_left_radius_serialize(const void *style,
-                                                     lexbor_serialize_cb_f cb,
-                                                     void *ctx)
-{
-    return aui_lexbor_static_d922d2611e_lxb_css_property_border_radius_corner_serialize((const lxb_css_property_border_radius_corner_t *) (style), cb, ctx);
-}
-
-/* Gap. */
-
-void *
-lxb_css_property_gap_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_gap_t));
-}
-
-void *
-lxb_css_property_gap_destroy(lxb_css_memory_t *memory,
-                             void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_gap_serialize(const void *style,
-                               lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-    const lxb_css_property_gap_t *gap = (const lxb_css_property_gap_t *) (style);
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    status = lxb_css_value_length_percentage_sr(&gap->row, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    if (aui_lexbor_static_d922d2611e_lxb_css_property_length_percentage_eq(&gap->row, &gap->column)) {
-        return LXB_STATUS_OK;
-    }
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    return lxb_css_value_length_percentage_sr(&gap->column, cb, ctx);
-}
-
-/* Row-gap. */
-
-void *
-lxb_css_property_row_gap_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_row_gap_t));
-}
-
-void *
-lxb_css_property_row_gap_destroy(lxb_css_memory_t *memory,
-                                 void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_row_gap_serialize(const void *style,
-                                   lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (style), cb, ctx);
-}
-
-/* Column-gap. */
-
-void *
-lxb_css_property_column_gap_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_column_gap_t));
-}
-
-void *
-lxb_css_property_column_gap_destroy(lxb_css_memory_t *memory,
-                                    void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_column_gap_serialize(const void *style,
-                                      lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (style), cb, ctx);
-}
-
-/* Background. */
-
-void *
-lxb_css_property_background_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_background_t));
-}
-
-void *
-lxb_css_property_background_destroy(lxb_css_memory_t *memory,
-                                    void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_background_serialize(const void *style,
-                                      lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_background_t *background = (const lxb_css_property_background_t *) (style);
-
-    return lxb_css_value_color_serialize(&background->color, cb, ctx);
-}
-
-void *
-lxb_css_property_background_color_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_background_color_t));
-}
-
-void *
-lxb_css_property_background_color_destroy(lxb_css_memory_t *memory,
-                                          void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_background_color_serialize(const void *style,
-                                            lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_color_serialize((const lxb_css_value_color_t *) (style), cb, ctx);
-}
-
-void *
-lxb_css_property_background_size_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_background_size_t));
-}
-
-void *
-lxb_css_property_background_size_destroy(lxb_css_memory_t *memory,
-                                         void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_background_size_serialize(const void *style,
-                                           lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_background_size_t *size = (const lxb_css_property_background_size_t *) (style);
-
-    if (size->layer_count == 0) {
-        return lxb_css_value_serialize(LXB_CSS_VALUE_AUTO, cb, ctx);
-    }
-
-    return lxb_css_property_width_serialize(&size->layers[0].width, cb, ctx);
-}
-
-/* Color. */
-
-void *
-lxb_css_property_color_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_color_t));
-}
-
-void *
-lxb_css_property_color_destroy(lxb_css_memory_t *memory,
-                               void *property, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, property, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_color_serialize(const void *property,
-                                 lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_color_serialize((const lxb_css_value_color_t *) (property), cb, ctx);
-}
-
-void *
-lxb_css_property_content_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_content_t));
-}
-
-void *
-lxb_css_property_content_destroy(lxb_css_memory_t *memory,
-                                 void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_content_serialize(const void *style,
-                                   lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_content_t *content = (const lxb_css_property_content_t *) (style);
-
-    if (content->type == LXB_CSS_CONTENT_STRING) {
-        return cb(content->value.data, content->value.length, ctx);
-    }
-
-    return lxb_css_value_serialize(content->type, cb, ctx);
-}
-
-void *
-lxb_css_property_opacity_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_opacity_t));
-}
-
-void *
-lxb_css_property_opacity_destroy(lxb_css_memory_t *memory,
-                                 void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_opacity_serialize(const void *style,
-                                   lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_number_percentage_sr((const lxb_css_value_number_percentage_t *) (style), cb, ctx);
-}
-
-void *
-lxb_css_property_transform_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_transform_t));
-}
-
-void *
-lxb_css_property_transform_destroy(lxb_css_memory_t *memory,
-                                   void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_transform_serialize(const void *style,
-                                     lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_transform_t *transform = (const lxb_css_property_transform_t *) (style);
-
-    if (transform == NULL || transform->type == LXB_CSS_TRANSFORM_VALUE_NONE) {
-        return lxb_css_value_serialize(LXB_CSS_VALUE_NONE, cb, ctx);
-    }
-
-    return cb((const lxb_char_t *) "transform-list", 14, ctx);
-}
-
-void *
-lxb_css_property_transform_origin_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_transform_origin_t));
-}
-
-void *
-lxb_css_property_transform_origin_destroy(lxb_css_memory_t *memory,
-                                          void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_transform_origin_serialize(const void *style,
-                                            lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-    const lxb_css_property_transform_origin_t *origin = (const lxb_css_property_transform_origin_t *) (style);
-
-    status = lxb_css_value_length_percentage_sr(&origin->x, cb, ctx);
-    if (status != LXB_STATUS_OK) return status;
-
-    lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-    return lxb_css_value_length_percentage_sr(&origin->y, cb, ctx);
-}
-
-void *
-lxb_css_property_animation_create(lxb_css_memory_t *memory)
-{
-    lxb_css_property_animation_t *animation;
-
-    animation = lexbor_mraw_calloc(memory->mraw,
-                                   sizeof(lxb_css_property_animation_t));
-    if (animation != NULL) {
-        animation->iteration_count = 1;
-        animation->timing = LXB_CSS_ANIMATION_TIMING_EASE;
-        animation->direction = LXB_CSS_ANIMATION_DIRECTION_NORMAL;
-        animation->fill_mode = LXB_CSS_ANIMATION_FILL_MODE_NONE;
-        animation->play_state = LXB_CSS_ANIMATION_PLAY_STATE_RUNNING;
-    }
-
-    return animation;
-}
-
-void *
-lxb_css_property_animation_destroy(lxb_css_memory_t *memory,
-                                   void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_animation_serialize(const void *style,
-                                     lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_animation_t *animation = (const lxb_css_property_animation_t *) (style);
-
-    if (animation != NULL && animation->has_name &&
-        animation->name.data != NULL) {
-        return cb(animation->name.data, animation->name.length, ctx);
-    }
-
-    return lxb_css_value_serialize(LXB_CSS_VALUE_NONE, cb, ctx);
-}
-
-void *
-lxb_css_property_position_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_position_t));
-}
-
-void *
-lxb_css_property_position_destroy(lxb_css_memory_t *memory,
-                                  void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_position_serialize(const void *style,
-                                    lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_position_t *position = (const lxb_css_property_position_t *) (style);
-
-    return lxb_css_value_serialize(position->type, cb, ctx);
-}
-
-void *
-lxb_css_property_inset_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_inset_t));
-}
-
-void *
-lxb_css_property_inset_destroy(lxb_css_memory_t *memory,
-                               void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_inset_serialize(const void *style,
-                                 lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_margin_serialize(style, cb, ctx);
-}
-
-void *
-lxb_css_property_top_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_top_t));
-}
-
-void *
-lxb_css_property_top_destroy(lxb_css_memory_t *memory,
-                             void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_top_serialize(const void *style,
-                               lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (style), cb, ctx);
-}
-
-void *
-lxb_css_property_right_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_right_t));
-}
-
-void *
-lxb_css_property_right_destroy(lxb_css_memory_t *memory,
-                               void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_right_serialize(const void *style,
-                                 lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_top_serialize(style, cb, ctx);
-}
-
-void *
-lxb_css_property_bottom_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_bottom_t));
-}
-
-void *
-lxb_css_property_bottom_destroy(lxb_css_memory_t *memory,
-                                void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_bottom_serialize(const void *style,
-                                  lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_top_serialize(style, cb, ctx);
-}
-
-void *
-lxb_css_property_left_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_left_t));
-}
-
-void *
-lxb_css_property_left_destroy(lxb_css_memory_t *memory,
-                              void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_left_serialize(const void *style,
-                                lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_top_serialize(style, cb, ctx);
-}
-
-void *
-lxb_css_property_inset_block_start_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_inset_block_start_t));
-}
-
-void *
-lxb_css_property_inset_block_start_destroy(lxb_css_memory_t *memory,
-                                           void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_inset_block_start_serialize(const void *style,
-                                             lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_top_serialize(style, cb, ctx);
-}
-
-void *
-lxb_css_property_inset_inline_start_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_inset_inline_start_t));
-}
-
-void *
-lxb_css_property_inset_inline_start_destroy(lxb_css_memory_t *memory,
-                                            void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_inset_inline_start_serialize(const void *style,
-                                              lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_top_serialize(style, cb, ctx);
-}
-
-void *
-lxb_css_property_inset_block_end_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_inset_block_end_t));
-}
-
-void *
-lxb_css_property_inset_block_end_destroy(lxb_css_memory_t *memory,
-                                         void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_inset_block_end_serialize(const void *style,
-                                           lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_top_serialize(style, cb, ctx);
-}
-
-void *
-lxb_css_property_inset_inline_end_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_inset_inline_end_t));
-}
-
-void *
-lxb_css_property_inset_inline_end_destroy(lxb_css_memory_t *memory,
-                                          void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_inset_inline_end_serialize(const void *style,
-                                            lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_top_serialize(style, cb, ctx);
-}
-
-/* Text-transform. */
-
-LXB_API void *
-lxb_css_property_text_transform_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_text_transform_t));
-}
-
-LXB_API void *
-lxb_css_property_text_transform_destroy(lxb_css_memory_t *memory,
-                                        void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_text_transform_serialize(const void *style,
-                                          lexbor_serialize_cb_f cb, void *ctx)
-{
-    bool ws_print;
-    lxb_status_t status;
-    const lxb_css_property_text_transform_t *tt = (const lxb_css_property_text_transform_t *) (style);
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    ws_print = false;
-
-    if (tt->type_case != LXB_CSS_VALUE__UNDEF) {
-        status = lxb_css_value_serialize(tt->type_case, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        ws_print = true;
-    }
-
-    if (tt->full_width != LXB_CSS_VALUE__UNDEF) {
-        if (ws_print) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-        }
-
-        status = lxb_css_value_serialize(tt->full_width, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        ws_print = true;
-    }
-
-    if (tt->full_size_kana != LXB_CSS_VALUE__UNDEF) {
-        if (ws_print) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-        }
-
-        return lxb_css_value_serialize(tt->full_size_kana, cb, ctx);
-    }
-
-    return LXB_STATUS_OK;
-}
-
-/* Text-align. */
-
-LXB_API void *
-lxb_css_property_text_align_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_text_align_t));
-}
-
-LXB_API void *
-lxb_css_property_text_align_destroy(lxb_css_memory_t *memory,
-                                    void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_text_align_serialize(const void *style,
-                                      lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_text_align_t *ta = (const lxb_css_property_text_align_t *) (style);
-
-    return lxb_css_value_serialize(ta->type, cb, ctx);
-}
-
-/* Text-align-all. */
-
-LXB_API void *
-lxb_css_property_text_align_all_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_text_align_all_t));
-}
-
-LXB_API void *
-lxb_css_property_text_align_all_destroy(lxb_css_memory_t *memory,
-                                        void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_text_align_all_serialize(const void *style,
-                                          lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_text_align_all_t *taa = (const lxb_css_property_text_align_all_t *) (style);
-
-    return lxb_css_value_serialize(taa->type, cb, ctx);
-}
-
-/* Text-align-last. */
-
-LXB_API void *
-lxb_css_property_text_align_last_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_text_align_last_t));
-}
-
-LXB_API void *
-lxb_css_property_text_align_last_destroy(lxb_css_memory_t *memory,
-                                         void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_text_align_last_serialize(const void *style,
-                                           lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_text_align_last_t *tal = (const lxb_css_property_text_align_last_t *) (style);
-
-    return lxb_css_value_serialize(tal->type, cb, ctx);
-}
-
-/* Text-justify. */
-
-LXB_API void *
-lxb_css_property_text_justify_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_text_justify_t));
-}
-
-LXB_API void *
-lxb_css_property_text_justify_destroy(lxb_css_memory_t *memory,
-                                      void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_text_justify_serialize(const void *style,
-                                        lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_text_justify_t *tj = (const lxb_css_property_text_justify_t *) (style);
-
-    return lxb_css_value_serialize(tj->type, cb, ctx);
-}
-
-/* Text-indent. */
-
-LXB_API void *
-lxb_css_property_text_indent_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_text_indent_t));
-}
-
-LXB_API void *
-lxb_css_property_text_indent_destroy(lxb_css_memory_t *memory,
-                                     void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_text_indent_serialize(const void *style,
-                                       lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-    const lxb_css_property_text_indent_t *ti = (const lxb_css_property_text_indent_t *) (style);
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    if (ti->type == LXB_CSS_VALUE__LENGTH) {
-        status = lxb_css_value_length_percentage_sr(&ti->length, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-    }
-    else if (ti->type != LXB_CSS_VALUE__UNDEF) {
-        status = lxb_css_value_serialize(ti->type, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-    }
-
-    if (ti->hanging != LXB_CSS_VALUE__UNDEF) {
-        lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-        status = lxb_css_value_serialize(ti->hanging, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-    }
-
-    if (ti->each_line != LXB_CSS_VALUE__UNDEF) {
-        lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-        return lxb_css_value_serialize(ti->each_line, cb, ctx);
-    }
-
-    return LXB_STATUS_OK;
-}
-
-/* White-space. */
-
-LXB_API void *
-lxb_css_property_white_space_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_white_space_t));
-}
-
-LXB_API void *
-lxb_css_property_white_space_destroy(lxb_css_memory_t *memory,
-                                     void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_white_space_serialize(const void *style,
-                                       lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_white_space_t *ws = (const lxb_css_property_white_space_t *) (style);
-
-    return lxb_css_value_serialize(ws->type, cb, ctx);
-}
-
-/* Tab-size. */
-
-LXB_API void *
-lxb_css_property_tab_size_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_tab_size_t));
-}
-
-LXB_API void *
-lxb_css_property_tab_size_destroy(lxb_css_memory_t *memory,
-                                  void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_tab_size_serialize(const void *style,
-                                    lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_number_length_sr((const lxb_css_value_number_length_t *) (style), cb, ctx);
-}
-
-/* Word-break. */
-
-LXB_API void *
-lxb_css_property_word_break_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_word_break_t));
-}
-
-LXB_API void *
-lxb_css_property_word_break_destroy(lxb_css_memory_t *memory,
-                                    void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_word_break_serialize(const void *style,
-                                      lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_word_break_t *wb = (const lxb_css_property_word_break_t *) (style);
-
-    return lxb_css_value_serialize(wb->type, cb, ctx);
-}
-
-/* Line-break. */
-
-LXB_API void *
-lxb_css_property_line_break_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_line_break_t));
-}
-
-LXB_API void *
-lxb_css_property_line_break_destroy(lxb_css_memory_t *memory,
-                                    void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_line_break_serialize(const void *style,
-                                      lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_line_break_t *lb = (const lxb_css_property_line_break_t *) (style);
-
-    return lxb_css_value_serialize(lb->type, cb, ctx);
-}
-
-/* Hyphens. */
-
-LXB_API void *
-lxb_css_property_hyphens_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_hyphens_t));
-}
-
-LXB_API void *
-lxb_css_property_hyphens_destroy(lxb_css_memory_t *memory,
-                                 void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_hyphens_serialize(const void *style,
-                                   lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_hyphens_t *hpns = (const lxb_css_property_hyphens_t *) (style);
-
-    return lxb_css_value_serialize(hpns->type, cb, ctx);
-}
-
-/* Overflow-wrap. */
-
-LXB_API void *
-lxb_css_property_overflow_wrap_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_overflow_wrap_t));
-}
-
-LXB_API void *
-lxb_css_property_overflow_wrap_destroy(lxb_css_memory_t *memory,
-                                       void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_overflow_wrap_serialize(const void *style,
-                                         lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_overflow_wrap_t *ow = (const lxb_css_property_overflow_wrap_t *) (style);
-
-    return lxb_css_value_serialize(ow->type, cb, ctx);
-}
-
-/* Word-wrap. */
-
-LXB_API void *
-lxb_css_property_word_wrap_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_word_wrap_t));
-}
-
-LXB_API void *
-lxb_css_property_word_wrap_destroy(lxb_css_memory_t *memory,
-                                   void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_word_wrap_serialize(const void *style,
-                                     lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_word_wrap_t *ww = (const lxb_css_property_word_wrap_t *) (style);
-
-    return lxb_css_value_serialize(ww->type, cb, ctx);
-}
-
-/* Word-spacing. */
-
-LXB_API void *
-lxb_css_property_word_spacing_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_word_spacing_t));
-}
-
-LXB_API void *
-lxb_css_property_word_spacing_destroy(lxb_css_memory_t *memory,
-                                      void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_word_spacing_serialize(const void *style,
-                                        lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_type_sr((const lxb_css_value_length_type_t *) (style), cb, ctx);
-}
-
-/* Letter-spacing. */
-
-LXB_API void *
-lxb_css_property_letter_spacing_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_letter_spacing_t));
-}
-
-LXB_API void *
-lxb_css_property_letter_spacing_destroy(lxb_css_memory_t *memory,
-                                        void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_letter_spacing_serialize(const void *style,
-                                          lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_type_sr((const lxb_css_value_length_type_t *) (style), cb, ctx);
-}
-
-/* Hanging-punctuation. */
-
-LXB_API void *
-lxb_css_property_hanging_punctuation_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_hanging_punctuation_t));
-}
-
-LXB_API void *
-lxb_css_property_hanging_punctuation_destroy(lxb_css_memory_t *memory,
-                                             void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_hanging_punctuation_serialize(const void *style,
-                                               lexbor_serialize_cb_f cb, void *ctx)
-{
-    bool ws_print;
-    lxb_status_t status;
-    const lxb_css_property_hanging_punctuation_t *hp = (const lxb_css_property_hanging_punctuation_t *) (style);
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    ws_print = false;
-
-    if (hp->type_first != LXB_CSS_VALUE__UNDEF) {
-        status = lxb_css_value_serialize(hp->type_first, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        ws_print = true;
-    }
-
-    if (hp->force_allow != LXB_CSS_VALUE__UNDEF) {
-        if (ws_print) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-        }
-
-        status = lxb_css_value_serialize(hp->force_allow, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        ws_print = true;
-    }
-
-    if (hp->last != LXB_CSS_VALUE__UNDEF) {
-        if (ws_print) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-        }
-
-        return lxb_css_value_serialize(hp->last, cb, ctx);
-    }
-
-    return LXB_STATUS_OK;
-}
-
-/* Font-family. */
-
-void *
-lxb_css_property_font_family_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_font_family_t));
-}
-
-void *
-lxb_css_property_font_family_destroy(lxb_css_memory_t *memory,
-                                     void *style, bool self_destroy)
-{
-    lxb_css_property_font_family_t *ff = (lxb_css_property_font_family_t *) (style);
-    lxb_css_property_family_name_t *name, *next;
-
-    name = ff->first;
-
-    while (name != NULL) {
-        next = name->next;
-
-        if (!name->generic) {
-            (void) lexbor_str_destroy(&name->u.str, memory->mraw, false);
-        }
-
-        lexbor_mraw_free(memory->mraw, name);
-
-        name = next;
-    }
-
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_font_family_serialize(const void *style,
-                                       lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-    const lxb_css_property_font_family_t *ff = (const lxb_css_property_font_family_t *) (style);
-    const lxb_css_property_family_name_t *name;
-
-    static const lexbor_str_t str_comma = lexbor_str(", ");
-
-    name = ff->first;
-
-    while (name != NULL) {
-        if (name->generic) {
-            status = lxb_css_value_serialize(name->u.type, cb, ctx);
-        }
-        else {
-            status = lxb_css_syntax_ident_or_string_serialize(name->u.str.data,
-                                                              name->u.str.length,
-                                                              cb, ctx);
-        }
-
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        name = name->next;
-
-        if (name != NULL) {
-            lexbor_serialize_write(cb, str_comma.data, str_comma.length,
-                                   ctx, status);
-        }
-    }
-
-    return LXB_STATUS_OK;
-}
-
-/* Font-weight. */
-
-void *
-lxb_css_property_font_weight_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_font_weight_t));
-}
-
-void *
-lxb_css_property_font_weight_destroy(lxb_css_memory_t *memory,
-                                     void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_font_weight_serialize(const void *style,
-                                       lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_number_type_sr((const lxb_css_value_number_type_t *) (style), cb, ctx);
-}
-
-/* Font-stretch. */
-
-void *
-lxb_css_property_font_stretch_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_font_stretch_t));
-}
-
-void *
-lxb_css_property_font_stretch_destroy(lxb_css_memory_t *memory,
-                                      void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_font_stretch_serialize(const void *style,
-                                        lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_percentage_type_sr((const lxb_css_value_percentage_type_t *) (style), cb, ctx);
-}
-
-/* Font-style. */
-
-void *
-lxb_css_property_font_style_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_font_style_t));
-}
-
-void *
-lxb_css_property_font_style_destroy(lxb_css_memory_t *memory,
-                                    void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_font_style_serialize(const void *style,
-                                      lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-    const lxb_css_property_font_style_t *fs = (const lxb_css_property_font_style_t *) (style);
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    status = lxb_css_value_serialize(fs->type, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    if (fs->angle.unit != (lxb_css_unit_angel_t) LXB_CSS_UNIT__UNDEF) {
-        lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-        status = lxb_css_value_angle_sr(&fs->angle, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-    }
-
-    return LXB_STATUS_OK;
-}
-
-/* Font-size. */
-
-LXB_API void *
-lxb_css_property_font_size_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_font_size_t));
-}
-
-LXB_API void *
-lxb_css_property_font_size_destroy(lxb_css_memory_t *memory,
-                                   void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_font_size_serialize(const void *style,
-                                     lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_percentage_type_sr((const lxb_css_value_length_percentage_type_t *) (style), cb, ctx);
-}
-
-/* Float-reference. */
-
-LXB_API void *
-lxb_css_property_float_reference_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_float_reference_t));
-}
-
-LXB_API void *
-lxb_css_property_float_reference_destroy(lxb_css_memory_t *memory,
-                                         void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_float_reference_serialize(const void *style,
-                                           lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_float_reference_t *fr = (const lxb_css_property_float_reference_t *) (style);
-
-    return lxb_css_value_serialize(fr->type, cb, ctx);
-}
-
-/* Float. */
-
-LXB_API void *
-lxb_css_property_float_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_float_t));
-}
-
-LXB_API void *
-lxb_css_property_float_destroy(lxb_css_memory_t *memory,
-                               void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_float_serialize(const void *style,
-                                 lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-    const lxb_css_property_float_t *flt = (const lxb_css_property_float_t *) (style);
-
-    static const lexbor_str_t str_o = lexbor_str("(");
-    static const lexbor_str_t str_cm = lexbor_str(", ");
-    static const lexbor_str_t str_c = lexbor_str(")");
-
-    status = lxb_css_value_serialize(flt->type, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    if (flt->length.type != LXB_CSS_VALUE__LENGTH) {
-        return LXB_STATUS_OK;
-    }
-
-    lexbor_serialize_write(cb, str_o.data, str_o.length, ctx, status);
-
-    status = lxb_css_value_length_sr(&flt->length.length, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    if (flt->snap_type == LXB_CSS_VALUE__UNDEF) {
-        return cb(str_c.data, str_c.length, ctx);
-    }
-
-    lexbor_serialize_write(cb, str_cm.data, str_cm.length, ctx, status);
-
-    status = lxb_css_value_serialize(flt->snap_type, cb, ctx);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    return cb(str_c.data, str_c.length, ctx);
-}
-
-/* Clear. */
-
-LXB_API void *
-lxb_css_property_clear_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_clear_t));
-}
-
-LXB_API void *
-lxb_css_property_clear_destroy(lxb_css_memory_t *memory,
-                               void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_clear_serialize(const void *style,
-                                 lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_clear_t *cls = (const lxb_css_property_clear_t *) (style);
-
-    return lxb_css_value_serialize(cls->type, cb, ctx);
-}
-
-/* Float-defer. */
-
-LXB_API void *
-lxb_css_property_float_defer_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_float_defer_t));
-}
-
-LXB_API void *
-lxb_css_property_float_defer_destroy(lxb_css_memory_t *memory,
-                                     void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_float_defer_serialize(const void *style,
-                                       lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_float_defer_t *def = (const lxb_css_property_float_defer_t *) (style);
-
-    if (def->type == LXB_CSS_FLOAT_DEFER__INTEGER) {
-        return lxb_css_value_integer_sr(&def->integer, cb, ctx);
-    }
-
-    return lxb_css_value_serialize(def->type, cb, ctx);
-}
-
-/* Float-offset. */
-
-LXB_API void *
-lxb_css_property_float_offset_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_float_offset_t));
-}
-
-LXB_API void *
-lxb_css_property_float_offset_destroy(lxb_css_memory_t *memory,
-                                      void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_float_offset_serialize(const void *style,
-                                        lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (style), cb, ctx);
-}
-
-/* Wrap-flow. */
-
-LXB_API void *
-lxb_css_property_wrap_flow_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_wrap_flow_t));
-}
-
-LXB_API void *
-lxb_css_property_wrap_flow_destroy(lxb_css_memory_t *memory,
-                                   void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_wrap_flow_serialize(const void *style,
-                                     lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_wrap_flow_t *wf = (const lxb_css_property_wrap_flow_t *) (style);
-
-    return lxb_css_value_serialize(wf->type, cb, ctx);
-}
-
-/* Wrap-through. */
-
-LXB_API void *
-lxb_css_property_wrap_through_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_wrap_through_t));
-}
-
-LXB_API void *
-lxb_css_property_wrap_through_destroy(lxb_css_memory_t *memory,
-                                      void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_wrap_through_serialize(const void *style,
-                                        lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_wrap_through_t *wt = (const lxb_css_property_wrap_through_t *) (style);
-
-    return lxb_css_value_serialize(wt->type, cb, ctx);
-}
-
-/* Flex-direction. */
-
-LXB_API void *
-lxb_css_property_flex_direction_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_flex_direction_t));
-}
-
-LXB_API void *
-lxb_css_property_flex_direction_destroy(lxb_css_memory_t *memory,
-                                        void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_flex_direction_serialize(const void *style,
-                                          lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_flex_direction_t *fd = (const lxb_css_property_flex_direction_t *) (style);
-
-    return lxb_css_value_serialize(fd->type, cb, ctx);
-}
-
-/* Flex-wrap. */
-
-LXB_API void *
-lxb_css_property_flex_wrap_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_flex_wrap_t));
-}
-
-LXB_API void *
-lxb_css_property_flex_wrap_destroy(lxb_css_memory_t *memory,
-                                   void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_flex_wrap_serialize(const void *style,
-                                     lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_flex_wrap_t *fw = (const lxb_css_property_flex_wrap_t *) (style);
-
-    return lxb_css_value_serialize(fw->type, cb, ctx);
-}
-
-/* Flex-flow. */
-
-LXB_API void *
-lxb_css_property_flex_flow_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_flex_flow_t));
-}
-
-LXB_API void *
-lxb_css_property_flex_flow_destroy(lxb_css_memory_t *memory,
-                                   void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_flex_flow_serialize(const void *style,
-                                     lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-    const lxb_css_property_flex_flow_t *ff = (const lxb_css_property_flex_flow_t *) (style);
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    if (ff->type_direction != LXB_CSS_VALUE__UNDEF) {
-        status = lxb_css_value_serialize(ff->type_direction, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-    }
-
-    if (ff->wrap != LXB_CSS_VALUE__UNDEF) {
-        if (ff->type_direction != LXB_CSS_VALUE__UNDEF) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-        }
-
-        return lxb_css_value_serialize(ff->wrap, cb, ctx);
-    }
-
-    return LXB_STATUS_OK;
-}
-
-/* Flex. */
-
-LXB_API void *
-lxb_css_property_flex_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_flex_t));
-}
-
-LXB_API void *
-lxb_css_property_flex_destroy(lxb_css_memory_t *memory,
-                              void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_flex_serialize(const void *style,
-                                lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-    const lxb_css_property_flex_t *flex = (const lxb_css_property_flex_t *) (style);
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    if (flex->type != LXB_CSS_VALUE__UNDEF) {
-        return lxb_css_value_serialize(flex->type, cb, ctx);
-    }
-
-    if (flex->grow.type != LXB_CSS_VALUE__UNDEF) {
-        status = lxb_css_value_number_sr(&flex->grow.number, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        if (flex->shrink.type != LXB_CSS_VALUE__UNDEF) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-            status = lxb_css_value_number_sr(&flex->shrink.number, cb, ctx);
-            if (status != LXB_STATUS_OK) {
-                return status;
-            }
-        }
-    }
-
-    if (flex->basis.type == LXB_CSS_VALUE__UNDEF) {
-        return LXB_STATUS_OK;
-    }
-
-    if (flex->grow.type != LXB_CSS_VALUE__UNDEF) {
-        lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-    }
-
-    return lxb_css_property_flex_basis_serialize(&flex->basis, cb, ctx);
-}
-
-/* Flex-grow. */
-
-LXB_API void *
-lxb_css_property_flex_grow_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_flex_grow_t));
-}
-
-LXB_API void *
-lxb_css_property_flex_grow_destroy(lxb_css_memory_t *memory,
-                                   void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_flex_grow_serialize(const void *style,
-                                     lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_number_type_sr((const lxb_css_value_number_type_t *) (style), cb, ctx);
-}
-
-/* Flex-shrink. */
-
-LXB_API void *
-lxb_css_property_flex_shrink_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_flex_shrink_t));
-}
-
-LXB_API void *
-lxb_css_property_flex_shrink_destroy(lxb_css_memory_t *memory,
-                                     void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_flex_shrink_serialize(const void *style,
-                                       lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_number_type_sr((const lxb_css_value_number_type_t *) (style), cb, ctx);
-}
-
-/* Flex-basis. */
-
-LXB_API void *
-lxb_css_property_flex_basis_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_flex_basis_t));
-}
-
-LXB_API void *
-lxb_css_property_flex_basis_destroy(lxb_css_memory_t *memory,
-                                    void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_flex_basis_serialize(const void *style,
-                                      lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_width_serialize(style, cb, ctx);
-}
-
-/* Justify-content. */
-
-LXB_API void *
-lxb_css_property_justify_content_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_justify_content_t));
-}
-
-LXB_API void *
-lxb_css_property_justify_content_destroy(lxb_css_memory_t *memory,
-                                         void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_justify_content_serialize(const void *style,
-                                           lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_justify_content_t *jc = (const lxb_css_property_justify_content_t *) (style);
-
-    return lxb_css_value_serialize(jc->type, cb, ctx);
-}
-
-/* Align-items. */
-
-LXB_API void *
-lxb_css_property_align_items_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_align_items_t));
-}
-
-LXB_API void *
-lxb_css_property_align_items_destroy(lxb_css_memory_t *memory,
-                                     void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_align_items_serialize(const void *style,
-                                       lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_align_items_t *ai = (const lxb_css_property_align_items_t *) (style);
-
-    return lxb_css_value_serialize(ai->type, cb, ctx);
-}
-
-/* Align-self. */
-
-LXB_API void *
-lxb_css_property_align_self_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_align_self_t));
-}
-
-LXB_API void *
-lxb_css_property_align_self_destroy(lxb_css_memory_t *memory,
-                                    void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_align_self_serialize(const void *style,
-                                      lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_align_self_t *as = (const lxb_css_property_align_self_t *) (style);
-
-    return lxb_css_value_serialize(as->type, cb, ctx);
-}
-
-/* Align-content. */
-
-LXB_API void *
-lxb_css_property_align_content_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_align_content_t));
-}
-
-LXB_API void *
-lxb_css_property_align_content_destroy(lxb_css_memory_t *memory,
-                                       void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_align_content_serialize(const void *style,
-                                         lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_align_content_t *ac = (const lxb_css_property_align_content_t *) (style);
-
-    return lxb_css_value_serialize(ac->type, cb, ctx);
-}
-
-/* Dominant-baseline. */
-
-LXB_API void *
-lxb_css_property_dominant_baseline_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_dominant_baseline_t));
-}
-
-LXB_API void *
-lxb_css_property_dominant_baseline_destroy(lxb_css_memory_t *memory,
-                                           void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_dominant_baseline_serialize(const void *style,
-                                             lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_dominant_baseline_t *db = (const lxb_css_property_dominant_baseline_t *) (style);
-
-    return lxb_css_value_serialize(db->type, cb, ctx);
-}
-
-/* Vertical-align. */
-
-LXB_API void *
-lxb_css_property_vertical_align_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_vertical_align_t));
-}
-
-LXB_API void *
-lxb_css_property_vertical_align_destroy(lxb_css_memory_t *memory,
-                                        void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_vertical_align_serialize(const void *style,
-                                          lexbor_serialize_cb_f cb, void *ctx)
-{
-    bool is;
-    lxb_status_t status;
-    const lxb_css_property_vertical_align_t *va = (const lxb_css_property_vertical_align_t *) (style);
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    is = false;
-
-    if (va->type != LXB_CSS_VALUE__UNDEF) {
-        status = lxb_css_value_serialize(va->type, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        is = true;
-    }
-
-    if (va->alignment.type != LXB_CSS_VALUE__UNDEF) {
-        if (is) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-        }
-
-        status = lxb_css_value_serialize(va->alignment.type, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        is = true;
-    }
-
-    if (va->shift.type != LXB_CSS_VALUE__UNDEF) {
-        if (is) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-        }
-
-        status = lxb_css_value_length_percentage_sr(&va->shift, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-    }
-
-    return LXB_STATUS_OK;
-}
-
-/* Baseline-source. */
-
-LXB_API void *
-lxb_css_property_baseline_source_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_baseline_source_t));
-}
-
-LXB_API void *
-lxb_css_property_baseline_source_destroy(lxb_css_memory_t *memory,
-                                         void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_baseline_source_serialize(const void *style,
-                                           lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_baseline_source_t *bs = (const lxb_css_property_baseline_source_t *) (style);
-
-    return lxb_css_value_serialize(bs->type, cb, ctx);
-}
-
-/* Alignment-baseline. */
-
-LXB_API void *
-lxb_css_property_alignment_baseline_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_alignment_baseline_t));
-}
-
-LXB_API void *
-lxb_css_property_alignment_baseline_destroy(lxb_css_memory_t *memory,
-                                            void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_alignment_baseline_serialize(const void *style,
-                                              lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_alignment_baseline_t *ab = (const lxb_css_property_alignment_baseline_t *) (style);
-
-    return lxb_css_value_serialize(ab->type, cb, ctx);
-}
-
-/* Baseline-shift. */
-
-LXB_API void *
-lxb_css_property_baseline_shift_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_baseline_shift_t));
-}
-
-LXB_API void *
-lxb_css_property_baseline_shift_destroy(lxb_css_memory_t *memory,
-                                        void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_baseline_shift_serialize(const void *style,
-                                          lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_length_percentage_sr((const lxb_css_value_length_percentage_t *) (style), cb, ctx);
-}
-
-/* Line-height. */
-
-LXB_API void *
-lxb_css_property_line_height_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_line_height_t));
-}
-
-LXB_API void *
-lxb_css_property_line_height_destroy(lxb_css_memory_t *memory,
-                                     void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_line_height_serialize(const void *style,
-                                       lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_number_length_percentage_type_sr((const lxb_css_value_number_length_percentage_t *) (style), cb, ctx);
-}
-
-/* Z-index. */
-
-LXB_API void *
-lxb_css_property_z_index_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_z_index_t));
-}
-
-LXB_API void *
-lxb_css_property_z_index_destroy(lxb_css_memory_t *memory,
-                                 void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_z_index_serialize(const void *style,
-                                   lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_value_integer_type_sr((const lxb_css_value_integer_type_t *) (style), cb, ctx);
-}
-
-/* Direction. */
-
-LXB_API void *
-lxb_css_property_direction_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_direction_t));
-}
-
-LXB_API void *
-lxb_css_property_direction_destroy(lxb_css_memory_t *memory,
-                                   void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_direction_serialize(const void *style,
-                                     lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_direction_t *dr = (const lxb_css_property_direction_t *) (style);
-
-    return lxb_css_value_serialize(dr->type, cb, ctx);
-}
-
-/* Unicode-bidi. */
-
-LXB_API void *
-lxb_css_property_unicode_bidi_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_unicode_bidi_t));
-}
-
-LXB_API void *
-lxb_css_property_unicode_bidi_destroy(lxb_css_memory_t *memory,
-                                      void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_unicode_bidi_serialize(const void *style,
-                                        lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_unicode_bidi_t *ub = (const lxb_css_property_unicode_bidi_t *) (style);
-
-    return lxb_css_value_serialize(ub->type, cb, ctx);
-}
-
-/* Writing-mode. */
-
-LXB_API void *
-lxb_css_property_writing_mode_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_writing_mode_t));
-}
-
-LXB_API void *
-lxb_css_property_writing_mode_destroy(lxb_css_memory_t *memory,
-                                      void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_writing_mode_serialize(const void *style,
-                                        lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_writing_mode_t *wm = (const lxb_css_property_writing_mode_t *) (style);
-
-    return lxb_css_value_serialize(wm->type, cb, ctx);
-}
-
-/* Text-orientation. */
-
-LXB_API void *
-lxb_css_property_text_orientation_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_text_orientation_t));
-}
-
-LXB_API void *
-lxb_css_property_text_orientation_destroy(lxb_css_memory_t *memory,
-                                          void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_text_orientation_serialize(const void *style,
-                                            lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_text_orientation_t *to = (const lxb_css_property_text_orientation_t *) (style);
-
-    return lxb_css_value_serialize(to->type, cb, ctx);
-}
-
-/* Text-combine-upright. */
-
-LXB_API void *
-lxb_css_property_text_combine_upright_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_text_combine_upright_t));
-}
-
-LXB_API void *
-lxb_css_property_text_combine_upright_destroy(lxb_css_memory_t *memory,
-                                              void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_text_combine_upright_serialize(const void *style,
-                                                lexbor_serialize_cb_f cb, void *ctx)
-{
-    lxb_status_t status;
-    const lxb_css_property_text_combine_upright_t *tcu = (const lxb_css_property_text_combine_upright_t *) (style);
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    if (tcu->type == LXB_CSS_TEXT_COMBINE_UPRIGHT_DIGITS) {
-        status = lxb_css_value_serialize(tcu->type, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        if (tcu->digits.num != 0) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-
-            return lxb_css_value_integer_sr(&tcu->digits, cb, ctx);
-        }
-
-        return LXB_STATUS_OK;
-    }
-
-    return lxb_css_value_serialize(tcu->type, cb, ctx);
-}
-
-/* Overflow-x. */
-
-LXB_API void *
-lxb_css_property_overflow_x_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_overflow_x_t));
-}
-
-LXB_API void *
-lxb_css_property_overflow_x_destroy(lxb_css_memory_t *memory,
-                                    void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_overflow_x_serialize(const void *style,
-                                      lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_overflow_x_t *ox = (const lxb_css_property_overflow_x_t *) (style);
-
-    return lxb_css_value_serialize(ox->type, cb, ctx);
-}
-
-/* Overflow-y. */
-
-LXB_API void *
-lxb_css_property_overflow_y_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_overflow_y_t));
-}
-
-LXB_API void *
-lxb_css_property_overflow_y_destroy(lxb_css_memory_t *memory,
-                                    void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_overflow_y_serialize(const void *style,
-                                      lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_overflow_y_t *oy = (const lxb_css_property_overflow_y_t *) (style);
-
-    return lxb_css_value_serialize(oy->type, cb, ctx);
-}
-
-/* Overflow shorthand. */
-
-LXB_API void *
-lxb_css_property_overflow_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_overflow_t));
-}
-
-LXB_API void *
-lxb_css_property_overflow_destroy(lxb_css_memory_t *memory,
-                                  void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_overflow_serialize(const void *style,
-                                    lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_overflow_t *ov = (const lxb_css_property_overflow_t *) (style);
-
-    return lxb_css_value_serialize(ov->type, cb, ctx);
-}
-
-/* Overflow-block. */
-
-LXB_API void *
-lxb_css_property_overflow_block_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_overflow_block_t));
-}
-
-LXB_API void *
-lxb_css_property_overflow_block_destroy(lxb_css_memory_t *memory,
-                                        void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_overflow_block_serialize(const void *style,
-                                          lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_overflow_block_t *ob = (const lxb_css_property_overflow_block_t *) (style);
-
-    return lxb_css_value_serialize(ob->type, cb, ctx);
-}
-
-/* Overflow-inline. */
-
-LXB_API void *
-lxb_css_property_overflow_inline_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_overflow_inline_t));
-}
-
-LXB_API void *
-lxb_css_property_overflow_inline_destroy(lxb_css_memory_t *memory,
-                                         void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_overflow_inline_serialize(const void *style,
-                                           lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_overflow_inline_t *oi = (const lxb_css_property_overflow_inline_t *) (style);
-
-    return lxb_css_value_serialize(oi->type, cb, ctx);
-}
-
-/* Text-overflow. */
-
-LXB_API void *
-lxb_css_property_text_overflow_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_text_overflow_t));
-}
-
-LXB_API void *
-lxb_css_property_text_overflow_destroy(lxb_css_memory_t *memory,
-                                       void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_text_overflow_serialize(const void *style,
-                                         lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_text_overflow_t *to = (const lxb_css_property_text_overflow_t *) (style);
-
-    return lxb_css_value_serialize(to->type, cb, ctx);
-}
-
-/* Text-decoration-line. */
-
-LXB_API void *
-lxb_css_property_text_decoration_line_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_text_decoration_line_t));
-}
-
-LXB_API void *
-lxb_css_property_text_decoration_line_destroy(lxb_css_memory_t *memory,
-                                              void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_text_decoration_line_serialize(const void *style,
-                                                lexbor_serialize_cb_f cb, void *ctx)
-{
-    bool itis;
-    lxb_status_t status;
-    const lxb_css_property_text_decoration_line_t *tdl = (const lxb_css_property_text_decoration_line_t *) (style);
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    itis = false;
-
-    if (tdl->underline != LXB_CSS_VALUE__UNDEF) {
-        status = lxb_css_value_serialize(tdl->underline, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        itis = true;
-    }
-
-    if (tdl->overline != LXB_CSS_VALUE__UNDEF) {
-        if (itis) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-        }
-
-        status = lxb_css_value_serialize(tdl->overline, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        itis = true;
-    }
-
-    if (tdl->line_through != LXB_CSS_VALUE__UNDEF) {
-        if (itis) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-        }
-
-        status = lxb_css_value_serialize(tdl->line_through, cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        itis = true;
-    }
-
-    if (tdl->blink != LXB_CSS_VALUE__UNDEF) {
-        if (itis) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-        }
-
-        return lxb_css_value_serialize(tdl->blink, cb, ctx);
-    }
-
-    if (itis) {
-        return LXB_STATUS_OK;
-    }
-
-    return lxb_css_value_serialize(tdl->type, cb, ctx);
-}
-
-/* Text-decoration-style. */
-
-LXB_API void *
-lxb_css_property_text_decoration_style_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_text_decoration_style_t));
-}
-
-LXB_API void *
-lxb_css_property_text_decoration_style_destroy(lxb_css_memory_t *memory,
-                                               void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_text_decoration_style_serialize(const void *style,
-                                                 lexbor_serialize_cb_f cb, void *ctx)
-{
-    const lxb_css_property_text_decoration_style_t *tds = (const lxb_css_property_text_decoration_style_t *) (style);
-
-    return lxb_css_value_serialize(tds->type, cb, ctx);
-}
-
-/* Text-decoration-color. */
-
-LXB_API void *
-lxb_css_property_text_decoration_color_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_text_decoration_color_t));
-}
-
-LXB_API void *
-lxb_css_property_text_decoration_color_destroy(lxb_css_memory_t *memory,
-                                               void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_text_decoration_color_serialize(const void *style,
-                                                 lexbor_serialize_cb_f cb, void *ctx)
-{
-    return lxb_css_property_color_serialize(style, cb, ctx);
-}
-
-/* Text-decoration. */
-
-LXB_API void *
-lxb_css_property_text_decoration_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw,
-                              sizeof(lxb_css_property_text_decoration_t));
-}
-
-LXB_API void *
-lxb_css_property_text_decoration_destroy(lxb_css_memory_t *memory,
-                                         void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-LXB_API lxb_status_t
-lxb_css_property_text_decoration_serialize(const void *style,
-                                           lexbor_serialize_cb_f cb, void *ctx)
-{
-    bool itis;
-    lxb_status_t status;
-    const lxb_css_property_text_decoration_t *td = (const lxb_css_property_text_decoration_t *) (style);
-
-    static const lexbor_str_t str_ws = lexbor_str(" ");
-
-    itis = false;
-
-    if (td->line.type != LXB_CSS_VALUE__UNDEF
-        || td->line.underline != LXB_CSS_VALUE__UNDEF
-        || td->line.overline != LXB_CSS_VALUE__UNDEF
-        || td->line.line_through != LXB_CSS_VALUE__UNDEF
-        || td->line.blink != LXB_CSS_VALUE__UNDEF)
-    {
-        status = lxb_css_property_text_decoration_line_serialize(&td->line,
-                                                                 cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        itis = true;
-    }
-
-    if (td->style.type != LXB_CSS_VALUE__UNDEF) {
-        if (itis) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-        }
-
-        status = lxb_css_property_text_decoration_style_serialize(&td->style,
-                                                                  cb, ctx);
-        if (status != LXB_STATUS_OK) {
-            return status;
-        }
-
-        itis = true;
-    }
-
-    if (td->color.type != LXB_CSS_VALUE__UNDEF) {
-        if (itis) {
-            lexbor_serialize_write(cb, str_ws.data, str_ws.length, ctx, status);
-        }
-
-        return lxb_css_property_text_decoration_color_serialize(&td->color,
-                                                                cb, ctx);
-    }
-
-    return LXB_STATUS_OK;
-}
-
-/* Font (shorthand). */
-
-void *
-lxb_css_property_font_create(lxb_css_memory_t *memory)
-{
-    return lexbor_mraw_calloc(memory->mraw, sizeof(lxb_css_property_font_t));
-}
-
-void *
-lxb_css_property_font_destroy(lxb_css_memory_t *memory,
-                              void *style, bool self_destroy)
-{
-    return lxb_css_property__undef_destroy(memory, style, self_destroy);
-}
-
-lxb_status_t
-lxb_css_property_font_serialize(const void *style,
-                                lexbor_serialize_cb_f cb, void *ctx)
-{
-    /* Serialize as the font-size component (sufficient for cascade use). */
-    const lxb_css_property_font_t *font =
-        (const lxb_css_property_font_t *) style;
-    return lxb_css_value_length_percentage_type_sr(&font->size, cb, ctx);
 }
 // ────────────────────────────────────────────────────────────────────────
 // external/lexbor/lexbor/core/cpp_compat_undef.h
@@ -60463,301 +60463,6 @@ lxb_css_syntax_token_type_noi(lxb_css_syntax_token_t *token)
 
 
 // ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/css/syntax/tokenizer/error.c
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2018-2019 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-
-#define new lexbor_cpp_new
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/core/cpp_compat.h
-// ────────────────────────────────────────────────────────────────────────
-
-/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
-#ifdef __cplusplus
-#ifndef LEXBOR_CPP_COMPAT_TYPES_H
-#define LEXBOR_CPP_COMPAT_TYPES_H
-namespace lexbor_cpp_compat {
-struct ptr_proxy {
-    void *p;
-    template <class T> operator T *() const { return static_cast<T *>(p); }
-    template <class T> operator const T *() const { return static_cast<const T *>(p); }
-    operator void *() const { return p; }
-    operator const void *() const { return p; }
-};
-inline ptr_proxy ptr(void *p) { return {p}; }
-inline ptr_proxy ptr(const void *p) { return {const_cast<void *>(p)}; }
-}  // namespace lexbor_cpp_compat
-#endif  /* LEXBOR_CPP_COMPAT_TYPES_H */
-
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_get
-#define aui_lexbor_array_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_get)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
-#define aui_lexbor_array_obj_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_get)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
-#define aui_lexbor_array_obj_last(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_last)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
-#define aui_lexbor_array_obj_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_pop)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
-#define aui_lexbor_array_obj_push(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
-#define aui_lexbor_array_obj_push_n(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_n)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
-#define aui_lexbor_array_obj_push_wo_cls(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_wo_cls)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
-#define aui_lexbor_array_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_pop)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
-#define aui_lexbor_bst_entry_data(...) ::lexbor_cpp_compat::ptr((aui_lexbor_bst_entry_data)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_calloc
-#define aui_lexbor_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_calloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
-#define aui_lexbor_dobject_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_alloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
-#define aui_lexbor_dobject_by_absolute_position(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_by_absolute_position)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
-#define aui_lexbor_dobject_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_calloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
-#define aui_lexbor_dobject_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_free)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_free
-#define aui_lexbor_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_free)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
-#define aui_lexbor_hash_insert(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_insert)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
-#define aui_lexbor_hash_search(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_search)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_malloc
-#define aui_lexbor_malloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_malloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
-#define aui_lexbor_mem_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_alloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
-#define aui_lexbor_mem_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_calloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
-#define aui_lexbor_mraw_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_alloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
-#define aui_lexbor_mraw_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_calloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
-#define aui_lexbor_mraw_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_free)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
-#define aui_lexbor_mraw_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_realloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_realloc
-#define aui_lexbor_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_realloc)(__VA_ARGS__))
-#endif
-#endif  /* __cplusplus */
-
-
-
-
-lxb_css_syntax_tokenizer_error_t *
-lxb_css_syntax_tokenizer_error_add(lexbor_array_obj_t *parse_errors,
-                                   const lxb_char_t *pos,
-                                   lxb_css_syntax_tokenizer_error_id_t id)
-{
-    if (parse_errors == NULL) {
-        return NULL;
-    }
-
-    lxb_css_syntax_tokenizer_error_t *entry;
-
-    entry = lexbor_array_obj_push(parse_errors);
-    if (entry == NULL) {
-        return NULL;
-    }
-
-    entry->id = id;
-    entry->pos = pos;
-
-    return entry;
-}
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/core/cpp_compat_undef.h
-// ────────────────────────────────────────────────────────────────────────
-
-/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
-#ifdef aui_lexbor_array_get
-#undef aui_lexbor_array_get
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_get
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_get
-#endif
-#ifdef aui_lexbor_array_obj_get
-#undef aui_lexbor_array_obj_get
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
-#endif
-#ifdef aui_lexbor_array_obj_last
-#undef aui_lexbor_array_obj_last
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
-#endif
-#ifdef aui_lexbor_array_obj_pop
-#undef aui_lexbor_array_obj_pop
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
-#endif
-#ifdef aui_lexbor_array_obj_push
-#undef aui_lexbor_array_obj_push
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
-#endif
-#ifdef aui_lexbor_array_obj_push_n
-#undef aui_lexbor_array_obj_push_n
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
-#endif
-#ifdef aui_lexbor_array_obj_push_wo_cls
-#undef aui_lexbor_array_obj_push_wo_cls
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
-#endif
-#ifdef aui_lexbor_array_pop
-#undef aui_lexbor_array_pop
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
-#endif
-#ifdef aui_lexbor_bst_entry_data
-#undef aui_lexbor_bst_entry_data
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
-#undef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
-#endif
-#ifdef aui_lexbor_calloc
-#undef aui_lexbor_calloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_calloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_calloc
-#endif
-#ifdef aui_lexbor_dobject_alloc
-#undef aui_lexbor_dobject_alloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
-#endif
-#ifdef aui_lexbor_dobject_by_absolute_position
-#undef aui_lexbor_dobject_by_absolute_position
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
-#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
-#endif
-#ifdef aui_lexbor_dobject_calloc
-#undef aui_lexbor_dobject_calloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
-#endif
-#ifdef aui_lexbor_dobject_free
-#undef aui_lexbor_dobject_free
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
-#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
-#endif
-#ifdef aui_lexbor_free
-#undef aui_lexbor_free
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_free
-#undef LXB_CPP_COMPAT_SKIP_lexbor_free
-#endif
-#ifdef aui_lexbor_hash_insert
-#undef aui_lexbor_hash_insert
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
-#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
-#endif
-#ifdef aui_lexbor_hash_search
-#undef aui_lexbor_hash_search
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
-#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
-#endif
-#ifdef aui_lexbor_malloc
-#undef aui_lexbor_malloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_malloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_malloc
-#endif
-#ifdef aui_lexbor_mem_alloc
-#undef aui_lexbor_mem_alloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
-#endif
-#ifdef aui_lexbor_mem_calloc
-#undef aui_lexbor_mem_calloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
-#endif
-#ifdef aui_lexbor_mraw_alloc
-#undef aui_lexbor_mraw_alloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
-#endif
-#ifdef aui_lexbor_mraw_calloc
-#undef aui_lexbor_mraw_calloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
-#endif
-#ifdef aui_lexbor_mraw_free
-#undef aui_lexbor_mraw_free
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
-#endif
-#ifdef aui_lexbor_mraw_realloc
-#undef aui_lexbor_mraw_realloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
-#endif
-#ifdef aui_lexbor_realloc
-#undef aui_lexbor_realloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_realloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_realloc
-#endif
-#ifdef new
-#undef new
-#endif
-
-
-
-// ────────────────────────────────────────────────────────────────────────
 // external/lexbor/lexbor/css/syntax/tokenizer.c
 // ────────────────────────────────────────────────────────────────────────
 
@@ -61994,6 +61699,301 @@ lxb_status_t
 lxb_css_syntax_tokenizer_status_noi(lxb_css_syntax_tokenizer_t *tkz)
 {
     return lxb_css_syntax_tokenizer_status(tkz);
+}
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/core/cpp_compat_undef.h
+// ────────────────────────────────────────────────────────────────────────
+
+/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
+#ifdef aui_lexbor_array_get
+#undef aui_lexbor_array_get
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#endif
+#ifdef aui_lexbor_array_obj_get
+#undef aui_lexbor_array_obj_get
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#endif
+#ifdef aui_lexbor_array_obj_last
+#undef aui_lexbor_array_obj_last
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#endif
+#ifdef aui_lexbor_array_obj_pop
+#undef aui_lexbor_array_obj_pop
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#endif
+#ifdef aui_lexbor_array_obj_push
+#undef aui_lexbor_array_obj_push
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#endif
+#ifdef aui_lexbor_array_obj_push_n
+#undef aui_lexbor_array_obj_push_n
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#endif
+#ifdef aui_lexbor_array_obj_push_wo_cls
+#undef aui_lexbor_array_obj_push_wo_cls
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#endif
+#ifdef aui_lexbor_array_pop
+#undef aui_lexbor_array_pop
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#endif
+#ifdef aui_lexbor_bst_entry_data
+#undef aui_lexbor_bst_entry_data
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#undef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#endif
+#ifdef aui_lexbor_calloc
+#undef aui_lexbor_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#endif
+#ifdef aui_lexbor_dobject_alloc
+#undef aui_lexbor_dobject_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#endif
+#ifdef aui_lexbor_dobject_by_absolute_position
+#undef aui_lexbor_dobject_by_absolute_position
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#endif
+#ifdef aui_lexbor_dobject_calloc
+#undef aui_lexbor_dobject_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#endif
+#ifdef aui_lexbor_dobject_free
+#undef aui_lexbor_dobject_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#endif
+#ifdef aui_lexbor_free
+#undef aui_lexbor_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_free
+#endif
+#ifdef aui_lexbor_hash_insert
+#undef aui_lexbor_hash_insert
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#endif
+#ifdef aui_lexbor_hash_search
+#undef aui_lexbor_hash_search
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#endif
+#ifdef aui_lexbor_malloc
+#undef aui_lexbor_malloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#endif
+#ifdef aui_lexbor_mem_alloc
+#undef aui_lexbor_mem_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#endif
+#ifdef aui_lexbor_mem_calloc
+#undef aui_lexbor_mem_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#endif
+#ifdef aui_lexbor_mraw_alloc
+#undef aui_lexbor_mraw_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#endif
+#ifdef aui_lexbor_mraw_calloc
+#undef aui_lexbor_mraw_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#endif
+#ifdef aui_lexbor_mraw_free
+#undef aui_lexbor_mraw_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#endif
+#ifdef aui_lexbor_mraw_realloc
+#undef aui_lexbor_mraw_realloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#endif
+#ifdef aui_lexbor_realloc
+#undef aui_lexbor_realloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#endif
+#ifdef new
+#undef new
+#endif
+
+
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/css/syntax/tokenizer/error.c
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2018-2019 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+
+#define new lexbor_cpp_new
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/core/cpp_compat.h
+// ────────────────────────────────────────────────────────────────────────
+
+/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
+#ifdef __cplusplus
+#ifndef LEXBOR_CPP_COMPAT_TYPES_H
+#define LEXBOR_CPP_COMPAT_TYPES_H
+namespace lexbor_cpp_compat {
+struct ptr_proxy {
+    void *p;
+    template <class T> operator T *() const { return static_cast<T *>(p); }
+    template <class T> operator const T *() const { return static_cast<const T *>(p); }
+    operator void *() const { return p; }
+    operator const void *() const { return p; }
+};
+inline ptr_proxy ptr(void *p) { return {p}; }
+inline ptr_proxy ptr(const void *p) { return {const_cast<void *>(p)}; }
+}  // namespace lexbor_cpp_compat
+#endif  /* LEXBOR_CPP_COMPAT_TYPES_H */
+
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#define aui_lexbor_array_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_get)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#define aui_lexbor_array_obj_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_get)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#define aui_lexbor_array_obj_last(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_last)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#define aui_lexbor_array_obj_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_pop)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#define aui_lexbor_array_obj_push(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#define aui_lexbor_array_obj_push_n(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_n)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#define aui_lexbor_array_obj_push_wo_cls(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_wo_cls)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#define aui_lexbor_array_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_pop)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#define aui_lexbor_bst_entry_data(...) ::lexbor_cpp_compat::ptr((aui_lexbor_bst_entry_data)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#define aui_lexbor_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#define aui_lexbor_dobject_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#define aui_lexbor_dobject_by_absolute_position(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_by_absolute_position)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#define aui_lexbor_dobject_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#define aui_lexbor_dobject_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_free
+#define aui_lexbor_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#define aui_lexbor_hash_insert(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_insert)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#define aui_lexbor_hash_search(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_search)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#define aui_lexbor_malloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_malloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#define aui_lexbor_mem_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#define aui_lexbor_mem_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#define aui_lexbor_mraw_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#define aui_lexbor_mraw_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#define aui_lexbor_mraw_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#define aui_lexbor_mraw_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_realloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#define aui_lexbor_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_realloc)(__VA_ARGS__))
+#endif
+#endif  /* __cplusplus */
+
+
+
+
+lxb_css_syntax_tokenizer_error_t *
+lxb_css_syntax_tokenizer_error_add(lexbor_array_obj_t *parse_errors,
+                                   const lxb_char_t *pos,
+                                   lxb_css_syntax_tokenizer_error_id_t id)
+{
+    if (parse_errors == NULL) {
+        return NULL;
+    }
+
+    lxb_css_syntax_tokenizer_error_t *entry;
+
+    entry = lexbor_array_obj_push(parse_errors);
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    entry->id = id;
+    entry->pos = pos;
+
+    return entry;
 }
 // ────────────────────────────────────────────────────────────────────────
 // external/lexbor/lexbor/core/cpp_compat_undef.h
@@ -123501,6 +123501,3379 @@ lxb_html_token_attr_name(lxb_html_token_attr_t *attr, size_t *length)
 
 
 // ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/html/tokenizer.c
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2018-2020 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/html/tokenizer/state.h
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2018-2020 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+#ifndef LEXBOR_HTML_TOKENIZER_STATE_H
+#define LEXBOR_HTML_TOKENIZER_STATE_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+#define lxb_html_tokenizer_state_begin_set(tkz, v_data)                        \
+    (tkz->begin = v_data)
+
+#define lxb_html_tokenizer_state_append_data_m(tkz, v_data)                    \
+    do {                                                                       \
+        if (lxb_html_tokenizer_temp_append_data(tkz, v_data)) {                \
+            return end;                                                        \
+        }                                                                      \
+    }                                                                          \
+    while (0)
+
+#define lxb_html_tokenizer_state_append_m(tkz, v_data, size)                   \
+    do {                                                                       \
+        if (lxb_html_tokenizer_temp_append(tkz, (const lxb_char_t *) (v_data), \
+                                           (size)))                            \
+        {                                                                      \
+            return end;                                                        \
+        }                                                                      \
+    }                                                                          \
+    while (0)
+
+#define lxb_html_tokenizer_state_append_replace_m(tkz)                         \
+    do {                                                                       \
+        if (lxb_html_tokenizer_temp_append(tkz,                                \
+                        lexbor_str_res_ansi_replacement_character,             \
+                        sizeof(lexbor_str_res_ansi_replacement_character) - 1))\
+        {                                                                      \
+            return end;                                                        \
+        }                                                                      \
+    }                                                                          \
+    while (0)
+
+#define lxb_html_tokenizer_state_set_tag_m(tkz, _start, _end)                  \
+    do {                                                                       \
+        const lxb_tag_data_t *tag;                                             \
+        tag = lxb_tag_append_lower(tkz->tags, (_start), (_end) - (_start));    \
+        if (tag == NULL) {                                                     \
+            tkz->status = LXB_STATUS_ERROR_MEMORY_ALLOCATION;                  \
+            return end;                                                        \
+        }                                                                      \
+        tkz->token->tag_id = tag->tag_id;                                      \
+    }                                                                          \
+    while (0)
+
+#define lxb_html_tokenizer_state_set_name_m(tkz)                               \
+    do {                                                                       \
+        lxb_dom_attr_data_t *data;                                             \
+        data = lxb_dom_attr_local_name_append(tkz->attrs, tkz->start,          \
+                                              tkz->pos - tkz->start);          \
+        if (data == NULL) {                                                    \
+            tkz->status = LXB_STATUS_ERROR_MEMORY_ALLOCATION;                  \
+            return end;                                                        \
+        }                                                                      \
+        tkz->token->attr_last->name = data;                                    \
+    }                                                                          \
+    while (0)
+
+#define lxb_html_tokenizer_state_set_value_m(tkz)                              \
+    do {                                                                       \
+        lxb_html_token_attr_t *attr = tkz->token->attr_last;                   \
+                                                                               \
+        attr->value_size = (size_t) (tkz->pos - tkz->start);                   \
+                                                                               \
+        attr->value = (lxb_char_t *) lexbor_mraw_alloc(tkz->attrs_mraw,       \
+                                                       attr->value_size + 1);  \
+        if (attr->value == NULL) {                                             \
+            tkz->status = LXB_STATUS_ERROR_MEMORY_ALLOCATION;                  \
+            return end;                                                        \
+        }                                                                      \
+        memcpy(attr->value, tkz->start, attr->value_size);                     \
+        attr->value[attr->value_size] = 0x00;                                  \
+    }                                                                          \
+    while (0)
+
+#define lxb_html_tokenizer_state_token_set_begin(tkz, v_begin)                 \
+    do {                                                                       \
+        tkz->pos = tkz->start;                                                 \
+        tkz->token->begin = v_begin;                                           \
+    }                                                                          \
+    while (0)
+
+#define lxb_html_tokenizer_state_token_set_end(tkz, v_end)                     \
+    (tkz->token->end = v_end)
+
+#define lxb_html_tokenizer_state_token_set_end_down(tkz, v_end, offset)        \
+    do {                                                                       \
+        tkz->token->end = lexbor_in_node_pos_down(tkz->incoming_node, NULL,    \
+                                                  v_end, offset);              \
+    }                                                                          \
+    while (0)
+
+#define lxb_html_tokenizer_state_token_set_end_oef(tkz)                        \
+    (tkz->token->end = tkz->last)
+
+#define lxb_html_tokenizer_state_token_attr_add_m(tkz, attr, v_return)         \
+    do {                                                                       \
+        attr = lxb_html_token_attr_append(tkz->token, tkz->dobj_token_attr);   \
+        if (attr == NULL) {                                                    \
+            tkz->status = LXB_STATUS_ERROR_MEMORY_ALLOCATION;                  \
+            return v_return;                                                   \
+        }                                                                      \
+    }                                                                          \
+    while (0)
+
+#define lxb_html_tokenizer_state_token_attr_set_name_begin(tkz, v_begin)       \
+    do {                                                                       \
+        tkz->pos = tkz->start;                                                 \
+        tkz->token->attr_last->name_begin = v_begin;                           \
+    }                                                                          \
+    while (0)
+
+#define lxb_html_tokenizer_state_token_attr_set_name_end(tkz, v_end)           \
+    (tkz->token->attr_last->name_end = v_end)
+
+#define lxb_html_tokenizer_state_token_attr_set_name_end_oef(tkz)              \
+    (tkz->token->attr_last->name_end = tkz->last)
+
+#define lxb_html_tokenizer_state_token_attr_set_value_begin(tkz, v_begin)      \
+    do {                                                                       \
+        tkz->pos = tkz->start;                                                 \
+        tkz->token->attr_last->value_begin = v_begin;                          \
+    }                                                                          \
+    while (0)
+
+#define lxb_html_tokenizer_state_token_attr_set_value_end(tkz, v_end)          \
+    (tkz->token->attr_last->value_end = v_end)
+
+#define lxb_html_tokenizer_state_token_attr_set_value_end_oef(tkz)             \
+    (tkz->token->attr_last->value_end = tkz->last)
+
+#define _lxb_html_tokenizer_state_token_done_m(tkz, v_end)                     \
+    tkz->token = tkz->callback_token_done(tkz, tkz->token,                     \
+                                          tkz->callback_token_ctx);            \
+    if (tkz->token == NULL) {                                                  \
+        if (tkz->status == LXB_STATUS_OK) {                                    \
+            tkz->status = LXB_STATUS_ERROR;                                    \
+        }                                                                      \
+        return v_end;                                                          \
+    }
+
+#define lxb_html_tokenizer_state_token_done_m(tkz, v_end)                      \
+    do {                                                                       \
+        if (tkz->token->begin != tkz->token->end) {                            \
+            _lxb_html_tokenizer_state_token_done_m(tkz, v_end)                 \
+        }                                                                      \
+        lxb_html_token_clean(tkz->token);                                      \
+        tkz->pos = tkz->start;                                                 \
+    }                                                                          \
+    while (0)
+
+#define lxb_html_tokenizer_state_token_done_wo_check_m(tkz, v_end)             \
+    do {                                                                       \
+        _lxb_html_tokenizer_state_token_done_m(tkz, v_end)                     \
+        lxb_html_token_clean(tkz->token);                                      \
+    }                                                                          \
+    while (0)
+
+#define lxb_html_tokenizer_state_set_text(tkz)                                 \
+    do {                                                                       \
+        tkz->token->text_start = tkz->start;                                   \
+        tkz->token->text_end = tkz->pos;                                       \
+    }                                                                          \
+    while (0)
+
+#define lxb_html_tokenizer_state_token_emit_text_not_empty_m(tkz, v_end)       \
+    do {                                                                       \
+        if (tkz->token->begin != tkz->token->end) {                            \
+            tkz->token->tag_id = LXB_TAG__TEXT;                                \
+                                                                               \
+            lxb_html_tokenizer_state_set_text(tkz);                            \
+            _lxb_html_tokenizer_state_token_done_m(tkz, v_end)                 \
+            lxb_html_token_clean(tkz->token);                                  \
+        }                                                                      \
+    }                                                                          \
+    while (0)
+
+
+LXB_API const lxb_char_t *
+lxb_html_tokenizer_state_data_before(lxb_html_tokenizer_t *tkz,
+                                     const lxb_char_t *data,
+                                     const lxb_char_t *end);
+
+LXB_API const lxb_char_t *
+lxb_html_tokenizer_state_plaintext_before(lxb_html_tokenizer_t *tkz,
+                                          const lxb_char_t *data,
+                                          const lxb_char_t *end);
+
+LXB_API const lxb_char_t *
+lxb_html_tokenizer_state_before_attribute_name(lxb_html_tokenizer_t *tkz,
+                                               const lxb_char_t *data,
+                                               const lxb_char_t *end);
+
+LXB_API const lxb_char_t *
+lxb_html_tokenizer_state_self_closing_start_tag(lxb_html_tokenizer_t *tkz,
+                                                const lxb_char_t *data,
+                                                const lxb_char_t *end);
+
+LXB_API const lxb_char_t *
+lxb_html_tokenizer_state_cr(lxb_html_tokenizer_t *tkz, const lxb_char_t *data,
+                            const lxb_char_t *end);
+
+LXB_API const lxb_char_t *
+lxb_html_tokenizer_state_char_ref(lxb_html_tokenizer_t *tkz,
+                                  const lxb_char_t *data, const lxb_char_t *end);
+
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+#endif /* LEXBOR_HTML_TOKENIZER_STATE_H */
+
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/html/tokenizer/state_rcdata.h
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2018-2020 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+#ifndef LEXBOR_HTML_TOKENIZER_STATE_RCDATA_H
+#define LEXBOR_HTML_TOKENIZER_STATE_RCDATA_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+
+/*
+ * Before call function:
+ * Must be initialized:
+ *     tkz->tmp_tag_id
+ */
+LXB_API const lxb_char_t *
+lxb_html_tokenizer_state_rcdata_before(lxb_html_tokenizer_t *tkz,
+                                       const lxb_char_t *data,
+                                       const lxb_char_t *end);
+
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+#endif /* LEXBOR_HTML_TOKENIZER_STATE_RCDATA_H */
+
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/html/tokenizer/state_rawtext.h
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2018-2020 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+#ifndef LEXBOR_HTML_TOKENIZER_STATE_RAWTEXT_H
+#define LEXBOR_HTML_TOKENIZER_STATE_RAWTEXT_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+
+/*
+ * Before call function:
+ * Must be initialized:
+ *     tkz->tmp_tag_id
+ */
+LXB_API const lxb_char_t *
+lxb_html_tokenizer_state_rawtext_before(lxb_html_tokenizer_t *tkz,
+                                        const lxb_char_t *data,
+                                        const lxb_char_t *end);
+
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+#endif /* LEXBOR_HTML_TOKENIZER_STATE_RAWTEXT_H */
+
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/html/tokenizer/state_script.h
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2018-2020 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+#ifndef LEXBOR_HTML_TOKENIZER_STATE_SCRIPT_H
+#define LEXBOR_HTML_TOKENIZER_STATE_SCRIPT_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+
+/*
+ * Before call function:
+ * Must be initialized:
+ *     tkz->tmp_tag_id
+ */
+LXB_API const lxb_char_t *
+lxb_html_tokenizer_state_script_data_before(lxb_html_tokenizer_t *tkz,
+                                            const lxb_char_t *data,
+                                            const lxb_char_t *end);
+
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+#endif /* LEXBOR_HTML_TOKENIZER_STATE_SCRIPT_H */
+
+
+
+
+#define LXB_HTML_TAG_RES_DATA
+#define LXB_HTML_TAG_RES_SHS_DATA
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/html/tag_res.h
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+ * Copyright (C) 2018 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
+ */
+
+/*
+ * Caution!
+ * This file generated by the script "utils/lexbor/tag_ns/tags.py"!
+ * Do not change this file!
+ */
+
+
+#ifndef LXB_HTML_TAG_RES_H
+#define LXB_HTML_TAG_RES_H
+
+
+
+#endif /* LXB_HTML_TAG_RES_H */
+
+#ifdef LXB_TAG_CONST_VERSION
+#ifndef LXB_TAG_CONST_VERSION_A161EC911182C3254E7A972D5C51DF86
+#error Mismatched tags version! See "lexbor/tag/const.h".
+#endif /* LXB_TAG_CONST_VERSION_A161EC911182C3254E7A972D5C51DF86 */
+#else
+#error You need to include "lexbor/tag/const.h".
+#endif /* LXB_TAG_CONST_VERSION */
+
+#ifdef LXB_NS_CONST_VERSION
+#ifndef LXB_NS_CONST_VERSION_253D4AFDA959234B48A478B956C3C777
+#error Mismatched namespaces version! See "lexbor/ns/const.h".
+#endif /* LXB_NS_CONST_VERSION_253D4AFDA959234B48A478B956C3C777 */
+#else
+#error You need to include "lexbor/ns/const.h".
+#endif /* LXB_NS_CONST_VERSION */
+
+#ifdef LXB_HTML_TAG_RES_CATS
+#ifndef LXB_HTML_TAG_RES_CATS_ENABLED
+#define LXB_HTML_TAG_RES_CATS_ENABLED
+static  lxb_html_tag_category_t lxb_html_tag_res_cats[LXB_TAG__LAST_ENTRY][LXB_NS__LAST_ENTRY] =
+{
+    /* LXB_TAG__UNDEF */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG__END_OF_FILE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG__TEXT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG__DOCUMENT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG__EM_COMMENT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG__EM_DOCTYPE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_A */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_FORMATTING
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_ABBR */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_ACRONYM */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_ADDRESS */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_ALTGLYPH */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_ALTGLYPHDEF */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_ALTGLYPHITEM */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_ANIMATECOLOR */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_ANIMATEMOTION */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_ANIMATETRANSFORM */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_ANNOTATION_XML */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_APPLET */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_AREA */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_ARTICLE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_ASIDE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_AUDIO */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_B */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_FORMATTING
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_BASE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_BASEFONT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_BDI */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_BDO */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_BGSOUND */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_BIG */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_FORMATTING
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_BLINK */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_BLOCKQUOTE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_BODY */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_BR */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_BUTTON */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_CANVAS */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_CAPTION */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_CENTER */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_CITE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_CLIPPATH */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_CODE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_FORMATTING
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_COL */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_COLGROUP */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_DATA */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_DATALIST */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_DD */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_DEL */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_DESC */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_DETAILS */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_DFN */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_DIALOG */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_DIR */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_DIV */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_DL */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_DT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_EM */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_FORMATTING
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_EMBED */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FEBLEND */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FECOLORMATRIX */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FECOMPONENTTRANSFER */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FECOMPOSITE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FECONVOLVEMATRIX */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FEDIFFUSELIGHTING */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FEDISPLACEMENTMAP */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FEDISTANTLIGHT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FEDROPSHADOW */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FEFLOOD */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FEFUNCA */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FEFUNCB */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FEFUNCG */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FEFUNCR */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FEGAUSSIANBLUR */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FEIMAGE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FEMERGE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FEMERGENODE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FEMORPHOLOGY */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FEOFFSET */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FEPOINTLIGHT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FESPECULARLIGHTING */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FESPOTLIGHT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FETILE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FETURBULENCE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FIELDSET */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FIGCAPTION */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FIGURE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FONT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_FORMATTING
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FOOTER */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FOREIGNOBJECT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FORM */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FRAME */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_FRAMESET */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_GLYPHREF */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_H1 */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_H2 */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_H3 */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_H4 */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_H5 */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_H6 */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_HEAD */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_HEADER */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_HGROUP */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_HR */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_HTML */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SCOPE_TABLE
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_I */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_FORMATTING
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_IFRAME */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_IMAGE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_IMG */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_INPUT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_INS */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_ISINDEX */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_KBD */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_KEYGEN */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_LABEL */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_LEGEND */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_LI */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_LINEARGRADIENT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_LINK */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_LISTING */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_MAIN */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_MALIGNMARK */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_ORDINARY,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_MAP */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_MARK */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_MARQUEE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_MATH */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_MENU */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_META */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_METER */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_MFENCED */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_MGLYPH */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_ORDINARY,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_MI */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_MN */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_MO */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_MS */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_MTEXT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_MULTICOL */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_NAV */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_NEXTID */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_NOBR */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_FORMATTING
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_NOEMBED */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_NOFRAMES */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_NOSCRIPT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_OBJECT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_OL */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_OPTGROUP */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY,LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_OPTION */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY,LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_OUTPUT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_P */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_PARAM */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_PATH */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_PICTURE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_PLAINTEXT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_PRE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_PROGRESS */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_Q */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_RADIALGRADIENT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_RB */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_RP */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_RT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_RTC */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_RUBY */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_S */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_FORMATTING
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_SAMP */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_SCRIPT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_SECTION */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_SELECT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_SLOT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_SMALL */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_FORMATTING
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_SOURCE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_SPACER */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_SPAN */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_STRIKE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_FORMATTING
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_STRONG */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_FORMATTING
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_STYLE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_SUB */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_SUMMARY */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_SUP */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_SVG */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_TABLE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SCOPE_TABLE
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_TBODY */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_TD */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_TEMPLATE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SCOPE_TABLE
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_TEXTAREA */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_TEXTPATH */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_TFOOT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_TH */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_THEAD */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_TIME */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_TITLE */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE
+            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
+            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_TR */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_TRACK */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_TT */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_FORMATTING
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_U */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_FORMATTING
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_UL */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_VAR */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_VIDEO */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_ORDINARY
+            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_WBR */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    },
+    /* LXB_TAG_XMP */
+    {
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
+            |LXB_HTML_TAG_CATEGORY_SPECIAL,
+        LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
+        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    }
+};
+#endif /* LXB_HTML_TAG_RES_CATS_ENABLED */
+#endif /* LXB_HTML_TAG_RES_CATS */
+
+#ifdef LXB_HTML_TAG_RES_FIXNAME_SVG
+#ifndef LXB_HTML_TAG_RES_FIXNAME_SVG_ENABLED
+#define LXB_HTML_TAG_RES_FIXNAME_SVG_ENABLED
+static  lxb_html_tag_fixname_t lxb_html_tag_res_fixname_svg[LXB_TAG__LAST_ENTRY] =
+{
+    /* LXB_TAG__UNDEF */
+    {NULL, 0},
+    /* LXB_TAG__END_OF_FILE */
+    {NULL, 0},
+    /* LXB_TAG__TEXT */
+    {NULL, 0},
+    /* LXB_TAG__DOCUMENT */
+    {NULL, 0},
+    /* LXB_TAG__EM_COMMENT */
+    {NULL, 0},
+    /* LXB_TAG__EM_DOCTYPE */
+    {NULL, 0},
+    /* LXB_TAG_A */
+    {NULL, 0},
+    /* LXB_TAG_ABBR */
+    {NULL, 0},
+    /* LXB_TAG_ACRONYM */
+    {NULL, 0},
+    /* LXB_TAG_ADDRESS */
+    {NULL, 0},
+    /* LXB_TAG_ALTGLYPH */
+    {(const lxb_char_t *) "altGlyph", 8},
+    /* LXB_TAG_ALTGLYPHDEF */
+    {(const lxb_char_t *) "altGlyphDef", 11},
+    /* LXB_TAG_ALTGLYPHITEM */
+    {(const lxb_char_t *) "altGlyphItem", 12},
+    /* LXB_TAG_ANIMATECOLOR */
+    {(const lxb_char_t *) "animateColor", 12},
+    /* LXB_TAG_ANIMATEMOTION */
+    {(const lxb_char_t *) "animateMotion", 13},
+    /* LXB_TAG_ANIMATETRANSFORM */
+    {(const lxb_char_t *) "animateTransform", 16},
+    /* LXB_TAG_ANNOTATION_XML */
+    {NULL, 0},
+    /* LXB_TAG_APPLET */
+    {NULL, 0},
+    /* LXB_TAG_AREA */
+    {NULL, 0},
+    /* LXB_TAG_ARTICLE */
+    {NULL, 0},
+    /* LXB_TAG_ASIDE */
+    {NULL, 0},
+    /* LXB_TAG_AUDIO */
+    {NULL, 0},
+    /* LXB_TAG_B */
+    {NULL, 0},
+    /* LXB_TAG_BASE */
+    {NULL, 0},
+    /* LXB_TAG_BASEFONT */
+    {NULL, 0},
+    /* LXB_TAG_BDI */
+    {NULL, 0},
+    /* LXB_TAG_BDO */
+    {NULL, 0},
+    /* LXB_TAG_BGSOUND */
+    {NULL, 0},
+    /* LXB_TAG_BIG */
+    {NULL, 0},
+    /* LXB_TAG_BLINK */
+    {NULL, 0},
+    /* LXB_TAG_BLOCKQUOTE */
+    {NULL, 0},
+    /* LXB_TAG_BODY */
+    {NULL, 0},
+    /* LXB_TAG_BR */
+    {NULL, 0},
+    /* LXB_TAG_BUTTON */
+    {NULL, 0},
+    /* LXB_TAG_CANVAS */
+    {NULL, 0},
+    /* LXB_TAG_CAPTION */
+    {NULL, 0},
+    /* LXB_TAG_CENTER */
+    {NULL, 0},
+    /* LXB_TAG_CITE */
+    {NULL, 0},
+    /* LXB_TAG_CLIPPATH */
+    {(const lxb_char_t *) "clipPath", 8},
+    /* LXB_TAG_CODE */
+    {NULL, 0},
+    /* LXB_TAG_COL */
+    {NULL, 0},
+    /* LXB_TAG_COLGROUP */
+    {NULL, 0},
+    /* LXB_TAG_DATA */
+    {NULL, 0},
+    /* LXB_TAG_DATALIST */
+    {NULL, 0},
+    /* LXB_TAG_DD */
+    {NULL, 0},
+    /* LXB_TAG_DEL */
+    {NULL, 0},
+    /* LXB_TAG_DESC */
+    {NULL, 0},
+    /* LXB_TAG_DETAILS */
+    {NULL, 0},
+    /* LXB_TAG_DFN */
+    {NULL, 0},
+    /* LXB_TAG_DIALOG */
+    {NULL, 0},
+    /* LXB_TAG_DIR */
+    {NULL, 0},
+    /* LXB_TAG_DIV */
+    {NULL, 0},
+    /* LXB_TAG_DL */
+    {NULL, 0},
+    /* LXB_TAG_DT */
+    {NULL, 0},
+    /* LXB_TAG_EM */
+    {NULL, 0},
+    /* LXB_TAG_EMBED */
+    {NULL, 0},
+    /* LXB_TAG_FEBLEND */
+    {(const lxb_char_t *) "feBlend", 7},
+    /* LXB_TAG_FECOLORMATRIX */
+    {(const lxb_char_t *) "feColorMatrix", 13},
+    /* LXB_TAG_FECOMPONENTTRANSFER */
+    {(const lxb_char_t *) "feComponentTransfer", 19},
+    /* LXB_TAG_FECOMPOSITE */
+    {(const lxb_char_t *) "feComposite", 11},
+    /* LXB_TAG_FECONVOLVEMATRIX */
+    {(const lxb_char_t *) "feConvolveMatrix", 16},
+    /* LXB_TAG_FEDIFFUSELIGHTING */
+    {(const lxb_char_t *) "feDiffuseLighting", 17},
+    /* LXB_TAG_FEDISPLACEMENTMAP */
+    {(const lxb_char_t *) "feDisplacementMap", 17},
+    /* LXB_TAG_FEDISTANTLIGHT */
+    {(const lxb_char_t *) "feDistantLight", 14},
+    /* LXB_TAG_FEDROPSHADOW */
+    {(const lxb_char_t *) "feDropShadow", 12},
+    /* LXB_TAG_FEFLOOD */
+    {(const lxb_char_t *) "feFlood", 7},
+    /* LXB_TAG_FEFUNCA */
+    {(const lxb_char_t *) "feFuncA", 7},
+    /* LXB_TAG_FEFUNCB */
+    {(const lxb_char_t *) "feFuncB", 7},
+    /* LXB_TAG_FEFUNCG */
+    {(const lxb_char_t *) "feFuncG", 7},
+    /* LXB_TAG_FEFUNCR */
+    {(const lxb_char_t *) "feFuncR", 7},
+    /* LXB_TAG_FEGAUSSIANBLUR */
+    {(const lxb_char_t *) "feGaussianBlur", 14},
+    /* LXB_TAG_FEIMAGE */
+    {(const lxb_char_t *) "feImage", 7},
+    /* LXB_TAG_FEMERGE */
+    {(const lxb_char_t *) "feMerge", 7},
+    /* LXB_TAG_FEMERGENODE */
+    {(const lxb_char_t *) "feMergeNode", 11},
+    /* LXB_TAG_FEMORPHOLOGY */
+    {(const lxb_char_t *) "feMorphology", 12},
+    /* LXB_TAG_FEOFFSET */
+    {(const lxb_char_t *) "feOffset", 8},
+    /* LXB_TAG_FEPOINTLIGHT */
+    {(const lxb_char_t *) "fePointLight", 12},
+    /* LXB_TAG_FESPECULARLIGHTING */
+    {(const lxb_char_t *) "feSpecularLighting", 18},
+    /* LXB_TAG_FESPOTLIGHT */
+    {(const lxb_char_t *) "feSpotLight", 11},
+    /* LXB_TAG_FETILE */
+    {(const lxb_char_t *) "feTile", 6},
+    /* LXB_TAG_FETURBULENCE */
+    {(const lxb_char_t *) "feTurbulence", 12},
+    /* LXB_TAG_FIELDSET */
+    {NULL, 0},
+    /* LXB_TAG_FIGCAPTION */
+    {NULL, 0},
+    /* LXB_TAG_FIGURE */
+    {NULL, 0},
+    /* LXB_TAG_FONT */
+    {NULL, 0},
+    /* LXB_TAG_FOOTER */
+    {NULL, 0},
+    /* LXB_TAG_FOREIGNOBJECT */
+    {(const lxb_char_t *) "foreignObject", 13},
+    /* LXB_TAG_FORM */
+    {NULL, 0},
+    /* LXB_TAG_FRAME */
+    {NULL, 0},
+    /* LXB_TAG_FRAMESET */
+    {NULL, 0},
+    /* LXB_TAG_GLYPHREF */
+    {(const lxb_char_t *) "glyphRef", 8},
+    /* LXB_TAG_H1 */
+    {NULL, 0},
+    /* LXB_TAG_H2 */
+    {NULL, 0},
+    /* LXB_TAG_H3 */
+    {NULL, 0},
+    /* LXB_TAG_H4 */
+    {NULL, 0},
+    /* LXB_TAG_H5 */
+    {NULL, 0},
+    /* LXB_TAG_H6 */
+    {NULL, 0},
+    /* LXB_TAG_HEAD */
+    {NULL, 0},
+    /* LXB_TAG_HEADER */
+    {NULL, 0},
+    /* LXB_TAG_HGROUP */
+    {NULL, 0},
+    /* LXB_TAG_HR */
+    {NULL, 0},
+    /* LXB_TAG_HTML */
+    {NULL, 0},
+    /* LXB_TAG_I */
+    {NULL, 0},
+    /* LXB_TAG_IFRAME */
+    {NULL, 0},
+    /* LXB_TAG_IMAGE */
+    {NULL, 0},
+    /* LXB_TAG_IMG */
+    {NULL, 0},
+    /* LXB_TAG_INPUT */
+    {NULL, 0},
+    /* LXB_TAG_INS */
+    {NULL, 0},
+    /* LXB_TAG_ISINDEX */
+    {NULL, 0},
+    /* LXB_TAG_KBD */
+    {NULL, 0},
+    /* LXB_TAG_KEYGEN */
+    {NULL, 0},
+    /* LXB_TAG_LABEL */
+    {NULL, 0},
+    /* LXB_TAG_LEGEND */
+    {NULL, 0},
+    /* LXB_TAG_LI */
+    {NULL, 0},
+    /* LXB_TAG_LINEARGRADIENT */
+    {(const lxb_char_t *) "linearGradient", 14},
+    /* LXB_TAG_LINK */
+    {NULL, 0},
+    /* LXB_TAG_LISTING */
+    {NULL, 0},
+    /* LXB_TAG_MAIN */
+    {NULL, 0},
+    /* LXB_TAG_MALIGNMARK */
+    {NULL, 0},
+    /* LXB_TAG_MAP */
+    {NULL, 0},
+    /* LXB_TAG_MARK */
+    {NULL, 0},
+    /* LXB_TAG_MARQUEE */
+    {NULL, 0},
+    /* LXB_TAG_MATH */
+    {NULL, 0},
+    /* LXB_TAG_MENU */
+    {NULL, 0},
+    /* LXB_TAG_META */
+    {NULL, 0},
+    /* LXB_TAG_METER */
+    {NULL, 0},
+    /* LXB_TAG_MFENCED */
+    {NULL, 0},
+    /* LXB_TAG_MGLYPH */
+    {NULL, 0},
+    /* LXB_TAG_MI */
+    {NULL, 0},
+    /* LXB_TAG_MN */
+    {NULL, 0},
+    /* LXB_TAG_MO */
+    {NULL, 0},
+    /* LXB_TAG_MS */
+    {NULL, 0},
+    /* LXB_TAG_MTEXT */
+    {NULL, 0},
+    /* LXB_TAG_MULTICOL */
+    {NULL, 0},
+    /* LXB_TAG_NAV */
+    {NULL, 0},
+    /* LXB_TAG_NEXTID */
+    {NULL, 0},
+    /* LXB_TAG_NOBR */
+    {NULL, 0},
+    /* LXB_TAG_NOEMBED */
+    {NULL, 0},
+    /* LXB_TAG_NOFRAMES */
+    {NULL, 0},
+    /* LXB_TAG_NOSCRIPT */
+    {NULL, 0},
+    /* LXB_TAG_OBJECT */
+    {NULL, 0},
+    /* LXB_TAG_OL */
+    {NULL, 0},
+    /* LXB_TAG_OPTGROUP */
+    {NULL, 0},
+    /* LXB_TAG_OPTION */
+    {NULL, 0},
+    /* LXB_TAG_OUTPUT */
+    {NULL, 0},
+    /* LXB_TAG_P */
+    {NULL, 0},
+    /* LXB_TAG_PARAM */
+    {NULL, 0},
+    /* LXB_TAG_PATH */
+    {NULL, 0},
+    /* LXB_TAG_PICTURE */
+    {NULL, 0},
+    /* LXB_TAG_PLAINTEXT */
+    {NULL, 0},
+    /* LXB_TAG_PRE */
+    {NULL, 0},
+    /* LXB_TAG_PROGRESS */
+    {NULL, 0},
+    /* LXB_TAG_Q */
+    {NULL, 0},
+    /* LXB_TAG_RADIALGRADIENT */
+    {(const lxb_char_t *) "radialGradient", 14},
+    /* LXB_TAG_RB */
+    {NULL, 0},
+    /* LXB_TAG_RP */
+    {NULL, 0},
+    /* LXB_TAG_RT */
+    {NULL, 0},
+    /* LXB_TAG_RTC */
+    {NULL, 0},
+    /* LXB_TAG_RUBY */
+    {NULL, 0},
+    /* LXB_TAG_S */
+    {NULL, 0},
+    /* LXB_TAG_SAMP */
+    {NULL, 0},
+    /* LXB_TAG_SCRIPT */
+    {NULL, 0},
+    /* LXB_TAG_SECTION */
+    {NULL, 0},
+    /* LXB_TAG_SELECT */
+    {NULL, 0},
+    /* LXB_TAG_SLOT */
+    {NULL, 0},
+    /* LXB_TAG_SMALL */
+    {NULL, 0},
+    /* LXB_TAG_SOURCE */
+    {NULL, 0},
+    /* LXB_TAG_SPACER */
+    {NULL, 0},
+    /* LXB_TAG_SPAN */
+    {NULL, 0},
+    /* LXB_TAG_STRIKE */
+    {NULL, 0},
+    /* LXB_TAG_STRONG */
+    {NULL, 0},
+    /* LXB_TAG_STYLE */
+    {NULL, 0},
+    /* LXB_TAG_SUB */
+    {NULL, 0},
+    /* LXB_TAG_SUMMARY */
+    {NULL, 0},
+    /* LXB_TAG_SUP */
+    {NULL, 0},
+    /* LXB_TAG_SVG */
+    {NULL, 0},
+    /* LXB_TAG_TABLE */
+    {NULL, 0},
+    /* LXB_TAG_TBODY */
+    {NULL, 0},
+    /* LXB_TAG_TD */
+    {NULL, 0},
+    /* LXB_TAG_TEMPLATE */
+    {NULL, 0},
+    /* LXB_TAG_TEXTAREA */
+    {NULL, 0},
+    /* LXB_TAG_TEXTPATH */
+    {(const lxb_char_t *) "textPath", 8},
+    /* LXB_TAG_TFOOT */
+    {NULL, 0},
+    /* LXB_TAG_TH */
+    {NULL, 0},
+    /* LXB_TAG_THEAD */
+    {NULL, 0},
+    /* LXB_TAG_TIME */
+    {NULL, 0},
+    /* LXB_TAG_TITLE */
+    {NULL, 0},
+    /* LXB_TAG_TR */
+    {NULL, 0},
+    /* LXB_TAG_TRACK */
+    {NULL, 0},
+    /* LXB_TAG_TT */
+    {NULL, 0},
+    /* LXB_TAG_U */
+    {NULL, 0},
+    /* LXB_TAG_UL */
+    {NULL, 0},
+    /* LXB_TAG_VAR */
+    {NULL, 0},
+    /* LXB_TAG_VIDEO */
+    {NULL, 0},
+    /* LXB_TAG_WBR */
+    {NULL, 0},
+    /* LXB_TAG_XMP */
+    {NULL, 0},
+
+};
+#endif /* LXB_HTML_TAG_RES_FIXNAME_SVG_ENABLED */
+#endif /* LXB_HTML_TAG_RES_FIXNAME_SVG */
+
+
+#define new lexbor_cpp_new
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/core/cpp_compat.h
+// ────────────────────────────────────────────────────────────────────────
+
+/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
+#ifdef __cplusplus
+#ifndef LEXBOR_CPP_COMPAT_TYPES_H
+#define LEXBOR_CPP_COMPAT_TYPES_H
+namespace lexbor_cpp_compat {
+struct ptr_proxy {
+    void *p;
+    template <class T> operator T *() const { return static_cast<T *>(p); }
+    template <class T> operator const T *() const { return static_cast<const T *>(p); }
+    operator void *() const { return p; }
+    operator const void *() const { return p; }
+};
+inline ptr_proxy ptr(void *p) { return {p}; }
+inline ptr_proxy ptr(const void *p) { return {const_cast<void *>(p)}; }
+}  // namespace lexbor_cpp_compat
+#endif  /* LEXBOR_CPP_COMPAT_TYPES_H */
+
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#define aui_lexbor_array_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_get)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#define aui_lexbor_array_obj_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_get)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#define aui_lexbor_array_obj_last(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_last)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#define aui_lexbor_array_obj_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_pop)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#define aui_lexbor_array_obj_push(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#define aui_lexbor_array_obj_push_n(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_n)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#define aui_lexbor_array_obj_push_wo_cls(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_wo_cls)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#define aui_lexbor_array_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_pop)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#define aui_lexbor_bst_entry_data(...) ::lexbor_cpp_compat::ptr((aui_lexbor_bst_entry_data)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#define aui_lexbor_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#define aui_lexbor_dobject_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#define aui_lexbor_dobject_by_absolute_position(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_by_absolute_position)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#define aui_lexbor_dobject_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#define aui_lexbor_dobject_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_free
+#define aui_lexbor_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#define aui_lexbor_hash_insert(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_insert)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#define aui_lexbor_hash_search(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_search)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#define aui_lexbor_malloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_malloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#define aui_lexbor_mem_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#define aui_lexbor_mem_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#define aui_lexbor_mraw_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_alloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#define aui_lexbor_mraw_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_calloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#define aui_lexbor_mraw_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_free)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#define aui_lexbor_mraw_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_realloc)(__VA_ARGS__))
+#endif
+#ifndef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#define aui_lexbor_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_realloc)(__VA_ARGS__))
+#endif
+#endif  /* __cplusplus */
+
+
+
+
+#define LXB_HTML_TKZ_TEMP_SIZE (4096 * 4)
+
+
+enum {
+    LXB_HTML_TOKENIZER_OPT_UNDEF           = 0x00,
+    LXB_HTML_TOKENIZER_OPT_TAGS_SELF       = 0x01,
+    LXB_HTML_TOKENIZER_OPT_ATTRS_SELF      = 0x02,
+    LXB_HTML_TOKENIZER_OPT_ATTRS_MRAW_SELF = 0x04
+};
+
+
+const lxb_char_t *lxb_html_tokenizer_eof = (const lxb_char_t *) "\x00";
+
+
+static lxb_html_token_t *
+aui_lexbor_static_e5d2ac5062_lxb_html_tokenizer_token_done(lxb_html_tokenizer_t *tkz,
+                              lxb_html_token_t *token, void *ctx);
+
+
+lxb_html_tokenizer_t *
+lxb_html_tokenizer_create(void)
+{
+    return lexbor_calloc(1, sizeof(lxb_html_tokenizer_t));
+}
+
+lxb_status_t
+lxb_html_tokenizer_init(lxb_html_tokenizer_t *tkz)
+{
+    lxb_status_t status;
+
+    if (tkz == NULL) {
+        return LXB_STATUS_ERROR_OBJECT_IS_NULL;
+    }
+
+    /* mraw for templary strings or structures */
+    tkz->mraw = lexbor_mraw_create();
+    status = lexbor_mraw_init(tkz->mraw, 1024);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    /* Init Token */
+    tkz->token = NULL;
+
+    tkz->dobj_token = lexbor_dobject_create();
+    status = lexbor_dobject_init(tkz->dobj_token,
+                                 4096, sizeof(lxb_html_token_t));
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    /* Init Token Attributes */
+    tkz->dobj_token_attr = lexbor_dobject_create();
+    status = lexbor_dobject_init(tkz->dobj_token_attr, 4096,
+                                 sizeof(lxb_html_token_attr_t));
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    /* Parse errors */
+    tkz->parse_errors = lexbor_array_obj_create();
+    status = lexbor_array_obj_init(tkz->parse_errors, 16,
+                                   sizeof(lxb_html_tokenizer_error_t));
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    /* Temporary memory for tag name and attributes. */
+    tkz->start = lexbor_malloc(LXB_HTML_TKZ_TEMP_SIZE * sizeof(lxb_char_t));
+    if (tkz->start == NULL) {
+        return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
+    }
+
+    tkz->pos = tkz->start;
+    tkz->end = tkz->start + LXB_HTML_TKZ_TEMP_SIZE;
+
+    tkz->tree = NULL;
+    tkz->tags = NULL;
+    tkz->attrs = NULL;
+    tkz->attrs_mraw = NULL;
+
+    tkz->state = lxb_html_tokenizer_state_data_before;
+    tkz->state_return = NULL;
+
+    tkz->callback_token_done = aui_lexbor_static_e5d2ac5062_lxb_html_tokenizer_token_done;
+    tkz->callback_token_ctx = NULL;
+
+    tkz->is_eof = false;
+    tkz->status = LXB_STATUS_OK;
+
+    tkz->base = NULL;
+    tkz->ref_count = 1;
+
+    return LXB_STATUS_OK;
+}
+
+lxb_status_t
+lxb_html_tokenizer_inherit(lxb_html_tokenizer_t *tkz_to,
+                           lxb_html_tokenizer_t *tkz_from)
+{
+    lxb_status_t status;
+
+    tkz_to->tags = tkz_from->tags;
+    tkz_to->attrs = tkz_from->attrs;
+    tkz_to->attrs_mraw = tkz_from->attrs_mraw;
+    tkz_to->mraw = tkz_from->mraw;
+
+    /* Token and Attributes */
+    tkz_to->token = NULL;
+
+    tkz_to->dobj_token = tkz_from->dobj_token;
+    tkz_to->dobj_token_attr = tkz_from->dobj_token_attr;
+
+    /* Parse errors */
+    tkz_to->parse_errors = lexbor_array_obj_create();
+    status = lexbor_array_obj_init(tkz_to->parse_errors, 16,
+                                   sizeof(lxb_html_tokenizer_error_t));
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    tkz_to->state = lxb_html_tokenizer_state_data_before;
+    tkz_to->state_return = NULL;
+
+    tkz_to->callback_token_done = aui_lexbor_static_e5d2ac5062_lxb_html_tokenizer_token_done;
+    tkz_to->callback_token_ctx = NULL;
+
+    tkz_to->is_eof = false;
+    tkz_to->status = LXB_STATUS_OK;
+
+    tkz_to->base = tkz_from;
+    tkz_to->ref_count = 1;
+
+    tkz_to->start = tkz_from->start;
+    tkz_to->end = tkz_from->end;
+    tkz_to->pos = tkz_to->start;
+
+    return LXB_STATUS_OK;
+}
+
+lxb_html_tokenizer_t *
+lxb_html_tokenizer_ref(lxb_html_tokenizer_t *tkz)
+{
+    if (tkz == NULL) {
+        return NULL;
+    }
+
+    if (tkz->base != NULL) {
+        return lxb_html_tokenizer_ref(tkz->base);
+    }
+
+    tkz->ref_count++;
+
+    return tkz;
+}
+
+lxb_html_tokenizer_t *
+lxb_html_tokenizer_unref(lxb_html_tokenizer_t *tkz)
+{
+    if (tkz == NULL || tkz->ref_count == 0) {
+        return NULL;
+    }
+
+    if (tkz->base != NULL) {
+        tkz->base = lxb_html_tokenizer_unref(tkz->base);
+    }
+
+    tkz->ref_count--;
+
+    if (tkz->ref_count == 0) {
+        lxb_html_tokenizer_destroy(tkz);
+    }
+
+    return NULL;
+}
+
+void
+lxb_html_tokenizer_clean(lxb_html_tokenizer_t *tkz)
+{
+    tkz->tree = NULL;
+
+    tkz->state = lxb_html_tokenizer_state_data_before;
+    tkz->state_return = NULL;
+
+    tkz->is_eof = false;
+    tkz->status = LXB_STATUS_OK;
+
+    tkz->pos = tkz->start;
+
+    lexbor_mraw_clean(tkz->mraw);
+    lexbor_dobject_clean(tkz->dobj_token);
+    lexbor_dobject_clean(tkz->dobj_token_attr);
+
+    lexbor_array_obj_clean(tkz->parse_errors);
+}
+
+lxb_html_tokenizer_t *
+lxb_html_tokenizer_destroy(lxb_html_tokenizer_t *tkz)
+{
+    if (tkz == NULL) {
+        return NULL;
+    }
+
+    if (tkz->base == NULL) {
+        if (tkz->opt & LXB_HTML_TOKENIZER_OPT_TAGS_SELF) {
+            lxb_html_tokenizer_tags_destroy(tkz);
+        }
+
+        if (tkz->opt & LXB_HTML_TOKENIZER_OPT_ATTRS_SELF) {
+            lxb_html_tokenizer_attrs_destroy(tkz);
+        }
+
+        lexbor_mraw_destroy(tkz->mraw, true);
+        lexbor_dobject_destroy(tkz->dobj_token, true);
+        lexbor_dobject_destroy(tkz->dobj_token_attr, true);
+        lexbor_free(tkz->start);
+    }
+
+    tkz->parse_errors = lexbor_array_obj_destroy(tkz->parse_errors, true);
+
+    return lexbor_free(tkz);
+}
+
+lxb_status_t
+lxb_html_tokenizer_tags_make(lxb_html_tokenizer_t *tkz, size_t table_size)
+{
+    tkz->tags = lexbor_hash_create();
+    return lexbor_hash_init(tkz->tags, table_size, sizeof(lxb_tag_data_t));
+}
+
+void
+lxb_html_tokenizer_tags_destroy(lxb_html_tokenizer_t *tkz)
+{
+    tkz->tags = lexbor_hash_destroy(tkz->tags, true);
+}
+
+lxb_status_t
+lxb_html_tokenizer_attrs_make(lxb_html_tokenizer_t *tkz, size_t table_size)
+{
+    tkz->attrs = lexbor_hash_create();
+    return lexbor_hash_init(tkz->attrs, table_size,
+                            sizeof(lxb_dom_attr_data_t));
+}
+
+void
+lxb_html_tokenizer_attrs_destroy(lxb_html_tokenizer_t *tkz)
+{
+    tkz->attrs = lexbor_hash_destroy(tkz->attrs, true);
+}
+
+lxb_status_t
+lxb_html_tokenizer_begin(lxb_html_tokenizer_t *tkz)
+{
+    if (tkz->tags == NULL) {
+        tkz->status = lxb_html_tokenizer_tags_make(tkz, 256);
+        if (tkz->status != LXB_STATUS_OK) {
+            return tkz->status;
+        }
+
+        tkz->opt |= LXB_HTML_TOKENIZER_OPT_TAGS_SELF;
+    }
+
+    if (tkz->attrs == NULL) {
+        tkz->status = lxb_html_tokenizer_attrs_make(tkz, 256);
+        if (tkz->status != LXB_STATUS_OK) {
+            return tkz->status;
+        }
+
+        tkz->opt |= LXB_HTML_TOKENIZER_OPT_ATTRS_SELF;
+    }
+
+    if (tkz->attrs_mraw == NULL) {
+        tkz->attrs_mraw = tkz->mraw;
+
+        tkz->opt |= LXB_HTML_TOKENIZER_OPT_ATTRS_MRAW_SELF;
+    }
+
+    tkz->token = lxb_html_token_create(tkz->dobj_token);
+    if (tkz->token == NULL) {
+        return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
+    }
+
+    return LXB_STATUS_OK;
+}
+
+lxb_status_t
+lxb_html_tokenizer_chunk(lxb_html_tokenizer_t *tkz, const lxb_char_t *data,
+                         size_t size)
+{
+    const lxb_char_t *end = data + size;
+
+    tkz->is_eof = false;
+    tkz->status = LXB_STATUS_OK;
+    tkz->last = end;
+
+    while (data < end) {
+        data = tkz->state(tkz, data, end);
+    }
+
+    return tkz->status;
+}
+
+lxb_status_t
+lxb_html_tokenizer_end(lxb_html_tokenizer_t *tkz)
+{
+    const lxb_char_t *data, *end;
+
+    tkz->status = LXB_STATUS_OK;
+
+    /* Send a fake EOF data. */
+    data = lxb_html_tokenizer_eof;
+    end = lxb_html_tokenizer_eof + 1UL;
+
+    tkz->is_eof = true;
+
+    while (tkz->state(tkz, data, end) < end) {
+        /* empty loop */
+    }
+
+    tkz->is_eof = false;
+
+    if (tkz->status != LXB_STATUS_OK) {
+        return tkz->status;
+    }
+
+    /* Emit fake token: END OF FILE */
+    lxb_html_token_clean(tkz->token);
+
+    tkz->token->tag_id = LXB_TAG__END_OF_FILE;
+
+    tkz->token = tkz->callback_token_done(tkz, tkz->token,
+                                          tkz->callback_token_ctx);
+
+    if (tkz->token == NULL && tkz->status == LXB_STATUS_OK) {
+        tkz->status = LXB_STATUS_ERROR;
+    }
+
+    return tkz->status;
+}
+
+static lxb_html_token_t *
+aui_lexbor_static_e5d2ac5062_lxb_html_tokenizer_token_done(lxb_html_tokenizer_t *tkz,
+                              lxb_html_token_t *token, void *ctx)
+{
+    return token;
+}
+
+lxb_ns_id_t
+lxb_html_tokenizer_current_namespace(lxb_html_tokenizer_t *tkz)
+{
+    if (tkz->tree == NULL) {
+        return LXB_NS__UNDEF;
+    }
+
+    lxb_dom_node_t *node = lxb_html_tree_adjusted_current_node(tkz->tree);
+
+    if (node == NULL) {
+        return LXB_NS__UNDEF;
+    }
+
+    return node->ns;
+}
+
+void
+lxb_html_tokenizer_set_state_by_tag(lxb_html_tokenizer_t *tkz, bool scripting,
+                                    lxb_tag_id_t tag_id, lxb_ns_id_t ns)
+{
+    if (ns != LXB_NS_HTML) {
+        tkz->state = lxb_html_tokenizer_state_data_before;
+
+        return;
+    }
+
+    switch (tag_id) {
+        case LXB_TAG_TITLE:
+        case LXB_TAG_TEXTAREA:
+            tkz->tmp_tag_id = tag_id;
+            tkz->state = lxb_html_tokenizer_state_rcdata_before;
+
+            break;
+
+        case LXB_TAG_STYLE:
+        case LXB_TAG_XMP:
+        case LXB_TAG_IFRAME:
+        case LXB_TAG_NOEMBED:
+        case LXB_TAG_NOFRAMES:
+            tkz->tmp_tag_id = tag_id;
+            tkz->state = lxb_html_tokenizer_state_rawtext_before;
+
+            break;
+
+        case LXB_TAG_SCRIPT:
+            tkz->tmp_tag_id = tag_id;
+            tkz->state = lxb_html_tokenizer_state_script_data_before;
+
+            break;
+
+        case LXB_TAG_NOSCRIPT:
+            if (scripting) {
+                tkz->tmp_tag_id = tag_id;
+                tkz->state = lxb_html_tokenizer_state_rawtext_before;
+
+                return;
+            }
+
+            tkz->state = lxb_html_tokenizer_state_data_before;
+
+            break;
+
+        case LXB_TAG_PLAINTEXT:
+            tkz->state = lxb_html_tokenizer_state_plaintext_before;
+
+            break;
+
+        default:
+            break;
+    }
+}
+
+/*
+ * No inline functions for ABI.
+ */
+void
+lxb_html_tokenizer_status_set_noi(lxb_html_tokenizer_t *tkz,
+                                  lxb_status_t status)
+{
+    lxb_html_tokenizer_status_set(tkz, status);
+}
+
+void
+lxb_html_tokenizer_callback_token_done_set_noi(lxb_html_tokenizer_t *tkz,
+                                               lxb_html_tokenizer_token_f call_func,
+                                               void *ctx)
+{
+    lxb_html_tokenizer_callback_token_done_set(tkz, call_func, ctx);
+}
+
+void *
+lxb_html_tokenizer_callback_token_done_ctx_noi(lxb_html_tokenizer_t *tkz)
+{
+    return lxb_html_tokenizer_callback_token_done_ctx(tkz);
+}
+
+void
+lxb_html_tokenizer_state_set_noi(lxb_html_tokenizer_t *tkz,
+                                 lxb_html_tokenizer_state_f state)
+{
+    lxb_html_tokenizer_state_set(tkz, state);
+}
+
+void
+lxb_html_tokenizer_tmp_tag_id_set_noi(lxb_html_tokenizer_t *tkz,
+                                      lxb_tag_id_t tag_id)
+{
+    lxb_html_tokenizer_tmp_tag_id_set(tkz, tag_id);
+}
+
+lxb_html_tree_t *
+lxb_html_tokenizer_tree_noi(lxb_html_tokenizer_t *tkz)
+{
+    return lxb_html_tokenizer_tree(tkz);
+}
+
+void
+lxb_html_tokenizer_tree_set_noi(lxb_html_tokenizer_t *tkz,
+                                lxb_html_tree_t *tree)
+{
+    lxb_html_tokenizer_tree_set(tkz, tree);
+}
+
+lexbor_mraw_t *
+lxb_html_tokenizer_mraw_noi(lxb_html_tokenizer_t *tkz)
+{
+    return lxb_html_tokenizer_mraw(tkz);
+}
+
+lexbor_hash_t *
+lxb_html_tokenizer_tags_noi(lxb_html_tokenizer_t *tkz)
+{
+    return lxb_html_tokenizer_tags(tkz);
+}
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/core/cpp_compat_undef.h
+// ────────────────────────────────────────────────────────────────────────
+
+/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
+#ifdef aui_lexbor_array_get
+#undef aui_lexbor_array_get
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_get
+#endif
+#ifdef aui_lexbor_array_obj_get
+#undef aui_lexbor_array_obj_get
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
+#endif
+#ifdef aui_lexbor_array_obj_last
+#undef aui_lexbor_array_obj_last
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
+#endif
+#ifdef aui_lexbor_array_obj_pop
+#undef aui_lexbor_array_obj_pop
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
+#endif
+#ifdef aui_lexbor_array_obj_push
+#undef aui_lexbor_array_obj_push
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
+#endif
+#ifdef aui_lexbor_array_obj_push_n
+#undef aui_lexbor_array_obj_push_n
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
+#endif
+#ifdef aui_lexbor_array_obj_push_wo_cls
+#undef aui_lexbor_array_obj_push_wo_cls
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
+#endif
+#ifdef aui_lexbor_array_pop
+#undef aui_lexbor_array_pop
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#undef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
+#endif
+#ifdef aui_lexbor_bst_entry_data
+#undef aui_lexbor_bst_entry_data
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#undef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
+#endif
+#ifdef aui_lexbor_calloc
+#undef aui_lexbor_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_calloc
+#endif
+#ifdef aui_lexbor_dobject_alloc
+#undef aui_lexbor_dobject_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
+#endif
+#ifdef aui_lexbor_dobject_by_absolute_position
+#undef aui_lexbor_dobject_by_absolute_position
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
+#endif
+#ifdef aui_lexbor_dobject_calloc
+#undef aui_lexbor_dobject_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
+#endif
+#ifdef aui_lexbor_dobject_free
+#undef aui_lexbor_dobject_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
+#endif
+#ifdef aui_lexbor_free
+#undef aui_lexbor_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_free
+#endif
+#ifdef aui_lexbor_hash_insert
+#undef aui_lexbor_hash_insert
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
+#endif
+#ifdef aui_lexbor_hash_search
+#undef aui_lexbor_hash_search
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
+#endif
+#ifdef aui_lexbor_malloc
+#undef aui_lexbor_malloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_malloc
+#endif
+#ifdef aui_lexbor_mem_alloc
+#undef aui_lexbor_mem_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
+#endif
+#ifdef aui_lexbor_mem_calloc
+#undef aui_lexbor_mem_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
+#endif
+#ifdef aui_lexbor_mraw_alloc
+#undef aui_lexbor_mraw_alloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
+#endif
+#ifdef aui_lexbor_mraw_calloc
+#undef aui_lexbor_mraw_calloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
+#endif
+#ifdef aui_lexbor_mraw_free
+#undef aui_lexbor_mraw_free
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
+#endif
+#ifdef aui_lexbor_mraw_realloc
+#undef aui_lexbor_mraw_realloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
+#endif
+#ifdef aui_lexbor_realloc
+#undef aui_lexbor_realloc
+#endif
+#ifdef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#undef LXB_CPP_COMPAT_SKIP_lexbor_realloc
+#endif
+#ifdef new
+#undef new
+#endif
+
+
+
+// ────────────────────────────────────────────────────────────────────────
 // external/lexbor/lexbor/html/tokenizer/error.c
 // ────────────────────────────────────────────────────────────────────────
 
@@ -123802,237 +127175,6 @@ lxb_html_tokenizer_error_add(lexbor_array_obj_t *parse_errors,
  *
  * Author: Alexander Borisov <borisov@lexbor.com>
  */
-
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/html/tokenizer/state.h
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2018-2020 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-#ifndef LEXBOR_HTML_TOKENIZER_STATE_H
-#define LEXBOR_HTML_TOKENIZER_STATE_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-
-
-#define lxb_html_tokenizer_state_begin_set(tkz, v_data)                        \
-    (tkz->begin = v_data)
-
-#define lxb_html_tokenizer_state_append_data_m(tkz, v_data)                    \
-    do {                                                                       \
-        if (lxb_html_tokenizer_temp_append_data(tkz, v_data)) {                \
-            return end;                                                        \
-        }                                                                      \
-    }                                                                          \
-    while (0)
-
-#define lxb_html_tokenizer_state_append_m(tkz, v_data, size)                   \
-    do {                                                                       \
-        if (lxb_html_tokenizer_temp_append(tkz, (const lxb_char_t *) (v_data), \
-                                           (size)))                            \
-        {                                                                      \
-            return end;                                                        \
-        }                                                                      \
-    }                                                                          \
-    while (0)
-
-#define lxb_html_tokenizer_state_append_replace_m(tkz)                         \
-    do {                                                                       \
-        if (lxb_html_tokenizer_temp_append(tkz,                                \
-                        lexbor_str_res_ansi_replacement_character,             \
-                        sizeof(lexbor_str_res_ansi_replacement_character) - 1))\
-        {                                                                      \
-            return end;                                                        \
-        }                                                                      \
-    }                                                                          \
-    while (0)
-
-#define lxb_html_tokenizer_state_set_tag_m(tkz, _start, _end)                  \
-    do {                                                                       \
-        const lxb_tag_data_t *tag;                                             \
-        tag = lxb_tag_append_lower(tkz->tags, (_start), (_end) - (_start));    \
-        if (tag == NULL) {                                                     \
-            tkz->status = LXB_STATUS_ERROR_MEMORY_ALLOCATION;                  \
-            return end;                                                        \
-        }                                                                      \
-        tkz->token->tag_id = tag->tag_id;                                      \
-    }                                                                          \
-    while (0)
-
-#define lxb_html_tokenizer_state_set_name_m(tkz)                               \
-    do {                                                                       \
-        lxb_dom_attr_data_t *data;                                             \
-        data = lxb_dom_attr_local_name_append(tkz->attrs, tkz->start,          \
-                                              tkz->pos - tkz->start);          \
-        if (data == NULL) {                                                    \
-            tkz->status = LXB_STATUS_ERROR_MEMORY_ALLOCATION;                  \
-            return end;                                                        \
-        }                                                                      \
-        tkz->token->attr_last->name = data;                                    \
-    }                                                                          \
-    while (0)
-
-#define lxb_html_tokenizer_state_set_value_m(tkz)                              \
-    do {                                                                       \
-        lxb_html_token_attr_t *attr = tkz->token->attr_last;                   \
-                                                                               \
-        attr->value_size = (size_t) (tkz->pos - tkz->start);                   \
-                                                                               \
-        attr->value = (lxb_char_t *) lexbor_mraw_alloc(tkz->attrs_mraw,       \
-                                                       attr->value_size + 1);  \
-        if (attr->value == NULL) {                                             \
-            tkz->status = LXB_STATUS_ERROR_MEMORY_ALLOCATION;                  \
-            return end;                                                        \
-        }                                                                      \
-        memcpy(attr->value, tkz->start, attr->value_size);                     \
-        attr->value[attr->value_size] = 0x00;                                  \
-    }                                                                          \
-    while (0)
-
-#define lxb_html_tokenizer_state_token_set_begin(tkz, v_begin)                 \
-    do {                                                                       \
-        tkz->pos = tkz->start;                                                 \
-        tkz->token->begin = v_begin;                                           \
-    }                                                                          \
-    while (0)
-
-#define lxb_html_tokenizer_state_token_set_end(tkz, v_end)                     \
-    (tkz->token->end = v_end)
-
-#define lxb_html_tokenizer_state_token_set_end_down(tkz, v_end, offset)        \
-    do {                                                                       \
-        tkz->token->end = lexbor_in_node_pos_down(tkz->incoming_node, NULL,    \
-                                                  v_end, offset);              \
-    }                                                                          \
-    while (0)
-
-#define lxb_html_tokenizer_state_token_set_end_oef(tkz)                        \
-    (tkz->token->end = tkz->last)
-
-#define lxb_html_tokenizer_state_token_attr_add_m(tkz, attr, v_return)         \
-    do {                                                                       \
-        attr = lxb_html_token_attr_append(tkz->token, tkz->dobj_token_attr);   \
-        if (attr == NULL) {                                                    \
-            tkz->status = LXB_STATUS_ERROR_MEMORY_ALLOCATION;                  \
-            return v_return;                                                   \
-        }                                                                      \
-    }                                                                          \
-    while (0)
-
-#define lxb_html_tokenizer_state_token_attr_set_name_begin(tkz, v_begin)       \
-    do {                                                                       \
-        tkz->pos = tkz->start;                                                 \
-        tkz->token->attr_last->name_begin = v_begin;                           \
-    }                                                                          \
-    while (0)
-
-#define lxb_html_tokenizer_state_token_attr_set_name_end(tkz, v_end)           \
-    (tkz->token->attr_last->name_end = v_end)
-
-#define lxb_html_tokenizer_state_token_attr_set_name_end_oef(tkz)              \
-    (tkz->token->attr_last->name_end = tkz->last)
-
-#define lxb_html_tokenizer_state_token_attr_set_value_begin(tkz, v_begin)      \
-    do {                                                                       \
-        tkz->pos = tkz->start;                                                 \
-        tkz->token->attr_last->value_begin = v_begin;                          \
-    }                                                                          \
-    while (0)
-
-#define lxb_html_tokenizer_state_token_attr_set_value_end(tkz, v_end)          \
-    (tkz->token->attr_last->value_end = v_end)
-
-#define lxb_html_tokenizer_state_token_attr_set_value_end_oef(tkz)             \
-    (tkz->token->attr_last->value_end = tkz->last)
-
-#define _lxb_html_tokenizer_state_token_done_m(tkz, v_end)                     \
-    tkz->token = tkz->callback_token_done(tkz, tkz->token,                     \
-                                          tkz->callback_token_ctx);            \
-    if (tkz->token == NULL) {                                                  \
-        if (tkz->status == LXB_STATUS_OK) {                                    \
-            tkz->status = LXB_STATUS_ERROR;                                    \
-        }                                                                      \
-        return v_end;                                                          \
-    }
-
-#define lxb_html_tokenizer_state_token_done_m(tkz, v_end)                      \
-    do {                                                                       \
-        if (tkz->token->begin != tkz->token->end) {                            \
-            _lxb_html_tokenizer_state_token_done_m(tkz, v_end)                 \
-        }                                                                      \
-        lxb_html_token_clean(tkz->token);                                      \
-        tkz->pos = tkz->start;                                                 \
-    }                                                                          \
-    while (0)
-
-#define lxb_html_tokenizer_state_token_done_wo_check_m(tkz, v_end)             \
-    do {                                                                       \
-        _lxb_html_tokenizer_state_token_done_m(tkz, v_end)                     \
-        lxb_html_token_clean(tkz->token);                                      \
-    }                                                                          \
-    while (0)
-
-#define lxb_html_tokenizer_state_set_text(tkz)                                 \
-    do {                                                                       \
-        tkz->token->text_start = tkz->start;                                   \
-        tkz->token->text_end = tkz->pos;                                       \
-    }                                                                          \
-    while (0)
-
-#define lxb_html_tokenizer_state_token_emit_text_not_empty_m(tkz, v_end)       \
-    do {                                                                       \
-        if (tkz->token->begin != tkz->token->end) {                            \
-            tkz->token->tag_id = LXB_TAG__TEXT;                                \
-                                                                               \
-            lxb_html_tokenizer_state_set_text(tkz);                            \
-            _lxb_html_tokenizer_state_token_done_m(tkz, v_end)                 \
-            lxb_html_token_clean(tkz->token);                                  \
-        }                                                                      \
-    }                                                                          \
-    while (0)
-
-
-LXB_API const lxb_char_t *
-lxb_html_tokenizer_state_data_before(lxb_html_tokenizer_t *tkz,
-                                     const lxb_char_t *data,
-                                     const lxb_char_t *end);
-
-LXB_API const lxb_char_t *
-lxb_html_tokenizer_state_plaintext_before(lxb_html_tokenizer_t *tkz,
-                                          const lxb_char_t *data,
-                                          const lxb_char_t *end);
-
-LXB_API const lxb_char_t *
-lxb_html_tokenizer_state_before_attribute_name(lxb_html_tokenizer_t *tkz,
-                                               const lxb_char_t *data,
-                                               const lxb_char_t *end);
-
-LXB_API const lxb_char_t *
-lxb_html_tokenizer_state_self_closing_start_tag(lxb_html_tokenizer_t *tkz,
-                                                const lxb_char_t *data,
-                                                const lxb_char_t *end);
-
-LXB_API const lxb_char_t *
-lxb_html_tokenizer_state_cr(lxb_html_tokenizer_t *tkz, const lxb_char_t *data,
-                            const lxb_char_t *end);
-
-LXB_API const lxb_char_t *
-lxb_html_tokenizer_state_char_ref(lxb_html_tokenizer_t *tkz,
-                                  const lxb_char_t *data, const lxb_char_t *end);
-
-
-#ifdef __cplusplus
-} /* extern "C" */
-#endif
-
-#endif /* LEXBOR_HTML_TOKENIZER_STATE_H */
 
 
 // ────────────────────────────────────────────────────────────────────────
@@ -135683,43 +138825,6 @@ aui_lexbor_static_227e285ef5_lxb_html_tokenizer_state_doctype_bogus(lxb_html_tok
  * Author: Alexander Borisov <borisov@lexbor.com>
  */
 
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/html/tokenizer/state_rawtext.h
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2018-2020 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-#ifndef LEXBOR_HTML_TOKENIZER_STATE_RAWTEXT_H
-#define LEXBOR_HTML_TOKENIZER_STATE_RAWTEXT_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-
-
-
-/*
- * Before call function:
- * Must be initialized:
- *     tkz->tmp_tag_id
- */
-LXB_API const lxb_char_t *
-lxb_html_tokenizer_state_rawtext_before(lxb_html_tokenizer_t *tkz,
-                                        const lxb_char_t *data,
-                                        const lxb_char_t *end);
-
-
-#ifdef __cplusplus
-} /* extern "C" */
-#endif
-
-#endif /* LEXBOR_HTML_TOKENIZER_STATE_RAWTEXT_H */
-
 
 
 
@@ -136712,43 +139817,6 @@ done:
  *
  * Author: Alexander Borisov <borisov@lexbor.com>
  */
-
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/html/tokenizer/state_rcdata.h
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2018-2020 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-#ifndef LEXBOR_HTML_TOKENIZER_STATE_RCDATA_H
-#define LEXBOR_HTML_TOKENIZER_STATE_RCDATA_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-
-
-
-/*
- * Before call function:
- * Must be initialized:
- *     tkz->tmp_tag_id
- */
-LXB_API const lxb_char_t *
-lxb_html_tokenizer_state_rcdata_before(lxb_html_tokenizer_t *tkz,
-                                       const lxb_char_t *data,
-                                       const lxb_char_t *end);
-
-
-#ifdef __cplusplus
-} /* extern "C" */
-#endif
-
-#endif /* LEXBOR_HTML_TOKENIZER_STATE_RCDATA_H */
 
 
 
@@ -137750,43 +140818,6 @@ done:
  *
  * Author: Alexander Borisov <borisov@lexbor.com>
  */
-
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/html/tokenizer/state_script.h
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2018-2020 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-#ifndef LEXBOR_HTML_TOKENIZER_STATE_SCRIPT_H
-#define LEXBOR_HTML_TOKENIZER_STATE_SCRIPT_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-
-
-
-/*
- * Before call function:
- * Must be initialized:
- *     tkz->tmp_tag_id
- */
-LXB_API const lxb_char_t *
-lxb_html_tokenizer_state_script_data_before(lxb_html_tokenizer_t *tkz,
-                                            const lxb_char_t *data,
-                                            const lxb_char_t *end);
-
-
-#ifdef __cplusplus
-} /* extern "C" */
-#endif
-
-#endif /* LEXBOR_HTML_TOKENIZER_STATE_SCRIPT_H */
 
 
 
@@ -140103,11 +143134,11 @@ aui_lexbor_static_688b1c0105_lxb_html_tokenizer_state_script_data_double_escape_
 
 
 // ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/html/tokenizer.c
+// external/lexbor/lexbor/html/tree.c
 // ────────────────────────────────────────────────────────────────────────
 
 /*
- * Copyright (C) 2018-2020 Alexander Borisov
+ * Copyright (C) 2018-2022 Alexander Borisov
  *
  * Author: Alexander Borisov <borisov@lexbor.com>
  */
@@ -140118,11 +143149,8 @@ aui_lexbor_static_688b1c0105_lxb_html_tokenizer_state_script_data_double_escape_
 
 
 
-
-#define LXB_HTML_TAG_RES_DATA
-#define LXB_HTML_TAG_RES_SHS_DATA
 // ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/html/tag_res.h
+// external/lexbor/lexbor/html/tree_res.h
 // ────────────────────────────────────────────────────────────────────────
 
 /*
@@ -140131,2262 +143159,1579 @@ aui_lexbor_static_688b1c0105_lxb_html_tokenizer_state_script_data_double_escape_
  * Author: Alexander Borisov <borisov@lexbor.com>
  */
 
+#ifndef LEXBOR_HTML_TREE_RES_H
+#define LEXBOR_HTML_TREE_RES_H
+
+
+typedef struct {
+    const char *from;
+    const char *to;
+    size_t     len;
+}
+lxb_html_tree_res_attr_adjust_t;
+
+typedef struct {
+    const char       *name;
+    const char       *prefix;
+    const char       *local_name;
+
+    size_t           name_len;
+    size_t           prefix_len;
+
+    lxb_ns_id_t      ns;
+}
+lxb_html_tree_res_attr_adjust_foreign_t;
+
+
+static const lxb_html_tree_res_attr_adjust_t
+lxb_html_tree_res_attr_adjust_svg_map[] =
+{
+    {"attributename", "attributeName", 13},
+    {"attributetype", "attributeType", 13},
+    {"basefrequency", "baseFrequency", 13},
+    {"baseprofile", "baseProfile", 11},
+    {"calcmode", "calcMode", 8},
+    {"clippathunits", "clipPathUnits", 13},
+    {"diffuseconstant", "diffuseConstant", 15},
+    {"edgemode", "edgeMode", 8},
+    {"filterunits", "filterUnits", 11},
+    {"glyphref", "glyphRef", 8},
+    {"gradienttransform", "gradientTransform", 17},
+    {"gradientunits", "gradientUnits", 13},
+    {"kernelmatrix", "kernelMatrix", 12},
+    {"kernelunitlength", "kernelUnitLength", 16},
+    {"keypoints", "keyPoints", 9},
+    {"keysplines", "keySplines", 10},
+    {"keytimes", "keyTimes", 8},
+    {"lengthadjust", "lengthAdjust", 12},
+    {"limitingconeangle", "limitingConeAngle", 17},
+    {"markerheight", "markerHeight", 12},
+    {"markerunits", "markerUnits", 11},
+    {"markerwidth", "markerWidth", 11},
+    {"maskcontentunits", "maskContentUnits", 16},
+    {"maskunits", "maskUnits", 9},
+    {"numoctaves", "numOctaves", 10},
+    {"pathlength", "pathLength", 10},
+    {"patterncontentunits", "patternContentUnits", 19},
+    {"patterntransform", "patternTransform", 16},
+    {"patternunits", "patternUnits", 12},
+    {"pointsatx", "pointsAtX", 9},
+    {"pointsaty", "pointsAtY", 9},
+    {"pointsatz", "pointsAtZ", 9},
+    {"preservealpha", "preserveAlpha", 13},
+    {"preserveaspectratio", "preserveAspectRatio", 19},
+    {"primitiveunits", "primitiveUnits", 14},
+    {"refx", "refX", 4},
+    {"refy", "refY", 4},
+    {"repeatcount", "repeatCount", 11},
+    {"repeatdur", "repeatDur", 9},
+    {"requiredextensions", "requiredExtensions", 18},
+    {"requiredfeatures", "requiredFeatures", 16},
+    {"specularconstant", "specularConstant", 16},
+    {"specularexponent", "specularExponent", 16},
+    {"spreadmethod", "spreadMethod", 12},
+    {"startoffset", "startOffset", 11},
+    {"stddeviation", "stdDeviation", 12},
+    {"stitchtiles", "stitchTiles", 11},
+    {"surfacescale", "surfaceScale", 12},
+    {"systemlanguage", "systemLanguage", 14},
+    {"tablevalues", "tableValues", 11},
+    {"targetx", "targetX", 7},
+    {"targety", "targetY", 7},
+    {"textlength", "textLength", 10},
+    {"viewbox", "viewBox", 7},
+    {"viewtarget", "viewTarget", 10},
+    {"xchannelselector", "xChannelSelector", 16},
+    {"ychannelselector", "yChannelSelector", 16},
+    {"zoomandpan", "zoomAndPan", 10},
+};
+
+static const lxb_html_tree_res_attr_adjust_foreign_t
+lxb_html_tree_res_attr_adjust_foreign_map[] =
+{
+    {"xlink:actuate", "xlink", "actuate", 13, 5, LXB_NS_XLINK},
+    {"xlink:arcrole", "xlink", "arcrole", 13, 5, LXB_NS_XLINK},
+    {"xlink:href", "xlink", "href", 10, 5, LXB_NS_XLINK},
+    {"xlink:role", "xlink", "role", 10, 5, LXB_NS_XLINK},
+    {"xlink:show", "xlink", "show", 10, 5, LXB_NS_XLINK},
+    {"xlink:title", "xlink", "title", 11, 5, LXB_NS_XLINK},
+    {"xlink:type", "xlink", "type", 10, 5, LXB_NS_XLINK},
+    {"xml:lang", "xml", "lang", 8, 3, LXB_NS_XML},
+    {"xml:space", "xml", "space", 9, 3, LXB_NS_XML},
+    {"xmlns", "", "xmlns", 5, 0, LXB_NS_XMLNS},
+    {"xmlns:xlink", "xmlns", "xlink", 11, 5, LXB_NS_XMLNS}
+};
+
+
+#endif /* LEXBOR_HTML_TREE_RES_H */
+
+
+
+
+// ────────────────────────────────────────────────────────────────────────
+// external/lexbor/lexbor/html/tree/active_formatting.h
+// ────────────────────────────────────────────────────────────────────────
+
 /*
- * Caution!
- * This file generated by the script "utils/lexbor/tag_ns/tags.py"!
- * Do not change this file!
+ * Copyright (C) 2018 Alexander Borisov
+ *
+ * Author: Alexander Borisov <borisov@lexbor.com>
  */
 
+#ifndef LEXBOR_HTML_ACTIVE_FORMATTING_H
+#define LEXBOR_HTML_ACTIVE_FORMATTING_H
 
-#ifndef LXB_HTML_TAG_RES_H
-#define LXB_HTML_TAG_RES_H
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 
 
-#endif /* LXB_HTML_TAG_RES_H */
 
-#ifdef LXB_TAG_CONST_VERSION
-#ifndef LXB_TAG_CONST_VERSION_A161EC911182C3254E7A972D5C51DF86
-#error Mismatched tags version! See "lexbor/tag/const.h".
-#endif /* LXB_TAG_CONST_VERSION_A161EC911182C3254E7A972D5C51DF86 */
-#else
-#error You need to include "lexbor/tag/const.h".
-#endif /* LXB_TAG_CONST_VERSION */
 
-#ifdef LXB_NS_CONST_VERSION
-#ifndef LXB_NS_CONST_VERSION_253D4AFDA959234B48A478B956C3C777
-#error Mismatched namespaces version! See "lexbor/ns/const.h".
-#endif /* LXB_NS_CONST_VERSION_253D4AFDA959234B48A478B956C3C777 */
-#else
-#error You need to include "lexbor/ns/const.h".
-#endif /* LXB_NS_CONST_VERSION */
 
-#ifdef LXB_HTML_TAG_RES_CATS
-#ifndef LXB_HTML_TAG_RES_CATS_ENABLED
-#define LXB_HTML_TAG_RES_CATS_ENABLED
-static  lxb_html_tag_category_t lxb_html_tag_res_cats[LXB_TAG__LAST_ENTRY][LXB_NS__LAST_ENTRY] =
+lxb_html_element_t *
+lxb_html_tree_active_formatting_marker(void);
+
+void
+lxb_html_tree_active_formatting_up_to_last_marker(lxb_html_tree_t *tree);
+
+void
+lxb_html_tree_active_formatting_remove_by_node(lxb_html_tree_t *tree,
+                                               lxb_dom_node_t *node);
+
+bool
+lxb_html_tree_active_formatting_find_by_node(lxb_html_tree_t *tree,
+                                             lxb_dom_node_t *node,
+                                             size_t *return_pos);
+
+bool
+lxb_html_tree_active_formatting_find_by_node_reverse(lxb_html_tree_t *tree,
+                                                     lxb_dom_node_t *node,
+                                                     size_t *return_pos);
+
+lxb_status_t
+lxb_html_tree_active_formatting_reconstruct_elements(lxb_html_tree_t *tree);
+
+lxb_dom_node_t *
+lxb_html_tree_active_formatting_between_last_marker(lxb_html_tree_t *tree,
+                                                    lxb_tag_id_t tag_idx,
+                                                    size_t *return_idx);
+
+void
+lxb_html_tree_active_formatting_push_with_check_dupl(lxb_html_tree_t *tree,
+                                                     lxb_dom_node_t *node);
+
+
+/*
+ * Inline functions
+ */
+lxb_inline lxb_dom_node_t *
+lxb_html_tree_active_formatting_current_node(lxb_html_tree_t *tree)
 {
-    /* LXB_TAG__UNDEF */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG__END_OF_FILE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG__TEXT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG__DOCUMENT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG__EM_COMMENT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG__EM_DOCTYPE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_A */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_FORMATTING
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_ABBR */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_ACRONYM */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_ADDRESS */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_ALTGLYPH */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_ALTGLYPHDEF */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_ALTGLYPHITEM */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_ANIMATECOLOR */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_ANIMATEMOTION */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_ANIMATETRANSFORM */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_ANNOTATION_XML */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_APPLET */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_AREA */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_ARTICLE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_ASIDE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_AUDIO */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_B */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_FORMATTING
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_BASE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_BASEFONT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_BDI */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_BDO */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_BGSOUND */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_BIG */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_FORMATTING
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_BLINK */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_BLOCKQUOTE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_BODY */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_BR */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_BUTTON */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_CANVAS */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_CAPTION */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_CENTER */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_CITE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_CLIPPATH */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_CODE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_FORMATTING
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_COL */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_COLGROUP */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_DATA */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_DATALIST */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_DD */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_DEL */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_DESC */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_DETAILS */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_DFN */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_DIALOG */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_DIR */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_DIV */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_DL */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_DT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_EM */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_FORMATTING
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_EMBED */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FEBLEND */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FECOLORMATRIX */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FECOMPONENTTRANSFER */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FECOMPOSITE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FECONVOLVEMATRIX */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FEDIFFUSELIGHTING */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FEDISPLACEMENTMAP */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FEDISTANTLIGHT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FEDROPSHADOW */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FEFLOOD */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FEFUNCA */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FEFUNCB */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FEFUNCG */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FEFUNCR */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FEGAUSSIANBLUR */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FEIMAGE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FEMERGE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FEMERGENODE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FEMORPHOLOGY */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FEOFFSET */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FEPOINTLIGHT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FESPECULARLIGHTING */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FESPOTLIGHT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FETILE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FETURBULENCE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FIELDSET */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FIGCAPTION */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FIGURE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FONT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_FORMATTING
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FOOTER */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FOREIGNOBJECT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FORM */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FRAME */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_FRAMESET */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_GLYPHREF */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_H1 */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_H2 */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_H3 */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_H4 */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_H5 */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_H6 */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_HEAD */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_HEADER */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_HGROUP */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_HR */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_HTML */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SCOPE_TABLE
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_I */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_FORMATTING
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_IFRAME */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_IMAGE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_IMG */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_INPUT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_INS */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_ISINDEX */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_KBD */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_KEYGEN */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_LABEL */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_LEGEND */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_LI */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_LINEARGRADIENT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_LINK */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_LISTING */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_MAIN */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_MALIGNMARK */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_ORDINARY,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_MAP */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_MARK */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_MARQUEE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_MATH */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_MENU */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_META */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_METER */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_MFENCED */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_MGLYPH */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_ORDINARY,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_MI */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_MN */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_MO */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_MS */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_MTEXT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_MULTICOL */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_NAV */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_NEXTID */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_NOBR */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_FORMATTING
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_NOEMBED */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_NOFRAMES */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_NOSCRIPT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_OBJECT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_OL */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_OPTGROUP */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY,LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_OPTION */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY,LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_OUTPUT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_P */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_PARAM */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_PATH */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_PICTURE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_PLAINTEXT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_PRE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_PROGRESS */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_Q */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_RADIALGRADIENT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_RB */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_RP */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_RT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_RTC */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_RUBY */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_S */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_FORMATTING
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_SAMP */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_SCRIPT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_SECTION */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_SELECT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_SLOT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_SMALL */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_FORMATTING
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_SOURCE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_SPACER */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_SPAN */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_STRIKE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_FORMATTING
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_STRONG */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_FORMATTING
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_STYLE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_SUB */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_SUMMARY */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_SUP */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_SVG */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_TABLE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SCOPE_TABLE
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_TBODY */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_TD */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_TEMPLATE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SCOPE_TABLE
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_TEXTAREA */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_TEXTPATH */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_TFOOT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_TH */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_THEAD */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_TIME */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_TITLE */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE
-            |LXB_HTML_TAG_CATEGORY_SCOPE_BUTTON
-            |LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_TR */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_TRACK */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_TT */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_FORMATTING
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_U */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_FORMATTING
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_UL */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_LIST_ITEM
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_VAR */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_VIDEO */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_ORDINARY
-            |LXB_HTML_TAG_CATEGORY_SCOPE_SELECT,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_WBR */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
-    },
-    /* LXB_TAG_XMP */
-    {
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY_SCOPE_SELECT
-            |LXB_HTML_TAG_CATEGORY_SPECIAL,
-        LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF,
-        LXB_HTML_TAG_CATEGORY__UNDEF, LXB_HTML_TAG_CATEGORY__UNDEF
+    if (tree->active_formatting->length == 0) {
+        return NULL;
     }
-};
-#endif /* LXB_HTML_TAG_RES_CATS_ENABLED */
-#endif /* LXB_HTML_TAG_RES_CATS */
 
-#ifdef LXB_HTML_TAG_RES_FIXNAME_SVG
-#ifndef LXB_HTML_TAG_RES_FIXNAME_SVG_ENABLED
-#define LXB_HTML_TAG_RES_FIXNAME_SVG_ENABLED
-static  lxb_html_tag_fixname_t lxb_html_tag_res_fixname_svg[LXB_TAG__LAST_ENTRY] =
+    return (lxb_dom_node_t *) tree->active_formatting->list
+        [ (tree->active_formatting->length - 1) ];
+}
+
+lxb_inline lxb_dom_node_t *
+lxb_html_tree_active_formatting_first(lxb_html_tree_t *tree)
 {
-    /* LXB_TAG__UNDEF */
-    {NULL, 0},
-    /* LXB_TAG__END_OF_FILE */
-    {NULL, 0},
-    /* LXB_TAG__TEXT */
-    {NULL, 0},
-    /* LXB_TAG__DOCUMENT */
-    {NULL, 0},
-    /* LXB_TAG__EM_COMMENT */
-    {NULL, 0},
-    /* LXB_TAG__EM_DOCTYPE */
-    {NULL, 0},
-    /* LXB_TAG_A */
-    {NULL, 0},
-    /* LXB_TAG_ABBR */
-    {NULL, 0},
-    /* LXB_TAG_ACRONYM */
-    {NULL, 0},
-    /* LXB_TAG_ADDRESS */
-    {NULL, 0},
-    /* LXB_TAG_ALTGLYPH */
-    {(const lxb_char_t *) "altGlyph", 8},
-    /* LXB_TAG_ALTGLYPHDEF */
-    {(const lxb_char_t *) "altGlyphDef", 11},
-    /* LXB_TAG_ALTGLYPHITEM */
-    {(const lxb_char_t *) "altGlyphItem", 12},
-    /* LXB_TAG_ANIMATECOLOR */
-    {(const lxb_char_t *) "animateColor", 12},
-    /* LXB_TAG_ANIMATEMOTION */
-    {(const lxb_char_t *) "animateMotion", 13},
-    /* LXB_TAG_ANIMATETRANSFORM */
-    {(const lxb_char_t *) "animateTransform", 16},
-    /* LXB_TAG_ANNOTATION_XML */
-    {NULL, 0},
-    /* LXB_TAG_APPLET */
-    {NULL, 0},
-    /* LXB_TAG_AREA */
-    {NULL, 0},
-    /* LXB_TAG_ARTICLE */
-    {NULL, 0},
-    /* LXB_TAG_ASIDE */
-    {NULL, 0},
-    /* LXB_TAG_AUDIO */
-    {NULL, 0},
-    /* LXB_TAG_B */
-    {NULL, 0},
-    /* LXB_TAG_BASE */
-    {NULL, 0},
-    /* LXB_TAG_BASEFONT */
-    {NULL, 0},
-    /* LXB_TAG_BDI */
-    {NULL, 0},
-    /* LXB_TAG_BDO */
-    {NULL, 0},
-    /* LXB_TAG_BGSOUND */
-    {NULL, 0},
-    /* LXB_TAG_BIG */
-    {NULL, 0},
-    /* LXB_TAG_BLINK */
-    {NULL, 0},
-    /* LXB_TAG_BLOCKQUOTE */
-    {NULL, 0},
-    /* LXB_TAG_BODY */
-    {NULL, 0},
-    /* LXB_TAG_BR */
-    {NULL, 0},
-    /* LXB_TAG_BUTTON */
-    {NULL, 0},
-    /* LXB_TAG_CANVAS */
-    {NULL, 0},
-    /* LXB_TAG_CAPTION */
-    {NULL, 0},
-    /* LXB_TAG_CENTER */
-    {NULL, 0},
-    /* LXB_TAG_CITE */
-    {NULL, 0},
-    /* LXB_TAG_CLIPPATH */
-    {(const lxb_char_t *) "clipPath", 8},
-    /* LXB_TAG_CODE */
-    {NULL, 0},
-    /* LXB_TAG_COL */
-    {NULL, 0},
-    /* LXB_TAG_COLGROUP */
-    {NULL, 0},
-    /* LXB_TAG_DATA */
-    {NULL, 0},
-    /* LXB_TAG_DATALIST */
-    {NULL, 0},
-    /* LXB_TAG_DD */
-    {NULL, 0},
-    /* LXB_TAG_DEL */
-    {NULL, 0},
-    /* LXB_TAG_DESC */
-    {NULL, 0},
-    /* LXB_TAG_DETAILS */
-    {NULL, 0},
-    /* LXB_TAG_DFN */
-    {NULL, 0},
-    /* LXB_TAG_DIALOG */
-    {NULL, 0},
-    /* LXB_TAG_DIR */
-    {NULL, 0},
-    /* LXB_TAG_DIV */
-    {NULL, 0},
-    /* LXB_TAG_DL */
-    {NULL, 0},
-    /* LXB_TAG_DT */
-    {NULL, 0},
-    /* LXB_TAG_EM */
-    {NULL, 0},
-    /* LXB_TAG_EMBED */
-    {NULL, 0},
-    /* LXB_TAG_FEBLEND */
-    {(const lxb_char_t *) "feBlend", 7},
-    /* LXB_TAG_FECOLORMATRIX */
-    {(const lxb_char_t *) "feColorMatrix", 13},
-    /* LXB_TAG_FECOMPONENTTRANSFER */
-    {(const lxb_char_t *) "feComponentTransfer", 19},
-    /* LXB_TAG_FECOMPOSITE */
-    {(const lxb_char_t *) "feComposite", 11},
-    /* LXB_TAG_FECONVOLVEMATRIX */
-    {(const lxb_char_t *) "feConvolveMatrix", 16},
-    /* LXB_TAG_FEDIFFUSELIGHTING */
-    {(const lxb_char_t *) "feDiffuseLighting", 17},
-    /* LXB_TAG_FEDISPLACEMENTMAP */
-    {(const lxb_char_t *) "feDisplacementMap", 17},
-    /* LXB_TAG_FEDISTANTLIGHT */
-    {(const lxb_char_t *) "feDistantLight", 14},
-    /* LXB_TAG_FEDROPSHADOW */
-    {(const lxb_char_t *) "feDropShadow", 12},
-    /* LXB_TAG_FEFLOOD */
-    {(const lxb_char_t *) "feFlood", 7},
-    /* LXB_TAG_FEFUNCA */
-    {(const lxb_char_t *) "feFuncA", 7},
-    /* LXB_TAG_FEFUNCB */
-    {(const lxb_char_t *) "feFuncB", 7},
-    /* LXB_TAG_FEFUNCG */
-    {(const lxb_char_t *) "feFuncG", 7},
-    /* LXB_TAG_FEFUNCR */
-    {(const lxb_char_t *) "feFuncR", 7},
-    /* LXB_TAG_FEGAUSSIANBLUR */
-    {(const lxb_char_t *) "feGaussianBlur", 14},
-    /* LXB_TAG_FEIMAGE */
-    {(const lxb_char_t *) "feImage", 7},
-    /* LXB_TAG_FEMERGE */
-    {(const lxb_char_t *) "feMerge", 7},
-    /* LXB_TAG_FEMERGENODE */
-    {(const lxb_char_t *) "feMergeNode", 11},
-    /* LXB_TAG_FEMORPHOLOGY */
-    {(const lxb_char_t *) "feMorphology", 12},
-    /* LXB_TAG_FEOFFSET */
-    {(const lxb_char_t *) "feOffset", 8},
-    /* LXB_TAG_FEPOINTLIGHT */
-    {(const lxb_char_t *) "fePointLight", 12},
-    /* LXB_TAG_FESPECULARLIGHTING */
-    {(const lxb_char_t *) "feSpecularLighting", 18},
-    /* LXB_TAG_FESPOTLIGHT */
-    {(const lxb_char_t *) "feSpotLight", 11},
-    /* LXB_TAG_FETILE */
-    {(const lxb_char_t *) "feTile", 6},
-    /* LXB_TAG_FETURBULENCE */
-    {(const lxb_char_t *) "feTurbulence", 12},
-    /* LXB_TAG_FIELDSET */
-    {NULL, 0},
-    /* LXB_TAG_FIGCAPTION */
-    {NULL, 0},
-    /* LXB_TAG_FIGURE */
-    {NULL, 0},
-    /* LXB_TAG_FONT */
-    {NULL, 0},
-    /* LXB_TAG_FOOTER */
-    {NULL, 0},
-    /* LXB_TAG_FOREIGNOBJECT */
-    {(const lxb_char_t *) "foreignObject", 13},
-    /* LXB_TAG_FORM */
-    {NULL, 0},
-    /* LXB_TAG_FRAME */
-    {NULL, 0},
-    /* LXB_TAG_FRAMESET */
-    {NULL, 0},
-    /* LXB_TAG_GLYPHREF */
-    {(const lxb_char_t *) "glyphRef", 8},
-    /* LXB_TAG_H1 */
-    {NULL, 0},
-    /* LXB_TAG_H2 */
-    {NULL, 0},
-    /* LXB_TAG_H3 */
-    {NULL, 0},
-    /* LXB_TAG_H4 */
-    {NULL, 0},
-    /* LXB_TAG_H5 */
-    {NULL, 0},
-    /* LXB_TAG_H6 */
-    {NULL, 0},
-    /* LXB_TAG_HEAD */
-    {NULL, 0},
-    /* LXB_TAG_HEADER */
-    {NULL, 0},
-    /* LXB_TAG_HGROUP */
-    {NULL, 0},
-    /* LXB_TAG_HR */
-    {NULL, 0},
-    /* LXB_TAG_HTML */
-    {NULL, 0},
-    /* LXB_TAG_I */
-    {NULL, 0},
-    /* LXB_TAG_IFRAME */
-    {NULL, 0},
-    /* LXB_TAG_IMAGE */
-    {NULL, 0},
-    /* LXB_TAG_IMG */
-    {NULL, 0},
-    /* LXB_TAG_INPUT */
-    {NULL, 0},
-    /* LXB_TAG_INS */
-    {NULL, 0},
-    /* LXB_TAG_ISINDEX */
-    {NULL, 0},
-    /* LXB_TAG_KBD */
-    {NULL, 0},
-    /* LXB_TAG_KEYGEN */
-    {NULL, 0},
-    /* LXB_TAG_LABEL */
-    {NULL, 0},
-    /* LXB_TAG_LEGEND */
-    {NULL, 0},
-    /* LXB_TAG_LI */
-    {NULL, 0},
-    /* LXB_TAG_LINEARGRADIENT */
-    {(const lxb_char_t *) "linearGradient", 14},
-    /* LXB_TAG_LINK */
-    {NULL, 0},
-    /* LXB_TAG_LISTING */
-    {NULL, 0},
-    /* LXB_TAG_MAIN */
-    {NULL, 0},
-    /* LXB_TAG_MALIGNMARK */
-    {NULL, 0},
-    /* LXB_TAG_MAP */
-    {NULL, 0},
-    /* LXB_TAG_MARK */
-    {NULL, 0},
-    /* LXB_TAG_MARQUEE */
-    {NULL, 0},
-    /* LXB_TAG_MATH */
-    {NULL, 0},
-    /* LXB_TAG_MENU */
-    {NULL, 0},
-    /* LXB_TAG_META */
-    {NULL, 0},
-    /* LXB_TAG_METER */
-    {NULL, 0},
-    /* LXB_TAG_MFENCED */
-    {NULL, 0},
-    /* LXB_TAG_MGLYPH */
-    {NULL, 0},
-    /* LXB_TAG_MI */
-    {NULL, 0},
-    /* LXB_TAG_MN */
-    {NULL, 0},
-    /* LXB_TAG_MO */
-    {NULL, 0},
-    /* LXB_TAG_MS */
-    {NULL, 0},
-    /* LXB_TAG_MTEXT */
-    {NULL, 0},
-    /* LXB_TAG_MULTICOL */
-    {NULL, 0},
-    /* LXB_TAG_NAV */
-    {NULL, 0},
-    /* LXB_TAG_NEXTID */
-    {NULL, 0},
-    /* LXB_TAG_NOBR */
-    {NULL, 0},
-    /* LXB_TAG_NOEMBED */
-    {NULL, 0},
-    /* LXB_TAG_NOFRAMES */
-    {NULL, 0},
-    /* LXB_TAG_NOSCRIPT */
-    {NULL, 0},
-    /* LXB_TAG_OBJECT */
-    {NULL, 0},
-    /* LXB_TAG_OL */
-    {NULL, 0},
-    /* LXB_TAG_OPTGROUP */
-    {NULL, 0},
-    /* LXB_TAG_OPTION */
-    {NULL, 0},
-    /* LXB_TAG_OUTPUT */
-    {NULL, 0},
-    /* LXB_TAG_P */
-    {NULL, 0},
-    /* LXB_TAG_PARAM */
-    {NULL, 0},
-    /* LXB_TAG_PATH */
-    {NULL, 0},
-    /* LXB_TAG_PICTURE */
-    {NULL, 0},
-    /* LXB_TAG_PLAINTEXT */
-    {NULL, 0},
-    /* LXB_TAG_PRE */
-    {NULL, 0},
-    /* LXB_TAG_PROGRESS */
-    {NULL, 0},
-    /* LXB_TAG_Q */
-    {NULL, 0},
-    /* LXB_TAG_RADIALGRADIENT */
-    {(const lxb_char_t *) "radialGradient", 14},
-    /* LXB_TAG_RB */
-    {NULL, 0},
-    /* LXB_TAG_RP */
-    {NULL, 0},
-    /* LXB_TAG_RT */
-    {NULL, 0},
-    /* LXB_TAG_RTC */
-    {NULL, 0},
-    /* LXB_TAG_RUBY */
-    {NULL, 0},
-    /* LXB_TAG_S */
-    {NULL, 0},
-    /* LXB_TAG_SAMP */
-    {NULL, 0},
-    /* LXB_TAG_SCRIPT */
-    {NULL, 0},
-    /* LXB_TAG_SECTION */
-    {NULL, 0},
-    /* LXB_TAG_SELECT */
-    {NULL, 0},
-    /* LXB_TAG_SLOT */
-    {NULL, 0},
-    /* LXB_TAG_SMALL */
-    {NULL, 0},
-    /* LXB_TAG_SOURCE */
-    {NULL, 0},
-    /* LXB_TAG_SPACER */
-    {NULL, 0},
-    /* LXB_TAG_SPAN */
-    {NULL, 0},
-    /* LXB_TAG_STRIKE */
-    {NULL, 0},
-    /* LXB_TAG_STRONG */
-    {NULL, 0},
-    /* LXB_TAG_STYLE */
-    {NULL, 0},
-    /* LXB_TAG_SUB */
-    {NULL, 0},
-    /* LXB_TAG_SUMMARY */
-    {NULL, 0},
-    /* LXB_TAG_SUP */
-    {NULL, 0},
-    /* LXB_TAG_SVG */
-    {NULL, 0},
-    /* LXB_TAG_TABLE */
-    {NULL, 0},
-    /* LXB_TAG_TBODY */
-    {NULL, 0},
-    /* LXB_TAG_TD */
-    {NULL, 0},
-    /* LXB_TAG_TEMPLATE */
-    {NULL, 0},
-    /* LXB_TAG_TEXTAREA */
-    {NULL, 0},
-    /* LXB_TAG_TEXTPATH */
-    {(const lxb_char_t *) "textPath", 8},
-    /* LXB_TAG_TFOOT */
-    {NULL, 0},
-    /* LXB_TAG_TH */
-    {NULL, 0},
-    /* LXB_TAG_THEAD */
-    {NULL, 0},
-    /* LXB_TAG_TIME */
-    {NULL, 0},
-    /* LXB_TAG_TITLE */
-    {NULL, 0},
-    /* LXB_TAG_TR */
-    {NULL, 0},
-    /* LXB_TAG_TRACK */
-    {NULL, 0},
-    /* LXB_TAG_TT */
-    {NULL, 0},
-    /* LXB_TAG_U */
-    {NULL, 0},
-    /* LXB_TAG_UL */
-    {NULL, 0},
-    /* LXB_TAG_VAR */
-    {NULL, 0},
-    /* LXB_TAG_VIDEO */
-    {NULL, 0},
-    /* LXB_TAG_WBR */
-    {NULL, 0},
-    /* LXB_TAG_XMP */
-    {NULL, 0},
+    return (lxb_dom_node_t *) lexbor_array_get(tree->active_formatting, 0);
+}
 
-};
-#endif /* LXB_HTML_TAG_RES_FIXNAME_SVG_ENABLED */
-#endif /* LXB_HTML_TAG_RES_FIXNAME_SVG */
+lxb_inline lxb_dom_node_t *
+lxb_html_tree_active_formatting_get(lxb_html_tree_t *tree, size_t idx)
+{
+    return (lxb_dom_node_t *) lexbor_array_get(tree->active_formatting, idx);
+}
+
+lxb_inline lxb_status_t
+lxb_html_tree_active_formatting_push(lxb_html_tree_t *tree,
+                                     lxb_dom_node_t *node)
+{
+    return lexbor_array_push(tree->active_formatting, node);
+}
+
+lxb_inline lxb_dom_node_t *
+lxb_html_tree_active_formatting_pop(lxb_html_tree_t *tree)
+{
+    return (lxb_dom_node_t *) lexbor_array_pop(tree->active_formatting);
+}
+
+lxb_inline lxb_status_t
+lxb_html_tree_active_formatting_push_marker(lxb_html_tree_t *tree)
+{
+    return lexbor_array_push(tree->active_formatting,
+                             lxb_html_tree_active_formatting_marker());
+}
+
+lxb_inline lxb_status_t
+lxb_html_tree_active_formatting_insert(lxb_html_tree_t *tree,
+                                       lxb_dom_node_t *node, size_t idx)
+{
+    return lexbor_array_insert(tree->active_formatting, idx, node);
+}
+
+lxb_inline void
+lxb_html_tree_active_formatting_remove(lxb_html_tree_t *tree, size_t idx)
+{
+    lexbor_array_delete(tree->active_formatting, idx, 1);
+}
+
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+#endif /* LEXBOR_HTML_ACTIVE_FORMATTING_H */
+
+
+
+
+
+
+
+
+
+
+
+lxb_dom_attr_data_t *
+lxb_dom_attr_local_name_append(lexbor_hash_t *hash,
+                               const lxb_char_t *name, size_t length);
+
+lxb_dom_attr_data_t *
+lxb_dom_attr_qualified_name_append(lexbor_hash_t *hash, const lxb_char_t *name,
+                                   size_t length);
+
+const lxb_tag_data_t *
+lxb_tag_append_lower(lexbor_hash_t *hash,
+                     const lxb_char_t *name, size_t length);
+
+static lxb_html_token_t *
+aui_lexbor_static_7d96dc3ef1_lxb_html_tree_token_callback(lxb_html_tokenizer_t *tkz,
+                             lxb_html_token_t *token, void *ctx);
+
+static lxb_status_t
+aui_lexbor_static_7d96dc3ef1_lxb_html_tree_insertion_mode(lxb_html_tree_t *tree, lxb_html_token_t *token);
+
+
+lxb_html_tree_t *
+lxb_html_tree_create(void)
+{
+    return (lxb_html_tree_t *) (lexbor_calloc(1, sizeof(lxb_html_tree_t)));
+}
+
+lxb_status_t
+lxb_html_tree_init(lxb_html_tree_t *tree, lxb_html_tokenizer_t *tkz)
+{
+    if (tree == NULL) {
+        return LXB_STATUS_ERROR_OBJECT_IS_NULL;
+    }
+
+    if (tkz == NULL) {
+        return LXB_STATUS_ERROR_WRONG_ARGS;
+    }
+
+    lxb_status_t status;
+
+    /* Stack of open elements */
+    tree->open_elements = lexbor_array_create();
+    status = lexbor_array_init(tree->open_elements, 128);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    /* Stack of active formatting */
+    tree->active_formatting = lexbor_array_create();
+    status = lexbor_array_init(tree->active_formatting, 128);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    /* Stack of template insertion modes */
+    tree->template_insertion_modes = lexbor_array_obj_create();
+    status = lexbor_array_obj_init(tree->template_insertion_modes, 64,
+                                   sizeof(lxb_html_tree_template_insertion_t));
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    /* Stack of pending table character tokens */
+    tree->pending_table.text_list = lexbor_array_obj_create();
+    status = lexbor_array_obj_init(tree->pending_table.text_list, 16,
+                                   sizeof(lexbor_str_t));
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    /* Parse errors */
+    tree->parse_errors = lexbor_array_obj_create();
+    status = lexbor_array_obj_init(tree->parse_errors, 16,
+                                                sizeof(lxb_html_tree_error_t));
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    tree->tkz_ref = lxb_html_tokenizer_ref(tkz);
+
+    tree->document = NULL;
+    tree->fragment = NULL;
+
+    tree->form = NULL;
+
+    tree->foster_parenting = false;
+    tree->frameset_ok = true;
+
+    tree->mode = lxb_html_tree_insertion_mode_initial;
+    tree->before_append_attr = NULL;
+
+    tree->status = LXB_STATUS_OK;
+
+    tree->ref_count = 1;
+
+    lxb_html_tokenizer_callback_token_done_set(tkz,
+                                               aui_lexbor_static_7d96dc3ef1_lxb_html_tree_token_callback,
+                                               tree);
+
+    return LXB_STATUS_OK;
+}
+
+lxb_html_tree_t *
+lxb_html_tree_ref(lxb_html_tree_t *tree)
+{
+    if (tree == NULL) {
+        return NULL;
+    }
+
+    tree->ref_count++;
+
+    return tree;
+}
+
+lxb_html_tree_t *
+lxb_html_tree_unref(lxb_html_tree_t *tree)
+{
+    if (tree == NULL || tree->ref_count == 0) {
+        return NULL;
+    }
+
+    tree->ref_count--;
+
+    if (tree->ref_count == 0) {
+        lxb_html_tree_destroy(tree);
+    }
+
+    return NULL;
+}
+
+void
+lxb_html_tree_clean(lxb_html_tree_t *tree)
+{
+    lexbor_array_clean(tree->open_elements);
+    lexbor_array_clean(tree->active_formatting);
+    lexbor_array_obj_clean(tree->template_insertion_modes);
+    lexbor_array_obj_clean(tree->pending_table.text_list);
+    lexbor_array_obj_clean(tree->parse_errors);
+
+    tree->document = NULL;
+    tree->fragment = NULL;
+
+    tree->form = NULL;
+
+    tree->foster_parenting = false;
+    tree->frameset_ok = true;
+
+    tree->mode = lxb_html_tree_insertion_mode_initial;
+    tree->before_append_attr = NULL;
+
+    tree->status = LXB_STATUS_OK;
+}
+
+lxb_html_tree_t *
+lxb_html_tree_destroy(lxb_html_tree_t *tree)
+{
+    if (tree == NULL) {
+        return NULL;
+    }
+
+    tree->open_elements = lexbor_array_destroy(tree->open_elements, true);
+    tree->active_formatting = lexbor_array_destroy(tree->active_formatting,
+                                                   true);
+    tree->template_insertion_modes = lexbor_array_obj_destroy(tree->template_insertion_modes,
+                                                              true);
+    tree->pending_table.text_list = lexbor_array_obj_destroy(tree->pending_table.text_list,
+                                                             true);
+
+    tree->parse_errors = lexbor_array_obj_destroy(tree->parse_errors, true);
+    tree->tkz_ref = lxb_html_tokenizer_unref(tree->tkz_ref);
+
+    return (lxb_html_tree_t *) (lexbor_free(tree));
+}
+
+static lxb_html_token_t *
+aui_lexbor_static_7d96dc3ef1_lxb_html_tree_token_callback(lxb_html_tokenizer_t *tkz,
+                             lxb_html_token_t *token, void *ctx)
+{
+    lxb_status_t status;
+
+    status = aui_lexbor_static_7d96dc3ef1_lxb_html_tree_insertion_mode((lxb_html_tree_t *) (ctx), token);
+    if (status != LXB_STATUS_OK) {
+        tkz->status = status;
+        return NULL;
+    }
+
+    return token;
+}
+
+/* TODO: not complete!!! */
+lxb_status_t
+lxb_html_tree_stop_parsing(lxb_html_tree_t *tree)
+{
+    tree->document->ready_state = LXB_HTML_DOCUMENT_READY_STATE_COMPLETE;
+
+    return LXB_STATUS_OK;
+}
+
+bool
+lxb_html_tree_process_abort(lxb_html_tree_t *tree)
+{
+    if (tree->status == LXB_STATUS_OK) {
+        tree->status = LXB_STATUS_ABORTED;
+    }
+
+    tree->open_elements->length = 0;
+    tree->document->ready_state = LXB_HTML_DOCUMENT_READY_STATE_COMPLETE;
+
+    return true;
+}
+
+void
+lxb_html_tree_parse_error(lxb_html_tree_t *tree, lxb_html_token_t *token,
+                          lxb_html_tree_error_id_t id)
+{
+    lxb_html_tree_error_add(tree->parse_errors, token, id);
+}
+
+bool
+lxb_html_tree_construction_dispatcher(lxb_html_tree_t *tree,
+                                      lxb_html_token_t *token)
+{
+    lxb_dom_node_t *adjusted;
+
+    adjusted = lxb_html_tree_adjusted_current_node(tree);
+
+    if (adjusted == NULL || adjusted->ns == LXB_NS_HTML) {
+        return tree->mode(tree, token);
+    }
+
+    if (lxb_html_tree_mathml_text_integration_point(adjusted))
+    {
+        if ((token->type & LXB_HTML_TOKEN_TYPE_CLOSE) == 0
+            && token->tag_id != LXB_TAG_MGLYPH
+            && token->tag_id != LXB_TAG_MALIGNMARK)
+        {
+            return tree->mode(tree, token);
+        }
+
+        if (token->tag_id == LXB_TAG__TEXT) {
+            return tree->mode(tree, token);
+        }
+    }
+
+    if (adjusted->local_name == LXB_TAG_ANNOTATION_XML
+        && adjusted->ns == LXB_NS_MATH
+        && (token->type & LXB_HTML_TOKEN_TYPE_CLOSE) == 0
+        && token->tag_id == LXB_TAG_SVG)
+    {
+        return tree->mode(tree, token);
+    }
+
+    if (lxb_html_tree_html_integration_point(adjusted)) {
+        if ((token->type & LXB_HTML_TOKEN_TYPE_CLOSE) == 0
+            || token->tag_id == LXB_TAG__TEXT)
+        {
+            return tree->mode(tree, token);
+        }
+    }
+
+    if (token->tag_id == LXB_TAG__END_OF_FILE) {
+        return tree->mode(tree, token);
+    }
+
+    return lxb_html_tree_insertion_mode_foreign_content(tree, token);
+}
+
+static lxb_status_t
+aui_lexbor_static_7d96dc3ef1_lxb_html_tree_insertion_mode(lxb_html_tree_t *tree, lxb_html_token_t *token)
+{
+    while (lxb_html_tree_construction_dispatcher(tree, token) == false) {}
+
+    return tree->status;
+}
+
+/*
+ * Action
+ */
+lxb_dom_node_t *
+lxb_html_tree_appropriate_place_inserting_node(lxb_html_tree_t *tree,
+                                       lxb_dom_node_t *override_target,
+                                       lxb_html_tree_insertion_position_t *ipos)
+{
+    lxb_dom_node_t *target, *adjusted_location = NULL;
+
+    *ipos = LXB_HTML_TREE_INSERTION_POSITION_CHILD;
+
+    if (override_target != NULL) {
+        target = override_target;
+    }
+    else {
+        target = lxb_html_tree_current_node(tree);
+    }
+
+    if (tree->foster_parenting && target->ns == LXB_NS_HTML
+           && (target->local_name == LXB_TAG_TABLE
+            || target->local_name == LXB_TAG_TBODY
+            || target->local_name == LXB_TAG_TFOOT
+            || target->local_name == LXB_TAG_THEAD
+            || target->local_name == LXB_TAG_TR))
+    {
+        lxb_dom_node_t *last_temp, *last_table;
+        size_t last_temp_idx, last_table_idx;
+
+        last_temp = lxb_html_tree_open_elements_find_reverse(tree,
+                                                          LXB_TAG_TEMPLATE,
+                                                          LXB_NS_HTML,
+                                                          &last_temp_idx);
+
+        last_table = lxb_html_tree_open_elements_find_reverse(tree,
+                                                             LXB_TAG_TABLE,
+                                                             LXB_NS_HTML,
+                                                             &last_table_idx);
+
+        if(last_temp != NULL && (last_table == NULL
+                         || last_temp_idx > last_table_idx))
+        {
+            lxb_dom_document_fragment_t *doc_fragment;
+
+            doc_fragment = lxb_html_interface_template(last_temp)->content;
+
+            return lxb_dom_interface_node(doc_fragment);
+        }
+        else if (last_table == NULL) {
+            adjusted_location = lxb_html_tree_open_elements_first(tree);
+
+            lexbor_assert(adjusted_location != NULL);
+            lexbor_assert(adjusted_location->local_name == LXB_TAG_HTML);
+        }
+        else if (last_table->parent != NULL) {
+            adjusted_location = last_table;
+
+            *ipos = LXB_HTML_TREE_INSERTION_POSITION_BEFORE;
+        }
+        else {
+            lexbor_assert(last_table_idx != 0);
+
+            adjusted_location = lxb_html_tree_open_elements_get(tree,
+                                                            last_table_idx - 1);
+        }
+    }
+    else {
+        adjusted_location = target;
+    }
+
+    if (adjusted_location == NULL) {
+        return NULL;
+    }
+
+    /*
+     * In Spec it is not entirely clear what is meant:
+     *
+     * If the adjusted insertion location is inside a template element,
+     * let it instead be inside the template element's template contents,
+     * after its last child (if any).
+     */
+    if (lxb_html_tree_node_is(adjusted_location, LXB_TAG_TEMPLATE)) {
+        lxb_dom_document_fragment_t *df;
+
+        df = lxb_html_interface_template(adjusted_location)->content;
+        adjusted_location = lxb_dom_interface_node(df);
+    }
+
+    return adjusted_location;
+}
+
+lxb_html_element_t *
+lxb_html_tree_insert_foreign_element(lxb_html_tree_t *tree,
+                                     lxb_html_token_t *token, lxb_ns_id_t ns)
+{
+    lxb_status_t status;
+    lxb_dom_node_t *pos;
+    lxb_html_element_t *element;
+    lxb_html_tree_insertion_position_t ipos;
+
+    pos = lxb_html_tree_appropriate_place_inserting_node(tree, NULL, &ipos);
+    if (pos == NULL) {
+        return NULL;
+    }
+
+    element = lxb_html_tree_create_element_for_token(tree, token, ns);
+    if (element == NULL) {
+        return NULL;
+    }
+
+    lxb_html_tree_insert_node(pos, lxb_dom_interface_node(element), ipos);
+
+    status = lxb_html_tree_open_elements_push(tree,
+                                              lxb_dom_interface_node(element));
+    if (status != LXB_HTML_STATUS_OK) {
+        return (lxb_html_element_t *) (lxb_html_interface_destroy(element));
+    }
+
+    return element;
+}
+
+lxb_html_element_t *
+lxb_html_tree_create_element_for_token(lxb_html_tree_t *tree,
+                                       lxb_html_token_t *token, lxb_ns_id_t ns)
+{
+    lxb_dom_node_t *node = lxb_html_tree_create_node(tree, token->tag_id, ns);
+    if (node == NULL) {
+        return NULL;
+    }
+
+    lxb_status_t status;
+    lxb_dom_element_t *element = lxb_dom_interface_element(node);
+
+    if (token->base_element == NULL) {
+        status = lxb_html_tree_append_attributes(tree, element, token, ns);
+    }
+    else {
+        status = lxb_html_tree_append_attributes_from_element(tree, element,
+                                                       (lxb_dom_element_t *) (token->base_element), ns);
+    }
+
+    if (status != LXB_HTML_STATUS_OK) {
+        return (lxb_html_element_t *) (lxb_html_interface_destroy(element));
+    }
+
+    return lxb_html_interface_element(node);
+}
+
+lxb_status_t
+lxb_html_tree_append_attributes(lxb_html_tree_t *tree,
+                                lxb_dom_element_t *element,
+                                lxb_html_token_t *token, lxb_ns_id_t ns)
+{
+    lxb_status_t status;
+    lxb_dom_attr_t *attr;
+    lxb_html_document_t *doc;
+    lxb_html_token_attr_t *token_attr = token->attr_first;
+
+    doc = lxb_html_interface_document(element->node.owner_document);
+
+    while (token_attr != NULL) {
+        attr = lxb_dom_element_attr_by_local_name_data(element,
+                                                       token_attr->name);
+        if (attr != NULL) {
+            token_attr = token_attr->next;
+            continue;
+        }
+
+        attr = lxb_dom_attr_interface_create(lxb_dom_interface_document(doc));
+        if (attr == NULL) {
+            return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
+        }
+
+        if (token_attr->value_begin != NULL) {
+            status = lxb_dom_attr_set_value_wo_copy(attr, token_attr->value,
+                                                    token_attr->value_size);
+            if (status != LXB_HTML_STATUS_OK) {
+                return status;
+            }
+        }
+
+        attr->node.local_name = token_attr->name->attr_id;
+        attr->node.ns = ns;
+
+        /* Fix for adjust MathML/SVG attributes */
+        if (tree->before_append_attr != NULL) {
+            status = tree->before_append_attr(tree, attr, NULL);
+            if (status != LXB_STATUS_OK) {
+                return status;
+            }
+        }
+
+        lxb_dom_element_attr_append(element, attr);
+
+        token_attr = token_attr->next;
+    }
+
+    return LXB_HTML_STATUS_OK;
+}
+
+lxb_status_t
+lxb_html_tree_append_attributes_from_element(lxb_html_tree_t *tree,
+                                             lxb_dom_element_t *element,
+                                             lxb_dom_element_t *from,
+                                             lxb_ns_id_t ns)
+{
+    lxb_status_t status;
+    lxb_dom_attr_t *attr = from->first_attr;
+    lxb_dom_attr_t *new_attr;
+
+    while (attr != NULL) {
+        new_attr = lxb_dom_attr_interface_create(element->node.owner_document);
+        if (new_attr == NULL) {
+            return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
+        }
+
+        status = lxb_dom_attr_clone_name_value(attr, new_attr);
+        if (status != LXB_HTML_STATUS_OK) {
+            return status;
+        }
+
+        new_attr->node.ns = attr->node.ns;
+
+        /* Fix for  adjust MathML/SVG attributes */
+        if (tree->before_append_attr != NULL) {
+            status = tree->before_append_attr(tree, new_attr, NULL);
+            if (status != LXB_STATUS_OK) {
+                return status;
+            }
+        }
+
+        /* AffineUI fork fix: append the CLONE, not the source element's
+         * attr. Appending `attr` stole it from `from` (owner flipped, the
+         * two elements shared one chain, `new_attr` leaked) — any later
+         * remove/destroy through either element then corrupted the other's
+         * first_attr/last_attr list. */
+        lxb_dom_element_attr_append(element, new_attr);
+
+        attr = attr->next;
+    }
+
+    return LXB_HTML_STATUS_OK;
+}
+
+lxb_status_t
+lxb_html_tree_adjust_mathml_attributes(lxb_html_tree_t *tree,
+                                       lxb_dom_attr_t *attr, void *ctx)
+{
+    lexbor_hash_t *attrs;
+    const lxb_dom_attr_data_t *data;
+
+    attrs = attr->node.owner_document->attrs;
+    data = lxb_dom_attr_data_by_id(attrs, attr->node.local_name);
+
+    if (data->entry.length == 13
+        && lexbor_str_data_cmp(lexbor_hash_entry_str(&data->entry),
+                               (const lxb_char_t *) "definitionurl"))
+    {
+        data = lxb_dom_attr_qualified_name_append(attrs,
+                                      (const lxb_char_t *) "definitionURL", 13);
+        if (data == NULL) {
+            return LXB_STATUS_ERROR;
+        }
+
+        attr->qualified_name = data->attr_id;
+    }
+
+    return LXB_STATUS_OK;
+}
+
+lxb_status_t
+lxb_html_tree_adjust_svg_attributes(lxb_html_tree_t *tree,
+                                    lxb_dom_attr_t *attr, void *ctx)
+{
+    lexbor_hash_t *attrs;
+    const lxb_dom_attr_data_t *data;
+    const lxb_html_tree_res_attr_adjust_t *adjust;
+
+    size_t len = sizeof(lxb_html_tree_res_attr_adjust_svg_map)
+        / sizeof(lxb_html_tree_res_attr_adjust_t);
+
+    attrs = attr->node.owner_document->attrs;
+
+    data = lxb_dom_attr_data_by_id(attrs, attr->node.local_name);
+
+    for (size_t i = 0; i < len; i++) {
+        adjust = &lxb_html_tree_res_attr_adjust_svg_map[i];
+
+        if (data->entry.length == adjust->len
+            && lexbor_str_data_cmp(lexbor_hash_entry_str(&data->entry),
+                                   (const lxb_char_t *) adjust->from))
+        {
+            data = lxb_dom_attr_qualified_name_append(attrs,
+                                (const lxb_char_t *) adjust->to, adjust->len);
+            if (data == NULL) {
+                return LXB_STATUS_ERROR;
+            }
+
+            attr->qualified_name = data->attr_id;
+
+            return LXB_STATUS_OK;
+        }
+    }
+
+    return LXB_STATUS_OK;
+}
+
+lxb_status_t
+lxb_html_tree_adjust_foreign_attributes(lxb_html_tree_t *tree,
+                                        lxb_dom_attr_t *attr, void *ctx)
+{
+    size_t lname_length;
+    lexbor_hash_t *attrs, *prefix;
+    const lxb_dom_attr_data_t *attr_data;
+    const lxb_ns_prefix_data_t *prefix_data;
+    const lxb_dom_attr_data_t *data;
+    const lxb_html_tree_res_attr_adjust_foreign_t *adjust;
+
+    size_t len = sizeof(lxb_html_tree_res_attr_adjust_foreign_map)
+        / sizeof(lxb_html_tree_res_attr_adjust_foreign_t);
+
+    attrs = attr->node.owner_document->attrs;
+    prefix = attr->node.owner_document->prefix;
+
+    data = lxb_dom_attr_data_by_id(attrs, attr->node.local_name);
+
+    for (size_t i = 0; i < len; i++) {
+        adjust = &lxb_html_tree_res_attr_adjust_foreign_map[i];
+
+        if (data->entry.length == adjust->name_len
+            && lexbor_str_data_cmp(lexbor_hash_entry_str(&data->entry),
+                                   (const lxb_char_t *) adjust->name))
+        {
+            if (adjust->prefix_len != 0) {
+                data = lxb_dom_attr_qualified_name_append(attrs,
+                           (const lxb_char_t *) adjust->name, adjust->name_len);
+                if (data == NULL) {
+                    return LXB_STATUS_ERROR;
+                }
+
+                attr->qualified_name = data->attr_id;
+
+                lname_length = adjust->name_len - adjust->prefix_len - 1;
+
+                attr_data = lxb_dom_attr_local_name_append(attrs,
+                         (const lxb_char_t *) adjust->local_name, lname_length);
+                if (attr_data == NULL) {
+                    return LXB_STATUS_ERROR;
+                }
+
+                attr->node.local_name = attr_data->attr_id;
+
+                prefix_data = lxb_ns_prefix_append(prefix,
+                       (const lxb_char_t *) adjust->prefix, adjust->prefix_len);
+                if (prefix_data == NULL) {
+                    return LXB_STATUS_ERROR;
+                }
+
+                attr->node.prefix = prefix_data->prefix_id;
+            }
+
+            attr->node.ns = adjust->ns;
+
+            return LXB_STATUS_OK;
+        }
+    }
+
+    return LXB_STATUS_OK;
+}
+
+lxb_status_t
+lxb_html_tree_insert_character(lxb_html_tree_t *tree, lxb_html_token_t *token,
+                               lxb_dom_node_t **ret_node)
+{
+    size_t size;
+    lxb_status_t status;
+    lexbor_str_t str = {0};
+
+    size = token->text_end - token->text_start;
+
+    lexbor_str_init(&str, tree->document->dom_document.text, size + 1);
+    if (str.data == NULL) {
+        return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
+    }
+
+    memcpy(str.data, token->text_start, size);
+
+    str.data[size] = 0x00;
+    str.length = size;
+
+    status = lxb_html_tree_insert_character_for_data(tree, &str, ret_node);
+    if (status != LXB_STATUS_OK) {
+        return status;
+    }
+
+    return LXB_STATUS_OK;
+}
+
+lxb_status_t
+lxb_html_tree_insert_character_for_data(lxb_html_tree_t *tree,
+                                        lexbor_str_t *str,
+                                        lxb_dom_node_t **ret_node)
+{
+    const lxb_char_t *data;
+    lxb_dom_node_t *pos;
+    lxb_dom_character_data_t *chrs = NULL;
+    lxb_dom_node_t *text = NULL;
+    lxb_html_tree_insertion_position_t ipos;
+
+    if (ret_node != NULL) {
+        *ret_node = NULL;
+    }
+
+    pos = lxb_html_tree_appropriate_place_inserting_node(tree, NULL, &ipos);
+    if (pos == NULL) {
+        return LXB_STATUS_ERROR;
+    }
+
+    if (lxb_html_tree_node_is(pos, LXB_TAG__DOCUMENT)) {
+        goto destroy_str;
+    }
+
+    if (ipos == LXB_HTML_TREE_INSERTION_POSITION_BEFORE) {
+        /* No need check namespace */
+        if (pos->prev != NULL && pos->prev->local_name == LXB_TAG__TEXT) {
+            chrs = lxb_dom_interface_character_data(pos->prev);
+
+            if (ret_node != NULL) {
+                *ret_node = pos->prev;
+            }
+        }
+    }
+    else {
+        /* No need check namespace */
+        if (pos->last_child != NULL
+            && pos->last_child->local_name == LXB_TAG__TEXT)
+        {
+            chrs = lxb_dom_interface_character_data(pos->last_child);
+
+            if (ret_node != NULL) {
+                *ret_node = pos->last_child;
+            }
+        }
+    }
+
+    if (chrs != NULL) {
+        /* This is error. This can not happen, but... */
+        if (chrs->data.data == NULL) {
+            data = lexbor_str_init(&chrs->data, tree->document->dom_document.text,
+                                   str->length);
+            if (data == NULL) {
+                return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
+            }
+        }
+
+        data = lexbor_str_append(&chrs->data, tree->document->dom_document.text,
+                                 str->data, str->length);
+        if (data == NULL) {
+            return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
+        }
+
+        goto destroy_str;
+    }
+
+    text = lxb_html_tree_create_node(tree, LXB_TAG__TEXT,
+                                                     LXB_NS_HTML);
+    if (text == NULL) {
+        return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
+    }
+
+    lxb_dom_interface_text(text)->char_data.data = *str;
+
+    if (ret_node != NULL) {
+        *ret_node = text;
+    }
+
+    lxb_html_tree_insert_node(pos, text, ipos);
+
+    return LXB_STATUS_OK;
+
+destroy_str:
+
+    lexbor_str_destroy(str, tree->document->dom_document.text, false);
+
+    return LXB_STATUS_OK;
+}
+
+lxb_dom_comment_t *
+lxb_html_tree_insert_comment(lxb_html_tree_t *tree,
+                             lxb_html_token_t *token, lxb_dom_node_t *pos)
+{
+    lxb_dom_node_t *node;
+    lxb_dom_comment_t *comment;
+    lxb_html_tree_insertion_position_t ipos;
+
+    if (pos == NULL) {
+        pos = lxb_html_tree_appropriate_place_inserting_node(tree, NULL, &ipos);
+    }
+    else {
+        ipos = LXB_HTML_TREE_INSERTION_POSITION_CHILD;
+    }
+
+    lexbor_assert(pos != NULL);
+
+    node = lxb_html_tree_create_node(tree, token->tag_id, pos->ns);
+    comment = lxb_dom_interface_comment(node);
+
+    if (comment == NULL) {
+        return NULL;
+    }
+
+    tree->status = lxb_html_token_make_text(token, &comment->char_data.data,
+                                            tree->document->dom_document.text);
+    if (tree->status != LXB_STATUS_OK) {
+        return NULL;
+    }
+
+    lxb_html_tree_insert_node(pos, node, ipos);
+
+    return comment;
+}
+
+lxb_dom_document_type_t *
+lxb_html_tree_create_document_type_from_token(lxb_html_tree_t *tree,
+                                              lxb_html_token_t *token)
+{
+    lxb_status_t status;
+    lxb_dom_node_t *doctype_node;
+    lxb_dom_document_type_t *doc_type;
+
+    /* Create */
+    doctype_node = lxb_html_tree_create_node(tree, token->tag_id, LXB_NS_HTML);
+    if (doctype_node == NULL) {
+        return NULL;
+    }
+
+    doc_type = lxb_dom_interface_document_type(doctype_node);
+
+    /* Parse */
+    status = lxb_html_token_doctype_parse(token, doc_type);
+    if (status != LXB_STATUS_OK) {
+        return lxb_dom_document_type_interface_destroy(doc_type);
+    }
+
+    return doc_type;
+}
+
+/*
+ * TODO: need use ref and unref for nodes (ref counter)
+ * Not implemented until the end. It is necessary to finish it.
+ */
+void
+lxb_html_tree_node_delete_deep(lxb_html_tree_t *tree, lxb_dom_node_t *node)
+{
+    lxb_dom_node_remove(node);
+}
+
+lxb_html_element_t *
+lxb_html_tree_generic_rawtext_parsing(lxb_html_tree_t *tree,
+                                      lxb_html_token_t *token)
+{
+    lxb_html_element_t *element;
+
+    element = lxb_html_tree_insert_html_element(tree, token);
+    if (element == NULL) {
+        return NULL;
+    }
+
+    /*
+     * Need for tokenizer state RAWTEXT
+     * See description for 'lxb_html_tokenizer_state_rawtext_before' function
+     */
+    lxb_html_tokenizer_tmp_tag_id_set(tree->tkz_ref, token->tag_id);
+    lxb_html_tokenizer_state_set(tree->tkz_ref,
+                                 lxb_html_tokenizer_state_rawtext_before);
+
+    tree->original_mode = tree->mode;
+    tree->mode = lxb_html_tree_insertion_mode_text;
+
+    return element;
+}
+
+/* Magic of CopyPast power! */
+lxb_html_element_t *
+lxb_html_tree_generic_rcdata_parsing(lxb_html_tree_t *tree,
+                                     lxb_html_token_t *token)
+{
+    lxb_html_element_t *element;
+
+    element = lxb_html_tree_insert_html_element(tree, token);
+    if (element == NULL) {
+        return NULL;
+    }
+
+    /*
+     * Need for tokenizer state RCDATA
+     * See description for 'lxb_html_tokenizer_state_rcdata_before' function
+     */
+    lxb_html_tokenizer_tmp_tag_id_set(tree->tkz_ref, token->tag_id);
+    lxb_html_tokenizer_state_set(tree->tkz_ref,
+                                 lxb_html_tokenizer_state_rcdata_before);
+
+    tree->original_mode = tree->mode;
+    tree->mode = lxb_html_tree_insertion_mode_text;
+
+    return element;
+}
+
+void
+lxb_html_tree_generate_implied_end_tags(lxb_html_tree_t *tree,
+                                        lxb_tag_id_t ex_tag, lxb_ns_id_t ex_ns)
+{
+    lxb_dom_node_t *node;
+
+    lexbor_assert(tree->open_elements != 0);
+
+    while (lexbor_array_length(tree->open_elements) != 0) {
+        node = lxb_html_tree_current_node(tree);
+
+        lexbor_assert(node != NULL);
+
+        switch (node->local_name) {
+            case LXB_TAG_DD:
+            case LXB_TAG_DT:
+            case LXB_TAG_LI:
+            case LXB_TAG_OPTGROUP:
+            case LXB_TAG_OPTION:
+            case LXB_TAG_P:
+            case LXB_TAG_RB:
+            case LXB_TAG_RP:
+            case LXB_TAG_RT:
+            case LXB_TAG_RTC:
+                if(node->local_name == ex_tag && node->ns == ex_ns) {
+                    return;
+                }
+
+                lxb_html_tree_open_elements_pop(tree);
+
+                break;
+
+            default:
+                return;
+        }
+    }
+}
+
+void
+lxb_html_tree_generate_all_implied_end_tags_thoroughly(lxb_html_tree_t *tree,
+                                                       lxb_tag_id_t ex_tag,
+                                                       lxb_ns_id_t ex_ns)
+{
+    lxb_dom_node_t *node;
+
+    lexbor_assert(tree->open_elements != 0);
+
+    while (lexbor_array_length(tree->open_elements) != 0) {
+        node = lxb_html_tree_current_node(tree);
+
+        lexbor_assert(node != NULL);
+
+        switch (node->local_name) {
+            case LXB_TAG_CAPTION:
+            case LXB_TAG_COLGROUP:
+            case LXB_TAG_DD:
+            case LXB_TAG_DT:
+            case LXB_TAG_LI:
+            case LXB_TAG_OPTGROUP:
+            case LXB_TAG_OPTION:
+            case LXB_TAG_P:
+            case LXB_TAG_RB:
+            case LXB_TAG_RP:
+            case LXB_TAG_RT:
+            case LXB_TAG_RTC:
+            case LXB_TAG_TBODY:
+            case LXB_TAG_TD:
+            case LXB_TAG_TFOOT:
+            case LXB_TAG_TH:
+            case LXB_TAG_THEAD:
+            case LXB_TAG_TR:
+                if(node->local_name == ex_tag && node->ns == ex_ns) {
+                    return;
+                }
+
+                lxb_html_tree_open_elements_pop(tree);
+
+                break;
+
+            default:
+                return;
+        }
+    }
+}
+
+void
+lxb_html_tree_reset_insertion_mode_appropriately(lxb_html_tree_t *tree)
+{
+    lxb_dom_node_t *node;
+    size_t idx = tree->open_elements->length;
+
+    /* Step 1 */
+    bool last = false;
+    void **list = tree->open_elements->list;
+
+    /* Step 3 */
+    while (idx != 0) {
+        idx--;
+
+        /* Step 2 */
+        node = (lxb_dom_node_t *) (list[idx]);
+
+        /* Step 3 */
+        if (idx == 0) {
+            last = true;
+
+            if (tree->fragment != NULL) {
+                node = tree->fragment;
+            }
+        }
+
+        lexbor_assert(node != NULL);
+
+        /* Step 16 */
+        if (node->ns != LXB_NS_HTML) {
+            if (last) {
+                tree->mode = lxb_html_tree_insertion_mode_in_body;
+                return;
+            }
+
+            continue;
+        }
+
+        /* Step 4 */
+        if (node->local_name == LXB_TAG_SELECT) {
+            /* Step 4.1 */
+            if (last) {
+                tree->mode = lxb_html_tree_insertion_mode_in_select;
+                return;
+            }
+
+            /* Step 4.2 */
+            size_t ancestor = idx;
+
+            for (;;) {
+                /* Step 4.3 */
+                if (ancestor == 0) {
+                    tree->mode = lxb_html_tree_insertion_mode_in_select;
+                    return;
+                }
+
+                /* Step 4.4 */
+                ancestor--;
+
+                /* Step 4.5 */
+                lxb_dom_node_t *ancestor_node = (lxb_dom_node_t *) (list[ancestor]);
+
+                if(lxb_html_tree_node_is(ancestor_node, LXB_TAG_TEMPLATE)) {
+                    tree->mode = lxb_html_tree_insertion_mode_in_select;
+                    return;
+                }
+
+                /* Step 4.6 */
+                else if(lxb_html_tree_node_is(ancestor_node, LXB_TAG_TABLE)) {
+                    tree->mode = lxb_html_tree_insertion_mode_in_select_in_table;
+                    return;
+                }
+            }
+        }
+
+        /* Step 5-15 */
+        switch (node->local_name) {
+            case LXB_TAG_TD:
+            case LXB_TAG_TH:
+                if (last == false) {
+                    tree->mode = lxb_html_tree_insertion_mode_in_cell;
+                    return;
+                }
+
+                break;
+
+            case LXB_TAG_TR:
+                tree->mode = lxb_html_tree_insertion_mode_in_row;
+                return;
+
+            case LXB_TAG_TBODY:
+            case LXB_TAG_TFOOT:
+            case LXB_TAG_THEAD:
+                tree->mode = lxb_html_tree_insertion_mode_in_table_body;
+                return;
+
+            case LXB_TAG_CAPTION:
+                tree->mode = lxb_html_tree_insertion_mode_in_caption;
+                return;
+
+            case LXB_TAG_COLGROUP:
+                tree->mode = lxb_html_tree_insertion_mode_in_column_group;
+                return;
+
+            case LXB_TAG_TABLE:
+                tree->mode = lxb_html_tree_insertion_mode_in_table;
+                return;
+
+            case LXB_TAG_TEMPLATE:
+                tree->mode = lxb_html_tree_template_insertion_current(tree);
+
+                lexbor_assert(tree->mode != NULL);
+
+                return;
+
+            case LXB_TAG_HEAD:
+                if (last == false) {
+                    tree->mode = lxb_html_tree_insertion_mode_in_head;
+                    return;
+                }
+
+                break;
+
+            case LXB_TAG_BODY:
+                tree->mode = lxb_html_tree_insertion_mode_in_body;
+                return;
+
+            case LXB_TAG_FRAMESET:
+                tree->mode = lxb_html_tree_insertion_mode_in_frameset;
+                return;
+
+            case LXB_TAG_HTML: {
+                if (tree->document->head == NULL) {
+                    tree->mode = lxb_html_tree_insertion_mode_before_head;
+                    return;
+                }
+
+                tree->mode = lxb_html_tree_insertion_mode_after_head;
+                return;
+            }
+
+            default:
+                break;
+        }
+
+        /* Step 16 */
+        if (last) {
+            tree->mode = lxb_html_tree_insertion_mode_in_body;
+            return;
+        }
+    }
+}
+
+lxb_dom_node_t *
+lxb_html_tree_element_in_scope(lxb_html_tree_t *tree, lxb_tag_id_t tag_id,
+                               lxb_ns_id_t ns, lxb_html_tag_category_t ct)
+{
+    lxb_dom_node_t *node;
+
+    size_t idx = tree->open_elements->length;
+    void **list = tree->open_elements->list;
+
+    while (idx != 0) {
+        idx--;
+        node = (lxb_dom_node_t *) (list[idx]);
+
+        if (node->local_name == tag_id && node->ns == ns) {
+            return node;
+        }
+
+        if (lxb_html_tag_is_category(node->local_name, node->ns, ct)) {
+            return NULL;
+        }
+    }
+
+    return NULL;
+}
+
+lxb_dom_node_t *
+lxb_html_tree_element_in_scope_by_node(lxb_html_tree_t *tree,
+                                       lxb_dom_node_t *by_node,
+                                       lxb_html_tag_category_t ct)
+{
+    lxb_dom_node_t *node;
+
+    size_t idx = tree->open_elements->length;
+    void **list = tree->open_elements->list;
+
+    while (idx != 0) {
+        idx--;
+        node = (lxb_dom_node_t *) (list[idx]);
+
+        if (node == by_node) {
+            return node;
+        }
+
+        if (lxb_html_tag_is_category(node->local_name, node->ns, ct)) {
+            return NULL;
+        }
+    }
+
+    return NULL;
+}
+
+lxb_dom_node_t *
+lxb_html_tree_element_in_scope_h123456(lxb_html_tree_t *tree)
+{
+    lxb_dom_node_t *node;
+
+    size_t idx = tree->open_elements->length;
+    void **list = tree->open_elements->list;
+
+    while (idx != 0) {
+        idx--;
+        node = (lxb_dom_node_t *) (list[idx]);
+
+        switch (node->local_name) {
+            case LXB_TAG_H1:
+            case LXB_TAG_H2:
+            case LXB_TAG_H3:
+            case LXB_TAG_H4:
+            case LXB_TAG_H5:
+            case LXB_TAG_H6:
+                if (node->ns == LXB_NS_HTML) {
+                    return node;
+                }
+
+                break;
+
+            default:
+                break;
+        }
+
+        if (lxb_html_tag_is_category(node->local_name, LXB_NS_HTML,
+                                     LXB_HTML_TAG_CATEGORY_SCOPE))
+        {
+            return NULL;
+        }
+    }
+
+    return NULL;
+}
+
+lxb_dom_node_t *
+lxb_html_tree_element_in_scope_tbody_thead_tfoot(lxb_html_tree_t *tree)
+{
+    lxb_dom_node_t *node;
+
+    size_t idx = tree->open_elements->length;
+    void **list = tree->open_elements->list;
+
+    while (idx != 0) {
+        idx--;
+        node = (lxb_dom_node_t *) (list[idx]);
+
+        switch (node->local_name) {
+            case LXB_TAG_TBODY:
+            case LXB_TAG_THEAD:
+            case LXB_TAG_TFOOT:
+                if (node->ns == LXB_NS_HTML) {
+                    return node;
+                }
+
+                break;
+
+            default:
+                break;
+        }
+
+        if (lxb_html_tag_is_category(node->local_name, LXB_NS_HTML,
+                                     LXB_HTML_TAG_CATEGORY_SCOPE_TABLE))
+        {
+            return NULL;
+        }
+    }
+
+    return NULL;
+}
+
+lxb_dom_node_t *
+lxb_html_tree_element_in_scope_td_th(lxb_html_tree_t *tree)
+{
+    lxb_dom_node_t *node;
+
+    size_t idx = tree->open_elements->length;
+    void **list = tree->open_elements->list;
+
+    while (idx != 0) {
+        idx--;
+        node = (lxb_dom_node_t *) (list[idx]);
+
+        switch (node->local_name) {
+            case LXB_TAG_TD:
+            case LXB_TAG_TH:
+                if (node->ns == LXB_NS_HTML) {
+                    return node;
+                }
+
+                break;
+
+            default:
+                break;
+        }
+
+        if (lxb_html_tag_is_category(node->local_name, LXB_NS_HTML,
+                                     LXB_HTML_TAG_CATEGORY_SCOPE_TABLE))
+        {
+            return NULL;
+        }
+    }
+
+    return NULL;
+}
+
+bool
+lxb_html_tree_check_scope_element(lxb_html_tree_t *tree)
+{
+    lxb_dom_node_t *node;
+
+    for (size_t i = 0; i < tree->open_elements->length; i++) {
+        node = (lxb_dom_node_t *) (tree->open_elements->list[i]);
+
+        switch (node->local_name) {
+            case LXB_TAG_DD:
+            case LXB_TAG_DT:
+            case LXB_TAG_LI:
+            case LXB_TAG_OPTGROUP:
+            case LXB_TAG_OPTION:
+            case LXB_TAG_P:
+            case LXB_TAG_RB:
+            case LXB_TAG_RP:
+            case LXB_TAG_RT:
+            case LXB_TAG_RTC:
+            case LXB_TAG_TBODY:
+            case LXB_TAG_TD:
+            case LXB_TAG_TFOOT:
+            case LXB_TAG_TH:
+            case LXB_TAG_THEAD:
+            case LXB_TAG_TR:
+            case LXB_TAG_BODY:
+            case LXB_TAG_HTML:
+                return true;
+
+            default:
+                break;
+        }
+    }
+
+    return false;
+}
+
+void
+lxb_html_tree_close_p_element(lxb_html_tree_t *tree, lxb_html_token_t *token)
+{
+    lxb_html_tree_generate_implied_end_tags(tree, LXB_TAG_P, LXB_NS_HTML);
+
+    lxb_dom_node_t *node = lxb_html_tree_current_node(tree);
+
+    if (lxb_html_tree_node_is(node, LXB_TAG_P) == false) {
+        lxb_html_tree_parse_error(tree, token,
+                                  LXB_HTML_RULES_ERROR_UNELINOPELST);
+    }
+
+    lxb_html_tree_open_elements_pop_until_tag_id(tree, LXB_TAG_P, LXB_NS_HTML,
+                                                 true);
+}
 
 
 #define new lexbor_cpp_new
@@ -142490,487 +144835,370 @@ inline ptr_proxy ptr(const void *p) { return {const_cast<void *>(p)}; }
 
 
 
-
-#define LXB_HTML_TKZ_TEMP_SIZE (4096 * 4)
-
-
-enum {
-    LXB_HTML_TOKENIZER_OPT_UNDEF           = 0x00,
-    LXB_HTML_TOKENIZER_OPT_TAGS_SELF       = 0x01,
-    LXB_HTML_TOKENIZER_OPT_ATTRS_SELF      = 0x02,
-    LXB_HTML_TOKENIZER_OPT_ATTRS_MRAW_SELF = 0x04
-};
-
-
-const lxb_char_t *lxb_html_tokenizer_eof = (const lxb_char_t *) "\x00";
-
-
-static lxb_html_token_t *
-aui_lexbor_static_e5d2ac5062_lxb_html_tokenizer_token_done(lxb_html_tokenizer_t *tkz,
-                              lxb_html_token_t *token, void *ctx);
-
-
-lxb_html_tokenizer_t *
-lxb_html_tokenizer_create(void)
+bool
+lxb_html_tree_adoption_agency_algorithm(lxb_html_tree_t *tree,
+                                        lxb_html_token_t *token,
+                                        lxb_status_t *status)
 {
-    return lexbor_calloc(1, sizeof(lxb_html_tokenizer_t));
-}
+    lexbor_assert(tree->open_elements->length != 0);
 
-lxb_status_t
-lxb_html_tokenizer_init(lxb_html_tokenizer_t *tkz)
-{
-    lxb_status_t status;
+    /* State 1 */
+    bool is;
+    short outer_loop;
+    lxb_html_element_t *element;
+    lxb_dom_node_t *node, *marker, **oel_list, **afe_list;
 
-    if (tkz == NULL) {
-        return LXB_STATUS_ERROR_OBJECT_IS_NULL;
+    lxb_tag_id_t subject = token->tag_id;
+
+    oel_list = (lxb_dom_node_t **) tree->open_elements->list;
+    afe_list = (lxb_dom_node_t **) tree->active_formatting->list;
+    marker = (lxb_dom_node_t *) lxb_html_tree_active_formatting_marker();
+
+    *status = LXB_STATUS_OK;
+
+    /* State 2 */
+    node = lxb_html_tree_current_node(tree);
+    lexbor_assert(node != NULL);
+
+    if (lxb_html_tree_node_is(node, subject)) {
+        is = lxb_html_tree_active_formatting_find_by_node_reverse(tree, node,
+                                                                  NULL);
+        if (is == false) {
+            lxb_html_tree_open_elements_pop(tree);
+
+            return false;
+        }
     }
 
-    /* mraw for templary strings or structures */
-    tkz->mraw = lexbor_mraw_create();
-    status = lexbor_mraw_init(tkz->mraw, 1024);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
+    /* State 3 */
+    outer_loop = 0;
 
-    /* Init Token */
-    tkz->token = NULL;
+    /* State 4 */
+    while (outer_loop < 8) {
+        /* State 5 */
+        outer_loop++;
 
-    tkz->dobj_token = lexbor_dobject_create();
-    status = lexbor_dobject_init(tkz->dobj_token,
-                                 4096, sizeof(lxb_html_token_t));
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
+        /* State 6 */
+        size_t formatting_index = 0;
+        size_t idx = tree->active_formatting->length;
+        lxb_dom_node_t *formatting_element = NULL;
 
-    /* Init Token Attributes */
-    tkz->dobj_token_attr = lexbor_dobject_create();
-    status = lexbor_dobject_init(tkz->dobj_token_attr, 4096,
-                                 sizeof(lxb_html_token_attr_t));
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
+        while (idx) {
+            idx--;
 
-    /* Parse errors */
-    tkz->parse_errors = lexbor_array_obj_create();
-    status = lexbor_array_obj_init(tkz->parse_errors, 16,
-                                   sizeof(lxb_html_tokenizer_error_t));
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
+            if (afe_list[idx] == marker) {
+                    return true;
+            }
+            else if (afe_list[idx]->local_name == subject) {
+                formatting_index = idx;
+                formatting_element = afe_list[idx];
 
-    /* Temporary memory for tag name and attributes. */
-    tkz->start = lexbor_malloc(LXB_HTML_TKZ_TEMP_SIZE * sizeof(lxb_char_t));
-    if (tkz->start == NULL) {
-        return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
-    }
-
-    tkz->pos = tkz->start;
-    tkz->end = tkz->start + LXB_HTML_TKZ_TEMP_SIZE;
-
-    tkz->tree = NULL;
-    tkz->tags = NULL;
-    tkz->attrs = NULL;
-    tkz->attrs_mraw = NULL;
-
-    tkz->state = lxb_html_tokenizer_state_data_before;
-    tkz->state_return = NULL;
-
-    tkz->callback_token_done = aui_lexbor_static_e5d2ac5062_lxb_html_tokenizer_token_done;
-    tkz->callback_token_ctx = NULL;
-
-    tkz->is_eof = false;
-    tkz->status = LXB_STATUS_OK;
-
-    tkz->base = NULL;
-    tkz->ref_count = 1;
-
-    return LXB_STATUS_OK;
-}
-
-lxb_status_t
-lxb_html_tokenizer_inherit(lxb_html_tokenizer_t *tkz_to,
-                           lxb_html_tokenizer_t *tkz_from)
-{
-    lxb_status_t status;
-
-    tkz_to->tags = tkz_from->tags;
-    tkz_to->attrs = tkz_from->attrs;
-    tkz_to->attrs_mraw = tkz_from->attrs_mraw;
-    tkz_to->mraw = tkz_from->mraw;
-
-    /* Token and Attributes */
-    tkz_to->token = NULL;
-
-    tkz_to->dobj_token = tkz_from->dobj_token;
-    tkz_to->dobj_token_attr = tkz_from->dobj_token_attr;
-
-    /* Parse errors */
-    tkz_to->parse_errors = lexbor_array_obj_create();
-    status = lexbor_array_obj_init(tkz_to->parse_errors, 16,
-                                   sizeof(lxb_html_tokenizer_error_t));
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    tkz_to->state = lxb_html_tokenizer_state_data_before;
-    tkz_to->state_return = NULL;
-
-    tkz_to->callback_token_done = aui_lexbor_static_e5d2ac5062_lxb_html_tokenizer_token_done;
-    tkz_to->callback_token_ctx = NULL;
-
-    tkz_to->is_eof = false;
-    tkz_to->status = LXB_STATUS_OK;
-
-    tkz_to->base = tkz_from;
-    tkz_to->ref_count = 1;
-
-    tkz_to->start = tkz_from->start;
-    tkz_to->end = tkz_from->end;
-    tkz_to->pos = tkz_to->start;
-
-    return LXB_STATUS_OK;
-}
-
-lxb_html_tokenizer_t *
-lxb_html_tokenizer_ref(lxb_html_tokenizer_t *tkz)
-{
-    if (tkz == NULL) {
-        return NULL;
-    }
-
-    if (tkz->base != NULL) {
-        return lxb_html_tokenizer_ref(tkz->base);
-    }
-
-    tkz->ref_count++;
-
-    return tkz;
-}
-
-lxb_html_tokenizer_t *
-lxb_html_tokenizer_unref(lxb_html_tokenizer_t *tkz)
-{
-    if (tkz == NULL || tkz->ref_count == 0) {
-        return NULL;
-    }
-
-    if (tkz->base != NULL) {
-        tkz->base = lxb_html_tokenizer_unref(tkz->base);
-    }
-
-    tkz->ref_count--;
-
-    if (tkz->ref_count == 0) {
-        lxb_html_tokenizer_destroy(tkz);
-    }
-
-    return NULL;
-}
-
-void
-lxb_html_tokenizer_clean(lxb_html_tokenizer_t *tkz)
-{
-    tkz->tree = NULL;
-
-    tkz->state = lxb_html_tokenizer_state_data_before;
-    tkz->state_return = NULL;
-
-    tkz->is_eof = false;
-    tkz->status = LXB_STATUS_OK;
-
-    tkz->pos = tkz->start;
-
-    lexbor_mraw_clean(tkz->mraw);
-    lexbor_dobject_clean(tkz->dobj_token);
-    lexbor_dobject_clean(tkz->dobj_token_attr);
-
-    lexbor_array_obj_clean(tkz->parse_errors);
-}
-
-lxb_html_tokenizer_t *
-lxb_html_tokenizer_destroy(lxb_html_tokenizer_t *tkz)
-{
-    if (tkz == NULL) {
-        return NULL;
-    }
-
-    if (tkz->base == NULL) {
-        if (tkz->opt & LXB_HTML_TOKENIZER_OPT_TAGS_SELF) {
-            lxb_html_tokenizer_tags_destroy(tkz);
+                break;
+            }
         }
 
-        if (tkz->opt & LXB_HTML_TOKENIZER_OPT_ATTRS_SELF) {
-            lxb_html_tokenizer_attrs_destroy(tkz);
+        if (formatting_element == NULL) {
+            return true;
         }
 
-        lexbor_mraw_destroy(tkz->mraw, true);
-        lexbor_dobject_destroy(tkz->dobj_token, true);
-        lexbor_dobject_destroy(tkz->dobj_token_attr, true);
-        lexbor_free(tkz->start);
-    }
+        /* State 7 */
+        size_t oel_formatting_idx;
+        is = lxb_html_tree_open_elements_find_by_node_reverse(tree,
+                                                              formatting_element,
+                                                              &oel_formatting_idx);
+        if (is == false) {
+            lxb_html_tree_parse_error(tree, token,
+                                      LXB_HTML_RULES_ERROR_MIELINOPELST);
 
-    tkz->parse_errors = lexbor_array_obj_destroy(tkz->parse_errors, true);
+            lxb_html_tree_active_formatting_remove_by_node(tree,
+                                                           formatting_element);
 
-    return lexbor_free(tkz);
-}
-
-lxb_status_t
-lxb_html_tokenizer_tags_make(lxb_html_tokenizer_t *tkz, size_t table_size)
-{
-    tkz->tags = lexbor_hash_create();
-    return lexbor_hash_init(tkz->tags, table_size, sizeof(lxb_tag_data_t));
-}
-
-void
-lxb_html_tokenizer_tags_destroy(lxb_html_tokenizer_t *tkz)
-{
-    tkz->tags = lexbor_hash_destroy(tkz->tags, true);
-}
-
-lxb_status_t
-lxb_html_tokenizer_attrs_make(lxb_html_tokenizer_t *tkz, size_t table_size)
-{
-    tkz->attrs = lexbor_hash_create();
-    return lexbor_hash_init(tkz->attrs, table_size,
-                            sizeof(lxb_dom_attr_data_t));
-}
-
-void
-lxb_html_tokenizer_attrs_destroy(lxb_html_tokenizer_t *tkz)
-{
-    tkz->attrs = lexbor_hash_destroy(tkz->attrs, true);
-}
-
-lxb_status_t
-lxb_html_tokenizer_begin(lxb_html_tokenizer_t *tkz)
-{
-    if (tkz->tags == NULL) {
-        tkz->status = lxb_html_tokenizer_tags_make(tkz, 256);
-        if (tkz->status != LXB_STATUS_OK) {
-            return tkz->status;
+            return false;
         }
 
-        tkz->opt |= LXB_HTML_TOKENIZER_OPT_TAGS_SELF;
-    }
-
-    if (tkz->attrs == NULL) {
-        tkz->status = lxb_html_tokenizer_attrs_make(tkz, 256);
-        if (tkz->status != LXB_STATUS_OK) {
-            return tkz->status;
+        /* State 8 */
+        node = lxb_html_tree_element_in_scope_by_node(tree, formatting_element,
+                                                      LXB_HTML_TAG_CATEGORY_SCOPE);
+        if (node == NULL) {
+            lxb_html_tree_parse_error(tree, token,
+                                      LXB_HTML_RULES_ERROR_MIELINSC);
+            return false;
         }
 
-        tkz->opt |= LXB_HTML_TOKENIZER_OPT_ATTRS_SELF;
-    }
+        /* State 9 */
+        node = lxb_html_tree_current_node(tree);
 
-    if (tkz->attrs_mraw == NULL) {
-        tkz->attrs_mraw = tkz->mraw;
+        if (formatting_element != node) {
+            lxb_html_tree_parse_error(tree, token,
+                                      LXB_HTML_RULES_ERROR_UNELINOPELST);
+        }
 
-        tkz->opt |= LXB_HTML_TOKENIZER_OPT_ATTRS_MRAW_SELF;
-    }
+        /* State 10 */
+        lxb_dom_node_t *furthest_block = NULL;
+        size_t furthest_block_idx = 0;
+        size_t oel_idx = tree->open_elements->length;
 
-    tkz->token = lxb_html_token_create(tkz->dobj_token);
-    if (tkz->token == NULL) {
-        return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
-    }
+        for (furthest_block_idx = oel_formatting_idx;
+             furthest_block_idx < oel_idx;
+             furthest_block_idx++)
+        {
+            is = lxb_html_tag_is_category(oel_list[furthest_block_idx]->local_name,
+                                          oel_list[furthest_block_idx]->ns,
+                                          LXB_HTML_TAG_CATEGORY_SPECIAL);
+            if (is) {
+                furthest_block = oel_list[furthest_block_idx];
 
-    return LXB_STATUS_OK;
-}
+                break;
+            }
+        }
 
-lxb_status_t
-lxb_html_tokenizer_chunk(lxb_html_tokenizer_t *tkz, const lxb_char_t *data,
-                         size_t size)
-{
-    const lxb_char_t *end = data + size;
+        /* State 11 */
+        if (furthest_block == NULL) {
+            lxb_html_tree_open_elements_pop_until_node(tree, formatting_element,
+                                                       true);
 
-    tkz->is_eof = false;
-    tkz->status = LXB_STATUS_OK;
-    tkz->last = end;
+            lxb_html_tree_active_formatting_remove_by_node(tree,
+                                                           formatting_element);
 
-    while (data < end) {
-        data = tkz->state(tkz, data, end);
-    }
+            return false;
+        }
 
-    return tkz->status;
-}
+        lexbor_assert(oel_formatting_idx != 0);
 
-lxb_status_t
-lxb_html_tokenizer_end(lxb_html_tokenizer_t *tkz)
-{
-    const lxb_char_t *data, *end;
+        /* State 12 */
+        lxb_dom_node_t *common_ancestor = oel_list[oel_formatting_idx - 1];
 
-    tkz->status = LXB_STATUS_OK;
+        /* State 13 */
+        size_t bookmark = formatting_index;
 
-    /* Send a fake EOF data. */
-    data = lxb_html_tokenizer_eof;
-    end = lxb_html_tokenizer_eof + 1UL;
+        /* State 14 */
+        lxb_dom_node_t *node;
+        lxb_dom_node_t *last = furthest_block;
+        size_t node_idx = furthest_block_idx;
 
-    tkz->is_eof = true;
+        /* State 14.1 */
+        size_t inner_loop_counter = 0;
 
-    while (tkz->state(tkz, data, end) < end) {
-        /* empty loop */
-    }
+        /* State 14.2 */
+        while (1) {
+            inner_loop_counter++;
 
-    tkz->is_eof = false;
+            /* State 14.3 */
+            lexbor_assert(node_idx != 0);
 
-    if (tkz->status != LXB_STATUS_OK) {
-        return tkz->status;
-    }
-
-    /* Emit fake token: END OF FILE */
-    lxb_html_token_clean(tkz->token);
-
-    tkz->token->tag_id = LXB_TAG__END_OF_FILE;
-
-    tkz->token = tkz->callback_token_done(tkz, tkz->token,
-                                          tkz->callback_token_ctx);
-
-    if (tkz->token == NULL && tkz->status == LXB_STATUS_OK) {
-        tkz->status = LXB_STATUS_ERROR;
-    }
-
-    return tkz->status;
-}
-
-static lxb_html_token_t *
-aui_lexbor_static_e5d2ac5062_lxb_html_tokenizer_token_done(lxb_html_tokenizer_t *tkz,
-                              lxb_html_token_t *token, void *ctx)
-{
-    return token;
-}
-
-lxb_ns_id_t
-lxb_html_tokenizer_current_namespace(lxb_html_tokenizer_t *tkz)
-{
-    if (tkz->tree == NULL) {
-        return LXB_NS__UNDEF;
-    }
-
-    lxb_dom_node_t *node = lxb_html_tree_adjusted_current_node(tkz->tree);
-
-    if (node == NULL) {
-        return LXB_NS__UNDEF;
-    }
-
-    return node->ns;
-}
-
-void
-lxb_html_tokenizer_set_state_by_tag(lxb_html_tokenizer_t *tkz, bool scripting,
-                                    lxb_tag_id_t tag_id, lxb_ns_id_t ns)
-{
-    if (ns != LXB_NS_HTML) {
-        tkz->state = lxb_html_tokenizer_state_data_before;
-
-        return;
-    }
-
-    switch (tag_id) {
-        case LXB_TAG_TITLE:
-        case LXB_TAG_TEXTAREA:
-            tkz->tmp_tag_id = tag_id;
-            tkz->state = lxb_html_tokenizer_state_rcdata_before;
-
-            break;
-
-        case LXB_TAG_STYLE:
-        case LXB_TAG_XMP:
-        case LXB_TAG_IFRAME:
-        case LXB_TAG_NOEMBED:
-        case LXB_TAG_NOFRAMES:
-            tkz->tmp_tag_id = tag_id;
-            tkz->state = lxb_html_tokenizer_state_rawtext_before;
-
-            break;
-
-        case LXB_TAG_SCRIPT:
-            tkz->tmp_tag_id = tag_id;
-            tkz->state = lxb_html_tokenizer_state_script_data_before;
-
-            break;
-
-        case LXB_TAG_NOSCRIPT:
-            if (scripting) {
-                tkz->tmp_tag_id = tag_id;
-                tkz->state = lxb_html_tokenizer_state_rawtext_before;
-
-                return;
+            if (node_idx == 0) {
+                return false;
             }
 
-            tkz->state = lxb_html_tokenizer_state_data_before;
+            node_idx--;
+            node = oel_list[node_idx];
 
-            break;
+            /* State 14.4 */
+            if (node == formatting_element) {
+                break;
+            }
 
-        case LXB_TAG_PLAINTEXT:
-            tkz->state = lxb_html_tokenizer_state_plaintext_before;
+            /* State 14.5 */
+            size_t afe_node_idx;
+            is = lxb_html_tree_active_formatting_find_by_node_reverse(tree,
+                                                                      node,
+                                                                      &afe_node_idx);
+            /* State 14.5 */
+            if (inner_loop_counter > 3 && is) {
+                lxb_html_tree_active_formatting_remove_by_node(tree, node);
 
-            break;
+                continue;
+            }
 
-        default:
-            break;
+            /* State 14.6 */
+            if (is == false) {
+                lxb_html_tree_open_elements_remove_by_node(tree, node);
+
+                continue;
+            }
+
+            /* State 14.7 */
+            lxb_html_token_t fake_token = {0};
+
+            fake_token.tag_id = node->local_name;
+            fake_token.base_element = node;
+
+            element = lxb_html_tree_create_element_for_token(tree, &fake_token,
+                                                             LXB_NS_HTML);
+            if (element == NULL) {
+                *status = LXB_STATUS_ERROR_MEMORY_ALLOCATION;
+
+                return false;
+            }
+
+            node = lxb_dom_interface_node(element);
+
+            afe_list[afe_node_idx] = node;
+            oel_list[node_idx] = node;
+
+            /* State 14.8 */
+            if (last == furthest_block) {
+                bookmark = afe_node_idx + 1;
+
+                lexbor_assert(bookmark < tree->active_formatting->length);
+            }
+
+            /* State 14.9 */
+            if (last->parent != NULL) {
+                lxb_dom_node_remove_wo_events(last);
+            }
+
+            lxb_dom_node_insert_child_wo_events(node, last);
+
+            /* State 14.10 */
+            last = node;
+        }
+
+        if (last->parent != NULL) {
+            lxb_dom_node_remove_wo_events(last);
+        }
+
+        /* State 15 */
+        lxb_dom_node_t *pos;
+        lxb_html_tree_insertion_position_t ipos;
+
+        pos = lxb_html_tree_appropriate_place_inserting_node(tree,
+                                                             common_ancestor,
+                                                             &ipos);
+        if (pos == NULL) {
+            return false;
+        }
+
+        lxb_html_tree_insert_node(pos, last, ipos);
+
+        /* State 16 */
+        lxb_html_token_t fake_token = {0};
+
+        fake_token.tag_id = formatting_element->local_name;
+        fake_token.base_element = formatting_element;
+
+        element = lxb_html_tree_create_element_for_token(tree, &fake_token,
+                                                         LXB_NS_HTML);
+        if (element == NULL) {
+            *status = LXB_STATUS_ERROR_MEMORY_ALLOCATION;
+
+            return false;
+        }
+
+        /* State 17 */
+        lxb_dom_node_t *next;
+        node = furthest_block->first_child;
+
+        while (node != NULL) {
+            next = node->next;
+
+            lxb_dom_node_remove_wo_events(node);
+            lxb_dom_node_insert_child_wo_events(lxb_dom_interface_node(element),
+                                                node);
+            node = next;
+        }
+
+        node = lxb_dom_interface_node(element);
+
+        /* State 18 */
+        lxb_dom_node_insert_child_wo_events(furthest_block, node);
+
+        /* State 19 */
+        lxb_html_tree_active_formatting_remove(tree, formatting_index);
+
+        if (bookmark > tree->active_formatting->length) {
+            bookmark = tree->active_formatting->length;
+        }
+
+        *status = lxb_html_tree_active_formatting_insert(tree, node, bookmark);
+        if (*status != LXB_STATUS_OK) {
+            return false;
+        }
+
+        /* State 20 */
+        lxb_html_tree_open_elements_remove_by_node(tree, formatting_element);
+
+        lxb_html_tree_open_elements_find_by_node(tree, furthest_block,
+                                                 &furthest_block_idx);
+
+        *status = lxb_html_tree_open_elements_insert_after(tree, node,
+                                                           furthest_block_idx);
+        if (*status != LXB_STATUS_OK) {
+            return false;
+        }
     }
+
+    return false;
 }
 
-/*
- * No inline functions for ABI.
- */
-void
-lxb_html_tokenizer_status_set_noi(lxb_html_tokenizer_t *tkz,
-                                  lxb_status_t status)
+bool
+lxb_html_tree_html_integration_point(lxb_dom_node_t *node)
 {
-    lxb_html_tokenizer_status_set(tkz, status);
+    if (node->ns == LXB_NS_MATH
+        && node->local_name == LXB_TAG_ANNOTATION_XML)
+    {
+        lxb_dom_attr_t *attr;
+        attr = lxb_dom_element_attr_is_exist(lxb_dom_interface_element(node),
+                                             (const lxb_char_t *) "encoding",
+                                             8);
+        if (attr == NULL || attr->value == NULL) {
+            return false;
+        }
+
+        if (attr->value->length == 9
+            && lexbor_str_data_casecmp(attr->value->data,
+                                       (const lxb_char_t *) "text/html"))
+        {
+            return true;
+        }
+
+        if (attr->value->length == 21
+            && lexbor_str_data_casecmp(attr->value->data,
+                                       (const lxb_char_t *) "application/xhtml+xml"))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    if (node->ns == LXB_NS_SVG
+        && (node->local_name == LXB_TAG_FOREIGNOBJECT
+            || node->local_name == LXB_TAG_DESC
+            || node->local_name == LXB_TAG_TITLE))
+    {
+        return true;
+    }
+
+    return false;
 }
 
-void
-lxb_html_tokenizer_callback_token_done_set_noi(lxb_html_tokenizer_t *tkz,
-                                               lxb_html_tokenizer_token_f call_func,
-                                               void *ctx)
+lxb_status_t
+lxb_html_tree_adjust_attributes_mathml(lxb_html_tree_t *tree,
+                                       lxb_dom_attr_t *attr, void *ctx)
 {
-    lxb_html_tokenizer_callback_token_done_set(tkz, call_func, ctx);
+    lxb_status_t status;
+
+    status = lxb_html_tree_adjust_mathml_attributes(tree, attr, ctx);
+    if (status !=LXB_STATUS_OK) {
+        return status;
+    }
+
+    return lxb_html_tree_adjust_foreign_attributes(tree, attr, ctx);
 }
 
-void *
-lxb_html_tokenizer_callback_token_done_ctx_noi(lxb_html_tokenizer_t *tkz)
+lxb_status_t
+lxb_html_tree_adjust_attributes_svg(lxb_html_tree_t *tree,
+                                    lxb_dom_attr_t *attr, void *ctx)
 {
-    return lxb_html_tokenizer_callback_token_done_ctx(tkz);
-}
+    lxb_status_t status;
 
-void
-lxb_html_tokenizer_state_set_noi(lxb_html_tokenizer_t *tkz,
-                                 lxb_html_tokenizer_state_f state)
-{
-    lxb_html_tokenizer_state_set(tkz, state);
-}
+    status = lxb_html_tree_adjust_svg_attributes(tree, attr, ctx);
+    if (status !=LXB_STATUS_OK) {
+        return status;
+    }
 
-void
-lxb_html_tokenizer_tmp_tag_id_set_noi(lxb_html_tokenizer_t *tkz,
-                                      lxb_tag_id_t tag_id)
-{
-    lxb_html_tokenizer_tmp_tag_id_set(tkz, tag_id);
-}
-
-lxb_html_tree_t *
-lxb_html_tokenizer_tree_noi(lxb_html_tokenizer_t *tkz)
-{
-    return lxb_html_tokenizer_tree(tkz);
-}
-
-void
-lxb_html_tokenizer_tree_set_noi(lxb_html_tokenizer_t *tkz,
-                                lxb_html_tree_t *tree)
-{
-    lxb_html_tokenizer_tree_set(tkz, tree);
-}
-
-lexbor_mraw_t *
-lxb_html_tokenizer_mraw_noi(lxb_html_tokenizer_t *tkz)
-{
-    return lxb_html_tokenizer_mraw(tkz);
-}
-
-lexbor_hash_t *
-lxb_html_tokenizer_tags_noi(lxb_html_tokenizer_t *tkz)
-{
-    return lxb_html_tokenizer_tags(tkz);
+    return lxb_html_tree_adjust_foreign_attributes(tree, attr, ctx);
 }
 // ────────────────────────────────────────────────────────────────────────
 // external/lexbor/lexbor/core/cpp_compat_undef.h
@@ -143144,127 +145372,6 @@ lxb_html_tokenizer_tags_noi(lxb_html_tokenizer_t *tkz)
  */
 
 
-
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/html/tree/active_formatting.h
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2018 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-#ifndef LEXBOR_HTML_ACTIVE_FORMATTING_H
-#define LEXBOR_HTML_ACTIVE_FORMATTING_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-
-
-
-
-
-lxb_html_element_t *
-lxb_html_tree_active_formatting_marker(void);
-
-void
-lxb_html_tree_active_formatting_up_to_last_marker(lxb_html_tree_t *tree);
-
-void
-lxb_html_tree_active_formatting_remove_by_node(lxb_html_tree_t *tree,
-                                               lxb_dom_node_t *node);
-
-bool
-lxb_html_tree_active_formatting_find_by_node(lxb_html_tree_t *tree,
-                                             lxb_dom_node_t *node,
-                                             size_t *return_pos);
-
-bool
-lxb_html_tree_active_formatting_find_by_node_reverse(lxb_html_tree_t *tree,
-                                                     lxb_dom_node_t *node,
-                                                     size_t *return_pos);
-
-lxb_status_t
-lxb_html_tree_active_formatting_reconstruct_elements(lxb_html_tree_t *tree);
-
-lxb_dom_node_t *
-lxb_html_tree_active_formatting_between_last_marker(lxb_html_tree_t *tree,
-                                                    lxb_tag_id_t tag_idx,
-                                                    size_t *return_idx);
-
-void
-lxb_html_tree_active_formatting_push_with_check_dupl(lxb_html_tree_t *tree,
-                                                     lxb_dom_node_t *node);
-
-
-/*
- * Inline functions
- */
-lxb_inline lxb_dom_node_t *
-lxb_html_tree_active_formatting_current_node(lxb_html_tree_t *tree)
-{
-    if (tree->active_formatting->length == 0) {
-        return NULL;
-    }
-
-    return (lxb_dom_node_t *) tree->active_formatting->list
-        [ (tree->active_formatting->length - 1) ];
-}
-
-lxb_inline lxb_dom_node_t *
-lxb_html_tree_active_formatting_first(lxb_html_tree_t *tree)
-{
-    return (lxb_dom_node_t *) lexbor_array_get(tree->active_formatting, 0);
-}
-
-lxb_inline lxb_dom_node_t *
-lxb_html_tree_active_formatting_get(lxb_html_tree_t *tree, size_t idx)
-{
-    return (lxb_dom_node_t *) lexbor_array_get(tree->active_formatting, idx);
-}
-
-lxb_inline lxb_status_t
-lxb_html_tree_active_formatting_push(lxb_html_tree_t *tree,
-                                     lxb_dom_node_t *node)
-{
-    return lexbor_array_push(tree->active_formatting, node);
-}
-
-lxb_inline lxb_dom_node_t *
-lxb_html_tree_active_formatting_pop(lxb_html_tree_t *tree)
-{
-    return (lxb_dom_node_t *) lexbor_array_pop(tree->active_formatting);
-}
-
-lxb_inline lxb_status_t
-lxb_html_tree_active_formatting_push_marker(lxb_html_tree_t *tree)
-{
-    return lexbor_array_push(tree->active_formatting,
-                             lxb_html_tree_active_formatting_marker());
-}
-
-lxb_inline lxb_status_t
-lxb_html_tree_active_formatting_insert(lxb_html_tree_t *tree,
-                                       lxb_dom_node_t *node, size_t idx)
-{
-    return lexbor_array_insert(tree->active_formatting, idx, node);
-}
-
-lxb_inline void
-lxb_html_tree_active_formatting_remove(lxb_html_tree_t *tree, size_t idx)
-{
-    lexbor_array_delete(tree->active_formatting, idx, 1);
-}
-
-
-#ifdef __cplusplus
-} /* extern "C" */
-#endif
-
-#endif /* LEXBOR_HTML_ACTIVE_FORMATTING_H */
 
 
 
@@ -158366,2113 +160473,6 @@ inline ptr_proxy ptr(const void *p) { return {const_cast<void *>(p)}; }
 
 
 
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/core/cpp_compat_undef.h
-// ────────────────────────────────────────────────────────────────────────
-
-/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
-#ifdef aui_lexbor_array_get
-#undef aui_lexbor_array_get
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_get
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_get
-#endif
-#ifdef aui_lexbor_array_obj_get
-#undef aui_lexbor_array_obj_get
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
-#endif
-#ifdef aui_lexbor_array_obj_last
-#undef aui_lexbor_array_obj_last
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
-#endif
-#ifdef aui_lexbor_array_obj_pop
-#undef aui_lexbor_array_obj_pop
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
-#endif
-#ifdef aui_lexbor_array_obj_push
-#undef aui_lexbor_array_obj_push
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
-#endif
-#ifdef aui_lexbor_array_obj_push_n
-#undef aui_lexbor_array_obj_push_n
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
-#endif
-#ifdef aui_lexbor_array_obj_push_wo_cls
-#undef aui_lexbor_array_obj_push_wo_cls
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
-#endif
-#ifdef aui_lexbor_array_pop
-#undef aui_lexbor_array_pop
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
-#undef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
-#endif
-#ifdef aui_lexbor_bst_entry_data
-#undef aui_lexbor_bst_entry_data
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
-#undef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
-#endif
-#ifdef aui_lexbor_calloc
-#undef aui_lexbor_calloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_calloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_calloc
-#endif
-#ifdef aui_lexbor_dobject_alloc
-#undef aui_lexbor_dobject_alloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
-#endif
-#ifdef aui_lexbor_dobject_by_absolute_position
-#undef aui_lexbor_dobject_by_absolute_position
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
-#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
-#endif
-#ifdef aui_lexbor_dobject_calloc
-#undef aui_lexbor_dobject_calloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
-#endif
-#ifdef aui_lexbor_dobject_free
-#undef aui_lexbor_dobject_free
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
-#undef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
-#endif
-#ifdef aui_lexbor_free
-#undef aui_lexbor_free
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_free
-#undef LXB_CPP_COMPAT_SKIP_lexbor_free
-#endif
-#ifdef aui_lexbor_hash_insert
-#undef aui_lexbor_hash_insert
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
-#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
-#endif
-#ifdef aui_lexbor_hash_search
-#undef aui_lexbor_hash_search
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
-#undef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
-#endif
-#ifdef aui_lexbor_malloc
-#undef aui_lexbor_malloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_malloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_malloc
-#endif
-#ifdef aui_lexbor_mem_alloc
-#undef aui_lexbor_mem_alloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
-#endif
-#ifdef aui_lexbor_mem_calloc
-#undef aui_lexbor_mem_calloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
-#endif
-#ifdef aui_lexbor_mraw_alloc
-#undef aui_lexbor_mraw_alloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
-#endif
-#ifdef aui_lexbor_mraw_calloc
-#undef aui_lexbor_mraw_calloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
-#endif
-#ifdef aui_lexbor_mraw_free
-#undef aui_lexbor_mraw_free
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
-#endif
-#ifdef aui_lexbor_mraw_realloc
-#undef aui_lexbor_mraw_realloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
-#endif
-#ifdef aui_lexbor_realloc
-#undef aui_lexbor_realloc
-#endif
-#ifdef LXB_CPP_COMPAT_SKIP_lexbor_realloc
-#undef LXB_CPP_COMPAT_SKIP_lexbor_realloc
-#endif
-#ifdef new
-#undef new
-#endif
-
-
-
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/html/tree.c
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2018-2022 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-
-
-
-
-
-
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/html/tree_res.h
-// ────────────────────────────────────────────────────────────────────────
-
-/*
- * Copyright (C) 2018 Alexander Borisov
- *
- * Author: Alexander Borisov <borisov@lexbor.com>
- */
-
-#ifndef LEXBOR_HTML_TREE_RES_H
-#define LEXBOR_HTML_TREE_RES_H
-
-
-typedef struct {
-    const char *from;
-    const char *to;
-    size_t     len;
-}
-lxb_html_tree_res_attr_adjust_t;
-
-typedef struct {
-    const char       *name;
-    const char       *prefix;
-    const char       *local_name;
-
-    size_t           name_len;
-    size_t           prefix_len;
-
-    lxb_ns_id_t      ns;
-}
-lxb_html_tree_res_attr_adjust_foreign_t;
-
-
-static const lxb_html_tree_res_attr_adjust_t
-lxb_html_tree_res_attr_adjust_svg_map[] =
-{
-    {"attributename", "attributeName", 13},
-    {"attributetype", "attributeType", 13},
-    {"basefrequency", "baseFrequency", 13},
-    {"baseprofile", "baseProfile", 11},
-    {"calcmode", "calcMode", 8},
-    {"clippathunits", "clipPathUnits", 13},
-    {"diffuseconstant", "diffuseConstant", 15},
-    {"edgemode", "edgeMode", 8},
-    {"filterunits", "filterUnits", 11},
-    {"glyphref", "glyphRef", 8},
-    {"gradienttransform", "gradientTransform", 17},
-    {"gradientunits", "gradientUnits", 13},
-    {"kernelmatrix", "kernelMatrix", 12},
-    {"kernelunitlength", "kernelUnitLength", 16},
-    {"keypoints", "keyPoints", 9},
-    {"keysplines", "keySplines", 10},
-    {"keytimes", "keyTimes", 8},
-    {"lengthadjust", "lengthAdjust", 12},
-    {"limitingconeangle", "limitingConeAngle", 17},
-    {"markerheight", "markerHeight", 12},
-    {"markerunits", "markerUnits", 11},
-    {"markerwidth", "markerWidth", 11},
-    {"maskcontentunits", "maskContentUnits", 16},
-    {"maskunits", "maskUnits", 9},
-    {"numoctaves", "numOctaves", 10},
-    {"pathlength", "pathLength", 10},
-    {"patterncontentunits", "patternContentUnits", 19},
-    {"patterntransform", "patternTransform", 16},
-    {"patternunits", "patternUnits", 12},
-    {"pointsatx", "pointsAtX", 9},
-    {"pointsaty", "pointsAtY", 9},
-    {"pointsatz", "pointsAtZ", 9},
-    {"preservealpha", "preserveAlpha", 13},
-    {"preserveaspectratio", "preserveAspectRatio", 19},
-    {"primitiveunits", "primitiveUnits", 14},
-    {"refx", "refX", 4},
-    {"refy", "refY", 4},
-    {"repeatcount", "repeatCount", 11},
-    {"repeatdur", "repeatDur", 9},
-    {"requiredextensions", "requiredExtensions", 18},
-    {"requiredfeatures", "requiredFeatures", 16},
-    {"specularconstant", "specularConstant", 16},
-    {"specularexponent", "specularExponent", 16},
-    {"spreadmethod", "spreadMethod", 12},
-    {"startoffset", "startOffset", 11},
-    {"stddeviation", "stdDeviation", 12},
-    {"stitchtiles", "stitchTiles", 11},
-    {"surfacescale", "surfaceScale", 12},
-    {"systemlanguage", "systemLanguage", 14},
-    {"tablevalues", "tableValues", 11},
-    {"targetx", "targetX", 7},
-    {"targety", "targetY", 7},
-    {"textlength", "textLength", 10},
-    {"viewbox", "viewBox", 7},
-    {"viewtarget", "viewTarget", 10},
-    {"xchannelselector", "xChannelSelector", 16},
-    {"ychannelselector", "yChannelSelector", 16},
-    {"zoomandpan", "zoomAndPan", 10},
-};
-
-static const lxb_html_tree_res_attr_adjust_foreign_t
-lxb_html_tree_res_attr_adjust_foreign_map[] =
-{
-    {"xlink:actuate", "xlink", "actuate", 13, 5, LXB_NS_XLINK},
-    {"xlink:arcrole", "xlink", "arcrole", 13, 5, LXB_NS_XLINK},
-    {"xlink:href", "xlink", "href", 10, 5, LXB_NS_XLINK},
-    {"xlink:role", "xlink", "role", 10, 5, LXB_NS_XLINK},
-    {"xlink:show", "xlink", "show", 10, 5, LXB_NS_XLINK},
-    {"xlink:title", "xlink", "title", 11, 5, LXB_NS_XLINK},
-    {"xlink:type", "xlink", "type", 10, 5, LXB_NS_XLINK},
-    {"xml:lang", "xml", "lang", 8, 3, LXB_NS_XML},
-    {"xml:space", "xml", "space", 9, 3, LXB_NS_XML},
-    {"xmlns", "", "xmlns", 5, 0, LXB_NS_XMLNS},
-    {"xmlns:xlink", "xmlns", "xlink", 11, 5, LXB_NS_XMLNS}
-};
-
-
-#endif /* LEXBOR_HTML_TREE_RES_H */
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-lxb_dom_attr_data_t *
-lxb_dom_attr_local_name_append(lexbor_hash_t *hash,
-                               const lxb_char_t *name, size_t length);
-
-lxb_dom_attr_data_t *
-lxb_dom_attr_qualified_name_append(lexbor_hash_t *hash, const lxb_char_t *name,
-                                   size_t length);
-
-const lxb_tag_data_t *
-lxb_tag_append_lower(lexbor_hash_t *hash,
-                     const lxb_char_t *name, size_t length);
-
-static lxb_html_token_t *
-aui_lexbor_static_7d96dc3ef1_lxb_html_tree_token_callback(lxb_html_tokenizer_t *tkz,
-                             lxb_html_token_t *token, void *ctx);
-
-static lxb_status_t
-aui_lexbor_static_7d96dc3ef1_lxb_html_tree_insertion_mode(lxb_html_tree_t *tree, lxb_html_token_t *token);
-
-
-lxb_html_tree_t *
-lxb_html_tree_create(void)
-{
-    return (lxb_html_tree_t *) (lexbor_calloc(1, sizeof(lxb_html_tree_t)));
-}
-
-lxb_status_t
-lxb_html_tree_init(lxb_html_tree_t *tree, lxb_html_tokenizer_t *tkz)
-{
-    if (tree == NULL) {
-        return LXB_STATUS_ERROR_OBJECT_IS_NULL;
-    }
-
-    if (tkz == NULL) {
-        return LXB_STATUS_ERROR_WRONG_ARGS;
-    }
-
-    lxb_status_t status;
-
-    /* Stack of open elements */
-    tree->open_elements = lexbor_array_create();
-    status = lexbor_array_init(tree->open_elements, 128);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    /* Stack of active formatting */
-    tree->active_formatting = lexbor_array_create();
-    status = lexbor_array_init(tree->active_formatting, 128);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    /* Stack of template insertion modes */
-    tree->template_insertion_modes = lexbor_array_obj_create();
-    status = lexbor_array_obj_init(tree->template_insertion_modes, 64,
-                                   sizeof(lxb_html_tree_template_insertion_t));
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    /* Stack of pending table character tokens */
-    tree->pending_table.text_list = lexbor_array_obj_create();
-    status = lexbor_array_obj_init(tree->pending_table.text_list, 16,
-                                   sizeof(lexbor_str_t));
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    /* Parse errors */
-    tree->parse_errors = lexbor_array_obj_create();
-    status = lexbor_array_obj_init(tree->parse_errors, 16,
-                                                sizeof(lxb_html_tree_error_t));
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    tree->tkz_ref = lxb_html_tokenizer_ref(tkz);
-
-    tree->document = NULL;
-    tree->fragment = NULL;
-
-    tree->form = NULL;
-
-    tree->foster_parenting = false;
-    tree->frameset_ok = true;
-
-    tree->mode = lxb_html_tree_insertion_mode_initial;
-    tree->before_append_attr = NULL;
-
-    tree->status = LXB_STATUS_OK;
-
-    tree->ref_count = 1;
-
-    lxb_html_tokenizer_callback_token_done_set(tkz,
-                                               aui_lexbor_static_7d96dc3ef1_lxb_html_tree_token_callback,
-                                               tree);
-
-    return LXB_STATUS_OK;
-}
-
-lxb_html_tree_t *
-lxb_html_tree_ref(lxb_html_tree_t *tree)
-{
-    if (tree == NULL) {
-        return NULL;
-    }
-
-    tree->ref_count++;
-
-    return tree;
-}
-
-lxb_html_tree_t *
-lxb_html_tree_unref(lxb_html_tree_t *tree)
-{
-    if (tree == NULL || tree->ref_count == 0) {
-        return NULL;
-    }
-
-    tree->ref_count--;
-
-    if (tree->ref_count == 0) {
-        lxb_html_tree_destroy(tree);
-    }
-
-    return NULL;
-}
-
-void
-lxb_html_tree_clean(lxb_html_tree_t *tree)
-{
-    lexbor_array_clean(tree->open_elements);
-    lexbor_array_clean(tree->active_formatting);
-    lexbor_array_obj_clean(tree->template_insertion_modes);
-    lexbor_array_obj_clean(tree->pending_table.text_list);
-    lexbor_array_obj_clean(tree->parse_errors);
-
-    tree->document = NULL;
-    tree->fragment = NULL;
-
-    tree->form = NULL;
-
-    tree->foster_parenting = false;
-    tree->frameset_ok = true;
-
-    tree->mode = lxb_html_tree_insertion_mode_initial;
-    tree->before_append_attr = NULL;
-
-    tree->status = LXB_STATUS_OK;
-}
-
-lxb_html_tree_t *
-lxb_html_tree_destroy(lxb_html_tree_t *tree)
-{
-    if (tree == NULL) {
-        return NULL;
-    }
-
-    tree->open_elements = lexbor_array_destroy(tree->open_elements, true);
-    tree->active_formatting = lexbor_array_destroy(tree->active_formatting,
-                                                   true);
-    tree->template_insertion_modes = lexbor_array_obj_destroy(tree->template_insertion_modes,
-                                                              true);
-    tree->pending_table.text_list = lexbor_array_obj_destroy(tree->pending_table.text_list,
-                                                             true);
-
-    tree->parse_errors = lexbor_array_obj_destroy(tree->parse_errors, true);
-    tree->tkz_ref = lxb_html_tokenizer_unref(tree->tkz_ref);
-
-    return (lxb_html_tree_t *) (lexbor_free(tree));
-}
-
-static lxb_html_token_t *
-aui_lexbor_static_7d96dc3ef1_lxb_html_tree_token_callback(lxb_html_tokenizer_t *tkz,
-                             lxb_html_token_t *token, void *ctx)
-{
-    lxb_status_t status;
-
-    status = aui_lexbor_static_7d96dc3ef1_lxb_html_tree_insertion_mode((lxb_html_tree_t *) (ctx), token);
-    if (status != LXB_STATUS_OK) {
-        tkz->status = status;
-        return NULL;
-    }
-
-    return token;
-}
-
-/* TODO: not complete!!! */
-lxb_status_t
-lxb_html_tree_stop_parsing(lxb_html_tree_t *tree)
-{
-    tree->document->ready_state = LXB_HTML_DOCUMENT_READY_STATE_COMPLETE;
-
-    return LXB_STATUS_OK;
-}
-
-bool
-lxb_html_tree_process_abort(lxb_html_tree_t *tree)
-{
-    if (tree->status == LXB_STATUS_OK) {
-        tree->status = LXB_STATUS_ABORTED;
-    }
-
-    tree->open_elements->length = 0;
-    tree->document->ready_state = LXB_HTML_DOCUMENT_READY_STATE_COMPLETE;
-
-    return true;
-}
-
-void
-lxb_html_tree_parse_error(lxb_html_tree_t *tree, lxb_html_token_t *token,
-                          lxb_html_tree_error_id_t id)
-{
-    lxb_html_tree_error_add(tree->parse_errors, token, id);
-}
-
-bool
-lxb_html_tree_construction_dispatcher(lxb_html_tree_t *tree,
-                                      lxb_html_token_t *token)
-{
-    lxb_dom_node_t *adjusted;
-
-    adjusted = lxb_html_tree_adjusted_current_node(tree);
-
-    if (adjusted == NULL || adjusted->ns == LXB_NS_HTML) {
-        return tree->mode(tree, token);
-    }
-
-    if (lxb_html_tree_mathml_text_integration_point(adjusted))
-    {
-        if ((token->type & LXB_HTML_TOKEN_TYPE_CLOSE) == 0
-            && token->tag_id != LXB_TAG_MGLYPH
-            && token->tag_id != LXB_TAG_MALIGNMARK)
-        {
-            return tree->mode(tree, token);
-        }
-
-        if (token->tag_id == LXB_TAG__TEXT) {
-            return tree->mode(tree, token);
-        }
-    }
-
-    if (adjusted->local_name == LXB_TAG_ANNOTATION_XML
-        && adjusted->ns == LXB_NS_MATH
-        && (token->type & LXB_HTML_TOKEN_TYPE_CLOSE) == 0
-        && token->tag_id == LXB_TAG_SVG)
-    {
-        return tree->mode(tree, token);
-    }
-
-    if (lxb_html_tree_html_integration_point(adjusted)) {
-        if ((token->type & LXB_HTML_TOKEN_TYPE_CLOSE) == 0
-            || token->tag_id == LXB_TAG__TEXT)
-        {
-            return tree->mode(tree, token);
-        }
-    }
-
-    if (token->tag_id == LXB_TAG__END_OF_FILE) {
-        return tree->mode(tree, token);
-    }
-
-    return lxb_html_tree_insertion_mode_foreign_content(tree, token);
-}
-
-static lxb_status_t
-aui_lexbor_static_7d96dc3ef1_lxb_html_tree_insertion_mode(lxb_html_tree_t *tree, lxb_html_token_t *token)
-{
-    while (lxb_html_tree_construction_dispatcher(tree, token) == false) {}
-
-    return tree->status;
-}
-
-/*
- * Action
- */
-lxb_dom_node_t *
-lxb_html_tree_appropriate_place_inserting_node(lxb_html_tree_t *tree,
-                                       lxb_dom_node_t *override_target,
-                                       lxb_html_tree_insertion_position_t *ipos)
-{
-    lxb_dom_node_t *target, *adjusted_location = NULL;
-
-    *ipos = LXB_HTML_TREE_INSERTION_POSITION_CHILD;
-
-    if (override_target != NULL) {
-        target = override_target;
-    }
-    else {
-        target = lxb_html_tree_current_node(tree);
-    }
-
-    if (tree->foster_parenting && target->ns == LXB_NS_HTML
-           && (target->local_name == LXB_TAG_TABLE
-            || target->local_name == LXB_TAG_TBODY
-            || target->local_name == LXB_TAG_TFOOT
-            || target->local_name == LXB_TAG_THEAD
-            || target->local_name == LXB_TAG_TR))
-    {
-        lxb_dom_node_t *last_temp, *last_table;
-        size_t last_temp_idx, last_table_idx;
-
-        last_temp = lxb_html_tree_open_elements_find_reverse(tree,
-                                                          LXB_TAG_TEMPLATE,
-                                                          LXB_NS_HTML,
-                                                          &last_temp_idx);
-
-        last_table = lxb_html_tree_open_elements_find_reverse(tree,
-                                                             LXB_TAG_TABLE,
-                                                             LXB_NS_HTML,
-                                                             &last_table_idx);
-
-        if(last_temp != NULL && (last_table == NULL
-                         || last_temp_idx > last_table_idx))
-        {
-            lxb_dom_document_fragment_t *doc_fragment;
-
-            doc_fragment = lxb_html_interface_template(last_temp)->content;
-
-            return lxb_dom_interface_node(doc_fragment);
-        }
-        else if (last_table == NULL) {
-            adjusted_location = lxb_html_tree_open_elements_first(tree);
-
-            lexbor_assert(adjusted_location != NULL);
-            lexbor_assert(adjusted_location->local_name == LXB_TAG_HTML);
-        }
-        else if (last_table->parent != NULL) {
-            adjusted_location = last_table;
-
-            *ipos = LXB_HTML_TREE_INSERTION_POSITION_BEFORE;
-        }
-        else {
-            lexbor_assert(last_table_idx != 0);
-
-            adjusted_location = lxb_html_tree_open_elements_get(tree,
-                                                            last_table_idx - 1);
-        }
-    }
-    else {
-        adjusted_location = target;
-    }
-
-    if (adjusted_location == NULL) {
-        return NULL;
-    }
-
-    /*
-     * In Spec it is not entirely clear what is meant:
-     *
-     * If the adjusted insertion location is inside a template element,
-     * let it instead be inside the template element's template contents,
-     * after its last child (if any).
-     */
-    if (lxb_html_tree_node_is(adjusted_location, LXB_TAG_TEMPLATE)) {
-        lxb_dom_document_fragment_t *df;
-
-        df = lxb_html_interface_template(adjusted_location)->content;
-        adjusted_location = lxb_dom_interface_node(df);
-    }
-
-    return adjusted_location;
-}
-
-lxb_html_element_t *
-lxb_html_tree_insert_foreign_element(lxb_html_tree_t *tree,
-                                     lxb_html_token_t *token, lxb_ns_id_t ns)
-{
-    lxb_status_t status;
-    lxb_dom_node_t *pos;
-    lxb_html_element_t *element;
-    lxb_html_tree_insertion_position_t ipos;
-
-    pos = lxb_html_tree_appropriate_place_inserting_node(tree, NULL, &ipos);
-    if (pos == NULL) {
-        return NULL;
-    }
-
-    element = lxb_html_tree_create_element_for_token(tree, token, ns);
-    if (element == NULL) {
-        return NULL;
-    }
-
-    lxb_html_tree_insert_node(pos, lxb_dom_interface_node(element), ipos);
-
-    status = lxb_html_tree_open_elements_push(tree,
-                                              lxb_dom_interface_node(element));
-    if (status != LXB_HTML_STATUS_OK) {
-        return (lxb_html_element_t *) (lxb_html_interface_destroy(element));
-    }
-
-    return element;
-}
-
-lxb_html_element_t *
-lxb_html_tree_create_element_for_token(lxb_html_tree_t *tree,
-                                       lxb_html_token_t *token, lxb_ns_id_t ns)
-{
-    lxb_dom_node_t *node = lxb_html_tree_create_node(tree, token->tag_id, ns);
-    if (node == NULL) {
-        return NULL;
-    }
-
-    lxb_status_t status;
-    lxb_dom_element_t *element = lxb_dom_interface_element(node);
-
-    if (token->base_element == NULL) {
-        status = lxb_html_tree_append_attributes(tree, element, token, ns);
-    }
-    else {
-        status = lxb_html_tree_append_attributes_from_element(tree, element,
-                                                       (lxb_dom_element_t *) (token->base_element), ns);
-    }
-
-    if (status != LXB_HTML_STATUS_OK) {
-        return (lxb_html_element_t *) (lxb_html_interface_destroy(element));
-    }
-
-    return lxb_html_interface_element(node);
-}
-
-lxb_status_t
-lxb_html_tree_append_attributes(lxb_html_tree_t *tree,
-                                lxb_dom_element_t *element,
-                                lxb_html_token_t *token, lxb_ns_id_t ns)
-{
-    lxb_status_t status;
-    lxb_dom_attr_t *attr;
-    lxb_html_document_t *doc;
-    lxb_html_token_attr_t *token_attr = token->attr_first;
-
-    doc = lxb_html_interface_document(element->node.owner_document);
-
-    while (token_attr != NULL) {
-        attr = lxb_dom_element_attr_by_local_name_data(element,
-                                                       token_attr->name);
-        if (attr != NULL) {
-            token_attr = token_attr->next;
-            continue;
-        }
-
-        attr = lxb_dom_attr_interface_create(lxb_dom_interface_document(doc));
-        if (attr == NULL) {
-            return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
-        }
-
-        if (token_attr->value_begin != NULL) {
-            status = lxb_dom_attr_set_value_wo_copy(attr, token_attr->value,
-                                                    token_attr->value_size);
-            if (status != LXB_HTML_STATUS_OK) {
-                return status;
-            }
-        }
-
-        attr->node.local_name = token_attr->name->attr_id;
-        attr->node.ns = ns;
-
-        /* Fix for adjust MathML/SVG attributes */
-        if (tree->before_append_attr != NULL) {
-            status = tree->before_append_attr(tree, attr, NULL);
-            if (status != LXB_STATUS_OK) {
-                return status;
-            }
-        }
-
-        lxb_dom_element_attr_append(element, attr);
-
-        token_attr = token_attr->next;
-    }
-
-    return LXB_HTML_STATUS_OK;
-}
-
-lxb_status_t
-lxb_html_tree_append_attributes_from_element(lxb_html_tree_t *tree,
-                                             lxb_dom_element_t *element,
-                                             lxb_dom_element_t *from,
-                                             lxb_ns_id_t ns)
-{
-    lxb_status_t status;
-    lxb_dom_attr_t *attr = from->first_attr;
-    lxb_dom_attr_t *new_attr;
-
-    while (attr != NULL) {
-        new_attr = lxb_dom_attr_interface_create(element->node.owner_document);
-        if (new_attr == NULL) {
-            return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
-        }
-
-        status = lxb_dom_attr_clone_name_value(attr, new_attr);
-        if (status != LXB_HTML_STATUS_OK) {
-            return status;
-        }
-
-        new_attr->node.ns = attr->node.ns;
-
-        /* Fix for  adjust MathML/SVG attributes */
-        if (tree->before_append_attr != NULL) {
-            status = tree->before_append_attr(tree, new_attr, NULL);
-            if (status != LXB_STATUS_OK) {
-                return status;
-            }
-        }
-
-        /* AffineUI fork fix: append the CLONE, not the source element's
-         * attr. Appending `attr` stole it from `from` (owner flipped, the
-         * two elements shared one chain, `new_attr` leaked) — any later
-         * remove/destroy through either element then corrupted the other's
-         * first_attr/last_attr list. */
-        lxb_dom_element_attr_append(element, new_attr);
-
-        attr = attr->next;
-    }
-
-    return LXB_HTML_STATUS_OK;
-}
-
-lxb_status_t
-lxb_html_tree_adjust_mathml_attributes(lxb_html_tree_t *tree,
-                                       lxb_dom_attr_t *attr, void *ctx)
-{
-    lexbor_hash_t *attrs;
-    const lxb_dom_attr_data_t *data;
-
-    attrs = attr->node.owner_document->attrs;
-    data = lxb_dom_attr_data_by_id(attrs, attr->node.local_name);
-
-    if (data->entry.length == 13
-        && lexbor_str_data_cmp(lexbor_hash_entry_str(&data->entry),
-                               (const lxb_char_t *) "definitionurl"))
-    {
-        data = lxb_dom_attr_qualified_name_append(attrs,
-                                      (const lxb_char_t *) "definitionURL", 13);
-        if (data == NULL) {
-            return LXB_STATUS_ERROR;
-        }
-
-        attr->qualified_name = data->attr_id;
-    }
-
-    return LXB_STATUS_OK;
-}
-
-lxb_status_t
-lxb_html_tree_adjust_svg_attributes(lxb_html_tree_t *tree,
-                                    lxb_dom_attr_t *attr, void *ctx)
-{
-    lexbor_hash_t *attrs;
-    const lxb_dom_attr_data_t *data;
-    const lxb_html_tree_res_attr_adjust_t *adjust;
-
-    size_t len = sizeof(lxb_html_tree_res_attr_adjust_svg_map)
-        / sizeof(lxb_html_tree_res_attr_adjust_t);
-
-    attrs = attr->node.owner_document->attrs;
-
-    data = lxb_dom_attr_data_by_id(attrs, attr->node.local_name);
-
-    for (size_t i = 0; i < len; i++) {
-        adjust = &lxb_html_tree_res_attr_adjust_svg_map[i];
-
-        if (data->entry.length == adjust->len
-            && lexbor_str_data_cmp(lexbor_hash_entry_str(&data->entry),
-                                   (const lxb_char_t *) adjust->from))
-        {
-            data = lxb_dom_attr_qualified_name_append(attrs,
-                                (const lxb_char_t *) adjust->to, adjust->len);
-            if (data == NULL) {
-                return LXB_STATUS_ERROR;
-            }
-
-            attr->qualified_name = data->attr_id;
-
-            return LXB_STATUS_OK;
-        }
-    }
-
-    return LXB_STATUS_OK;
-}
-
-lxb_status_t
-lxb_html_tree_adjust_foreign_attributes(lxb_html_tree_t *tree,
-                                        lxb_dom_attr_t *attr, void *ctx)
-{
-    size_t lname_length;
-    lexbor_hash_t *attrs, *prefix;
-    const lxb_dom_attr_data_t *attr_data;
-    const lxb_ns_prefix_data_t *prefix_data;
-    const lxb_dom_attr_data_t *data;
-    const lxb_html_tree_res_attr_adjust_foreign_t *adjust;
-
-    size_t len = sizeof(lxb_html_tree_res_attr_adjust_foreign_map)
-        / sizeof(lxb_html_tree_res_attr_adjust_foreign_t);
-
-    attrs = attr->node.owner_document->attrs;
-    prefix = attr->node.owner_document->prefix;
-
-    data = lxb_dom_attr_data_by_id(attrs, attr->node.local_name);
-
-    for (size_t i = 0; i < len; i++) {
-        adjust = &lxb_html_tree_res_attr_adjust_foreign_map[i];
-
-        if (data->entry.length == adjust->name_len
-            && lexbor_str_data_cmp(lexbor_hash_entry_str(&data->entry),
-                                   (const lxb_char_t *) adjust->name))
-        {
-            if (adjust->prefix_len != 0) {
-                data = lxb_dom_attr_qualified_name_append(attrs,
-                           (const lxb_char_t *) adjust->name, adjust->name_len);
-                if (data == NULL) {
-                    return LXB_STATUS_ERROR;
-                }
-
-                attr->qualified_name = data->attr_id;
-
-                lname_length = adjust->name_len - adjust->prefix_len - 1;
-
-                attr_data = lxb_dom_attr_local_name_append(attrs,
-                         (const lxb_char_t *) adjust->local_name, lname_length);
-                if (attr_data == NULL) {
-                    return LXB_STATUS_ERROR;
-                }
-
-                attr->node.local_name = attr_data->attr_id;
-
-                prefix_data = lxb_ns_prefix_append(prefix,
-                       (const lxb_char_t *) adjust->prefix, adjust->prefix_len);
-                if (prefix_data == NULL) {
-                    return LXB_STATUS_ERROR;
-                }
-
-                attr->node.prefix = prefix_data->prefix_id;
-            }
-
-            attr->node.ns = adjust->ns;
-
-            return LXB_STATUS_OK;
-        }
-    }
-
-    return LXB_STATUS_OK;
-}
-
-lxb_status_t
-lxb_html_tree_insert_character(lxb_html_tree_t *tree, lxb_html_token_t *token,
-                               lxb_dom_node_t **ret_node)
-{
-    size_t size;
-    lxb_status_t status;
-    lexbor_str_t str = {0};
-
-    size = token->text_end - token->text_start;
-
-    lexbor_str_init(&str, tree->document->dom_document.text, size + 1);
-    if (str.data == NULL) {
-        return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
-    }
-
-    memcpy(str.data, token->text_start, size);
-
-    str.data[size] = 0x00;
-    str.length = size;
-
-    status = lxb_html_tree_insert_character_for_data(tree, &str, ret_node);
-    if (status != LXB_STATUS_OK) {
-        return status;
-    }
-
-    return LXB_STATUS_OK;
-}
-
-lxb_status_t
-lxb_html_tree_insert_character_for_data(lxb_html_tree_t *tree,
-                                        lexbor_str_t *str,
-                                        lxb_dom_node_t **ret_node)
-{
-    const lxb_char_t *data;
-    lxb_dom_node_t *pos;
-    lxb_dom_character_data_t *chrs = NULL;
-    lxb_dom_node_t *text = NULL;
-    lxb_html_tree_insertion_position_t ipos;
-
-    if (ret_node != NULL) {
-        *ret_node = NULL;
-    }
-
-    pos = lxb_html_tree_appropriate_place_inserting_node(tree, NULL, &ipos);
-    if (pos == NULL) {
-        return LXB_STATUS_ERROR;
-    }
-
-    if (lxb_html_tree_node_is(pos, LXB_TAG__DOCUMENT)) {
-        goto destroy_str;
-    }
-
-    if (ipos == LXB_HTML_TREE_INSERTION_POSITION_BEFORE) {
-        /* No need check namespace */
-        if (pos->prev != NULL && pos->prev->local_name == LXB_TAG__TEXT) {
-            chrs = lxb_dom_interface_character_data(pos->prev);
-
-            if (ret_node != NULL) {
-                *ret_node = pos->prev;
-            }
-        }
-    }
-    else {
-        /* No need check namespace */
-        if (pos->last_child != NULL
-            && pos->last_child->local_name == LXB_TAG__TEXT)
-        {
-            chrs = lxb_dom_interface_character_data(pos->last_child);
-
-            if (ret_node != NULL) {
-                *ret_node = pos->last_child;
-            }
-        }
-    }
-
-    if (chrs != NULL) {
-        /* This is error. This can not happen, but... */
-        if (chrs->data.data == NULL) {
-            data = lexbor_str_init(&chrs->data, tree->document->dom_document.text,
-                                   str->length);
-            if (data == NULL) {
-                return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
-            }
-        }
-
-        data = lexbor_str_append(&chrs->data, tree->document->dom_document.text,
-                                 str->data, str->length);
-        if (data == NULL) {
-            return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
-        }
-
-        goto destroy_str;
-    }
-
-    text = lxb_html_tree_create_node(tree, LXB_TAG__TEXT,
-                                                     LXB_NS_HTML);
-    if (text == NULL) {
-        return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
-    }
-
-    lxb_dom_interface_text(text)->char_data.data = *str;
-
-    if (ret_node != NULL) {
-        *ret_node = text;
-    }
-
-    lxb_html_tree_insert_node(pos, text, ipos);
-
-    return LXB_STATUS_OK;
-
-destroy_str:
-
-    lexbor_str_destroy(str, tree->document->dom_document.text, false);
-
-    return LXB_STATUS_OK;
-}
-
-lxb_dom_comment_t *
-lxb_html_tree_insert_comment(lxb_html_tree_t *tree,
-                             lxb_html_token_t *token, lxb_dom_node_t *pos)
-{
-    lxb_dom_node_t *node;
-    lxb_dom_comment_t *comment;
-    lxb_html_tree_insertion_position_t ipos;
-
-    if (pos == NULL) {
-        pos = lxb_html_tree_appropriate_place_inserting_node(tree, NULL, &ipos);
-    }
-    else {
-        ipos = LXB_HTML_TREE_INSERTION_POSITION_CHILD;
-    }
-
-    lexbor_assert(pos != NULL);
-
-    node = lxb_html_tree_create_node(tree, token->tag_id, pos->ns);
-    comment = lxb_dom_interface_comment(node);
-
-    if (comment == NULL) {
-        return NULL;
-    }
-
-    tree->status = lxb_html_token_make_text(token, &comment->char_data.data,
-                                            tree->document->dom_document.text);
-    if (tree->status != LXB_STATUS_OK) {
-        return NULL;
-    }
-
-    lxb_html_tree_insert_node(pos, node, ipos);
-
-    return comment;
-}
-
-lxb_dom_document_type_t *
-lxb_html_tree_create_document_type_from_token(lxb_html_tree_t *tree,
-                                              lxb_html_token_t *token)
-{
-    lxb_status_t status;
-    lxb_dom_node_t *doctype_node;
-    lxb_dom_document_type_t *doc_type;
-
-    /* Create */
-    doctype_node = lxb_html_tree_create_node(tree, token->tag_id, LXB_NS_HTML);
-    if (doctype_node == NULL) {
-        return NULL;
-    }
-
-    doc_type = lxb_dom_interface_document_type(doctype_node);
-
-    /* Parse */
-    status = lxb_html_token_doctype_parse(token, doc_type);
-    if (status != LXB_STATUS_OK) {
-        return lxb_dom_document_type_interface_destroy(doc_type);
-    }
-
-    return doc_type;
-}
-
-/*
- * TODO: need use ref and unref for nodes (ref counter)
- * Not implemented until the end. It is necessary to finish it.
- */
-void
-lxb_html_tree_node_delete_deep(lxb_html_tree_t *tree, lxb_dom_node_t *node)
-{
-    lxb_dom_node_remove(node);
-}
-
-lxb_html_element_t *
-lxb_html_tree_generic_rawtext_parsing(lxb_html_tree_t *tree,
-                                      lxb_html_token_t *token)
-{
-    lxb_html_element_t *element;
-
-    element = lxb_html_tree_insert_html_element(tree, token);
-    if (element == NULL) {
-        return NULL;
-    }
-
-    /*
-     * Need for tokenizer state RAWTEXT
-     * See description for 'lxb_html_tokenizer_state_rawtext_before' function
-     */
-    lxb_html_tokenizer_tmp_tag_id_set(tree->tkz_ref, token->tag_id);
-    lxb_html_tokenizer_state_set(tree->tkz_ref,
-                                 lxb_html_tokenizer_state_rawtext_before);
-
-    tree->original_mode = tree->mode;
-    tree->mode = lxb_html_tree_insertion_mode_text;
-
-    return element;
-}
-
-/* Magic of CopyPast power! */
-lxb_html_element_t *
-lxb_html_tree_generic_rcdata_parsing(lxb_html_tree_t *tree,
-                                     lxb_html_token_t *token)
-{
-    lxb_html_element_t *element;
-
-    element = lxb_html_tree_insert_html_element(tree, token);
-    if (element == NULL) {
-        return NULL;
-    }
-
-    /*
-     * Need for tokenizer state RCDATA
-     * See description for 'lxb_html_tokenizer_state_rcdata_before' function
-     */
-    lxb_html_tokenizer_tmp_tag_id_set(tree->tkz_ref, token->tag_id);
-    lxb_html_tokenizer_state_set(tree->tkz_ref,
-                                 lxb_html_tokenizer_state_rcdata_before);
-
-    tree->original_mode = tree->mode;
-    tree->mode = lxb_html_tree_insertion_mode_text;
-
-    return element;
-}
-
-void
-lxb_html_tree_generate_implied_end_tags(lxb_html_tree_t *tree,
-                                        lxb_tag_id_t ex_tag, lxb_ns_id_t ex_ns)
-{
-    lxb_dom_node_t *node;
-
-    lexbor_assert(tree->open_elements != 0);
-
-    while (lexbor_array_length(tree->open_elements) != 0) {
-        node = lxb_html_tree_current_node(tree);
-
-        lexbor_assert(node != NULL);
-
-        switch (node->local_name) {
-            case LXB_TAG_DD:
-            case LXB_TAG_DT:
-            case LXB_TAG_LI:
-            case LXB_TAG_OPTGROUP:
-            case LXB_TAG_OPTION:
-            case LXB_TAG_P:
-            case LXB_TAG_RB:
-            case LXB_TAG_RP:
-            case LXB_TAG_RT:
-            case LXB_TAG_RTC:
-                if(node->local_name == ex_tag && node->ns == ex_ns) {
-                    return;
-                }
-
-                lxb_html_tree_open_elements_pop(tree);
-
-                break;
-
-            default:
-                return;
-        }
-    }
-}
-
-void
-lxb_html_tree_generate_all_implied_end_tags_thoroughly(lxb_html_tree_t *tree,
-                                                       lxb_tag_id_t ex_tag,
-                                                       lxb_ns_id_t ex_ns)
-{
-    lxb_dom_node_t *node;
-
-    lexbor_assert(tree->open_elements != 0);
-
-    while (lexbor_array_length(tree->open_elements) != 0) {
-        node = lxb_html_tree_current_node(tree);
-
-        lexbor_assert(node != NULL);
-
-        switch (node->local_name) {
-            case LXB_TAG_CAPTION:
-            case LXB_TAG_COLGROUP:
-            case LXB_TAG_DD:
-            case LXB_TAG_DT:
-            case LXB_TAG_LI:
-            case LXB_TAG_OPTGROUP:
-            case LXB_TAG_OPTION:
-            case LXB_TAG_P:
-            case LXB_TAG_RB:
-            case LXB_TAG_RP:
-            case LXB_TAG_RT:
-            case LXB_TAG_RTC:
-            case LXB_TAG_TBODY:
-            case LXB_TAG_TD:
-            case LXB_TAG_TFOOT:
-            case LXB_TAG_TH:
-            case LXB_TAG_THEAD:
-            case LXB_TAG_TR:
-                if(node->local_name == ex_tag && node->ns == ex_ns) {
-                    return;
-                }
-
-                lxb_html_tree_open_elements_pop(tree);
-
-                break;
-
-            default:
-                return;
-        }
-    }
-}
-
-void
-lxb_html_tree_reset_insertion_mode_appropriately(lxb_html_tree_t *tree)
-{
-    lxb_dom_node_t *node;
-    size_t idx = tree->open_elements->length;
-
-    /* Step 1 */
-    bool last = false;
-    void **list = tree->open_elements->list;
-
-    /* Step 3 */
-    while (idx != 0) {
-        idx--;
-
-        /* Step 2 */
-        node = (lxb_dom_node_t *) (list[idx]);
-
-        /* Step 3 */
-        if (idx == 0) {
-            last = true;
-
-            if (tree->fragment != NULL) {
-                node = tree->fragment;
-            }
-        }
-
-        lexbor_assert(node != NULL);
-
-        /* Step 16 */
-        if (node->ns != LXB_NS_HTML) {
-            if (last) {
-                tree->mode = lxb_html_tree_insertion_mode_in_body;
-                return;
-            }
-
-            continue;
-        }
-
-        /* Step 4 */
-        if (node->local_name == LXB_TAG_SELECT) {
-            /* Step 4.1 */
-            if (last) {
-                tree->mode = lxb_html_tree_insertion_mode_in_select;
-                return;
-            }
-
-            /* Step 4.2 */
-            size_t ancestor = idx;
-
-            for (;;) {
-                /* Step 4.3 */
-                if (ancestor == 0) {
-                    tree->mode = lxb_html_tree_insertion_mode_in_select;
-                    return;
-                }
-
-                /* Step 4.4 */
-                ancestor--;
-
-                /* Step 4.5 */
-                lxb_dom_node_t *ancestor_node = (lxb_dom_node_t *) (list[ancestor]);
-
-                if(lxb_html_tree_node_is(ancestor_node, LXB_TAG_TEMPLATE)) {
-                    tree->mode = lxb_html_tree_insertion_mode_in_select;
-                    return;
-                }
-
-                /* Step 4.6 */
-                else if(lxb_html_tree_node_is(ancestor_node, LXB_TAG_TABLE)) {
-                    tree->mode = lxb_html_tree_insertion_mode_in_select_in_table;
-                    return;
-                }
-            }
-        }
-
-        /* Step 5-15 */
-        switch (node->local_name) {
-            case LXB_TAG_TD:
-            case LXB_TAG_TH:
-                if (last == false) {
-                    tree->mode = lxb_html_tree_insertion_mode_in_cell;
-                    return;
-                }
-
-                break;
-
-            case LXB_TAG_TR:
-                tree->mode = lxb_html_tree_insertion_mode_in_row;
-                return;
-
-            case LXB_TAG_TBODY:
-            case LXB_TAG_TFOOT:
-            case LXB_TAG_THEAD:
-                tree->mode = lxb_html_tree_insertion_mode_in_table_body;
-                return;
-
-            case LXB_TAG_CAPTION:
-                tree->mode = lxb_html_tree_insertion_mode_in_caption;
-                return;
-
-            case LXB_TAG_COLGROUP:
-                tree->mode = lxb_html_tree_insertion_mode_in_column_group;
-                return;
-
-            case LXB_TAG_TABLE:
-                tree->mode = lxb_html_tree_insertion_mode_in_table;
-                return;
-
-            case LXB_TAG_TEMPLATE:
-                tree->mode = lxb_html_tree_template_insertion_current(tree);
-
-                lexbor_assert(tree->mode != NULL);
-
-                return;
-
-            case LXB_TAG_HEAD:
-                if (last == false) {
-                    tree->mode = lxb_html_tree_insertion_mode_in_head;
-                    return;
-                }
-
-                break;
-
-            case LXB_TAG_BODY:
-                tree->mode = lxb_html_tree_insertion_mode_in_body;
-                return;
-
-            case LXB_TAG_FRAMESET:
-                tree->mode = lxb_html_tree_insertion_mode_in_frameset;
-                return;
-
-            case LXB_TAG_HTML: {
-                if (tree->document->head == NULL) {
-                    tree->mode = lxb_html_tree_insertion_mode_before_head;
-                    return;
-                }
-
-                tree->mode = lxb_html_tree_insertion_mode_after_head;
-                return;
-            }
-
-            default:
-                break;
-        }
-
-        /* Step 16 */
-        if (last) {
-            tree->mode = lxb_html_tree_insertion_mode_in_body;
-            return;
-        }
-    }
-}
-
-lxb_dom_node_t *
-lxb_html_tree_element_in_scope(lxb_html_tree_t *tree, lxb_tag_id_t tag_id,
-                               lxb_ns_id_t ns, lxb_html_tag_category_t ct)
-{
-    lxb_dom_node_t *node;
-
-    size_t idx = tree->open_elements->length;
-    void **list = tree->open_elements->list;
-
-    while (idx != 0) {
-        idx--;
-        node = (lxb_dom_node_t *) (list[idx]);
-
-        if (node->local_name == tag_id && node->ns == ns) {
-            return node;
-        }
-
-        if (lxb_html_tag_is_category(node->local_name, node->ns, ct)) {
-            return NULL;
-        }
-    }
-
-    return NULL;
-}
-
-lxb_dom_node_t *
-lxb_html_tree_element_in_scope_by_node(lxb_html_tree_t *tree,
-                                       lxb_dom_node_t *by_node,
-                                       lxb_html_tag_category_t ct)
-{
-    lxb_dom_node_t *node;
-
-    size_t idx = tree->open_elements->length;
-    void **list = tree->open_elements->list;
-
-    while (idx != 0) {
-        idx--;
-        node = (lxb_dom_node_t *) (list[idx]);
-
-        if (node == by_node) {
-            return node;
-        }
-
-        if (lxb_html_tag_is_category(node->local_name, node->ns, ct)) {
-            return NULL;
-        }
-    }
-
-    return NULL;
-}
-
-lxb_dom_node_t *
-lxb_html_tree_element_in_scope_h123456(lxb_html_tree_t *tree)
-{
-    lxb_dom_node_t *node;
-
-    size_t idx = tree->open_elements->length;
-    void **list = tree->open_elements->list;
-
-    while (idx != 0) {
-        idx--;
-        node = (lxb_dom_node_t *) (list[idx]);
-
-        switch (node->local_name) {
-            case LXB_TAG_H1:
-            case LXB_TAG_H2:
-            case LXB_TAG_H3:
-            case LXB_TAG_H4:
-            case LXB_TAG_H5:
-            case LXB_TAG_H6:
-                if (node->ns == LXB_NS_HTML) {
-                    return node;
-                }
-
-                break;
-
-            default:
-                break;
-        }
-
-        if (lxb_html_tag_is_category(node->local_name, LXB_NS_HTML,
-                                     LXB_HTML_TAG_CATEGORY_SCOPE))
-        {
-            return NULL;
-        }
-    }
-
-    return NULL;
-}
-
-lxb_dom_node_t *
-lxb_html_tree_element_in_scope_tbody_thead_tfoot(lxb_html_tree_t *tree)
-{
-    lxb_dom_node_t *node;
-
-    size_t idx = tree->open_elements->length;
-    void **list = tree->open_elements->list;
-
-    while (idx != 0) {
-        idx--;
-        node = (lxb_dom_node_t *) (list[idx]);
-
-        switch (node->local_name) {
-            case LXB_TAG_TBODY:
-            case LXB_TAG_THEAD:
-            case LXB_TAG_TFOOT:
-                if (node->ns == LXB_NS_HTML) {
-                    return node;
-                }
-
-                break;
-
-            default:
-                break;
-        }
-
-        if (lxb_html_tag_is_category(node->local_name, LXB_NS_HTML,
-                                     LXB_HTML_TAG_CATEGORY_SCOPE_TABLE))
-        {
-            return NULL;
-        }
-    }
-
-    return NULL;
-}
-
-lxb_dom_node_t *
-lxb_html_tree_element_in_scope_td_th(lxb_html_tree_t *tree)
-{
-    lxb_dom_node_t *node;
-
-    size_t idx = tree->open_elements->length;
-    void **list = tree->open_elements->list;
-
-    while (idx != 0) {
-        idx--;
-        node = (lxb_dom_node_t *) (list[idx]);
-
-        switch (node->local_name) {
-            case LXB_TAG_TD:
-            case LXB_TAG_TH:
-                if (node->ns == LXB_NS_HTML) {
-                    return node;
-                }
-
-                break;
-
-            default:
-                break;
-        }
-
-        if (lxb_html_tag_is_category(node->local_name, LXB_NS_HTML,
-                                     LXB_HTML_TAG_CATEGORY_SCOPE_TABLE))
-        {
-            return NULL;
-        }
-    }
-
-    return NULL;
-}
-
-bool
-lxb_html_tree_check_scope_element(lxb_html_tree_t *tree)
-{
-    lxb_dom_node_t *node;
-
-    for (size_t i = 0; i < tree->open_elements->length; i++) {
-        node = (lxb_dom_node_t *) (tree->open_elements->list[i]);
-
-        switch (node->local_name) {
-            case LXB_TAG_DD:
-            case LXB_TAG_DT:
-            case LXB_TAG_LI:
-            case LXB_TAG_OPTGROUP:
-            case LXB_TAG_OPTION:
-            case LXB_TAG_P:
-            case LXB_TAG_RB:
-            case LXB_TAG_RP:
-            case LXB_TAG_RT:
-            case LXB_TAG_RTC:
-            case LXB_TAG_TBODY:
-            case LXB_TAG_TD:
-            case LXB_TAG_TFOOT:
-            case LXB_TAG_TH:
-            case LXB_TAG_THEAD:
-            case LXB_TAG_TR:
-            case LXB_TAG_BODY:
-            case LXB_TAG_HTML:
-                return true;
-
-            default:
-                break;
-        }
-    }
-
-    return false;
-}
-
-void
-lxb_html_tree_close_p_element(lxb_html_tree_t *tree, lxb_html_token_t *token)
-{
-    lxb_html_tree_generate_implied_end_tags(tree, LXB_TAG_P, LXB_NS_HTML);
-
-    lxb_dom_node_t *node = lxb_html_tree_current_node(tree);
-
-    if (lxb_html_tree_node_is(node, LXB_TAG_P) == false) {
-        lxb_html_tree_parse_error(tree, token,
-                                  LXB_HTML_RULES_ERROR_UNELINOPELST);
-    }
-
-    lxb_html_tree_open_elements_pop_until_tag_id(tree, LXB_TAG_P, LXB_NS_HTML,
-                                                 true);
-}
-
-
-#define new lexbor_cpp_new
-// ────────────────────────────────────────────────────────────────────────
-// external/lexbor/lexbor/core/cpp_compat.h
-// ────────────────────────────────────────────────────────────────────────
-
-/* Generated by AffineUI tools/lexbor_cpp_compat.py. */
-#ifdef __cplusplus
-#ifndef LEXBOR_CPP_COMPAT_TYPES_H
-#define LEXBOR_CPP_COMPAT_TYPES_H
-namespace lexbor_cpp_compat {
-struct ptr_proxy {
-    void *p;
-    template <class T> operator T *() const { return static_cast<T *>(p); }
-    template <class T> operator const T *() const { return static_cast<const T *>(p); }
-    operator void *() const { return p; }
-    operator const void *() const { return p; }
-};
-inline ptr_proxy ptr(void *p) { return {p}; }
-inline ptr_proxy ptr(const void *p) { return {const_cast<void *>(p)}; }
-}  // namespace lexbor_cpp_compat
-#endif  /* LEXBOR_CPP_COMPAT_TYPES_H */
-
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_get
-#define aui_lexbor_array_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_get)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_get
-#define aui_lexbor_array_obj_get(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_get)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_last
-#define aui_lexbor_array_obj_last(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_last)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_pop
-#define aui_lexbor_array_obj_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_pop)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push
-#define aui_lexbor_array_obj_push(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_n
-#define aui_lexbor_array_obj_push_n(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_n)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_obj_push_wo_cls
-#define aui_lexbor_array_obj_push_wo_cls(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_obj_push_wo_cls)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_array_pop
-#define aui_lexbor_array_pop(...) ::lexbor_cpp_compat::ptr((aui_lexbor_array_pop)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_bst_entry_data
-#define aui_lexbor_bst_entry_data(...) ::lexbor_cpp_compat::ptr((aui_lexbor_bst_entry_data)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_calloc
-#define aui_lexbor_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_calloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_alloc
-#define aui_lexbor_dobject_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_alloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_by_absolute_position
-#define aui_lexbor_dobject_by_absolute_position(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_by_absolute_position)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_calloc
-#define aui_lexbor_dobject_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_calloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_dobject_free
-#define aui_lexbor_dobject_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_dobject_free)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_free
-#define aui_lexbor_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_free)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_insert
-#define aui_lexbor_hash_insert(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_insert)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_hash_search
-#define aui_lexbor_hash_search(...) ::lexbor_cpp_compat::ptr((aui_lexbor_hash_search)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_malloc
-#define aui_lexbor_malloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_malloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_alloc
-#define aui_lexbor_mem_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_alloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mem_calloc
-#define aui_lexbor_mem_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mem_calloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_alloc
-#define aui_lexbor_mraw_alloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_alloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_calloc
-#define aui_lexbor_mraw_calloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_calloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_free
-#define aui_lexbor_mraw_free(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_free)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_mraw_realloc
-#define aui_lexbor_mraw_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_mraw_realloc)(__VA_ARGS__))
-#endif
-#ifndef LXB_CPP_COMPAT_SKIP_lexbor_realloc
-#define aui_lexbor_realloc(...) ::lexbor_cpp_compat::ptr((aui_lexbor_realloc)(__VA_ARGS__))
-#endif
-#endif  /* __cplusplus */
-
-
-
-bool
-lxb_html_tree_adoption_agency_algorithm(lxb_html_tree_t *tree,
-                                        lxb_html_token_t *token,
-                                        lxb_status_t *status)
-{
-    lexbor_assert(tree->open_elements->length != 0);
-
-    /* State 1 */
-    bool is;
-    short outer_loop;
-    lxb_html_element_t *element;
-    lxb_dom_node_t *node, *marker, **oel_list, **afe_list;
-
-    lxb_tag_id_t subject = token->tag_id;
-
-    oel_list = (lxb_dom_node_t **) tree->open_elements->list;
-    afe_list = (lxb_dom_node_t **) tree->active_formatting->list;
-    marker = (lxb_dom_node_t *) lxb_html_tree_active_formatting_marker();
-
-    *status = LXB_STATUS_OK;
-
-    /* State 2 */
-    node = lxb_html_tree_current_node(tree);
-    lexbor_assert(node != NULL);
-
-    if (lxb_html_tree_node_is(node, subject)) {
-        is = lxb_html_tree_active_formatting_find_by_node_reverse(tree, node,
-                                                                  NULL);
-        if (is == false) {
-            lxb_html_tree_open_elements_pop(tree);
-
-            return false;
-        }
-    }
-
-    /* State 3 */
-    outer_loop = 0;
-
-    /* State 4 */
-    while (outer_loop < 8) {
-        /* State 5 */
-        outer_loop++;
-
-        /* State 6 */
-        size_t formatting_index = 0;
-        size_t idx = tree->active_formatting->length;
-        lxb_dom_node_t *formatting_element = NULL;
-
-        while (idx) {
-            idx--;
-
-            if (afe_list[idx] == marker) {
-                    return true;
-            }
-            else if (afe_list[idx]->local_name == subject) {
-                formatting_index = idx;
-                formatting_element = afe_list[idx];
-
-                break;
-            }
-        }
-
-        if (formatting_element == NULL) {
-            return true;
-        }
-
-        /* State 7 */
-        size_t oel_formatting_idx;
-        is = lxb_html_tree_open_elements_find_by_node_reverse(tree,
-                                                              formatting_element,
-                                                              &oel_formatting_idx);
-        if (is == false) {
-            lxb_html_tree_parse_error(tree, token,
-                                      LXB_HTML_RULES_ERROR_MIELINOPELST);
-
-            lxb_html_tree_active_formatting_remove_by_node(tree,
-                                                           formatting_element);
-
-            return false;
-        }
-
-        /* State 8 */
-        node = lxb_html_tree_element_in_scope_by_node(tree, formatting_element,
-                                                      LXB_HTML_TAG_CATEGORY_SCOPE);
-        if (node == NULL) {
-            lxb_html_tree_parse_error(tree, token,
-                                      LXB_HTML_RULES_ERROR_MIELINSC);
-            return false;
-        }
-
-        /* State 9 */
-        node = lxb_html_tree_current_node(tree);
-
-        if (formatting_element != node) {
-            lxb_html_tree_parse_error(tree, token,
-                                      LXB_HTML_RULES_ERROR_UNELINOPELST);
-        }
-
-        /* State 10 */
-        lxb_dom_node_t *furthest_block = NULL;
-        size_t furthest_block_idx = 0;
-        size_t oel_idx = tree->open_elements->length;
-
-        for (furthest_block_idx = oel_formatting_idx;
-             furthest_block_idx < oel_idx;
-             furthest_block_idx++)
-        {
-            is = lxb_html_tag_is_category(oel_list[furthest_block_idx]->local_name,
-                                          oel_list[furthest_block_idx]->ns,
-                                          LXB_HTML_TAG_CATEGORY_SPECIAL);
-            if (is) {
-                furthest_block = oel_list[furthest_block_idx];
-
-                break;
-            }
-        }
-
-        /* State 11 */
-        if (furthest_block == NULL) {
-            lxb_html_tree_open_elements_pop_until_node(tree, formatting_element,
-                                                       true);
-
-            lxb_html_tree_active_formatting_remove_by_node(tree,
-                                                           formatting_element);
-
-            return false;
-        }
-
-        lexbor_assert(oel_formatting_idx != 0);
-
-        /* State 12 */
-        lxb_dom_node_t *common_ancestor = oel_list[oel_formatting_idx - 1];
-
-        /* State 13 */
-        size_t bookmark = formatting_index;
-
-        /* State 14 */
-        lxb_dom_node_t *node;
-        lxb_dom_node_t *last = furthest_block;
-        size_t node_idx = furthest_block_idx;
-
-        /* State 14.1 */
-        size_t inner_loop_counter = 0;
-
-        /* State 14.2 */
-        while (1) {
-            inner_loop_counter++;
-
-            /* State 14.3 */
-            lexbor_assert(node_idx != 0);
-
-            if (node_idx == 0) {
-                return false;
-            }
-
-            node_idx--;
-            node = oel_list[node_idx];
-
-            /* State 14.4 */
-            if (node == formatting_element) {
-                break;
-            }
-
-            /* State 14.5 */
-            size_t afe_node_idx;
-            is = lxb_html_tree_active_formatting_find_by_node_reverse(tree,
-                                                                      node,
-                                                                      &afe_node_idx);
-            /* State 14.5 */
-            if (inner_loop_counter > 3 && is) {
-                lxb_html_tree_active_formatting_remove_by_node(tree, node);
-
-                continue;
-            }
-
-            /* State 14.6 */
-            if (is == false) {
-                lxb_html_tree_open_elements_remove_by_node(tree, node);
-
-                continue;
-            }
-
-            /* State 14.7 */
-            lxb_html_token_t fake_token = {0};
-
-            fake_token.tag_id = node->local_name;
-            fake_token.base_element = node;
-
-            element = lxb_html_tree_create_element_for_token(tree, &fake_token,
-                                                             LXB_NS_HTML);
-            if (element == NULL) {
-                *status = LXB_STATUS_ERROR_MEMORY_ALLOCATION;
-
-                return false;
-            }
-
-            node = lxb_dom_interface_node(element);
-
-            afe_list[afe_node_idx] = node;
-            oel_list[node_idx] = node;
-
-            /* State 14.8 */
-            if (last == furthest_block) {
-                bookmark = afe_node_idx + 1;
-
-                lexbor_assert(bookmark < tree->active_formatting->length);
-            }
-
-            /* State 14.9 */
-            if (last->parent != NULL) {
-                lxb_dom_node_remove_wo_events(last);
-            }
-
-            lxb_dom_node_insert_child_wo_events(node, last);
-
-            /* State 14.10 */
-            last = node;
-        }
-
-        if (last->parent != NULL) {
-            lxb_dom_node_remove_wo_events(last);
-        }
-
-        /* State 15 */
-        lxb_dom_node_t *pos;
-        lxb_html_tree_insertion_position_t ipos;
-
-        pos = lxb_html_tree_appropriate_place_inserting_node(tree,
-                                                             common_ancestor,
-                                                             &ipos);
-        if (pos == NULL) {
-            return false;
-        }
-
-        lxb_html_tree_insert_node(pos, last, ipos);
-
-        /* State 16 */
-        lxb_html_token_t fake_token = {0};
-
-        fake_token.tag_id = formatting_element->local_name;
-        fake_token.base_element = formatting_element;
-
-        element = lxb_html_tree_create_element_for_token(tree, &fake_token,
-                                                         LXB_NS_HTML);
-        if (element == NULL) {
-            *status = LXB_STATUS_ERROR_MEMORY_ALLOCATION;
-
-            return false;
-        }
-
-        /* State 17 */
-        lxb_dom_node_t *next;
-        node = furthest_block->first_child;
-
-        while (node != NULL) {
-            next = node->next;
-
-            lxb_dom_node_remove_wo_events(node);
-            lxb_dom_node_insert_child_wo_events(lxb_dom_interface_node(element),
-                                                node);
-            node = next;
-        }
-
-        node = lxb_dom_interface_node(element);
-
-        /* State 18 */
-        lxb_dom_node_insert_child_wo_events(furthest_block, node);
-
-        /* State 19 */
-        lxb_html_tree_active_formatting_remove(tree, formatting_index);
-
-        if (bookmark > tree->active_formatting->length) {
-            bookmark = tree->active_formatting->length;
-        }
-
-        *status = lxb_html_tree_active_formatting_insert(tree, node, bookmark);
-        if (*status != LXB_STATUS_OK) {
-            return false;
-        }
-
-        /* State 20 */
-        lxb_html_tree_open_elements_remove_by_node(tree, formatting_element);
-
-        lxb_html_tree_open_elements_find_by_node(tree, furthest_block,
-                                                 &furthest_block_idx);
-
-        *status = lxb_html_tree_open_elements_insert_after(tree, node,
-                                                           furthest_block_idx);
-        if (*status != LXB_STATUS_OK) {
-            return false;
-        }
-    }
-
-    return false;
-}
-
-bool
-lxb_html_tree_html_integration_point(lxb_dom_node_t *node)
-{
-    if (node->ns == LXB_NS_MATH
-        && node->local_name == LXB_TAG_ANNOTATION_XML)
-    {
-        lxb_dom_attr_t *attr;
-        attr = lxb_dom_element_attr_is_exist(lxb_dom_interface_element(node),
-                                             (const lxb_char_t *) "encoding",
-                                             8);
-        if (attr == NULL || attr->value == NULL) {
-            return false;
-        }
-
-        if (attr->value->length == 9
-            && lexbor_str_data_casecmp(attr->value->data,
-                                       (const lxb_char_t *) "text/html"))
-        {
-            return true;
-        }
-
-        if (attr->value->length == 21
-            && lexbor_str_data_casecmp(attr->value->data,
-                                       (const lxb_char_t *) "application/xhtml+xml"))
-        {
-            return true;
-        }
-
-        return false;
-    }
-
-    if (node->ns == LXB_NS_SVG
-        && (node->local_name == LXB_TAG_FOREIGNOBJECT
-            || node->local_name == LXB_TAG_DESC
-            || node->local_name == LXB_TAG_TITLE))
-    {
-        return true;
-    }
-
-    return false;
-}
-
-lxb_status_t
-lxb_html_tree_adjust_attributes_mathml(lxb_html_tree_t *tree,
-                                       lxb_dom_attr_t *attr, void *ctx)
-{
-    lxb_status_t status;
-
-    status = lxb_html_tree_adjust_mathml_attributes(tree, attr, ctx);
-    if (status !=LXB_STATUS_OK) {
-        return status;
-    }
-
-    return lxb_html_tree_adjust_foreign_attributes(tree, attr, ctx);
-}
-
-lxb_status_t
-lxb_html_tree_adjust_attributes_svg(lxb_html_tree_t *tree,
-                                    lxb_dom_attr_t *attr, void *ctx)
-{
-    lxb_status_t status;
-
-    status = lxb_html_tree_adjust_svg_attributes(tree, attr, ctx);
-    if (status !=LXB_STATUS_OK) {
-        return status;
-    }
-
-    return lxb_html_tree_adjust_foreign_attributes(tree, attr, ctx);
-}
 // ────────────────────────────────────────────────────────────────────────
 // external/lexbor/lexbor/core/cpp_compat_undef.h
 // ────────────────────────────────────────────────────────────────────────

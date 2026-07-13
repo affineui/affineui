@@ -77,6 +77,13 @@ STATIC_SPLIT_FUNCTION_RE = re.compile(
 STATIC_LINE_SYMBOL_RE = re.compile(
     r"(?m)^static\b[^\n;({=]*\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?=\[|=|;|\()"
 )
+SHS_TABLE_RE = re.compile(
+    r"(static\s+const\s+lexbor_shs_entry_t\s+"
+    r"[A-Za-z_][A-Za-z0-9_]*\s*(?:\[[^\]]*\])?\s*=\s*\{)"
+    r"(.*?)"
+    r"(\n?\};)",
+    re.DOTALL,
+)
 
 
 @dataclass
@@ -724,8 +731,14 @@ def patch_generated_headers(staged_source: Path) -> None:
             # field even though every key is a string literal. C accepts that;
             # standard C++ and MSVC do not. Other generated Lexbor tables
             # already emit this exact cast, so normalize SHS entries too.
-            text = re.sub(r'(\{\s*)(")',
-                          r'\1(char *) \2', text)
+            text = SHS_TABLE_RE.sub(
+                lambda match: (
+                    match.group(1)
+                    + re.sub(r'(\{\s*)(")', r'\1(char *) \2', match.group(2))
+                    + match.group(3)
+                ),
+                text,
+            )
         if path.as_posix().endswith("/lexbor/html/tokenizer/res.h"):
             text = re.sub(r"(\{0x[0-9A-Fa-f]+,\s*)(\")", r"\1(void *) \2", text)
         write_text(path, text)
@@ -868,7 +881,11 @@ _LEXBOR_SKIP_MODULES = {"encoding", "unicode", "punycode", "url"}
 
 
 def lexbor_c_sources(staged_source: Path, platform: str) -> list[Path]:
-    paths = sorted((staged_source / "lexbor").rglob("*.c"))
+    lexbor_root = staged_source / "lexbor"
+    paths = sorted(
+        lexbor_root.rglob("*.c"),
+        key=lambda path: path.relative_to(lexbor_root).as_posix(),
+    )
     selected: list[Path] = []
 
     for path in paths:
