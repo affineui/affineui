@@ -63,6 +63,21 @@ std::function<void(affineui::View&)> build_fn(affineui_build_fn build, void* use
     return [build, user](affineui::View& v) { build(user, view_handle(v)); };
 }
 
+// For the DEFERRED builders (document / dockpanel / dock_toolbar), which the
+// dock engine records now and invokes later. The returned std::function OWNS the
+// user data through hold_user(), so it stays alive until the engine drops the
+// callback — and user_free is called exactly once when it does.
+//
+// The immediate builders can get away with a borrowed `user` (it only has to
+// survive the call). These cannot: by the time the layout emits, a caller's
+// stack frame is long gone.
+std::function<void(affineui::View&)> owning_build_fn(affineui_build_fn build, void* user,
+                                                     affineui_user_free_fn user_free) {
+    auto data = hold_user(user, user_free);
+    if (!build) return [data](affineui::View&) {};
+    return [build, data](affineui::View& v) { build(data->user, view_handle(v)); };
+}
+
 // ── ABI locks for the app-surface enums ──────────────────────────────
 static_assert(AFFINEUI_THEME_PLAIN == static_cast<int>(affineui::ViewTheme::Plain));
 static_assert(AFFINEUI_THEME_BOOTSTRAP == static_cast<int>(affineui::ViewTheme::Bootstrap));
@@ -584,6 +599,249 @@ affineui_widget* affineui_view_foldout(affineui_view* view, const char* title,
     auto ref   = scope.ref();
     run_build(build, user, *to_view(view));
     return wrap(std::move(ref));
+}
+
+// ── Declarative docking ──────────────────────────────────────────────
+
+namespace {
+
+// The C form is flat with has_* flags (C has no std::optional). Rebuild the C++
+// value from it. NULL == "docked, defaults, parented to the document".
+affineui::DockLocation to_dock_location(const affineui_dock_location* c) {
+    affineui::DockLocation l;
+    if (!c) return l;
+
+    if (c->has_side)       l.side       = static_cast<affineui::Dock>(c->side);
+    if (c->has_size)       l.size       = c->size;
+    if (c->has_anchor)     l.anchor     = static_cast<affineui::DockCorner>(c->anchor);
+    if (c->has_offset)     l.offset     = {c->offset_x, c->offset_y};
+    if (c->has_float_size) l.float_size = {c->float_w, c->float_h};
+
+    l.state = static_cast<affineui::DockState>(c->state);
+    if (c->parent    && *c->parent)    l.parent    = std::string(c->parent);
+    if (c->drag_with && *c->drag_with) l.drag_with = std::string(c->drag_with);
+    return l;
+}
+
+void from_dock_placement(const affineui::Document::DockPlacement& p,
+                         affineui_dock_placement* out) {
+    out->present  = p.present ? 1 : 0;
+    out->floating = p.floating ? 1 : 0;
+    out->parent   = dup_string(p.parent);  // caller frees
+    out->side     = p.side;
+    out->size     = p.size;
+    out->x = p.x; out->y = p.y; out->w = p.w; out->h = p.h;
+}
+
+}  // namespace
+
+// ── DockLocation: init + the four factories (mirroring C++/Python) ────
+
+void affineui_dock_location_init(affineui_dock_location* loc) {
+    if (!loc) return;
+    *loc = affineui_dock_location{};   // zeroes every has_* flag
+    loc->state = AFFINEUI_DOCK_DOCKED;
+}
+
+void affineui_dock_location_docked(affineui_dock_location* loc, affineui_dock side,
+                                   int size_px) {
+    if (!loc) return;
+    affineui_dock_location_init(loc);
+    loc->has_side = 1;
+    loc->side     = side;
+    if (size_px) { loc->has_size = 1; loc->size = size_px; }
+}
+
+void affineui_dock_location_tab(affineui_dock_location* loc) {
+    if (!loc) return;
+    affineui_dock_location_init(loc);
+    loc->has_side = 1;
+    loc->side     = AFFINEUI_DOCK_TAB;
+}
+
+void affineui_dock_location_floating(affineui_dock_location* loc,
+                                     affineui_dock_corner anchor,
+                                     int x, int y, int w, int h) {
+    if (!loc) return;
+    affineui_dock_location_init(loc);
+    loc->state          = AFFINEUI_DOCK_DETACHED;
+    loc->has_anchor     = 1;
+    loc->anchor         = anchor;
+    loc->has_offset     = 1;
+    loc->offset_x       = x;
+    loc->offset_y       = y;
+    loc->has_float_size = 1;
+    loc->float_w        = w;
+    loc->float_h        = h;
+}
+
+void affineui_dock_location_tearoff(affineui_dock_location* loc,
+                                    affineui_dock_corner anchor,
+                                    int x, int y, int w, int h) {
+    if (!loc) return;
+    affineui_dock_location_floating(loc, anchor, x, y, w, h);
+    loc->state = AFFINEUI_DOCK_TEAROFF;
+}
+
+affineui_widget* affineui_view_document_view(affineui_view* view, const char* key,
+                                             affineui_build_fn build, void* user) {
+    if (!view) return nullptr;
+    return wrap(to_view(view)->document_view(sv(key), build_fn(build, user)));
+}
+
+char* affineui_view_document(affineui_view* view, affineui_build_fn content,
+                             void* user, affineui_user_free_fn user_free,
+                             const char* title, const char* icon) {
+    // Take ownership FIRST, before any early return. Once a caller hands over
+    // (user, user_free) it is consumed unconditionally — the binding has already
+    // allocated (a Box in Rust, a GCHandle in C#) and cannot take it back. A
+    // reject path that simply returned would leak that allocation forever, and
+    // "call this on a disposed view" is exactly the case that hits it.
+    auto cb = owning_build_fn(content, user, user_free);
+    if (!view) return dup_string({});  // cb (and thus user_free) runs here
+    auto handle = to_view(view)->document(std::move(cb), sv(title), sv(icon));
+    return dup_string(handle.id);
+}
+
+char* affineui_view_dockpanel(affineui_view* view, const char* title,
+                              const affineui_dock_location* where,
+                              affineui_build_fn content, void* user,
+                              affineui_user_free_fn user_free,
+                              const char* icon, const char* key) {
+    auto cb = owning_build_fn(content, user, user_free);   // consumed either way
+    if (!view) return dup_string({});
+    auto handle = to_view(view)->dockpanel(sv(title), to_dock_location(where),
+                                           std::move(cb), sv(icon), sv(key));
+    return dup_string(handle.id);
+}
+
+void affineui_view_dock_toolbar(affineui_view* view, const char* pane_id,
+                                affineui_build_fn build, void* user,
+                                affineui_user_free_fn user_free) {
+    auto cb = owning_build_fn(build, user, user_free);     // consumed either way
+    if (!view || !pane_id) return;
+    to_view(view)->dock_toolbar(sv(pane_id), std::move(cb));
+}
+
+// ── Dock providers ───────────────────────────────────────────────────
+// Each holds `user` through hold_user(), which calls user_free exactly once
+// when the view drops the callback — the same contract as on_click.
+
+void affineui_view_set_dock_size_provider(affineui_view* view,
+                                          affineui_dock_size_fn fn, void* user,
+                                          affineui_user_free_fn user_free) {
+    // Own the user data before the reject path, or it leaks (see document()).
+    auto data = hold_user(user, user_free);
+    if (!view) return;
+    if (!fn) { to_view(view)->set_dock_size_provider({}); return; }
+    to_view(view)->set_dock_size_provider(
+        [fn, data](std::string_view pane_id) {
+            return fn(data->user, std::string(pane_id).c_str());
+        });
+}
+
+void affineui_view_set_dock_active_tab_provider(affineui_view* view,
+                                                affineui_dock_active_tab_fn fn,
+                                                void* user,
+                                                affineui_user_free_fn user_free) {
+    // Own the user data before the reject path, or it leaks (see document()).
+    auto data = hold_user(user, user_free);
+    if (!view) return;
+    if (!fn) { to_view(view)->set_dock_active_tab_provider({}); return; }
+    to_view(view)->set_dock_active_tab_provider(
+        [fn, data](std::string_view pane_id) -> std::string {
+            const char* s = fn(data->user, std::string(pane_id).c_str());
+            return s ? std::string(s) : std::string{};
+        });
+}
+
+void affineui_view_set_dock_placement_provider(affineui_view* view,
+                                               affineui_dock_placement_fn fn,
+                                               void* user,
+                                               affineui_user_free_fn user_free) {
+    // Own the user data before the reject path, or it leaks (see document()).
+    auto data = hold_user(user, user_free);
+    if (!view) return;
+    if (!fn) { to_view(view)->set_dock_placement_provider({}); return; }
+    to_view(view)->set_dock_placement_provider(
+        [fn, data](std::string_view panel_id) -> affineui::Document::DockPlacement {
+            // Zeroed => present=0 => "no override", which is what a callback
+            // that ignores `out` (or a panel it doesn't know) should mean.
+            affineui_dock_placement c{};
+            fn(data->user, std::string(panel_id).c_str(), &c);
+
+            affineui::Document::DockPlacement p;
+            p.present  = c.present != 0;
+            p.floating = c.floating != 0;
+            p.parent   = c.parent ? std::string(c.parent) : std::string{};
+            p.side = c.side; p.size = c.size;
+            p.x = c.x; p.y = c.y; p.w = c.w; p.h = c.h;
+            return p;
+        });
+}
+
+void affineui_view_set_dock_layout_from_document(affineui_view* view,
+                                                 affineui_document* doc) {
+    if (!view) return;
+    if (!doc) { to_view(view)->set_dock_layout_provider({}); return; }
+
+    // The live arrangement is a recursive tree that every caller round-trips
+    // straight back from the document being rebuilt, so wire it directly rather
+    // than marshalling the tree through the ABI.
+    //
+    // Hold the document WEAKLY. A raw Document* here is a use-after-free
+    // reachable from SAFE Rust and SAFE C#: nothing in either wrapper keeps the
+    // document alive for the view (Rust takes &Document, C# only until the
+    // registration returns), so destroying the document and then rebuilding the
+    // view would dereference a dangling pointer. A dead WeakRef simply reports
+    // "no layout", and the resolver falls back to the declared seed.
+    auto weak = affineui::to_weak_ref(to_doc(doc));
+    to_view(view)->set_dock_layout_provider(
+        [weak]() -> affineui::Document::DockLayout {
+            if (auto* d = weak.get()) return d->dock_layout();
+            return {};  // present = false => use the declared seed
+        });
+}
+
+// ── Dock readback (workspace save) ───────────────────────────────────
+
+void affineui_document_dock_override(const affineui_document* doc, const char* panel_id,
+                                     affineui_dock_placement* out) {
+    if (!out) return;
+    *out = affineui_dock_placement{};  // present = 0 => no override
+    if (!doc || !panel_id) return;
+    from_dock_placement(to_doc(doc)->dock_override(sv(panel_id)), out);
+}
+
+char* affineui_document_dock_active_tab(const affineui_document* doc, const char* pane_id) {
+    if (!doc || !pane_id) return dup_string({});
+    return dup_string(to_doc(doc)->dock_active_tab(sv(pane_id)));
+}
+
+int affineui_document_take_dock_structure_changed(affineui_document* doc) {
+    if (!doc) return 0;
+    return to_doc(doc)->take_dock_structure_changed() ? 1 : 0;
+}
+
+void affineui_document_reset_dock_state(affineui_document* doc) {
+    if (doc) to_doc(doc)->reset_dock_state();
+}
+
+size_t affineui_document_dock_override_count(const affineui_document* doc) {
+    if (!doc) return 0;
+    return to_doc(doc)->dock_overrides().size();
+}
+
+int affineui_document_dock_override_at(const affineui_document* doc, size_t index,
+                                       char** out_panel_id,
+                                       affineui_dock_placement* out) {
+    if (!doc || !out_panel_id || !out) return 0;
+    const auto overrides = to_doc(doc)->dock_overrides();
+    if (index >= overrides.size()) return 0;
+
+    *out_panel_id = dup_string(overrides[index].first);
+    from_dock_placement(overrides[index].second, out);
+    return 1;
 }
 
 affineui_widget* affineui_view_toolbar_separator(affineui_view* view, const char* key) {

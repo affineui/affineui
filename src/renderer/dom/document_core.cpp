@@ -287,8 +287,21 @@ void install_dom_event_hooks(DocumentImpl& impl) {
 Document::Document() : impl_{std::make_unique<detail::DocumentImpl>()} {}
 Document::~Document() = default;
 
-Document::Document(Document&&) noexcept            = default;
-Document& Document::operator=(Document&&) noexcept = default;
+// The move ops cannot be defaulted: Document embeds a WeakSlot (see
+// AFFINEUI_WEAK_TRACKABLE in document.h), and WeakSlot is deliberately neither
+// copyable nor movable — it is bound to `this`, so carrying it across a move
+// would let existing WeakRefs silently resolve to the wrong address.
+//
+// So move the impl_ and leave each object's slot alone. The moved-TO Document
+// keeps the fresh slot it was constructed with; refs to the moved-FROM object
+// stay bound to it and go dead when it is destroyed, which is the honest answer
+// ("the thing you had a reference to is gone") rather than a dangle.
+Document::Document(Document&& other) noexcept : impl_(std::move(other.impl_)) {}
+
+Document& Document::operator=(Document&& other) noexcept {
+    if (this != &other) impl_ = std::move(other.impl_);
+    return *this;
+}
 
 namespace detail {
 // Resolve the document's inheritance baseline: implicit-root defaults, then

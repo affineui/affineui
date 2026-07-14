@@ -303,11 +303,26 @@ AFFINEUI_C_API void affineui_tools_shutdown(void);
 
 // ── Misc ─────────────────────────────────────────────────────────────
 
-// C ABI version. Bumped on ANY breaking change to this header or
-// c_api_app.h (enum meaning, struct layout, function semantics).
-// Additive changes (new functions, appended enum values) do not bump it.
-// Language wrappers check it at load and fail fast on mismatch.
-#define AFFINEUI_C_ABI_VERSION 2
+// C ABI version. BUMPED ON EVERY WRAPPER-VISIBLE CHANGE to this header or
+// c_api_app.h — breaking OR additive.
+//
+// The old policy ("additive changes do not bump it") was incompatible with how
+// the wrappers actually check: they compare for EXACT EQUALITY and fail fast on
+// mismatch. Under that policy a NEW wrapper loading an OLD library sees a
+// matching version, sails through the gate, and then dies on a missing entry
+// point the moment it calls one of the added functions — which is precisely the
+// failure the gate exists to prevent. An exact-equality gate only works if every
+// addition is a new version.
+//
+// So: adding a function, appending an enum value, or changing anything a
+// wrapper can see all bump this. Wrappers pin the version they were written
+// against; a mismatch in either direction is a hard error at load.
+//
+// 3: docking (affineui_view_document_view / document / dockpanel / dock_toolbar,
+//    the four dock providers, the Document dock readback), and a user_free
+//    parameter added to the three deferred dock builders.
+// 2: baseline.
+#define AFFINEUI_C_ABI_VERSION 3
 
 AFFINEUI_C_API int         affineui_c_abi_version(void);
 

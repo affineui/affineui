@@ -434,6 +434,111 @@ internal static partial class NativeMethods
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial IntPtr affineui_view_foldout(IntPtr view, string? title, int expanded, string? key, IntPtr build, IntPtr user);
 
+    // ── Declarative docking ──────────────────────────────────────────
+    //
+    // The three builders below are DEFERRED: they do not run `content` before
+    // returning. The dock engine records it and invokes it later, when the
+    // container resolves and emits the layout. That is why they take a
+    // user_free (the immediate builders do not) — `user` must outlive the call,
+    // so the GCHandle is released by the engine, NOT by a `using` scope.
+
+    /// <summary>
+    /// Flat C form of <c>affineui::DockLocation</c>. C has no optional, hence the
+    /// Has* flags. The public <see cref="AffineUI.DockLocation"/> carries real
+    /// nullables and marshals into this at the call.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct affineui_dock_location
+    {
+        public int HasSide;
+        public int Side;
+        public IntPtr Parent;   // UTF-8, owned by the caller for the call
+        public int State;
+        public int HasSize;
+        public int Size;
+        public int HasAnchor;
+        public int Anchor;
+        public int HasOffset;
+        public int OffsetX;
+        public int OffsetY;
+        public int HasFloatSize;
+        public int FloatW;
+        public int FloatH;
+        public IntPtr DragWith; // UTF-8, owned by the caller for the call
+    }
+
+    /// <summary>Flat C form of <c>Document::DockPlacement</c>.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct affineui_dock_placement
+    {
+        public int Present;
+        public int Floating;
+        public IntPtr Parent;
+        public int Side;
+        public int Size;
+        public int X;
+        public int Y;
+        public int W;
+        public int H;
+    }
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_dock_location_init(ref affineui_dock_location loc);
+
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial IntPtr affineui_view_document_view(IntPtr view, string? key, IntPtr build, IntPtr user);
+
+    /// <summary>DEFERRED — returns the pane id; free with affineui_string_free.</summary>
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial IntPtr affineui_view_document(
+        IntPtr view, IntPtr content, IntPtr user, IntPtr userFree, string? title, string? icon);
+
+    /// <summary>DEFERRED — returns the panel id; free with affineui_string_free.</summary>
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial IntPtr affineui_view_dockpanel(
+        IntPtr view, string? title, ref affineui_dock_location where,
+        IntPtr content, IntPtr user, IntPtr userFree, string? icon, string? key);
+
+    /// <summary>DEFERRED.</summary>
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial void affineui_view_dock_toolbar(
+        IntPtr view, string? paneId, IntPtr build, IntPtr user, IntPtr userFree);
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_view_set_dock_size_provider(
+        IntPtr view, IntPtr fn, IntPtr user, IntPtr userFree);
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_view_set_dock_active_tab_provider(
+        IntPtr view, IntPtr fn, IntPtr user, IntPtr userFree);
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_view_set_dock_placement_provider(
+        IntPtr view, IntPtr fn, IntPtr user, IntPtr userFree);
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_view_set_dock_layout_from_document(IntPtr view, IntPtr doc);
+
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial void affineui_document_dock_override(
+        IntPtr doc, string? panelId, out affineui_dock_placement outPlacement);
+
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial IntPtr affineui_document_dock_active_tab(IntPtr doc, string? paneId);
+
+    [LibraryImport(Lib)]
+    internal static partial int affineui_document_take_dock_structure_changed(IntPtr doc);
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_document_reset_dock_state(IntPtr doc);
+
+    [LibraryImport(Lib)]
+    internal static partial nuint affineui_document_dock_override_count(IntPtr doc);
+
+    [LibraryImport(Lib)]
+    internal static partial int affineui_document_dock_override_at(
+        IntPtr doc, nuint index, out IntPtr outPanelId, out affineui_dock_placement outPlacement);
+
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial IntPtr affineui_view_toolbar_separator(IntPtr view, string? key);
 

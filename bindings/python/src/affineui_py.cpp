@@ -530,6 +530,15 @@ PYBIND11_MODULE(_affineui, m) {
              "Runtime placement overrides recorded by dock gestures, as a "
              "list of (panel_id, DockPlacement) pairs. Feed them back via "
              "View.set_dock_placement_provider.")
+        .def("dock_override", &affineui::Document::dock_override,
+             py::arg("panel_id"),
+             "The placement override for ONE panel (.present is False when it "
+             "has none). The single-panel form of dock_overrides().")
+        .def("dock_active_tab", &affineui::Document::dock_active_tab,
+             py::arg("pane_id"),
+             "The active tab of a dock leaf ('' = the primary panel). Feed it "
+             "back via View.set_dock_active_tab_provider to restore which tab "
+             "was selected.")
         .def("take_dock_structure_changed",
              &affineui::Document::take_dock_structure_changed,
              "True once (consumes the flag) after a dock gesture "
@@ -611,6 +620,12 @@ PYBIND11_MODULE(_affineui, m) {
              "Place relative to another declared panel (chainable).")
         .def("sized", &affineui::DockLocation::sized, py::arg("px"),
              py::return_value_policy::reference_internal)
+        .def("dragging_with",
+             [](affineui::DockLocation& l, const affineui::DockHandle& h) {
+                 return l.dragging_with(h);
+             },
+             py::arg("panel"), py::return_value_policy::reference_internal,
+             "Tearoff: drag this panel along with another (chainable).")
         .def("tearout_size", &affineui::DockLocation::tearout_size,
              py::arg("px"), py::return_value_policy::reference_internal);
 

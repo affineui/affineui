@@ -15,7 +15,7 @@
 
 use core::ffi::{c_char, c_float, c_int, c_void};
 
-pub const AFFINEUI_C_ABI_VERSION: c_int = 2;
+pub const AFFINEUI_C_ABI_VERSION: c_int = 3;
 
 // ── Opaque handles ───────────────────────────────────────────────────
 
@@ -247,6 +247,117 @@ pub type affineui_event_capture_fn = Option<
 pub type affineui_click_fn = Option<unsafe extern "C" fn(user: *mut c_void)>;
 pub type affineui_change_fn = Option<unsafe extern "C" fn(user: *mut c_void, value: *const c_char)>;
 pub type affineui_build_fn = Option<unsafe extern "C" fn(user: *mut c_void, view: *mut affineui_view)>;
+
+// -- Declarative docking ----------------------------------------------
+
+pub const AFFINEUI_DOCK_LEFT: c_int = 0;
+pub const AFFINEUI_DOCK_RIGHT: c_int = 1;
+pub const AFFINEUI_DOCK_TOP: c_int = 2;
+pub const AFFINEUI_DOCK_BOTTOM: c_int = 3;
+pub const AFFINEUI_DOCK_TAB: c_int = 4;
+
+pub const AFFINEUI_DOCK_DOCKED: c_int = 0;
+pub const AFFINEUI_DOCK_DETACHED: c_int = 1;
+pub const AFFINEUI_DOCK_TEAROFF: c_int = 2;
+
+pub const AFFINEUI_DOCK_CORNER_TOP_LEFT: c_int = 0;
+pub const AFFINEUI_DOCK_CORNER_TOP_RIGHT: c_int = 1;
+pub const AFFINEUI_DOCK_CORNER_BOTTOM_LEFT: c_int = 2;
+pub const AFFINEUI_DOCK_CORNER_BOTTOM_RIGHT: c_int = 3;
+
+/// `affineui::DockLocation` as flat C data. C++ uses `std::optional` for the
+/// optional fields, which C cannot express — hence the `has_*` flags.
+///
+/// This is the RAW form. The safe `affineui` crate exposes an idiomatic
+/// `DockLocation` with real `Option<T>`s and marshals it into this at the call;
+/// nothing above `-sys` should ever see a `has_*` flag.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct affineui_dock_location {
+    pub has_side: c_int,
+    pub side: c_int,
+    pub parent: *const c_char,
+    pub state: c_int,
+    pub has_size: c_int,
+    pub size: c_int,
+    pub has_anchor: c_int,
+    pub anchor: c_int,
+    pub has_offset: c_int,
+    pub offset_x: c_int,
+    pub offset_y: c_int,
+    pub has_float_size: c_int,
+    pub float_w: c_int,
+    pub float_h: c_int,
+    pub drag_with: *const c_char,
+}
+
+impl Default for affineui_dock_location {
+    /// Same as `affineui_dock_location_init`: docked, no explicit side/size,
+    /// parented to the document.
+    fn default() -> Self {
+        Self {
+            has_side: 0,
+            side: 0,
+            parent: core::ptr::null(),
+            state: AFFINEUI_DOCK_DOCKED,
+            has_size: 0,
+            size: 0,
+            has_anchor: 0,
+            anchor: 0,
+            has_offset: 0,
+            offset_x: 0,
+            offset_y: 0,
+            has_float_size: 0,
+            float_w: 0,
+            float_h: 0,
+            drag_with: core::ptr::null(),
+        }
+    }
+}
+
+/// A saved placement override for one panel (flat `Document::DockPlacement`).
+/// `present = 0` means "no override — use the declared location".
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct affineui_dock_placement {
+    pub present: c_int,
+    pub floating: c_int,
+    pub parent: *const c_char,
+    pub side: c_int,
+    pub size: c_int,
+    pub x: c_int,
+    pub y: c_int,
+    pub w: c_int,
+    pub h: c_int,
+}
+
+impl Default for affineui_dock_placement {
+    fn default() -> Self {
+        Self {
+            present: 0,
+            floating: 0,
+            parent: core::ptr::null(),
+            side: 0,
+            size: 0,
+            x: 0,
+            y: 0,
+            w: 0,
+            h: 0,
+        }
+    }
+}
+
+pub type affineui_dock_size_fn =
+    Option<unsafe extern "C" fn(user: *mut c_void, pane_id: *const c_char) -> c_int>;
+pub type affineui_dock_active_tab_fn =
+    Option<unsafe extern "C" fn(user: *mut c_void, pane_id: *const c_char) -> *const c_char>;
+pub type affineui_dock_placement_fn = Option<
+    unsafe extern "C" fn(
+        user: *mut c_void,
+        panel_id: *const c_char,
+        out: *mut affineui_dock_placement,
+    ),
+>;
 
 // -- Virtual lists & trees --------------------------------------------
 
@@ -593,6 +704,118 @@ extern "C" {
         build: affineui_build_fn,
         user: *mut c_void,
     ) -> *mut affineui_widget;
+
+    // -- Declarative docking --
+
+    pub fn affineui_dock_location_init(loc: *mut affineui_dock_location);
+    pub fn affineui_dock_location_docked(
+        loc: *mut affineui_dock_location,
+        side: c_int,
+        size_px: c_int,
+    );
+    pub fn affineui_dock_location_tab(loc: *mut affineui_dock_location);
+    pub fn affineui_dock_location_floating(
+        loc: *mut affineui_dock_location,
+        anchor: c_int,
+        x: c_int,
+        y: c_int,
+        w: c_int,
+        h: c_int,
+    );
+    pub fn affineui_dock_location_tearoff(
+        loc: *mut affineui_dock_location,
+        anchor: c_int,
+        x: c_int,
+        y: c_int,
+        w: c_int,
+        h: c_int,
+    );
+
+    pub fn affineui_view_document_view(
+        view: *mut affineui_view,
+        key: *const c_char,
+        build: affineui_build_fn,
+        user: *mut c_void,
+    ) -> *mut affineui_widget;
+    /// DEFERRED: the engine records `content` and invokes it later, when the
+    /// container emits. `user` must outlive the call — pass heap state and a
+    /// `user_free`, never a stack pointer. Returns the pane id; free with
+    /// `affineui_string_free`.
+    pub fn affineui_view_document(
+        view: *mut affineui_view,
+        content: affineui_build_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+        title: *const c_char,
+        icon: *const c_char,
+    ) -> *mut c_char;
+    /// DEFERRED — see `affineui_view_document`. Returns the panel id; free with
+    /// `affineui_string_free`.
+    pub fn affineui_view_dockpanel(
+        view: *mut affineui_view,
+        title: *const c_char,
+        where_: *const affineui_dock_location,
+        content: affineui_build_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+        icon: *const c_char,
+        key: *const c_char,
+    ) -> *mut c_char;
+    /// DEFERRED — see `affineui_view_document`.
+    pub fn affineui_view_dock_toolbar(
+        view: *mut affineui_view,
+        pane_id: *const c_char,
+        build: affineui_build_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+
+    pub fn affineui_view_set_dock_size_provider(
+        view: *mut affineui_view,
+        fn_: affineui_dock_size_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_view_set_dock_active_tab_provider(
+        view: *mut affineui_view,
+        fn_: affineui_dock_active_tab_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_view_set_dock_placement_provider(
+        view: *mut affineui_view,
+        fn_: affineui_dock_placement_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_view_set_dock_layout_from_document(
+        view: *mut affineui_view,
+        doc: *mut affineui_document,
+    );
+
+    /// `out.parent` is a heap copy — free with `affineui_string_free`.
+    pub fn affineui_document_dock_override(
+        doc: *const affineui_document,
+        panel_id: *const c_char,
+        out: *mut affineui_dock_placement,
+    );
+    /// Caller frees with `affineui_string_free`.
+    pub fn affineui_document_dock_active_tab(
+        doc: *const affineui_document,
+        pane_id: *const c_char,
+    ) -> *mut c_char;
+    pub fn affineui_document_take_dock_structure_changed(doc: *mut affineui_document) -> c_int;
+    pub fn affineui_document_reset_dock_state(doc: *mut affineui_document);
+
+    pub fn affineui_document_dock_override_count(doc: *const affineui_document) -> usize;
+    /// Both `*out_panel_id` and `out.parent` are heap copies — free each with
+    /// `affineui_string_free`.
+    pub fn affineui_document_dock_override_at(
+        doc: *const affineui_document,
+        index: usize,
+        out_panel_id: *mut *mut c_char,
+        out: *mut affineui_dock_placement,
+    ) -> c_int;
 
     pub fn affineui_view_toolbar_separator(view: *mut affineui_view, key: *const c_char) -> *mut affineui_widget;
     pub fn affineui_view_icon_button(

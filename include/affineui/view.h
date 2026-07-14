@@ -1030,6 +1030,16 @@ public:
                          std::string_view key = {},
                          std::source_location here = std::source_location::current());
 
+    /// Declare a dock pane's tab toolbar BY PANE ID — the same thing
+    /// DockHandle::toolbar() does, for callers that hold the id rather than the
+    /// handle. That's every language binding: a DockHandle carries a WeakRef and
+    /// cannot cross a C ABI, so document()/dockpanel() hand back the pane id and
+    /// the binding routes its toolbar through here.
+    ///
+    /// `pane_id` is what document()/dockpanel() returned (DockHandle::id).
+    void dock_toolbar(std::string_view pane_id,
+                      const std::function<void(View&)>& build);
+
     /// A collapsible section: a header (chevron + title) and a body the
     /// returned Scope fills. Clicking the header toggles collapse (driven by
     /// the core interaction layer). `expanded` sets the initial state.

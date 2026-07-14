@@ -35,6 +35,7 @@ pub use affineui_sys as sys;
 
 mod app;
 mod components;
+mod dock;
 mod document;
 mod event;
 pub mod embedded;
@@ -46,6 +47,7 @@ pub use app::{App, Config};
 pub use components::{
     Button, Checkbox, ColorField, DockPanel, Dropdown, Foldout, Slider, TextField, Validity,
 };
+pub use dock::{Dock, DockCorner, DockLocation, DockPlacement, DockState};
 pub use document::{DispatchResult, Document, DocumentScript};
 pub use event::{Color, Event, EventType, Key, MouseButton};
 pub use view::{Theme, View, Widget, WidgetKind};
