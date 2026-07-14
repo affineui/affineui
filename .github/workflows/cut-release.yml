@@ -1,46 +1,54 @@
 name: Cut release
 
-# Two-step release UX, step 2. First run "Draft release notes" with a
-# (bump, mode) pair to compute the next version and get a reviewed PR
-# with the notes file at `docs/release-notes/v<CORE>.md` (keyed on
-# MAJOR.MINOR.PATCH, shared across every -rc/-beta/-alpha in the cycle
-# and the final release). Merge that PR into main. THEN run THIS
-# workflow with the SAME (bump, mode) pair — it re-runs the same
-# next-version computation, refuses to run if the notes file isn't on
-# main, and turns the notes file into an annotated git tag (`vX.Y.Z…`).
-# release.yml + wheels.yml react to the tag push and publish everywhere.
+# Cuts a tag; release.yml + wheels.yml react to it and publish everywhere.
+# The full process — and the reasoning — is docs/RELEASE_PROCESS.md.
 #
-# UI matches "Draft release notes" on purpose: same two dropdowns, same
-# semantics, same next_version.py — so the operator never has to type
-# a version string by hand or reconcile two different mental models.
+# Two rules drive the design:
 #
-# Why annotated tags: the tag message becomes the GitHub Release body,
-# ships in every git clone (no round-trip to GitHub needed to see the
-# release story), and gives us a git-signed record of what shipped.
+#   1. A FINAL RELEASE SHIPS AN RC'S COMMIT. It does not build something new.
+#      `mode=release` requires a `source_tag` naming a tested pre-release of
+#      the same version, and tags THAT COMMIT — even if main has moved on.
+#      You ship what you tested.
+#
+#   2. THE VERSION LIVES IN THE REPO. You type the number; this workflow
+#      verifies it matches the committed manifests and refuses otherwise. It
+#      never invents or silently rewrites a version. Every version bug in the
+#      0.4.x series came from a number being stamped in at build time from a
+#      source nobody reviewed — most memorably a wheel whose `__version__` said
+#      "0.0.1" while its pip metadata said "0.4.0".
+#
+# All the rules live in scripts/resolve_release.py, which is unit-testable and
+# is the only thing here that reasons about versions.
+#
+# Why annotated tags: the tag message becomes the GitHub Release body, ships in
+# every git clone, and gives us a record of what shipped.
 
 on:
   workflow_dispatch:
     inputs:
-      bump:
-        description: 'Which core segment to bump. Pick `none` when just incrementing a pre-release counter (e.g. rc.1 → rc.2) or promoting a pre-release to a stable release.'
+      version:
+        description: 'Release version, typed. e.g. 0.5.0 — no `v`, no suffix. The rc/alpha/beta counter is added automatically.'
         required: true
-        type: choice
-        default: 'patch'
-        options: ['none', 'patch', 'minor', 'major']
+        type: string
       mode:
-        description: 'Release channel. `release` = plain triplet (v1.2.3). rc/beta/alpha = pre-release with auto-incremented counter (v1.2.3-rc.1, v1.2.3-rc.2 …).'
+        description: 'Channel. rc/beta/alpha append an auto-incremented counter (0.5.0-rc.1, -rc.2 …). `release` publishes the plain number and REQUIRES a source_tag to promote.'
         required: true
         type: choice
         default: 'rc'
-        options: ['release', 'rc', 'beta', 'alpha']
+        options: ['rc', 'beta', 'alpha', 'release']
+      source_tag:
+        description: 'Commit to tag. Blank = HEAD of main. For mode=release this is REQUIRED and must be an RC of the same version (e.g. v0.5.0-rc.2) — the release ships THAT commit.'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 concurrency:
-  # Only one active cut per (bump,mode) combo; matches draft's grouping.
-  # cancel-in-progress: false so we never abort a mid-flight tag push.
-  group: cut-release-${{ inputs.bump }}-${{ inputs.mode }}
+  # One cut at a time per version+mode. cancel-in-progress: false so we never
+  # abort a mid-flight tag push.
+  group: cut-release-${{ inputs.version }}-${{ inputs.mode }}
   cancel-in-progress: false
 
 jobs:
@@ -55,92 +63,108 @@ jobs:
           fetch-depth: 0
           # We DO push (the tag), so leave credentials persisted.
 
-      # ───── determine last + next version (same math as draft-release-notes) ─────
-      - id: last
-        name: Determine last tags (any + stable)
-        # `last_any` is the most recent tag (stable OR pre-release).
-        # next_version.py needs this to continue a pre-release series
-        # correctly (e.g. rc.1 → rc.2 or -rc.5 → final).
-        run: |
-          set -euo pipefail
-          last_any=$(git tag --list 'v*' --sort=-v:refname | head -1 || true)
-          last_stable=$(git tag --list 'v*' --sort=-v:refname \
-                        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-                        | head -1 || true)
-          echo "last_any=$last_any"       >> "$GITHUB_OUTPUT"
-          echo "last_stable=$last_stable" >> "$GITHUB_OUTPUT"
-          echo "resolved last_any=${last_any:-<none>} last_stable=${last_stable:-<none>}"
-
-      - id: next
-        name: Compute next version
+      # ───── resolve what we're actually publishing ─────
+      # scripts/resolve_release.py is the entire rulebook, in one testable
+      # place (see docs/RELEASE_PROCESS.md). It turns the three typed inputs
+      # into (version, core, tag, source_ref) and REFUSES anything that would
+      # produce a bad publish:
+      #
+      #   * mode=release without an RC of the same version to promote —
+      #     a release ships a tested RC's commit, it never builds something new
+      #   * a version that isn't greater than the last published release
+      #   * a version typed with a suffix (the counter is automatic)
+      #   * a tag that already exists
+      #
+      # Note `source_ref`: for mode=release this is the RC's COMMIT, not main's
+      # HEAD. If main has moved on since that RC, those commits are simply not
+      # in the release. That's the point — you ship what you tested.
+      - id: resolve
+        name: Resolve version, tag, and the commit to tag
         env:
-          LAST_ANY: ${{ steps.last.outputs.last_any }}
-          BUMP: ${{ inputs.bump }}
+          VERSION: ${{ inputs.version }}
           MODE: ${{ inputs.mode }}
-        # Emits `next=` (the full version we're about to tag) and
-        # `core=` (MAJOR.MINOR.PATCH, the notes-file key).
+          SOURCE_TAG: ${{ inputs.source_tag }}
         run: |
           set -euo pipefail
-          python3 scripts/next_version.py --last "$LAST_ANY" --bump "$BUMP" --mode "$MODE"
+          python3 scripts/resolve_release.py \
+            --version "$VERSION" --mode "$MODE" --source-tag "$SOURCE_TAG"
 
-      - id: check
-        name: Validate computed version + is_prerelease
+      # ───── the version must already be in the repo ─────
+      # We do NOT stamp versions at build time any more. The number is
+      # committed and reviewed; this refuses to publish if what was typed
+      # isn't what the manifests say. Checked against the SOURCE COMMIT,
+      # since that's the tree that will actually be built and published.
+      - name: Verify the manifests carry this version
         env:
-          VERSION: ${{ steps.next.outputs.next }}
-        # `--check` re-validates the version with the SAME parser used
-        # to patch pyproject/Cargo/csproj and writes `is_prerelease=`
-        # to $GITHUB_OUTPUT — which the Summary step uses to describe
-        # what release.yml + wheels.yml will publish next.
+          VERSION: ${{ steps.resolve.outputs.version }}
+          SOURCE_REF: ${{ steps.resolve.outputs.source_ref }}
         run: |
           set -euo pipefail
-          python3 scripts/set_version.py --check "$VERSION"
+          git checkout --quiet "$SOURCE_REF"
+          python3 scripts/set_version.py --verify "$VERSION"
 
-      - name: Confirm notes file + tag preconditions
+      - name: Confirm the release notes exist
         env:
-          VERSION: ${{ steps.next.outputs.next }}
-          CORE: ${{ steps.next.outputs.core }}
-          BUMP: ${{ inputs.bump }}
-          MODE: ${{ inputs.mode }}
+          CORE: ${{ steps.resolve.outputs.core }}
+          SOURCE_REF: ${{ steps.resolve.outputs.source_ref }}
         run: |
           set -euo pipefail
-          # Notes are keyed on core version. Same file is used for every
-          # v${CORE}-rc.N and for the final v${CORE} tag. That's the file
-          # release.yml + wheels.yml will look up as the release body.
+          # Notes are keyed on core version — v0.5.0-rc.1, -rc.2 and the final
+          # v0.5.0 all share docs/release-notes/v0.5.0.md. That file becomes the
+          # tag message, and release.yml uses it as the GitHub Release body.
+          # Read it from the SOURCE commit: that's what we're shipping.
           notes="docs/release-notes/v${CORE}.md"
           if [ ! -f "$notes" ]; then
-            echo "::error::${notes} not found on main."
-            echo "::error::(bump=${BUMP}, mode=${MODE}) resolves to v${VERSION} — CORE ${CORE}."
-            echo "::error::Notes are shared across every version in the v${CORE} cycle. Run 'Draft release notes' with any (bump, mode) that resolves to core ${CORE}, review the opened PR, merge it, then re-dispatch this workflow."
+            echo "::error::${notes} does not exist at ${SOURCE_REF}."
+            echo "::error::Every release needs notes for its core version (${CORE}); they are shared by every RC in the cycle. Add the file, merge it, then re-cut."
             exit 1
           fi
 
-          # Refuse to re-tag the SAME version (registries would reject
-          # anyway). Different pre-releases in the cycle are fine — this
-          # only checks the exact v${VERSION} tag.
-          if git ls-remote --exit-code --tags origin "v${VERSION}" >/dev/null 2>&1; then
-            echo "::error::Tag v${VERSION} already exists on origin."
-            echo "::error::Cutting the same version twice isn't supported. Re-dispatch with a different (bump, mode) — e.g. same bump but mode advances the pre-release counter, or bump=none + mode=release to promote."
-            exit 1
+      # ───── what main has that this release does NOT ─────
+      # Promoting an RC whose commit is behind main is expected and allowed.
+      # But it must never be SILENT — surface exactly what's being left out so
+      # an unintended omission is caught here rather than after publishing.
+      - name: Report commits on main that are not in this release
+        env:
+          SOURCE_REF: ${{ steps.resolve.outputs.source_ref }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          behind=$(git rev-list --count "${SOURCE_REF}..origin/main" 2>/dev/null || echo 0)
+          if [ "$behind" -gt 0 ]; then
+            echo "::warning::${TAG} is being cut from a commit that is ${behind} commit(s) behind main. Those commits are NOT in this release:"
+            git log --oneline "${SOURCE_REF}..origin/main" | sed 's/^/  /'
+            {
+              echo "### ⚠ ${behind} commit(s) on main are NOT in ${TAG}"
+              echo
+              echo '```'
+              git log --oneline "${SOURCE_REF}..origin/main"
+              echo '```'
+              echo
+              echo "This is expected when promoting an RC — the release ships the commit you tested."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Source commit is up to date with main."
           fi
 
       - id: push_tag
         name: Create + push annotated tag
         env:
-          VERSION: ${{ steps.next.outputs.next }}
-          CORE: ${{ steps.next.outputs.core }}
-        # `git tag -a -F` reads the tag message from a file — the CORE
-        # release notes ARE the tag message. release.yml's gh_release
-        # job then uses that same message as the GitHub Release body.
-        # v${CORE}-rc.1, v${CORE}-rc.2, and v${CORE} all get the same
-        # notes body — that's the point of the shared notes file.
+          VERSION: ${{ steps.resolve.outputs.version }}
+          CORE: ${{ steps.resolve.outputs.core }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+          SOURCE_REF: ${{ steps.resolve.outputs.source_ref }}
+        # The tag goes on SOURCE_REF — the RC's commit for a promotion, HEAD
+        # otherwise. `git tag -a -F` reads the message from the notes file, so
+        # every tag in the cycle carries the same body, which release.yml then
+        # reuses as the GitHub Release body.
         run: |
           set -euo pipefail
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           git config user.name  'github-actions[bot]'
-          tag="v${VERSION}"
-          git tag -a "$tag" -F "docs/release-notes/v${CORE}.md"
-          git push origin "$tag"
-          echo "::notice::Pushed tag ${tag} with notes from docs/release-notes/v${CORE}.md."
+          git tag -a "$TAG" -F "docs/release-notes/v${CORE}.md" "$SOURCE_REF"
+          git push origin "$TAG"
+          echo "::notice::Pushed ${TAG} at ${SOURCE_REF} (notes: docs/release-notes/v${CORE}.md)."
 
       - name: Trigger release + wheels workflows
         # GitHub Actions rule: events triggered by the ephemeral
@@ -153,11 +177,12 @@ jobs:
         # exactly like they would for a real push.
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.next.outputs.next }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+          TAG: ${{ steps.resolve.outputs.tag }}
         if: steps.push_tag.outcome == 'success'
         run: |
           set -euo pipefail
-          tag="v${VERSION}"
+          tag="$TAG"
           # GitHub's ref database occasionally lags a beat behind the
           # tag push — dispatch immediately can 404 with "ref not found".
           # Bounded retry (5 attempts, 5s between) covers the lag without
@@ -193,12 +218,14 @@ jobs:
       - name: Summary
         if: always()
         env:
-          VERSION: ${{ steps.next.outputs.next }}
-          CORE: ${{ steps.next.outputs.core }}
-          IS_PRE: ${{ steps.check.outputs.is_prerelease }}
-          BUMP: ${{ inputs.bump }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+          CORE: ${{ steps.resolve.outputs.core }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+          SOURCE_REF: ${{ steps.resolve.outputs.source_ref }}
+          IS_PRE: ${{ steps.resolve.outputs.is_prerelease }}
+          IN_VERSION: ${{ inputs.version }}
           MODE: ${{ inputs.mode }}
-          LAST_ANY: ${{ steps.last.outputs.last_any }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
           TAG_OUTCOME: ${{ steps.push_tag.outcome }}
         run: |
           set -euo pipefail
@@ -208,20 +235,23 @@ jobs:
               echo ""
               echo "| Field | Value |"
               echo "| --- | --- |"
-              echo "| Bump / Mode | \`${BUMP}\` / \`${MODE}\` |"
-              echo "| Resolved version | \`v${VERSION:-<unresolved>}\` |"
-              echo "| Previous tag | \`${LAST_ANY:-<none>}\` |"
+              echo "| Requested | \`${IN_VERSION}\` (\`${MODE}\`) |"
+              echo "| Source tag | \`${SOURCE_TAG:-<HEAD of main>}\` |"
+              echo "| Resolved version | \`${VERSION:-<unresolved>}\` |"
               echo "| Tag push outcome | \`${TAG_OUTCOME:-<did not run>}\` |"
               echo ""
-              echo "No tag was created or pushed. Check the earlier step logs — most common causes: missing \`docs/release-notes/v\${CORE}.md\` on main, \`v\${VERSION}\` already exists on origin, or the version couldn't be computed."
+              echo "No tag was created. See the failing step — the usual causes are:"
+              echo "- **\`mode=release\` with no \`source_tag\`** — a release must promote a tested RC of the same version."
+              echo "- **The manifests don't carry this version** — the bump PR hasn't merged. Run \`scripts/set_version.py ${IN_VERSION}\`, review, merge."
+              echo "- **Missing \`docs/release-notes/v${CORE:-X.Y.Z}.md\`.**"
+              echo "- **The version isn't greater than the last release**, or the tag already exists."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          tag="v${VERSION}"
+          tag="$TAG"
           server="${GITHUB_SERVER_URL:-https://github.com}"
           repo="${GITHUB_REPOSITORY}"
-          sha=$(git rev-parse HEAD)
-          short=$(git rev-parse --short HEAD)
+          short=$(git rev-parse --short "$SOURCE_REF")
           release_type="Release"
           [ "${IS_PRE:-false}" = "true" ] && release_type="Pre-release"
           {
@@ -229,13 +259,15 @@ jobs:
             echo ""
             echo "| Field | Value |"
             echo "| --- | --- |"
-            echo "| Bump / Mode | \`${BUMP}\` / \`${MODE}\` |"
             echo "| Tag | [\`${tag}\`](${server}/${repo}/releases/tag/${tag}) |"
+            echo "| Mode | \`${MODE}\` |"
+            if [ -n "${SOURCE_TAG:-}" ]; then
+              echo "| Promoted from | \`${SOURCE_TAG}\` |"
+            fi
+            echo "| Commit shipped | [\`${short}\`](${server}/${repo}/commit/${SOURCE_REF}) |"
             echo "| Core (notes-file key) | \`${CORE}\` |"
             echo "| Pre-release | \`${IS_PRE:-false}\` |"
-            echo "| Previous tag | \`${LAST_ANY:-<none>}\` |"
             echo "| Notes body | [\`docs/release-notes/v${CORE}.md\`](${server}/${repo}/blob/main/docs/release-notes/v${CORE}.md) |"
-            echo "| Anchor commit | [\`${short}\`](${server}/${repo}/commit/${sha}) |"
             echo ""
             echo "**What happens next:** the tag push triggers \`release.yml\` and \`wheels.yml\`. Both react to the same \`v*\` push and publish to the appropriate registries:"
             echo ""

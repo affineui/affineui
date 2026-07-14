@@ -15,7 +15,7 @@
   <!-- NuGet packaging (dotnet pack). Experimental preview package. -->
   <PropertyGroup>
     <PackageId>AffineUI</PackageId>
-    <Version>0.0.3-alpha</Version>
+    <Version>0.4.2</Version>
     <Authors>Benjamin Cooley</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/affineui/affineui</RepositoryUrl>

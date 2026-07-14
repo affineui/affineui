@@ -348,12 +348,21 @@ jobs:
           ./target/release/consumer.exe
 
   version_stamp:
-    name: Version stamping (release manifests)
+    name: Release rules + version stamping
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      # scripts/resolve_release.py decides what gets published to three
+      # IMMUTABLE registries — a wrong answer cannot be taken back. It is the
+      # only thing in the release path that reasons about versions, so it gets
+      # tested like anything else that can't be undone: every rule, including
+      # the one the whole model rests on (a release tags the RC's commit, even
+      # when main has moved on). See docs/RELEASING.md.
+      - name: Release rules
+        run: python3 scripts/test_release_rules.py
 
       # scripts/set_version.py rewrites the version in five manifests, and the
       # release workflows run it to stamp a tag's version before publishing.

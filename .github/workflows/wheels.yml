@@ -94,7 +94,14 @@ jobs:
       - name: Patch version to tag
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
-        run: python3 scripts/set_version.py "${GITHUB_REF_NAME#v}"
+        run: |
+          set -euo pipefail
+          # Core version comes from the repo (committed + reviewed); --verify
+          # refuses to build if the manifests disagree with the tag. Then apply
+          # the full string so an RC's wheel carries `0.5.0-rc.1` internally —
+          # the suffix is publish-time only and never lands in a manifest.
+          python3 scripts/set_version.py --verify "${GITHUB_REF_NAME#v}"
+          python3 scripts/set_version.py "${GITHUB_REF_NAME#v}"
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.21.3
@@ -164,7 +171,14 @@ jobs:
           python-version: '3.12'
       - name: Patch version to tag
         if: startsWith(github.ref, 'refs/tags/v')
-        run: python3 scripts/set_version.py "${GITHUB_REF_NAME#v}"
+        run: |
+          set -euo pipefail
+          # Core version comes from the repo (committed + reviewed); --verify
+          # refuses to build if the manifests disagree with the tag. Then apply
+          # the full string so an RC's wheel carries `0.5.0-rc.1` internally —
+          # the suffix is publish-time only and never lands in a manifest.
+          python3 scripts/set_version.py --verify "${GITHUB_REF_NAME#v}"
+          python3 scripts/set_version.py "${GITHUB_REF_NAME#v}"
       - name: Build sdist
         run: |
           python -m pip install --upgrade pip build
