@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
 """Resolve + validate what a release cut will actually publish.
 
-This is the whole rulebook for `Cut release`, in one testable place. It takes
-the operator's three inputs, works out the tag to create and the commit to
-create it on, and refuses anything that would produce a bad publish. The
-workflow does no version logic of its own.
+This is the whole rulebook, in one testable place. It works out the tag to
+create and the commit to create it on, and refuses anything that would produce a
+bad publish. The workflows do no version logic of their own.
+
+Who calls this
+--------------
+`Build a pre-release` (build-prerelease.yml) calls it with `--mode rc` to pick
+the next free counter.
+
+`--mode release` still encodes the rule that a final release must promote a
+tested pre-release, and stays here as the tested statement of that rule — but the
+release path is now `Publish a release` (publish-release.yml), which enforces a
+strictly STRONGER gate: the RC must be the newest one, its tag must exist (which
+proves it built, tested, and published cleanly), and its compiled binaries are
+re-stamped and hash-verified rather than rebuilt. See docs/RELEASING.md.
 
 Usage:
     resolve_release.py --version 0.5.0 --mode rc

@@ -1,11 +1,15 @@
 # Releasing
 
-Two rules shape everything here:
+Three rules shape everything here:
 
-1. **A final release ships an RC's commit.** It does not build something new.
-   You cannot cut `0.5.0` without first cutting and testing `0.5.0-rc.N`.
+1. **A final release ships an RC's exact binaries.** It does not build something
+   new. It does not even rebuild the same source. The files that go to PyPI,
+   crates.io, and nuget.org are the files you tested.
 2. **The version lives in the repo, not in the workflow.** You type the number;
    the workflow verifies it matches what is committed and refuses otherwise.
+3. **One action, one outcome.** When a release action goes green, that thing is
+   *done*. No workflow kicks off another workflow that you then have to go and
+   check.
 
 Rule 2 is not bureaucracy. Every version bug we shipped in the 0.4.x series came
 from a number being stamped in at build time from a source nobody reviewed — most
@@ -15,8 +19,14 @@ missed a fifth. When the number is committed and reviewed, that cannot happen.
 
 Rule 1 comes from the same series. We published four times in one day, and twice
 a fix verified on one platform shipped a regression on another that no build had
-ever exercised. Promoting a tested RC's commit means the thing you release *is*
-the thing that passed.
+ever exercised. Promoting a tested RC's *binaries* means the thing you release
+**is** the thing that passed — not a rebuild that ought to be equivalent.
+
+Rule 3 comes from the release process itself. It used to be `Cut release` →
+`gh workflow run` → two more workflows in two other runs. The button went green
+before anything had been published, and you had to hunt down the other runs to
+find out whether the release actually happened. Now each action does its whole
+job inside its own run.
 
 ## The version lives in five manifests
 
@@ -29,312 +39,259 @@ CMakeLists.txt                              project(… VERSION 0.5.0 …)
 ```
 
 They all carry the **release** number — `0.5.0` — even while you are cutting
-release candidates. The `-rc.N` / `-alpha.N` / `-beta.N` suffix is appended at
-**publish time only**; it never appears in a manifest. That is what lets the
-final release republish the RC's commit unchanged: the manifests already say
-`0.5.0`, so there is nothing to rewrite.
+release candidates. The `-rc.N` suffix is appended at **publish time only**; it
+never appears in a manifest.
 
 `python scripts/set_version.py 0.5.0` writes all five. Run it, review the diff,
 open a PR. That PR is the bump.
 
+## Why an RC's binaries can just *become* the release
+
+This is the mechanism behind rule 1, and it is worth understanding because it is
+load-bearing.
+
+**The pre-release suffix never reaches the compiler.** The manifests carry the
+bare release core, and CMake's `project(VERSION …)` cannot express a suffix
+anyway — so `AFFINEUI_VERSION_{MAJOR,MINOR,PATCH}`, the only version the compiler
+ever sees, is *identical* for `0.5.0-rc.2` and for `0.5.0`.
+
+So the binary built for the RC already reports `0.5.0` from `affineui_version()`.
+It does not start lying when you promote it. The suffix exists only here:
+
+| The suffix lives here                    | It never reaches here                      |
+|------------------------------------------|--------------------------------------------|
+| the wheel's `METADATA`, `RECORD`, filename | `_affineui.*.pyd` / `.so` (the extension) |
+| the `.nuspec` and `.psmdcp`              | `affineui_c.dll` / `.so` / `.dylib`        |
+| `Cargo.toml`                             | `AffineUI.dll` (no `AssemblyVersion`)      |
+
+Promotion is therefore a **metadata rewrite**, not a rebuild.
+[`scripts/repackage_release.py`](../scripts/repackage_release.py) rewrites those
+few strings, copies every compiled member byte-for-byte, and then **proves** it:
+it hashes every compiled member of every artifact, compares each against the
+manifest the RC recorded, and refuses to publish if a single byte moved — or if
+any artifact the RC built is missing.
+
+> ⚠️ **Do not plumb the version suffix into compiled output** — a compile
+> definition, a generated header, an assembly attribute. It would make the RC's
+> binaries differ from the release's, and the compile-once model becomes a lie.
+> CI fails on this (`Release tooling` → *"the version suffix must never reach the
+> compiler"*), so you will find out on the PR rather than at release time.
+
+## The tag means something
+
+**Build a pre-release** creates its GitHub pre-release — tag and artifacts
+together, in one `gh release create` — as the **last** thing it does, only after
+every build, every test, and every registry push has gone green. It then asserts
+that every asset actually landed, so a torn upload fails the run instead of
+leaving a tag standing over an incomplete release.
+
+So a `v*` tag existing is *proof that version worked*. A pre-release that died
+halfway leaves no usable tag, and **Publish a release** refuses to promote it.
+You cannot ship a broken release, because there is nothing to ship from.
+
+Re-running after a failure is always safe: the counter advances (`rc.2` →
+`rc.3`). A burned number is never reused — registries never forget.
+
+**Publish a release is re-runnable too.** Every registry push is idempotent
+(PyPI `skip-existing`, NuGet `--skip-duplicate`, cargo's already-exists
+fallthrough), and the GitHub release is created-or-topped-up rather than
+created-only. That matters: the registries are not transactional, so if the run
+died *after* publishing but *before* finishing, refusing the retry would strand
+the version — public everywhere, finishable nowhere. Instead, a re-run completes
+it. A release that already carries assets is genuinely done, and re-running it
+is refused.
+
+---
+
 ## Cutting a release
 
-The **Cut release** workflow takes three inputs:
+### 1. Draft release notes
 
-| Input | Meaning |
+Dispatch **Draft release notes**. It drafts `docs/release-notes/v0.5.0.md` from
+the commit log and opens a PR. Edit it inline — the AI draft is a starting point,
+not an oracle. Merge it.
+
+Notes are keyed on the **core** version, so `v0.5.0-rc.1`, `v0.5.0-rc.2`, and the
+final `v0.5.0` all share one file. One story per cycle, and the release actions
+only ever *read* it — publishing never rewrites your prose.
+
+### 2. Bump the manifests
+
+```bash
+python scripts/set_version.py 0.5.0
+```
+
+Review the diff, PR it, merge it. Now the repo says `0.5.0`.
+
+### 3. Build a pre-release
+
+Dispatch **Build a pre-release** with `version = 0.5.0`. That is the whole input
+— the counter is automatic.
+
+It verifies the manifests carry `0.5.0` and the notes are on main, resolves the
+next free counter (`0.5.0-rc.2`), **compiles everything once**, runs the full test
+matrix on Linux/macOS/Windows, publishes to TestPyPI + crates.io + nuget.org, and
+— only if all of that succeeded — creates the GitHub pre-release with the compiled
+artifacts attached and pushes the tag.
+
+When the run is green, the pre-release is out. Go exercise it:
+
+```bash
+pip install --index-url https://test.pypi.org/simple/ \
+            --extra-index-url https://pypi.org/simple/ affineui==0.5.0rc2
+cargo add affineui@0.5.0-rc.2
+dotnet add package AffineUI --version 0.5.0-rc.2
+```
+
+Found a bug? Fix it, merge, and run **Build a pre-release** again with the same
+`0.5.0`. You get `-rc.3`.
+
+### 4. Publish a release
+
+Dispatch **Publish a release** with `version = 0.5.0-rc.2` — the pre-release you
+tested. Not a version number: a *tested artifact*.
+
+It refuses unless:
+
+- **`v0.5.0-rc.2` exists** — proof that RC built, tested, and published cleanly.
+- **It is the newest RC** for `0.5.0`. No promoting a stale one.
+- **`v0.5.0` does not exist.** Registries are append-only.
+- **The manifests and notes** are in order.
+- **Every compiled byte matches** the RC's manifest, and every artifact the RC
+  built is accounted for.
+
+Then it re-stamps the metadata, uploads to PyPI + crates.io + nuget.org, and tags
+`v0.5.0` at **the RC's commit** — not main's HEAD. Nothing is recompiled.
+
+If main has moved on since the RC, those commits are simply not in the release,
+and the run says so explicitly. If you want them, cut a new RC and test that.
+
+---
+
+## The actions
+
+| Action | It is done when the run is green |
 |---|---|
-| `version` | The release number, typed. `0.5.0`. No `v`, no suffix. |
-| `mode` | `rc` · `beta` · `alpha` · `release` |
-| `source_tag` | Which commit to tag. Blank = HEAD of main. For `mode=release`, **required**: the RC tag being promoted. |
+| [**Draft release notes**](../.github/workflows/draft-release-notes.yml) | The notes PR is open. |
+| [**Build a pre-release**](../.github/workflows/build-prerelease.yml) | The RC is built, tested, published to every pre-release channel, and tagged. |
+| [**Publish a release**](../.github/workflows/publish-release.yml) | The release is on PyPI, crates.io, and nuget.org, and tagged. |
 
-The pre-release **counter is automatic** — you never type `rc.2`.
+[`build-python.yml`](../.github/workflows/build-python.yml) and
+[`build-native.yml`](../.github/workflows/build-native.yml) are **nested building
+blocks** (`workflow_call` only — they have no triggers, so they cannot run on
+their own). Their jobs execute *inside* the calling run: if one fails, the caller
+fails and nothing is tagged. Nothing is ever dispatched to a run you have to
+track separately.
 
-### A normal cycle
+| Script | Role |
+|---|---|
+| [`resolve_release.py`](../scripts/resolve_release.py) | The rulebook. Turns the typed version into the tag + the commit to tag, and refuses bad publishes. |
+| [`set_version.py`](../scripts/set_version.py) | Writes the version into the five manifests; `--verify` asserts they already carry it. |
+| [`repackage_release.py`](../scripts/repackage_release.py) | Re-stamps the RC's artifacts to the final version, preserving and hash-verifying every compiled byte. |
 
-```
-1.  Draft release notes  →  review  →  merge
-        docs/release-notes/v0.5.0.md
-
-2.  PR: python scripts/set_version.py 0.5.0  →  review  →  merge
-        (manifests now say 0.5.0)
-
-3.  Cut release:  version=0.5.0  mode=rc  source_tag=(blank)
-        → tags v0.5.0-rc.1 on main's HEAD
-        → publishes 0.5.0-rc.1
-
-4.  Test it. Found a bug? Fix it, merge, cut again with the SAME inputs —
-    the counter increments itself to rc.2.
-
-5.  Cut release:  version=0.5.0  mode=release  source_tag=v0.5.0-rc.2
-        → tags v0.5.0 on rc.2's EXACT COMMIT
-        → publishes 0.5.0
-```
-
-Step 5 builds nothing new. It republishes the commit you already tested, under
-the number the manifests already carry.
-
-### What the workflow refuses
-
-All of this lives in [`scripts/resolve_release.py`](../scripts/resolve_release.py),
-which is the entire rulebook in one testable place:
-
-- **A release with no RC.** `mode=release` without a `source_tag` naming a
-  pre-release of the same version. You ship what you tested.
-- **A version that doesn't move forward.** Not greater than the last published
-  release. Registries are immutable — a burned number can never be reused.
-- **A version typed with a suffix.** You type `0.5.0` and pick `mode`; the
-  counter is computed.
-- **A version the manifests don't carry.** You forgot the bump PR.
-- **Missing release notes** at `docs/release-notes/v<MAJOR.MINOR.PATCH>.md`.
-- **A tag that already exists.**
-
-### Promoting an RC whose commit is behind main
-
-Expected and allowed. `mode=release` tags **the RC's commit**, not main's.
-Anything merged to main after that RC is simply not in the release. The workflow
-logs exactly which commits are being left behind, so the omission is never
-silent.
-
-If you want those commits, cut a new RC and test that instead.
-
-## Release notes
-
-Notes are keyed on the **core** version, so `v0.5.0-rc.1`, `v0.5.0-rc.2`, and
-the final `v0.5.0` all share one `docs/release-notes/v0.5.0.md`. One story per
-cycle, iterated through its pre-releases. The publish jobs fail loudly if the
-file is missing, which is what makes reviewed notes the only path to a release.
-
-The notes cover **everything since the last stable release** — if the last was
-`v0.4.2`, then `v0.5.0.md` covers `v0.4.2..HEAD`, regardless of which RC you are
-cutting.
-
-**Draft release notes** (`workflow_dispatch`) takes the typed version, has
-Copilot CLI draft from the commit log, and opens a PR. Edit it inline; it is a
-starting point, not an oracle.
+Tested by [`test_release_rules.py`](../scripts/test_release_rules.py) and
+[`test_repackage_release.py`](../tests/test_repackage_release.py), both of which
+run on every PR.
 
 ## What ships
 
-| Artifact         | Registry           | Trigger                     |
-|------------------|--------------------|-----------------------------|
-| Python wheels    | pypi.org           | tag `vX.Y.Z` (final)        |
-| Python wheels    | test.pypi.org      | any pre-release tag         |
-| Rust crates      | crates.io          | any `v*` tag                |
-| .NET / NuGet     | nuget.org          | any `v*` tag                |
-| Amalgamated SDK  | GitHub Release     | any `v*` tag                |
+| Artifact | Pre-release goes to | Release goes to |
+|---|---|---|
+| Python wheels + sdist | test.pypi.org | pypi.org |
+| Rust crates | crates.io (suffixed) | crates.io |
+| .NET / NuGet | nuget.org (suffixed) | nuget.org |
+| Amalgamated SDK | GitHub pre-release | GitHub Release |
 
-### What each publisher does with a pre-release
+crates.io and nuget.org accept `0.5.0-rc.2` verbatim and hide it from default
+installs (`cargo add` / `dotnet add package` skip pre-releases unless you opt in).
+PyPI has no hidden pre-release bucket, so pre-releases go to TestPyPI instead.
 
-- **crates.io** accepts `0.5.0-rc.1` verbatim. `cargo add affineui` picks the
-  newest stable by default; users opt into pre-releases explicitly.
-- **nuget.org** accepts it verbatim. `dotnet add package` skips pre-releases
-  unless you pass `--prerelease`.
-- **PyPI** has no hidden pre-release bucket, so pre-release tags publish to
-  **TestPyPI** instead.
-- **GitHub Release** is marked pre-release (badge; not "latest").
-
-## What lives where
-
-| File | Role |
-|---|---|
-| [`scripts/resolve_release.py`](../scripts/resolve_release.py) | The rulebook. Turns (version, mode, source_tag) into the tag + the commit to tag, and refuses bad publishes. |
-| [`scripts/set_version.py`](../scripts/set_version.py) | Writes the version into the five manifests (`set_version.py 0.5.0`), and `--verify` asserts they already carry it. |
-| [`.github/workflows/draft-release-notes.yml`](../.github/workflows/draft-release-notes.yml) | Drafts the notes, opens the PR. |
-| [`.github/workflows/cut-release.yml`](../.github/workflows/cut-release.yml) | Validates, tags, pushes. |
-| [`.github/workflows/release.yml`](../.github/workflows/release.yml) | On tag push: amalgamated SDK, crates.io, nuget.org, GitHub Release. |
-| [`.github/workflows/wheels.yml`](../.github/workflows/wheels.yml) | On tag push: wheels + sdist across three OSes → PyPI or TestPyPI. |
-| `docs/release-notes/v<CORE>.md` | The reviewed notes for a cycle. Shared by every tag in it. |
+**crates.io is the one exception to rule 1**: `cargo publish` ships *source*, not
+binaries, so there is nothing compiled to preserve. The release re-publishes the
+RC's exact commit.
 
 ## Repo secrets
 
-Add these once at Settings → Secrets and variables → Actions:
+| Secret | Where you get it |
+|---|---|
+| `CARGO_REGISTRY_TOKEN` | crates.io → Account Settings → API Tokens |
+| `NUGET_API_KEY` | nuget.org → Account → API Keys |
+| `COPILOT_PAT` | Fine-grained PAT, `Copilot Requests: Read` (notes drafting) |
 
-| Secret                 | Scope     | Where you get it                                             |
-|------------------------|-----------|--------------------------------------------------------------|
-| `CARGO_REGISTRY_TOKEN` | crates.io | crates.io Account Settings → API Tokens                      |
-| `NUGET_API_KEY`        | nuget.org | nuget.org Account → API Keys                                 |
+PyPI and TestPyPI use Trusted Publisher (OIDC) — no token.
 
-That's the full list. Two ecosystems don't need a secret:
-
-- **PyPI + TestPyPI**: Trusted Publisher (OIDC) via the `pypi` / `testpypi`
-  GitHub environments already configured on the repo.
-- **Copilot CLI** (release-notes drafting): the built-in `GITHUB_TOKEN`
-  works directly — no PAT required. Per the GitHub docs, "using
-  `GITHUB_TOKEN` (recommended for organization-owned repositories) — no
-  PAT or stored secrets required."
+> **Registering the Trusted Publisher:** name the **entry-point workflow**, not
+> the nested building block. TestPyPI → `build-prerelease.yml` (environment
+> `testpypi`); PyPI → `publish-release.yml` (environment `pypi`). PyPI matches the
+> publisher on the workflow *filename* and ignores the OIDC token's
+> `job_workflow_ref` claim, so a publish step inside a reusable workflow is
+> rejected with `invalid-publisher` no matter how the permissions are set. That is
+> why the upload steps live in the entry-point actions.
+> ([PyPI docs](https://docs.pypi.org/trusted-publishers/troubleshooting/),
+> [warehouse#11096](https://github.com/pypi/warehouse/issues/11096))
 
 ## Consuming AffineUI
 
-Concrete install commands for consumers, split by ecosystem and by
-whether you want the latest stable or a specific pre-release.
-
-### Rust — crates.io
-
-Stable, latest:
-
 ```bash
-cargo add affineui
+cargo add affineui                                 # latest stable
+cargo add affineui@0.5.0-rc.2                      # a pre-release, named exactly
+
+dotnet add package AffineUI                        # latest stable
+dotnet add package AffineUI --version 0.5.0-rc.2   # a pre-release
+
+pip install affineui                               # latest stable, from PyPI
 ```
 
-Stable, a specific version:
+A bare requirement never resolves to a pre-release in any of the three, so a
+routine `cargo update` / `dotnet restore` will not pull an RC on you.
 
-```bash
-cargo add affineui@1.2.3
-```
-
-Pre-release (crates.io accepts `-rc.N`/`-beta.N`/`-alpha.N` inline):
-
-```bash
-cargo add affineui@1.2.4-rc.1
-```
-
-Or add it in `Cargo.toml` directly — cargo requires you to name the
-pre-release exactly, it will not auto-resolve to a suffix:
-
-```toml
-[dependencies]
-affineui = "1.2.4-rc.1"     # exact opt-in
-# or a semver range that INCLUDES pre-releases in that core:
-affineui = ">=1.2.4-rc.1, <1.3.0"
-```
-
-Cargo will not pick up `1.2.4-rc.2` from `affineui = "1.2.4"` — a bare
-version requirement excludes all pre-releases. That's what you want as a
-downstream: your `cargo update` won't accidentally pull in an RC.
-
-### .NET — nuget.org
-
-Stable, latest:
-
-```bash
-dotnet add package AffineUI
-```
-
-Pre-release (nuget's opt-in is a flag on `add package`):
-
-```bash
-dotnet add package AffineUI --prerelease
-```
-
-That resolves to the newest version including pre-releases. To pin an
-exact pre-release:
-
-```bash
-dotnet add package AffineUI --version 1.2.4-rc.1
-```
-
-Or in the `.csproj`:
-
-```xml
-<ItemGroup>
-  <PackageReference Include="AffineUI" Version="1.2.4-rc.1" />
-</ItemGroup>
-```
-
-Same rule as cargo: a bare stable-versioned `PackageReference` will not
-resolve to a pre-release, even if a newer pre-release exists.
-
-### Python — PyPI / TestPyPI
-
-Stable, latest, from real PyPI:
-
-```bash
-pip install affineui
-```
-
-Stable, exact version:
-
-```bash
-pip install affineui==1.2.3
-```
-
-Pre-release, from TestPyPI (that's where we route pre-releases):
+Python pre-releases live on TestPyPI, and PEP 440 normalises the version — the tag
+`v0.5.0-rc.2` becomes `0.5.0rc2` (no dash, no dot). Mirroring the tag spelling
+exactly will silently miss:
 
 ```bash
 pip install \
   --index-url https://test.pypi.org/simple/ \
   --extra-index-url https://pypi.org/simple/ \
-  affineui==1.2.4rc1
+  affineui==0.5.0rc2
 ```
 
-The `--extra-index-url` on PyPI is what lets `pip` still find the
-transitive dependencies (numpy, pybind11 runtime, etc.) that live on real
-PyPI while pulling `affineui` itself from TestPyPI. Order matters —
-`--index-url` is preferred over `--extra-index-url`, which is how
-`affineui` ends up coming from TestPyPI even though it's on both.
+`--extra-index-url` lets pip resolve the runtime dependencies from real PyPI while
+pulling `affineui` itself from TestPyPI.
 
-PEP 440 normalises the version — the tag `v1.2.4-rc.1` becomes the PyPI
-version `1.2.4rc1` (no `-`, no dot before `rc`). If your `pip install`
-command mirrors the tag exactly it will silently miss.
-
-To pin in a `requirements.txt` or `pyproject.toml`:
-
-```text
-affineui==1.2.4rc1
-```
-
-Or, if you want `pip install --pre` to consider pre-releases without
-naming one:
+The amalgamated `.h`/`.cpp` drop-in is attached to every GitHub Release:
 
 ```bash
-pip install --pre \
-  --index-url https://test.pypi.org/simple/ \
-  --extra-index-url https://pypi.org/simple/ \
-  affineui
+curl -LO https://github.com/affineui/affineui/releases/latest/download/affineui-0.5.0.zip
 ```
 
-Without `--pre`, `pip` ignores every pre-release even when the index is
-TestPyPI.
-
-### Amalgamated .h / .cpp (no package manager)
-
-Every `v*` tag gets a GitHub Release with `affineui-<VERSION>.zip`
-attached. Contains `affineui.h`, `affineui.cpp`, `LICENSE`, `README.md`.
-
-Latest stable:
-
-```bash
-curl -LO https://github.com/affineui/affineui/releases/latest/download/affineui-latest.zip
-```
-
-Note: GitHub's `latest` redirect is only to the newest **non-prerelease**
-Release. Pre-release SDK zips must be named by version:
-
-```bash
-curl -LO https://github.com/affineui/affineui/releases/download/v1.2.4-rc.1/affineui-1.2.4-rc.1.zip
-```
+---
 
 ## Troubleshooting
 
-**"docs/release-notes/vX.Y.Z.md not found on this ref" during `release.yml` prepare or `wheels.yml` publish.**
-That's the notes-file gate. The file it's looking for is keyed on the
-**core** version (`X.Y.Z` with any `-pre`/`+build` stripped), so
-`v1.2.4-rc.1` looks for `docs/release-notes/v1.2.4.md`. Either you're
-pushing the retro-tag (in which case this failure is what you wanted),
-or you forgot to run the Draft flow and merge the notes PR. Run the
-Draft workflow, review + merge, then re-dispatch Cut.
+**"Tag v0.5.0-rc.2 does not exist" when publishing.**
+That RC never finished — a build, test, or registry push failed, so no tag was
+pushed. The safety net worked. Fix it, run **Build a pre-release** again (you get
+`-rc.3`), and publish that.
 
-**"Tag vX.Y.Z already exists on origin" during Cut.**
-Cutting the same version twice isn't supported — the registries reject
-duplicates anyway. Bump the version (e.g. `-rc.N+1` or a patch).
+**"v0.5.0-rc.2 is not the newest pre-release."**
+A newer RC exists. Publish that one, or cut a fresh one. Promoting a stale RC
+almost always means shipping code you stopped testing.
 
-**Draft-notes PR looks bad / Copilot got confused.**
-Just edit the notes file inline in the PR. The AI draft is a starting
-point; nothing downstream cares whether Copilot or a human authored the
-final markdown. Re-dispatching Draft with the same `(bump, mode)`
-overwrites the file with a fresh draft (force-with-lease), so you can
-also re-run if you want to start over.
+**"BIT-IDENTITY VIOLATED" during publish.**
+The compiled payload changed between the RC and the re-stamped artifact. Either
+the repackager is broken, or someone plumbed the version suffix into compiled
+output. **Do not work around this** — it is the check that guarantees you ship
+what you tested.
+
+**"manifest mismatch — release 0.5.0 was requested".**
+You forgot the bump PR. `python scripts/set_version.py 0.5.0`, commit, merge.
 
 **Need to yank a bad release.**
-crates.io: `cargo yank --version X.Y.Z affineui`. PyPI: `twine yank` or
-the "Yank" button on the release page — a yanked version stops appearing
-in default resolves but stays downloadable by explicit pin (PyPI does
-NOT let you delete + reupload; the version number is burned). NuGet:
-"Unlist" via the site. GitHub Release: delete the Release + tag from the
-UI. Then cut a new fixed version (via the normal Draft → Cut flow) and
-note the yanked release in its notes.
+crates.io: `cargo yank --version X.Y.Z affineui`. PyPI: the Yank button (PyPI
+never allows delete-and-reupload — the number is burned). NuGet: Unlist. GitHub:
+delete the Release + tag. Then cut a new version through the normal flow.
 
-**Need to publish without going through the AI drafts.**
-Author `docs/release-notes/v<CORE>.md` by hand, PR it, merge, then
-dispatch Cut with the full version (pre-release or final). The Draft
-workflow is a convenience — the enforceable contract is only "a merged
-notes file at the core-version path must exist".
+**Need to publish without the AI drafter.**
+Write `docs/release-notes/v<CORE>.md` by hand, PR it, merge. The drafter is a
+convenience; the enforced contract is only that the file exists on main.

@@ -374,6 +374,19 @@ jobs:
       - name: Release rules
         run: python3 scripts/test_release_rules.py
 
+      # scripts/repackage_release.py is the other half of the release path that
+      # cannot be taken back. `Publish a release` runs NO compiler — it re-stamps
+      # the version metadata on the pre-release's artifacts and ships those exact
+      # bytes — so a bug here uploads a corrupt wheel to PyPI. It asserts the
+      # things that would actually break a user: RECORD hashes still validate
+      # (what pip checks on install), the nuspec AND the .psmdcp are both
+      # rewritten, and a swapped or dropped binary is caught rather than waved
+      # through. See docs/RELEASING.md.
+      - name: Repackager (the promoted binaries must be the tested ones)
+        run: |
+          pip install --quiet pytest
+          python3 -m pytest tests/test_repackage_release.py -q
+
       # scripts/set_version.py rewrites the version in five manifests, and the
       # release workflows run it to stamp a tag's version before publishing.
       # It matches each file with an anchored regex and exits non-zero the moment
@@ -402,7 +415,22 @@ jobs:
           check bindings/rust/Cargo.toml                  'version = "9.9.9-rc.1"'
           check bindings/rust/affineui/Cargo.toml         'version = "9.9.9-rc.1"'
           check bindings/csharp/AffineUI/AffineUI.csproj  '<Version>9.9.9-rc.1</Version>'
+
+          # CMake gets the BARE CORE — no `-rc.1`. That is not just a CMake
+          # limitation (project(VERSION) can't hold a suffix); it is the
+          # guarantee the whole release model rests on. AFFINEUI_VERSION_
+          # {MAJOR,MINOR,PATCH} are the only version the compiler ever sees, so
+          # an rc's binaries and the final release's binaries are BIT-IDENTICAL —
+          # which is what lets `Publish a release` re-stamp the rc's artifacts
+          # instead of rebuilding them. If a suffix ever reaches compiled output,
+          # this line fails and repackage_release.py starts refusing to publish.
+          # See docs/RELEASING.md.
           check CMakeLists.txt                            'VERSION 9.9.9'
+          if grep -qF -- 'VERSION 9.9.9-rc.1' CMakeLists.txt; then
+            echo "FAIL  CMakeLists.txt — the pre-release suffix reached the compiler."
+            echo "      An rc binary is no longer bit-identical to the released binary."
+            fail=1
+          fi
 
           # The affineui-sys dependency line also carries `default-features = false`,
           # which gates the vendored/system features. A careless rewrite drops it.
