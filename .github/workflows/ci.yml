@@ -240,6 +240,16 @@ jobs:
           xvfb-run -a dotnet run --project bindings/csharp/examples/Hello \
             -c Release -- --headless
 
+      # Docking (#119). Builds a real workspace — document pane, tab toolbar,
+      # docked/tabbed/floating/tearoff panels — and asserts the EMITTED DOM, plus
+      # that the deferred build callbacks are released exactly once. A binding
+      # that silently dropped every panel would pass a "did it throw?" check.
+      - name: C# — docking
+        env:
+          AFFINEUI_NATIVE_DIR: ${{ github.workspace }}/build
+        run: |
+          xvfb-run -a dotnet run --project bindings/csharp/tests/Dock -c Release
+
   examples:
     name: Examples (build every sample)
     runs-on: ubuntu-latest

@@ -327,6 +327,136 @@ public sealed partial class View : IDisposable
         return w;
     }
 
+    // ── Declarative docking ──────────────────────────────────────────
+    //
+    // NOTE the deliberate absence of BuildScope below. The three dock builders
+    // are DEFERRED: the engine records the content callback and invokes it later,
+    // when the container resolves and emits the layout. BuildScope frees its
+    // GCHandle when the native call RETURNS ("NOT retained", per its own doc), so
+    // using it here would hand the engine a freed handle — a use-after-free that
+    // C# would not catch. Instead the GCHandle is allocated un-disposed and the
+    // engine's user_free releases it, exactly once.
+
+    /// <summary>
+    /// Declare a dock container. Inside <paramref name="build"/>, call
+    /// <see cref="Document"/> for the center pane and <see cref="DockPanel"/> for
+    /// the panels around it.
+    /// </summary>
+    public Widget DocumentView(string key, Action<View> build)
+    {
+        using var scope = BuildScope.Create(build);   // immediate — runs before return
+        var w = Wrap(NativeMethods.affineui_view_document_view(Handle, key, scope.Fn, scope.User));
+        GC.KeepAlive(this);
+        return w;
+    }
+
+    /// <summary>
+    /// The center/document pane. Only valid inside a <see cref="DocumentView"/> build.
+    /// Returns the pane id — pass it to <see cref="DockLocation.In"/> to parent a
+    /// panel to it, or to <see cref="DockToolbar"/> to give it a tab toolbar.
+    /// </summary>
+    /// <param name="icon">A Decius icon-font glyph name ("" for none).</param>
+    public string Document(string title, string icon, Action<View> content)
+    {
+        var (fn, user, free) = Deferred(content);
+        var id = AffineUIRuntime.TakeString(
+            NativeMethods.affineui_view_document(Handle, fn, user, free, title, icon));
+        GC.KeepAlive(this);
+        return id;
+    }
+
+    /// <summary>
+    /// Declare a dockable panel. Only valid inside a <see cref="DocumentView"/> build.
+    /// Returns the panel id, usable as another panel's parent and as the pane id
+    /// the dock providers are asked about.
+    /// </summary>
+    public string DockPanel(string title, DockLocation where, string icon, string key, Action<View> content)
+    {
+        var (fn, user, free) = Deferred(content);
+        using var loc = where.ToNative();
+        var raw = loc.Raw;
+        var id = AffineUIRuntime.TakeString(
+            NativeMethods.affineui_view_dockpanel(Handle, title, ref raw, fn, user, free, icon, key));
+        GC.KeepAlive(this);
+        return id;
+    }
+
+    /// <summary>
+    /// Give a dock pane its tab toolbar — the strip beside the tabs (filter
+    /// buttons, a search field, a viewport's mode/tool controls).
+    /// </summary>
+    /// <param name="paneId">What <see cref="Document"/> or <see cref="DockPanel"/> returned.</param>
+    public void DockToolbar(string paneId, Action<View> build)
+    {
+        var (fn, user, free) = Deferred(build);
+        NativeMethods.affineui_view_dock_toolbar(Handle, paneId, fn, user, free);
+        GC.KeepAlive(this);
+    }
+
+    /// <summary>
+    /// A deferred build callback: the GCHandle is NOT disposed here — the engine
+    /// releases it through user_free, exactly once, when it drops the callback.
+    /// </summary>
+    private static (IntPtr Fn, IntPtr User, IntPtr Free) Deferred(Action<View> build)
+    {
+        ArgumentNullException.ThrowIfNull(build);
+        var handle = GCHandle.Alloc(build);
+        return (Trampolines.Build, GCHandle.ToIntPtr(handle), Trampolines.FreeUser);
+    }
+
+    // ── Dock providers: a saved workspace beats the declared seed ────
+
+    /// <summary>Supply the saved px size of each pane (return &lt;= 0 to fall back
+    /// to the size declared in its <see cref="DockLocation"/>).</summary>
+    public void SetDockSizeProvider(Func<string, int> provider)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        var handle = GCHandle.Alloc(provider);
+        NativeMethods.affineui_view_set_dock_size_provider(
+            Handle, Trampolines.DockSize, GCHandle.ToIntPtr(handle), Trampolines.FreeUser);
+        GC.KeepAlive(this);
+    }
+
+    /// <summary>Supply the active tab of each dock leaf (empty selects the primary panel).</summary>
+    public void SetDockActiveTabProvider(Func<string, string> provider)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        var state = new Trampolines.DockTabState { Fn = provider };
+        var handle = GCHandle.Alloc(state);
+        NativeMethods.affineui_view_set_dock_active_tab_provider(
+            Handle, Trampolines.DockActiveTab, GCHandle.ToIntPtr(handle), Trampolines.FreeUser);
+        GC.KeepAlive(this);
+    }
+
+    /// <summary>
+    /// Supply the saved placement of each panel — where the user dragged or tore
+    /// it to. Return null for "no override; use the declared
+    /// <see cref="DockLocation"/>". Read the values back out with
+    /// <c>Document.DockOverrides()</c>.
+    /// </summary>
+    public void SetDockPlacementProvider(Func<string, DockPlacement?> provider)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        var state = new Trampolines.DockPlacementState { Fn = provider };
+        var handle = GCHandle.Alloc(state);
+        NativeMethods.affineui_view_set_dock_placement_provider(
+            Handle, Trampolines.DockPlacement, GCHandle.ToIntPtr(handle), Trampolines.FreeUser);
+        GC.KeepAlive(this);
+    }
+
+    /// <summary>
+    /// Replay the CURRENT arrangement — splits, tab order, active tabs, floats —
+    /// straight from <paramref name="doc"/>, instead of the declared seed. This is
+    /// what makes drag-to-dock and tearoff survive a view rebuild.
+    /// </summary>
+    public void SetDockLayoutFromDocument(Document doc)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        NativeMethods.affineui_view_set_dock_layout_from_document(Handle, doc.Handle);
+        GC.KeepAlive(this);
+        GC.KeepAlive(doc);
+    }
+
     public Widget Card(string title, string classes = "", string key = "", Action<View>? build = null)
     {
         using var scope = BuildScope.Create(build);

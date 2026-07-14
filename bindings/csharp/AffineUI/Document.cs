@@ -50,7 +50,9 @@ public sealed class Document : IDisposable
 
     internal static Document Borrowed(App owner, IntPtr handle) => new(owner, handle);
 
-    private IntPtr Handle
+    // internal, not private: View.SetDockLayoutFromDocument wires the live dock
+    // arrangement straight from the document it is rebuilding.
+    internal IntPtr Handle
     {
         get
         {
@@ -65,6 +67,36 @@ public sealed class Document : IDisposable
     /// <summary>Destroys an owned document; a no-op for the borrowed document
     /// of an <see cref="App"/>.</summary>
     public void Dispose() => _handle.Dispose();
+
+    // ── Docking ──────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Where the user has dragged, tabbed, or torn off each panel — the runtime
+    /// overrides recorded by dock gestures, as (panelId, placement) pairs.
+    ///
+    /// <para>This is how you SAVE a workspace. Feed the pairs back through
+    /// <c>View.SetDockPlacementProvider</c> to restore one.</para>
+    /// </summary>
+    public IReadOnlyList<(string PanelId, DockPlacement Placement)> DockOverrides()
+    {
+        nuint n = NativeMethods.affineui_document_dock_override_count(Handle);
+        var list = new List<(string, DockPlacement)>((int)n);
+        for (nuint i = 0; i < n; i++)
+        {
+            if (NativeMethods.affineui_document_dock_override_at(
+                    Handle, i, out IntPtr idPtr, out var raw) == 0)
+            {
+                continue;
+            }
+            // Both the id and raw.Parent are heap copies we now own.
+            string panelId = AffineUIRuntime.TakeString(idPtr);
+            var placement = DockPlacement.FromNative(in raw);
+            if (raw.Parent != IntPtr.Zero) NativeMethods.affineui_string_free(raw.Parent);
+            if (placement is not null) list.Add((panelId, placement));
+        }
+        KeepAlive();
+        return list;
+    }
 
     // ── Content ──────────────────────────────────────────────────────────
 

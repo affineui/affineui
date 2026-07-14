@@ -209,6 +209,121 @@ internal static unsafe class Trampolines
     internal static readonly IntPtr Log =
         (IntPtr)(delegate* unmanaged[Cdecl]<int, byte*, void*, void>)&OnLog;
 
+    // ── Dock providers ───────────────────────────────────────────────
+    // Each is a (fn, user, user_free) triple; the GCHandle is released by the
+    // engine's user_free, exactly once, when the view drops the callback.
+
+    internal static readonly IntPtr DockSize =
+        (IntPtr)(delegate* unmanaged[Cdecl]<void*, byte*, int>)&OnDockSize;
+
+    internal static readonly IntPtr DockActiveTab =
+        (IntPtr)(delegate* unmanaged[Cdecl]<void*, byte*, byte*>)&OnDockActiveTab;
+
+    internal static readonly IntPtr DockPlacement =
+        (IntPtr)(delegate* unmanaged[Cdecl]<void*, byte*, NativeMethods.affineui_dock_placement*, void>)&OnDockPlacement;
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    private static int OnDockSize(void* user, byte* paneId)
+    {
+        try
+        {
+            if (GCHandle.FromIntPtr((IntPtr)user).Target is Func<string, int> f)
+                return f(Utf8(paneId));
+        }
+        catch (Exception ex) { AffineUIRuntime.ReportCallbackException(ex); }
+        return 0;  // <= 0 => fall back to the declared size
+    }
+
+    /// <summary>
+    /// The engine copies the returned string immediately, but it must stay valid
+    /// until this returns — so the marshalled buffer is parked in the state
+    /// object rather than being a temporary that the GC could move or collect.
+    /// </summary>
+    internal sealed class DockTabState
+    {
+        public Func<string, string> Fn = _ => string.Empty;
+        public IntPtr Last;  // unmanaged UTF-8, freed on replace/dispose
+
+        public IntPtr Marshal(string s)
+        {
+            if (Last != IntPtr.Zero) System.Runtime.InteropServices.Marshal.FreeCoTaskMem(Last);
+            Last = System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(s);
+            return Last;
+        }
+
+        public void FreeLast()
+        {
+            if (Last != IntPtr.Zero) System.Runtime.InteropServices.Marshal.FreeCoTaskMem(Last);
+            Last = IntPtr.Zero;
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    private static byte* OnDockActiveTab(void* user, byte* paneId)
+    {
+        try
+        {
+            if (GCHandle.FromIntPtr((IntPtr)user).Target is DockTabState st)
+                return (byte*)st.Marshal(st.Fn(Utf8(paneId)));
+        }
+        catch (Exception ex) { AffineUIRuntime.ReportCallbackException(ex); }
+        return null;  // null => the primary panel
+    }
+
+    /// <summary>Same story as <see cref="DockTabState"/>, for the placement's parent id.</summary>
+    internal sealed class DockPlacementState
+    {
+        public Func<string, DockPlacement?> Fn = _ => null;
+        public IntPtr LastParent;
+
+        public IntPtr MarshalParent(string s)
+        {
+            if (LastParent != IntPtr.Zero) System.Runtime.InteropServices.Marshal.FreeCoTaskMem(LastParent);
+            LastParent = System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(s);
+            return LastParent;
+        }
+
+        public void FreeLast()
+        {
+            if (LastParent != IntPtr.Zero) System.Runtime.InteropServices.Marshal.FreeCoTaskMem(LastParent);
+            LastParent = IntPtr.Zero;
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    private static void OnDockPlacement(void* user, byte* panelId,
+                                        NativeMethods.affineui_dock_placement* outPlacement)
+    {
+        try
+        {
+            if (GCHandle.FromIntPtr((IntPtr)user).Target is DockPlacementState st)
+            {
+                var p = st.Fn(Utf8(panelId));
+                if (p is null)
+                {
+                    // Present = 0 => "no override; use the declared DockLocation".
+                    outPlacement->Present = 0;
+                    return;
+                }
+                outPlacement->Present = 1;
+                outPlacement->Floating = p.Floating ? 1 : 0;
+                outPlacement->Parent = st.MarshalParent(p.Parent ?? string.Empty);
+                outPlacement->Side = (int)p.Side;
+                outPlacement->Size = p.Size;
+                outPlacement->X = p.X;
+                outPlacement->Y = p.Y;
+                outPlacement->W = p.W;
+                outPlacement->H = p.H;
+                return;
+            }
+        }
+        catch (Exception ex) { AffineUIRuntime.ReportCallbackException(ex); }
+        outPlacement->Present = 0;
+    }
+
+    private static string Utf8(byte* p) =>
+        p is null ? string.Empty : Marshal.PtrToStringUTF8((IntPtr)p) ?? string.Empty;
+
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
     private static void OnClick(void* user)
     {
@@ -262,7 +377,16 @@ internal static unsafe class Trampolines
     {
         try
         {
-            GCHandle.FromIntPtr((IntPtr)user).Free();
+            var handle = GCHandle.FromIntPtr((IntPtr)user);
+            // The dock tab/placement providers park an unmanaged UTF-8 buffer in
+            // their state (the engine borrows the pointer across the callback
+            // return). Release it here, or it leaks with the handle.
+            switch (handle.Target)
+            {
+                case DockTabState tab: tab.FreeLast(); break;
+                case DockPlacementState pl: pl.FreeLast(); break;
+            }
+            handle.Free();
             AffineUIRuntime.NoteCallbackReleased();
         }
         catch (Exception ex) { AffineUIRuntime.ReportCallbackException(ex); }
