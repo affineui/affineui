@@ -364,6 +364,235 @@ AFFINEUI_C_API affineui_widget* affineui_view_foldout(affineui_view* view,
                                                       affineui_build_fn build,
                                                       void* user);
 
+// ── Declarative docking ──────────────────────────────────────────────
+//
+// Mirrors the C++ / Python surface (View::document_view / document /
+// dockpanel + the four dock providers). A dock container resolves a FLAT set
+// of panel declarations into a split-tree layout and emits the DOM, inserting
+// splitters itself. Panels may be declared in ANY ORDER — each carries a
+// location naming its parent and side — so the result is deterministic.
+//
+// Typical shape (error handling elided):
+//
+//     void build_dock(void* user, affineui_view* v) {
+//         affineui_view_document(v, doc_content, user, "Scene", "cube");
+//
+//         affineui_dock_location where;
+//         affineui_dock_location_init(&where);          // defaults
+//         where.side = AFFINEUI_DOCK_LEFT;
+//         where.size = 280;
+//         affineui_view_dockpanel(v, "Outliner", &where,
+//                                 outliner_content, user, "list", "outliner");
+//     }
+//     affineui_view_document_view(view, "workspace", build_dock, user);
+//
+// The declared layout is a SEED. Wire the providers below and a saved (or
+// user-rearranged) workspace wins over it.
+
+// Mirrors affineui::Dock (values must match).
+typedef enum affineui_dock {
+    AFFINEUI_DOCK_LEFT   = 0,
+    AFFINEUI_DOCK_RIGHT  = 1,
+    AFFINEUI_DOCK_TOP    = 2,
+    AFFINEUI_DOCK_BOTTOM = 3,
+    AFFINEUI_DOCK_TAB    = 4   // another tab of the parent's pane
+} affineui_dock;
+
+// Mirrors affineui::DockState (values must match).
+typedef enum affineui_dock_state {
+    AFFINEUI_DOCK_DOCKED   = 0,
+    AFFINEUI_DOCK_DETACHED = 1,  // floating
+    AFFINEUI_DOCK_TEAROFF  = 2
+} affineui_dock_state;
+
+// Mirrors affineui::DockCorner (values must match).
+typedef enum affineui_dock_corner {
+    AFFINEUI_DOCK_CORNER_TOP_LEFT     = 0,
+    AFFINEUI_DOCK_CORNER_TOP_RIGHT    = 1,
+    AFFINEUI_DOCK_CORNER_BOTTOM_LEFT  = 2,
+    AFFINEUI_DOCK_CORNER_BOTTOM_RIGHT = 3
+} affineui_dock_corner;
+
+// Where a panel is (or starts) — affineui::DockLocation as plain data.
+//
+// A VALUE, not a handle: no behaviour, no identity, nothing to manipulate. So a
+// flat POD, like affineui_event / affineui_color / affineui_app_config, rather
+// than an opaque + setters (which is what affineui_vlist_provider is, because
+// that one owns callbacks and has a lifetime).
+//
+// C++ expresses the optional fields with std::optional, which C has no
+// equivalent for — hence the explicit has_* flags. Every binding language DOES
+// have optionals (Rust Option<T>, C# int?), so the idiomatic wrapper carries a
+// real optional-bearing struct and marshals it down to this at the boundary;
+// callers never see the flags.
+//
+// affineui_dock_location_init() zeroes everything, which reads as "docked,
+// default side/size, parented to the document". Call it before setting fields
+// (or use one of the four affineui_dock_location_* factories, which mirror the
+// C++/Python ones) — a garbage has_* byte would otherwise make the engine read
+// an uninitialised field.
+typedef struct affineui_dock_location {
+    int                  has_side;
+    affineui_dock        side;
+
+    // Parent panel id — what document()/dockpanel() returned.
+    // NULL/"" = the document pane.
+    const char*          parent;
+
+    affineui_dock_state  state;
+
+    int                  has_size;
+    int                  size;                // px flex-basis when docked
+
+    int                  has_anchor;
+    affineui_dock_corner anchor;              // corner a float is anchored to
+
+    int                  has_offset;
+    int                  offset_x, offset_y;  // float pos relative to anchor
+
+    int                  has_float_size;
+    int                  float_w, float_h;    // float size
+
+    // Tearoff: id of the panel this one drags with (NULL = none).
+    const char*          drag_with;
+} affineui_dock_location;
+
+// Zero `loc` to the defaults: docked, no explicit side/size, document parent.
+AFFINEUI_C_API void affineui_dock_location_init(affineui_dock_location* loc);
+
+// The four shapes, mirroring the C++/Python factories. Each fully initialises
+// `loc` (no _init() needed first).
+AFFINEUI_C_API void affineui_dock_location_docked(affineui_dock_location* loc,
+                                                  affineui_dock side, int size_px);
+AFFINEUI_C_API void affineui_dock_location_tab(affineui_dock_location* loc);
+AFFINEUI_C_API void affineui_dock_location_floating(affineui_dock_location* loc,
+                                                    affineui_dock_corner anchor,
+                                                    int x, int y, int w, int h);
+AFFINEUI_C_API void affineui_dock_location_tearoff(affineui_dock_location* loc,
+                                                   affineui_dock_corner anchor,
+                                                   int x, int y, int w, int h);
+
+// Declare a dock container. Inside `build`, call affineui_view_document() for
+// the center pane and affineui_view_dockpanel() for the surrounding panels.
+// The engine resolves the layout and emits it when `build` returns.
+AFFINEUI_C_API affineui_widget* affineui_view_document_view(affineui_view* view,
+                                                            const char* key,
+                                                            affineui_build_fn build,
+                                                            void* user);
+
+// The center/document pane's content. Only valid inside a document_view build.
+// `icon` is a Decius icon-font glyph name (NULL/"" = none). Returns the pane id
+// (owned by the caller — free with affineui_string_free), usable as a parent id
+// in another panel's affineui_dock_location.parent.
+AFFINEUI_C_API char* affineui_view_document(affineui_view* view,
+                                            affineui_build_fn content,
+                                            void* user,
+                                            const char* title,
+                                            const char* icon);
+
+// Declare a dockable panel. `where` is COPIED (destroy it whenever you like
+// after this returns); NULL means "docked, defaults, parented to the document".
+// Returns the panel id (owned by the caller — free with affineui_string_free),
+// usable as another panel's parent and as the `pane_id` the providers below are
+// asked about.
+AFFINEUI_C_API char* affineui_view_dockpanel(affineui_view* view,
+                                             const char* title,
+                                             const affineui_dock_location* where,
+                                             affineui_build_fn content,
+                                             void* user,
+                                             const char* icon,
+                                             const char* key);
+
+// Declare the tab toolbar of the pane a document()/dockpanel() call just
+// returned — the strip beside the tabs (filter buttons, a search field, a
+// viewport's mode/tool controls). Call it immediately after, passing that id.
+AFFINEUI_C_API void affineui_view_dock_toolbar(affineui_view* view,
+                                               const char* pane_id,
+                                               affineui_build_fn build,
+                                               void* user);
+
+// ── Dock providers (workspace persistence) ───────────────────────────
+//
+// The declared layout is a seed. These four let a SAVED or user-rearranged
+// arrangement win over it, so drag-to-dock and tearoff survive view rebuilds.
+// Each takes the (fn, user, user_free) triple: `user_free` is called exactly
+// once when the view drops the callback. Pass fn = NULL to clear.
+
+// Saved px size for a pane (return <= 0 to fall back to the declared size).
+typedef int (*affineui_dock_size_fn)(void* user, const char* pane_id);
+
+// Active tab of a dock leaf. The returned string must stay valid until the
+// callback returns (it is copied immediately); NULL/"" selects the primary.
+typedef const char* (*affineui_dock_active_tab_fn)(void* user, const char* pane_id);
+
+// A saved placement override for one panel — Document::DockPlacement. Plain
+// data (nine scalars, no optionals, no behaviour), so a flat POD like
+// affineui_event / affineui_color rather than an opaque handle: there is
+// nothing to manipulate, only to read and write. Contrast affineui_dock_location,
+// which is a builder over optionals and is therefore opaque.
+//
+// Zeroed (present = 0) means "no override — use the declared location".
+typedef struct affineui_dock_placement {
+    int         present;    // 0 = no override for this panel
+    int         floating;   // 1 = torn off into a floating panel
+    const char* parent;     // docked: target pane id (NULL/"" = document)
+    int         side;       // docked: affineui_dock
+    int         size;       // docked: px flex-basis (0 = default)
+    int         x, y, w, h; // floating: rect in float-host px
+} affineui_dock_placement;
+
+// Fill `out` with the panel's saved placement. Set out->present = 0 for none.
+typedef void (*affineui_dock_placement_fn)(void* user, const char* panel_id,
+                                           affineui_dock_placement* out);
+
+AFFINEUI_C_API void affineui_view_set_dock_size_provider(
+    affineui_view* view, affineui_dock_size_fn fn, void* user,
+    affineui_user_free_fn user_free);
+
+AFFINEUI_C_API void affineui_view_set_dock_active_tab_provider(
+    affineui_view* view, affineui_dock_active_tab_fn fn, void* user,
+    affineui_user_free_fn user_free);
+
+AFFINEUI_C_API void affineui_view_set_dock_placement_provider(
+    affineui_view* view, affineui_dock_placement_fn fn, void* user,
+    affineui_user_free_fn user_free);
+
+// The CURRENT arrangement is a recursive tree (Document::DockLayout), and every
+// real caller wires it straight back from the document it is rebuilding — so
+// rather than marshal that tree through the FFI, wire it here directly. The
+// view then replays the live arrangement (splits, tab order, active tabs,
+// floats) instead of the declared seed, and drag-to-dock / tearoff survive a
+// rebuild. Pass doc = NULL to clear.
+//
+// The view holds a weak reference: if `doc` dies first the provider goes inert
+// (the declared seed is used again) rather than dangling.
+AFFINEUI_C_API void affineui_view_set_dock_layout_from_document(
+    affineui_view* view, affineui_document* doc);
+
+// ── Dock readback (workspace SAVE) ───────────────────────────────────
+//
+// The other half of persistence: read the arrangement the user dragged into
+// existence so the app can serialize it. Mirrors Document::dock_overrides().
+// (Document::dock_layout() is the recursive tree, which is what
+// affineui_view_set_dock_layout_from_document wires directly — it is a
+// round-trip token, never inspected, even in Python.)
+
+// Number of runtime placement overrides recorded by dock gestures (tearoff,
+// drag-to-dock, tab move).
+AFFINEUI_C_API size_t affineui_document_dock_override_count(
+    const affineui_document* doc);
+
+// Read override `index` (< affineui_document_dock_override_count). Writes the
+// panel id to `out_panel_id` and the placement to `out`. Returns 0 (writing
+// nothing) if the index is out of range.
+//
+// BOTH `*out_panel_id` and `out->parent` are heap copies owned by the caller:
+// free each with affineui_string_free. (out->parent is `const char*` for
+// symmetry with the input struct; cast it to char* to free.)
+AFFINEUI_C_API int affineui_document_dock_override_at(
+    const affineui_document* doc, size_t index,
+    char** out_panel_id, affineui_dock_placement* out);
+
 // Structural leaves.
 AFFINEUI_C_API affineui_widget* affineui_view_toolbar_separator(affineui_view* view,
                                                                 const char* key);

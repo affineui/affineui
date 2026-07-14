@@ -4002,6 +4002,12 @@ DockHandle& DockHandle::toolbar(const std::function<void(View&)>& build) {
     return *this;
 }
 
+void View::dock_toolbar(std::string_view pane_id,
+                        const std::function<void(View&)>& build) {
+    if (pane_id.empty()) return;
+    attach_dock_toolbar(pane_id, build);
+}
+
 DockHandle::operator bool() const noexcept {
     const auto* lifetime = lifetime_.get();
     return !id.empty() && lifetime != nullptr && lifetime->owner() != nullptr;
