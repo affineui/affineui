@@ -1,0 +1,254 @@
+name: Build native + packages
+
+# NESTED BUILDING BLOCK — `workflow_call` only. It has no triggers of its own,
+# so it can never run as a separate, untracked job. Its jobs execute INSIDE the
+# calling run's graph: if anything here fails, the caller fails.
+#
+# Called by: build-prerelease.yml
+#
+# Builds the native libraries, the amalgamated two-file SDK, and the NuGet
+# package, and publishes to crates.io + nuget.org.
+#
+# `Publish a release` does NOT call this. It re-stamps the artifacts produced
+# here for the rc and ships those exact bytes — so the native libs compiled here
+# for 0.5.0-rc.2 are literally the ones that end up on nuget.org as 0.5.0. That
+# works because the suffix never reaches the compiler (the manifests carry the
+# release core; set_version.py only appends the suffix to packaging metadata).
+# See docs/RELEASING.md.
+#
+# Secrets (via `secrets: inherit` from the caller):
+#   CARGO_REGISTRY_TOKEN, NUGET_API_KEY
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Full version to publish, e.g. 0.5.0-rc.2'
+        required: true
+        type: string
+      ref:
+        description: 'Commit SHA to build. Pinned by the caller so every job builds the same code.'
+        required: true
+        type: string
+      publish:
+        description: 'Push to crates.io + nuget.org.'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  amalgamate:
+    name: Amalgamated SDK
+    runs-on: macos-latest      # parity with the CI amalgamation check
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - run: brew install ninja
+      # --verify: the core lives in the repo, committed and reviewed. Then apply
+      # the full string so packaging metadata carries the -rc.N suffix.
+      - name: Stamp version
+        run: |
+          set -euo pipefail
+          python3 scripts/set_version.py --verify "${{ inputs.version }}"
+          python3 scripts/set_version.py "${{ inputs.version }}"
+      - name: Configure + amalgamate
+        run: |
+          cmake --preset release
+          cmake --build build/release --target amalgamate
+      - name: Package
+        run: |
+          set -euo pipefail
+          out="affineui-${{ inputs.version }}"
+          mkdir "$out"
+          cp build/release/dist/affineui.h   "$out/"
+          cp build/release/dist/affineui.cpp "$out/"
+          cp LICENSE   "$out/" 2>/dev/null || true
+          cp README.md "$out/" 2>/dev/null || true
+          zip -qr "${out}.zip" "$out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: amalgamation
+          path: affineui-${{ inputs.version }}.zip
+          if-no-files-found: error
+
+  # These .dll/.so/.dylib files are the NuGet package's payload — and, because
+  # promotion re-stamps rather than rebuilds, the exact files that ship.
+  native_libs:
+    name: affineui_c (${{ matrix.rid }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            lib: affineui_c.dll
+          - os: ubuntu-latest
+            rid: linux-x64
+            lib: libaffineui_c.so
+          - os: macos-latest
+            rid: osx-arm64
+            lib: libaffineui_c.dylib
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: matrix.os == 'windows-latest'
+      - name: Install Ninja + platform dev headers
+        shell: bash
+        # Linux needs X11/GL/ALSA/xkbcommon: CMakeLists does find_package(X11)
+        # and sokol_app pulls in the GL + input libs.
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y ninja-build \
+              libx11-dev libxi-dev libxcursor-dev \
+              libxkbcommon-dev libgl1-mesa-dev libasound2-dev
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            brew install ninja
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            choco install ninja -y --no-progress
+          fi
+      - name: Stamp version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/set_version.py --verify "${{ inputs.version }}"
+          python3 scripts/set_version.py "${{ inputs.version }}"
+      - name: Configure + build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build/ninja -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DAFFINEUI_BUILD_C_SHARED=ON
+          cmake --build build/ninja --target affineui_c
+          ls build/ninja/${{ matrix.lib }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: affineui_c-${{ matrix.rid }}
+          path: build/ninja/${{ matrix.lib }}
+          if-no-files-found: error
+
+  nuget:
+    name: NuGet
+    needs: native_libs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      # All three land in build/ninja/ (the csproj's default AffineUINativeDir)
+      # so `dotnet pack` bundles the full triple.
+      - uses: actions/download-artifact@v4
+        with:
+          path: build/ninja
+          pattern: 'affineui_c-*'
+          merge-multiple: true
+      - name: Confirm all three RIDs are present
+        run: |
+          set -euo pipefail
+          ls build/ninja/
+          test -f build/ninja/affineui_c.dll      || { echo "::error::missing affineui_c.dll (win-x64)";        exit 1; }
+          test -f build/ninja/libaffineui_c.so    || { echo "::error::missing libaffineui_c.so (linux-x64)";    exit 1; }
+          test -f build/ninja/libaffineui_c.dylib || { echo "::error::missing libaffineui_c.dylib (osx-arm64)"; exit 1; }
+      - name: Stamp version
+        run: |
+          set -euo pipefail
+          python3 scripts/set_version.py --verify "${{ inputs.version }}"
+          python3 scripts/set_version.py "${{ inputs.version }}"
+      - name: Pack
+        working-directory: bindings/csharp/AffineUI
+        run: dotnet pack -c Release -o ../artifacts
+      # Uploaded whether or not we publish: the caller attaches this .nupkg to
+      # the GitHub pre-release, and `Publish a release` RE-STAMPS THIS EXACT
+      # FILE rather than repacking. The natives inside never change.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nupkg
+          path: bindings/csharp/artifacts/*.nupkg
+          if-no-files-found: error
+      - name: Push to nuget.org
+        if: inputs.publish
+        working-directory: bindings/csharp/artifacts
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          VERSION: ${{ inputs.version }}
+        # The specific nupkg, not a *.nupkg glob — a glob can pick up a stale
+        # artifact and resurface an old version.
+        run: |
+          set -euo pipefail
+          nupkg="AffineUI.${VERSION}.nupkg"
+          test -f "$nupkg" || { ls -la; echo "::error::expected ${nupkg}"; exit 1; }
+          dotnet nuget push "$nupkg" \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+          echo "::notice::Published AffineUI ${VERSION} to nuget.org"
+
+  # crates.io ships SOURCE, not binaries — nothing compiled to preserve, so a
+  # promotion re-runs `cargo publish` at the rc's commit rather than re-stamping.
+  cargo:
+    name: crates.io
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      # affineui-sys's build.rs runs cmake on the vendored source, which pulls in
+      # sokol_app's X11/GL/ALSA deps.
+      - name: Install X11 + GL + ALSA dev headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev libxi-dev libxcursor-dev \
+            libxkbcommon-dev libgl1-mesa-dev libasound2-dev
+      - name: Stamp version
+        run: |
+          set -euo pipefail
+          python3 scripts/set_version.py --verify "${{ inputs.version }}"
+          python3 scripts/set_version.py "${{ inputs.version }}"
+      - name: Vendor C++ source into affineui-sys
+        run: bash bindings/rust/affineui-sys/scripts/vendor.sh
+      - name: Publish both crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        # affineui-sys first — affineui depends on it, and crates.io needs a beat
+        # to index the new version.
+        # --allow-dirty: set_version.py mutated Cargo.toml; not committed in CI.
+        # --no-verify:   the cmake step writes _decius_bundle.h into the source
+        #                tree, which cargo's verify pass rejects. The same source
+        #                is already built by native_libs above.
+        # The "already exists" fallthrough makes a retry idempotent.
+        run: |
+          set -euo pipefail
+          publish_crate() {
+            ( cd "$1"
+              log=$(mktemp)
+              if cargo publish --allow-dirty --no-verify 2>&1 | tee "$log"; then return 0; fi
+              if grep -qE "already exists on crates.io|already exists on the crates.io index" "$log"; then
+                echo "::notice::$2@${VERSION} already on crates.io — idempotent retry."
+                return 0
+              fi
+              return 1 )
+          }
+          publish_crate bindings/rust/affineui-sys affineui-sys
+          echo "Waiting for the crates.io index…"
+          sleep 45
+          publish_crate bindings/rust/affineui affineui
+          echo "::notice::Published affineui-sys@${VERSION} + affineui@${VERSION}"

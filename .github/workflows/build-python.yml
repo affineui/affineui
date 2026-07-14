@@ -1,0 +1,141 @@
+name: Build Python wheels
+
+# NESTED BUILDING BLOCK — `workflow_call` only. No triggers of its own, so it
+# can never run as a separate, untracked job. Its jobs execute INSIDE the
+# calling run's graph: if anything here fails, the caller fails.
+#
+# Called by: build-prerelease.yml
+#
+# Builds the wheels + sdist across Linux / macOS / Windows with cibuildwheel:
+#   Linux    manylinux_2_28 (AlmaLinux 9) per Python version — old glibc, so the
+#            wheel works on most distros.
+#   macOS    a universal2 fat wheel (Intel + Apple Silicon).
+#   Windows  AMD64 against Visual Studio.
+#
+# IT DOES NOT PUBLISH. The caller uploads to an index, for two reasons:
+#
+#   1. PyPI Trusted Publishing does not work from a reusable workflow. PyPI
+#      matches the publisher on the workflow FILENAME and ignores the OIDC
+#      token's `job_workflow_ref` claim, so a publish step in here would mint a
+#      valid token and still be rejected with `invalid-publisher`. Hoisting the
+#      upload into the calling workflow is PyPI's documented workaround.
+#        https://docs.pypi.org/trusted-publishers/troubleshooting/
+#        https://github.com/pypi/warehouse/issues/11096
+#   2. THE WHEELS BUILT HERE ARE THE WHEELS THAT SHIP. `Publish a release` does
+#      not rebuild them — it re-stamps these, rewriting METADATA/dist-info/RECORD
+#      from `0.5.0rc2` to `0.5.0` and copying the compiled extension module
+#      byte-for-byte. See docs/RELEASING.md.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Full version to build, e.g. 0.5.0-rc.2'
+        required: true
+        type: string
+      ref:
+        description: 'Commit SHA to build.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  wheels:
+    name: Wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'    # the cibuildwheel host
+
+      # --verify: the core lives in the repo, committed and reviewed — refuse to
+      # build if the manifests disagree. Then apply the full string so the wheel
+      # carries `0.5.0rc2` internally; the suffix is publish-time only.
+      - name: Stamp version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/set_version.py --verify "${{ inputs.version }}"
+          python3 scripts/set_version.py "${{ inputs.version }}"
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.21.3
+        with:
+          package-dir: bindings/python
+          output-dir: wheelhouse
+        env:
+          # CPython 3.9 → 3.13. PyPy skipped — pybind11's PyPy ABI isn't in the
+          # smoke matrix today.
+          CIBW_BUILD: 'cp39-* cp310-* cp311-* cp312-* cp313-*'
+          CIBW_SKIP: 'pp* *-musllinux_* *-win32 *-manylinux_i686'
+
+          # manylinux_2_28 (AlmaLinux 9 + gcc-toolset-13). cibuildwheel still
+          # defaults to manylinux2014 (CentOS 7 + GCC 10), whose libstdc++ has no
+          # <source_location> — a C++20 header we use via affineui/view.h.
+          CIBW_MANYLINUX_X86_64_IMAGE: 'manylinux_2_28'
+
+          CIBW_ARCHS_MACOS: 'universal2'
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
+          # x86_64 only — aarch64 needs QEMU and 5–10× the runner time.
+          CIBW_ARCHS_LINUX: 'x86_64'
+          CIBW_ARCHS_WINDOWS: 'AMD64'
+
+          # sokol_app needs X11/GL/ALSA headers. xvfb is for the headless smoke
+          # test — sokol_app expects an X connection even when we never sapp_run.
+          CIBW_BEFORE_ALL_LINUX: |
+            yum install -y \
+              libX11-devel libXi-devel libXcursor-devel \
+              libxkbcommon-devel mesa-libGL-devel alsa-lib-devel \
+              ninja-build xorg-x11-server-Xvfb
+
+          # CMake 4 dropped compat with cmake_minimum_required < 3.5; some
+          # vendored projects (doctest) still ship those.
+          CIBW_ENVIRONMENT: 'CMAKE_POLICY_VERSION_MINIMUM=3.5'
+
+          CIBW_TEST_REQUIRES: pytest
+          CIBW_TEST_COMMAND: 'pytest -x {package}/tests'
+          CIBW_TEST_COMMAND_LINUX: 'xvfb-run -a pytest -x {package}/tests'
+
+      # Not a by-product — for a release these ARE the product.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Stamp version
+        run: |
+          set -euo pipefail
+          python3 scripts/set_version.py --verify "${{ inputs.version }}"
+          python3 scripts/set_version.py "${{ inputs.version }}"
+      - name: Build sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --sdist --outdir sdist bindings/python
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: sdist/*.tar.gz
+          if-no-files-found: error

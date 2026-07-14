@@ -19,6 +19,50 @@ permissions:
   contents: read
 
 jobs:
+  # ────── release tooling ──────────────────────────────────────────────────
+  # Fast, dependency-free, and load-bearing. `Publish a release` re-stamps the
+  # pre-release's binaries instead of rebuilding them, so a bug in the
+  # repackager ships a corrupt wheel to PyPI. It gets tested on every PR.
+  #
+  # The invariant check is the important half: the compile-once model is valid
+  # ONLY because the pre-release suffix never reaches the compiler. If someone
+  # plumbs it into a compile definition, this fails HERE, on the PR — not
+  # silently at release time.
+  release_tooling:
+    name: Release tooling
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --quiet pytest
+      - name: Release rules + repackager tests
+        run: python -m pytest scripts/test_release_rules.py tests/test_repackage_release.py -q
+      - name: The version suffix must never reach the compiler
+        # CMakeLists.txt is the only version-holding file the compiler sees.
+        # Stamping an rc and stamping the final must leave it BYTE-IDENTICAL —
+        # that is what makes the rc's binaries and the release's binaries the
+        # same bytes. See docs/RELEASING.md.
+        run: |
+          set -euo pipefail
+          core=$(python3 -c "import re;print(re.search(r'VERSION (\d+\.\d+\.\d+)',open('CMakeLists.txt').read()).group(1))")
+          python3 scripts/set_version.py "${core}-rc.7" >/dev/null
+          rc=$(sha256sum CMakeLists.txt | cut -d' ' -f1)
+          python3 scripts/set_version.py "${core}" >/dev/null
+          final=$(sha256sum CMakeLists.txt | cut -d' ' -f1)
+          git checkout -- .
+          if [ "$rc" != "$final" ]; then
+            echo "::error::CMakeLists.txt differs between ${core}-rc.7 and ${core}."
+            echo "::error::The pre-release suffix now reaches the compiler, so an rc binary is NOT"
+            echo "::error::bit-identical to the released binary. That breaks the compile-once model"
+            echo "::error::'Publish a release' depends on — see docs/RELEASING.md."
+            exit 1
+          fi
+          echo "::notice::The compiler sees the same version for the rc and the final."
+
   windows:
     name: Windows (D3D11)
     # Pinned to windows-2022 because windows-latest is being redirected to

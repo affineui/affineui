@@ -1,0 +1,262 @@
+name: Build a pre-release
+
+# ════════════════════════════════════════════════════════════════════════════
+#  1. Draft release notes  →  2. BUILD A PRE-RELEASE  →  3. Publish a release
+# ════════════════════════════════════════════════════════════════════════════
+#
+# ONE ACTION, ONE OUTCOME. When this run goes green, the pre-release is fully
+# built, tested, published to every pre-release channel, and tagged. There is
+# no second run to go and check. Nothing is dispatched; the build jobs are
+# nested inside THIS run (`uses:` — a job graph, not a fire-and-forget).
+#
+# You type the release number — `0.5.0`. The rc counter is automatic.
+#
+#   1. Verify the five manifests already carry 0.5.0 (they're committed and
+#      reviewed — see docs/RELEASING.md). Verify the notes are on main.
+#   2. Resolve the next free counter -> 0.5.0-rc.2.
+#   3. COMPILE EVERYTHING ONCE at one pinned commit; run the full test matrix.
+#   4. Publish 0.5.0-rc.2 to TestPyPI + crates.io + nuget.org, so every
+#      registry is rehearsed for real.
+#   5. Attach the compiled artifacts + a SHA-256 manifest to a GitHub
+#      pre-release, and push the tag LAST.
+#
+# THE TAG IS THE SUCCESS MARKER. It goes up only after everything else worked,
+# so a `v*` tag existing is proof that version is good. A pre-release that died
+# halfway leaves no tag and CANNOT be promoted. Re-running is always safe: the
+# counter advances (rc.2 -> rc.3) and a burned number is never reused.
+#
+# WHY THE ARTIFACTS ARE KEPT: `Publish a release` does not rebuild. It re-stamps
+# THESE binaries and ships them. See docs/RELEASING.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release number, typed. e.g. 0.5.0 — no `v`, no suffix. The rc counter is added for you. Must already be committed in the manifests (scripts/set_version.py 0.5.0 + merge).'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never cancel: aborting mid-publish leaves a registry half-populated.
+  group: build-prerelease-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  # ────── resolve ──────────────────────────────────────────────────────────
+  resolve:
+    name: Resolve the rc
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.r.outputs.version }}    # 0.5.0-rc.2
+      core:    ${{ steps.r.outputs.core }}       # 0.5.0
+      tag:     ${{ steps.r.outputs.tag }}        # v0.5.0-rc.2
+      sha:     ${{ steps.r.outputs.source_ref }} # the commit everything builds
+    steps:
+      # A release is always cut from main. Checking out the dispatch ref would
+      # let someone publish a feature branch to the real registries.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0        # every tag, so the counter scan is correct
+          persist-credentials: false
+
+      - name: Refuse to release anything but main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Dispatched from ${{ github.ref }}."
+          echo "::error::A release is cut from main. Re-dispatch with 'Use workflow from: main'."
+          exit 1
+
+      # scripts/resolve_release.py is the entire rulebook, in one testable
+      # place (scripts/test_release_rules.py). The workflow does no version
+      # logic of its own.
+      - id: r
+        name: Resolve version, tag, and the commit to tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          python3 scripts/resolve_release.py --version "$VERSION" --mode rc
+
+      # The number lives in the repo, not in the workflow. This refuses to build
+      # if what you typed isn't what's committed — the check that killed the
+      # `__version__ == "0.0.1"` bug class.
+      - name: Verify the manifests carry this version
+        env:
+          VERSION: ${{ steps.r.outputs.version }}
+        run: python3 scripts/set_version.py --verify "$VERSION"
+
+      - name: Require reviewed release notes
+        env:
+          CORE: ${{ steps.r.outputs.core }}
+        run: |
+          set -euo pipefail
+          notes="docs/release-notes/v${CORE}.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::${notes} not found on main."
+            echo "::error::Run 'Draft release notes', review the PR it opens, and merge it."
+            exit 1
+          fi
+          echo "::notice::Cutting ${{ steps.r.outputs.tag }} at ${{ steps.r.outputs.source_ref }}"
+
+  # ────── build + test + publish ───────────────────────────────────────────
+  # NESTED IN THIS RUN. `uses:` puts these jobs in this run's graph — if any of
+  # them fails, this workflow fails and no tag is pushed. Nothing is dispatched
+  # to a separate run that might quietly die.
+  #
+  # This is the ONLY place the project is compiled for a release.
+  python:
+    name: Python
+    needs: resolve
+    uses: ./.github/workflows/build-python.yml
+    with:
+      version: ${{ needs.resolve.outputs.version }}
+      ref:     ${{ needs.resolve.outputs.sha }}
+    permissions:
+      contents: read
+
+  native:
+    name: Native + packages
+    needs: resolve
+    uses: ./.github/workflows/build-native.yml
+    with:
+      version: ${{ needs.resolve.outputs.version }}
+      ref:     ${{ needs.resolve.outputs.sha }}
+      publish: true          # crates.io + nuget.org hide a -rc.N from default installs
+    permissions:
+      contents: read
+    secrets: inherit
+
+  # PyPI Trusted Publishing does NOT work from a reusable workflow: PyPI matches
+  # the publisher on the workflow FILENAME and ignores the OIDC token's
+  # `job_workflow_ref` claim, so publishing from inside build-python.yml fails
+  # with `invalid-publisher`. Hoisting the upload into the calling workflow is
+  # PyPI's own documented workaround.
+  #   https://docs.pypi.org/trusted-publishers/troubleshooting/
+  # ⇒ Register THIS file (build-prerelease.yml, environment: testpypi) as the
+  #   TestPyPI Trusted Publisher.
+  testpypi:
+    name: TestPyPI
+    needs: [resolve, python]
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/affineui
+    permissions:
+      id-token: write        # OIDC — no API token
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: 'wheels-*'
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          # A re-run after a later job failed must not die here on an
+          # already-uploaded file. crates.io and nuget are idempotent too.
+          skip-existing: true
+
+  # ────── seal ─────────────────────────────────────────────────────────────
+  # Everything above is green. Publish the artifacts, THEN push the tag.
+  seal:
+    name: Tag + attach artifacts
+    # Every publishing job must be listed. The tag means "all of this worked" —
+    # omit one and a half-published pre-release would still get tagged, and
+    # could then be promoted.
+    needs: [resolve, python, native, testpypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Collect everything the build produced
+        uses: actions/download-artifact@v4
+        with:
+          path: rc
+          merge-multiple: true
+
+      - name: Hash the compiled payload
+        # The contract with `Publish a release`: a SHA-256 for every compiled
+        # member of every wheel and nupkg. Promotion re-hashes after re-stamping
+        # the metadata and refuses to upload if a byte moved. That's what makes
+        # "you ship what you tested" a checked assertion rather than a hope.
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(rc/*.whl); nupkgs=(rc/*.nupkg)
+          if [ ${#wheels[@]} -eq 0 ] || [ ${#nupkgs[@]} -eq 0 ]; then
+            echo "::error::Incomplete build: ${#wheels[@]} wheel(s), ${#nupkgs[@]} nupkg(s)."
+            ls -R rc || true
+            exit 1
+          fi
+          python3 scripts/repackage_release.py manifest "${wheels[@]}" "${nupkgs[@]}" \
+            -o rc/rc-hashes.json
+
+      # The release must exist (with its artifacts) BEFORE the tag does.
+      # Tag-then-attach would leave a tag with no artifacts if this step failed —
+      # and `Publish a release` trusts the tag, so it would sail through the gate
+      # and then die with nothing to download.
+      - name: Create the GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG:  ${{ needs.resolve.outputs.tag }}
+          CORE: ${{ needs.resolve.outputs.core }}
+          SHA:  ${{ needs.resolve.outputs.sha }}
+        # `--target $SHA` creates the tag ref as part of the release, at the
+        # resolved commit. These files ARE the release: `Publish a release`
+        # downloads them from here and re-stamps them. They live on the release
+        # (not as run artifacts, which expire) so a promotion works however long
+        # the rc soaks.
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --target "$SHA" \
+            --title "$TAG" \
+            --notes-file "docs/release-notes/v${CORE}.md" \
+            --prerelease \
+            rc/*.whl rc/*.tar.gz rc/*.nupkg rc/*.zip rc/rc-hashes.json
+          echo "::notice::Published pre-release ${TAG} at ${SHA}"
+
+      - name: Summary
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          CORE:    ${{ needs.resolve.outputs.core }}
+          TAG:     ${{ needs.resolve.outputs.tag }}
+          SHA:     ${{ needs.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          server="${GITHUB_SERVER_URL:-https://github.com}"; repo="${GITHUB_REPOSITORY}"
+          pyver=$(python3 -c "import re,sys; print(re.sub(r'-rc\.(\d+)$', r'rc\1', sys.argv[1]))" "$VERSION")
+          {
+            echo "## Pre-release ${TAG}"
+            echo ""
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Tag | [\`${TAG}\`](${server}/${repo}/releases/tag/${TAG}) |"
+            echo "| Commit | [\`${SHA:0:8}\`](${server}/${repo}/commit/${SHA}) |"
+            echo ""
+            echo "### Try it"
+            echo '```bash'
+            echo "pip install --index-url https://test.pypi.org/simple/ \\"
+            echo "            --extra-index-url https://pypi.org/simple/ affineui==${pyver}"
+            echo "cargo add affineui@${VERSION}"
+            echo "dotnet add package AffineUI --version ${VERSION}"
+            echo '```'
+            echo ""
+            echo "### When it checks out"
+            echo "Run **Publish a release** with \`${VERSION}\`. It ships **these exact binaries**"
+            echo "as \`${CORE}\` — no rebuild — and verifies the compiled payload is byte-for-byte"
+            echo "what you just tested."
+          } >> "$GITHUB_STEP_SUMMARY"

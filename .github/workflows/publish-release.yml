@@ -1,0 +1,385 @@
+name: Publish a release
+
+# ════════════════════════════════════════════════════════════════════════════
+#  1. Draft release notes  →  2. Build a pre-release  →  3. PUBLISH A RELEASE
+# ════════════════════════════════════════════════════════════════════════════
+#
+# ONE ACTION, ONE OUTCOME. When this run goes green, the release is fully
+# published to PyPI, crates.io, and nuget.org, and tagged. There is no second
+# run to go and check, and nothing is dispatched.
+#
+# You type the pre-release you tested — `0.5.0-rc.2`. Not a version number: a
+# TESTED ARTIFACT.
+#
+# THIS WORKFLOW NEVER COMPILES.
+# ------------------------------
+# It downloads the artifacts `Build a pre-release` produced, rewrites the few
+# metadata strings that carry the version (0.5.0-rc.2 -> 0.5.0), and uploads
+# those bytes. Every compiled member — the native libs, the Python extension,
+# the managed assembly — is copied through untouched and CHECKED against the
+# SHA-256 manifest the rc recorded. If one compiled byte differs, it refuses to
+# publish.
+#
+# That works because the suffix never reaches the compiler: the manifests carry
+# `0.5.0` even while cutting `0.5.0-rc.2` (set_version.py --verify), so the rc's
+# binary already reports 0.5.0 and does not start lying when promoted. The
+# suffix lives only in packaging metadata. See docs/RELEASING.md.
+#
+# The gates
+# ---------
+#   1. The tag v0.5.0-rc.2 exists  ⇒ that pre-release built, tested, AND
+#      published cleanly (Build pushes its tag last). A broken rc leaves no tag
+#      and cannot be promoted.
+#   2. It is the newest rc for 0.5.0. No promoting a stale one.
+#   3. v0.5.0 does not exist. Registries are append-only.
+#   4. The reviewed notes are on main.
+#   5. Every compiled member hash-matches the rc's manifest, and every artifact
+#      the rc built is accounted for.
+#
+# The final tag is cut at the RC'S COMMIT, not main's HEAD. The code that ships
+# is the code that was tested, even if main moved on.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The pre-release you tested, e.g. 0.5.0-rc.2. Must be the newest rc for its version. Its exact binaries are published as 0.5.0 — nothing is rebuilt.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-release-${{ inputs.version }}
+  cancel-in-progress: false     # never abort a half-finished publish
+
+jobs:
+  # ────── gate ─────────────────────────────────────────────────────────────
+  verify:
+    name: Verify the pre-release is promotable
+    runs-on: ubuntu-latest
+    outputs:
+      rc:    ${{ steps.g.outputs.rc }}     # 0.5.0-rc.2
+      final: ${{ steps.g.outputs.final }}  # 0.5.0
+      sha:   ${{ steps.g.outputs.sha }}    # the rc's commit — what we ship + tag
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - id: g
+        name: Check the rc is green, newest, and unpublished
+        env:
+          RC: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          rc="${RC#v}"
+          if ! printf '%s' "$rc" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$'; then
+            echo "::error::'${RC}' is not a pre-release."
+            echo "::error::Pass the rc you tested, e.g. 0.5.0-rc.2 — you publish a TESTED ARTIFACT, not a version number."
+            exit 1
+          fi
+          core="${rc%%-*}"
+          n="${rc##*-rc.}"
+
+          # GATE 1 — the tag exists ⇒ Build got all the way through (it pushes
+          # the tag last, only after every build, test, and registry push).
+          if ! git rev-parse -q --verify "refs/tags/v${rc}" >/dev/null; then
+            echo "::error::Tag v${rc} does not exist."
+            echo "::error::'Build a pre-release' tags only after everything succeeds, so no tag means"
+            echo "::error::that pre-release never completed. There is nothing verified to promote."
+            exit 1
+          fi
+
+          # GATE 2 — newest rc for this core. Promoting a stale one almost
+          # always means shipping code you stopped testing.
+          newest=$(git tag --list "v${core}-rc.*" | sed -E "s|^v${core}-rc\.||" \
+                   | grep -E '^[0-9]+$' | sort -n | tail -1)
+          if [ "$n" != "$newest" ]; then
+            echo "::error::v${rc} is not the newest pre-release for ${core} — v${core}-rc.${newest} exists."
+            echo "::error::Publish the newest, or cut a fresh one."
+            exit 1
+          fi
+
+          # GATE 3 — the final must not exist. Registries never forget a version.
+          if git rev-parse -q --verify "refs/tags/v${core}" >/dev/null; then
+            echo "::error::v${core} already exists — it has already been published."
+            exit 1
+          fi
+
+          # GATE 4 — reviewed notes.
+          if [ ! -f "docs/release-notes/v${core}.md" ]; then
+            echo "::error::docs/release-notes/v${core}.md not found on main."
+            exit 1
+          fi
+
+          # Ship the RC's commit, not main's HEAD.
+          sha=$(git rev-list -n 1 "v${rc}")
+          echo "rc=${rc}"      >> "$GITHUB_OUTPUT"
+          echo "final=${core}" >> "$GITHUB_OUTPUT"
+          echo "sha=${sha}"    >> "$GITHUB_OUTPUT"
+          echo "::notice::Promoting v${rc} (${sha}) to v${core}."
+
+      # The typed version must still match what's committed at the rc's commit.
+      - name: Verify the manifests carry this version
+        env:
+          FINAL: ${{ steps.g.outputs.final }}
+          SHA:   ${{ steps.g.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git checkout -q "$SHA" --
+          python3 scripts/set_version.py --verify "$FINAL"
+
+      - name: Report what main has moved on to
+        env:
+          SHA: ${{ steps.g.outputs.sha }}
+          RC:  ${{ steps.g.outputs.rc }}
+        # Promoting an rc whose commit is behind main is expected and allowed —
+        # but never silent. Anything merged after the rc is simply not shipping.
+        run: |
+          set -euo pipefail
+          git checkout -q main --
+          behind=$(git rev-list --count "${SHA}..origin/main" 2>/dev/null || echo 0)
+          if [ "$behind" -gt 0 ]; then
+            echo "::warning::main is ${behind} commit(s) ahead of v${RC}. Those commits are NOT in this release."
+            git log --oneline "${SHA}..origin/main" | head -20
+          fi
+
+  # ────── promote ──────────────────────────────────────────────────────────
+  # No compiler runs in this job. It re-stamps and proves.
+  promote:
+    name: Re-stamp the tested binaries
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.verify.outputs.sha }}
+          persist-credentials: false
+
+      # Explicit: `python -m build` below must not depend on whatever the runner
+      # image happens to ship. This job is the sole gate on a live PyPI upload.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download the pre-release's artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RC: ${{ needs.verify.outputs.rc }}
+        # The files you actually tested. Not a rebuild, not a fresh CI run.
+        run: |
+          set -euo pipefail
+          mkdir -p rc
+          gh release download "v${RC}" --dir rc --pattern '*'
+          ls -la rc/
+          test -f rc/rc-hashes.json || {
+            echo "::error::rc-hashes.json is missing from the v${RC} release."
+            echo "::error::Without the manifest we cannot prove the binaries are unchanged."
+            exit 1
+          }
+
+      - name: Re-stamp to the final version + prove nothing compiled moved
+        env:
+          RC:    ${{ needs.verify.outputs.rc }}
+          FINAL: ${{ needs.verify.outputs.final }}
+        # promote: rewrites the wheel METADATA/dist-info/RECORD and the nuspec +
+        # psmdcp <version>, copies every compiled member byte-for-byte, compares
+        # each output against ITS OWN manifest entry by name, and asserts every
+        # artifact the rc built was accounted for. Any drift is a hard stop.
+        run: |
+          set -euo pipefail
+          python3 scripts/repackage_release.py promote rc "$RC" "$FINAL" \
+            -o dist --manifest rc/rc-hashes.json
+
+      - name: Rebuild the sdist
+        env:
+          FINAL: ${{ needs.verify.outputs.final }}
+        # The ONLY thing rebuilt. An sdist is a SOURCE tarball — the version is
+        # baked into PKG-INFO and the top-level directory name, so it cannot be
+        # re-stamped in place. It carries no compiled payload, so this takes
+        # nothing away from the bit-identity guarantee (which is about binaries),
+        # and it's built from the rc's exact commit.
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet --upgrade pip build
+          python -m build --sdist --outdir dist bindings/python
+
+      - name: Carry the amalgamated SDK through
+        env:
+          FINAL: ${{ needs.verify.outputs.final }}
+        # Plain .h/.cpp text, no compiled payload and no version inside — copy
+        # the rc's zip and rename. Never regenerated.
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          found=0
+          for z in rc/affineui-*.zip; do
+            cp "$z" "dist/affineui-${FINAL}.zip"; found=1
+          done
+          [ "$found" -eq 1 ] || { echo "::error::no amalgamation zip in the pre-release"; exit 1; }
+          ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-artifacts
+          path: dist/          # one directory: the layout can't shift
+          if-no-files-found: error
+
+  # ────── ship ─────────────────────────────────────────────────────────────
+  publish:
+    name: Push to the live registries
+    needs: [verify, promote]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi              # Trusted Publisher (OIDC) — no API token
+      url: https://pypi.org/p/affineui
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.verify.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: final-artifacts
+          path: dist
+
+      # ── PyPI ──
+      - name: Stage the Python distributions
+        # PyPI's uploader rejects anything that isn't a wheel or an sdist, so the
+        # nupkg and the amalgamation zip must not be in the directory we hand it.
+        run: |
+          set -euo pipefail
+          mkdir -p pypi-dist
+          cp dist/*.whl dist/*.tar.gz pypi-dist/
+          ls -la pypi-dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: pypi-dist
+          # If a LATER job fails and you re-run, this must not die on the
+          # already-uploaded file. nuget (--skip-duplicate) and cargo (the
+          # "already exists" fallthrough) are idempotent; PyPI is not by default,
+          # and without this a failed seal would burn the version on all three
+          # registries with no way to finish the release.
+          skip-existing: true
+
+      # ── NuGet ──
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish to nuget.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          FINAL: ${{ needs.verify.outputs.final }}
+        run: |
+          set -euo pipefail
+          nupkg="dist/AffineUI.${FINAL}.nupkg"
+          test -f "$nupkg" || { echo "::error::${nupkg} missing"; ls -la dist/; exit 1; }
+          dotnet nuget push "$nupkg" \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+      # ── crates.io ──
+      # crates.io ships SOURCE, not binaries — there is no compiled payload to
+      # preserve, so this is a real `cargo publish` of the rc's exact commit.
+      # The manifests already carry 0.5.0, so nothing is stamped.
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install X11 + GL + ALSA dev headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev libxi-dev libxcursor-dev \
+            libxkbcommon-dev libgl1-mesa-dev libasound2-dev
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          FINAL: ${{ needs.verify.outputs.final }}
+        # affineui-sys first — affineui depends on it, and crates.io needs a beat
+        # to index it. --no-verify: the cmake step writes _decius_bundle.h into
+        # the source tree, which cargo's verify pass rejects; the same source was
+        # already built by the rc.
+        run: |
+          set -euo pipefail
+          bash bindings/rust/affineui-sys/scripts/vendor.sh
+          publish_crate() {
+            ( cd "$1"
+              log=$(mktemp)
+              if cargo publish --allow-dirty --no-verify 2>&1 | tee "$log"; then return 0; fi
+              if grep -qE "already exists on crates.io|already exists on the crates.io index" "$log"; then
+                echo "::notice::$2@${FINAL} already on crates.io — idempotent retry."
+                return 0
+              fi
+              return 1 )
+          }
+          publish_crate bindings/rust/affineui-sys affineui-sys
+          sleep 45
+          publish_crate bindings/rust/affineui affineui
+
+  # ────── seal ─────────────────────────────────────────────────────────────
+  seal:
+    name: Tag + GitHub Release
+    needs: [verify, promote, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.verify.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: final-artifacts
+          path: dist
+
+      # Release first (with the artifacts), tag as part of it — never a tag
+      # pointing at a release that doesn't exist. `--target` puts the tag on the
+      # RC's commit, not main's HEAD.
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINAL: ${{ needs.verify.outputs.final }}
+          SHA:   ${{ needs.verify.outputs.sha }}
+        run: |
+          set -euo pipefail
+          gh release create "v${FINAL}" \
+            --target "$SHA" \
+            --title "v${FINAL}" \
+            --notes-file "docs/release-notes/v${FINAL}.md" \
+            --latest \
+            dist/*
+          echo "::notice::Released v${FINAL} at ${SHA}"
+
+      - name: Summary
+        env:
+          FINAL: ${{ needs.verify.outputs.final }}
+          RC:    ${{ needs.verify.outputs.rc }}
+          SHA:   ${{ needs.verify.outputs.sha }}
+        run: |
+          set -euo pipefail
+          server="${GITHUB_SERVER_URL:-https://github.com}"; repo="${GITHUB_REPOSITORY}"
+          {
+            echo "## Released v${FINAL}"
+            echo ""
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Promoted from | \`v${RC}\` |"
+            echo "| Commit | [\`${SHA:0:8}\`](${server}/${repo}/commit/${SHA}) |"
+            echo "| Release | [v${FINAL}](${server}/${repo}/releases/tag/v${FINAL}) |"
+            echo ""
+            echo "**The binaries published here are byte-for-byte the ones tested in \`v${RC}\`.** Nothing was recompiled."
+            echo ""
+            echo "| Registry | Package |"
+            echo "| --- | --- |"
+            echo "| PyPI | [\`affineui ${FINAL}\`](https://pypi.org/project/affineui/${FINAL}/) |"
+            echo "| crates.io | [\`affineui ${FINAL}\`](https://crates.io/crates/affineui/${FINAL}) |"
+            echo "| nuget.org | [\`AffineUI ${FINAL}\`](https://www.nuget.org/packages/AffineUI/${FINAL}) |"
+          } >> "$GITHUB_STEP_SUMMARY"
