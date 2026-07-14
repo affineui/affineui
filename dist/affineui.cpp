@@ -406118,6 +406118,27 @@ void App::capture_pointer() { impl_->pointer_captured = true; }
 void App::release_pointer() { impl_->pointer_captured = false; }
 bool App::pointer_captured() const { return impl_->pointer_captured; }
 
+namespace {
+// Ask the app whether a close may proceed. No handler means yes. A handler
+// that throws means yes too — a crashing veto must not wedge the app open.
+//
+// Defined ABOVE the stub/real split because App::close() has to run it in both:
+// a stub build has no window to close, but it still has an app that asked to be
+// consulted, and silently skipping the handler there would mean close() quietly
+// did nothing at all.
+bool run_close_request(detail::AppImpl& impl) {
+    if (!impl.on_close_request) return true;
+    try {
+        return impl.on_close_request();
+    } catch (const std::exception& e) {
+        detail::log_event_loop_exception("close-request handler", e);
+    } catch (...) {
+        detail::log_event_loop_exception("close-request handler");
+    }
+    return true;
+}
+}  // namespace
+
 #if defined(AFFINEUI_STUB_BUILD)
 
 int App::run() { return impl_->exit_code; }
@@ -406331,20 +406352,6 @@ Menu default_menu() {
         MenuItem::sub("Edit", MenuItem::edit_menu()),
         MenuItem::sub("Window", MenuItem::window_menu()),
     };
-}
-
-// Ask the app whether a close may proceed. No handler means yes. A handler
-// that throws means yes too — a crashing veto must not wedge the app open.
-bool run_close_request(detail::AppImpl& impl) {
-    if (!impl.on_close_request) return true;
-    try {
-        return impl.on_close_request();
-    } catch (const std::exception& e) {
-        detail::log_event_loop_exception("close-request handler", e);
-    } catch (...) {
-        detail::log_event_loop_exception("close-request handler");
-    }
-    return true;
 }
 
 // Run the veto, then quit unless it said no. This is the ONE close path: the
@@ -407242,8 +407249,14 @@ void App::set_menu(Menu menu) {
 const Menu& App::menu() const noexcept { return impl_->menu; }
 
 void App::close() {
+    // The veto runs in every build — it is the app's own handler, and whether a
+    // window exists to tear down is beside the point. Only the platform quit is
+    // stubbed out.
+    if (!run_close_request(*impl_)) return;
+    impl_->quit_requested = true;
+    impl_->quit_forced    = true;  // decided; don't re-ask on QUIT_REQUESTED
 #if !defined(AFFINEUI_STUB_BUILD)
-    request_close(*impl_);
+    sapp_request_quit();
 #endif
 }
 

@@ -8,7 +8,7 @@ The layering rule is the one the IME intents already follow (see
 wants in platform-neutral terms; the shell speaks to the OS.** Nothing in
 `src/framework/` or `src/renderer/` knows what an `NSMenu` is.
 
-```
+```text
   App / View  ──── Menu model, TitleBarStyle, close intent ────┐
   (platform-neutral)                                           │
                                                         src/platform/
@@ -51,9 +51,10 @@ split three ways:
 
 | Role group | Serviced by |
 | --- | --- |
-| About, Services, Hide, Hide Others, Minimize, Zoom, Full Screen | AppKit's own selectors — the shell wires them and we do nothing |
+| About, Services, Hide, Hide Others, Show All, Minimize, Zoom, Full Screen | AppKit's own selectors — the shell wires them and we do nothing |
 | Cut, Copy, Paste, Select All, Undo, Redo | **the core.** These must act on the focused *DOM* text control, which is not in AppKit's responder chain. The native item owns the keystroke (its key equivalent fires before the view ever sees it), so the shell hands the role back and the core replays it as the chord the document already implements |
 | Quit, Close | **the core**, because they must run the close-request intent (below) |
+| Preferences | **the core.** AppKit has no standard action behind Settings…, so it comes back like Quit and Close — give the item an `on_select`, or handle the role |
 
 **Accelerators** are Electron-style strings. `CmdOrCtrl` resolves to Command on
 macOS and Control elsewhere, which is the whole point: an app declares a
@@ -101,7 +102,7 @@ Three rules make this safe:
   This is what makes `set_menu()` order-independent. Deciding it while *building*
   the DOM would freeze the answer at whatever it was during that build — and a
   `load_view()` app builds its DOM exactly once, so an app that declared its menu
-  afterwards would draw its menus twice, forever. As a restyle it simply cannot
+  afterward would draw its menus twice, forever. As a restyle it simply cannot
   go wrong, and there is no ordering rule for anyone to get wrong.
 
 ## Close requests (#60)
