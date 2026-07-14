@@ -1,6 +1,7 @@
 #pragma once
 
 #include "affineui/types.h"
+#include "affineui/weak_ref.h"
 
 #include <functional>
 #include <memory>
@@ -426,6 +427,14 @@ public:
     /// from their regular frame opportunity; custom Document hosts should do
     /// the same before deciding whether to paint.
     bool tick_caret_blink();
+
+    // Opt into the weak-reference system. Things hold a reference to a Document
+    // across a rebuild — most concretely the C ABI's dock-layout provider, which
+    // a language binding wires to the document it is rebuilding. Capturing a raw
+    // Document* there is a use-after-free reachable from SAFE Rust and SAFE C#
+    // (destroy the document, then rebuild the view). A WeakRef goes inert
+    // instead, and the provider falls back to the declared seed layout.
+    AFFINEUI_WEAK_TRACKABLE()
 
 private:
     DispatchResult dispatch_impl(const Event& ev, Painter* measurer);

@@ -692,9 +692,14 @@ affineui_widget* affineui_view_document_view(affineui_view* view, const char* ke
 char* affineui_view_document(affineui_view* view, affineui_build_fn content,
                              void* user, affineui_user_free_fn user_free,
                              const char* title, const char* icon) {
-    if (!view) return dup_string({});
-    auto handle = to_view(view)->document(owning_build_fn(content, user, user_free),
-                                          sv(title), sv(icon));
+    // Take ownership FIRST, before any early return. Once a caller hands over
+    // (user, user_free) it is consumed unconditionally — the binding has already
+    // allocated (a Box in Rust, a GCHandle in C#) and cannot take it back. A
+    // reject path that simply returned would leak that allocation forever, and
+    // "call this on a disposed view" is exactly the case that hits it.
+    auto cb = owning_build_fn(content, user, user_free);
+    if (!view) return dup_string({});  // cb (and thus user_free) runs here
+    auto handle = to_view(view)->document(std::move(cb), sv(title), sv(icon));
     return dup_string(handle.id);
 }
 
@@ -703,18 +708,19 @@ char* affineui_view_dockpanel(affineui_view* view, const char* title,
                               affineui_build_fn content, void* user,
                               affineui_user_free_fn user_free,
                               const char* icon, const char* key) {
+    auto cb = owning_build_fn(content, user, user_free);   // consumed either way
     if (!view) return dup_string({});
     auto handle = to_view(view)->dockpanel(sv(title), to_dock_location(where),
-                                           owning_build_fn(content, user, user_free),
-                                           sv(icon), sv(key));
+                                           std::move(cb), sv(icon), sv(key));
     return dup_string(handle.id);
 }
 
 void affineui_view_dock_toolbar(affineui_view* view, const char* pane_id,
                                 affineui_build_fn build, void* user,
                                 affineui_user_free_fn user_free) {
+    auto cb = owning_build_fn(build, user, user_free);     // consumed either way
     if (!view || !pane_id) return;
-    to_view(view)->dock_toolbar(sv(pane_id), owning_build_fn(build, user, user_free));
+    to_view(view)->dock_toolbar(sv(pane_id), std::move(cb));
 }
 
 // ── Dock providers ───────────────────────────────────────────────────
@@ -724,8 +730,9 @@ void affineui_view_dock_toolbar(affineui_view* view, const char* pane_id,
 void affineui_view_set_dock_size_provider(affineui_view* view,
                                           affineui_dock_size_fn fn, void* user,
                                           affineui_user_free_fn user_free) {
-    if (!view) return;
+    // Own the user data before the reject path, or it leaks (see document()).
     auto data = hold_user(user, user_free);
+    if (!view) return;
     if (!fn) { to_view(view)->set_dock_size_provider({}); return; }
     to_view(view)->set_dock_size_provider(
         [fn, data](std::string_view pane_id) {
@@ -737,8 +744,9 @@ void affineui_view_set_dock_active_tab_provider(affineui_view* view,
                                                 affineui_dock_active_tab_fn fn,
                                                 void* user,
                                                 affineui_user_free_fn user_free) {
-    if (!view) return;
+    // Own the user data before the reject path, or it leaks (see document()).
     auto data = hold_user(user, user_free);
+    if (!view) return;
     if (!fn) { to_view(view)->set_dock_active_tab_provider({}); return; }
     to_view(view)->set_dock_active_tab_provider(
         [fn, data](std::string_view pane_id) -> std::string {
@@ -751,8 +759,9 @@ void affineui_view_set_dock_placement_provider(affineui_view* view,
                                                affineui_dock_placement_fn fn,
                                                void* user,
                                                affineui_user_free_fn user_free) {
-    if (!view) return;
+    // Own the user data before the reject path, or it leaks (see document()).
     auto data = hold_user(user, user_free);
+    if (!view) return;
     if (!fn) { to_view(view)->set_dock_placement_provider({}); return; }
     to_view(view)->set_dock_placement_provider(
         [fn, data](std::string_view panel_id) -> affineui::Document::DockPlacement {
@@ -778,13 +787,20 @@ void affineui_view_set_dock_layout_from_document(affineui_view* view,
 
     // The live arrangement is a recursive tree that every caller round-trips
     // straight back from the document being rebuilt, so wire it directly rather
-    // than marshalling the tree through the ABI. Capturing the Document* raw
-    // would dangle if the document outlived... it doesn't: App owns both, and
-    // the view is destroyed with (or before) it. Guard anyway — a cleared
-    // provider just falls back to the declared seed.
-    affineui::Document* d = to_doc(doc);
+    // than marshalling the tree through the ABI.
+    //
+    // Hold the document WEAKLY. A raw Document* here is a use-after-free
+    // reachable from SAFE Rust and SAFE C#: nothing in either wrapper keeps the
+    // document alive for the view (Rust takes &Document, C# only until the
+    // registration returns), so destroying the document and then rebuilding the
+    // view would dereference a dangling pointer. A dead WeakRef simply reports
+    // "no layout", and the resolver falls back to the declared seed.
+    auto weak = affineui::to_weak_ref(to_doc(doc));
     to_view(view)->set_dock_layout_provider(
-        [d]() -> affineui::Document::DockLayout { return d->dock_layout(); });
+        [weak]() -> affineui::Document::DockLayout {
+            if (auto* d = weak.get()) return d->dock_layout();
+            return {};  // present = false => use the declared seed
+        });
 }
 
 // ── Dock readback (workspace save) ───────────────────────────────────
@@ -800,6 +816,11 @@ void affineui_document_dock_override(const affineui_document* doc, const char* p
 char* affineui_document_dock_active_tab(const affineui_document* doc, const char* pane_id) {
     if (!doc || !pane_id) return dup_string({});
     return dup_string(to_doc(doc)->dock_active_tab(sv(pane_id)));
+}
+
+int affineui_document_take_dock_structure_changed(affineui_document* doc) {
+    if (!doc) return 0;
+    return to_doc(doc)->take_dock_structure_changed() ? 1 : 0;
 }
 
 void affineui_document_reset_dock_state(affineui_document* doc) {

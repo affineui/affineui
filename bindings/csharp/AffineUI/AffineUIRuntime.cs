@@ -17,7 +17,7 @@ public static class AffineUIRuntime
 {
     /// <summary>The C ABI version this wrapper was written against
     /// (<c>AFFINEUI_C_ABI_VERSION</c>).</summary>
-    public const int ExpectedAbiVersion = 2;
+    public const int ExpectedAbiVersion = 3;
 
     private static readonly object Gate = new();
     private static volatile bool _loaded;

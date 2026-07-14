@@ -527,6 +527,9 @@ internal static partial class NativeMethods
     internal static partial IntPtr affineui_document_dock_active_tab(IntPtr doc, string? paneId);
 
     [LibraryImport(Lib)]
+    internal static partial int affineui_document_take_dock_structure_changed(IntPtr doc);
+
+    [LibraryImport(Lib)]
     internal static partial void affineui_document_reset_dock_state(IntPtr doc);
 
     [LibraryImport(Lib)]

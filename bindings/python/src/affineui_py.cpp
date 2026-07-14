@@ -620,6 +620,12 @@ PYBIND11_MODULE(_affineui, m) {
              "Place relative to another declared panel (chainable).")
         .def("sized", &affineui::DockLocation::sized, py::arg("px"),
              py::return_value_policy::reference_internal)
+        .def("dragging_with",
+             [](affineui::DockLocation& l, const affineui::DockHandle& h) {
+                 return l.dragging_with(h);
+             },
+             py::arg("panel"), py::return_value_policy::reference_internal,
+             "Tearoff: drag this panel along with another (chainable).")
         .def("tearout_size", &affineui::DockLocation::tearout_size,
              py::arg("px"), py::return_value_policy::reference_internal);
 

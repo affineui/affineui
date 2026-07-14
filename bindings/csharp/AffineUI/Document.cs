@@ -125,6 +125,22 @@ public sealed class Document : IDisposable
     }
 
     /// <summary>
+    /// True ONCE (consuming the flag) after dock SURGERY — a tearoff, a
+    /// drag-to-dock, a tab move — restructured the DOM outside a view batch.
+    ///
+    /// <para>A retained view must NOT reconcile incrementally over that (the
+    /// surgery's wrapper elements would survive as duplicate chrome): rebuild
+    /// from scratch when this fires. An app driving its own rebuild loop must
+    /// poll it.</para>
+    /// </summary>
+    public bool TakeDockStructureChanged()
+    {
+        bool changed = NativeMethods.affineui_document_take_dock_structure_changed(Handle) != 0;
+        KeepAlive();
+        return changed;
+    }
+
+    /// <summary>
     /// Forget every runtime dock override and remembered active tab — a "Reset
     /// workspace" action. Rebuild the view WITHOUT wiring the providers
     /// afterwards and the declared seed layout comes back.

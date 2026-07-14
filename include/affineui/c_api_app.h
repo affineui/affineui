@@ -487,6 +487,12 @@ AFFINEUI_C_API affineui_widget* affineui_view_document_view(affineui_view* view,
 // invokes it later — when document_view()'s build returns and the container
 // resolves and emits the layout.
 //
+// OWNERSHIP: (user, user_free) is CONSUMED UNCONDITIONALLY. Even on a rejected
+// call — a null view, a disposed one — user_free still runs. It has to: by the
+// time you call, the binding has already allocated (a Box in Rust, a GCHandle in
+// C#) and cannot take it back, so a reject path that just returned would leak
+// that allocation permanently. The same rule holds for the dock providers below.
+//
 // That is why they take a `user_free` and the immediate builders (panel, card,
 // toolbar…) do not. `user` must stay alive until the engine is done with the
 // callback; it may not point at the caller's stack frame. Pass heap state and a
@@ -605,6 +611,15 @@ AFFINEUI_C_API void affineui_document_dock_override(const affineui_document* doc
 // affineui_string_free.
 AFFINEUI_C_API char* affineui_document_dock_active_tab(const affineui_document* doc,
                                                        const char* pane_id);
+
+// True ONCE (consuming the flag) after dock SURGERY — a tearoff, a drag-to-dock,
+// a tab move — restructured the DOM outside a view batch. A retained view must
+// NOT reconcile incrementally over that (the surgery's wrapper elements would
+// survive as duplicate chrome); rebuild from scratch instead.
+//
+// An app driving its own rebuild loop has to poll this, so a binding without it
+// cannot correctly host a dockable UI.
+AFFINEUI_C_API int affineui_document_take_dock_structure_changed(affineui_document* doc);
 
 // Forget every runtime dock override and remembered active tab — a "Reset
 // workspace" action. Rebuild the view WITHOUT wiring the providers afterwards

@@ -119,6 +119,16 @@ impl Document {
         unsafe { take_string(sys::affineui_document_dock_active_tab(self.raw, id.as_ptr())) }
     }
 
+    /// True ONCE (consuming the flag) after dock SURGERY — a tearoff, a
+    /// drag-to-dock, a tab move — restructured the DOM outside a view batch.
+    ///
+    /// A retained view must NOT reconcile incrementally over that (the surgery's
+    /// wrapper elements would survive as duplicate chrome): rebuild from scratch
+    /// when this fires. An app driving its own rebuild loop must poll it.
+    pub fn take_dock_structure_changed(&self) -> bool {
+        unsafe { sys::affineui_document_take_dock_structure_changed(self.raw) != 0 }
+    }
+
     /// Forget every runtime dock override and remembered active tab — a "Reset
     /// workspace" action. Rebuild the view WITHOUT wiring the providers
     /// afterwards and the declared seed layout comes back.

@@ -235,6 +235,47 @@ TEST_CASE("c_api: a dock pane's tab toolbar is declared by pane id") {
     affineui_view_destroy(v);
 }
 
+TEST_CASE("c_api: the dock-layout provider goes inert when its document dies") {
+    // affineui_view_set_dock_layout_from_document wires the view to a Document.
+    // Nothing in a safe binding keeps that document alive FOR the view (Rust
+    // takes &Document; C# holds it only until the registration returns), so a
+    // raw Document* here would be a use-after-free reachable from SAFE code:
+    // destroy the document, rebuild the view, dereference a dangling pointer.
+    //
+    // The view holds it WEAKLY. Destroying it first must leave the provider
+    // inert — falling back to the declared seed — not crash.
+    affineui_view* v = affineui_view_create(AFFINEUI_THEME_DECIUS);
+
+    affineui_document* doc = affineui_document_create();
+    affineui_view_set_dock_layout_from_document(v, doc);
+
+    // The document dies BEFORE the view is ever built.
+    affineui_document_destroy(doc);
+
+    // This is where a raw pointer would fault: the resolver calls the layout
+    // provider while emitting.
+    affineui_view_begin(v);
+    affineui_view_document_view(
+        v, "ws",
+        [](void*, affineui_view* view) {
+            affineui_view_document(view, nullptr, nullptr, nullptr, "Doc", nullptr);
+            affineui_dock_location where;
+            affineui_dock_location_docked(&where, AFFINEUI_DOCK_LEFT, 280);
+            CStr id{affineui_view_dockpanel(view, "Outliner", &where, nullptr, nullptr,
+                                            nullptr, nullptr, "outliner")};
+        },
+        nullptr);
+    affineui_view_end(v);
+
+    // It fell back to the declared seed and emitted normally.
+    const std::string html = html_of(v);
+    CHECK(has(html, "dcs-dock"));
+    CHECK(has(html, "Outliner"));
+    CHECK(has(html, "280px"));  // the DECLARED size — no saved layout to replay
+
+    affineui_view_destroy(v);
+}
+
 TEST_CASE("c_api: dock providers are invoked, and free their user data once") {
     // The providers are how a saved workspace beats the declared seed. They are
     // (fn, user, user_free) triples: user_free must be called EXACTLY once when

@@ -15,7 +15,7 @@
 
 use core::ffi::{c_char, c_float, c_int, c_void};
 
-pub const AFFINEUI_C_ABI_VERSION: c_int = 2;
+pub const AFFINEUI_C_ABI_VERSION: c_int = 3;
 
 // ── Opaque handles ───────────────────────────────────────────────────
 
@@ -804,6 +804,7 @@ extern "C" {
         doc: *const affineui_document,
         pane_id: *const c_char,
     ) -> *mut c_char;
+    pub fn affineui_document_take_dock_structure_changed(doc: *mut affineui_document) -> c_int;
     pub fn affineui_document_reset_dock_state(doc: *mut affineui_document);
 
     pub fn affineui_document_dock_override_count(doc: *const affineui_document) -> usize;

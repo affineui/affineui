@@ -171,7 +171,13 @@ unsafe fn cstr_arg<'a>(p: *const c_char) -> &'a str {
 
 unsafe extern "C" fn dock_size_trampoline(user: *mut c_void, pane_id: *const c_char) -> c_int {
     let cb = &mut *(user as *mut Box<dyn FnMut(&str) -> i32>);
-    cb(cstr_arg(pane_id))
+    // A panic must never unwind across the FFI boundary (UB / abort). On panic,
+    // report the documented default: <= 0 means "no saved size; use the declared
+    // one", which is exactly the safe fallback.
+    catch_unwind(AssertUnwindSafe(|| cb(cstr_arg(pane_id)))).unwrap_or_else(|_| {
+        eprintln!("affineui: panic in dock size provider (suppressed)");
+        0
+    })
 }
 unsafe extern "C" fn dock_size_free(user: *mut c_void) {
     drop(Box::from_raw(user as *mut Box<dyn FnMut(&str) -> i32>));
@@ -190,7 +196,11 @@ unsafe extern "C" fn dock_tab_trampoline(
     pane_id: *const c_char,
 ) -> *const c_char {
     let st = &mut *(user as *mut DockTabState);
-    let s = (st.f)(cstr_arg(pane_id));
+    // On panic: the empty string, which the engine reads as "the primary panel".
+    let s = catch_unwind(AssertUnwindSafe(|| (st.f)(cstr_arg(pane_id)))).unwrap_or_else(|_| {
+        eprintln!("affineui: panic in dock active-tab provider (suppressed)");
+        String::new()
+    });
     st.last = CString::new(s).unwrap_or_else(|_| CString::new("").unwrap());
     st.last.as_ptr()
 }
@@ -209,15 +219,22 @@ unsafe extern "C" fn dock_placement_trampoline(
     panel_id: *const c_char,
     out: *mut sys::affineui_dock_placement,
 ) {
+    // Zero the whole POD FIRST. A panic below leaves `out` fully initialised as
+    // "no override" rather than partially written or untouched — the engine
+    // reads every field, so a half-filled struct is worse than a defaulted one.
+    *out = sys::affineui_dock_placement::default();
+
     let st = &mut *(user as *mut DockPlacementState);
-    match (st.f)(cstr_arg(panel_id)) {
-        Some(p) => {
+    let result = catch_unwind(AssertUnwindSafe(|| (st.f)(cstr_arg(panel_id))));
+    match result {
+        Ok(Some(p)) => {
             st.last_parent =
                 CString::new(p.parent.as_str()).unwrap_or_else(|_| CString::new("").unwrap());
             p.write_raw(out, &st.last_parent);
         }
-        // present = 0 => "no override; use the declared DockLocation".
-        None => (*out).present = 0,
+        // present = 0 (already zeroed) => "no override; use the declared location".
+        Ok(None) => {}
+        Err(_) => eprintln!("affineui: panic in dock placement provider (suppressed)"),
     }
 }
 unsafe extern "C" fn dock_placement_free(user: *mut c_void) {
