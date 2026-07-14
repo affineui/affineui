@@ -789,6 +789,23 @@ void affineui_view_set_dock_layout_from_document(affineui_view* view,
 
 // ── Dock readback (workspace save) ───────────────────────────────────
 
+void affineui_document_dock_override(const affineui_document* doc, const char* panel_id,
+                                     affineui_dock_placement* out) {
+    if (!out) return;
+    *out = affineui_dock_placement{};  // present = 0 => no override
+    if (!doc || !panel_id) return;
+    from_dock_placement(to_doc(doc)->dock_override(sv(panel_id)), out);
+}
+
+char* affineui_document_dock_active_tab(const affineui_document* doc, const char* pane_id) {
+    if (!doc || !pane_id) return dup_string({});
+    return dup_string(to_doc(doc)->dock_active_tab(sv(pane_id)));
+}
+
+void affineui_document_reset_dock_state(affineui_document* doc) {
+    if (doc) to_doc(doc)->reset_dock_state();
+}
+
 size_t affineui_document_dock_override_count(const affineui_document* doc) {
     if (!doc) return 0;
     return to_doc(doc)->dock_overrides().size();

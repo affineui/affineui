@@ -100,6 +100,32 @@ impl Document {
         out
     }
 
+    /// The placement override for ONE panel — the single-panel form of
+    /// [`Document::dock_overrides`]. `None` when the panel has no override.
+    pub fn dock_override(&self, panel_id: &str) -> Option<DockPlacement> {
+        let id = cstring(panel_id);
+        let mut raw = sys::affineui_dock_placement::default();
+        unsafe { sys::affineui_document_dock_override(self.raw, id.as_ptr(), &mut raw) };
+        let out = DockPlacement::from_raw(&raw);
+        unsafe { sys::affineui_string_free(raw.parent as *mut std::os::raw::c_char) };
+        out
+    }
+
+    /// The active tab of a dock leaf (empty = the primary panel). Feed it back
+    /// through `View::set_dock_active_tab_provider` to restore which tab was
+    /// selected.
+    pub fn dock_active_tab(&self, pane_id: &str) -> String {
+        let id = cstring(pane_id);
+        unsafe { take_string(sys::affineui_document_dock_active_tab(self.raw, id.as_ptr())) }
+    }
+
+    /// Forget every runtime dock override and remembered active tab — a "Reset
+    /// workspace" action. Rebuild the view WITHOUT wiring the providers
+    /// afterwards and the declared seed layout comes back.
+    pub fn reset_dock_state(&self) {
+        unsafe { sys::affineui_document_reset_dock_state(self.raw) };
+    }
+
     /// Parse and replace the document body.
     pub fn set_html(&self, html: &str) {
         let html = cstring(html);

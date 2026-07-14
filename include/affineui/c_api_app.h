@@ -595,6 +595,22 @@ AFFINEUI_C_API void affineui_view_set_dock_layout_from_document(
 // affineui_view_set_dock_layout_from_document wires directly — it is a
 // round-trip token, never inspected, even in Python.)
 
+// The placement override for ONE panel (out->present = 0 when it has none).
+// `out->parent` is a heap copy — free with affineui_string_free.
+AFFINEUI_C_API void affineui_document_dock_override(const affineui_document* doc,
+                                                    const char* panel_id,
+                                                    affineui_dock_placement* out);
+
+// The active tab of a dock leaf ("" = the primary panel). Caller frees with
+// affineui_string_free.
+AFFINEUI_C_API char* affineui_document_dock_active_tab(const affineui_document* doc,
+                                                       const char* pane_id);
+
+// Forget every runtime dock override and remembered active tab — a "Reset
+// workspace" action. Rebuild the view WITHOUT wiring the providers afterwards
+// and the declared seed layout comes back.
+AFFINEUI_C_API void affineui_document_reset_dock_state(affineui_document* doc);
+
 // Number of runtime placement overrides recorded by dock gestures (tearoff,
 // drag-to-dock, tab move).
 AFFINEUI_C_API size_t affineui_document_dock_override_count(

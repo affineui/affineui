@@ -530,6 +530,15 @@ PYBIND11_MODULE(_affineui, m) {
              "Runtime placement overrides recorded by dock gestures, as a "
              "list of (panel_id, DockPlacement) pairs. Feed them back via "
              "View.set_dock_placement_provider.")
+        .def("dock_override", &affineui::Document::dock_override,
+             py::arg("panel_id"),
+             "The placement override for ONE panel (.present is False when it "
+             "has none). The single-panel form of dock_overrides().")
+        .def("dock_active_tab", &affineui::Document::dock_active_tab,
+             py::arg("pane_id"),
+             "The active tab of a dock leaf ('' = the primary panel). Feed it "
+             "back via View.set_dock_active_tab_provider to restore which tab "
+             "was selected.")
         .def("take_dock_structure_changed",
              &affineui::Document::take_dock_structure_changed,
              "True once (consumes the flag) after a dock gesture "

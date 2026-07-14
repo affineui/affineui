@@ -793,6 +793,19 @@ extern "C" {
         doc: *mut affineui_document,
     );
 
+    /// `out.parent` is a heap copy — free with `affineui_string_free`.
+    pub fn affineui_document_dock_override(
+        doc: *const affineui_document,
+        panel_id: *const c_char,
+        out: *mut affineui_dock_placement,
+    );
+    /// Caller frees with `affineui_string_free`.
+    pub fn affineui_document_dock_active_tab(
+        doc: *const affineui_document,
+        pane_id: *const c_char,
+    ) -> *mut c_char;
+    pub fn affineui_document_reset_dock_state(doc: *mut affineui_document);
+
     pub fn affineui_document_dock_override_count(doc: *const affineui_document) -> usize;
     /// Both `*out_panel_id` and `out.parent` are heap copies — free each with
     /// `affineui_string_free`.

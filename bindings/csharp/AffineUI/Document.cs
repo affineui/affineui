@@ -98,6 +98,43 @@ public sealed class Document : IDisposable
         return list;
     }
 
+    /// <summary>
+    /// The placement override for ONE panel — the single-panel form of
+    /// <see cref="DockOverrides"/>. Null when the panel has no override.
+    /// </summary>
+    public DockPlacement? DockOverride(string panelId)
+    {
+        NativeMethods.affineui_document_dock_override(Handle, panelId, out var raw);
+        var placement = DockPlacement.FromNative(in raw);
+        if (raw.Parent != IntPtr.Zero) NativeMethods.affineui_string_free(raw.Parent);
+        KeepAlive();
+        return placement;
+    }
+
+    /// <summary>
+    /// The active tab of a dock leaf ("" = the primary panel). Feed it back
+    /// through <c>View.SetDockActiveTabProvider</c> to restore which tab was
+    /// selected.
+    /// </summary>
+    public string DockActiveTab(string paneId)
+    {
+        var s = AffineUIRuntime.TakeString(
+            NativeMethods.affineui_document_dock_active_tab(Handle, paneId));
+        KeepAlive();
+        return s;
+    }
+
+    /// <summary>
+    /// Forget every runtime dock override and remembered active tab — a "Reset
+    /// workspace" action. Rebuild the view WITHOUT wiring the providers
+    /// afterwards and the declared seed layout comes back.
+    /// </summary>
+    public void ResetDockState()
+    {
+        NativeMethods.affineui_document_reset_dock_state(Handle);
+        KeepAlive();
+    }
+
     // ── Content ──────────────────────────────────────────────────────────
 
     public void SetHtml(string html)

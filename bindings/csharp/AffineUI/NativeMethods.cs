@@ -519,6 +519,16 @@ internal static partial class NativeMethods
     [LibraryImport(Lib)]
     internal static partial void affineui_view_set_dock_layout_from_document(IntPtr view, IntPtr doc);
 
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial void affineui_document_dock_override(
+        IntPtr doc, string? panelId, out affineui_dock_placement outPlacement);
+
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial IntPtr affineui_document_dock_active_tab(IntPtr doc, string? paneId);
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_document_reset_dock_state(IntPtr doc);
+
     [LibraryImport(Lib)]
     internal static partial nuint affineui_document_dock_override_count(IntPtr doc);
 
