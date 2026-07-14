@@ -448674,6 +448674,22 @@ size_t affineui_document_dock_override_count(const affineui_document* doc) {
     return to_doc(doc)->dock_overrides().size();
 }
 
+size_t affineui_document_dock_pane_size_count(const affineui_document* doc) {
+    if (!doc) return 0;
+    return to_doc(doc)->dock_pane_sizes().size();
+}
+
+int affineui_document_dock_pane_size_at(const affineui_document* doc, size_t index,
+                                        char** out_pane_id, int* out_px) {
+    if (!doc || !out_pane_id || !out_px) return 0;
+    const auto sizes = to_doc(doc)->dock_pane_sizes();
+    if (index >= sizes.size()) return 0;
+
+    *out_pane_id = dup_string(sizes[index].first);
+    *out_px = sizes[index].second;
+    return 1;
+}
+
 int affineui_document_dock_override_at(const affineui_document* doc, size_t index,
                                        char** out_panel_id,
                                        affineui_dock_placement* out) {

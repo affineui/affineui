@@ -100,6 +100,55 @@ impl Document {
         out
     }
 
+    /// The current fixed pixel size of every dock pane that has one, keyed by
+    /// pane id.
+    ///
+    /// This is the SAVE half of size persistence.
+    /// [`View::set_dock_size_provider`] feeds sizes back *in*; this reads them
+    /// back *out*. [`Document::dock_overrides`] records only *structure* — where
+    /// a panel was dragged or torn off to — and says nothing about splitter
+    /// drags, which is the size a user actually changes most. Without this, an
+    /// app can restore a layout it was never able to save.
+    ///
+    /// Reads the live flex-basis, so it reflects splitter drags. The flexible
+    /// center/document pane (which has no fixed basis) is omitted.
+    ///
+    /// The usual shape is to read it after an event whose
+    /// [`DispatchResult::layout_changed`] is set (a splitter drag settled), and
+    /// persist it — then feed it back through [`View::set_dock_size_provider`]
+    /// on the next launch:
+    ///
+    /// ```no_run
+    /// # use affineui::{App, Config, Event, MouseButton};
+    /// # let app = App::new(Config::default());
+    /// # let ev = Event::mouse_up(0, 0, MouseButton::Left);
+    /// if app.document().dispatch(&ev).layout_changed {
+    ///     for (pane_id, px) in app.document().dock_pane_sizes() {
+    ///         println!("{pane_id} = {px}px"); // persist to your workspace file
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// [`DispatchResult::layout_changed`]: crate::DispatchResult
+    /// [`View::set_dock_size_provider`]: crate::View::set_dock_size_provider
+    pub fn dock_pane_sizes(&self) -> Vec<(String, i32)> {
+        let n = unsafe { sys::affineui_document_dock_pane_size_count(self.raw) };
+        let mut out = Vec::with_capacity(n);
+        for i in 0..n {
+            let mut id: *mut std::os::raw::c_char = std::ptr::null_mut();
+            let mut px: std::os::raw::c_int = 0;
+            // `id` is a heap copy we now own.
+            let ok = unsafe {
+                sys::affineui_document_dock_pane_size_at(self.raw, i, &mut id, &mut px)
+            };
+            if ok == 0 {
+                continue;
+            }
+            out.push((unsafe { take_string(id) }, px as i32));
+        }
+        out
+    }
+
     /// The placement override for ONE panel — the single-panel form of
     /// [`Document::dock_overrides`]. `None` when the panel has no override.
     pub fn dock_override(&self, panel_id: &str) -> Option<DockPlacement> {

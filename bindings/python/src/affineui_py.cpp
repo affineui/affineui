@@ -618,6 +618,17 @@ PYBIND11_MODULE(_affineui, m) {
              "Runtime placement overrides recorded by dock gestures, as a "
              "list of (panel_id, DockPlacement) pairs. Feed them back via "
              "View.set_dock_placement_provider.")
+        .def("dock_pane_sizes", &affineui::Document::dock_pane_sizes,
+             "The current fixed pixel size of every dock pane that has one, as "
+             "a list of (pane_id, px) pairs.\n\n"
+             "This is the SAVE half of size persistence. "
+             "View.set_dock_size_provider feeds sizes back IN; this reads them "
+             "back OUT. dock_overrides() records only STRUCTURE — where a panel "
+             "was dragged or torn off to — and says nothing about splitter "
+             "drags, which is the size a user changes most. Without this an app "
+             "can restore a layout it was never able to save.\n\n"
+             "Reads the live flex-basis, so it reflects splitter drags. The "
+             "flexible center/document pane (no fixed basis) is omitted.")
         .def("dock_override", &affineui::Document::dock_override,
              py::arg("panel_id"),
              "The placement override for ONE panel (.present is False when it "

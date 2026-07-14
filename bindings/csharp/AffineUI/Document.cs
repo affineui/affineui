@@ -99,6 +99,39 @@ public sealed class Document : IDisposable
     }
 
     /// <summary>
+    /// The current fixed pixel size of every dock pane that has one, keyed by
+    /// pane id.
+    ///
+    /// <para>This is the SAVE half of size persistence.
+    /// <c>View.SetDockSizeProvider</c> feeds sizes back <i>in</i>; this reads
+    /// them back <i>out</i>. <see cref="DockOverrides"/> records only
+    /// <i>structure</i> — where a panel was dragged or torn off to — and says
+    /// nothing about splitter drags, which is the size a user changes most.
+    /// Without this, an app can restore a layout it was never able to save.</para>
+    ///
+    /// <para>Reads the live flex-basis, so it reflects splitter drags. The
+    /// flexible center/document pane (no fixed basis) is omitted. Read it from
+    /// the layout-changed callback and persist it.</para>
+    /// </summary>
+    public IReadOnlyList<(string PaneId, int Size)> DockPaneSizes()
+    {
+        nuint n = NativeMethods.affineui_document_dock_pane_size_count(Handle);
+        var list = new List<(string, int)>((int)n);
+        for (nuint i = 0; i < n; i++)
+        {
+            if (NativeMethods.affineui_document_dock_pane_size_at(
+                    Handle, i, out IntPtr idPtr, out int px) == 0)
+            {
+                continue;
+            }
+            // The id is a heap copy we now own.
+            list.Add((AffineUIRuntime.TakeString(idPtr), px));
+        }
+        KeepAlive();
+        return list;
+    }
+
+    /// <summary>
     /// The placement override for ONE panel — the single-panel form of
     /// <see cref="DockOverrides"/>. Null when the panel has no override.
     /// </summary>

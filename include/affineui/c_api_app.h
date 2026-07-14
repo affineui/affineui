@@ -796,6 +796,28 @@ AFFINEUI_C_API int affineui_document_dock_override_at(
     const affineui_document* doc, size_t index,
     char** out_panel_id, affineui_dock_placement* out);
 
+// The current fixed pixel size of every dock pane that has one, keyed by pane
+// id. Mirrors Document::dock_pane_sizes().
+//
+// This is the OTHER half of the size story, and without it a binding cannot
+// persist a workspace. The dock overrides above record *structure* — where a
+// panel was dragged or torn off to. They say nothing about SPLITTER DRAGS,
+// which is the size the user actually changes most. set_dock_size_provider()
+// feeds sizes back IN; this reads them back OUT. A binding with only the
+// provider can restore a layout it was never able to save.
+//
+// It reads the live flex-basis, so it reflects splitter drags. The flexible
+// center/document pane (no fixed basis) is omitted.
+AFFINEUI_C_API size_t affineui_document_dock_pane_size_count(
+    const affineui_document* doc);
+
+// Read pane size `index` (< affineui_document_dock_pane_size_count). Writes the
+// pane id to `*out_pane_id` (a heap copy — free with affineui_string_free) and
+// the pixel size to `*out_px`. Returns 0 (writing nothing) if out of range.
+AFFINEUI_C_API int affineui_document_dock_pane_size_at(
+    const affineui_document* doc, size_t index,
+    char** out_pane_id, int* out_px);
+
 // Structural leaves.
 AFFINEUI_C_API affineui_widget* affineui_view_toolbar_separator(affineui_view* view,
                                                                 const char* key);
