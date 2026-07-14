@@ -3,6 +3,7 @@
 #include <affineui/decius_bundle.h>
 #include <affineui/document.h>
 #include <affineui/image.h>
+#include <affineui/menu.h>
 #include <affineui/painter.h>
 #include <affineui/tools.h>
 #include <affineui/types.h>
@@ -51,7 +52,10 @@ affineui::App::Config make_app_config(const std::string& title,
                                       int default_font_size,
                                       const std::vector<std::string>& asset_folders,
                                       bool perf_overlay,
-                                      bool no_bundle_decius) {
+                                      bool no_bundle_decius,
+                                      bool native_menus,
+                                      affineui::TitleBarStyle titlebar,
+                                      affineui::Point traffic_light_position) {
     affineui::App::Config cfg{};
     cfg.title = title;
     cfg.width = width;
@@ -64,6 +68,9 @@ affineui::App::Config make_app_config(const std::string& title,
     cfg.asset_folders = asset_folders;
     cfg.perf_overlay = perf_overlay;
     cfg.no_bundle_decius = no_bundle_decius;
+    cfg.native_menus = native_menus;
+    cfg.titlebar = titlebar;
+    cfg.traffic_light_position = traffic_light_position;
     return cfg;
 }
 
@@ -999,6 +1006,12 @@ PYBIND11_MODULE(_affineui, m) {
         .def("cls", [](affineui::WidgetRef& ref, const std::string& classes) -> affineui::WidgetRef& {
             return ref.cls(classes);
         }, py::return_value_policy::reference_internal)
+        // Append one class, keeping what the framework already put there. cls()
+        // REPLACES the list — use this when adding an app class to a framework
+        // widget, or you will silently drop the classes it relies on.
+        .def("add_class", [](affineui::WidgetRef& ref, const std::string& token)
+                 -> affineui::WidgetRef& { return ref.add_class(token); },
+             py::arg("token"), py::return_value_policy::reference_internal)
         .def("on_click",
              [](affineui::WidgetRef& ref, py::function cb) -> affineui::WidgetRef& {
                  auto callback = keep_python_function(std::move(cb));
@@ -1547,6 +1560,16 @@ PYBIND11_MODULE(_affineui, m) {
              },
              py::arg("text"), py::arg("key") = "",
              "Add right-aligned status/meta text in a menubar.")
+        .def("document_title",
+             [](affineui::View& view, const std::string& text,
+                const std::string& key) {
+                 return view.document_title(text, key);
+             },
+             py::arg("text"), py::arg("key") = "",
+             "The name of the document being edited, centered in the bar — a "
+             "WINDOW-title concern that happens to live in the menubar, "
+             "because that strip IS the title bar once the window has none of "
+             "its own. Centered on the window, not between its neighbours.")
         .def("dock_panel",
              [](affineui::View& view, const std::string& title,
                 const std::string& tabpanel_id, const std::string& classes,
@@ -1870,6 +1893,204 @@ PYBIND11_MODULE(_affineui, m) {
                          [](affineui::Foldout& f, bool on) { f.set_open(on); });
     }
 
+    // ── Application menus ───────────────────────────────────────────────
+    // The platform-neutral menu MODEL (affineui/menu.h), mirroring Electron's
+    // Menu.buildFromTemplate vocabulary. Declared once with App.set_menu; on
+    // macOS it becomes the real system menu bar (NSApp.mainMenu — the bar at
+    // the top of the SCREEN, which an app cannot draw itself) and the drawn
+    // View.menu_bar triggers hide themselves, because they are the same menus.
+    py::enum_<affineui::MenuRole>(
+            m,
+            "MenuRole",
+            "A standard item whose label, accelerator and behavior the "
+            "platform supplies — the way the macOS application menu (About / "
+            "Services / Hide / Quit) and a working Edit menu come out right "
+            "without the app restating them per platform.")
+        // C++ spells the no-role case MenuRole::None; `None` is a Python
+        // keyword, so it is NoRole here (it is also the default, so apps
+        // rarely name it).
+        .value("NoRole", affineui::MenuRole::None)
+        .value("About", affineui::MenuRole::About)
+        .value("Services", affineui::MenuRole::Services)
+        .value("Hide", affineui::MenuRole::Hide)
+        .value("HideOthers", affineui::MenuRole::HideOthers)
+        .value("Unhide", affineui::MenuRole::Unhide)
+        .value("Preferences", affineui::MenuRole::Preferences)
+        .value("Quit", affineui::MenuRole::Quit)
+        .value("Undo", affineui::MenuRole::Undo)
+        .value("Redo", affineui::MenuRole::Redo)
+        .value("Cut", affineui::MenuRole::Cut)
+        .value("Copy", affineui::MenuRole::Copy)
+        .value("Paste", affineui::MenuRole::Paste)
+        .value("SelectAll", affineui::MenuRole::SelectAll)
+        .value("Minimize", affineui::MenuRole::Minimize)
+        .value("Zoom", affineui::MenuRole::Zoom)
+        .value("Close", affineui::MenuRole::Close)
+        .value("ToggleFullscreen", affineui::MenuRole::ToggleFullscreen);
+
+    py::enum_<affineui::MenuItemType>(m, "MenuItemType")
+        .value("Normal", affineui::MenuItemType::Normal)
+        .value("Separator", affineui::MenuItemType::Separator)
+        .value("Checkbox", affineui::MenuItemType::Checkbox)
+        .value("Radio", affineui::MenuItemType::Radio);
+
+    py::enum_<affineui::TitleBarStyle>(
+            m,
+            "TitleBarStyle",
+            "How the window's title bar is drawn (App titlebar=...), named as "
+            "in Electron's titleBarStyle.")
+        .value("Default", affineui::TitleBarStyle::Default,
+               "The OS draws its title bar; the app draws below it.")
+        .value("Hidden", affineui::TitleBarStyle::Hidden,
+               "No system title bar: the content fills the window and the app "
+               "draws its own bar. The macOS traffic lights still float over "
+               "it (move them with traffic_light_position). Mark the app's own "
+               "bar draggable with CSS `--affineui-app-region: drag`, or the "
+               "window cannot be moved.")
+        .value("HiddenInset", affineui::TitleBarStyle::HiddenInset,
+               "As Hidden, with the macOS traffic lights inset further from "
+               "the corner.")
+        .value("Frameless", affineui::TitleBarStyle::Frameless,
+               "No system title bar AND no system window buttons: the app "
+               "draws close/minimize/maximize itself and drives them with "
+               "App.close/minimize/toggle_maximize.");
+
+    py::class_<affineui::Accelerator>(
+            m,
+            "Accelerator",
+            "A parsed accelerator. `key` is the normalized key token (\"S\", "
+            "\"F5\", \"Enter\"), empty when the string had no key.")
+        .def(py::init<>())
+        .def_readwrite("ctrl", &affineui::Accelerator::ctrl)
+        .def_readwrite("shift", &affineui::Accelerator::shift)
+        .def_readwrite("alt", &affineui::Accelerator::alt)
+        .def_readwrite("super", &affineui::Accelerator::super,
+                       "Command on macOS, the Windows/Super key elsewhere.")
+        .def_readwrite("key", &affineui::Accelerator::key)
+        .def("valid", &affineui::Accelerator::valid)
+        .def("__bool__", &affineui::Accelerator::valid);
+
+    m.def("parse_accelerator",
+          [](const std::string& spec) {
+              return affineui::parse_accelerator(spec);
+          },
+          py::arg("spec"),
+          "Parse an Electron-style accelerator (\"Shift+CmdOrCtrl+Z\"). "
+          "CmdOrCtrl resolves to Command on macOS and Control elsewhere, so an "
+          "app writes the shortcut once. The result's valid() is False when no "
+          "key was found.");
+    m.def("accelerator_text",
+          [](const affineui::Accelerator& accel) {
+              return affineui::accelerator_text(accel);
+          },
+          py::arg("accel"),
+          "Human-readable text for a drawn menu's shortcut column: the glyph "
+          "form (\"⇧⌘Z\") on macOS, the spelled form (\"Ctrl+Shift+Z\") "
+          "elsewhere.");
+
+    // One menu row. The builders (item/separator/sub/role/check) read the way
+    // the C++ ones do; a Menu is just a list of these. Callbacks go through
+    // keep_python_function/call_python_function like every other callback here,
+    // so a menu selection fired from AppKit acquires the GIL and a raising
+    // handler is reported rather than unwinding into native code.
+    py::class_<affineui::MenuItem>(
+            m,
+            "MenuItem",
+            "One row of a menu: a labelled item, a separator, a submenu, or a "
+            "standard role. Pass a list of them to App.set_menu.")
+        .def(py::init<>())
+        .def_readwrite("label", &affineui::MenuItem::label)
+        .def_readwrite("accelerator", &affineui::MenuItem::accelerator,
+                       "Electron-style chord: \"CmdOrCtrl+S\", "
+                       "\"Shift+Alt+F\". Empty for none.")
+        .def_readwrite("item_role", &affineui::MenuItem::item_role)
+        .def_readwrite("type", &affineui::MenuItem::type)
+        .def_readwrite("enabled", &affineui::MenuItem::enabled)
+        .def_readwrite("visible", &affineui::MenuItem::visible)
+        .def_readwrite("checked", &affineui::MenuItem::checked,
+                       "Check mark. Meaningful for Checkbox/Radio.")
+        .def_readwrite("icon", &affineui::MenuItem::icon,
+                       "Named glyph (the icon names the drawn menus use).")
+        .def_readwrite("swatch", &affineui::MenuItem::swatch,
+                       "Solid color chip in the item's leading gutter (accent "
+                       "pickers, layer colors). Only drawn when swatch.a is "
+                       "non-zero.")
+        .def_readwrite("submenu", &affineui::MenuItem::submenu)
+        .def("on_select",
+             [](affineui::MenuItem& item, py::object cb) -> affineui::MenuItem& {
+                 if (cb.is_none()) {
+                     item.on_select = nullptr;
+                     return item;
+                 }
+                 auto callback = keep_python_function(cb.cast<py::function>());
+                 item.on_select = [callback = std::move(callback)] {
+                     call_python_function("MenuItem.on_select", callback);
+                 };
+                 return item;
+             },
+             py::arg("callback"), py::return_value_policy::reference_internal,
+             "Set the activation callback (chainable). None clears it.")
+        .def_static("item",
+                    [](const std::string& label,
+                       const std::string& accelerator,
+                       py::object on_select) {
+                        auto m = affineui::MenuItem::item(label, accelerator);
+                        if (!on_select.is_none()) {
+                            auto callback = keep_python_function(
+                                on_select.cast<py::function>());
+                            m.on_select = [callback = std::move(callback)] {
+                                call_python_function("MenuItem.on_select",
+                                                     callback);
+                            };
+                        }
+                        return m;
+                    },
+                    py::arg("label"), py::arg("accelerator") = "",
+                    py::arg("on_select") = py::none(),
+                    "A labelled item: MenuItem.item(\"Save\", \"CmdOrCtrl+S\", "
+                    "self.save).")
+        .def_static("separator", &affineui::MenuItem::separator)
+        .def_static("sub",
+                    [](const std::string& label,
+                       const std::vector<affineui::MenuItem>& items) {
+                        return affineui::MenuItem::sub(label, items);
+                    },
+                    py::arg("label"), py::arg("items"),
+                    "A submenu (also how a top-level menu is declared).")
+        .def_static("role",
+                    [](affineui::MenuRole role, const std::string& label) {
+                        return affineui::MenuItem::role(role, label);
+                    },
+                    py::arg("role"), py::arg("label") = "",
+                    "A standard platform item. Label and accelerator are "
+                    "supplied by the shell unless you override them.")
+        .def_static("check",
+                    [](const std::string& label, bool checked,
+                       const std::string& accelerator, py::object on_select) {
+                        auto m = affineui::MenuItem::check(label, checked,
+                                                           accelerator);
+                        if (!on_select.is_none()) {
+                            auto callback = keep_python_function(
+                                on_select.cast<py::function>());
+                            m.on_select = [callback = std::move(callback)] {
+                                call_python_function("MenuItem.on_select",
+                                                     callback);
+                            };
+                        }
+                        return m;
+                    },
+                    py::arg("label"), py::arg("checked"),
+                    py::arg("accelerator") = "",
+                    py::arg("on_select") = py::none(),
+                    "A checkable item. Rebuild and re-set the menu when the "
+                    "state changes, the same way the view is rebuilt.")
+        .def_static("edit_menu", &affineui::MenuItem::edit_menu,
+                    "The conventional Edit menu (Undo/Redo/Cut/Copy/Paste/"
+                    "Select All). On macOS these carry the AppKit selectors, so "
+                    "they act on the focused control with no app wiring.")
+        .def_static("window_menu", &affineui::MenuItem::window_menu,
+                    "The conventional Window menu (Minimize/Zoom/Close).");
+
     py::class_<affineui::App>(m, "App")
         .def(py::init([](const std::string& title,
                          int width,
@@ -1881,7 +2102,10 @@ PYBIND11_MODULE(_affineui, m) {
                           int default_font_size,
                           const std::vector<std::string>& asset_folders,
                           bool perf_overlay,
-                          bool no_bundle_decius) {
+                          bool no_bundle_decius,
+                          bool native_menus,
+                          affineui::TitleBarStyle titlebar,
+                          affineui::Point traffic_light_position) {
                   return std::make_unique<affineui::App>(
                       make_app_config(title,
                                       width,
@@ -1893,7 +2117,10 @@ PYBIND11_MODULE(_affineui, m) {
                                       default_font_size,
                                       asset_folders,
                                       perf_overlay,
-                                      no_bundle_decius));
+                                      no_bundle_decius,
+                                      native_menus,
+                                      titlebar,
+                                      traffic_light_position));
               }),
              py::arg("title") = "AffineUI",
              py::arg("width") = 1024,
@@ -1905,7 +2132,18 @@ PYBIND11_MODULE(_affineui, m) {
               py::arg("default_font_size") = 16,
               py::arg("asset_folders") = std::vector<std::string>{"."},
               py::arg("perf_overlay") = false,
-              py::arg("no_bundle_decius") = false)
+              py::arg("no_bundle_decius") = false,
+              // ── Platform chrome ──────────────────────────────────────
+              // native_menus is ON by default for the reason the C++ Config
+              // is: on macOS the menu bar lives at the top of the SCREEN and
+              // an app cannot draw it — and without one there is no Quit item,
+              // so Cmd-Q would not work at all. Set False to keep only the
+              // in-window bar the app draws itself (View.menu_bar).
+              py::arg("native_menus") = true,
+              py::arg("titlebar") = affineui::TitleBarStyle::Default,
+              // macOS only: where the traffic lights sit, in logical points
+              // from the window's top-left. Point(0, 0) = platform default.
+              py::arg("traffic_light_position") = affineui::Point{})
         .def("load_html", [](affineui::App& app, const std::string& html) {
             app.load_html(html);
         })
@@ -1986,6 +2224,65 @@ PYBIND11_MODULE(_affineui, m) {
              "Dispatch an Event through the loaded document. Useful for "
              "headless tests and custom Python hosts.")
         .def("quit", &affineui::App::quit, py::arg("code") = 0)
+        // ── Menus ────────────────────────────────────────────────────────
+        .def("set_menu",
+             [](affineui::App& app, std::vector<affineui::MenuItem> menu) {
+                 app.set_menu(std::move(menu));
+             },
+             py::arg("menu"),
+             "Install (or replace) the application menu: a list of MenuItems, "
+             "left to right. Safe to call at any time, including from a menu "
+             "callback — a menu that shows checked/enabled state is meant to be "
+             "rebuilt and re-set as that state changes, the same way the view "
+             "is. On macOS this becomes the system menu bar (and the drawn "
+             "View.menu_bar triggers hide themselves); ignored when the App was "
+             "built with native_menus=False.")
+        .def("menu",
+             [](const affineui::App& app) { return app.menu(); },
+             "The menu last passed to set_menu().")
+        // ── Close requests ───────────────────────────────────────────────
+        .def("on_close_request",
+             [](affineui::App& app, py::function cb) {
+                 auto callback = keep_python_function(std::move(cb));
+                 app.on_close_request([callback]() -> bool {
+                     try {
+                         py::gil_scoped_acquire gil;
+                         py::object result = (*callback)();
+                         // A handler that returns nothing means "proceed" —
+                         // only an explicit False cancels the close.
+                         return result.is_none() ? true : result.cast<bool>();
+                     } catch (py::error_already_set& e) {
+                         e.discard_as_unraisable("App.on_close_request");
+                     } catch (const std::exception& e) {
+                         std::fprintf(stderr,
+                                      "AffineUI Python callback failed "
+                                      "(App.on_close_request): %s\n",
+                                      e.what());
+                     }
+                     // A broken handler must not trap the user in the app.
+                     return true;
+                 });
+             },
+             py::arg("callback"),
+             "Install the handler for an inbound close request — the window's "
+             "close button, Cmd-Q / Alt-F4, the menu's Quit item, a Close "
+             "control the app drew itself. Return False to CANCEL the close; "
+             "this is the one veto point, so it is where an editor says \"you "
+             "have unsaved changes\". With no handler a close always proceeds, "
+             "and App.quit() bypasses it.")
+        // ── Window controls ──────────────────────────────────────────────
+        // What a title bar's buttons do. An app running with
+        // TitleBarStyle.Frameless draws its own and wires them to these.
+        .def("close", &affineui::App::close,
+             "Ask to close the window. Runs the close-request handler first, "
+             "so this is cancellable — an app-drawn close button gets "
+             "save-on-exit for free. (quit() is the uncancellable form.)")
+        .def("minimize", &affineui::App::minimize)
+        .def("toggle_maximize", &affineui::App::toggle_maximize,
+             "Toggle zoomed/maximized, as the OS's own button does.")
+        .def("is_maximized", &affineui::App::is_maximized)
+        .def("set_fullscreen", &affineui::App::set_fullscreen, py::arg("on"))
+        .def("is_fullscreen", &affineui::App::is_fullscreen)
         .def("window_size",
              &affineui::App::window_size,
              "Return the current window size in logical CSS points.")

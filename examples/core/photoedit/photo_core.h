@@ -256,6 +256,17 @@ public:
     // ── History (pixel snapshots, COW-shared buffers) ───────────────────
     std::vector<HistoryEntry> history_entries() const;
     int history_index() const { return history_index_; }
+    /// Stable id of the state currently shown, or 0 when there is no history.
+    /// Compare THIS across time, not history_index(): indices are reused when a
+    /// snapshot after an undo erases the redo tail, so the same index can mean
+    /// different pixels. An app answering "are there unsaved changes?" records
+    /// the id at save and compares it later.
+    std::uint64_t history_id() const {
+        return (history_index_ >= 0 &&
+                history_index_ < static_cast<int>(history_.size()))
+                   ? history_[static_cast<std::size_t>(history_index_)].id
+                   : 0;
+    }
     int history_source() const { return history_source_; }
     void set_history_source(int index);
     void snapshot(const std::string& name, const std::string& icon);
@@ -347,6 +358,12 @@ private:
         int active = 0;
         int w = 0, h = 0;
         std::vector<LayerRec> layers;
+        // Stable identity for this state. History INDICES are reused across
+        // branches — a snapshot taken after an undo erases the redo tail and
+        // lands back on the same index with different pixels — so an index is
+        // not something a caller can compare against to answer "is this still
+        // the state I saved?". This is.
+        std::uint64_t id = 0;
     };
 
     struct StrokeState;   // brush engine scratch (photo_core.cpp)
@@ -401,6 +418,8 @@ private:
 
     std::vector<HistoryRec> history_;
     int history_index_ = -1;
+    // Monotonic; never reused, so a saved id stays meaningful across branches.
+    std::uint64_t history_next_id_ = 0;
     int history_source_ = 0;
     static constexpr std::size_t kHistoryMax = 40;  // web cap
 

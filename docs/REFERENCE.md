@@ -74,6 +74,9 @@ as long as the App). Non-copyable, movable.
 | `bool perf_overlay` | `false` | Native perf overlay (see Part 5). |
 | `DebugOverlayCorner perf_overlay_corner` | `top_right` | |
 | `bool devtools_hotkey` | `true` | F12 / Ctrl+Shift+I opens the affinetools viewer. Compiled out with `AFFINEUI_PERF=0`. |
+| `bool native_menus` | `true` | The menu set with `App::set_menu` becomes the macOS system menu bar, and the drawn menubar hides its triggers. Set false to keep the drawn bar (triggers and all). Either way the standard application menu is synthesized, so Cmd-Q always works — on macOS it is the Quit item's key equivalent, not a key the app sees. |
+| `TitleBarStyle titlebar` | `Default` | `Hidden` / `HiddenInset` remove the system title bar (OS window buttons stay); `Frameless` removes the buttons too and the app draws its own. Named as in Electron. The app must mark its drag region — see `docs/WINDOW_CHROME_AND_MENUS.md`. |
+| `Point traffic_light_position` | `{0,0}` | macOS: where the window buttons sit, from the window's top-left. Zero = the style's default. |
 | `std::function<void()> on_layout_changed` | `{}` | Fired when an interaction changed the dock layout — read and persist it. |
 | `bool no_bundle_decius` | `false` | The embedded Decius bundle is ON by default; `true` disables it at runtime. |
 
@@ -101,7 +104,12 @@ Painter pointer.
 | Signature | Description |
 |---|---|
 | `int run()` / `int run(std::function<void()> view_fn)` | Start the main loop; returns the OS exit code. |
-| `void quit(int code = 0)` | Clean exit after the current frame. |
+| `void quit(int code = 0)` | Clean exit after the current frame. Does NOT run the close-request handler — quit means quit. |
+| `void on_close_request(std::function<bool()> cb)` | The veto point for an inbound close (window button, Cmd-Q, menu Quit, `close()`). Return false to cancel. This is what makes save-on-exit possible. |
+| `void set_menu(Menu menu)` | The application menu, platform-neutral. On macOS becomes the system menu bar. Re-set it as its checked/enabled state changes. See `docs/WINDOW_CHROME_AND_MENUS.md`. |
+| `void close()` | Ask to close — runs the close-request handler, so it is cancellable. |
+| `void minimize()` / `void toggle_maximize()` / `bool is_maximized() const` | What an app-drawn title bar's buttons call. |
+| `void set_fullscreen(bool)` / `bool is_fullscreen() const` | |
 | `bool dispatch(const Event& ev)` | Route a translated input event; true when consumed. |
 | `void on_event_capture(EventHandler cb)` | Capture phase before document/widgets for every dispatched mouse, key, text, or composition event. Return true to consume, e.g. force Ctrl/Cmd+Z into the app-global undo stack or let a modal host tool own pointer input. The supplied hover chain is the current pre-dispatch chain. |
 | `void on_event(EventHandler cb)` | Post-document low-level handler; receives the refreshed hit-tested hover chain, deepest first. Focused-editor commands consumed by the document do not reach it. `EventHandler = std::function<bool(const Event&, const std::vector<Document::HoverInfo>&)>`. |
@@ -259,6 +267,7 @@ optional `key` for identity/lookup.
 | `Scope menu_item_custom(std::string_view key = {})` | Caller-composed row (swatches etc.); activates like `menu_item`. |
 | `WidgetRef submenu(std::string_view label, const std::function<void(View&)>& build, std::string_view icon = {}, std::string_view key = {})` | Nested menu, any depth. |
 | `WidgetRef menu_separator(...)`, `menu_spacer(...)`, `menu_meta(std::string_view text, ...)` | Separator; flexible spacer; right-aligned status text. |
+| `WidgetRef document_title(std::string_view text, std::string_view key = {})` | The edited document's name, centered on the WINDOW (not between its neighbours). What a title bar shows. |
 | `Scope toolbar(std::string_view key = {})` / `Scope floating_toolbar(const FloatingToolbarOptions& = {}, std::string_view key = {})` | Toolbar row / floating draggable rail. |
 | `WidgetRef toolbar_separator(std::string_view key = {})` | |
 

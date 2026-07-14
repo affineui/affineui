@@ -25,6 +25,7 @@
 #include "affineui/tools.h"
 #include "core/diag.h"
 #include "core/log_internal.h"
+#include "platform/platform.h"
 
 #include <algorithm>
 #include <array>
@@ -108,7 +109,18 @@ struct AppImpl {
     bool                  frame_reentry_reported{false};
     bool                  pointer_captured{false};
     bool                  quit_requested{false};
+    // Set while App::quit() unwinds, so the QUIT_REQUESTED that sokol posts
+    // back to us is recognized as OUR quit and does not re-run the app's
+    // close-request handler (quit() means quit; close() is the askable one).
+    bool                  quit_forced{false};
     int                   exit_code{0};
+    // The application menu, and the close-request veto (#60/#61).
+    Menu                  menu{};
+    std::function<bool()> on_close_request{};
+    // Last window-chrome geometry published to CSS, to skip redundant restyles.
+    Rect                  last_chrome_rect{};
+    int                   last_chrome_win_w{-1};
+    bool                  chrome_published{false};
     int                   last_cursor{-1};  // last sapp cursor we set
     bool                  last_ime_active{false};  // last IME intent pushed
     Rect                  last_ime_rect{};         // last caret rect pushed
@@ -544,6 +556,15 @@ App::App(Config cfg) : impl_{std::make_shared<detail::AppImpl>()} {
 
 App::~App() {
     if (impl_) impl_->owner = nullptr;
+#if !defined(AFFINEUI_STUB_BUILD)
+    // The installed menu's role handler holds a reference to this App's impl,
+    // so it must not outlive it — an NSMenu left in place would call into freed
+    // state the next time someone picked Quit. Uninstalling also leaves the
+    // process without a stray menu bar for an app that no longer exists.
+    if (impl_ && impl_->config.native_menus && platform::has_native_menus()) {
+        platform::install_menu({}, impl_->config.title, {});
+    }
+#endif
 }
 App::App(App&& other) noexcept : impl_{std::move(other.impl_)} {
     // The moved-in impl still carries the source App's owner pointer; repoint
@@ -968,6 +989,27 @@ void App::capture_pointer() { impl_->pointer_captured = true; }
 void App::release_pointer() { impl_->pointer_captured = false; }
 bool App::pointer_captured() const { return impl_->pointer_captured; }
 
+namespace {
+// Ask the app whether a close may proceed. No handler means yes. A handler
+// that throws means yes too — a crashing veto must not wedge the app open.
+//
+// Defined ABOVE the stub/real split because App::close() has to run it in both:
+// a stub build has no window to close, but it still has an app that asked to be
+// consulted, and silently skipping the handler there would mean close() quietly
+// did nothing at all.
+bool run_close_request(detail::AppImpl& impl) {
+    if (!impl.on_close_request) return true;
+    try {
+        return impl.on_close_request();
+    } catch (const std::exception& e) {
+        detail::log_event_loop_exception("close-request handler", e);
+    } catch (...) {
+        detail::log_event_loop_exception("close-request handler");
+    }
+    return true;
+}
+}  // namespace
+
 #if defined(AFFINEUI_STUB_BUILD)
 
 int App::run() { return impl_->exit_code; }
@@ -1153,6 +1195,162 @@ void update_perf_overlay_text(detail::AppImpl& impl, double gap_ms) {
 // sapp_desc.user_data. We stash the AppImpl pointer there so each
 // callback recovers state with one cast.
 
+// ─── Menus, close requests, window chrome ─────────────────────────────
+
+// The menu an app gets when it never called set_menu(). It is NOT a nicety:
+// on macOS the Quit item IS Cmd-Q — the keystroke is that item's key
+// equivalent, so with no menu bar there is no Quit item and the app cannot be
+// quit with Cmd-Q at all. sokol builds no NSMenu, so something must, and the
+// old answer was a TEMPORARY patch inside sokol_app.h (affineui#60/#61). This
+// is the real answer: the standard Mac application menu, synthesized from the
+// same model an app would have supplied.
+Menu default_menu() {
+    return {
+        MenuItem::sub("",  // titled with the app name by the shell
+                      {
+                          MenuItem::role(MenuRole::About),
+                          MenuItem::separator(),
+                          MenuItem::role(MenuRole::Preferences),
+                          MenuItem::separator(),
+                          MenuItem::role(MenuRole::Services),
+                          MenuItem::separator(),
+                          MenuItem::role(MenuRole::Hide),
+                          MenuItem::role(MenuRole::HideOthers),
+                          MenuItem::role(MenuRole::Unhide),
+                          MenuItem::separator(),
+                          MenuItem::role(MenuRole::Quit),
+                      }),
+        MenuItem::sub("Edit", MenuItem::edit_menu()),
+        MenuItem::sub("Window", MenuItem::window_menu()),
+    };
+}
+
+// Run the veto, then quit unless it said no. This is the ONE close path: the
+// menu's Quit, a Close item, and a close button the app drew itself all land
+// here, so save-on-exit cannot be bypassed by picking a different one. (The
+// window button and Cmd-Q arrive as QUIT_REQUESTED and are vetoed in place.)
+void request_close(detail::AppImpl& impl) {
+    if (!run_close_request(impl)) return;
+    impl.quit_requested = true;
+    impl.quit_forced    = true;  // don't re-ask when sokol posts QUIT_REQUESTED
+    sapp_request_quit();
+}
+
+// The roles the shell hands back because it cannot service them itself.
+void handle_menu_role(detail::AppImpl& impl, MenuRole role) {
+    // Cut/Copy/Paste/Select All must act on the focused DOM text control,
+    // which is not in AppKit's responder chain — the native menu item owns the
+    // keystroke (its key equivalent fires before the view ever sees it), so we
+    // replay it as the chord the document already implements. (The text editor
+    // treats ctrl and super alike, so this is the same path Cmd-C always took.)
+    const auto replay = [&impl](Key key, bool shift) {
+        Event ev{};
+        ev.type  = EventType::KeyDown;
+        ev.key   = key;
+        ev.super = true;
+        ev.shift = shift;
+        detail::dispatch_loaded_view_event(impl, ev);
+    };
+    switch (role) {
+        case MenuRole::Quit:
+        case MenuRole::Close:     request_close(impl); return;
+        case MenuRole::Undo:      replay(Key::Z, false); return;
+        case MenuRole::Redo:      replay(Key::Z, true); return;
+        case MenuRole::Cut:       replay(Key::X, false); return;
+        case MenuRole::Copy:      replay(Key::C, false); return;
+        case MenuRole::Paste:     replay(Key::V, false); return;
+        case MenuRole::SelectAll: replay(Key::A, false); return;
+        default: return;  // the shell handled it (Hide, Minimize, About, ...)
+    }
+}
+
+// True when this app's menus are showing in the platform's own menu bar.
+//
+// Note the `!menu.empty()`: supplying a menu is what moves it. Hiding the drawn
+// triggers merely because the platform COULD show menus would delete the menus
+// of every app that has not adopted set_menu() yet — its triggers would go, and
+// nothing would take their place in the system bar.
+bool native_menus_showing(const detail::AppImpl& impl) {
+    return impl.config.native_menus && platform::has_native_menus() &&
+           !impl.menu.empty();
+}
+
+// Tell the stylesheet whether the drawn menubar's triggers should stand down.
+//
+// An ATTRIBUTE, not a build-time decision, and this is the whole point: hiding
+// the triggers while building the DOM would freeze the answer at whatever it was
+// during that build — and a load_view() app builds its DOM exactly once, so
+// declaring the menu afterwards would come too late and the app would draw its
+// menus twice. Published this way it is a restyle, so set_menu() works before or
+// after the view is built, and there is no ordering rule to get wrong.
+void publish_native_menus(detail::AppImpl& impl) {
+    impl.document.set_root_attribute("data-affineui-native-menus",
+                                     native_menus_showing(impl) ? "1" : "0");
+}
+
+void install_app_menu(detail::AppImpl& impl) {
+    if (!platform::has_native_menus()) return;
+    // The standard application menu goes up even when the app opted OUT of
+    // native menus, and even when it supplied none. Cmd-Q is not a key the app
+    // sees on macOS — it is the key equivalent of the Quit item — so "no menu
+    // bar" means "the app cannot be quit with Cmd-Q at all". Opting out is a
+    // choice about where the app's OWN menus are drawn, and it must not cost
+    // the user a working Quit.
+    //
+    // What opting out (or not supplying a menu) does cost is the app's menus
+    // going native: those stay drawn in the window. See native_menus_showing.
+    const bool use_app_menu = impl.config.native_menus && !impl.menu.empty();
+    // The shell copies the callbacks it needs, so a temporary is fine here.
+    const Menu menu = use_app_menu ? impl.menu : default_menu();
+    platform::install_menu(menu, impl.config.title,
+                           [&impl](MenuRole role) { handle_menu_role(impl, role); });
+}
+
+// Publish the platform's window-chrome geometry to CSS.
+//
+// The system's window buttons are drawn OVER our content (that is what a
+// hidden title bar means), so an app-drawn bar has to keep its brand and menus
+// out from under them. Rather than have every app hardcode "80px on macOS", we
+// hand the measured region to CSS, the way the web's Window Controls Overlay
+// hands `env(titlebar-area-*)` to a PWA — except we do it on every platform,
+// including macOS, where Electron leaves apps to guess.
+void publish_window_chrome(detail::AppImpl& impl) {
+    const Rect r = platform::window_controls_rect(
+        impl.config.titlebar, impl.config.traffic_light_position);
+    // The window width matters as much as the button rect: --affineui-titlebar-
+    // area-width is (window width - reserved band), so a plain resize changes it
+    // even though the buttons have not moved at all. Comparing only the rect
+    // would early-return on every resize and leave that var reporting the width
+    // the window had when it was first shown.
+    const int win_w_now = impl.last_w > 0 ? impl.last_w : 0;
+    if (impl.chrome_published && r.x == impl.last_chrome_rect.x &&
+        r.y == impl.last_chrome_rect.y && r.w == impl.last_chrome_rect.w &&
+        r.h == impl.last_chrome_rect.h && win_w_now == impl.last_chrome_win_w) {
+        return;  // genuinely unchanged — don't dirty the tree every resize tick
+    }
+    impl.last_chrome_rect  = r;
+    impl.last_chrome_win_w = win_w_now;
+    impl.chrome_published  = true;
+
+    // The controls sit on the left on macOS and on the right on Windows, so
+    // give the bar both insets and let it pad with whichever is non-zero. The
+    // area-* set mirrors the Window Controls Overlay names for anyone who
+    // already knows them.
+    const int  win_w = win_w_now;
+    const bool left  = r.w > 0 && r.x <= 0;
+    const int  free_w = win_w > r.w ? win_w - r.w : 0;
+    char buf[512];
+    std::snprintf(buf, sizeof(buf),
+                  "--affineui-titlebar-inset-left:%dpx;"
+                  "--affineui-titlebar-inset-right:%dpx;"
+                  "--affineui-titlebar-area-x:%dpx;"
+                  "--affineui-titlebar-area-y:0px;"
+                  "--affineui-titlebar-area-width:%dpx;"
+                  "--affineui-titlebar-area-height:%dpx",
+                  left ? r.w : 0, left ? 0 : r.w, left ? r.w : 0, free_w, r.h);
+    impl.document.set_root_css_vars(buf);
+}
+
 void cb_init(void* user) {
     auto* impl = static_cast<detail::AppImpl*>(user);
     // Bring up sokol_gfx against the swapchain sokol_app just created.
@@ -1172,6 +1370,43 @@ void cb_init(void* user) {
         impl->exit_code = 1;
         sapp_request_quit();
     }
+    // We run inside the platform's did-finish-launching, so the native window
+    // and the application object both exist by now — which is exactly why the
+    // menu no longer needs a patch inside sokol.
+    platform::apply_titlebar_style(impl->config.titlebar,
+                                   impl->config.traffic_light_position);
+    install_app_menu(*impl);
+    // Let stylesheets select per-OS. Custom properties can't appear in
+    // selectors, so the chrome vars alone can't express "only on macOS".
+#if defined(__APPLE__)
+    impl->document.set_root_attribute("data-affineui-platform", "macos");
+#elif defined(_WIN32)
+    impl->document.set_root_attribute("data-affineui-platform", "windows");
+#else
+    impl->document.set_root_attribute("data-affineui-platform", "linux");
+#endif
+    // Let stylesheets react to the window owning its own chrome — the drawn
+    // menubar becomes the TITLE BAR when this is anything but "default", and it
+    // is styled as one (see .dcs-menubar in decius.css). CSS can't read Config,
+    // and custom properties can't drive selectors, so it has to be an attribute.
+    switch (impl->config.titlebar) {
+        case TitleBarStyle::Default:
+            impl->document.set_root_attribute("data-affineui-titlebar", "default");
+            break;
+        case TitleBarStyle::Hidden:
+            impl->document.set_root_attribute("data-affineui-titlebar", "hidden");
+            break;
+        case TitleBarStyle::HiddenInset:
+            impl->document.set_root_attribute("data-affineui-titlebar",
+                                              "hidden-inset");
+            break;
+        case TitleBarStyle::Frameless:
+            impl->document.set_root_attribute("data-affineui-titlebar", "frameless");
+            break;
+    }
+    publish_native_menus(*impl);
+    impl->last_w = sapp_width();
+    publish_window_chrome(*impl);
 }
 
 // Sync the OS cursor to the DOM's hovered cursor kind. Called at the
@@ -1678,8 +1913,33 @@ void cb_event(const sapp_event* ev, void* user) {
             (void) detail::dispatch_loaded_view_event(*impl, aui_ev);
             sync_ime_state(*impl);
             return;
+        case SAPP_EVENTTYPE_QUIT_REQUESTED:
+            // Everything that means "close this app" funnels here: the window
+            // button, Cmd-Q (the menu's Quit key equivalent), a system logout.
+            // The app gets its veto — unless this is OUR quit() unwinding (or a
+            // close request we already approved), in which case the decision is
+            // made and re-asking would prompt the user twice.
+            //
+            // Veto by cancelling in place. We must NOT re-enter
+            // sapp_request_quit() from inside this callback to say "yes"; not
+            // touching it is what "yes" means.
+            if (!impl->quit_forced && impl->on_close_request &&
+                !run_close_request(*impl)) {
+                sapp_cancel_quit();
+            } else {
+                impl->quit_requested = true;
+                impl->quit_forced    = true;
+            }
+            return;
         case SAPP_EVENTTYPE_RESIZED:
             impl->has_pending_resize = true;  // coalesced: ≤1 per frame
+            // The window buttons are positioned in window coordinates, so a
+            // resize moves them relative to the top; re-place them and re-publish
+            // the area they occupy.
+            platform::sync_titlebar_chrome(impl->config.titlebar,
+                                           impl->config.traffic_light_position);
+            impl->last_w = sapp_width();
+            publish_window_chrome(*impl);
             {
                 static const bool input_trace_local =
                     std::getenv("AFFINEUI_INPUT_TRACE") != nullptr;
@@ -1738,6 +1998,21 @@ void cb_event(const sapp_event* ev, void* user) {
             impl->settle_frames = detail::kSwapchainSettleFrames;
             return;
         }
+    }
+
+    // A press inside a `--affineui-app-region: drag` region belongs to the
+    // WINDOW, not to the document: it moves the window, or zooms it on a
+    // double-click — what pressing a system title bar does. An app that draws
+    // its own bar marks the bar `drag`; the buttons and menus inside it mark
+    // themselves `no-drag`, and because custom properties inherit, the element
+    // actually under the cursor already carries the answer. The press is
+    // consumed: it never becomes a click in the DOM.
+    if (aui_ev.type == EventType::MouseDown &&
+        aui_ev.button == MouseButton::Left &&
+        impl->config.titlebar != TitleBarStyle::Default &&
+        impl->document.hovered_css_var("--affineui-app-region") == "drag" &&
+        platform::begin_window_drag()) {
+        return;
     }
 
     if (aui_ev.type == EventType::MouseMove) {
@@ -1816,7 +2091,79 @@ void App::quit(int code) {
     impl_->quit_requested = true;
     impl_->exit_code      = code;
 #if !defined(AFFINEUI_STUB_BUILD)
+    // The app's own decision: mark it decided so the QUIT_REQUESTED this
+    // posts back does not re-run the close-request handler.
+    impl_->quit_forced = true;
     sapp_request_quit();
+#endif
+}
+
+void App::on_close_request(std::function<bool()> cb) {
+    impl_->on_close_request = std::move(cb);
+}
+
+void App::set_menu(Menu menu) {
+    impl_->menu = std::move(menu);
+#if !defined(AFFINEUI_STUB_BUILD)
+    // Only now does the drawn menubar hide its triggers — and only if the app
+    // actually SUPPLIED menus for the platform to show. Hiding them merely
+    // because the platform *could* show menus would delete the menus of every
+    // app that hasn't adopted set_menu() yet: their drawn triggers would go, and
+    // nothing would take their place in the system bar.
+    publish_native_menus(*impl_);
+    // Before run(), cb_init installs it; after, this replaces the live one —
+    // which is how a menu that shows checked/enabled state stays in sync.
+    if (impl_->renderer.ready()) install_app_menu(*impl_);
+#endif
+}
+
+const Menu& App::menu() const noexcept { return impl_->menu; }
+
+void App::close() {
+    // The veto runs in every build — it is the app's own handler, and whether a
+    // window exists to tear down is beside the point. Only the platform quit is
+    // stubbed out.
+    if (!run_close_request(*impl_)) return;
+    impl_->quit_requested = true;
+    impl_->quit_forced    = true;  // decided; don't re-ask on QUIT_REQUESTED
+#if !defined(AFFINEUI_STUB_BUILD)
+    sapp_request_quit();
+#endif
+}
+
+void App::minimize() {
+#if !defined(AFFINEUI_STUB_BUILD)
+    platform::minimize_window();
+#endif
+}
+
+void App::toggle_maximize() {
+#if !defined(AFFINEUI_STUB_BUILD)
+    platform::toggle_maximize_window();
+#endif
+}
+
+bool App::is_maximized() const {
+#if !defined(AFFINEUI_STUB_BUILD)
+    return platform::window_is_maximized();
+#else
+    return false;
+#endif
+}
+
+void App::set_fullscreen(bool on) {
+#if !defined(AFFINEUI_STUB_BUILD)
+    platform::set_window_fullscreen(on);
+#else
+    (void) on;
+#endif
+}
+
+bool App::is_fullscreen() const {
+#if !defined(AFFINEUI_STUB_BUILD)
+    return platform::window_is_fullscreen();
+#else
+    return false;
 #endif
 }
 

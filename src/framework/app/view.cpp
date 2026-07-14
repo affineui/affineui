@@ -1593,6 +1593,7 @@ void View::move_state_from(View& other) {
     swap(theme_, other.theme_);
     swap(framework_version_, other.framework_version_);
     swap(root_app_shell_, other.root_app_shell_);
+    swap(seen_app_menubar_, other.seen_app_menubar_);
     swap(attr_coalesce_dirty_, other.attr_coalesce_dirty_);
     swap(document_attrs_, other.document_attrs_);
     swap(root_, other.root_);
@@ -1616,6 +1617,7 @@ void View::clear() {
     root_.children.clear();
     root_.cursor = 0;
     root_app_shell_ = false;
+    seen_app_menubar_ = false;
     stack_.clear();
     widget_names_.clear();
     click_handlers_.clear();
@@ -1657,6 +1659,7 @@ void View::begin(ViewSink* sink) {
     reconciling_ = true;
     root_.cursor = 0;
     root_app_shell_ = false;  // re-detected by this build's root declarations
+    seen_app_menubar_ = false;
     stack_.clear();
     stack_.push_back(&root_);
 }
@@ -2853,8 +2856,23 @@ WidgetRef View::icon_button(std::string_view icon,
 
 View::Scope View::menu_bar(std::string_view key, std::source_location here) {
     const auto r = default_element(theme_, FrameworkElement::Menubar);
-    auto& node = open_node(WidgetKind::Container, r.tag, r.classes, key, here, true);
+    // The FIRST menubar a build declares is the APPLICATION menubar — the one
+    // whose menus the macOS system bar takes over. (Not "the one at depth 2":
+    // apps wrap their shell in a root container, so it is usually deeper.) It
+    // carries a class saying so, and the stylesheet does the rest; a menubar
+    // nested elsewhere in the UI is contextual and keeps drawing.
+    const bool is_app_menubar = !seen_app_menubar_;
+    std::string classes{r.classes};
+    if (is_app_menubar) {
+        if (!classes.empty()) classes += ' ';
+        classes += kAppMenubarClass;
+    }
+    auto& node = open_node(WidgetKind::Container, r.tag, classes, key, here, true);
     if (stack_.size() == 2) root_app_shell_ = true;
+    if (is_app_menubar) {
+        seen_app_menubar_ = true;
+        node.app_menubar  = true;
+    }
     return scope_here(node);
 }
 
@@ -2914,6 +2932,19 @@ WidgetRef View::menu_spacer(std::string_view key, std::source_location here) {
                            decius ? "dcs-menubar__spacer" : "ms-auto", key,
                            here, false);
     if (!decius) set_attr(node, "style", "flex:1");
+    return ref_for_node(node, current_panel_id(stack_));
+}
+
+WidgetRef View::document_title(std::string_view text, std::string_view key,
+                               std::source_location here) {
+    // Taken out of the flex row and stretched across the whole bar, with the
+    // text centered inside it — that is what centers it on the WINDOW rather
+    // than in whatever space the brand and the status bits happen to leave.
+    // The CSS also makes it click-through, so the bar underneath still drags
+    // the window.
+    auto& node = open_node(WidgetKind::Container, "div", "dcs-window-title",
+                           key, here, false);
+    set_text(node, text);
     return ref_for_node(node, current_panel_id(stack_));
 }
 

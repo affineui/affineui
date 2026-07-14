@@ -2,6 +2,7 @@
 
 #include "affineui/document.h"
 #include "affineui/embed.h"
+#include "affineui/menu.h"
 #include "affineui/telemetry.h"
 #include "affineui/types.h"
 #include "affineui/image.h"
@@ -49,6 +50,26 @@ private:
     friend class App;
 };
 
+/// How the window's title bar is drawn. Named as in Electron's
+/// `titleBarStyle` (plus Frameless for its `frame: false`), so the vocabulary
+/// carries over. See App::Config::titlebar.
+enum class TitleBarStyle {
+    /// The OS draws its title bar and window buttons; the app draws below it.
+    Default,
+    /// No system title bar — the content fills the window and the app draws
+    /// its own bar. The OS window buttons (macOS traffic lights) are still
+    /// shown and still work; move them with Config::traffic_light_position.
+    Hidden,
+    /// As Hidden, with the macOS traffic lights inset further from the corner.
+    HiddenInset,
+    /// No system title bar AND no system window buttons: the app draws the
+    /// close/minimize/maximize controls itself and drives them with
+    /// App::close() / minimize() / toggle_maximize(). Electron's `frame:false`.
+    /// Don't pick this unless you are actually drawing the buttons — otherwise
+    /// the window cannot be closed except with Cmd-Q.
+    Frameless,
+};
+
 class App {
 public:
     struct Config {
@@ -73,6 +94,53 @@ public:
         // Called after an interaction changed the dock layout (e.g. a splitter
         // drag). The app reads document().dock_pane_sizes() and persists them.
         std::function<void()> on_layout_changed{};
+        // ─── Platform chrome ──────────────────────────────────────────
+        // Native application menus. ON by default: on macOS every real app is
+        // expected to own the system menu bar (it lives at the top of the
+        // SCREEN — an app cannot draw it there itself).
+        //
+        // Set false to opt out: the menu passed to set_menu() is NOT installed,
+        // and the app keeps the in-window bar it draws itself (View::menu_bar),
+        // triggers and all. Apps that want their menus inside a custom title bar
+        // on every platform want this.
+        //
+        // Opting out does NOT cost you Cmd-Q. The standard application menu
+        // (About / Services / Hide / Quit) is synthesized and installed either
+        // way — on macOS Cmd-Q is the Quit item's key equivalent rather than a
+        // key the app ever sees, so an app with no menu bar simply cannot be
+        // quit with it. This flag decides where the app's OWN menus are drawn,
+        // nothing more.
+        //
+        // No effect off macOS today — the drawn bar is still the only bar
+        // there — but the menu model set via set_menu() is platform-neutral, so
+        // this flag is where a native Win32/GTK bar would hang later.
+        bool        native_menus{true};
+
+        // Window chrome, named as in Electron's `titleBarStyle` so the
+        // vocabulary carries over.
+        //
+        //   Default    — the OS draws its title bar; the app draws underneath.
+        //   Hidden     — no system title bar. The content view fills the whole
+        //                window and the app draws its own bar. On macOS the
+        //                traffic lights still float over the content (moveable
+        //                via traffic_light_position); the window is still
+        //                resizable from its edges.
+        //   HiddenInset— as Hidden, with the macOS traffic lights inset a
+        //                little further from the corner.
+        //
+        // A Hidden window needs the app to mark its own drag region, or the
+        // window cannot be moved: any element carrying the CSS declaration
+        // `--affineui-app-region: drag` behaves like a title bar (click-drag
+        // moves the window, double-click zooms). Interactive children inside it
+        // — buttons, menu triggers — must opt back out with `no-drag`. This
+        // mirrors Electron's `-webkit-app-region`.
+        TitleBarStyle titlebar{TitleBarStyle::Default};
+
+        // macOS only: where the traffic lights sit, in logical points from the
+        // window's top-left. Zero means "platform default for the chosen
+        // titlebar style". Ignored when titlebar is Default.
+        Point       traffic_light_position{};
+
         // Runtime opt-out for the compile-time bundled Decius resources.
         // The bundle is ON by default (this flag is false); set it to
         // true to disable — no auto-applied stylesheet, no fallback-to-
@@ -227,8 +295,73 @@ public:
     /// Convenience: install a view fn and run() in one call.
     int run(std::function<void()> view_fn);
 
-    /// Request the loop to exit cleanly after the current frame.
+    /// Request the loop to exit cleanly after the current frame. This is the
+    /// app's own decision, so it does NOT run the close-request handler —
+    /// quit() means quit.
     void quit(int code = 0);
+
+    // ─── Close requests ───────────────────────────────────────────────
+
+    /// Install the handler for an inbound close request — the window's close
+    /// button, Cmd-Q / Alt-F4, the menu's Quit item, a system logout, a
+    /// Close control the app drew itself. Return false to CANCEL the close
+    /// (the Electron `win.on('close', e => e.preventDefault())` shape).
+    ///
+    /// This is the one veto point, so it is also the one place an editor gets
+    /// to say "you have unsaved changes":
+    ///
+    ///     app.on_close_request([&] {
+    ///         if (!doc.dirty()) return true;
+    ///         prompt_save();      // async: cancel now, quit() when resolved
+    ///         return false;
+    ///     });
+    ///
+    /// With no handler installed a close request always proceeds. The handler
+    /// runs on the UI thread, before any teardown; App::quit() bypasses it.
+    void on_close_request(std::function<bool()> cb);
+
+    // ─── Menus ────────────────────────────────────────────────────────
+
+    /// Install (or replace) the application menu. Safe to call at any time,
+    /// including from a menu callback — a menu that shows checked/enabled
+    /// state is expected to be rebuilt and re-set as that state changes, the
+    /// same way the view is.
+    ///
+    /// On macOS this becomes the system menu bar (NSApp.mainMenu). It is
+    /// ignored when Config::native_menus is false, and off macOS today, where
+    /// the drawn View::menu_bar remains the only bar.
+    ///
+    /// Supplying a menu is also what tells the drawn menubar that its menu
+    /// TRIGGERS have moved to the system bar and should stop drawing (the rest
+    /// of the bar — brand, status, document_title — keeps drawing). An app that
+    /// never calls this keeps its drawn menus, so adopting native menus is
+    /// opt-in and nothing silently loses its menus.
+    ///
+    /// Order does not matter: the drawn bar always emits its triggers and the
+    /// stylesheet hides them, so this works before or after the view is built.
+    void set_menu(Menu menu);
+
+    /// The menu last passed to set_menu().
+    [[nodiscard]] const Menu& menu() const noexcept;
+
+    // ─── Window controls ──────────────────────────────────────────────
+    // The operations a title bar's buttons perform. An app running with
+    // TitleBarStyle::Frameless draws its own close/minimize/maximize and wires
+    // them to these; they are the Electron `win.close()/minimize()/maximize()`
+    // set, and they work regardless of who painted the button.
+
+    /// Ask to close the window. Runs the close-request handler first, so this
+    /// is cancellable — an app-drawn close button gets save-on-exit for free.
+    /// (App::quit() is the uncancellable form.)
+    void close();
+
+    void minimize();
+    /// Toggle zoomed/maximized, as the OS's own button does.
+    void toggle_maximize();
+    [[nodiscard]] bool is_maximized() const;
+
+    void set_fullscreen(bool on);
+    [[nodiscard]] bool is_fullscreen() const;
 
     // ─── Embed API ────────────────────────────────────────────────────
     // For hosts that own their own pulse (game engine, editor host, etc.)

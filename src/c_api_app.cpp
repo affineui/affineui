@@ -116,6 +116,10 @@ void affineui_app_config_init(affineui_app_config* cfg) {
     cfg->asset_folder_count  = 0;
     cfg->perf_overlay        = defaults.perf_overlay ? 1 : 0;
     cfg->no_bundle_decius    = defaults.no_bundle_decius ? 1 : 0;
+    cfg->native_menus        = defaults.native_menus ? 1 : 0;
+    cfg->titlebar            = static_cast<int>(defaults.titlebar);
+    cfg->traffic_light_x     = defaults.traffic_light_position.x;
+    cfg->traffic_light_y     = defaults.traffic_light_position.y;
 }
 
 affineui_app* affineui_app_create(const affineui_app_config* cfg) {
@@ -135,6 +139,13 @@ affineui_app* affineui_app_create(const affineui_app_config* cfg) {
         }
         cpp.perf_overlay = cfg->perf_overlay != 0;
         cpp.no_bundle_decius = cfg->no_bundle_decius != 0;
+        cpp.native_menus = cfg->native_menus != 0;
+        if (cfg->titlebar >= 0 &&
+            cfg->titlebar <= static_cast<int>(affineui::TitleBarStyle::Frameless)) {
+            cpp.titlebar = static_cast<affineui::TitleBarStyle>(cfg->titlebar);
+        }
+        cpp.traffic_light_position =
+            affineui::Point{cfg->traffic_light_x, cfg->traffic_light_y};
     }
     return reinterpret_cast<affineui_app*>(new affineui::App(std::move(cpp)));
 }
@@ -209,6 +220,173 @@ int affineui_app_run(affineui_app* app) {
 
 void affineui_app_quit(affineui_app* app, int code) {
     if (app) to_app(app)->quit(code);
+}
+
+// ── Close requests ───────────────────────────────────────────────────
+
+void affineui_app_on_close_request(affineui_app* app,
+                                   affineui_close_request_fn fn,
+                                   void* user,
+                                   affineui_user_free_fn user_free) {
+    // We never take ownership of `user` unless we install the handler, so a
+    // rejected registration has to hand it back — the same contract every other
+    // callback entry point here keeps (see affineui_app_on_event_capture).
+    if (!app || !fn) {
+        if (app) to_app(app)->on_close_request({});  // fn == NULL clears
+        if (user_free) user_free(user);
+        return;
+    }
+    // The handler outlives this call by definition — it runs when the user tries
+    // to close — so it owns its user data through hold_user().
+    auto data = hold_user(user, user_free);
+    to_app(app)->on_close_request(
+        [fn, data]() -> bool { return fn(data->user) != 0; });
+}
+
+// ── Window controls ──────────────────────────────────────────────────
+
+void affineui_app_close(affineui_app* app) {
+    if (app) to_app(app)->close();
+}
+void affineui_app_minimize(affineui_app* app) {
+    if (app) to_app(app)->minimize();
+}
+void affineui_app_toggle_maximize(affineui_app* app) {
+    if (app) to_app(app)->toggle_maximize();
+}
+int affineui_app_is_maximized(const affineui_app* app) {
+    return app && to_app(app)->is_maximized() ? 1 : 0;
+}
+void affineui_app_set_fullscreen(affineui_app* app, int on) {
+    if (app) to_app(app)->set_fullscreen(on != 0);
+}
+int affineui_app_is_fullscreen(const affineui_app* app) {
+    return app && to_app(app)->is_fullscreen() ? 1 : 0;
+}
+
+// ── Application menu ─────────────────────────────────────────────────
+
+// The C-side builder. It is just a node in the model tree plus the arena that
+// owns the whole tree: a submenu handle has to stay valid while the caller adds
+// into it, and the caller must not have to free it, so every node lives in one
+// arena that the ROOT owns and destroys.
+struct affineui_menu {
+    // Non-null on a submenu handle: the root, which owns every node's storage.
+    affineui_menu*                              root{nullptr};
+    std::vector<std::unique_ptr<affineui_menu>> arena;  // root only
+    std::vector<affineui::MenuItem>             items;
+    // Which of `items` are submenus, and the handle collecting each one's
+    // children. Kept beside the items rather than inside them because the
+    // caller fills a submenu AFTER adding it, and `items` reallocates as more
+    // siblings arrive — so a pointer into it would dangle.
+    std::vector<std::pair<std::size_t, affineui_menu*>> subs;
+};
+
+namespace {
+
+affineui_menu* menu_root(affineui_menu* m) { return m->root ? m->root : m; }
+
+// The item most recently added — what set_swatch/set_enabled decorate.
+affineui::MenuItem* last_item(affineui_menu* m) {
+    return (m && !m->items.empty()) ? &m->items.back() : nullptr;
+}
+
+// The C builder tree → the C++ model, resolving submenus depth-first.
+std::vector<affineui::MenuItem> build_menu(const affineui_menu& m) {
+    std::vector<affineui::MenuItem> out = m.items;
+    for (const auto& [index, sub] : m.subs) {
+        if (index < out.size() && sub) out[index].submenu = build_menu(*sub);
+    }
+    return out;
+}
+
+}  // namespace
+
+affineui_menu* affineui_menu_create(void) { return new affineui_menu{}; }
+
+void affineui_menu_destroy(affineui_menu* menu) {
+    // Only the root owns storage; destroying a submenu handle would be a double
+    // free, so ignore it (the docs say it is owned by its parent).
+    if (menu && !menu->root) delete menu;
+}
+
+affineui_menu* affineui_menu_add_submenu(affineui_menu* parent,
+                                         const char* label) {
+    if (!parent) return nullptr;
+    affineui_menu* root  = menu_root(parent);
+    auto           owned = std::make_unique<affineui_menu>();
+    owned->root          = root;
+    affineui_menu* sub   = owned.get();
+    root->arena.push_back(std::move(owned));
+
+    affineui::MenuItem item;
+    item.label = sv(label);
+    parent->items.push_back(std::move(item));
+    parent->subs.emplace_back(parent->items.size() - 1, sub);
+    return sub;
+}
+
+void affineui_menu_add_item(affineui_menu* menu, const char* label,
+                            const char* accelerator, affineui_menu_select_fn fn,
+                            void* user, affineui_user_free_fn user_free) {
+    if (!menu) {
+        // Nothing took ownership of `user`, so hand it back rather than strand
+        // it — same contract as every other callback entry point here.
+        if (user_free) user_free(user);
+        return;
+    }
+    affineui::MenuItem item;
+    item.label       = sv(label);
+    item.accelerator = sv(accelerator);
+    if (fn) {
+        auto data     = hold_user(user, user_free);
+        item.on_select = [fn, data] { fn(data->user); };
+    }
+    menu->items.push_back(std::move(item));
+}
+
+void affineui_menu_add_check(affineui_menu* menu, const char* label, int checked,
+                             const char* accelerator, affineui_menu_select_fn fn,
+                             void* user, affineui_user_free_fn user_free) {
+    // No null-check here: add_item owns the decision, and it releases `user` on
+    // rejection. Guarding first and returning early would strand it. last_item()
+    // is null-safe, so the decoration below is fine either way.
+    affineui_menu_add_item(menu, label, accelerator, fn, user, user_free);
+    if (auto* it = last_item(menu)) {
+        it->type    = affineui::MenuItemType::Checkbox;
+        it->checked = checked != 0;
+    }
+}
+
+void affineui_menu_add_separator(affineui_menu* menu) {
+    if (menu) menu->items.push_back(affineui::MenuItem::separator());
+}
+
+void affineui_menu_add_role(affineui_menu* menu, affineui_menu_role role) {
+    if (!menu) return;
+    menu->items.push_back(
+        affineui::MenuItem::role(static_cast<affineui::MenuRole>(role)));
+}
+
+void affineui_menu_set_swatch(affineui_menu* menu, affineui_color color) {
+    if (auto* it = last_item(menu)) {
+        it->swatch = affineui::Color{color.r, color.g, color.b, color.a};
+    }
+}
+
+void affineui_menu_set_enabled(affineui_menu* menu, int enabled) {
+    if (auto* it = last_item(menu)) it->enabled = enabled != 0;
+}
+
+void affineui_menu_set_label(affineui_menu* menu, const char* label) {
+    if (auto* it = last_item(menu)) it->label = sv(label);
+}
+
+void affineui_app_set_menu(affineui_app* app, const affineui_menu* menu) {
+    if (!app) return;
+    // The builder is only read: the caller keeps ownership and may destroy it
+    // right after, or keep it and re-set it as its checked state changes.
+    to_app(app)->set_menu(menu ? build_menu(*menu) : affineui::Menu{});
 }
 
 void affineui_app_window_size(const affineui_app* app, int* out_w, int* out_h) {
@@ -896,6 +1074,12 @@ affineui_widget* affineui_view_menu_meta(affineui_view* view, const char* text,
                                          const char* key) {
     if (!view) return nullptr;
     return wrap(to_view(view)->menu_meta(sv(text), sv(key)));
+}
+
+affineui_widget* affineui_view_document_title(affineui_view* view,
+                                              const char* text, const char* key) {
+    if (!view) return nullptr;
+    return wrap(to_view(view)->document_title(sv(text), sv(key)));
 }
 
 affineui_widget* affineui_view_tree_row(affineui_view* view, const char* label,

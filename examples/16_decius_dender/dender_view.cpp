@@ -162,6 +162,10 @@ void DenderView::build_topbar(View& v) const {
             m.menu_separator("mi-help-sep");
             m.menu_item("About DENDER", {}, {}, "mi-help-about");
         }, "mb-help");
+
+        // The file being edited, centered — this strip is the window's title
+        // bar, and that is what a title bar shows.
+        v.document_title("untitled.blend", "mb-title");
     }
 
     v.toolbar_separator("topbar-sep1");

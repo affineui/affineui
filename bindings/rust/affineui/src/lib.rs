@@ -39,17 +39,19 @@ mod dock;
 mod document;
 mod event;
 pub mod embedded;
+mod menu;
 mod util;
 mod view;
 mod virtual_list;
 
-pub use app::{App, Config};
+pub use app::{App, Config, TitleBarStyle};
 pub use components::{
     Button, Checkbox, ColorField, DockPanel, Dropdown, Foldout, Slider, TextField, Validity,
 };
 pub use dock::{Dock, DockCorner, DockLocation, DockPlacement, DockState};
 pub use document::{DispatchResult, Document, DocumentScript};
 pub use event::{Color, Event, EventType, Key, MouseButton};
+pub use menu::{Menu, MenuItem, MenuRole};
 pub use view::{Theme, View, Widget, WidgetKind};
 pub use virtual_list::{
     Axis, IndexSelection, SelectMod, TreeFlattener, TreeSource, VirtualListProvider,

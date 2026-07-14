@@ -459,6 +459,10 @@ affineui::App::Config DenderApp::make_config() {
     cfg.height = 900;
     cfg.clear_color = affineui::Color{0x14, 0x16, 0x1c, 0xff};
     cfg.high_dpi = true;
+    // A DCC tool owns the whole window: no OS title bar. The drawn menubar is
+    // the title bar — it drags the window, insets itself around the traffic
+    // lights, and centers the file name. Its menus move to the macOS system bar.
+    cfg.titlebar = affineui::TitleBarStyle::HiddenInset;
     cfg.perf_overlay = false;
     cfg.asset_folders = {".", "examples"};
     cfg.on_layout_changed = [this] {
@@ -504,7 +508,54 @@ void DenderApp::bind_keys() {
     keymap_.bind({K::F, false, false, false, false}, "dender.frame");
 }
 
+// The application menu. Declared once in the platform-neutral model: on macOS it
+// becomes the system menu bar, and the drawn File/Edit/… triggers in the topbar
+// hide themselves, because these are the same menus. Roles (Quit, Undo, Cut,
+// Minimize) carry the platform's own labels and accelerators.
+void DenderApp::build_native_menu() {
+    using affineui::MenuItem;
+    using affineui::MenuRole;
+
+    app_.set_menu({
+        MenuItem::sub("", {MenuItem::role(MenuRole::About),
+                           MenuItem::separator(),
+                           MenuItem::role(MenuRole::Services),
+                           MenuItem::separator(),
+                           MenuItem::role(MenuRole::Hide),
+                           MenuItem::role(MenuRole::HideOthers),
+                           MenuItem::separator(),
+                           MenuItem::role(MenuRole::Quit)}),
+        MenuItem::sub("File",
+                      {MenuItem::item("New", "CmdOrCtrl+N"),
+                       MenuItem::item("Open…", "CmdOrCtrl+O"),
+                       MenuItem::sub("Open Recent", {MenuItem::item("(empty)")}),
+                       MenuItem::separator(),
+                       MenuItem::item("Save", "CmdOrCtrl+S"),
+                       MenuItem::item("Save As…", "Shift+CmdOrCtrl+S")}),
+        MenuItem::sub("Edit", MenuItem::edit_menu()),
+        MenuItem::sub("Render", {MenuItem::item("Render Image", "F12"),
+                                 MenuItem::item("Render Animation",
+                                                "Ctrl+F12")}),
+        MenuItem::sub("Window", MenuItem::window_menu()),
+        MenuItem::sub("Help", {MenuItem::item("Manual"),
+                               MenuItem::item("Tutorials"),
+                               MenuItem::separator(),
+                               MenuItem::item("Report a Bug")}),
+    });
+}
+
 int DenderApp::run() {
+    build_native_menu();
+    // Save-on-exit. The one veto point: the traffic-light close button, Cmd-Q,
+    // and the menu's Quit all run this before anything tears down. A DCC tool
+    // with an unsaved scene is exactly the case #60 exists for.
+    app_.on_close_request([this] {
+        if (!ctx_.document().dirty()) return true;
+        std::fprintf(stderr,
+                     "[dender] unsaved changes — a real app would prompt here "
+                     "and return false to cancel the quit\n");
+        return true;
+    });
     boot();
     return app_.run();
 }

@@ -6005,75 +6005,11 @@ _SOKOL_PRIVATE void _sapp_macos_frame(void) {
     }
 }
 
-/* AFFINEUI PATCH (menu) — TEMPORARY, see affineui#61 / affineui#60.
-   Target for the Quit menu item. A menu item needs a target that responds to
-   its action selector; NSApp's own terminate: would kill the process without
-   running sokol's cleanup, so we route to sapp_request_quit() instead — the
-   same path a programmatic quit takes, which unwinds cleanly (cleanup_cb,
-   sg_shutdown) and would give the app a veto point once #60 exists. */
-@interface _sapp_macos_quit_target : NSObject
-- (void)affineuiQuit:(id)sender;
-@end
-@implementation _sapp_macos_quit_target
-- (void)affineuiQuit:(id)sender {
-    _SOKOL_UNUSED(sender);
-    sapp_request_quit();
-}
-@end
-
-/* AFFINEUI PATCH (menu) — TEMPORARY, see affineui#61 / affineui#60.
-   The minimum macOS menu bar that makes Cmd-Q work. Only the application menu,
-   only a Quit item. Anything richer belongs in the real menu model (#61). */
-_SOKOL_PRIVATE void _sapp_macos_install_minimal_menu(void) {
-    if (NSApp.mainMenu != nil) {
-        return;     /* an embedding host already installed one — don't stomp it */
-    }
-    /* Leaked deliberately: it must outlive the menu, and it lives for the whole
-       process. sokol is not ARC-compiled, so there is no strong ref to hold it
-       for us. */
-    _sapp_macos_quit_target* target = [[_sapp_macos_quit_target alloc] init];
-
-    NSString* app_name = [NSString stringWithUTF8String:_sapp.window_title];
-    if (app_name.length == 0) {
-        app_name = @"App";
-    }
-
-    NSMenu* menubar = [[NSMenu alloc] init];
-    NSMenuItem* app_item = [[NSMenuItem alloc] init];
-    [menubar addItem:app_item];
-    [NSApp setMainMenu:menubar];
-
-    NSMenu* app_menu = [[NSMenu alloc] init];
-    NSMenuItem* quit_item = [[NSMenuItem alloc]
-        initWithTitle:[@"Quit " stringByAppendingString:app_name]
-               action:@selector(affineuiQuit:)
-        keyEquivalent:@"q"];
-    quit_item.keyEquivalentModifierMask = NSEventModifierFlagCommand;
-    quit_item.target = target;      /* explicit: don't rely on the responder chain */
-    [app_menu addItem:quit_item];
-    [app_item setSubmenu:app_menu];
-}
-
 @implementation _sapp_macos_app_delegate
 - (void)applicationDidFinishLaunching:(NSNotification*)aNotification {
     _SOKOL_UNUSED(aNotification);
     // NOTE: keep activationPolicy in front of window creation (see https://github.com/floooh/sokol/issues/1500)
     NSApp.activationPolicy = NSApplicationActivationPolicyRegular;
-    /* AFFINEUI PATCH (menu) — TEMPORARY. Remove when the real menu model lands.
-       See affineui#61 (native menu bar) and affineui#60 (close-request model).
-
-       sokol builds no NSMenu at all. On macOS Cmd-Q is not a key the app sees:
-       it is the key equivalent of the Quit item in the application menu, and
-       with no menu bar there is no item, so the keystroke goes nowhere and the
-       app simply cannot be quit with Cmd-Q. That blocks shipping anything real.
-
-       This installs the minimum menu that makes Cmd-Q work. It is deliberately
-       NOT the full menu model: no File/Edit/Window, no app-supplied items, and
-       the app cannot intercept or veto the quit (that needs #60). Quit routes
-       through sapp_request_quit() rather than [NSApp terminate:] so sokol's
-       normal shutdown runs (cleanup_cb, sg_shutdown) instead of the process
-       being torn down under the renderer. */
-    _sapp_macos_install_minimal_menu();
     _sapp_macos_init_cursors();
     if ((_sapp.window_width == 0) || (_sapp.window_height == 0)) {
         _sapp_macos_init_default_dimensions();

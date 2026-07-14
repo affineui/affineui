@@ -65,6 +65,15 @@ PHOTO_CSS = r"""
    drop the left padding — otherwise there's a gap before the logo. */
 .ps-menubar{flex:0 0 auto;min-height:var(--dcs-h-lg,32px);height:var(--dcs-h-lg,32px);overflow:visible;padding-left:0}
 .ps-brand{display:inline-flex;align-items:center;align-self:stretch;gap:7px;padding:0 12px;margin:0 8px 0 0;background:#0d0f14;color:#e7e9ee;line-height:1}
+/* macOS only, and only when the window has given up its title bar: the brand
+   then sits beside the OS traffic lights, so it is tuned against them — tight
+   to the reserved band on its left (2px, not 12), and riding 1px lower so its
+   cap-height lines up with the buttons' centres rather than the box's. On every
+   other platform there are no buttons there and the base rule is correct. */
+:root[data-affineui-platform="macos"][data-affineui-titlebar="hidden"] .ps-brand,
+:root[data-affineui-platform="macos"][data-affineui-titlebar="hidden-inset"] .ps-brand{
+  padding:1px 12px 0 2px;
+}
 .ps-brand__mark{color:var(--dcs-accent,#4f86d6);font-size:14px}
 .ps-brand__name{font-weight:700;font-size:12px;white-space:nowrap}
 .ps-doc-name{color:var(--dcs-text-mute,#8c93a3);font-family:var(--dcs-font-mono,monospace);font-size:12px}

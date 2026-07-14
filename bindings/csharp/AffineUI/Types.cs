@@ -140,6 +140,9 @@ public readonly record struct Color(byte R, byte G, byte B, byte A = 255);
 /// <summary>Integer width/height pair.</summary>
 public readonly record struct Size(int Width, int Height);
 
+/// <summary>Integer x/y pair, in logical points. Mirrors <c>affineui::Point</c>.</summary>
+public readonly record struct Point(int X, int Y);
+
 /// <summary>Result of dispatching an event to a <see cref="Document"/>.
 /// Mirrors <c>affineui_dispatch_result</c>.</summary>
 public readonly struct DispatchResult

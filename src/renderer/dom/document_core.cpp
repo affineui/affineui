@@ -1728,6 +1728,67 @@ bool Document::set_attribute_by_id(std::string_view elem_id,
 #endif
 }
 
+std::string Document::hovered_css_var(std::string_view name) const {
+#if !defined(AFFINEUI_STUB_BUILD)
+    const int idx = impl_->hovered_idx;
+    if (idx < 0 || idx >= static_cast<int>(impl_->blocks.size())) return {};
+    const auto& props = impl_->blocks[static_cast<std::size_t>(idx)].custom_props;
+    if (!props) return {};
+    // Custom properties inherit, so the DEEPEST hovered element's resolved
+    // scope already answers the ancestor question: a no-drag button inside a
+    // drag bar wins simply by being the element under the cursor.
+    const auto it = props->find(std::string(name));
+    if (it == props->end()) return {};
+    // The cascade keeps custom-property values exactly as written, so the value
+    // can carry any CSS whitespace — a declaration wrapped across lines keeps
+    // its newline, and a naive space/tab trim would leave it in and make the
+    // caller's `== "drag"` quietly fail.
+    return std::string(detail::trim_css_ws(it->second));
+#else
+    (void) name;
+    return {};
+#endif
+}
+
+#if !defined(AFFINEUI_STUB_BUILD)
+namespace {
+// The document element (<html>). Reached via <body>'s parent — apps style body
+// and #app, never <html>, so its inline style and attributes are ours to own.
+lxb_dom_element_t* root_element(detail::DocumentImpl& impl) {
+    auto* body = lxb_html_document_body_element(impl.doc);
+    if (!body) return nullptr;
+    auto* parent = lxb_dom_interface_node(body)->parent;
+    if (!parent || parent->type != LXB_DOM_NODE_TYPE_ELEMENT) return nullptr;
+    return lxb_dom_interface_element(parent);
+}
+}  // namespace
+#endif
+
+bool Document::set_root_css_vars(std::string_view decls) {
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (!impl_->doc) return false;
+    auto* root = root_element(*impl_);
+    if (!root) return false;
+    return detail::set_attribute_on_element(*impl_, root, "style", decls);
+#else
+    (void) decls;
+    return false;
+#endif
+}
+
+bool Document::set_root_attribute(std::string_view name, std::string_view value) {
+#if !defined(AFFINEUI_STUB_BUILD)
+    if (!impl_->doc || name.empty()) return false;
+    auto* root = root_element(*impl_);
+    if (!root) return false;
+    return detail::set_attribute_on_element(*impl_, root, name, value);
+#else
+    (void) name;
+    (void) value;
+    return false;
+#endif
+}
+
 bool Document::remove_attribute_by_id(std::string_view elem_id,
                                       std::string_view name) {
 #if !defined(AFFINEUI_STUB_BUILD)

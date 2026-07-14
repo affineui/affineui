@@ -3,6 +3,7 @@
 
 use crate::document::Document;
 use crate::event::{Color, Event};
+use crate::menu::Menu;
 use crate::sys;
 use crate::util::{cstring, ensure_abi, NotThreadSafe};
 use crate::view::View;
@@ -31,6 +32,54 @@ unsafe extern "C" fn app_event_capture_free(user: *mut c_void) {
     drop(Box::from_raw(user as *mut Box<dyn FnMut(&Event) -> bool>));
 }
 
+unsafe extern "C" fn close_request_trampoline(user: *mut c_void) -> i32 {
+    let cb = &mut *(user as *mut Box<dyn FnMut() -> bool>);
+    match catch_unwind(AssertUnwindSafe(&mut *cb)) {
+        Ok(proceed) => proceed as i32,
+        Err(_) => {
+            // A panic must never unwind into C++. Let the close proceed: a
+            // window that cannot be closed because a handler crashed is worse
+            // than one that closes.
+            eprintln!("affineui: panic in on_close_request callback (suppressed)");
+            1
+        }
+    }
+}
+
+unsafe extern "C" fn close_request_free(user: *mut c_void) {
+    drop(Box::from_raw(user as *mut Box<dyn FnMut() -> bool>));
+}
+
+/// How the window's title bar is drawn (mirrors `affineui::TitleBarStyle`).
+/// Named as in Electron's `titleBarStyle`, plus `Frameless` for its
+/// `frame: false`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TitleBarStyle {
+    /// The OS draws its title bar.
+    #[default]
+    Default,
+    /// No title bar; the OS window buttons are still shown. Move them with
+    /// [`Config::traffic_light_position`].
+    Hidden,
+    /// As `Hidden`, with the buttons inset further.
+    HiddenInset,
+    /// No title bar and no OS buttons. The app draws its own close/minimize/
+    /// maximize and wires them to [`App::close`] / [`App::minimize`] /
+    /// [`App::toggle_maximize`].
+    Frameless,
+}
+
+impl TitleBarStyle {
+    fn to_raw(self) -> i32 {
+        match self {
+            TitleBarStyle::Default => sys::AFFINEUI_TITLEBAR_DEFAULT,
+            TitleBarStyle::Hidden => sys::AFFINEUI_TITLEBAR_HIDDEN,
+            TitleBarStyle::HiddenInset => sys::AFFINEUI_TITLEBAR_HIDDEN_INSET,
+            TitleBarStyle::Frameless => sys::AFFINEUI_TITLEBAR_FRAMELESS,
+        }
+    }
+}
+
 /// App configuration (mirrors `affineui::App::Config`). Build with
 /// [`Config::default`] plus the chained setters.
 #[derive(Clone, Debug)]
@@ -51,6 +100,18 @@ pub struct Config {
     /// on `frameworks/*` URLs — even when the bundle is compiled in.
     /// Ignored when affineui_c was built with `-DAFFINEUI_NO_BUNDLE_DECIUS`.
     pub no_bundle_decius: bool,
+    /// Native application menus (the macOS system menu bar). ON by default:
+    /// the [`Menu`] set with [`App::set_menu`] becomes the system bar and the
+    /// drawn menubar hides its triggers. Set `false` to keep the drawn bar —
+    /// but note that without a menu bar there is no Quit item, so Cmd-Q cannot
+    /// work at all.
+    pub native_menus: bool,
+    /// Window chrome. Default: the OS's own title bar.
+    pub titlebar: TitleBarStyle,
+    /// macOS: traffic-light position in logical points from the window's
+    /// top-left. `(0, 0)` (the default) → the platform default for the chosen
+    /// [`TitleBarStyle`]. Ignored when `titlebar` is `Default`.
+    pub traffic_light_position: (i32, i32),
 }
 
 impl Default for Config {
@@ -67,6 +128,9 @@ impl Default for Config {
             asset_folders: vec![".".to_owned()],
             perf_overlay: false,
             no_bundle_decius: false,
+            native_menus: true,
+            titlebar: TitleBarStyle::Default,
+            traffic_light_position: (0, 0),
         }
     }
 }
@@ -102,6 +166,21 @@ impl Config {
     /// See the field docs on `Config::no_bundle_decius`.
     pub fn no_bundle_decius(mut self, on: bool) -> Config {
         self.no_bundle_decius = on;
+        self
+    }
+    /// Opt out of the native (macOS system) menu bar. See the field docs.
+    pub fn native_menus(mut self, on: bool) -> Config {
+        self.native_menus = on;
+        self
+    }
+    pub fn titlebar(mut self, style: TitleBarStyle) -> Config {
+        self.titlebar = style;
+        self
+    }
+    /// macOS: move the traffic lights, in logical points from the window's
+    /// top-left. Ignored when the title bar is [`TitleBarStyle::Default`].
+    pub fn traffic_light_position(mut self, x: i32, y: i32) -> Config {
+        self.traffic_light_position = (x, y);
         self
     }
 }
@@ -149,6 +228,10 @@ impl App {
             asset_folder_count: folder_ptrs.len(),
             perf_overlay: cfg.perf_overlay as i32,
             no_bundle_decius: cfg.no_bundle_decius as i32,
+            native_menus: cfg.native_menus as i32,
+            titlebar: cfg.titlebar.to_raw(),
+            traffic_light_x: cfg.traffic_light_position.0,
+            traffic_light_y: cfg.traffic_light_position.1,
         };
         let raw = unsafe { sys::affineui_app_create(&c_cfg) };
         App { inner: Rc::new(AppInner { raw, _not_send: NotThreadSafe::default() }) }
@@ -257,9 +340,76 @@ impl App {
         unsafe { sys::affineui_app_run(self.raw()) }
     }
 
-    /// Request a clean exit after the current frame.
+    /// Quit unconditionally, after the current frame. Does NOT run the
+    /// close-request handler: quit means quit.
     pub fn quit(&self, code: i32) {
         unsafe { sys::affineui_app_quit(self.raw(), code) };
+    }
+
+    /// The one veto point for "close this app": the window's close button,
+    /// Cmd-Q, the menu's Quit, and [`App::close`] all run it. Return `false`
+    /// to CANCEL the close (Electron's `e.preventDefault()`), `true` to let it
+    /// proceed.
+    ///
+    /// ```no_run
+    /// # use affineui::{App, Config};
+    /// # let app = App::new(Config::default());
+    /// # let dirty = true;
+    /// app.on_close_request(move || {
+    ///     !dirty  // hold the window open while there are unsaved changes
+    /// });
+    /// ```
+    pub fn on_close_request(&self, f: impl FnMut() -> bool + 'static) {
+        let boxed: Box<dyn FnMut() -> bool> = Box::new(f);
+        let user = Box::into_raw(Box::new(boxed)) as *mut c_void;
+        unsafe {
+            sys::affineui_app_on_close_request(
+                self.raw(),
+                Some(close_request_trampoline),
+                user,
+                Some(close_request_free),
+            );
+        }
+    }
+
+    // ── Window controls ──────────────────────────────────────────────
+    // What a title bar's buttons do. An app drawing its own chrome
+    // ([`TitleBarStyle::Frameless`]) wires them to these.
+
+    /// Ask to close: runs the close-request handler, so this is cancellable.
+    pub fn close(&self) {
+        unsafe { sys::affineui_app_close(self.raw()) };
+    }
+
+    pub fn minimize(&self) {
+        unsafe { sys::affineui_app_minimize(self.raw()) };
+    }
+
+    /// Toggle zoomed/maximized, as the OS's own button does.
+    pub fn toggle_maximize(&self) {
+        unsafe { sys::affineui_app_toggle_maximize(self.raw()) };
+    }
+
+    pub fn is_maximized(&self) -> bool {
+        unsafe { sys::affineui_app_is_maximized(self.raw()) != 0 }
+    }
+
+    pub fn set_fullscreen(&self, on: bool) {
+        unsafe { sys::affineui_app_set_fullscreen(self.raw(), on as i32) };
+    }
+
+    pub fn is_fullscreen(&self) -> bool {
+        unsafe { sys::affineui_app_is_fullscreen(self.raw()) != 0 }
+    }
+
+    /// Install (or replace) the application menu — on macOS the system menu
+    /// bar. The menu is copied, so it is safe to call at any time: a menu that
+    /// shows checked/enabled state is expected to be rebuilt and re-set as that
+    /// state changes. An empty [`Menu`] clears it.
+    ///
+    /// Ignored when [`Config::native_menus`] is false.
+    pub fn set_menu(&self, menu: Menu) {
+        unsafe { menu.with_raw(|raw| sys::affineui_app_set_menu(self.raw(), raw)) };
     }
 
     /// Window size in logical CSS points.

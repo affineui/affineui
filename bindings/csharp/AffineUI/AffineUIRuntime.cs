@@ -17,7 +17,7 @@ public static class AffineUIRuntime
 {
     /// <summary>The C ABI version this wrapper was written against
     /// (<c>AFFINEUI_C_ABI_VERSION</c>).</summary>
-    public const int ExpectedAbiVersion = 3;
+    public const int ExpectedAbiVersion = 4;
 
     private static readonly object Gate = new();
     private static volatile bool _loaded;
@@ -203,6 +203,11 @@ internal static unsafe class Trampolines
     internal static readonly IntPtr EventCapture =
         (IntPtr)(delegate* unmanaged[Cdecl]<void*, NativeEvent*, int>)&OnEventCapture;
 
+    /// <summary>affineui_close_request_fn. A menu item's select callback is the
+    /// same `void(void*)` shape as a click, so it reuses <see cref="Click"/>.</summary>
+    internal static readonly IntPtr CloseRequest =
+        (IntPtr)(delegate* unmanaged[Cdecl]<void*, int>)&OnCloseRequest;
+
     internal static readonly IntPtr FreeUser =
         (IntPtr)(delegate* unmanaged[Cdecl]<void*, void>)&OnFreeUser;
 
@@ -370,6 +375,20 @@ internal static unsafe class Trampolines
         }
         catch (Exception ex) { AffineUIRuntime.ReportCallbackException(ex); }
         return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    private static int OnCloseRequest(void* user)
+    {
+        try
+        {
+            if (GCHandle.FromIntPtr((IntPtr)user).Target is Func<bool> handler)
+                return handler() ? 1 : 0;
+        }
+        catch (Exception ex) { AffineUIRuntime.ReportCallbackException(ex); }
+        // Proceed. A handler that threw (or a handle that is somehow not a
+        // Func<bool>) must not leave the user with an app that cannot be closed.
+        return 1;
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]

@@ -15,7 +15,7 @@
 
 use core::ffi::{c_char, c_float, c_int, c_void};
 
-pub const AFFINEUI_C_ABI_VERSION: c_int = 3;
+pub const AFFINEUI_C_ABI_VERSION: c_int = 4;
 
 // ── Opaque handles ───────────────────────────────────────────────────
 
@@ -34,6 +34,7 @@ opaque!(affineui_app);
 opaque!(affineui_document);
 opaque!(affineui_view);
 opaque!(affineui_widget);
+opaque!(affineui_menu);
 opaque!(affineui_index_selection);
 opaque!(affineui_vlist_provider);
 opaque!(affineui_vtree_provider);
@@ -109,6 +110,32 @@ pub const AFFINEUI_FORMAT_BGRA8: c_int = 2;
 pub const AFFINEUI_FORMAT_DEPTH: c_int = 3;
 pub const AFFINEUI_FORMAT_DEPTH_STENCIL: c_int = 4;
 
+// Window chrome (affineui_titlebar_style).
+pub const AFFINEUI_TITLEBAR_DEFAULT: c_int = 0;
+pub const AFFINEUI_TITLEBAR_HIDDEN: c_int = 1;
+pub const AFFINEUI_TITLEBAR_HIDDEN_INSET: c_int = 2;
+pub const AFFINEUI_TITLEBAR_FRAMELESS: c_int = 3;
+
+// Standard menu items the platform supplies (affineui_menu_role).
+pub const AFFINEUI_MENU_ROLE_NONE: c_int = 0;
+pub const AFFINEUI_MENU_ROLE_ABOUT: c_int = 1;
+pub const AFFINEUI_MENU_ROLE_SERVICES: c_int = 2;
+pub const AFFINEUI_MENU_ROLE_HIDE: c_int = 3;
+pub const AFFINEUI_MENU_ROLE_HIDE_OTHERS: c_int = 4;
+pub const AFFINEUI_MENU_ROLE_UNHIDE: c_int = 5;
+pub const AFFINEUI_MENU_ROLE_PREFERENCES: c_int = 6;
+pub const AFFINEUI_MENU_ROLE_QUIT: c_int = 7;
+pub const AFFINEUI_MENU_ROLE_UNDO: c_int = 8;
+pub const AFFINEUI_MENU_ROLE_REDO: c_int = 9;
+pub const AFFINEUI_MENU_ROLE_CUT: c_int = 10;
+pub const AFFINEUI_MENU_ROLE_COPY: c_int = 11;
+pub const AFFINEUI_MENU_ROLE_PASTE: c_int = 12;
+pub const AFFINEUI_MENU_ROLE_SELECT_ALL: c_int = 13;
+pub const AFFINEUI_MENU_ROLE_MINIMIZE: c_int = 14;
+pub const AFFINEUI_MENU_ROLE_ZOOM: c_int = 15;
+pub const AFFINEUI_MENU_ROLE_CLOSE: c_int = 16;
+pub const AFFINEUI_MENU_ROLE_TOGGLE_FULLSCREEN: c_int = 17;
+
 pub const AFFINEUI_LOG_DEBUG: c_int = 0;
 pub const AFFINEUI_LOG_INFO: c_int = 1;
 pub const AFFINEUI_LOG_WARN: c_int = 2;
@@ -172,6 +199,15 @@ pub struct affineui_app_config {
     pub asset_folder_count: usize,
     pub perf_overlay: c_int,
     pub no_bundle_decius: c_int,
+    /// Native application menus (the macOS system menu bar). 1 (the default) →
+    /// the menu set with `affineui_app_set_menu` becomes the system bar.
+    pub native_menus: c_int,
+    /// One of the `AFFINEUI_TITLEBAR_*` constants.
+    pub titlebar: c_int,
+    /// macOS: traffic-light position in logical points from the window's
+    /// top-left. `{0,0}` → the platform default for the chosen style.
+    pub traffic_light_x: c_int,
+    pub traffic_light_y: c_int,
 }
 
 // ── Embedded-mode structs (c_api.h) ──────────────────────────────────
@@ -247,6 +283,9 @@ pub type affineui_event_capture_fn = Option<
 pub type affineui_click_fn = Option<unsafe extern "C" fn(user: *mut c_void)>;
 pub type affineui_change_fn = Option<unsafe extern "C" fn(user: *mut c_void, value: *const c_char)>;
 pub type affineui_build_fn = Option<unsafe extern "C" fn(user: *mut c_void, view: *mut affineui_view)>;
+/// Return 0 to CANCEL the close, non-zero to let it proceed.
+pub type affineui_close_request_fn = Option<unsafe extern "C" fn(user: *mut c_void) -> c_int>;
+pub type affineui_menu_select_fn = Option<unsafe extern "C" fn(user: *mut c_void)>;
 
 // -- Declarative docking ----------------------------------------------
 
@@ -470,7 +509,68 @@ extern "C" {
         user_free: affineui_user_free_fn,
     );
     pub fn affineui_app_run(app: *mut affineui_app) -> c_int;
+    /// Quit unconditionally: does NOT run the close-request handler.
     pub fn affineui_app_quit(app: *mut affineui_app, code: c_int);
+
+    /// The one veto point for "close this app" — the window's close button,
+    /// Cmd-Q, the menu's Quit, and `affineui_app_close`. `fn_` = NULL clears.
+    pub fn affineui_app_on_close_request(
+        app: *mut affineui_app,
+        fn_: affineui_close_request_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+
+    // Window controls. `affineui_app_close` runs the close-request handler, so
+    // it is cancellable.
+    pub fn affineui_app_close(app: *mut affineui_app);
+    pub fn affineui_app_minimize(app: *mut affineui_app);
+    pub fn affineui_app_toggle_maximize(app: *mut affineui_app);
+    pub fn affineui_app_is_maximized(app: *const affineui_app) -> c_int;
+    pub fn affineui_app_set_fullscreen(app: *mut affineui_app, on: c_int);
+    pub fn affineui_app_is_fullscreen(app: *const affineui_app) -> c_int;
+
+    // -- Application menu --
+    // Build with affineui_menu_create + the add_* calls, hand it to
+    // affineui_app_set_menu (which COPIES it), then destroy it.
+
+    pub fn affineui_menu_create() -> *mut affineui_menu;
+    pub fn affineui_menu_destroy(menu: *mut affineui_menu);
+    /// The returned handle is OWNED BY `parent` — add into it, never destroy it.
+    pub fn affineui_menu_add_submenu(
+        parent: *mut affineui_menu,
+        label: *const c_char,
+    ) -> *mut affineui_menu;
+    /// `accelerator` is Electron-style ("CmdOrCtrl+S"); NULL or "" for none.
+    pub fn affineui_menu_add_item(
+        menu: *mut affineui_menu,
+        label: *const c_char,
+        accelerator: *const c_char,
+        fn_: affineui_menu_select_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_menu_add_check(
+        menu: *mut affineui_menu,
+        label: *const c_char,
+        checked: c_int,
+        accelerator: *const c_char,
+        fn_: affineui_menu_select_fn,
+        user: *mut c_void,
+        user_free: affineui_user_free_fn,
+    );
+    pub fn affineui_menu_add_separator(menu: *mut affineui_menu);
+    pub fn affineui_menu_add_role(menu: *mut affineui_menu, role: c_int);
+    /// Decorates the LAST item added.
+    pub fn affineui_menu_set_swatch(menu: *mut affineui_menu, color: affineui_color);
+    /// Decorates the LAST item added (1 = enabled, the default).
+    pub fn affineui_menu_set_enabled(menu: *mut affineui_menu, enabled: c_int);
+    /// Decorates the LAST item added. Mainly for ROLE items: a role takes the
+    /// platform's own label, and this overrides it. Empty restores it.
+    pub fn affineui_menu_set_label(menu: *mut affineui_menu, label: *const c_char);
+    /// `menu` is copied; NULL clears.
+    pub fn affineui_app_set_menu(app: *mut affineui_app, menu: *const affineui_menu);
+
     pub fn affineui_app_window_size(app: *const affineui_app, out_w: *mut c_int, out_h: *mut c_int);
     pub fn affineui_app_framebuffer_size(app: *const affineui_app, out_w: *mut c_int, out_h: *mut c_int);
     pub fn affineui_app_dpi_scale(app: *const affineui_app) -> c_float;
@@ -853,6 +953,12 @@ extern "C" {
         key: *const c_char,
     ) -> *mut affineui_widget;
     pub fn affineui_view_menu_spacer(view: *mut affineui_view, key: *const c_char) -> *mut affineui_widget;
+    /// The document being edited, centered in the bar — what a title bar shows.
+    pub fn affineui_view_document_title(
+        view: *mut affineui_view,
+        text: *const c_char,
+        key: *const c_char,
+    ) -> *mut affineui_widget;
     pub fn affineui_view_menu_meta(
         view: *mut affineui_view,
         text: *const c_char,

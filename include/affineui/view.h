@@ -229,6 +229,22 @@ enum class DockCorner { TopLeft, TopRight, BottomLeft, BottomRight };
 class View;  // for DockHandle::toolbar (defined out-of-line in view.cpp)
 namespace detail { class ViewLifetime; }
 
+/// The class View::menu_bar puts on the APPLICATION menubar — the first menubar
+/// a build declares, the one whose menus the macOS system bar takes over.
+///
+/// Whether those menus are currently showing natively is NOT decided here. The
+/// bar always draws its triggers, and the stylesheet hides them when the root
+/// carries `data-affineui-native-menus="1"` (which App sets from set_menu). That
+/// keeps it a pure restyle: an app can declare its menu before or after it builds
+/// its view and get the same result either way — which matters because a
+/// load_view() app builds its DOM exactly once, so anything decided at build time
+/// would be frozen at whatever the answer happened to be then.
+///
+/// A menubar nested elsewhere in the UI (a viewport's own View/Add strip) never
+/// gets this class: it is a contextual in-window menu, not the application menu,
+/// and always keeps drawing.
+inline constexpr std::string_view kAppMenubarClass{"aui-menubar--app"};
+
 /// A handle to a declared dockable — usable as another dockable's parent and
 /// as the target of the container's runtime add/remove API.
 struct DockHandle {
@@ -329,6 +345,14 @@ struct WidgetNode {
     std::string text;
     std::vector<WidgetAttribute> attrs;
     std::vector<WidgetNode> children;
+
+    // True on the APPLICATION menubar — the first menu_bar() a build declares,
+    // whose menus the macOS system bar takes over. menu_button() hides its
+    // triggers there and only there: a menubar nested elsewhere in the UI (a
+    // viewport's own View/Add strip) is a contextual in-window menu and must
+    // keep drawing. Marked on the node rather than inferred from depth, because
+    // a contextual bar can sit at the same depth as the app's. Not serialized.
+    bool app_menubar{false};
 
     // Reconcile cursor, reset at the start of each visit. Public so debug
     // inspectors can show the machinery plainly; user code should treat it as
@@ -671,6 +695,7 @@ public:
     [[nodiscard]] ViewTheme theme() const noexcept { return theme_; }
     void set_theme(ViewTheme theme) noexcept { theme_ = theme; }
 
+
     /// Declare the CSS framework version this view targets (e.g. "0.5.2" for
     /// Decius, "5.3.8" for Bootstrap). The stylesheet href derives from it and
     /// it is stamped on the document root as data-aui-framework-version so the
@@ -935,6 +960,18 @@ public:
     WidgetRef menu_meta(std::string_view text,
                         std::string_view key = {},
                         std::source_location here = std::source_location::current());
+
+    /// The name of the document being edited, centered in the bar — the thing a
+    /// title bar shows. It is a WINDOW-title concern, not a menu one: it just
+    /// happens to live in the same strip, because that strip is the title bar
+    /// once the window has none of its own.
+    ///
+    /// Centered on the WINDOW, not between its neighbours, so it stays put as
+    /// the brand and the status bits change width. Out of the row's flow, so
+    /// declare it anywhere inside the bar.
+    WidgetRef document_title(std::string_view text,
+                             std::string_view key = {},
+                             std::source_location here = std::source_location::current());
 
     /// A dockable panel: titled tab bar + body. `title` shows on the tab;
     /// `tabpanel_id` is the body's id (also the tab's target). Fill the body.
@@ -1254,6 +1291,15 @@ private:
     // aui-root--shell document class: shells render edge-to-edge (no demo
     // padding, flush rows); content pages keep the padded, gapped stack.
     bool root_app_shell_{false};
+    // True when the platform's own menu bar is showing this app's menus (the
+    // macOS system bar). The drawn menubar still builds — apps put their brand
+    // and status bits in it, and it doubles as the custom title bar — but its
+    // menu TRIGGERS are hidden, because File/Edit/View now live at the top of
+    // the screen and showing both would be showing the menus twice. Set by
+    // App from Config::native_menus; see App::set_menu.
+    // Set once the build has declared its application menubar (the first
+    // menu_bar()), so later, nested menubars are recognized as contextual.
+    bool seen_app_menubar_{false};
     // True when any node's attrs were mutated this pass — end() then runs
     // one flush walk emitting the coalesced per-node attribute diffs.
     bool attr_coalesce_dirty_{false};

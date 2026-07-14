@@ -318,11 +318,19 @@ AFFINEUI_C_API void affineui_tools_shutdown(void);
 // wrapper can see all bump this. Wrappers pin the version they were written
 // against; a mismatch in either direction is a hard error at load.
 //
+// 4: native menus + window chrome. affineui_app_config GREW four fields
+//    (native_menus, titlebar, traffic_light_x/y) — a caller compiled against
+//    version 3 passes a shorter struct, and the core would read past its end, so
+//    this bump is load-bearing, not bookkeeping. Also: the affineui_menu builder
+//    and affineui_app_set_menu, affineui_app_on_close_request, the window
+//    controls (close/minimize/toggle_maximize/is_maximized/(set|is)_fullscreen),
+//    affineui_menu_set_label (a role's platform label, overridable), and
+//    affineui_view_document_title.
 // 3: docking (affineui_view_document_view / document / dockpanel / dock_toolbar,
 //    the four dock providers, the Document dock readback), and a user_free
 //    parameter added to the three deferred dock builders.
 // 2: baseline.
-#define AFFINEUI_C_ABI_VERSION 3
+#define AFFINEUI_C_ABI_VERSION 4
 
 AFFINEUI_C_API int         affineui_c_abi_version(void);
 

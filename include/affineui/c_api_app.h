@@ -110,7 +110,27 @@ typedef struct affineui_app_config {
     // user assets. Ignored when affineui_c was built with
     // -DAFFINEUI_NO_BUNDLE_DECIUS.
     int                no_bundle_decius;     // 0/1, default 0
+    // Native application menus (the macOS system menu bar). 1 (default) → the
+    // menu set with affineui_app_set_menu() becomes the system bar, and the
+    // drawn menubar hides its triggers. 0 → opt out and keep the drawn bar.
+    // Default is ON because without a menu bar there is no Quit item, and so
+    // Cmd-Q cannot work at all.
+    int                native_menus;         // 0/1, default 1
+    // Window chrome; see affineui_titlebar_style. Default 0 (system title bar).
+    int                titlebar;             // affineui_titlebar_style
+    // macOS: traffic-light position in logical points from the window's
+    // top-left. {0,0} → the platform default for the chosen style.
+    int                traffic_light_x, traffic_light_y;
 } affineui_app_config;
+
+// How the window's title bar is drawn. Named as in Electron's titleBarStyle
+// (plus Frameless for its `frame: false`). See affineui::TitleBarStyle.
+typedef enum affineui_titlebar_style {
+    AFFINEUI_TITLEBAR_DEFAULT      = 0,  // the OS draws its title bar
+    AFFINEUI_TITLEBAR_HIDDEN       = 1,  // no title bar; OS buttons still shown
+    AFFINEUI_TITLEBAR_HIDDEN_INSET = 2,  // as HIDDEN, buttons inset further
+    AFFINEUI_TITLEBAR_FRAMELESS    = 3,  // no title bar and no OS buttons
+} affineui_titlebar_style;
 
 AFFINEUI_C_API void affineui_app_config_init(affineui_app_config* cfg);
 
@@ -145,7 +165,121 @@ AFFINEUI_C_API void affineui_app_on_event_capture(
 
 // Runs the native loop on the calling thread; returns the OS exit code.
 AFFINEUI_C_API int  affineui_app_run(affineui_app* app);
+// Quit unconditionally. Does NOT run the close-request handler: quit means quit.
 AFFINEUI_C_API void affineui_app_quit(affineui_app* app, int code);
+
+// ─── Close requests ───────────────────────────────────────────────────
+// The one veto point for "close this app": the window's close button, Cmd-Q,
+// the menu's Quit, and a close button the app drew itself all run it.
+
+// Return 0 to CANCEL the close, non-zero to let it proceed (the Electron
+// `e.preventDefault()` shape). Pass fn = NULL to clear.
+typedef int (*affineui_close_request_fn)(void* user);
+AFFINEUI_C_API void affineui_app_on_close_request(
+    affineui_app* app,
+    affineui_close_request_fn fn,
+    void* user,
+    affineui_user_free_fn user_free);
+
+// ─── Window controls ──────────────────────────────────────────────────
+// What a title bar's buttons do. An app drawing its own close/minimize/maximize
+// (AFFINEUI_TITLEBAR_FRAMELESS) wires them to these.
+
+// Ask to close: runs the close-request handler, so this is cancellable.
+AFFINEUI_C_API void affineui_app_close(affineui_app* app);
+AFFINEUI_C_API void affineui_app_minimize(affineui_app* app);
+AFFINEUI_C_API void affineui_app_toggle_maximize(affineui_app* app);
+AFFINEUI_C_API int  affineui_app_is_maximized(const affineui_app* app);
+AFFINEUI_C_API void affineui_app_set_fullscreen(affineui_app* app, int on);
+AFFINEUI_C_API int  affineui_app_is_fullscreen(const affineui_app* app);
+
+// ─── Application menu ─────────────────────────────────────────────────
+// A build-then-install builder, because the model is a tree and the C ABI is
+// not. Build with affineui_menu_create() + the add_* calls, hand it to
+// affineui_app_set_menu() (which COPIES it), then destroy it.
+//
+//   affineui_menu* bar  = affineui_menu_create();
+//   affineui_menu* file = affineui_menu_add_submenu(bar, "File");
+//   affineui_menu_add_item(file, "New", "CmdOrCtrl+N", on_new, ctx, NULL);
+//   affineui_menu_add_role(file, AFFINEUI_MENU_ROLE_QUIT);
+//   affineui_app_set_menu(app, bar);
+//   affineui_menu_destroy(bar);
+//
+// Safe to call at any time: a menu that shows checked/enabled state is expected
+// to be rebuilt and re-set as that state changes.
+typedef struct affineui_menu affineui_menu;
+
+// Standard items whose label, accelerator and behavior the platform supplies.
+// Mirrors affineui::MenuRole.
+typedef enum affineui_menu_role {
+    AFFINEUI_MENU_ROLE_NONE = 0,
+    AFFINEUI_MENU_ROLE_ABOUT,
+    AFFINEUI_MENU_ROLE_SERVICES,
+    AFFINEUI_MENU_ROLE_HIDE,
+    AFFINEUI_MENU_ROLE_HIDE_OTHERS,
+    AFFINEUI_MENU_ROLE_UNHIDE,
+    AFFINEUI_MENU_ROLE_PREFERENCES,
+    AFFINEUI_MENU_ROLE_QUIT,
+    AFFINEUI_MENU_ROLE_UNDO,
+    AFFINEUI_MENU_ROLE_REDO,
+    AFFINEUI_MENU_ROLE_CUT,
+    AFFINEUI_MENU_ROLE_COPY,
+    AFFINEUI_MENU_ROLE_PASTE,
+    AFFINEUI_MENU_ROLE_SELECT_ALL,
+    AFFINEUI_MENU_ROLE_MINIMIZE,
+    AFFINEUI_MENU_ROLE_ZOOM,
+    AFFINEUI_MENU_ROLE_CLOSE,
+    AFFINEUI_MENU_ROLE_TOGGLE_FULLSCREEN,
+} affineui_menu_role;
+
+typedef void (*affineui_menu_select_fn)(void* user);
+
+AFFINEUI_C_API affineui_menu* affineui_menu_create(void);
+AFFINEUI_C_API void           affineui_menu_destroy(affineui_menu* menu);
+
+// A submenu. The returned handle is OWNED BY `parent` — add into it, but do not
+// destroy it. For a top-level menu bar, the direct children of the root menu are
+// the bar's menus; on macOS the FIRST one is the application menu and takes the
+// app's name whatever its label says (a platform rule).
+AFFINEUI_C_API affineui_menu* affineui_menu_add_submenu(affineui_menu* parent,
+                                                        const char* label);
+
+// `accelerator` is Electron-style ("CmdOrCtrl+S"); NULL or "" for none.
+AFFINEUI_C_API void affineui_menu_add_item(affineui_menu* menu,
+                                           const char* label,
+                                           const char* accelerator,
+                                           affineui_menu_select_fn fn,
+                                           void* user,
+                                           affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_menu_add_check(affineui_menu* menu,
+                                            const char* label,
+                                            int checked,
+                                            const char* accelerator,
+                                            affineui_menu_select_fn fn,
+                                            void* user,
+                                            affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_menu_add_separator(affineui_menu* menu);
+AFFINEUI_C_API void affineui_menu_add_role(affineui_menu* menu,
+                                           affineui_menu_role role);
+
+// A solid color chip in the leading gutter of the LAST item added — accent
+// pickers and the like. This is how a row a drawn menu would custom-paint
+// survives into a native menu, as a real image rather than a custom view.
+AFFINEUI_C_API void affineui_menu_set_swatch(affineui_menu* menu,
+                                             affineui_color color);
+// Enable/disable the LAST item added (1 = enabled, the default).
+AFFINEUI_C_API void affineui_menu_set_enabled(affineui_menu* menu, int enabled);
+
+// Override the label of the LAST item added. Mainly for ROLE items: a role
+// normally takes the platform's own label, and this is how a caller overrides
+// it (affineui::MenuItem::role(role, label) in C++). Empty restores the
+// platform's label.
+AFFINEUI_C_API void affineui_menu_set_label(affineui_menu* menu,
+                                            const char* label);
+
+// Install (or replace) the application menu. `menu` is copied; NULL clears.
+AFFINEUI_C_API void affineui_app_set_menu(affineui_app* app,
+                                          const affineui_menu* menu);
 
 AFFINEUI_C_API void  affineui_app_window_size(const affineui_app* app, int* out_w, int* out_h);
 AFFINEUI_C_API void  affineui_app_framebuffer_size(const affineui_app* app, int* out_w, int* out_h);
@@ -674,6 +808,10 @@ AFFINEUI_C_API affineui_widget* affineui_view_menu_brand(affineui_view* view,
                                                          const char* key);
 AFFINEUI_C_API affineui_widget* affineui_view_menu_spacer(affineui_view* view,
                                                           const char* key);
+// The document being edited, centered in the bar — what a title bar shows.
+AFFINEUI_C_API affineui_widget* affineui_view_document_title(affineui_view* view,
+                                                             const char* text,
+                                                             const char* key);
 AFFINEUI_C_API affineui_widget* affineui_view_menu_meta(affineui_view* view,
                                                         const char* text,
                                                         const char* key);

@@ -568,6 +568,16 @@ public sealed partial class View : IDisposable
         return w;
     }
 
+    /// <summary>The document being edited, centered in the bar — what a title
+    /// bar shows. Pair it with <see cref="TitleBarStyle.Hidden"/> and a drag
+    /// region to draw a real custom title bar.</summary>
+    public Widget DocumentTitle(string text, string key = "")
+    {
+        var w = Wrap(NativeMethods.affineui_view_document_title(Handle, text, key));
+        GC.KeepAlive(this);
+        return w;
+    }
+
     public Widget MenuMeta(string text, string key = "")
     {
         var w = Wrap(NativeMethods.affineui_view_menu_meta(Handle, text, key));
