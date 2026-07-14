@@ -74,6 +74,7 @@ jobs:
         name: Check the rc is green, newest, and unpublished
         env:
           RC: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}    # GATE 3 asks the API for the release's assets
         run: |
           set -euo pipefail
           rc="${RC#v}"
@@ -96,18 +97,45 @@ jobs:
 
           # GATE 2 — newest rc for this core. Promoting a stale one almost
           # always means shipping code you stopped testing.
+          # `sort -n` (not lexical) so rc.10 beats rc.9. The grep drops anything
+          # that isn't a bare counter, e.g. a `-rc.3-hotfix` tag.
           newest=$(git tag --list "v${core}-rc.*" | sed -E "s|^v${core}-rc\.||" \
                    | grep -E '^[0-9]+$' | sort -n | tail -1)
+          if [ -z "$newest" ]; then
+            # Unreachable while GATE 1 runs first, but an empty $newest would
+            # otherwise produce "v${core}-rc. exists" — an error naming a tag
+            # that doesn't exist. Fail honestly instead.
+            echo "::error::no pre-release exists for ${core} (is the tag fetch complete?)."
+            exit 1
+          fi
           if [ "$n" != "$newest" ]; then
             echo "::error::v${rc} is not the newest pre-release for ${core} — v${core}-rc.${newest} exists."
             echo "::error::Publish the newest, or cut a fresh one."
             exit 1
           fi
 
-          # GATE 3 — the final must not exist. Registries never forget a version.
+          # GATE 3 — the final must not already be published.
+          #
+          # A v${core} tag normally means "done". But the seal step creates the
+          # tag and uploads the assets in one `gh release create`, so a failure
+          # partway through leaves the tag + a release with no assets — while the
+          # registries (all of which are retry-safe) already have the version.
+          # Refusing outright there would strand the release forever: published
+          # everywhere, finishable nowhere.
+          #
+          # So distinguish the two. A release that already carries assets is
+          # genuinely done and must not be re-run. One with none is a torn
+          # attempt, and re-running is exactly the repair.
           if git rev-parse -q --verify "refs/tags/v${core}" >/dev/null; then
-            echo "::error::v${core} already exists — it has already been published."
-            exit 1
+            assets=$(gh release view "v${core}" --json assets \
+                     --jq '.assets | length' 2>/dev/null || echo 0)
+            if [ "${assets:-0}" -gt 0 ]; then
+              echo "::error::v${core} is already published (${assets} asset(s) on its release)."
+              echo "::error::Registries never allow re-publishing a version. Cut a new one."
+              exit 1
+            fi
+            echo "::warning::v${core} is tagged but its release has no assets — a previous"
+            echo "::warning::publish was interrupted. Re-running to finish it."
           fi
 
           # GATE 4 — reviewed notes.
@@ -123,15 +151,22 @@ jobs:
           echo "sha=${sha}"    >> "$GITHUB_OUTPUT"
           echo "::notice::Promoting v${rc} (${sha}) to v${core}."
 
-      # The typed version must still match what's committed at the rc's commit.
+      # The typed version must still match what's committed AT THE RC'S COMMIT —
+      # that is the tree we ship, and it may be behind main.
+      #
+      # Read it out of the object store rather than checking it out: a
+      # `git checkout $SHA` would detach HEAD and leave every later step in this
+      # job silently reading the wrong tree if anything were inserted between
+      # them (or if this step failed midway).
       - name: Verify the manifests carry this version
         env:
           FINAL: ${{ steps.g.outputs.final }}
           SHA:   ${{ steps.g.outputs.sha }}
         run: |
           set -euo pipefail
-          git checkout -q "$SHA" --
-          python3 scripts/set_version.py --verify "$FINAL"
+          work=$(mktemp -d)
+          git archive "$SHA" | tar -x -C "$work"
+          ( cd "$work" && python3 scripts/set_version.py --verify "$FINAL" )
 
       - name: Report what main has moved on to
         env:
@@ -141,7 +176,6 @@ jobs:
         # but never silent. Anything merged after the rc is simply not shipping.
         run: |
           set -euo pipefail
-          git checkout -q main --
           behind=$(git rev-list --count "${SHA}..origin/main" 2>/dev/null || echo 0)
           if [ "$behind" -gt 0 ]; then
             echo "::warning::main is ${behind} commit(s) ahead of v${RC}. Those commits are NOT in this release."
@@ -195,18 +229,35 @@ jobs:
           python3 scripts/repackage_release.py promote rc "$RC" "$FINAL" \
             -o dist --manifest rc/rc-hashes.json
 
-      - name: Rebuild the sdist
+      - name: Rebuild the sdist, and check it against the rc's
         env:
+          RC:    ${{ needs.verify.outputs.rc }}
           FINAL: ${{ needs.verify.outputs.final }}
-        # The ONLY thing rebuilt. An sdist is a SOURCE tarball — the version is
-        # baked into PKG-INFO and the top-level directory name, so it cannot be
-        # re-stamped in place. It carries no compiled payload, so this takes
-        # nothing away from the bit-identity guarantee (which is about binaries),
-        # and it's built from the rc's exact commit.
+        # The ONLY thing rebuilt. An sdist is a SOURCE tarball: the version is in
+        # PKG-INFO *and* in the top-level directory name of every member, so it
+        # cannot be re-stamped the way a wheel or nupkg can. It carries no
+        # compiled payload, so the bit-identity guarantee (which is about
+        # binaries) is untouched — but "same source" still has to be proved, or a
+        # build-backend upgrade between the rc and the promotion could quietly
+        # change what ships. So: rebuild at the rc's exact commit, then require
+        # the file list to match the sdist the rc actually published.
         run: |
           set -euo pipefail
           python -m pip install --quiet --upgrade pip build
           python -m build --sdist --outdir dist bindings/python
+
+          new=$(ls dist/*.tar.gz)
+          old=$(ls rc/*.tar.gz)
+          # Compare member paths with the version segment factored out — the
+          # top-level dir is affineui-0.5.0rc2/ in one and affineui-0.5.0/ in the
+          # other, which is the one difference we expect.
+          strip() { tar -tzf "$1" | sed -E 's|^[^/]+/||' | sort; }
+          if ! diff <(strip "$old") <(strip "$new") > /tmp/sdist.diff; then
+            echo "::error::The rebuilt sdist does not contain the same files as the one tested in v${RC}."
+            cat /tmp/sdist.diff
+            exit 1
+          fi
+          echo "::notice::Rebuilt sdist matches the rc's file-for-file."
 
       - name: Carry the amalgamated SDK through
         env:
@@ -216,11 +267,15 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          found=0
-          for z in rc/affineui-*.zip; do
-            cp "$z" "dist/affineui-${FINAL}.zip"; found=1
-          done
-          [ "$found" -eq 1 ] || { echo "::error::no amalgamation zip in the pre-release"; exit 1; }
+          zips=(rc/affineui-*.zip)
+          # Exactly one. A loop that copies each to the same destination would
+          # let a second zip silently overwrite the first and still look fine.
+          if [ ${#zips[@]} -ne 1 ]; then
+            echo "::error::expected exactly 1 amalgamation zip in the pre-release, found ${#zips[@]}."
+            ls -la rc/
+            exit 1
+          fi
+          cp "${zips[0]}" "dist/affineui-${FINAL}.zip"
           ls -la dist/
 
       - uses: actions/upload-artifact@v4
@@ -340,9 +395,15 @@ jobs:
           name: final-artifacts
           path: dist
 
-      # Release first (with the artifacts), tag as part of it — never a tag
-      # pointing at a release that doesn't exist. `--target` puts the tag on the
-      # RC's commit, not main's HEAD.
+      # `--target` creates the tag on the RC's commit, not main's HEAD.
+      #
+      # IDEMPOTENT, and it has to be. Every registry push above is retry-safe
+      # (PyPI skip-existing, nuget --skip-duplicate, cargo's already-exists
+      # fallthrough) precisely so that a failure HERE can be re-run. If this step
+      # could only ever create, a transient error after the release existed would
+      # leave 0.5.0 public on all three registries and the run permanently
+      # unfinishable — GATE 3 would refuse the retry because the tag now exists.
+      # So: create if absent, top up the assets if present.
       - name: Create the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -350,12 +411,17 @@ jobs:
           SHA:   ${{ needs.verify.outputs.sha }}
         run: |
           set -euo pipefail
-          gh release create "v${FINAL}" \
-            --target "$SHA" \
-            --title "v${FINAL}" \
-            --notes-file "docs/release-notes/v${FINAL}.md" \
-            --latest \
-            dist/*
+          if gh release view "v${FINAL}" >/dev/null 2>&1; then
+            echo "::notice::Release v${FINAL} already exists — re-uploading assets (idempotent retry)."
+            gh release upload "v${FINAL}" dist/* --clobber
+          else
+            gh release create "v${FINAL}" \
+              --target "$SHA" \
+              --title "v${FINAL}" \
+              --notes-file "docs/release-notes/v${FINAL}.md" \
+              --latest \
+              dist/*
+          fi
           echo "::notice::Released v${FINAL} at ${SHA}"
 
       - name: Summary

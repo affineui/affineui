@@ -79,15 +79,27 @@ any artifact the RC built is missing.
 
 ## The tag means something
 
-**Build a pre-release** creates its GitHub pre-release and pushes its tag **last**
-— only after every build, every test, and every registry push has gone green.
+**Build a pre-release** creates its GitHub pre-release — tag and artifacts
+together, in one `gh release create` — as the **last** thing it does, only after
+every build, every test, and every registry push has gone green. It then asserts
+that every asset actually landed, so a torn upload fails the run instead of
+leaving a tag standing over an incomplete release.
 
 So a `v*` tag existing is *proof that version worked*. A pre-release that died
-halfway leaves no tag, and **Publish a release** refuses to promote it. You
-cannot ship a broken release, because there is nothing to ship from.
+halfway leaves no usable tag, and **Publish a release** refuses to promote it.
+You cannot ship a broken release, because there is nothing to ship from.
 
 Re-running after a failure is always safe: the counter advances (`rc.2` →
 `rc.3`). A burned number is never reused — registries never forget.
+
+**Publish a release is re-runnable too.** Every registry push is idempotent
+(PyPI `skip-existing`, NuGet `--skip-duplicate`, cargo's already-exists
+fallthrough), and the GitHub release is created-or-topped-up rather than
+created-only. That matters: the registries are not transactional, so if the run
+died *after* publishing but *before* finishing, refusing the retry would strand
+the version — public everywhere, finishable nowhere. Instead, a re-run completes
+it. A release that already carries assets is genuinely done, and re-running it
+is refused.
 
 ---
 

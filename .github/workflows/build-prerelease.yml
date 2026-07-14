@@ -204,30 +204,61 @@ jobs:
           python3 scripts/repackage_release.py manifest "${wheels[@]}" "${nupkgs[@]}" \
             -o rc/rc-hashes.json
 
-      # The release must exist (with its artifacts) BEFORE the tag does.
-      # Tag-then-attach would leave a tag with no artifacts if this step failed —
-      # and `Publish a release` trusts the tag, so it would sail through the gate
-      # and then die with nothing to download.
+      # `--target $SHA` creates the tag ref as part of the release, at the
+      # resolved commit. These files ARE the release: `Publish a release`
+      # downloads them from here and re-stamps them. They live on the release
+      # (not as run artifacts, which expire) so a promotion works however long
+      # the rc soaks.
+      #
+      # `gh release create` makes the tag AND uploads the assets in one call, so
+      # a failure partway leaves a tagged release with some assets missing — and
+      # publish's GATE 1 reads "tag exists" as proof this rc is complete. Two
+      # defenses: this step is idempotent (a re-run tops the assets up rather
+      # than dying on the existing tag), and the verify step below refuses to
+      # finish unless every asset actually landed. A tag only ever appears on a
+      # pre-release that is genuinely whole.
       - name: Create the GitHub pre-release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG:  ${{ needs.resolve.outputs.tag }}
           CORE: ${{ needs.resolve.outputs.core }}
           SHA:  ${{ needs.resolve.outputs.sha }}
-        # `--target $SHA` creates the tag ref as part of the release, at the
-        # resolved commit. These files ARE the release: `Publish a release`
-        # downloads them from here and re-stamps them. They live on the release
-        # (not as run artifacts, which expire) so a promotion works however long
-        # the rc soaks.
         run: |
           set -euo pipefail
-          gh release create "$TAG" \
-            --target "$SHA" \
-            --title "$TAG" \
-            --notes-file "docs/release-notes/v${CORE}.md" \
-            --prerelease \
-            rc/*.whl rc/*.tar.gz rc/*.nupkg rc/*.zip rc/rc-hashes.json
-          echo "::notice::Published pre-release ${TAG} at ${SHA}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::notice::${TAG} already exists — re-uploading assets (idempotent retry)."
+            gh release upload "$TAG" rc/*.whl rc/*.tar.gz rc/*.nupkg rc/*.zip rc/rc-hashes.json --clobber
+          else
+            gh release create "$TAG" \
+              --target "$SHA" \
+              --title "$TAG" \
+              --notes-file "docs/release-notes/v${CORE}.md" \
+              --prerelease \
+              rc/*.whl rc/*.tar.gz rc/*.nupkg rc/*.zip rc/rc-hashes.json
+          fi
+
+      # The tag is the promise that this rc is promotable. Do not leave it
+      # standing over a release that is missing what promotion needs.
+      - name: Confirm every asset actually landed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          expected=$(ls rc/*.whl rc/*.tar.gz rc/*.nupkg rc/*.zip rc/rc-hashes.json | wc -l | tr -d ' ')
+          actual=$(gh release view "$TAG" --json assets --jq '.assets | length')
+          echo "expected ${expected} asset(s), release has ${actual}"
+          if [ "$actual" -ne "$expected" ]; then
+            echo "::error::${TAG} has ${actual} of ${expected} assets — the upload was torn."
+            echo "::error::Re-run this workflow; the release will be topped up rather than re-cut."
+            exit 1
+          fi
+          gh release view "$TAG" --json assets --jq '.assets[].name' | grep -q '^rc-hashes\.json$' || {
+            echo "::error::rc-hashes.json is missing — promotion could not verify the binaries."
+            exit 1
+          }
+          echo "::notice::Published pre-release ${TAG} at ${SHA} (${actual} assets)"
 
       - name: Summary
         env:

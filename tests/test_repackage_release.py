@@ -232,6 +232,16 @@ def test_an_unknown_artifact_is_caught(tmp_path):
         rr.cmd_promote(src, rc, "0.5.0", tmp_path / "dist", manifest)
 
 
+def test_artifacts_must_belong_to_the_named_rc(tmp_path):
+    """Promoting rc.2's artifacts while claiming to promote rc.9 must be refused.
+
+    Guards a stale download directory, or a --manifest from another cycle.
+    """
+    src, manifest, _ = rc_set(tmp_path)      # these are rc.2's artifacts
+    with pytest.raises(SystemExit):
+        rr.cmd_promote(src, "0.5.0-rc.9", "0.5.0", tmp_path / "dist", manifest)
+
+
 def test_missing_wheels_or_nupkg_is_caught(tmp_path):
     src = tmp_path / "rc"
     src.mkdir()

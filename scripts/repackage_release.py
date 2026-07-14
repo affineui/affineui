@@ -297,23 +297,37 @@ def cmd_promote(srcdir: Path, rc: str, final: str, outdir: Path, manifest_path: 
             f"in {srcdir}. Refusing to publish a partial release."
         )
 
+    # Every artifact must belong to the rc we were told to promote. Guards
+    # against a stale download directory, or a `--manifest` from another cycle.
+    rc_pep = pep440(rc)
     consumed: set[str] = set()
     for src in wheels + nupkgs:
         if src.name not in recorded:
             die(f"{src.name} is not in the manifest — it was not part of the tested pre-release")
+        if rc not in src.name and rc_pep not in src.name:
+            die(
+                f"{src.name} is not an artifact of {rc} (expected {rc!r} or {rc_pep!r} "
+                f"in the filename) — refusing to promote artifacts from another release."
+            )
 
         dst = promote_wheel(src, final, outdir) if src.suffix == ".whl" \
             else promote_nupkg(src, final, outdir)
 
         # The real check: compare against THIS artifact's recorded hashes, by
-        # name, not against "some entry that happens to have the same hashes".
+        # member name — not against "some entry that happens to have the same set
+        # of hashes", which would wave through a wheel cross-contaminated with
+        # another wheel's extension module.
+        #
+        # Compared verbatim: compiled members live outside .dist-info (the only
+        # path the repackaging renames), so promotion never moves one. If a
+        # compiled member's PATH ever changes, that is itself a thing to catch,
+        # not to normalise away.
         want = recorded[src.name]
         got = compiled_hashes(dst)
-        norm = {k.replace(pep440(rc), final).replace(rc, final): v for k, v in want.items()}
-        if got != norm:
+        if got != want:
             die(
                 f"{dst.name} does not match the tested {src.name}\n"
-                f"  tested:   {sorted(norm.items())}\n"
+                f"  tested:   {sorted(want.items())}\n"
                 f"  shipping: {sorted(got.items())}"
             )
         consumed.add(src.name)
