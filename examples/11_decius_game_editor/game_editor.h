@@ -57,6 +57,10 @@ private:
 
     // ── View sections ────────────────────────────────────────────────────
     void build_menubar(affineui::View& v);
+    /// The native application menu (macOS system bar). Rebuilt whenever the
+    /// state it displays — the density/accent check marks — changes.
+    void build_native_menu();
+    [[nodiscard]] std::vector<affineui::MenuItem> build_view_menu();
     void build_outliner(affineui::View& v);
     void build_viewport(affineui::View& v);
     void build_viewport_toolbar(affineui::View& v);  // the document tab toolbar

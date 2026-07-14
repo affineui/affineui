@@ -55,6 +55,45 @@ class ComponentValidity:
     WrongType: ComponentValidity
     NotPresent: ComponentValidity
 
+class MenuRole:
+    """A standard item whose label/accelerator/behavior the platform supplies.
+
+    ``NoRole`` is the C++ ``MenuRole::None`` (``None`` is a Python keyword).
+    """
+
+    NoRole: MenuRole
+    About: MenuRole
+    Services: MenuRole
+    Hide: MenuRole
+    HideOthers: MenuRole
+    Unhide: MenuRole
+    Preferences: MenuRole
+    Quit: MenuRole
+    Undo: MenuRole
+    Redo: MenuRole
+    Cut: MenuRole
+    Copy: MenuRole
+    Paste: MenuRole
+    SelectAll: MenuRole
+    Minimize: MenuRole
+    Zoom: MenuRole
+    Close: MenuRole
+    ToggleFullscreen: MenuRole
+
+class MenuItemType:
+    Normal: MenuItemType
+    Separator: MenuItemType
+    Checkbox: MenuItemType
+    Radio: MenuItemType
+
+class TitleBarStyle:
+    """How the window's title bar is drawn (App(titlebar=...))."""
+
+    Default: TitleBarStyle
+    Hidden: TitleBarStyle
+    HiddenInset: TitleBarStyle
+    Frameless: TitleBarStyle
+
 class EventType:
     NoneType: EventType
     MouseMove: EventType
@@ -141,6 +180,7 @@ class WidgetRef:
     def remove_attr(self, name: str) -> WidgetRef: ...
     def selector(self, name: str, value: str) -> WidgetRef: ...
     def cls(self, classes: str) -> WidgetRef: ...
+    def add_class(self, token: str) -> WidgetRef: ...
     def on_click(self, callback: Callable[[], None]) -> WidgetRef: ...
     def on_change(self, callback: Callable[[str], None]) -> WidgetRef: ...
     def append(self, build: Callable[[View], None]) -> WidgetRef: ...
@@ -389,6 +429,9 @@ class View:
     def menu_brand(self, title: str, icon: str = "", key: str = "") -> WidgetRef: ...
     def menu_spacer(self, key: str = "") -> WidgetRef: ...
     def menu_meta(self, text: str, key: str = "") -> WidgetRef: ...
+    # The edited document's name, centered on the WINDOW — what a title bar
+    # shows, in the strip that IS the title bar once the window has none.
+    def document_title(self, text: str, key: str = "") -> WidgetRef: ...
     def dock_panel(self, title: str, tabpanel_id: str, classes: str = "", key: str = "", build: Optional[Callable[[View], None]] = ...) -> WidgetRef: ...
 
     # Declarative docking workspace.
@@ -482,6 +525,61 @@ class Document:
     def take_dock_structure_changed(self) -> bool: ...
     def reset_dock_state(self) -> None: ...
 
+# ── Application menus ───────────────────────────────────────────────────────
+# The platform-neutral menu model. Declared once with App.set_menu; on macOS it
+# becomes the real system menu bar and the drawn View.menu_bar triggers hide
+# themselves, because they are the same menus.
+
+class Accelerator:
+    ctrl: bool
+    shift: bool
+    alt: bool
+    super: bool
+    key: str
+    def __init__(self) -> None: ...
+    def valid(self) -> bool: ...
+    def __bool__(self) -> bool: ...
+
+def parse_accelerator(spec: str) -> Accelerator: ...
+def accelerator_text(accel: Accelerator) -> str: ...
+
+class MenuItem:
+    label: str
+    accelerator: str
+    item_role: MenuRole
+    type: MenuItemType
+    enabled: bool
+    visible: bool
+    checked: bool
+    icon: str
+    swatch: Color
+    submenu: List[MenuItem]
+    def __init__(self) -> None: ...
+    def on_select(self, callback: Optional[Callable[[], None]]) -> MenuItem: ...
+    @staticmethod
+    def item(
+        label: str,
+        accelerator: str = "",
+        on_select: Optional[Callable[[], None]] = None,
+    ) -> MenuItem: ...
+    @staticmethod
+    def separator() -> MenuItem: ...
+    @staticmethod
+    def sub(label: str, items: Sequence[MenuItem]) -> MenuItem: ...
+    @staticmethod
+    def role(role: MenuRole, label: str = "") -> MenuItem: ...
+    @staticmethod
+    def check(
+        label: str,
+        checked: bool,
+        accelerator: str = "",
+        on_select: Optional[Callable[[], None]] = None,
+    ) -> MenuItem: ...
+    @staticmethod
+    def edit_menu() -> List[MenuItem]: ...
+    @staticmethod
+    def window_menu() -> List[MenuItem]: ...
+
 class App:
     def __init__(
         self,
@@ -495,6 +593,10 @@ class App:
         default_font_size: int = 16,
         asset_folders: Sequence[str] = ...,
         perf_overlay: bool = False,
+        no_bundle_decius: bool = False,
+        native_menus: bool = True,
+        titlebar: TitleBarStyle = ...,
+        traffic_light_position: Point = ...,
     ) -> None: ...
     def load_html(self, html: str) -> None: ...
     def load_html_file(self, path: str) -> bool: ...
@@ -507,6 +609,16 @@ class App:
     def perf_overlay_enabled(self) -> bool: ...
     def dispatch(self, event: Event) -> bool: ...
     def quit(self, code: int = 0) -> None: ...
+    def set_menu(self, menu: Sequence[MenuItem]) -> None: ...
+    def menu(self) -> List[MenuItem]: ...
+    # Return False to CANCEL the close (save-on-exit's one veto point).
+    def on_close_request(self, callback: Callable[[], Optional[bool]]) -> None: ...
+    def close(self) -> None: ...
+    def minimize(self) -> None: ...
+    def toggle_maximize(self) -> None: ...
+    def is_maximized(self) -> bool: ...
+    def set_fullscreen(self, on: bool) -> None: ...
+    def is_fullscreen(self) -> bool: ...
     def window_size(self) -> Size: ...
     def framebuffer_size(self) -> Size: ...
     def dpi_scale(self) -> float: ...

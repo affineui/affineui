@@ -951,6 +951,215 @@ private:
 }  // namespace affineui
 
 // ────────────────────────────────────────────────────────────────────────
+// include/affineui/menu.h
+// ────────────────────────────────────────────────────────────────────────
+
+// Application menus for AffineUI.
+//
+// A platform-neutral menu *model* that each shell translates: on macOS it
+// becomes a real NSMenu installed as `NSApp.mainMenu` (the system bar at the
+// top of the screen, which an app cannot draw itself); elsewhere it drives the
+// in-window bar the demos already draw. The app declares its menus once.
+//
+// The shape deliberately mirrors Electron's `Menu.buildFromTemplate`, because
+// that vocabulary is already in everyone's head and the mapping to AppKit is
+// the one Electron itself uses:
+//
+//   app.set_menu({
+//       MenuItem::sub("File", {
+//           MenuItem::item("New Scene", "CmdOrCtrl+N", [&] { new_scene(); }),
+//           MenuItem::separator(),
+//           MenuItem::role(MenuRole::Quit),          // standard, auto-labelled
+//       }),
+//       MenuItem::sub("Edit", MenuItem::edit_menu()),  // Undo/Cut/Copy/Paste...
+//   });
+//
+// Two things carry the weight:
+//
+//   * `role` — a standard item whose label, accelerator and behavior the
+//     platform supplies. This is how the macOS application menu (About /
+//     Services / Hide / Quit) and a working Edit menu (Cut/Copy/Paste wired to
+//     the focused control, plus macOS's built-in Emoji & Symbols and dictation
+//     entries) come out right without the app restating them per platform.
+//
+//   * `accelerator` — an Electron-style chord string ("CmdOrCtrl+S",
+//     "Shift+CmdOrCtrl+Z"). `CmdOrCtrl` resolves to Command on macOS and
+//     Control elsewhere, so an app declares a shortcut once.
+//
+// Rows that a drawn menu would custom-paint are expressed as data, not as
+// arbitrary DOM: `checked` (a check mark), `icon` (a named glyph), and
+// `swatch` (a solid color chip — accent pickers and the like). Each maps to a
+// real NSMenuItem affordance, so custom-looking rows survive the trip to a
+// native menu. Anything a platform cannot represent degrades to a plain
+// labelled row rather than disappearing.
+
+
+
+namespace affineui {
+
+/// Standard items whose label/accelerator/behavior the platform supplies.
+/// A role item needs no label and no callback; give it either and yours wins.
+enum class MenuRole {
+    None,
+    // Application menu (macOS). Elsewhere these are still meaningful — Quit
+    // and About are universal — but Services/Hide* are macOS-only and are
+    // dropped from a drawn menu rather than shown dead.
+    About,
+    Services,
+    Hide,
+    HideOthers,
+    Unhide,
+    Preferences,
+    Quit,
+    // Edit. On macOS these get the standard AppKit selectors, so they act on
+    // whatever control has focus (including native text fields) for free.
+    Undo,
+    Redo,
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
+    // Window.
+    Minimize,
+    Zoom,
+    Close,
+    ToggleFullscreen,
+};
+
+enum class MenuItemType {
+    Normal,
+    Separator,
+    Checkbox,
+    Radio,
+};
+
+struct MenuItem {
+    std::string  label;
+    /// Electron-style chord: "CmdOrCtrl+S", "Shift+Alt+F". Empty for none.
+    std::string  accelerator;
+    MenuRole     item_role{MenuRole::None};
+    MenuItemType type{MenuItemType::Normal};
+    bool         enabled{true};
+    bool         visible{true};
+    /// Check mark. Meaningful for Checkbox/Radio; ignored for Normal.
+    bool         checked{false};
+    /// Named glyph (the same icon names the drawn menus use), or empty.
+    std::string  icon;
+    /// Solid color chip shown in the item's leading gutter — accent pickers,
+    /// layer colors. Only drawn when `swatch.a` is non-zero.
+    Color        swatch{0, 0, 0, 0};
+    std::function<void()> on_select;
+    std::vector<MenuItem> submenu;
+
+    // ─── Builders ─────────────────────────────────────────────────────
+    // Aggregate init works too; these just read better at the call site.
+
+    [[nodiscard]] static MenuItem item(std::string label,
+                                       std::string accelerator = {},
+                                       std::function<void()> on_select = {}) {
+        MenuItem m;
+        m.label       = std::move(label);
+        m.accelerator = std::move(accelerator);
+        m.on_select   = std::move(on_select);
+        return m;
+    }
+
+    [[nodiscard]] static MenuItem separator() {
+        MenuItem m;
+        m.type = MenuItemType::Separator;
+        return m;
+    }
+
+    [[nodiscard]] static MenuItem sub(std::string label,
+                                      std::vector<MenuItem> items) {
+        MenuItem m;
+        m.label   = std::move(label);
+        m.submenu = std::move(items);
+        return m;
+    }
+
+    /// A standard platform item. Label/accelerator are supplied by the shell
+    /// unless you override them.
+    [[nodiscard]] static MenuItem role(MenuRole r, std::string label = {}) {
+        MenuItem m;
+        m.item_role = r;
+        m.label     = std::move(label);
+        return m;
+    }
+
+    [[nodiscard]] static MenuItem check(std::string label, bool checked,
+                                        std::string accelerator = {},
+                                        std::function<void()> on_select = {}) {
+        MenuItem m       = item(std::move(label), std::move(accelerator),
+                                std::move(on_select));
+        m.type           = MenuItemType::Checkbox;
+        m.checked        = checked;
+        return m;
+    }
+
+    // ─── Standard groups ──────────────────────────────────────────────
+
+    /// The conventional Edit menu. On macOS these carry the AppKit selectors,
+    /// so they operate on the focused control without app wiring.
+    [[nodiscard]] static std::vector<MenuItem> edit_menu() {
+        return {
+            MenuItem::role(MenuRole::Undo),
+            MenuItem::role(MenuRole::Redo),
+            MenuItem::separator(),
+            MenuItem::role(MenuRole::Cut),
+            MenuItem::role(MenuRole::Copy),
+            MenuItem::role(MenuRole::Paste),
+            MenuItem::role(MenuRole::SelectAll),
+        };
+    }
+
+    /// The conventional Window menu.
+    [[nodiscard]] static std::vector<MenuItem> window_menu() {
+        return {
+            MenuItem::role(MenuRole::Minimize),
+            MenuItem::role(MenuRole::Zoom),
+            MenuItem::separator(),
+            MenuItem::role(MenuRole::Close),
+        };
+    }
+};
+
+/// A menu bar: the top-level menus, left to right. On macOS the first one is
+/// the application menu and is titled with the app name whatever its label
+/// says — that is a platform rule, not a choice.
+using Menu = std::vector<MenuItem>;
+
+// ─── Accelerators ─────────────────────────────────────────────────────
+
+/// A parsed accelerator. `key` is the normalized key token ("S", "F5",
+/// "Enter", "["), uppercased for letters; empty when the string had no key.
+struct Accelerator {
+    bool        ctrl{false};
+    bool        shift{false};
+    bool        alt{false};
+    /// Command on macOS, the Windows/Super key elsewhere.
+    bool        super{false};
+    std::string key;
+
+    [[nodiscard]] bool valid() const noexcept { return !key.empty(); }
+};
+
+/// Parse an Electron-style accelerator ("Shift+CmdOrCtrl+Z").
+///
+/// `CmdOrCtrl`/`CommandOrControl` resolves to Command on macOS and Control
+/// elsewhere — the point of the token is that an app writes the shortcut once.
+/// `Cmd`/`Command`/`Super`/`Meta` are Command; `Ctrl`/`Control`; `Alt`/`Option`;
+/// `Shift`. Unknown tokens are treated as the key. Returns an Accelerator whose
+/// `valid()` is false when no key was found.
+[[nodiscard]] Accelerator parse_accelerator(std::string_view spec);
+
+/// Human-readable text for a drawn menu's shortcut column. On macOS this is
+/// the glyph form ("⇧⌘Z"); elsewhere the spelled form ("Ctrl+Shift+Z").
+[[nodiscard]] std::string accelerator_text(const Accelerator& accel);
+
+}  // namespace affineui
+
+// ────────────────────────────────────────────────────────────────────────
 // include/affineui/embed.h
 // ────────────────────────────────────────────────────────────────────────
 
@@ -3245,6 +3454,27 @@ public:
     bool remove_attribute_by_id(std::string_view elem_id,
                                 std::string_view name);
 
+    /// The computed value of a CSS custom property on the element currently
+    /// under the cursor, or empty. Because custom properties inherit, the
+    /// deepest hovered element's value already accounts for its ancestors —
+    /// which is what makes `--affineui-app-region: no-drag` on a button inside
+    /// a `drag` title bar resolve correctly with a single lookup.
+    [[nodiscard]] std::string hovered_css_var(std::string_view name) const;
+
+    /// Set the inline style on the document root (`:root`), replacing it.
+    /// Custom properties written here inherit into the whole tree, which is
+    /// what the App uses to publish the platform's window-chrome geometry to
+    /// CSS (`--affineui-titlebar-area-*`) — the same job the Window Controls
+    /// Overlay's `env(titlebar-area-*)` does on the web. Reserved for the
+    /// library: an app that writes here will have it overwritten.
+    bool set_root_css_vars(std::string_view decls);
+
+    /// Set an attribute on the document root. The App stamps
+    /// `data-affineui-platform="macos|windows|linux"` here, because CSS custom
+    /// properties cannot be used in selectors — a stylesheet that needs to
+    /// differ per OS (a taller bar on macOS, say) selects on this.
+    bool set_root_attribute(std::string_view name, std::string_view value);
+
     /// Replace textContent for a leaf element with `id`.
     bool set_text_by_id(std::string_view elem_id, std::string_view text);
 
@@ -4856,6 +5086,22 @@ enum class DockCorner { TopLeft, TopRight, BottomLeft, BottomRight };
 class View;  // for DockHandle::toolbar (defined out-of-line in view.cpp)
 namespace detail { class ViewLifetime; }
 
+/// The class View::menu_bar puts on the APPLICATION menubar — the first menubar
+/// a build declares, the one whose menus the macOS system bar takes over.
+///
+/// Whether those menus are currently showing natively is NOT decided here. The
+/// bar always draws its triggers, and the stylesheet hides them when the root
+/// carries `data-affineui-native-menus="1"` (which App sets from set_menu). That
+/// keeps it a pure restyle: an app can declare its menu before or after it builds
+/// its view and get the same result either way — which matters because a
+/// load_view() app builds its DOM exactly once, so anything decided at build time
+/// would be frozen at whatever the answer happened to be then.
+///
+/// A menubar nested elsewhere in the UI (a viewport's own View/Add strip) never
+/// gets this class: it is a contextual in-window menu, not the application menu,
+/// and always keeps drawing.
+inline constexpr std::string_view kAppMenubarClass{"aui-menubar--app"};
+
 /// A handle to a declared dockable — usable as another dockable's parent and
 /// as the target of the container's runtime add/remove API.
 struct DockHandle {
@@ -4956,6 +5202,14 @@ struct WidgetNode {
     std::string text;
     std::vector<WidgetAttribute> attrs;
     std::vector<WidgetNode> children;
+
+    // True on the APPLICATION menubar — the first menu_bar() a build declares,
+    // whose menus the macOS system bar takes over. menu_button() hides its
+    // triggers there and only there: a menubar nested elsewhere in the UI (a
+    // viewport's own View/Add strip) is a contextual in-window menu and must
+    // keep drawing. Marked on the node rather than inferred from depth, because
+    // a contextual bar can sit at the same depth as the app's. Not serialized.
+    bool app_menubar{false};
 
     // Reconcile cursor, reset at the start of each visit. Public so debug
     // inspectors can show the machinery plainly; user code should treat it as
@@ -5298,6 +5552,7 @@ public:
     [[nodiscard]] ViewTheme theme() const noexcept { return theme_; }
     void set_theme(ViewTheme theme) noexcept { theme_ = theme; }
 
+
     /// Declare the CSS framework version this view targets (e.g. "0.5.2" for
     /// Decius, "5.3.8" for Bootstrap). The stylesheet href derives from it and
     /// it is stamped on the document root as data-aui-framework-version so the
@@ -5562,6 +5817,18 @@ public:
     WidgetRef menu_meta(std::string_view text,
                         std::string_view key = {},
                         std::source_location here = std::source_location::current());
+
+    /// The name of the document being edited, centered in the bar — the thing a
+    /// title bar shows. It is a WINDOW-title concern, not a menu one: it just
+    /// happens to live in the same strip, because that strip is the title bar
+    /// once the window has none of its own.
+    ///
+    /// Centered on the WINDOW, not between its neighbours, so it stays put as
+    /// the brand and the status bits change width. Out of the row's flow, so
+    /// declare it anywhere inside the bar.
+    WidgetRef document_title(std::string_view text,
+                             std::string_view key = {},
+                             std::source_location here = std::source_location::current());
 
     /// A dockable panel: titled tab bar + body. `title` shows on the tab;
     /// `tabpanel_id` is the body's id (also the tab's target). Fill the body.
@@ -5881,6 +6148,15 @@ private:
     // aui-root--shell document class: shells render edge-to-edge (no demo
     // padding, flush rows); content pages keep the padded, gapped stack.
     bool root_app_shell_{false};
+    // True when the platform's own menu bar is showing this app's menus (the
+    // macOS system bar). The drawn menubar still builds — apps put their brand
+    // and status bits in it, and it doubles as the custom title bar — but its
+    // menu TRIGGERS are hidden, because File/Edit/View now live at the top of
+    // the screen and showing both would be showing the menus twice. Set by
+    // App from Config::native_menus; see App::set_menu.
+    // Set once the build has declared its application menubar (the first
+    // menu_bar()), so later, nested menubars are recognized as contextual.
+    bool seen_app_menubar_{false};
     // True when any node's attrs were mutated this pass — end() then runs
     // one flush walk emitting the coalesced per-node attribute diffs.
     bool attr_coalesce_dirty_{false};
@@ -7287,6 +7563,26 @@ private:
     friend class App;
 };
 
+/// How the window's title bar is drawn. Named as in Electron's
+/// `titleBarStyle` (plus Frameless for its `frame: false`), so the vocabulary
+/// carries over. See App::Config::titlebar.
+enum class TitleBarStyle {
+    /// The OS draws its title bar and window buttons; the app draws below it.
+    Default,
+    /// No system title bar — the content fills the window and the app draws
+    /// its own bar. The OS window buttons (macOS traffic lights) are still
+    /// shown and still work; move them with Config::traffic_light_position.
+    Hidden,
+    /// As Hidden, with the macOS traffic lights inset further from the corner.
+    HiddenInset,
+    /// No system title bar AND no system window buttons: the app draws the
+    /// close/minimize/maximize controls itself and drives them with
+    /// App::close() / minimize() / toggle_maximize(). Electron's `frame:false`.
+    /// Don't pick this unless you are actually drawing the buttons — otherwise
+    /// the window cannot be closed except with Cmd-Q.
+    Frameless,
+};
+
 class App {
 public:
     struct Config {
@@ -7311,6 +7607,47 @@ public:
         // Called after an interaction changed the dock layout (e.g. a splitter
         // drag). The app reads document().dock_pane_sizes() and persists them.
         std::function<void()> on_layout_changed{};
+        // ─── Platform chrome ──────────────────────────────────────────
+        // Native application menus. ON by default: on macOS every real app is
+        // expected to own the system menu bar (the bar lives at the top of the
+        // SCREEN — an app cannot draw it), and without a menu bar there is no
+        // Quit item, which means Cmd-Q does not work at all. So the default
+        // has to be native.
+        //
+        // Set false to opt out: no NSMenu is installed and the app keeps the
+        // in-window bar it draws itself (View::menu_bar). Apps that want their
+        // menus inside a custom title bar on every platform want this.
+        //
+        // No effect off macOS today — the drawn bar is still the only bar
+        // there — but the menu model set via set_menu() is platform-neutral, so
+        // this flag is where a native Win32/GTK bar would hang later.
+        bool        native_menus{true};
+
+        // Window chrome, named as in Electron's `titleBarStyle` so the
+        // vocabulary carries over.
+        //
+        //   Default    — the OS draws its title bar; the app draws underneath.
+        //   Hidden     — no system title bar. The content view fills the whole
+        //                window and the app draws its own bar. On macOS the
+        //                traffic lights still float over the content (moveable
+        //                via traffic_light_position); the window is still
+        //                resizable from its edges.
+        //   HiddenInset— as Hidden, with the macOS traffic lights inset a
+        //                little further from the corner.
+        //
+        // A Hidden window needs the app to mark its own drag region, or the
+        // window cannot be moved: any element carrying the CSS declaration
+        // `-affineui-app-region: drag` behaves like a title bar (click-drag
+        // moves the window, double-click zooms). Interactive children inside it
+        // — buttons, menu triggers — must opt back out with `no-drag`. This
+        // mirrors Electron's `-webkit-app-region`.
+        TitleBarStyle titlebar{TitleBarStyle::Default};
+
+        // macOS only: where the traffic lights sit, in logical points from the
+        // window's top-left. Zero means "platform default for the chosen
+        // titlebar style". Ignored when titlebar is Default.
+        Point       traffic_light_position{};
+
         // Runtime opt-out for the compile-time bundled Decius resources.
         // The bundle is ON by default (this flag is false); set it to
         // true to disable — no auto-applied stylesheet, no fallback-to-
@@ -7465,8 +7802,73 @@ public:
     /// Convenience: install a view fn and run() in one call.
     int run(std::function<void()> view_fn);
 
-    /// Request the loop to exit cleanly after the current frame.
+    /// Request the loop to exit cleanly after the current frame. This is the
+    /// app's own decision, so it does NOT run the close-request handler —
+    /// quit() means quit.
     void quit(int code = 0);
+
+    // ─── Close requests ───────────────────────────────────────────────
+
+    /// Install the handler for an inbound close request — the window's close
+    /// button, Cmd-Q / Alt-F4, the menu's Quit item, a system logout, a
+    /// Close control the app drew itself. Return false to CANCEL the close
+    /// (the Electron `win.on('close', e => e.preventDefault())` shape).
+    ///
+    /// This is the one veto point, so it is also the one place an editor gets
+    /// to say "you have unsaved changes":
+    ///
+    ///     app.on_close_request([&] {
+    ///         if (!doc.dirty()) return true;
+    ///         prompt_save();      // async: cancel now, quit() when resolved
+    ///         return false;
+    ///     });
+    ///
+    /// With no handler installed a close request always proceeds. The handler
+    /// runs on the UI thread, before any teardown; App::quit() bypasses it.
+    void on_close_request(std::function<bool()> cb);
+
+    // ─── Menus ────────────────────────────────────────────────────────
+
+    /// Install (or replace) the application menu. Safe to call at any time,
+    /// including from a menu callback — a menu that shows checked/enabled
+    /// state is expected to be rebuilt and re-set as that state changes, the
+    /// same way the view is.
+    ///
+    /// On macOS this becomes the system menu bar (NSApp.mainMenu). It is
+    /// ignored when Config::native_menus is false, and off macOS today, where
+    /// the drawn View::menu_bar remains the only bar.
+    ///
+    /// Supplying a menu is also what tells the drawn menubar that its menu
+    /// TRIGGERS have moved to the system bar and should stop drawing (the rest
+    /// of the bar — brand, status, document_title — keeps drawing). An app that
+    /// never calls this keeps its drawn menus, so adopting native menus is
+    /// opt-in and nothing silently loses its menus.
+    ///
+    /// Order does not matter: the drawn bar always emits its triggers and the
+    /// stylesheet hides them, so this works before or after the view is built.
+    void set_menu(Menu menu);
+
+    /// The menu last passed to set_menu().
+    [[nodiscard]] const Menu& menu() const noexcept;
+
+    // ─── Window controls ──────────────────────────────────────────────
+    // The operations a title bar's buttons perform. An app running with
+    // TitleBarStyle::Frameless draws its own close/minimize/maximize and wires
+    // them to these; they are the Electron `win.close()/minimize()/maximize()`
+    // set, and they work regardless of who painted the button.
+
+    /// Ask to close the window. Runs the close-request handler first, so this
+    /// is cancellable — an app-drawn close button gets save-on-exit for free.
+    /// (App::quit() is the uncancellable form.)
+    void close();
+
+    void minimize();
+    /// Toggle zoomed/maximized, as the OS's own button does.
+    void toggle_maximize();
+    [[nodiscard]] bool is_maximized() const;
+
+    void set_fullscreen(bool on);
+    [[nodiscard]] bool is_fullscreen() const;
 
     // ─── Embed API ────────────────────────────────────────────────────
     // For hosts that own their own pulse (game engine, editor host, etc.)
@@ -8125,11 +8527,18 @@ AFFINEUI_C_API void affineui_tools_shutdown(void);
 // wrapper can see all bump this. Wrappers pin the version they were written
 // against; a mismatch in either direction is a hard error at load.
 //
+// 4: native menus + window chrome. affineui_app_config GREW four fields
+//    (native_menus, titlebar, traffic_light_x/y) — a caller compiled against
+//    version 3 passes a shorter struct, and the core would read past its end, so
+//    this bump is load-bearing, not bookkeeping. Also: the affineui_menu builder
+//    and affineui_app_set_menu, affineui_app_on_close_request, the window
+//    controls (close/minimize/toggle_maximize/is_maximized/(set|is)_fullscreen),
+//    and affineui_view_document_title.
 // 3: docking (affineui_view_document_view / document / dockpanel / dock_toolbar,
 //    the four dock providers, the Document dock readback), and a user_free
 //    parameter added to the three deferred dock builders.
 // 2: baseline.
-#define AFFINEUI_C_ABI_VERSION 3
+#define AFFINEUI_C_ABI_VERSION 4
 
 AFFINEUI_C_API int         affineui_c_abi_version(void);
 
@@ -8264,7 +8673,27 @@ typedef struct affineui_app_config {
     // user assets. Ignored when affineui_c was built with
     // -DAFFINEUI_NO_BUNDLE_DECIUS.
     int                no_bundle_decius;     // 0/1, default 0
+    // Native application menus (the macOS system menu bar). 1 (default) → the
+    // menu set with affineui_app_set_menu() becomes the system bar, and the
+    // drawn menubar hides its triggers. 0 → opt out and keep the drawn bar.
+    // Default is ON because without a menu bar there is no Quit item, and so
+    // Cmd-Q cannot work at all.
+    int                native_menus;         // 0/1, default 1
+    // Window chrome; see affineui_titlebar_style. Default 0 (system title bar).
+    int                titlebar;             // affineui_titlebar_style
+    // macOS: traffic-light position in logical points from the window's
+    // top-left. {0,0} → the platform default for the chosen style.
+    int                traffic_light_x, traffic_light_y;
 } affineui_app_config;
+
+// How the window's title bar is drawn. Named as in Electron's titleBarStyle
+// (plus Frameless for its `frame: false`). See affineui::TitleBarStyle.
+typedef enum affineui_titlebar_style {
+    AFFINEUI_TITLEBAR_DEFAULT      = 0,  // the OS draws its title bar
+    AFFINEUI_TITLEBAR_HIDDEN       = 1,  // no title bar; OS buttons still shown
+    AFFINEUI_TITLEBAR_HIDDEN_INSET = 2,  // as HIDDEN, buttons inset further
+    AFFINEUI_TITLEBAR_FRAMELESS    = 3,  // no title bar and no OS buttons
+} affineui_titlebar_style;
 
 AFFINEUI_C_API void affineui_app_config_init(affineui_app_config* cfg);
 
@@ -8299,7 +8728,114 @@ AFFINEUI_C_API void affineui_app_on_event_capture(
 
 // Runs the native loop on the calling thread; returns the OS exit code.
 AFFINEUI_C_API int  affineui_app_run(affineui_app* app);
+// Quit unconditionally. Does NOT run the close-request handler: quit means quit.
 AFFINEUI_C_API void affineui_app_quit(affineui_app* app, int code);
+
+// ─── Close requests ───────────────────────────────────────────────────
+// The one veto point for "close this app": the window's close button, Cmd-Q,
+// the menu's Quit, and a close button the app drew itself all run it.
+
+// Return 0 to CANCEL the close, non-zero to let it proceed (the Electron
+// `e.preventDefault()` shape). Pass fn = NULL to clear.
+typedef int (*affineui_close_request_fn)(void* user);
+AFFINEUI_C_API void affineui_app_on_close_request(
+    affineui_app* app,
+    affineui_close_request_fn fn,
+    void* user,
+    affineui_user_free_fn user_free);
+
+// ─── Window controls ──────────────────────────────────────────────────
+// What a title bar's buttons do. An app drawing its own close/minimize/maximize
+// (AFFINEUI_TITLEBAR_FRAMELESS) wires them to these.
+
+// Ask to close: runs the close-request handler, so this is cancellable.
+AFFINEUI_C_API void affineui_app_close(affineui_app* app);
+AFFINEUI_C_API void affineui_app_minimize(affineui_app* app);
+AFFINEUI_C_API void affineui_app_toggle_maximize(affineui_app* app);
+AFFINEUI_C_API int  affineui_app_is_maximized(const affineui_app* app);
+AFFINEUI_C_API void affineui_app_set_fullscreen(affineui_app* app, int on);
+AFFINEUI_C_API int  affineui_app_is_fullscreen(const affineui_app* app);
+
+// ─── Application menu ─────────────────────────────────────────────────
+// A build-then-install builder, because the model is a tree and the C ABI is
+// not. Build with affineui_menu_create() + the add_* calls, hand it to
+// affineui_app_set_menu() (which COPIES it), then destroy it.
+//
+//   affineui_menu* bar  = affineui_menu_create();
+//   affineui_menu* file = affineui_menu_add_submenu(bar, "File");
+//   affineui_menu_add_item(file, "New", "CmdOrCtrl+N", on_new, ctx, NULL);
+//   affineui_menu_add_role(file, AFFINEUI_MENU_ROLE_QUIT);
+//   affineui_app_set_menu(app, bar);
+//   affineui_menu_destroy(bar);
+//
+// Safe to call at any time: a menu that shows checked/enabled state is expected
+// to be rebuilt and re-set as that state changes.
+typedef struct affineui_menu affineui_menu;
+
+// Standard items whose label, accelerator and behavior the platform supplies.
+// Mirrors affineui::MenuRole.
+typedef enum affineui_menu_role {
+    AFFINEUI_MENU_ROLE_NONE = 0,
+    AFFINEUI_MENU_ROLE_ABOUT,
+    AFFINEUI_MENU_ROLE_SERVICES,
+    AFFINEUI_MENU_ROLE_HIDE,
+    AFFINEUI_MENU_ROLE_HIDE_OTHERS,
+    AFFINEUI_MENU_ROLE_UNHIDE,
+    AFFINEUI_MENU_ROLE_PREFERENCES,
+    AFFINEUI_MENU_ROLE_QUIT,
+    AFFINEUI_MENU_ROLE_UNDO,
+    AFFINEUI_MENU_ROLE_REDO,
+    AFFINEUI_MENU_ROLE_CUT,
+    AFFINEUI_MENU_ROLE_COPY,
+    AFFINEUI_MENU_ROLE_PASTE,
+    AFFINEUI_MENU_ROLE_SELECT_ALL,
+    AFFINEUI_MENU_ROLE_MINIMIZE,
+    AFFINEUI_MENU_ROLE_ZOOM,
+    AFFINEUI_MENU_ROLE_CLOSE,
+    AFFINEUI_MENU_ROLE_TOGGLE_FULLSCREEN,
+} affineui_menu_role;
+
+typedef void (*affineui_menu_select_fn)(void* user);
+
+AFFINEUI_C_API affineui_menu* affineui_menu_create(void);
+AFFINEUI_C_API void           affineui_menu_destroy(affineui_menu* menu);
+
+// A submenu. The returned handle is OWNED BY `parent` — add into it, but do not
+// destroy it. For a top-level menu bar, the direct children of the root menu are
+// the bar's menus; on macOS the FIRST one is the application menu and takes the
+// app's name whatever its label says (a platform rule).
+AFFINEUI_C_API affineui_menu* affineui_menu_add_submenu(affineui_menu* parent,
+                                                        const char* label);
+
+// `accelerator` is Electron-style ("CmdOrCtrl+S"); NULL or "" for none.
+AFFINEUI_C_API void affineui_menu_add_item(affineui_menu* menu,
+                                           const char* label,
+                                           const char* accelerator,
+                                           affineui_menu_select_fn fn,
+                                           void* user,
+                                           affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_menu_add_check(affineui_menu* menu,
+                                            const char* label,
+                                            int checked,
+                                            const char* accelerator,
+                                            affineui_menu_select_fn fn,
+                                            void* user,
+                                            affineui_user_free_fn user_free);
+AFFINEUI_C_API void affineui_menu_add_separator(affineui_menu* menu);
+AFFINEUI_C_API void affineui_menu_add_role(affineui_menu* menu,
+                                           affineui_menu_role role);
+
+// A solid color chip in the leading gutter of the LAST item added — accent
+// pickers and the like. This is how a row a drawn menu would custom-paint
+// survives into a native menu, as a real image rather than a custom view.
+AFFINEUI_C_API void affineui_menu_set_swatch(affineui_menu* menu,
+                                             affineui_color color);
+// Enable/disable the LAST item added (1 = enabled, the default).
+AFFINEUI_C_API void affineui_menu_set_enabled(affineui_menu* menu, int enabled);
+
+// Install (or replace) the application menu. `menu` is copied; NULL clears.
+AFFINEUI_C_API void affineui_app_set_menu(affineui_app* app,
+                                          const affineui_menu* menu);
 
 AFFINEUI_C_API void  affineui_app_window_size(const affineui_app* app, int* out_w, int* out_h);
 AFFINEUI_C_API void  affineui_app_framebuffer_size(const affineui_app* app, int* out_w, int* out_h);
@@ -8828,6 +9364,10 @@ AFFINEUI_C_API affineui_widget* affineui_view_menu_brand(affineui_view* view,
                                                          const char* key);
 AFFINEUI_C_API affineui_widget* affineui_view_menu_spacer(affineui_view* view,
                                                           const char* key);
+// The document being edited, centered in the bar — what a title bar shows.
+AFFINEUI_C_API affineui_widget* affineui_view_document_title(affineui_view* view,
+                                                             const char* text,
+                                                             const char* key);
 AFFINEUI_C_API affineui_widget* affineui_view_menu_meta(affineui_view* view,
                                                         const char* text,
                                                         const char* key);
@@ -42370,75 +42910,11 @@ _SOKOL_PRIVATE void _sapp_macos_frame(void) {
     }
 }
 
-/* AFFINEUI PATCH (menu) — TEMPORARY, see affineui#61 / affineui#60.
-   Target for the Quit menu item. A menu item needs a target that responds to
-   its action selector; NSApp's own terminate: would kill the process without
-   running sokol's cleanup, so we route to sapp_request_quit() instead — the
-   same path a programmatic quit takes, which unwinds cleanly (cleanup_cb,
-   sg_shutdown) and would give the app a veto point once #60 exists. */
-@interface _sapp_macos_quit_target : NSObject
-- (void)affineuiQuit:(id)sender;
-@end
-@implementation _sapp_macos_quit_target
-- (void)affineuiQuit:(id)sender {
-    _SOKOL_UNUSED(sender);
-    sapp_request_quit();
-}
-@end
-
-/* AFFINEUI PATCH (menu) — TEMPORARY, see affineui#61 / affineui#60.
-   The minimum macOS menu bar that makes Cmd-Q work. Only the application menu,
-   only a Quit item. Anything richer belongs in the real menu model (#61). */
-_SOKOL_PRIVATE void _sapp_macos_install_minimal_menu(void) {
-    if (NSApp.mainMenu != nil) {
-        return;     /* an embedding host already installed one — don't stomp it */
-    }
-    /* Leaked deliberately: it must outlive the menu, and it lives for the whole
-       process. sokol is not ARC-compiled, so there is no strong ref to hold it
-       for us. */
-    _sapp_macos_quit_target* target = [[_sapp_macos_quit_target alloc] init];
-
-    NSString* app_name = [NSString stringWithUTF8String:_sapp.window_title];
-    if (app_name.length == 0) {
-        app_name = @"App";
-    }
-
-    NSMenu* menubar = [[NSMenu alloc] init];
-    NSMenuItem* app_item = [[NSMenuItem alloc] init];
-    [menubar addItem:app_item];
-    [NSApp setMainMenu:menubar];
-
-    NSMenu* app_menu = [[NSMenu alloc] init];
-    NSMenuItem* quit_item = [[NSMenuItem alloc]
-        initWithTitle:[@"Quit " stringByAppendingString:app_name]
-               action:@selector(affineuiQuit:)
-        keyEquivalent:@"q"];
-    quit_item.keyEquivalentModifierMask = NSEventModifierFlagCommand;
-    quit_item.target = target;      /* explicit: don't rely on the responder chain */
-    [app_menu addItem:quit_item];
-    [app_item setSubmenu:app_menu];
-}
-
 @implementation _sapp_macos_app_delegate
 - (void)applicationDidFinishLaunching:(NSNotification*)aNotification {
     _SOKOL_UNUSED(aNotification);
     // NOTE: keep activationPolicy in front of window creation (see https://github.com/floooh/sokol/issues/1500)
     NSApp.activationPolicy = NSApplicationActivationPolicyRegular;
-    /* AFFINEUI PATCH (menu) — TEMPORARY. Remove when the real menu model lands.
-       See affineui#61 (native menu bar) and affineui#60 (close-request model).
-
-       sokol builds no NSMenu at all. On macOS Cmd-Q is not a key the app sees:
-       it is the key equivalent of the Quit item in the application menu, and
-       with no menu bar there is no item, so the keystroke goes nowhere and the
-       app simply cannot be quit with Cmd-Q. That blocks shipping anything real.
-
-       This installs the minimum menu that makes Cmd-Q work. It is deliberately
-       NOT the full menu model: no File/Edit/Window, no app-supplied items, and
-       the app cannot intercept or veto the quit (that needs #60). Quit routes
-       through sapp_request_quit() rather than [NSApp terminate:] so sokol's
-       normal shutdown runs (cleanup_cb, sg_shutdown) instead of the process
-       being torn down under the renderer. */
-    _sapp_macos_install_minimal_menu();
     _sapp_macos_init_cursors();
     if ((_sapp.window_width == 0) || (_sapp.window_height == 0)) {
         _sapp_macos_init_default_dimensions();

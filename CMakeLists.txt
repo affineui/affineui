@@ -153,7 +153,9 @@ target_sources(affineui PRIVATE
     src/framework/app/app.cpp
     src/framework/app/event.cpp
     src/framework/app/automation.cpp
+    src/framework/app/menu.cpp
     src/framework/app/view.cpp
+    src/platform/platform_stub.cpp
     src/renderer/dom/document_core.cpp
     src/renderer/dom/document_controls.cpp
     src/renderer/dom/document_dispatch.cpp
@@ -334,6 +336,11 @@ endif()
 # Platform link libs that sokol_app + NanoVG (GL backend) need.
 # Frameworks/libs are picked to match the resolved backend.
 if(APPLE)
+    # The macOS shell: system menu bar + window chrome (affineui#60/#61/#62).
+    # Objective-C++ so it can hold the std::functions the menu model carries.
+    target_sources(affineui PRIVATE src/platform/macos/platform_mac.mm)
+    set_source_files_properties(src/platform/macos/platform_mac.mm
+        PROPERTIES COMPILE_FLAGS "-fobjc-arc")
     target_link_libraries(affineui PUBLIC
         "-framework Cocoa"
         "-framework QuartzCore"

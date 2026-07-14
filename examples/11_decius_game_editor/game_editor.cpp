@@ -185,6 +185,7 @@ void GameEditor::set_density(std::string_view density) {
     if (density_ == density) return;
     density_ = std::string(density);
     save_settings();
+    build_native_menu();  // the check mark moved
     reload();
 }
 
@@ -192,6 +193,7 @@ void GameEditor::set_accent(std::string_view accent) {
     if (accent_ == accent) return;
     accent_ = std::string(accent);
     save_settings();
+    build_native_menu();  // the check mark moved
     reload();
 }
 
@@ -202,6 +204,12 @@ affineui::App::Config GameEditor::config() {
     cfg.height = 900;
     cfg.clear_color = affineui::Color{0x14, 0x16, 0x1c, 0xff};
     cfg.high_dpi = true;
+    // A DCC tool owns the whole window: no OS title bar, the drawn menubar IS
+    // the title bar. It drags the window and pads itself around the traffic
+    // lights automatically (--affineui-titlebar-inset-*), so nothing here has
+    // to know where they are. Menus go to the macOS system bar; see set_menu()
+    // in run(), and the drawn File/Edit/View triggers hide themselves there.
+    cfg.titlebar = affineui::TitleBarStyle::HiddenInset;
     // The build copies frameworks/ next to the exe (so "." works when run from
     // the build dir); "examples" also works when run from the repo root.
     cfg.asset_folders = {".", "examples"};
@@ -224,6 +232,7 @@ void GameEditor::save_dock_layout() {
 }
 
 int GameEditor::run() {
+    build_native_menu();
     reload();
     // Load styles directly at init (the app template's versioned loader) rather
     // than relying on <link> resolution, which is sensitive to the working
@@ -237,7 +246,105 @@ int GameEditor::run() {
     // Pass the bundle's base URL so its url()s (the decius-icons font, etc.)
     // resolve relative to the sheet — the same way a <link>ed sheet resolves.
     app_.set_stylesheet(css, bundle_base);
+    // Save-on-exit. The one veto point: the traffic-light close button, Cmd-Q,
+    // and the menu's Quit all run this before anything tears down.
+    app_.on_close_request([this] {
+        if (!ctx_.document().dirty()) return true;
+        std::fprintf(stderr,
+                     "[game_editor] unsaved changes — a real app would prompt "
+                     "here and return false to cancel the quit\n");
+        return true;
+    });
     return app_.run();
+}
+
+// The application menu. Declared once, in the platform-neutral model: on macOS
+// this becomes the system menu bar at the top of the screen, and the drawn
+// File/Edit/View triggers in our own menubar hide themselves because these are
+// the same menus. Roles (Quit, Undo, Cut/Copy/Paste, Minimize) carry their own
+// standard labels and accelerators — we don't restate them.
+void GameEditor::build_native_menu() {
+    using affineui::MenuItem;
+    using affineui::MenuRole;
+
+    app_.set_menu({
+        MenuItem::sub("", {MenuItem::role(MenuRole::About),
+                           MenuItem::separator(),
+                           MenuItem::role(MenuRole::Services),
+                           MenuItem::separator(),
+                           MenuItem::role(MenuRole::Hide),
+                           MenuItem::role(MenuRole::HideOthers),
+                           MenuItem::separator(),
+                           MenuItem::role(MenuRole::Quit)}),
+        MenuItem::sub(
+            "File",
+            {
+                MenuItem::item("New Scene", "CmdOrCtrl+N", [this] { reload(); }),
+                MenuItem::item("Open Scene…", "CmdOrCtrl+O"),
+                MenuItem::item("Save Scene", "CmdOrCtrl+S"),
+                MenuItem::separator(),
+                MenuItem::sub("Export As", {MenuItem::item("glTF"),
+                                            MenuItem::item("FBX"),
+                                            MenuItem::item("USD")}),
+            }),
+        MenuItem::sub(
+            "Edit",
+            {
+                MenuItem::item("Undo", "CmdOrCtrl+Z", [this] { undo(); }),
+                MenuItem::item("Redo", "Shift+CmdOrCtrl+Z", [this] { redo(); }),
+                MenuItem::separator(),
+                MenuItem::item("Duplicate", "CmdOrCtrl+D",
+                               [this] { duplicate_selected(); }),
+                MenuItem::item("Delete", "Delete",
+                               [this] { delete_selected(); }),
+            }),
+        MenuItem::sub("View", build_view_menu()),
+        MenuItem::sub("Window", MenuItem::window_menu()),
+    });
+}
+
+// The View menu carries state, so it is rebuilt and re-set whenever that state
+// changes — the check marks and the accent swatches ARE the state. This is the
+// same shape as the drawn menu's custom rows: checked items and color chips,
+// expressed as data, so they survive into a native NSMenu as real check marks
+// and real images instead of needing a custom-drawn view.
+std::vector<affineui::MenuItem> GameEditor::build_view_menu() {
+    using affineui::MenuItem;
+    std::vector<MenuItem> density;
+    for (const auto d : {affineui::decius::density::compact,
+                         affineui::decius::density::comfortable,
+                         affineui::decius::density::spacious}) {
+        density.push_back(MenuItem::check(std::string(d), density_ == d, {},
+                                          [this, d] { set_density(d); }));
+    }
+    // The drawn menu paints its swatch with the framework's own --dcs-accent,
+    // so the color always tracks decius.css. A native NSMenu cannot read CSS,
+    // so the RGB has to cross the boundary as data — these are the bundle's
+    // [data-dcs-accent=…] values. That duplication is the real cost of going
+    // native, and it is confined to this table.
+    struct Swatch {
+        const char*     name;
+        affineui::Color color;
+    };
+    static constexpr Swatch kAccents[] = {
+        {"cyan", {0x00, 0xb8, 0xd4, 0xff}},
+        {"teal", {0x2f, 0x9c, 0x93, 0xff}},
+        {"green", {0x3d, 0xd6, 0x8a, 0xff}},
+        {"orange", {0xff, 0x8a, 0x3a, 0xff}},
+        {"purple", {0x84, 0x66, 0xcf, 0xff}},
+        {"violet", {0x8b, 0x6d, 0xff, 0xff}},
+    };
+    std::vector<MenuItem> accents;
+    for (const auto& [name, color] : kAccents) {
+        MenuItem item = MenuItem::check(name, accent_ == name, {},
+                                        [this, n = std::string(name)] {
+                                            set_accent(n);
+                                        });
+        item.swatch = color;
+        accents.push_back(std::move(item));
+    }
+    return {MenuItem::sub("Density", std::move(density)),
+            MenuItem::sub("Accent", std::move(accents))};
 }
 
 void GameEditor::reload() {
@@ -501,8 +608,12 @@ void GameEditor::build_menubar(View& v) {
         m.menu_item("Bake Navmesh", "grid", {}, "mi-navmesh");
     }, "mb-build");
 
+    // The scene being edited, centered in the bar — this strip is the window's
+    // title bar now, and that is what a title bar shows.
+    v.document_title(std::string(ctx_.document().title()), "mb-title");
+
     v.menu_spacer("mb-spacer");
-    v.menu_meta("Scene: " + std::string(ctx_.document().title()), "mb-meta");
+    v.menu_meta(ctx_.document().dirty() ? "Edited" : "", "mb-meta");
 }
 
 namespace {

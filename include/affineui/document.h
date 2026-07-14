@@ -265,6 +265,27 @@ public:
     bool remove_attribute_by_id(std::string_view elem_id,
                                 std::string_view name);
 
+    /// The computed value of a CSS custom property on the element currently
+    /// under the cursor, or empty. Because custom properties inherit, the
+    /// deepest hovered element's value already accounts for its ancestors —
+    /// which is what makes `--affineui-app-region: no-drag` on a button inside
+    /// a `drag` title bar resolve correctly with a single lookup.
+    [[nodiscard]] std::string hovered_css_var(std::string_view name) const;
+
+    /// Set the inline style on the document root (`:root`), replacing it.
+    /// Custom properties written here inherit into the whole tree, which is
+    /// what the App uses to publish the platform's window-chrome geometry to
+    /// CSS (`--affineui-titlebar-area-*`) — the same job the Window Controls
+    /// Overlay's `env(titlebar-area-*)` does on the web. Reserved for the
+    /// library: an app that writes here will have it overwritten.
+    bool set_root_css_vars(std::string_view decls);
+
+    /// Set an attribute on the document root. The App stamps
+    /// `data-affineui-platform="macos|windows|linux"` here, because CSS custom
+    /// properties cannot be used in selectors — a stylesheet that needs to
+    /// differ per OS (a taller bar on macOS, say) selects on this.
+    bool set_root_attribute(std::string_view name, std::string_view value);
+
     /// Replace textContent for a leaf element with `id`.
     bool set_text_by_id(std::string_view elem_id, std::string_view text);
 

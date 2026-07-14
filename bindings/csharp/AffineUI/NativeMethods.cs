@@ -68,6 +68,9 @@ internal struct NativeAppConfig
     public nuint AssetFolderCount;
     public int PerfOverlay;
     public int NoBundleDecius;
+    public int NativeMenus;            // 0/1, default 1
+    public int Titlebar;               // affineui_titlebar_style
+    public int TrafficLightX, TrafficLightY;
 }
 
 /// <summary>Mirrors <c>affineui_gpu_context</c>.</summary>
@@ -255,6 +258,78 @@ internal static partial class NativeMethods
 
     [LibraryImport(Lib)]
     internal static partial void affineui_app_quit(IntPtr app, int code);
+
+    /// <remarks>The handler returns 0 to CANCEL the close; fn = null clears it.</remarks>
+    [LibraryImport(Lib)]
+    internal static partial void affineui_app_on_close_request(
+        IntPtr app, IntPtr fn, IntPtr user, IntPtr userFree);
+
+    // ── c_api_app.h — Window controls ────────────────────────────────────
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_app_close(IntPtr app);
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_app_minimize(IntPtr app);
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_app_toggle_maximize(IntPtr app);
+
+    [LibraryImport(Lib)]
+    internal static partial int affineui_app_is_maximized(IntPtr app);
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_app_set_fullscreen(IntPtr app, int on);
+
+    [LibraryImport(Lib)]
+    internal static partial int affineui_app_is_fullscreen(IntPtr app);
+
+    // ── c_api_app.h — Application menu ───────────────────────────────────
+    //
+    // A build-then-install builder: create a root menu, add into it, hand it to
+    // affineui_app_set_menu (which COPIES it), destroy it. The copy shares each
+    // item's (fn, user, user_free) closure, so a GCHandle passed here survives
+    // the builder's destruction and is released exactly once, when the core
+    // drops the last reference to the handler.
+
+    [LibraryImport(Lib)]
+    internal static partial IntPtr affineui_menu_create();
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_menu_destroy(IntPtr menu);
+
+    /// <remarks>The returned handle is OWNED BY <paramref name="parent"/> — add
+    /// into it, but never destroy it.</remarks>
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial IntPtr affineui_menu_add_submenu(IntPtr parent, string? label);
+
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial void affineui_menu_add_item(
+        IntPtr menu, string? label, string? accelerator,
+        IntPtr fn, IntPtr user, IntPtr userFree);
+
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial void affineui_menu_add_check(
+        IntPtr menu, string? label, int isChecked, string? accelerator,
+        IntPtr fn, IntPtr user, IntPtr userFree);
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_menu_add_separator(IntPtr menu);
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_menu_add_role(IntPtr menu, int role);
+
+    /// <remarks>Decorates the LAST item added.</remarks>
+    [LibraryImport(Lib)]
+    internal static partial void affineui_menu_set_swatch(IntPtr menu, NativeColor color);
+
+    /// <remarks>Decorates the LAST item added.</remarks>
+    [LibraryImport(Lib)]
+    internal static partial void affineui_menu_set_enabled(IntPtr menu, int enabled);
+
+    /// <remarks><paramref name="menu"/> is copied; IntPtr.Zero clears.</remarks>
+    [LibraryImport(Lib)]
+    internal static partial void affineui_app_set_menu(IntPtr app, IntPtr menu);
 
     [LibraryImport(Lib)]
     internal static partial void affineui_app_window_size(IntPtr app, out int outW, out int outH);
@@ -562,6 +637,11 @@ internal static partial class NativeMethods
 
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial IntPtr affineui_view_menu_spacer(IntPtr view, string? key);
+
+    /// <summary>The document being edited, centered in the bar — what a title
+    /// bar shows.</summary>
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial IntPtr affineui_view_document_title(IntPtr view, string? text, string? key);
 
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial IntPtr affineui_view_menu_meta(IntPtr view, string? text, string? key);

@@ -52,6 +52,9 @@ public:
     DenderApp();
 
     int run();
+    /// The native application menu (macOS system bar), in the platform-neutral
+    /// model. The drawn topbar keeps the logo and the workspace pickers.
+    void build_native_menu();
     /// Headless timing of the reload path (--profile): view rebuild vs
     /// load_view (serialize+reparse) vs forced layout, per interaction.
     int profile(int iterations);

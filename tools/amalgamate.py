@@ -61,6 +61,7 @@ PUBLIC_HEADERS = [
     "include/affineui/weak_ref.h",    # versioned weak refs; depends on types.h
     "include/affineui/callback.h",    # safe callbacks; depends on weak_ref.h
     "include/affineui/keymap.h",      # keybindings; depends on types.h
+    "include/affineui/menu.h",        # app menu model; depends on types.h
     "include/affineui/embed.h",       # depends only on types.h; before renderer/ui
     "include/affineui/memory.h",      # allocator seam + stats; depends on embed.h
     "include/affineui/log.h",         # diagnostics facility; depends on embed.h
@@ -98,6 +99,7 @@ INTERNAL_HEADERS = [
     "src/core/log_internal.h",
     "src/core/diag.h",              # TraceSpan + sampler; used by every renderer TU
     "src/c_api_util.h",             # shared by c_api.cpp / c_api_app.cpp
+    "src/platform/platform.h",      # window chrome + native menu seam
     "src/core/tools/json_reader.h",  # strict inbound tools protocol parser
     "src/core/tools/tools_commands.h",  # server↔app command bridge (tools_server / document_tools)
     "src/renderer/style/element_id.h",
@@ -146,7 +148,13 @@ ENGINE_SOURCES = [
     "src/framework/app/app.cpp",
     "src/framework/app/event.cpp",
     "src/framework/app/automation.cpp",
+    "src/framework/app/menu.cpp",
     "src/framework/app/view.cpp",
+    # The platform shell. affineui.cpp is already compiled as Objective-C++ on
+    # Apple (sokol_app's macOS backend is ObjC), so the .mm folds in as-is; each
+    # file guards itself on __APPLE__, so exactly one is live per platform.
+    "src/platform/macos/platform_mac.mm",
+    "src/platform/platform_stub.cpp",
     "src/renderer/dom/document_core.cpp",
     "src/renderer/dom/document_controls.cpp",
     "src/renderer/dom/document_dock.cpp",
@@ -234,7 +242,7 @@ REQUIRED_EXTERNAL_FILES = [
 # of these prefixes refers to a file that has already been inlined and
 # must be stripped from its referring TU.
 INTERNAL_PREFIXES = ("affineui/", "renderer/", "framework/", "core/",
-                     "c_api_util.h")
+                     "platform/", "c_api_util.h")
 INLINED_EXTERNAL_PREFIXES = (
     "lexbor/",
     "yoga/",

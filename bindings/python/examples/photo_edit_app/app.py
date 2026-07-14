@@ -99,6 +99,9 @@ class PhotoEditApp:
         self.doc_name = "Untitled-1"
         self.color_mode = "RGB/8"
         self.resolution = 72
+        # Where the core's history stood at the last save — the app's
+        # unsaved-changes answer (see dirty()), which on_close_request vetoes on.
+        self._saved_history_index = self.doc.history_index()
 
         self.tool = "brush"  # web boots with the brush tool
         self.tool_options: dict[str, dict[str, object]] = {
@@ -264,12 +267,25 @@ class PhotoEditApp:
             asset_folders=asset_roots,
             high_dpi=high_dpi,
             perf_overlay=perf,
+            # An image editor owns the whole window: no OS title bar — the
+            # drawn menubar IS the title bar. It pads itself around the macOS
+            # traffic lights automatically (--affineui-titlebar-inset-*), so
+            # nothing here has to know where they are.
+            titlebar=ui.TitleBarStyle.HiddenInset,
         )
         # The raster core owns the whole canvas render path (stage,
         # navigator, per-layer thumbnails) via custom-paint handlers.
         self.doc.attach(self.app)
         self.app.on_event(self._on_event)
         self.app.on_frame(self._on_frame)
+        # Declare the menus BEFORE the first build: on macOS they become the
+        # system menu bar, and that is also what tells the drawn menubar its
+        # File/Edit/… triggers have moved there (they hide themselves).
+        self.build_native_menu()
+        # Save-on-exit. The one veto point: the traffic-light close button,
+        # Cmd-Q and the menu's Quit item all run this before anything tears
+        # down. Returning False would cancel the quit.
+        self.app.on_close_request(self._on_close_request)
         # Install the stylesheet ONCE before the builder: set_stylesheet
         # re-bootstraps an already-installed view, so doing it first avoids a
         # redundant rebuild. Then hand the App the reconcile builder — every
@@ -285,8 +301,16 @@ class PhotoEditApp:
         self.app.launch(native=True)
 
     def _build_app(self, v: ui.View) -> None:
-        v.container(classes="dcs-menubar ps-menubar", key="ps-menubar",
-                    build=self._build_menubar)
+        # The app menubar (menu_bar, not a bare container): the FIRST one a
+        # build declares is the application bar, which is what lets its menu
+        # triggers hide themselves once the menus live in the macOS system bar.
+        # It is also the window's title bar here (titlebar=HiddenInset).
+        # add_class, not cls: cls() REPLACES the class list, which would drop the
+        # framework's own classes — including the one marking this as the
+        # application menubar, without which its triggers would keep drawing
+        # alongside the macOS system bar's copy of the same menus.
+        v.menu_bar(key="ps-menubar",
+                   build=self._build_menubar).add_class("ps-menubar")
         v.container(classes="ps-options", key="ps-options",
                     build=self._build_options_bar)
         v.container(classes="ps-body", key="ps-body", build=self._build_body)
@@ -306,17 +330,21 @@ class PhotoEditApp:
                         '<i class="di di-decius ps-brand__mark"></i>'
                         '<span class="ps-brand__name">Decius&nbsp;Photo'
                         "</span>"))
+        # menu_button() emits the trigger for the popup with that id (the
+        # popups themselves live in the ps-menu-host, below) — and hides it
+        # when the macOS system bar is already showing these same menus, so we
+        # never draw them twice.
         for menu in MENUS:
-            trigger = v.button(menu.label, key=f"trigger-{menu.id}")
-            trigger.cls("dcs-menubar__item")
-            trigger.attr("data-dcs-toggle", "menu")
-            trigger.attr("data-dcs-target", f"#{menu.id}")
-            trigger.attr("aria-expanded", "false")
+            v.menu_button(menu.label, menu.id, key=f"trigger-{menu.id}")
         v.container(classes="dcs-menubar__spacer", key="ps-menu-spacer")
+        # The open image's name, centered on the WINDOW — this strip is the
+        # title bar, and that is what a title bar shows. Zoom/mode stay in the
+        # right-hand meta slot.
+        v.document_title(self.doc_name, "ps-doc-title")
         v.container(classes="dcs-menubar__meta ps-doc-name",
                     key="ps-doc-name",
                     build=lambda m: m.html(
-                        f"<span>{escape(self.title_text())}</span>"))
+                        f"<span>{escape(self.meta_text())}</span>"))
         v.container(classes="dcs-divider dcs-divider--v",
                     key="ps-menubar-divider")
         cog = v.container(
@@ -369,6 +397,99 @@ class PhotoEditApp:
             ref.attr("id", menu.id)
             ref.attr("hidden", "")
             ref.on_change(self.menu_action)
+
+    # ── Native application menu ─────────────────────────────────────────────
+    # The same menus, declared once in the platform-neutral model. On macOS
+    # this becomes the SYSTEM menu bar (the one at the top of the screen, which
+    # an app cannot draw), and the drawn File/Edit/… triggers above hide
+    # themselves — they are the same menus, and showing both would show them
+    # twice. Roles (Quit, Undo, Cut/Copy/Paste, Minimize) carry the platform's
+    # own labels and accelerators, so we don't restate them; "CmdOrCtrl+S" is
+    # Command on macOS and Control elsewhere, written once.
+    #
+    # Re-declared whenever a check mark moves (the Window panel toggles): a
+    # menu with state is rebuilt and re-set, the same way the view is.
+
+    def build_native_menu(self) -> None:
+        if self.app is None:
+            return
+        item = ui.MenuItem.item
+        role = ui.MenuItem.role
+        sep = ui.MenuItem.separator
+        sub = ui.MenuItem.sub
+        check = ui.MenuItem.check
+        act = self._menu_act  # action id -> the same handler the drawn menu runs
+
+        self.app.set_menu([
+            # The macOS application menu. Its label is ignored (the platform
+            # titles it with the app name); Quit is what makes Cmd-Q work.
+            sub("", [role(ui.MenuRole.About),
+                     sep(),
+                     role(ui.MenuRole.Services),
+                     sep(),
+                     role(ui.MenuRole.Hide),
+                     role(ui.MenuRole.HideOthers),
+                     sep(),
+                     role(ui.MenuRole.Quit)]),
+            sub("File", [item("New…", "CmdOrCtrl+N", act("new")),
+                         item("Open Sample…", "CmdOrCtrl+O", act("open")),
+                         item("Place Embedded…", "", act("place")),
+                         sep(),
+                         item("Save", "CmdOrCtrl+S", act("save")),
+                         item("Export As…", "Shift+CmdOrCtrl+E",
+                              act("export")),
+                         sep(),
+                         item("Close", "CmdOrCtrl+W", act("close"))]),
+            # The standard Edit group: on macOS these carry the AppKit
+            # selectors, so Cut/Copy/Paste act on whatever control has focus
+            # (including the layer-rename field) with no wiring from us.
+            sub("Edit", ui.MenuItem.edit_menu() + [
+                sep(),
+                item("Fill with Foreground", "Alt+Backspace", act("fill")),
+                item("Stroke…", "", act("stroke")),
+                item("Free Transform", "CmdOrCtrl+T", act("transform")),
+            ]),
+            sub("Image", [item("Brightness/Contrast…", "", act("bc")),
+                          item("Hue/Saturation…", "CmdOrCtrl+U", act("hsl")),
+                          item("Levels…", "CmdOrCtrl+L", act("levels")),
+                          item("Invert", "CmdOrCtrl+I", act("invert")),
+                          item("Desaturate", "Shift+CmdOrCtrl+U",
+                               act("desat")),
+                          sep(),
+                          item("Image Size…", "Alt+CmdOrCtrl+I", act("size")),
+                          item("Canvas Size…", "Alt+CmdOrCtrl+C",
+                               act("canvas")),
+                          item("Flatten Image", "", act("flatten"))]),
+            sub("View", [item("Zoom In", "CmdOrCtrl+=", act("vin")),
+                         item("Zoom Out", "CmdOrCtrl+-", act("vout")),
+                         item("Fit on Screen", "CmdOrCtrl+0", act("vfit")),
+                         item("100%", "CmdOrCtrl+1", act("v100")),
+                         sep(),
+                         check("Rulers", self.show_rulers, "CmdOrCtrl+R",
+                               act("vrulers")),
+                         check("Show Grid", self.show_grid, "CmdOrCtrl+'",
+                               act("vgrid")),
+                         check("Snap", self.snap, "", act("vsnap"))]),
+            sub("Window", ui.MenuItem.window_menu() + [
+                sep(),
+                check("Layers", self.panels["layers"], "F7", act("wlayers")),
+                check("Color", self.panels["color"], "F6", act("wcolor")),
+                check("History", self.panels["history"], "",
+                      act("whistory")),
+                check("Adjustments", self.panels["adjust"], "",
+                      act("wadjust")),
+                sep(),
+                item("Reset Workspace", "", act("wreset")),
+            ]),
+            sub("Help", [item("About Decius PhotoEditor", "", act("habout")),
+                         item("About decius.css", "", act("hframework")),
+                         item("Keyboard Shortcuts", "", act("hkeys"))]),
+        ])
+
+    def _menu_act(self, action: str):
+        """The drawn menu's handler for `action`, as a no-arg callable."""
+
+        return lambda: self.menu_action(action)
 
     def _build_tweaks(self, v: ui.View) -> None:
         def body(p: ui.View) -> None:
@@ -481,6 +602,11 @@ class PhotoEditApp:
     def title_text(self) -> str:
         return (f"{self.doc_name} @ {round(self.zoom * 100)}% "
                 f"({self.color_mode})")
+
+    def meta_text(self) -> str:
+        # The menubar's right-hand slot. The document NAME is not in here: it
+        # is the centered document_title, because the bar is the title bar.
+        return f"{round(self.zoom * 100)}% ({self.color_mode})"
 
     def doc_size_text(self) -> str:
         mb = self.doc.width() * self.doc.height() * 4 / 1048576
@@ -1233,7 +1359,7 @@ class PhotoEditApp:
     def toggle_panel(self, key: str) -> None:
         if key in self.panels:
             self.panels[key] = not self.panels[key]
-            self.reload()
+            self._checks_changed()
 
     def toggle_tweaks(self) -> None:
         self.tweaks_open = not self.tweaks_open
@@ -1347,7 +1473,7 @@ class PhotoEditApp:
             "new": lambda: dialogs.open_new_doc(self),
             "open": self.open_sample,
             "place": lambda: dialogs.open_place(self),
-            "save": lambda: self.toast(f"Saved {self.doc_name}.psd"),
+            "save": self._save,
             "export": lambda: dialogs.open_export(self),
             "close": lambda: self.toast("Close — the demo document "
                                         "stays open"),
@@ -1427,6 +1553,25 @@ class PhotoEditApp:
             # Web fallback: unhandled menu values just toast.
             self.toast(action.replace("-", " ").title())
 
+    # ── Save state / close ──────────────────────────────────────────────────
+    # The core has no dirty flag, but it does keep a pixel-snapshot history, so
+    # "where the history was when we last saved" IS the unsaved-changes answer.
+
+    def dirty(self) -> bool:
+        return self.doc.history_index() != self._saved_history_index
+
+    def _save(self) -> None:
+        self._saved_history_index = self.doc.history_index()
+        self.toast(f"Saved {self.doc_name}.psd")
+
+    def _on_close_request(self) -> bool:
+        # The close button, Cmd-Q and the menu's Quit all arrive here first.
+        if not self.dirty():
+            return True
+        print("[photo_edit] unsaved changes — a real app would prompt here "
+              "and return False to cancel the quit")
+        return True
+
     def _flatten(self) -> None:
         if self.doc.flatten():
             self.status = "Flatten Image"
@@ -1442,14 +1587,20 @@ class PhotoEditApp:
 
     def _toggle_rulers(self) -> None:
         self.show_rulers = not self.show_rulers
-        self.reload()
+        self._checks_changed()
 
     def _toggle_grid(self) -> None:
         self.show_grid = not self.show_grid
-        self.reload()
+        self._checks_changed()
 
     def _toggle_snap(self) -> None:
         self.snap = not self.snap
+        self._checks_changed()
+
+    def _checks_changed(self) -> None:
+        # A check mark moved: re-declare the native menu (it carries the state)
+        # and rebuild the view, exactly as the C++ demos do.
+        self.build_native_menu()
         self.reload()
 
     def _reset_workspace(self) -> None:

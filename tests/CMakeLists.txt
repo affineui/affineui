@@ -23,6 +23,7 @@ add_executable(affineui_tests
     test_imm_callsite.cpp
     test_imm_runtime.cpp
     test_view.cpp
+    test_menu.cpp
     test_virtual_list.cpp
     test_skeuo.cpp
     test_cascade.cpp

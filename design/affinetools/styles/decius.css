@@ -1766,8 +1766,27 @@
 /* ============================================================
    23b · MENU BAR — top-of-window menu strip
    ============================================================ */
+/* The menubar doubles as the app's title bar when the window has none of its
+   own (App::Config::titlebar = Hidden/HiddenInset/Frameless).
+
+   Two things follow from that, and both are automatic:
+
+   1. It must not put content under the OS's window buttons. AffineUI measures
+      them and publishes the reserved band as --affineui-titlebar-inset-left /
+      -right (macOS puts the traffic lights left; Windows puts the caption
+      buttons right), so the bar just pads by whichever is non-zero. They are
+      0px when the window has a normal title bar, so this costs nothing then.
+      Same idea as the web's env(titlebar-area-*), and the fallbacks keep the
+      bar correct in a plain browser, where those vars don't exist.
+
+   2. Dragging it must move the window, since there is no system bar left to
+      drag. --affineui-app-region: drag says so. It inherits, so every child
+      inherits "drag" too — which is why the interactive children below take
+      it back with no-drag. (This is exactly how -webkit-app-region behaves in
+      Electron.) */
 .dcs-menubar {
   display: flex; align-items: stretch;
+  position: relative;   /* the positioning context for __title */
   height: var(--dcs-h-sm);
   background: var(--dcs-surface-1);
   border-bottom: 1px solid var(--dcs-line);
@@ -1775,6 +1794,54 @@
   font-size: var(--dcs-fs-sm);
   user-select: none;
   flex-shrink: 0;
+  /* Dragging the bar moves the window, since a window with no system title bar
+     has nothing else to drag by. Inherited, so children inherit "drag" too —
+     which is why the interactive ones take it back with no-drag below. Same
+     semantics as Electron's -webkit-app-region. Ignored unless the window
+     actually owns its chrome (App::Config::titlebar != Default). */
+  --affineui-app-region: drag;
+}
+/* Anything you can click is not a drag handle. */
+.dcs-menubar__item,
+.dcs-menubar .dcs-btn,
+.dcs-menubar button,
+.dcs-menubar input,
+.dcs-menubar select,
+.dcs-menubar [data-dcs-toggle] {
+  --affineui-app-region: no-drag;
+}
+
+/* ── macOS: the app-title area ──────────────────────────────────────────────
+   Only on macOS, and only when the window has given up its system title bar.
+   AffineUI stamps the root with data-affineui-platform / data-affineui-titlebar
+   precisely so this stays a platform rule instead of leaking into every bar.
+
+   macOS keeps drawing its traffic lights OVER our content, so the bar has to
+   reserve room for them. AffineUI measures them and publishes the reserved band
+   as --affineui-titlebar-inset-left (the same job env(titlebar-area-*) does on
+   the web; Windows would use -right, its caption buttons being on that side).
+
+   That band, plus the brand beside it, is drawn BLACK — the app-title area is
+   AffineUI's own look, deliberately not the bar's surface, so the title reads
+   as its own region the way a real title bar does. border-left paints exactly
+   the reserved width; dropping the bar's left padding lets the black run
+   unbroken from the window edge, through the buttons, to the end of the brand. */
+:root[data-affineui-platform="macos"][data-affineui-titlebar="hidden"] .dcs-menubar,
+:root[data-affineui-platform="macos"][data-affineui-titlebar="hidden-inset"] .dcs-menubar {
+  border-left: var(--affineui-titlebar-inset-left, 0px) solid #000;
+  padding-left: 0;
+}
+:root[data-affineui-platform="macos"][data-affineui-titlebar="hidden"] .dcs-menubar__brand,
+:root[data-affineui-platform="macos"][data-affineui-titlebar="hidden-inset"] .dcs-menubar__brand {
+  background: #000;
+  /* Tuned against the real traffic lights, not derived: the title sits 6px in
+     from the reserved band (which already carries the same gap the buttons keep
+     between themselves), and rides 1px lower so its cap-height lines up with
+     the buttons' centres rather than the box's. */
+  padding-left: 2px;
+  padding-right: var(--dcs-s-5);
+  padding-top: 1px;
+  padding-bottom: 0;
 }
 .dcs-menubar__brand {
   display: flex; align-items: center; gap: var(--dcs-s-2);
@@ -1797,7 +1864,35 @@
   transition: background var(--dcs-t-fast), color var(--dcs-t-fast);
 }
 .dcs-menubar__item:hover { background: var(--dcs-surface-2); color: var(--dcs-text); }
+/* The application menubar's triggers stand down when the OS is showing the same
+   menus in its own bar — drawing File/Edit/View in the window as well would show
+   them twice. AffineUI sets data-affineui-native-menus on the root when (and
+   only when) the app has actually supplied a menu with App::set_menu, and marks
+   the application menubar with .aui-menubar--app.
+   Direct children only: a menubar nested elsewhere in the UI (a viewport's own
+   View/Add strip) is a contextual in-window menu and always keeps drawing. */
+:root[data-affineui-native-menus="1"] .aui-menubar--app > .dcs-menubar__item {
+  display: none;
+}
 .dcs-menubar__spacer { flex: 1; }
+/* The document title, centered — what a title bar shows. A WINDOW-title concern,
+   not a menu one; it lives in this strip only because the strip IS the title bar
+   when the window has none of its own.
+   Spanning the bar edge-to-edge and centering the TEXT inside is what keeps it
+   on the window's centre line: centering it as a flex item instead would park
+   it in the leftover space, so it would drift whenever the brand or the status
+   text changed width. Out of the flow, and click-through, so it neither pushes
+   the menus around nor stops the bar from dragging the window. */
+.dcs-window-title {
+  position: absolute;
+  top: 0; bottom: 0; left: 0; right: 0;
+  display: flex;
+  align-items: center;      /* centred in the bar's height, too */
+  justify-content: center;
+  pointer-events: none;
+  color: var(--dcs-text-mute);
+  font-size: var(--dcs-fs-sm);
+}
 .dcs-menubar__meta {
   display: flex; align-items: center; gap: var(--dcs-s-3);
   color: var(--dcs-text-mute);

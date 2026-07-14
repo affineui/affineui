@@ -3359,6 +3359,10 @@ TEST_CASE("menubar hover-follow switches the open menu without a click") {
 
     affineui::App::Config cfg;
     cfg.asset_folders = test_asset_folders();
+    // This exercises the DRAWN menubar. On macOS the drawn menu triggers are
+    // hidden by default, because the system menu bar is showing the same menus
+    // — so opt out, or there would be no triggers here to hover between.
+    cfg.native_menus = false;
     affineui::App app{cfg};
 
     auto build = [&] {

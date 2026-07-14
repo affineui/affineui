@@ -797,6 +797,14 @@ impl View {
         self.wrap(unsafe { sys::affineui_view_menu_spacer(self.raw(), key.as_ptr()) })
     }
 
+    /// The document being edited, centered in the bar — what a title bar shows.
+    pub fn document_title(&self, text: &str, key: &str) -> Widget {
+        let (text, key) = (cstring(text), cstring(key));
+        self.wrap(unsafe {
+            sys::affineui_view_document_title(self.raw(), text.as_ptr(), key.as_ptr())
+        })
+    }
+
     pub fn menu_meta(&self, text: &str, key: &str) -> Widget {
         let (text, key) = (cstring(text), cstring(key));
         self.wrap(unsafe { sys::affineui_view_menu_meta(self.raw(), text.as_ptr(), key.as_ptr()) })

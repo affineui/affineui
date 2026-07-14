@@ -17,6 +17,42 @@ std::string native_css() {
 .dn-topbar{gap:var(--dcs-s-2);padding-left:var(--dcs-s-2);align-items:center}
 .dn-topbar>.dcs-menubar{height:auto;align-self:stretch;background:transparent;border-bottom:none;padding:0;line-height:1}
 .dn-topbar>.dcs-menubar .dcs-menubar__item{align-self:stretch}
+
+/* macOS, no system title bar: DENDER's TITLE STRIP is the topbar, not the
+   menubar inside it — the logo sits to the menubar's left. So the topbar takes
+   the window-button inset (AffineUI publishes the measured band as
+   --affineui-titlebar-inset-left), and the menubar gives it back: Decius binds
+   the inset to .dcs-menubar for the common case where the bar IS the strip, and
+   here it isn't, so applying it twice would indent the menus by a second 70-odd
+   pixels. The logo, sitting in the reserved band, is already black. */
+:root[data-affineui-platform=macos][data-affineui-titlebar=hidden] .dn-topbar,
+:root[data-affineui-platform=macos][data-affineui-titlebar=hidden-inset] .dn-topbar{
+  border-left:var(--affineui-titlebar-inset-left,0px) solid #000;
+  padding-left:0;
+}
+:root[data-affineui-platform=macos][data-affineui-titlebar=hidden] .dn-topbar>.dcs-menubar,
+:root[data-affineui-platform=macos][data-affineui-titlebar=hidden-inset] .dn-topbar>.dcs-menubar{
+  border-left:0;
+  padding-left:0;
+}
+/* The logo block sits in the title area beside the window buttons, so it is
+   spaced and aligned exactly like the game editor's brand: hard against the
+   reserved band (no left padding — the band already provides the gap, and it is
+   the same gap the buttons keep between themselves), roomier on the right, and
+   riding 2px lower so its cap-height lines up with the buttons' centres rather
+   than the box's. The 4px of top padding is what buys those 2px. */
+:root[data-affineui-platform=macos][data-affineui-titlebar=hidden] .dn-logo,
+:root[data-affineui-platform=macos][data-affineui-titlebar=hidden-inset] .dn-logo{
+  margin-left:0;
+  background:#000;
+  /* Top 1px: DENDER's topbar is TALLER than a plain menubar (the workspace and
+     scene pickers on the right set its height), so the logo needs far less of a
+     nudge than the game editor's brand to sit level with the window buttons.
+     Right s-7: the block has to breathe before the grey starts — at s-5 the
+     final E was almost touching it. */
+  padding:1px var(--dcs-s-7) 0 2px;
+  align-self:stretch;   /* the black area covers the taller bar's full height */
+}
 .dn-logo{display:inline-flex;align-items:center;align-self:stretch;gap:var(--dcs-s-2);padding:var(--dcs-text-nudge) var(--dcs-s-4) 0;margin-left:calc(-1 * var(--dcs-s-2));background:#0d0f14;line-height:1}
 .dn-logo:hover{background:#14171e}
 .dn-logo__mark{font-size:14px;color:var(--dcs-accent)}

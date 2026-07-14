@@ -4,14 +4,14 @@ version = 4
 
 [[package]]
 name = "affineui"
-version = "0.0.3"
+version = "0.4.2"
 dependencies = [
  "affineui-sys",
 ]
 
 [[package]]
 name = "affineui-sys"
-version = "0.0.3"
+version = "0.4.2"
 dependencies = [
  "cmake",
 ]
