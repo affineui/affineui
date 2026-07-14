@@ -88,21 +88,21 @@ TEST_CASE("c_api: a full docking view can be built through the C ABI") {
             auto* c = static_cast<Ctx*>(user);
 
             // The center pane.
-            CStr d{affineui_view_document(view, build_document, c->calls, "Scene", "cube")};
+            CStr d{affineui_view_document(view, build_document, c->calls, nullptr, "Scene", "cube")};
             *c->doc_id = d.str();
 
             // A left panel, sized.
             affineui_dock_location where;
             affineui_dock_location_docked(&where, AFFINEUI_DOCK_LEFT, 280);
             CStr l{affineui_view_dockpanel(view, "Outliner", &where, build_left,
-                                           c->calls, "list", "outliner")};
+                                           c->calls, nullptr, "list", "outliner")};
             *c->left_id = l.str();
 
             // A right panel.
             affineui_dock_location w2;
             affineui_dock_location_docked(&w2, AFFINEUI_DOCK_RIGHT, 320);
             CStr r{affineui_view_dockpanel(view, "Inspector", &w2, build_right,
-                                           c->calls, "sliders", "inspector")};
+                                           c->calls, nullptr, "sliders", "inspector")};
             *c->right_id = r.str();
         },
         &ctx);
@@ -142,9 +142,10 @@ TEST_CASE("c_api: a NULL dock_location means 'docked, defaults'") {
     affineui_view_document_view(
         v, "ws",
         [](void*, affineui_view* view) {
-            affineui_view_document(view, nullptr, nullptr, "Doc", nullptr);
+            affineui_view_document(view, nullptr, nullptr, nullptr, "Doc", nullptr);
             CStr id{affineui_view_dockpanel(view, "Panel", /*where=*/nullptr,
-                                            nullptr, nullptr, nullptr, "p")};
+                                            /*content=*/nullptr, /*user=*/nullptr,
+                                            /*user_free=*/nullptr, /*icon=*/nullptr, "p")};
             CHECK_FALSE(id.str().empty());
         },
         nullptr);
@@ -163,7 +164,7 @@ TEST_CASE("c_api: dock_location factories + setters, and nesting by parent id") 
     affineui_view_document_view(
         v, "ws",
         [](void*, affineui_view* view) {
-            affineui_view_document(view, nullptr, nullptr, "Doc", nullptr);
+            affineui_view_document(view, nullptr, nullptr, nullptr, "Doc", nullptr);
 
             // Docked, size set on the struct rather than via the factory arg.
             affineui_dock_location left;
@@ -171,7 +172,7 @@ TEST_CASE("c_api: dock_location factories + setters, and nesting by parent id") 
             left.has_size = 1;
             left.size     = 300;
             CStr outliner{affineui_view_dockpanel(view, "Outliner", &left, nullptr,
-                                                  nullptr, nullptr, "outliner")};
+                                           nullptr, nullptr, nullptr, "outliner")};
             REQUIRE_FALSE(outliner.str().empty());
 
             // A second panel TABBED INTO the first, addressed by its returned id.
@@ -179,7 +180,7 @@ TEST_CASE("c_api: dock_location factories + setters, and nesting by parent id") 
             affineui_dock_location_tab(&tabbed);
             tabbed.parent = outliner.p;
             CStr layers{affineui_view_dockpanel(view, "Layers", &tabbed, nullptr,
-                                                nullptr, nullptr, "layers")};
+                                           nullptr, nullptr, nullptr, "layers")};
             CHECK_FALSE(layers.str().empty());
 
             // A floating panel.
@@ -187,7 +188,7 @@ TEST_CASE("c_api: dock_location factories + setters, and nesting by parent id") 
             affineui_dock_location_floating(&fl, AFFINEUI_DOCK_CORNER_TOP_RIGHT,
                                             40, 60, 320, 240);
             CStr tools{affineui_view_dockpanel(view, "Tools", &fl, nullptr,
-                                               nullptr, nullptr, "tools")};
+                                           nullptr, nullptr, nullptr, "tools")};
             CHECK_FALSE(tools.str().empty());
 
             // A torn-off panel that drags with another.
@@ -196,7 +197,7 @@ TEST_CASE("c_api: dock_location factories + setters, and nesting by parent id") 
                                            10, 10, 200, 160);
             to.drag_with = tools.p;
             CStr notes{affineui_view_dockpanel(view, "Notes", &to, nullptr,
-                                               nullptr, nullptr, "notes")};
+                                           nullptr, nullptr, nullptr, "notes")};
             CHECK_FALSE(notes.str().empty());
         },
         nullptr);
@@ -223,8 +224,8 @@ TEST_CASE("c_api: a dock pane's tab toolbar is declared by pane id") {
         v, "ws",
         [](void* user, affineui_view* view) {
             auto* c = static_cast<Calls*>(user);
-            CStr d{affineui_view_document(view, build_document, c, "Scene", nullptr)};
-            affineui_view_dock_toolbar(view, d.p, build_toolbar, c);
+            CStr d{affineui_view_document(view, build_document, c, nullptr, "Scene", nullptr)};
+            affineui_view_dock_toolbar(view, d.p, build_toolbar, c, nullptr);
         },
         &calls);
     affineui_view_end(v);
@@ -284,11 +285,11 @@ TEST_CASE("c_api: dock providers are invoked, and free their user data once") {
         affineui_view_document_view(
             v, "ws",
             [](void*, affineui_view* view) {
-                affineui_view_document(view, nullptr, nullptr, "Doc", nullptr);
+                affineui_view_document(view, nullptr, nullptr, nullptr, "Doc", nullptr);
                 affineui_dock_location where;
                 affineui_dock_location_docked(&where, AFFINEUI_DOCK_LEFT, 280);
                 CStr id{affineui_view_dockpanel(view, "Outliner", &where, nullptr,
-                                                nullptr, nullptr, "outliner")};
+                                           nullptr, nullptr, nullptr, "outliner")};
             },
             nullptr);
         affineui_view_end(v);

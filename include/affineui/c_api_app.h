@@ -480,6 +480,21 @@ AFFINEUI_C_API affineui_widget* affineui_view_document_view(affineui_view* view,
                                                             affineui_build_fn build,
                                                             void* user);
 
+// ── The three DEFERRED builders ──────────────────────────────────────
+//
+// IMPORTANT, and different from every other builder in this header: these three
+// do NOT run `content` before they return. They RECORD it, and the dock engine
+// invokes it later — when document_view()'s build returns and the container
+// resolves and emits the layout.
+//
+// That is why they take a `user_free` and the immediate builders (panel, card,
+// toolbar…) do not. `user` must stay alive until the engine is done with the
+// callback; it may not point at the caller's stack frame. Pass heap state and a
+// `user_free`, which the view calls exactly once when it drops the callback (the
+// same contract as affineui_widget_on_click). A binding that passes a stack
+// pointer here — the natural thing to do, since every other builder allows it —
+// gets a use-after-free the moment the layout emits.
+
 // The center/document pane's content. Only valid inside a document_view build.
 // `icon` is a Decius icon-font glyph name (NULL/"" = none). Returns the pane id
 // (owned by the caller — free with affineui_string_free), usable as a parent id
@@ -487,19 +502,21 @@ AFFINEUI_C_API affineui_widget* affineui_view_document_view(affineui_view* view,
 AFFINEUI_C_API char* affineui_view_document(affineui_view* view,
                                             affineui_build_fn content,
                                             void* user,
+                                            affineui_user_free_fn user_free,
                                             const char* title,
                                             const char* icon);
 
-// Declare a dockable panel. `where` is COPIED (destroy it whenever you like
-// after this returns); NULL means "docked, defaults, parented to the document".
-// Returns the panel id (owned by the caller — free with affineui_string_free),
-// usable as another panel's parent and as the `pane_id` the providers below are
-// asked about.
+// Declare a dockable panel. `where` is COPIED (reuse or discard it however you
+// like after this returns); NULL means "docked, defaults, parented to the
+// document". Returns the panel id (owned by the caller — free with
+// affineui_string_free), usable as another panel's parent and as the `pane_id`
+// the providers below are asked about.
 AFFINEUI_C_API char* affineui_view_dockpanel(affineui_view* view,
                                              const char* title,
                                              const affineui_dock_location* where,
                                              affineui_build_fn content,
                                              void* user,
+                                             affineui_user_free_fn user_free,
                                              const char* icon,
                                              const char* key);
 
@@ -509,7 +526,8 @@ AFFINEUI_C_API char* affineui_view_dockpanel(affineui_view* view,
 AFFINEUI_C_API void affineui_view_dock_toolbar(affineui_view* view,
                                                const char* pane_id,
                                                affineui_build_fn build,
-                                               void* user);
+                                               void* user,
+                                               affineui_user_free_fn user_free);
 
 // ── Dock providers (workspace persistence) ───────────────────────────
 //

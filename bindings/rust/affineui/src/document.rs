@@ -2,9 +2,10 @@
 //! Usable headless (tests, layout probes) or borrowed from an [`crate::App`].
 
 use crate::app::AppInner;
+use crate::dock::DockPlacement;
 use crate::event::Event;
 use crate::sys;
-use crate::util::{cstring, ensure_abi, NotThreadSafe};
+use crate::util::{cstring, ensure_abi, take_string, NotThreadSafe};
 use std::rc::Rc;
 
 /// Result of an event dispatch (a snapshot, not a live reference).
@@ -63,6 +64,40 @@ impl Document {
 
     pub(crate) fn borrowed(raw: *mut sys::affineui_document, app: Rc<AppInner>) -> Document {
         Document { raw, owner: Owner::App(app), _not_send: NotThreadSafe::default() }
+    }
+
+    pub(crate) fn raw(&self) -> *mut sys::affineui_document {
+        self.raw
+    }
+
+    /// Where the user has dragged, tabbed, or torn off each panel — the runtime
+    /// overrides recorded by dock gestures, as `(panel_id, placement)` pairs.
+    ///
+    /// This is how you SAVE a workspace. Feed the pairs back through
+    /// [`View::set_dock_placement_provider`] to restore one.
+    ///
+    /// [`View::set_dock_placement_provider`]: crate::View::set_dock_placement_provider
+    pub fn dock_overrides(&self) -> Vec<(String, DockPlacement)> {
+        let n = unsafe { sys::affineui_document_dock_override_count(self.raw) };
+        let mut out = Vec::with_capacity(n);
+        for i in 0..n {
+            let mut id: *mut std::os::raw::c_char = std::ptr::null_mut();
+            let mut raw = sys::affineui_dock_placement::default();
+            // Both the id and raw.parent are heap copies we now own.
+            let ok = unsafe {
+                sys::affineui_document_dock_override_at(self.raw, i, &mut id, &mut raw)
+            };
+            if ok == 0 {
+                continue;
+            }
+            let panel_id = unsafe { take_string(id) };
+            let placement = DockPlacement::from_raw(&raw);
+            unsafe { sys::affineui_string_free(raw.parent as *mut std::os::raw::c_char) };
+            if let Some(p) = placement {
+                out.push((panel_id, p));
+            }
+        }
+        out
     }
 
     /// Parse and replace the document body.

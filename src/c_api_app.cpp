@@ -63,6 +63,21 @@ std::function<void(affineui::View&)> build_fn(affineui_build_fn build, void* use
     return [build, user](affineui::View& v) { build(user, view_handle(v)); };
 }
 
+// For the DEFERRED builders (document / dockpanel / dock_toolbar), which the
+// dock engine records now and invokes later. The returned std::function OWNS the
+// user data through hold_user(), so it stays alive until the engine drops the
+// callback — and user_free is called exactly once when it does.
+//
+// The immediate builders can get away with a borrowed `user` (it only has to
+// survive the call). These cannot: by the time the layout emits, a caller's
+// stack frame is long gone.
+std::function<void(affineui::View&)> owning_build_fn(affineui_build_fn build, void* user,
+                                                     affineui_user_free_fn user_free) {
+    auto data = hold_user(user, user_free);
+    if (!build) return [data](affineui::View&) {};
+    return [build, data](affineui::View& v) { build(data->user, view_handle(v)); };
+}
+
 // ── ABI locks for the app-surface enums ──────────────────────────────
 static_assert(AFFINEUI_THEME_PLAIN == static_cast<int>(affineui::ViewTheme::Plain));
 static_assert(AFFINEUI_THEME_BOOTSTRAP == static_cast<int>(affineui::ViewTheme::Bootstrap));
@@ -675,26 +690,31 @@ affineui_widget* affineui_view_document_view(affineui_view* view, const char* ke
 }
 
 char* affineui_view_document(affineui_view* view, affineui_build_fn content,
-                             void* user, const char* title, const char* icon) {
+                             void* user, affineui_user_free_fn user_free,
+                             const char* title, const char* icon) {
     if (!view) return dup_string({});
-    auto handle = to_view(view)->document(build_fn(content, user), sv(title), sv(icon));
+    auto handle = to_view(view)->document(owning_build_fn(content, user, user_free),
+                                          sv(title), sv(icon));
     return dup_string(handle.id);
 }
 
 char* affineui_view_dockpanel(affineui_view* view, const char* title,
                               const affineui_dock_location* where,
                               affineui_build_fn content, void* user,
+                              affineui_user_free_fn user_free,
                               const char* icon, const char* key) {
     if (!view) return dup_string({});
     auto handle = to_view(view)->dockpanel(sv(title), to_dock_location(where),
-                                           build_fn(content, user), sv(icon), sv(key));
+                                           owning_build_fn(content, user, user_free),
+                                           sv(icon), sv(key));
     return dup_string(handle.id);
 }
 
 void affineui_view_dock_toolbar(affineui_view* view, const char* pane_id,
-                                affineui_build_fn build, void* user) {
+                                affineui_build_fn build, void* user,
+                                affineui_user_free_fn user_free) {
     if (!view || !pane_id) return;
-    to_view(view)->dock_toolbar(sv(pane_id), build_fn(build, user));
+    to_view(view)->dock_toolbar(sv(pane_id), owning_build_fn(build, user, user_free));
 }
 
 // ── Dock providers ───────────────────────────────────────────────────

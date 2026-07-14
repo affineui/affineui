@@ -12,9 +12,11 @@
 //! retain its `View`; after the View or node is gone, reads return defaults and
 //! writes safely no-op.
 
+use crate::dock::{DockLocation, DockPlacement};
 use crate::sys;
 use crate::util::{cstring, ensure_abi, take_string, NotThreadSafe};
-use std::os::raw::{c_char, c_void};
+use std::ffi::{CStr, CString};
+use std::os::raw::{c_char, c_int, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
 
@@ -112,6 +114,114 @@ unsafe extern "C" fn click_trampoline(user: *mut c_void) {
 
 unsafe extern "C" fn click_free(user: *mut c_void) {
     drop(Box::from_raw(user as *mut Box<dyn FnMut()>));
+}
+
+// ── Deferred build callbacks (docking) ───────────────────────────────
+//
+// The dock builders (document / dockpanel / dock_toolbar) do NOT run their
+// closure before returning: the engine records it and invokes it later, when the
+// container resolves and emits the layout. `with_build` is wrong for them — it
+// parks a `BuildEnv` on the *caller's stack*, which is gone by then, and the
+// engine dereferences it. (That is a real access violation, not a theoretical
+// one; it is what the first cut of this binding did.)
+//
+// So: box the closure onto the heap, hand the engine a raw pointer, and give it
+// a `user_free` to drop the box exactly once when it releases the callback.
+type BoxedBuild = Box<dyn FnMut(&View)>;
+
+fn deferred_build(
+    f: impl FnMut(&View) + 'static,
+) -> (sys::affineui_build_fn, *mut c_void, sys::affineui_user_free_fn) {
+    let boxed: BoxedBuild = Box::new(f);
+    let user = Box::into_raw(Box::new(boxed)) as *mut c_void;
+    (
+        Some(deferred_build_trampoline),
+        user,
+        Some(deferred_build_free),
+    )
+}
+
+unsafe extern "C" fn deferred_build_trampoline(
+    user: *mut c_void,
+    raw_view: *mut sys::affineui_view,
+) {
+    let cb = &mut *(user as *mut BoxedBuild);
+    let view = View::borrowed(raw_view);
+    if catch_unwind(AssertUnwindSafe(|| cb(&view))).is_err() {
+        eprintln!("affineui: panic in dock build callback (suppressed)");
+    }
+}
+
+unsafe extern "C" fn deferred_build_free(user: *mut c_void) {
+    drop(Box::from_raw(user as *mut BoxedBuild));
+}
+
+// ── Dock provider trampolines ────────────────────────────────────────
+// Each owns its boxed closure and is released through `user_free` exactly once
+// when the view drops the callback — the same contract as on_click. A leak or a
+// double-free here is a real crash, so the free fns mirror the box types exactly.
+
+unsafe fn cstr_arg<'a>(p: *const c_char) -> &'a str {
+    if p.is_null() {
+        ""
+    } else {
+        CStr::from_ptr(p).to_str().unwrap_or("")
+    }
+}
+
+unsafe extern "C" fn dock_size_trampoline(user: *mut c_void, pane_id: *const c_char) -> c_int {
+    let cb = &mut *(user as *mut Box<dyn FnMut(&str) -> i32>);
+    cb(cstr_arg(pane_id))
+}
+unsafe extern "C" fn dock_size_free(user: *mut c_void) {
+    drop(Box::from_raw(user as *mut Box<dyn FnMut(&str) -> i32>));
+}
+
+/// The active-tab callback returns a borrowed `const char*`. The engine copies it
+/// immediately, but it must stay valid until the callback returns — so park it
+/// here rather than dangling a temporary.
+pub(crate) struct DockTabState {
+    pub(crate) f: Box<dyn FnMut(&str) -> String>,
+    pub(crate) last: CString,
+}
+
+unsafe extern "C" fn dock_tab_trampoline(
+    user: *mut c_void,
+    pane_id: *const c_char,
+) -> *const c_char {
+    let st = &mut *(user as *mut DockTabState);
+    let s = (st.f)(cstr_arg(pane_id));
+    st.last = CString::new(s).unwrap_or_else(|_| CString::new("").unwrap());
+    st.last.as_ptr()
+}
+unsafe extern "C" fn dock_tab_free(user: *mut c_void) {
+    drop(Box::from_raw(user as *mut DockTabState));
+}
+
+/// Same story for the placement callback's `parent` string.
+pub(crate) struct DockPlacementState {
+    pub(crate) f: Box<dyn FnMut(&str) -> Option<DockPlacement>>,
+    pub(crate) last_parent: CString,
+}
+
+unsafe extern "C" fn dock_placement_trampoline(
+    user: *mut c_void,
+    panel_id: *const c_char,
+    out: *mut sys::affineui_dock_placement,
+) {
+    let st = &mut *(user as *mut DockPlacementState);
+    match (st.f)(cstr_arg(panel_id)) {
+        Some(p) => {
+            st.last_parent =
+                CString::new(p.parent.as_str()).unwrap_or_else(|_| CString::new("").unwrap());
+            p.write_raw(out, &st.last_parent);
+        }
+        // present = 0 => "no override; use the declared DockLocation".
+        None => (*out).present = 0,
+    }
+}
+unsafe extern "C" fn dock_placement_free(user: *mut c_void) {
+    drop(Box::from_raw(user as *mut DockPlacementState));
 }
 
 unsafe extern "C" fn change_trampoline(user: *mut c_void, value: *const c_char) {
@@ -406,6 +516,165 @@ impl View {
             sys::affineui_view_panel(self.raw(), key.as_ptr(), cb, user)
         });
         self.wrap(raw)
+    }
+
+    // ── Declarative docking ──────────────────────────────────────────
+    // See the `dock` module for the model. A container resolves a flat set of
+    // panel declarations into a split tree and emits the DOM; panels may be
+    // declared in any order because each names its own parent and side.
+
+    /// Declare a dock container. Inside `build`, call [`View::document`] for the
+    /// center pane and [`View::dockpanel`] for the panels around it.
+    pub fn document_view(&self, key: &str, build: impl FnOnce(&View)) -> Widget {
+        let key = cstring(key);
+        let raw = self.with_build(build, |cb, user| unsafe {
+            sys::affineui_view_document_view(self.raw(), key.as_ptr(), cb, user)
+        });
+        self.wrap(raw)
+    }
+
+    /// The center/document pane. Only valid inside a [`View::document_view`] build.
+    ///
+    /// `icon` is a Decius icon-font glyph name (`""` for none). Returns the pane
+    /// id — pass it to [`DockLocation::in_pane`] to parent a panel to it, or to
+    /// [`View::dock_toolbar`] to give it a tab toolbar.
+    ///
+    /// `content` is **deferred**: the dock engine records it and runs it later,
+    /// when the container resolves and emits the layout. It is therefore
+    /// heap-owned and `'static`, unlike the immediate builders' closures.
+    pub fn document(
+        &self,
+        title: &str,
+        icon: &str,
+        content: impl FnMut(&View) + 'static,
+    ) -> String {
+        let (title, icon) = (cstring(title), cstring(icon));
+        let (cb, user, free) = deferred_build(content);
+        let raw = unsafe {
+            sys::affineui_view_document(self.raw(), cb, user, free, title.as_ptr(), icon.as_ptr())
+        };
+        unsafe { take_string(raw) }
+    }
+
+    /// Declare a dockable panel. Only valid inside a [`View::document_view`] build.
+    ///
+    /// `where_` carries the placement — use [`DockLocation::docked`],
+    /// [`DockLocation::tab`], [`DockLocation::floating`], or
+    /// [`DockLocation::tearoff`]. Returns the panel id, usable as another
+    /// panel's parent and as the `pane_id` the dock providers are asked about.
+    ///
+    /// `content` is **deferred** — see [`View::document`].
+    pub fn dockpanel(
+        &self,
+        title: &str,
+        where_: DockLocation,
+        icon: &str,
+        key: &str,
+        content: impl FnMut(&View) + 'static,
+    ) -> String {
+        let (title, icon, key) = (cstring(title), cstring(icon), cstring(key));
+        // Holds the CStrings `loc.raw` points into for the duration of the call
+        // (the engine copies the location before this returns).
+        let loc = where_.to_raw();
+        let (cb, user, free) = deferred_build(content);
+        let raw = unsafe {
+            sys::affineui_view_dockpanel(
+                self.raw(),
+                title.as_ptr(),
+                &loc.raw as *const _,
+                cb,
+                user,
+                free,
+                icon.as_ptr(),
+                key.as_ptr(),
+            )
+        };
+        unsafe { take_string(raw) }
+    }
+
+    /// Give a dock pane its tab toolbar — the strip beside the tabs (filter
+    /// buttons, a search field, a viewport's mode/tool controls).
+    ///
+    /// `pane_id` is what [`View::document`] or [`View::dockpanel`] returned.
+    ///
+    /// `build` is **deferred** — see [`View::document`].
+    pub fn dock_toolbar(&self, pane_id: &str, build: impl FnMut(&View) + 'static) {
+        let pane_id = cstring(pane_id);
+        let (cb, user, free) = deferred_build(build);
+        unsafe {
+            sys::affineui_view_dock_toolbar(self.raw(), pane_id.as_ptr(), cb, user, free)
+        };
+    }
+
+    // ── Dock providers: a saved workspace beats the declared seed ────
+
+    /// Supply the saved px size of each pane (return `<= 0` to fall back to the
+    /// size declared in its [`DockLocation`]).
+    pub fn set_dock_size_provider(&self, f: impl FnMut(&str) -> i32 + 'static) {
+        let boxed: Box<dyn FnMut(&str) -> i32> = Box::new(f);
+        let user = Box::into_raw(Box::new(boxed)) as *mut c_void;
+        unsafe {
+            sys::affineui_view_set_dock_size_provider(
+                self.raw(),
+                Some(dock_size_trampoline),
+                user,
+                Some(dock_size_free),
+            );
+        }
+    }
+
+    /// Supply the active tab of each dock leaf (empty selects the primary panel).
+    pub fn set_dock_active_tab_provider(&self, f: impl FnMut(&str) -> String + 'static) {
+        // The C callback returns a borrowed `const char*` that the engine copies
+        // immediately, so the trampoline parks the String in the closure's own
+        // state to keep it alive across the return.
+        let boxed: Box<DockTabState> = Box::new(DockTabState {
+            f: Box::new(f),
+            last: CString::new("").unwrap(),
+        });
+        let user = Box::into_raw(boxed) as *mut c_void;
+        unsafe {
+            sys::affineui_view_set_dock_active_tab_provider(
+                self.raw(),
+                Some(dock_tab_trampoline),
+                user,
+                Some(dock_tab_free),
+            );
+        }
+    }
+
+    /// Supply the saved placement of each panel — where the user dragged or tore
+    /// it to. `None` means "no override; use the declared [`DockLocation`]".
+    ///
+    /// Read the values back out with [`crate::Document::dock_overrides`].
+    pub fn set_dock_placement_provider(
+        &self,
+        f: impl FnMut(&str) -> Option<DockPlacement> + 'static,
+    ) {
+        let boxed: Box<DockPlacementState> = Box::new(DockPlacementState {
+            f: Box::new(f),
+            last_parent: CString::new("").unwrap(),
+        });
+        let user = Box::into_raw(boxed) as *mut c_void;
+        unsafe {
+            sys::affineui_view_set_dock_placement_provider(
+                self.raw(),
+                Some(dock_placement_trampoline),
+                user,
+                Some(dock_placement_free),
+            );
+        }
+    }
+
+    /// Replay the CURRENT arrangement — splits, tab order, active tabs, floats —
+    /// straight from `doc`, instead of the declared seed. This is what makes
+    /// drag-to-dock and tearoff survive a view rebuild.
+    ///
+    /// The live arrangement is a recursive tree that every caller round-trips
+    /// back from the document it is rebuilding, so it is wired directly rather
+    /// than marshalled through the FFI.
+    pub fn set_dock_layout_from_document(&self, doc: &crate::Document) {
+        unsafe { sys::affineui_view_set_dock_layout_from_document(self.raw(), doc.raw()) };
     }
 
     pub fn card(&self, title: &str, classes: &str, key: &str, build: impl FnOnce(&View)) -> Widget {
