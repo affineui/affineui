@@ -1945,7 +1945,7 @@ PYBIND11_MODULE(_affineui, m) {
                "No system title bar: the content fills the window and the app "
                "draws its own bar. The macOS traffic lights still float over "
                "it (move them with traffic_light_position). Mark the app's own "
-               "bar draggable with CSS `-affineui-app-region: drag`, or the "
+               "bar draggable with CSS `--affineui-app-region: drag`, or the "
                "window cannot be moved.")
         .value("HiddenInset", affineui::TitleBarStyle::HiddenInset,
                "As Hidden, with the macOS traffic lights inset further from "

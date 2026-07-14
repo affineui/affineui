@@ -327,6 +327,13 @@ internal static partial class NativeMethods
     [LibraryImport(Lib)]
     internal static partial void affineui_menu_set_enabled(IntPtr menu, int enabled);
 
+    /// <remarks>
+    /// Decorates the LAST item added. Mainly for ROLE items: a role takes the
+    /// platform's own label, and this overrides it. Empty restores it.
+    /// </remarks>
+    [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial void affineui_menu_set_label(IntPtr menu, string label);
+
     /// <remarks><paramref name="menu"/> is copied; IntPtr.Zero clears.</remarks>
     [LibraryImport(Lib)]
     internal static partial void affineui_app_set_menu(IntPtr app, IntPtr menu);

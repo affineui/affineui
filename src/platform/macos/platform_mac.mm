@@ -343,6 +343,15 @@ void place_traffic_lights(TitleBarStyle style, Point pos) {
         y = 16;
     }
 
+    // Snapshot the reference BEFORE moving anything. Each button keeps its
+    // offset from the close button, so that offset has to be measured against
+    // where the close button STARTED — read it inside the loop and the first
+    // iteration (which moves the close button) would corrupt the reference for
+    // the other two: their dx would come out as `original_x - x`, and
+    // `x + dx` would put them straight back where they were, leaving the three
+    // lights split apart.
+    const CGFloat origin_x = buttons[0].frame.origin.x;
+
     for (NSButton* b : buttons) {
         NSView* row = b.superview;
         if (!row) continue;
@@ -350,7 +359,7 @@ void place_traffic_lights(TitleBarStyle style, Point pos) {
         // y is given from the window top; AppKit measures from the bottom.
         f.origin.y = row.bounds.size.height - y - f.size.height;
         // Keep the OS's own spacing between the three.
-        const CGFloat dx = b.frame.origin.x - buttons[0].frame.origin.x;
+        const CGFloat dx = f.origin.x - origin_x;
         f.origin.x = x + dx;
         b.frame    = f;
     }

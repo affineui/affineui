@@ -119,6 +119,7 @@ struct AppImpl {
     std::function<bool()> on_close_request{};
     // Last window-chrome geometry published to CSS, to skip redundant restyles.
     Rect                  last_chrome_rect{};
+    int                   last_chrome_win_w{-1};
     bool                  chrome_published{false};
     int                   last_cursor{-1};  // last sapp cursor we set
     bool                  last_ime_active{false};  // last IME intent pushed
@@ -1281,9 +1282,19 @@ void publish_native_menus(detail::AppImpl& impl) {
 }
 
 void install_app_menu(detail::AppImpl& impl) {
-    if (!impl.config.native_menus || !platform::has_native_menus()) return;
+    if (!platform::has_native_menus()) return;
+    // The standard application menu goes up even when the app opted OUT of
+    // native menus, and even when it supplied none. Cmd-Q is not a key the app
+    // sees on macOS — it is the key equivalent of the Quit item — so "no menu
+    // bar" means "the app cannot be quit with Cmd-Q at all". Opting out is a
+    // choice about where the app's OWN menus are drawn, and it must not cost
+    // the user a working Quit.
+    //
+    // What opting out (or not supplying a menu) does cost is the app's menus
+    // going native: those stay drawn in the window. See native_menus_showing.
+    const bool use_app_menu = impl.config.native_menus && !impl.menu.empty();
     // The shell copies the callbacks it needs, so a temporary is fine here.
-    const Menu menu = impl.menu.empty() ? default_menu() : impl.menu;
+    const Menu menu = use_app_menu ? impl.menu : default_menu();
     platform::install_menu(menu, impl.config.title,
                            [&impl](MenuRole role) { handle_menu_role(impl, role); });
 }
@@ -1299,19 +1310,26 @@ void install_app_menu(detail::AppImpl& impl) {
 void publish_window_chrome(detail::AppImpl& impl) {
     const Rect r = platform::window_controls_rect(
         impl.config.titlebar, impl.config.traffic_light_position);
+    // The window width matters as much as the button rect: --affineui-titlebar-
+    // area-width is (window width - reserved band), so a plain resize changes it
+    // even though the buttons have not moved at all. Comparing only the rect
+    // would early-return on every resize and leave that var reporting the width
+    // the window had when it was first shown.
+    const int win_w_now = impl.last_w > 0 ? impl.last_w : 0;
     if (impl.chrome_published && r.x == impl.last_chrome_rect.x &&
         r.y == impl.last_chrome_rect.y && r.w == impl.last_chrome_rect.w &&
-        r.h == impl.last_chrome_rect.h) {
-        return;  // unchanged — don't dirty the tree every resize tick
+        r.h == impl.last_chrome_rect.h && win_w_now == impl.last_chrome_win_w) {
+        return;  // genuinely unchanged — don't dirty the tree every resize tick
     }
-    impl.last_chrome_rect = r;
-    impl.chrome_published = true;
+    impl.last_chrome_rect  = r;
+    impl.last_chrome_win_w = win_w_now;
+    impl.chrome_published  = true;
 
     // The controls sit on the left on macOS and on the right on Windows, so
     // give the bar both insets and let it pad with whichever is non-zero. The
     // area-* set mirrors the Window Controls Overlay names for anyone who
     // already knows them.
-    const int  win_w = impl.last_w > 0 ? impl.last_w : 0;
+    const int  win_w = win_w_now;
     const bool left  = r.w > 0 && r.x <= 0;
     const int  free_w = win_w > r.w ? win_w - r.w : 0;
     char buf[512];

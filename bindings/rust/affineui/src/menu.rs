@@ -161,6 +161,12 @@ impl MenuItem {
         MenuItem::bare(ItemKind::Role(role))
     }
 
+    /// A standard platform item with the label overridden. The accelerator and
+    /// the behavior still come from the platform — only the wording is yours.
+    pub fn role_labeled(role: MenuRole, label: &str) -> MenuItem {
+        MenuItem { label: label.to_owned(), ..MenuItem::bare(ItemKind::Role(role)) }
+    }
+
     /// A row with a check mark, initially `checked`. A menu that shows state is
     /// expected to be rebuilt and re-set as that state changes.
     pub fn check(
@@ -231,7 +237,15 @@ impl MenuItem {
                 );
             }
             ItemKind::Separator => sys::affineui_menu_add_separator(raw),
-            ItemKind::Role(role) => sys::affineui_menu_add_role(raw, role.to_raw()),
+            ItemKind::Role(role) => {
+                sys::affineui_menu_add_role(raw, role.to_raw());
+                // A role takes the platform's label unless the caller overrode
+                // it (MenuItem::role_labeled); set_label decorates the item just
+                // added, so it has to follow the add.
+                if !self.label.is_empty() {
+                    sys::affineui_menu_set_label(raw, label.as_ptr());
+                }
+            }
             ItemKind::Submenu(items) => {
                 // The returned handle is owned by `raw`; never destroyed here.
                 let sub = sys::affineui_menu_add_submenu(raw, label.as_ptr());

@@ -405248,6 +405248,7 @@ struct AppImpl {
     std::function<bool()> on_close_request{};
     // Last window-chrome geometry published to CSS, to skip redundant restyles.
     Rect                  last_chrome_rect{};
+    int                   last_chrome_win_w{-1};
     bool                  chrome_published{false};
     int                   last_cursor{-1};  // last sapp cursor we set
     bool                  last_ime_active{false};  // last IME intent pushed
@@ -406410,9 +406411,19 @@ void publish_native_menus(detail::AppImpl& impl) {
 }
 
 void install_app_menu(detail::AppImpl& impl) {
-    if (!impl.config.native_menus || !platform::has_native_menus()) return;
+    if (!platform::has_native_menus()) return;
+    // The standard application menu goes up even when the app opted OUT of
+    // native menus, and even when it supplied none. Cmd-Q is not a key the app
+    // sees on macOS — it is the key equivalent of the Quit item — so "no menu
+    // bar" means "the app cannot be quit with Cmd-Q at all". Opting out is a
+    // choice about where the app's OWN menus are drawn, and it must not cost
+    // the user a working Quit.
+    //
+    // What opting out (or not supplying a menu) does cost is the app's menus
+    // going native: those stay drawn in the window. See native_menus_showing.
+    const bool use_app_menu = impl.config.native_menus && !impl.menu.empty();
     // The shell copies the callbacks it needs, so a temporary is fine here.
-    const Menu menu = impl.menu.empty() ? default_menu() : impl.menu;
+    const Menu menu = use_app_menu ? impl.menu : default_menu();
     platform::install_menu(menu, impl.config.title,
                            [&impl](MenuRole role) { handle_menu_role(impl, role); });
 }
@@ -406428,19 +406439,26 @@ void install_app_menu(detail::AppImpl& impl) {
 void publish_window_chrome(detail::AppImpl& impl) {
     const Rect r = platform::window_controls_rect(
         impl.config.titlebar, impl.config.traffic_light_position);
+    // The window width matters as much as the button rect: --affineui-titlebar-
+    // area-width is (window width - reserved band), so a plain resize changes it
+    // even though the buttons have not moved at all. Comparing only the rect
+    // would early-return on every resize and leave that var reporting the width
+    // the window had when it was first shown.
+    const int win_w_now = impl.last_w > 0 ? impl.last_w : 0;
     if (impl.chrome_published && r.x == impl.last_chrome_rect.x &&
         r.y == impl.last_chrome_rect.y && r.w == impl.last_chrome_rect.w &&
-        r.h == impl.last_chrome_rect.h) {
-        return;  // unchanged — don't dirty the tree every resize tick
+        r.h == impl.last_chrome_rect.h && win_w_now == impl.last_chrome_win_w) {
+        return;  // genuinely unchanged — don't dirty the tree every resize tick
     }
-    impl.last_chrome_rect = r;
-    impl.chrome_published = true;
+    impl.last_chrome_rect  = r;
+    impl.last_chrome_win_w = win_w_now;
+    impl.chrome_published  = true;
 
     // The controls sit on the left on macOS and on the right on Windows, so
     // give the bar both insets and let it pad with whichever is non-zero. The
     // area-* set mirrors the Window Controls Overlay names for anyone who
     // already knows them.
-    const int  win_w = impl.last_w > 0 ? impl.last_w : 0;
+    const int  win_w = win_w_now;
     const bool left  = r.w > 0 && r.x <= 0;
     const int  free_w = win_w > r.w ? win_w - r.w : 0;
     char buf[512];
@@ -413150,6 +413168,15 @@ void place_traffic_lights(TitleBarStyle style, Point pos) {
         y = 16;
     }
 
+    // Snapshot the reference BEFORE moving anything. Each button keeps its
+    // offset from the close button, so that offset has to be measured against
+    // where the close button STARTED — read it inside the loop and the first
+    // iteration (which moves the close button) would corrupt the reference for
+    // the other two: their dx would come out as `original_x - x`, and
+    // `x + dx` would put them straight back where they were, leaving the three
+    // lights split apart.
+    const CGFloat origin_x = buttons[0].frame.origin.x;
+
     for (NSButton* b : buttons) {
         NSView* row = b.superview;
         if (!row) continue;
@@ -413157,7 +413184,7 @@ void place_traffic_lights(TitleBarStyle style, Point pos) {
         // y is given from the window top; AppKit measures from the bottom.
         f.origin.y = row.bounds.size.height - y - f.size.height;
         // Keep the OS's own spacing between the three.
-        const CGFloat dx = b.frame.origin.x - buttons[0].frame.origin.x;
+        const CGFloat dx = f.origin.x - origin_x;
         f.origin.x = x + dx;
         b.frame    = f;
     }
@@ -415028,11 +415055,11 @@ std::string Document::hovered_css_var(std::string_view name) const {
     // drag bar wins simply by being the element under the cursor.
     const auto it = props->find(std::string(name));
     if (it == props->end()) return {};
-    // Trim: the cascade keeps custom-property values as written.
-    std::string_view v = it->second;
-    while (!v.empty() && (v.front() == ' ' || v.front() == '\t')) v.remove_prefix(1);
-    while (!v.empty() && (v.back() == ' ' || v.back() == '\t')) v.remove_suffix(1);
-    return std::string(v);
+    // The cascade keeps custom-property values exactly as written, so the value
+    // can carry any CSS whitespace — a declaration wrapped across lines keeps
+    // its newline, and a naive space/tab trim would leave it in and make the
+    // caller's `== "drag"` quietly fail.
+    return std::string(detail::trim_css_ws(it->second));
 #else
     (void) name;
     return {};
@@ -447831,9 +447858,12 @@ void affineui_app_on_close_request(affineui_app* app,
                                    affineui_close_request_fn fn,
                                    void* user,
                                    affineui_user_free_fn user_free) {
-    if (!app) return;
-    if (!fn) {
-        to_app(app)->on_close_request({});
+    // We never take ownership of `user` unless we install the handler, so a
+    // rejected registration has to hand it back — the same contract every other
+    // callback entry point here keeps (see affineui_app_on_event_capture).
+    if (!app || !fn) {
+        if (app) to_app(app)->on_close_request({});  // fn == NULL clears
+        if (user_free) user_free(user);
         return;
     }
     // The handler outlives this call by definition — it runs when the user tries
@@ -447929,7 +447959,12 @@ affineui_menu* affineui_menu_add_submenu(affineui_menu* parent,
 void affineui_menu_add_item(affineui_menu* menu, const char* label,
                             const char* accelerator, affineui_menu_select_fn fn,
                             void* user, affineui_user_free_fn user_free) {
-    if (!menu) return;
+    if (!menu) {
+        // Nothing took ownership of `user`, so hand it back rather than strand
+        // it — same contract as every other callback entry point here.
+        if (user_free) user_free(user);
+        return;
+    }
     affineui::MenuItem item;
     item.label       = sv(label);
     item.accelerator = sv(accelerator);
@@ -447943,7 +447978,9 @@ void affineui_menu_add_item(affineui_menu* menu, const char* label,
 void affineui_menu_add_check(affineui_menu* menu, const char* label, int checked,
                              const char* accelerator, affineui_menu_select_fn fn,
                              void* user, affineui_user_free_fn user_free) {
-    if (!menu) return;
+    // No null-check here: add_item owns the decision, and it releases `user` on
+    // rejection. Guarding first and returning early would strand it. last_item()
+    // is null-safe, so the decoration below is fine either way.
     affineui_menu_add_item(menu, label, accelerator, fn, user, user_free);
     if (auto* it = last_item(menu)) {
         it->type    = affineui::MenuItemType::Checkbox;
@@ -447969,6 +448006,10 @@ void affineui_menu_set_swatch(affineui_menu* menu, affineui_color color) {
 
 void affineui_menu_set_enabled(affineui_menu* menu, int enabled) {
     if (auto* it = last_item(menu)) it->enabled = enabled != 0;
+}
+
+void affineui_menu_set_label(affineui_menu* menu, const char* label) {
+    if (auto* it = last_item(menu)) it->label = sv(label);
 }
 
 void affineui_app_set_menu(affineui_app* app, const affineui_menu* menu) {

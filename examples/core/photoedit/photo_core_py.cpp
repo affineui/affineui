@@ -339,6 +339,10 @@ PYBIND11_MODULE(photo_core, m) {
         // history
         .def("history_entries", &PhotoDoc::history_entries)
         .def("history_index", &PhotoDoc::history_index)
+        // Stable id of the current state. Compare this, not history_index():
+        // indices are reused when a snapshot after an undo erases the redo
+        // tail, so the same index can mean different pixels.
+        .def("history_id", &PhotoDoc::history_id)
         .def("history_source", &PhotoDoc::history_source)
         .def("set_history_source", &PhotoDoc::set_history_source,
              py::arg("index"))

@@ -139,7 +139,21 @@ TEST_CASE("only the application menubar is marked for the system bar") {
     v.end();
     const std::string html = v.to_html_fragment();
 
-    CHECK(app_menubar_count(html) == 1);   // exactly one, and it is the first
+    // Exactly one bar is marked...
+    CHECK(app_menubar_count(html) == 1);
+    // ...and it is the APPLICATION one. Counting alone would not prove that:
+    // marking the viewport's strip instead would still yield a count of 1, and
+    // the app's menus would then be the ones left drawn twice.
+    const auto mark = html.find(affineui::kAppMenubarClass);
+    REQUIRE(mark != std::string::npos);
+    const auto mb_file = html.find("mb-file");   // inside the app menubar
+    const auto vp_bar  = html.find("vp-menubar");  // the contextual strip
+    REQUIRE(mb_file != std::string::npos);
+    REQUIRE(vp_bar != std::string::npos);
+    // The mark precedes the app menubar's own trigger, and precedes the
+    // contextual bar entirely — i.e. it is on the first menubar, not the second.
+    CHECK(mark < mb_file);
+    CHECK(mark < vp_bar);
     // Both bars still emit their triggers. Nothing is decided at build time, so
     // the same DOM is correct whether or not the menus went native — hiding is a
     // restyle, and that is what lets set_menu() run before OR after the view is

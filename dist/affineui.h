@@ -7609,14 +7609,20 @@ public:
         std::function<void()> on_layout_changed{};
         // ─── Platform chrome ──────────────────────────────────────────
         // Native application menus. ON by default: on macOS every real app is
-        // expected to own the system menu bar (the bar lives at the top of the
-        // SCREEN — an app cannot draw it), and without a menu bar there is no
-        // Quit item, which means Cmd-Q does not work at all. So the default
-        // has to be native.
+        // expected to own the system menu bar (it lives at the top of the
+        // SCREEN — an app cannot draw it there itself).
         //
-        // Set false to opt out: no NSMenu is installed and the app keeps the
-        // in-window bar it draws itself (View::menu_bar). Apps that want their
-        // menus inside a custom title bar on every platform want this.
+        // Set false to opt out: the menu passed to set_menu() is NOT installed,
+        // and the app keeps the in-window bar it draws itself (View::menu_bar),
+        // triggers and all. Apps that want their menus inside a custom title bar
+        // on every platform want this.
+        //
+        // Opting out does NOT cost you Cmd-Q. The standard application menu
+        // (About / Services / Hide / Quit) is synthesized and installed either
+        // way — on macOS Cmd-Q is the Quit item's key equivalent rather than a
+        // key the app ever sees, so an app with no menu bar simply cannot be
+        // quit with it. This flag decides where the app's OWN menus are drawn,
+        // nothing more.
         //
         // No effect off macOS today — the drawn bar is still the only bar
         // there — but the menu model set via set_menu() is platform-neutral, so
@@ -7637,7 +7643,7 @@ public:
         //
         // A Hidden window needs the app to mark its own drag region, or the
         // window cannot be moved: any element carrying the CSS declaration
-        // `-affineui-app-region: drag` behaves like a title bar (click-drag
+        // `--affineui-app-region: drag` behaves like a title bar (click-drag
         // moves the window, double-click zooms). Interactive children inside it
         // — buttons, menu triggers — must opt back out with `no-drag`. This
         // mirrors Electron's `-webkit-app-region`.
@@ -8533,7 +8539,8 @@ AFFINEUI_C_API void affineui_tools_shutdown(void);
 //    this bump is load-bearing, not bookkeeping. Also: the affineui_menu builder
 //    and affineui_app_set_menu, affineui_app_on_close_request, the window
 //    controls (close/minimize/toggle_maximize/is_maximized/(set|is)_fullscreen),
-//    and affineui_view_document_title.
+//    affineui_menu_set_label (a role's platform label, overridable), and
+//    affineui_view_document_title.
 // 3: docking (affineui_view_document_view / document / dockpanel / dock_toolbar,
 //    the four dock providers, the Document dock readback), and a user_free
 //    parameter added to the three deferred dock builders.
@@ -8832,6 +8839,13 @@ AFFINEUI_C_API void affineui_menu_set_swatch(affineui_menu* menu,
                                              affineui_color color);
 // Enable/disable the LAST item added (1 = enabled, the default).
 AFFINEUI_C_API void affineui_menu_set_enabled(affineui_menu* menu, int enabled);
+
+// Override the label of the LAST item added. Mainly for ROLE items: a role
+// normally takes the platform's own label, and this is how a caller overrides
+// it (affineui::MenuItem::role(role, label) in C++). Empty restores the
+// platform's label.
+AFFINEUI_C_API void affineui_menu_set_label(affineui_menu* menu,
+                                            const char* label);
 
 // Install (or replace) the application menu. `menu` is copied; NULL clears.
 AFFINEUI_C_API void affineui_app_set_menu(affineui_app* app,

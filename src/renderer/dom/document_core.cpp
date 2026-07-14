@@ -1739,11 +1739,11 @@ std::string Document::hovered_css_var(std::string_view name) const {
     // drag bar wins simply by being the element under the cursor.
     const auto it = props->find(std::string(name));
     if (it == props->end()) return {};
-    // Trim: the cascade keeps custom-property values as written.
-    std::string_view v = it->second;
-    while (!v.empty() && (v.front() == ' ' || v.front() == '\t')) v.remove_prefix(1);
-    while (!v.empty() && (v.back() == ' ' || v.back() == '\t')) v.remove_suffix(1);
-    return std::string(v);
+    // The cascade keeps custom-property values exactly as written, so the value
+    // can carry any CSS whitespace — a declaration wrapped across lines keeps
+    // its newline, and a naive space/tab trim would leave it in and make the
+    // caller's `== "drag"` quietly fail.
+    return std::string(detail::trim_css_ws(it->second));
 #else
     (void) name;
     return {};

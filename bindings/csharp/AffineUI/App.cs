@@ -24,7 +24,7 @@ public enum TitleBarStyle
     ///
     /// <para>A Hidden window needs the app to mark its own drag region, or the
     /// window cannot be moved: any element carrying the CSS declaration
-    /// <c>-affineui-app-region: drag</c> behaves like a title bar. Interactive
+    /// <c>--affineui-app-region: drag</c> behaves like a title bar. Interactive
     /// children inside it must opt back out with <c>no-drag</c>. This mirrors
     /// Electron's <c>-webkit-app-region</c>.</para></summary>
     Hidden = 1,
@@ -434,6 +434,11 @@ public sealed partial class App : IDisposable
                 // item takes no callback (affineui_menu_add_role has no slot for
                 // one), so MenuItem.OnSelect is ignored here by design.
                 NativeMethods.affineui_menu_add_role(menu, (int)item.ItemRole);
+                // …but the caller MAY override the label (MenuItem.Role(role,
+                // label)). Without this the override was silently dropped and
+                // the item quietly showed the platform's wording instead.
+                if (!string.IsNullOrEmpty(item.Label))
+                    NativeMethods.affineui_menu_set_label(menu, item.Label);
                 break;
 
             case MenuItem.Kind.Submenu:

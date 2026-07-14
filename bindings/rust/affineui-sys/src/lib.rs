@@ -565,6 +565,9 @@ extern "C" {
     pub fn affineui_menu_set_swatch(menu: *mut affineui_menu, color: affineui_color);
     /// Decorates the LAST item added (1 = enabled, the default).
     pub fn affineui_menu_set_enabled(menu: *mut affineui_menu, enabled: c_int);
+    /// Decorates the LAST item added. Mainly for ROLE items: a role takes the
+    /// platform's own label, and this overrides it. Empty restores it.
+    pub fn affineui_menu_set_label(menu: *mut affineui_menu, label: *const c_char);
     /// `menu` is copied; NULL clears.
     pub fn affineui_app_set_menu(app: *mut affineui_app, menu: *const affineui_menu);
 

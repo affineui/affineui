@@ -228,9 +228,12 @@ void affineui_app_on_close_request(affineui_app* app,
                                    affineui_close_request_fn fn,
                                    void* user,
                                    affineui_user_free_fn user_free) {
-    if (!app) return;
-    if (!fn) {
-        to_app(app)->on_close_request({});
+    // We never take ownership of `user` unless we install the handler, so a
+    // rejected registration has to hand it back — the same contract every other
+    // callback entry point here keeps (see affineui_app_on_event_capture).
+    if (!app || !fn) {
+        if (app) to_app(app)->on_close_request({});  // fn == NULL clears
+        if (user_free) user_free(user);
         return;
     }
     // The handler outlives this call by definition — it runs when the user tries
@@ -326,7 +329,12 @@ affineui_menu* affineui_menu_add_submenu(affineui_menu* parent,
 void affineui_menu_add_item(affineui_menu* menu, const char* label,
                             const char* accelerator, affineui_menu_select_fn fn,
                             void* user, affineui_user_free_fn user_free) {
-    if (!menu) return;
+    if (!menu) {
+        // Nothing took ownership of `user`, so hand it back rather than strand
+        // it — same contract as every other callback entry point here.
+        if (user_free) user_free(user);
+        return;
+    }
     affineui::MenuItem item;
     item.label       = sv(label);
     item.accelerator = sv(accelerator);
@@ -340,7 +348,9 @@ void affineui_menu_add_item(affineui_menu* menu, const char* label,
 void affineui_menu_add_check(affineui_menu* menu, const char* label, int checked,
                              const char* accelerator, affineui_menu_select_fn fn,
                              void* user, affineui_user_free_fn user_free) {
-    if (!menu) return;
+    // No null-check here: add_item owns the decision, and it releases `user` on
+    // rejection. Guarding first and returning early would strand it. last_item()
+    // is null-safe, so the decoration below is fine either way.
     affineui_menu_add_item(menu, label, accelerator, fn, user, user_free);
     if (auto* it = last_item(menu)) {
         it->type    = affineui::MenuItemType::Checkbox;
@@ -366,6 +376,10 @@ void affineui_menu_set_swatch(affineui_menu* menu, affineui_color color) {
 
 void affineui_menu_set_enabled(affineui_menu* menu, int enabled) {
     if (auto* it = last_item(menu)) it->enabled = enabled != 0;
+}
+
+void affineui_menu_set_label(affineui_menu* menu, const char* label) {
+    if (auto* it = last_item(menu)) it->label = sv(label);
 }
 
 void affineui_app_set_menu(affineui_app* app, const affineui_menu* menu) {

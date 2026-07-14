@@ -74,7 +74,7 @@ as long as the App). Non-copyable, movable.
 | `bool perf_overlay` | `false` | Native perf overlay (see Part 5). |
 | `DebugOverlayCorner perf_overlay_corner` | `top_right` | |
 | `bool devtools_hotkey` | `true` | F12 / Ctrl+Shift+I opens the affinetools viewer. Compiled out with `AFFINEUI_PERF=0`. |
-| `bool native_menus` | `true` | The menu set with `App::set_menu` becomes the macOS system menu bar, and the drawn menubar hides its triggers. ON by default: with no menu bar there is no Quit item, so Cmd-Q could not work. Set false to keep the drawn bar. |
+| `bool native_menus` | `true` | The menu set with `App::set_menu` becomes the macOS system menu bar, and the drawn menubar hides its triggers. Set false to keep the drawn bar (triggers and all). Either way the standard application menu is synthesized, so Cmd-Q always works — on macOS it is the Quit item's key equivalent, not a key the app sees. |
 | `TitleBarStyle titlebar` | `Default` | `Hidden` / `HiddenInset` remove the system title bar (OS window buttons stay); `Frameless` removes the buttons too and the app draws its own. Named as in Electron. The app must mark its drag region — see `docs/WINDOW_CHROME_AND_MENUS.md`. |
 | `Point traffic_light_position` | `{0,0}` | macOS: where the window buttons sit, from the window's top-left. Zero = the style's default. |
 | `std::function<void()> on_layout_changed` | `{}` | Fired when an interaction changed the dock layout — read and persist it. |

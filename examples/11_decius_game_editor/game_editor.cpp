@@ -290,8 +290,22 @@ void GameEditor::build_native_menu() {
         MenuItem::sub(
             "Edit",
             {
+                // Undo/Redo are the APP's, not the document's: they drive the
+                // editor's command stack (scene edits, gizmo drags), so they
+                // stay explicit items rather than the Undo/Redo roles, which
+                // replay into the focused DOM control.
                 MenuItem::item("Undo", "CmdOrCtrl+Z", [this] { undo(); }),
                 MenuItem::item("Redo", "Shift+CmdOrCtrl+Z", [this] { redo(); }),
+                MenuItem::separator(),
+                // The clipboard group IS the document's. As roles they carry the
+                // platform's labels and accelerators and act on whatever text
+                // control has focus (the inspector's name and notes fields) — a
+                // native menu item owns its keystroke, so without these Cmd-C in
+                // a focused field would do nothing at all.
+                MenuItem::role(MenuRole::Cut),
+                MenuItem::role(MenuRole::Copy),
+                MenuItem::role(MenuRole::Paste),
+                MenuItem::role(MenuRole::SelectAll),
                 MenuItem::separator(),
                 MenuItem::item("Duplicate", "CmdOrCtrl+D",
                                [this] { duplicate_selected(); }),

@@ -96,14 +96,20 @@ public:
         std::function<void()> on_layout_changed{};
         // ─── Platform chrome ──────────────────────────────────────────
         // Native application menus. ON by default: on macOS every real app is
-        // expected to own the system menu bar (the bar lives at the top of the
-        // SCREEN — an app cannot draw it), and without a menu bar there is no
-        // Quit item, which means Cmd-Q does not work at all. So the default
-        // has to be native.
+        // expected to own the system menu bar (it lives at the top of the
+        // SCREEN — an app cannot draw it there itself).
         //
-        // Set false to opt out: no NSMenu is installed and the app keeps the
-        // in-window bar it draws itself (View::menu_bar). Apps that want their
-        // menus inside a custom title bar on every platform want this.
+        // Set false to opt out: the menu passed to set_menu() is NOT installed,
+        // and the app keeps the in-window bar it draws itself (View::menu_bar),
+        // triggers and all. Apps that want their menus inside a custom title bar
+        // on every platform want this.
+        //
+        // Opting out does NOT cost you Cmd-Q. The standard application menu
+        // (About / Services / Hide / Quit) is synthesized and installed either
+        // way — on macOS Cmd-Q is the Quit item's key equivalent rather than a
+        // key the app ever sees, so an app with no menu bar simply cannot be
+        // quit with it. This flag decides where the app's OWN menus are drawn,
+        // nothing more.
         //
         // No effect off macOS today — the drawn bar is still the only bar
         // there — but the menu model set via set_menu() is platform-neutral, so
@@ -124,7 +130,7 @@ public:
         //
         // A Hidden window needs the app to mark its own drag region, or the
         // window cannot be moved: any element carrying the CSS declaration
-        // `-affineui-app-region: drag` behaves like a title bar (click-drag
+        // `--affineui-app-region: drag` behaves like a title bar (click-drag
         // moves the window, double-click zooms). Interactive children inside it
         // — buttons, menu triggers — must opt back out with `no-drag`. This
         // mirrors Electron's `-webkit-app-region`.

@@ -270,6 +270,13 @@ AFFINEUI_C_API void affineui_menu_set_swatch(affineui_menu* menu,
 // Enable/disable the LAST item added (1 = enabled, the default).
 AFFINEUI_C_API void affineui_menu_set_enabled(affineui_menu* menu, int enabled);
 
+// Override the label of the LAST item added. Mainly for ROLE items: a role
+// normally takes the platform's own label, and this is how a caller overrides
+// it (affineui::MenuItem::role(role, label) in C++). Empty restores the
+// platform's label.
+AFFINEUI_C_API void affineui_menu_set_label(affineui_menu* menu,
+                                            const char* label);
+
 // Install (or replace) the application menu. `menu` is copied; NULL clears.
 AFFINEUI_C_API void affineui_app_set_menu(affineui_app* app,
                                           const affineui_menu* menu);

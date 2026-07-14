@@ -2227,6 +2227,7 @@ void PhotoDoc::snapshot(const std::string& name, const std::string& icon) {
                        history_.end());
     }
     HistoryRec rec;
+    rec.id   = ++history_next_id_;   // never reused, even after a branch
     rec.name = name;
     rec.icon = icon.empty() ? "edit" : icon;
     rec.active = active_;

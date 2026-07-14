@@ -546,6 +546,16 @@ void DenderApp::build_native_menu() {
 
 int DenderApp::run() {
     build_native_menu();
+    // Save-on-exit. The one veto point: the traffic-light close button, Cmd-Q,
+    // and the menu's Quit all run this before anything tears down. A DCC tool
+    // with an unsaved scene is exactly the case #60 exists for.
+    app_.on_close_request([this] {
+        if (!ctx_.document().dirty()) return true;
+        std::fprintf(stderr,
+                     "[dender] unsaved changes — a real app would prompt here "
+                     "and return false to cancel the quit\n");
+        return true;
+    });
     boot();
     return app_.run();
 }

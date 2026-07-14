@@ -99,9 +99,10 @@ class PhotoEditApp:
         self.doc_name = "Untitled-1"
         self.color_mode = "RGB/8"
         self.resolution = 72
-        # Where the core's history stood at the last save — the app's
-        # unsaved-changes answer (see dirty()), which on_close_request vetoes on.
-        self._saved_history_index = self.doc.history_index()
+        # Which history STATE was last saved — the app's unsaved-changes answer
+        # (see dirty()), which on_close_request vetoes on. An id, not an index:
+        # indices get reused across undo branches.
+        self._saved_history_id = self.doc.history_id()
 
         self.tool = "brush"  # web boots with the brush tool
         self.tool_options: dict[str, dict[str, object]] = {
@@ -1475,8 +1476,11 @@ class PhotoEditApp:
             "place": lambda: dialogs.open_place(self),
             "save": self._save,
             "export": lambda: dialogs.open_export(self),
-            "close": lambda: self.toast("Close — the demo document "
-                                        "stays open"),
+            # Close the WINDOW, through App.close() — which runs the
+            # close-request handler, so an unsaved document still gets its say.
+            # (Cmd-W is this item's key equivalent, so a toast here would mean
+            # the native menu item silently did nothing.)
+            "close": self.app.close,
             # Edit
             "undo": self.undo,
             "redo": self.redo,
@@ -1554,14 +1558,19 @@ class PhotoEditApp:
             self.toast(action.replace("-", " ").title())
 
     # ── Save state / close ──────────────────────────────────────────────────
-    # The core has no dirty flag, but it does keep a pixel-snapshot history, so
-    # "where the history was when we last saved" IS the unsaved-changes answer.
+    # The saved state is identified by history_id(), NOT history_index(). Indices
+    # are reused across branches: save at index 3, undo to 2, then make a
+    # different edit — the core erases the redo tail and the new state lands back
+    # at index 3 with different pixels. An index comparison would call that
+    # "clean" and let a close request through without ever prompting. Ids are
+    # monotonic and never reused, so this cannot happen; and undoing back TO the
+    # saved state restores its id, which correctly reads as clean again.
 
     def dirty(self) -> bool:
-        return self.doc.history_index() != self._saved_history_index
+        return self.doc.history_id() != self._saved_history_id
 
     def _save(self) -> None:
-        self._saved_history_index = self.doc.history_index()
+        self._saved_history_id = self.doc.history_id()
         self.toast(f"Saved {self.doc_name}.psd")
 
     def _on_close_request(self) -> bool:
