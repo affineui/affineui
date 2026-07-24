@@ -16,6 +16,7 @@ add_executable(affineui_tests
     test_object.cpp
     test_inspector.cpp
     test_components.cpp
+    test_c_api_lifetime.cpp
     test_c_api_dock.cpp
     test_app_template.cpp
     test_document.cpp

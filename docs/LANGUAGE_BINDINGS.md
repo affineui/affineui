@@ -111,7 +111,9 @@ implementation of it.
   new wrappers. Python is deliberately NOT being migrated to the C ABI;
   the two binding paths coexist, and behavioral parity between them is
   maintained at the spec level (this document + the Python README), not
-  by sharing a layer.
+  by sharing a layer. Python build callbacks receive a `CallbackView`
+  backed directly by the same native weak-lifetime token: it becomes
+  false when expired and raises `ReferenceError` on stale View operations.
 
 **Build artifact:** a new CMake target `affineui_c` — a SHARED library
 (`affineui_c.dll` / `libaffineui_c.so` / `libaffineui_c.dylib`) that
@@ -184,10 +186,16 @@ void affineui_widget_on_click(affineui_widget* w,
   Rust box a closure and C# pin a `GCHandle` with no leaks and no
   use-after-free. It is the C-level analog of the Python binding's
   `keep_python_function` + GIL-safe deleter.
-- Build callbacks (`affineui_build_fn`) are invoked **synchronously**
-  during the registering call (container/panel/toolbar scope builders) or
-  during append/replace; the `affineui_view*` they receive is the same
-  view handle and is only valid for the duration of the call.
+- Scope and append/replace callbacks (`affineui_build_fn`) are invoked
+  synchronously; persistent App builders and deferred docking/list builders
+  may be invoked later. In every case, the `affineui_view*` they receive is
+  borrowed and only valid for the duration of that invocation. A wrapper
+  whose callback object can escape must call `affineui_view_weak_ref`
+  during the callback, retain only that opaque token, and resolve it with
+  `affineui_weak_view_get` immediately before each operation. A null
+  resolution becomes the language's normal stale-object failure
+  (`ObjectDisposedException`, a catchable Rust panic, or Python
+  `ReferenceError`); it is never passed on as a native View pointer.
 - Callbacks must never unwind across the FFI. Each wrapper guarantees it
   on its side (Rust `catch_unwind`, C# catch-all — see §4/§5); this
   mirrors `call_python_function`'s catch-everything contract.
@@ -200,6 +208,7 @@ void affineui_widget_on_click(affineui_widget* w,
 | `affineui_ui` | `affineui_ui_create` | `affineui_ui_destroy` | Embedded mode. |
 | `affineui_document` | **borrowed** from `affineui_app_document(app)`; or owned via `affineui_document_create` (headless) | owned: `affineui_document_destroy`; borrowed: never | A borrowed document is valid exactly as long as its app. |
 | `affineui_view` | `affineui_view_create(theme)` | `affineui_view_destroy` | `affineui_app_load_view` **copies** the view into the app (same as Python: the app never borrows the caller's view object). |
+| `affineui_weak_view` | `affineui_view_weak_ref(view)` while `view` is known live | `affineui_weak_view_destroy` | Opaque invalidating token for callback Views. It neither retains the View nor exposes C++ layout/offsets; `get` returns `NULL` after destruction. |
 | `affineui_widget` | returned by every `affineui_view_*` builder / `find_widget` | `affineui_widget_destroy` | A heap-copied `WidgetRef`. **Must not outlive its view** — the C header documents it; each wrapper *enforces* it (§4.2, §5.2). Operations on a stale-but-in-lifetime ref follow WidgetRef semantics: reads return defaults, writes no-op. |
 
 #### Capture-phase input interception
@@ -361,7 +370,10 @@ app.run();
   interval configuration (custom Document drivers also call `tick_caret_blink`).
 - **Builder scopes** are closures (`v.container("cls", "key", |v| …)`) —
   same shape as the Python binding's `build=` parameters; no RAII scope
-  object crosses the FFI.
+  object crosses the FFI. Callback-provided `View` clones retain an opaque
+  native weak token rather than the borrowed pointer. They expose
+  `is_alive()` and panic before forwarding a stale pointer to any native
+  View operation.
 - **Strings:** `&str` → `CString` at the boundary (interior NULs
   rejected with a clear panic-free error); returned `char*` → owned
   `String` then `affineui_string_free`.
@@ -452,6 +464,10 @@ app.Run();
 - **Widget → View lifetime:** a `Widget` does not keep its `View` alive. The
   native invalidating handle returns defaults/no-ops after View collection or
   disposal, and the Widget can still be disposed independently.
+- **Callback View lifetime:** every `Action<View>` receives a wrapper over an
+  opaque native weak token, never a retained raw pointer. `View.IsAlive`
+  becomes false when its framework owner dies; further View operations throw
+  `ObjectDisposedException` before invoking a native View operation.
 - **Callback lifetime — the load-bearing detail:** managed closures are
   held via `GCHandle.Alloc(closure)`; `user` = `GCHandle.ToIntPtr`;
   `fn` = a single static `[UnmanagedCallersOnly]` trampoline per

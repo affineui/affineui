@@ -230,15 +230,22 @@ jobs:
           xvfb-run -a cargo test --no-default-features --features system \
             -- --test-threads=1
 
-      # There is no C# test project yet; Hello --headless IS the assertion —
-      # it returns 1 if the headless layout produces no content, and checks
-      # that every callback holder is released on view dispose.
+      # Hello --headless asserts that layout produces content and that every
+      # callback holder is released on View disposal.
       - name: C# — build + Hello --headless
         env:
           AFFINEUI_NATIVE_DIR: ${{ github.workspace }}/build
         run: |
           xvfb-run -a dotnet run --project bindings/csharp/examples/Hello \
             -c Release -- --headless
+
+      # Callback-provided View wrappers may escape managed callbacks. They must
+      # resolve through the native weak token and invalidate with their owner.
+      - name: C# — callback View lifetime
+        env:
+          AFFINEUI_NATIVE_DIR: ${{ github.workspace }}/build
+        run: |
+          xvfb-run -a dotnet run --project bindings/csharp/tests/Lifetime -c Release
 
       # Docking (#119). Builds a real workspace — document pane, tab toolbar,
       # docked/tabbed/floating/tearoff panels — and asserts the EMITTED DOM, plus

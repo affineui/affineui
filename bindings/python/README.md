@@ -64,6 +64,12 @@ app.load_view(view)
 raise SystemExit(app.run())
 ```
 
+`build=` callbacks and `App.set_view()` receive a `CallbackView`, a weak
+proxy over the native builder View. It is safe to retain accidentally:
+`callback_view.is_alive` becomes false after its native owner is destroyed,
+and subsequent View operations raise `ReferenceError` instead of touching a
+dangling object.
+
 ### Raw HTML
 
 ```python

@@ -3,7 +3,7 @@
 //! cargo's default parallel test harness would violate it.
 
 use affineui::{App, Config, Document, Event, Theme, Validity, View};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 #[test]
@@ -143,4 +143,45 @@ fn headless_contracts() {
     assert!(!stale.is_valid());
     assert_eq!(stale.text(), "");
     stale.set_text("ignored");
+
+    // Callback Views are weak, invalidating handles. View is Clone, so a
+    // callback wrapper can escape accidentally; it must never preserve a raw
+    // pointer to the owner or dereference the owner after destruction.
+    let escaped = Rc::new(RefCell::new(None::<View>));
+    {
+        let owner = View::new(Theme::Plain);
+        let slot = Rc::clone(&escaped);
+        owner.build(|v| {
+            v.panel("weak-panel", |callback_view| {
+                *slot.borrow_mut() = Some(callback_view.clone());
+            });
+        });
+        assert!(escaped.borrow().as_ref().unwrap().is_alive());
+    }
+    let stale_view = escaped.borrow_mut().take().unwrap();
+    assert!(!stale_view.is_alive());
+    let stale_use = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        stale_view.heading(1, "ignored", "", "ignored");
+    }));
+    assert!(stale_use.is_err(), "stale View use must raise a Rust panic");
+
+    // App::set_view uses a persistent native-owned View and a separate
+    // callback trampoline. It follows the same invalidating-wrapper contract.
+    let app_escaped = Rc::new(RefCell::new(None::<View>));
+    {
+        let app = App::new(Config::default());
+        let slot = Rc::clone(&app_escaped);
+        app.set_view(move |callback_view| {
+            *slot.borrow_mut() = Some(callback_view.clone());
+        });
+        assert!(app_escaped.borrow().as_ref().unwrap().is_alive());
+    }
+    let stale_app_view = app_escaped.borrow_mut().take().unwrap();
+    assert!(!stale_app_view.is_alive());
+    let stale_app_use =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| stale_app_view.clear()));
+    assert!(
+        stale_app_use.is_err(),
+        "stale App callback View use must raise a Rust panic"
+    );
 }

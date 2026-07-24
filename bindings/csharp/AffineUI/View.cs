@@ -17,7 +17,7 @@ public sealed partial class View : IDisposable
 {
     internal sealed class ViewSafeHandle : SafeHandle
     {
-        public ViewSafeHandle(IntPtr h, bool owns) : base(IntPtr.Zero, ownsHandle: owns)
+        public ViewSafeHandle(IntPtr h) : base(IntPtr.Zero, ownsHandle: true)
         {
             SetHandle(h);
         }
@@ -31,7 +31,24 @@ public sealed partial class View : IDisposable
         }
     }
 
-    private readonly ViewSafeHandle _handle;
+    internal sealed class WeakViewSafeHandle : SafeHandle
+    {
+        public WeakViewSafeHandle(IntPtr h) : base(IntPtr.Zero, ownsHandle: true)
+        {
+            SetHandle(h);
+        }
+
+        public override bool IsInvalid => handle == IntPtr.Zero;
+
+        protected override bool ReleaseHandle()
+        {
+            NativeMethods.affineui_weak_view_destroy(handle);
+            return true;
+        }
+    }
+
+    private readonly ViewSafeHandle? _ownedHandle;
+    private readonly WeakViewSafeHandle? _weakHandle;
 
     /// <summary>Creates a new view. Default theme is <see cref="Theme.Decius"/>
     /// — the framework the compile-time bundle ships CSS + fonts for, so a
@@ -43,28 +60,64 @@ public sealed partial class View : IDisposable
         IntPtr h = NativeMethods.affineui_view_create((int)theme);
         if (h == IntPtr.Zero)
             throw new InvalidOperationException("affineui_view_create failed.");
-        _handle = new ViewSafeHandle(h, owns: true);
+        _ownedHandle = new ViewSafeHandle(h);
     }
 
     private View(IntPtr borrowed)
     {
-        _handle = new ViewSafeHandle(borrowed, owns: false);
+        IntPtr weak = NativeMethods.affineui_view_weak_ref(borrowed);
+        if (weak == IntPtr.Zero)
+            throw new InvalidOperationException("affineui_view_weak_ref failed.");
+        _weakHandle = new WeakViewSafeHandle(weak);
     }
 
-    /// <summary>Wraps a native view pointer the wrapper does not own (the view
-    /// passed to a synchronous build callback). Valid only for the duration of
-    /// that callback.</summary>
+    /// <summary>Wraps a native callback View with its invalidating weak-lifetime
+    /// token. The managed wrapper may safely escape the callback; it becomes
+    /// invalid after the native View is destroyed and subsequent operations
+    /// throw <see cref="ObjectDisposedException"/>.</summary>
     internal static View Borrowed(IntPtr handle) => new(handle);
 
-    internal IntPtr Handle => _handle.IsClosed ? IntPtr.Zero : _handle.DangerousGetHandle();
+    private IntPtr ResolvedHandle
+    {
+        get
+        {
+            if (_ownedHandle is { IsClosed: false, IsInvalid: false } owned)
+                return owned.DangerousGetHandle();
+
+            if (_weakHandle is not { IsClosed: false, IsInvalid: false } weak)
+                return IntPtr.Zero;
+
+            IntPtr resolved = NativeMethods.affineui_weak_view_get(weak.DangerousGetHandle());
+            GC.KeepAlive(weak);
+            return resolved;
+        }
+    }
+
+    /// <summary>Whether the native View is still alive. Callback Views become
+    /// false after their framework owner is destroyed.</summary>
+    public bool IsAlive => ResolvedHandle != IntPtr.Zero;
+
+    internal IntPtr Handle
+    {
+        get
+        {
+            IntPtr resolved = ResolvedHandle;
+            if (resolved == IntPtr.Zero)
+                throw new ObjectDisposedException(
+                    nameof(View),
+                    "The native AffineUI View that supplied this callback wrapper no longer exists.");
+            return resolved;
+        }
+    }
 
     /// <summary>
-    /// Destroys the native view. Existing Widget handles weakly invalidate and
-    /// remain safe to query or dispose afterward.
+    /// Destroys the native view. Existing Widget handles weakly invalidate.
+    /// Further operations on this View throw <see cref="ObjectDisposedException"/>.
     /// </summary>
     public void Dispose()
     {
-        _handle.Dispose();
+        _ownedHandle?.Dispose();
+        _weakHandle?.Dispose();
     }
 
     internal Widget Wrap(IntPtr widgetHandle)

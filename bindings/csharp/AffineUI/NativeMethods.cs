@@ -412,6 +412,15 @@ internal static partial class NativeMethods
     internal static partial void affineui_view_destroy(IntPtr view);
 
     [LibraryImport(Lib)]
+    internal static partial IntPtr affineui_view_weak_ref(IntPtr view);
+
+    [LibraryImport(Lib)]
+    internal static partial IntPtr affineui_weak_view_get(IntPtr weakView);
+
+    [LibraryImport(Lib)]
+    internal static partial void affineui_weak_view_destroy(IntPtr weakView);
+
+    [LibraryImport(Lib)]
     internal static partial void affineui_view_clear(IntPtr view);
 
     [LibraryImport(Lib)]

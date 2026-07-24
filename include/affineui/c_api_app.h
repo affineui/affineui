@@ -34,6 +34,7 @@ extern "C" {
 typedef struct affineui_app      affineui_app;
 typedef struct affineui_document affineui_document;
 typedef struct affineui_view     affineui_view;
+typedef struct affineui_weak_view affineui_weak_view;
 typedef struct affineui_widget   affineui_widget;
 
 // ── Value types ──────────────────────────────────────────────────────
@@ -84,8 +85,9 @@ typedef struct affineui_dispatch_result {
 // (affineui_user_free_fn is declared in c_api.h.)
 typedef void (*affineui_click_fn) (void* user);
 typedef void (*affineui_change_fn)(void* user, const char* value);
-// Build callbacks run SYNCHRONOUSLY inside the registering call; `view`
-// is only valid for the duration of the invocation.
+// The raw `view` pointer is borrowed and is only valid for the duration of the
+// invocation. A language wrapper that lets callback View objects escape must
+// convert it to an affineui_weak_view during the callback.
 typedef void (*affineui_build_fn) (void* user, affineui_view* view);
 
 // ── App ──────────────────────────────────────────────────────────────
@@ -352,6 +354,24 @@ AFFINEUI_C_API int affineui_document_hovered_cursor(const affineui_document* doc
 
 AFFINEUI_C_API affineui_view* affineui_view_create(int theme /*affineui_view_theme*/);
 AFFINEUI_C_API void           affineui_view_destroy(affineui_view* view);
+
+// An opaque, caller-owned invalidating reference to a View. This copies the
+// View's native weak-lifetime token; it does not retain the View and exposes no
+// C++ object layout. `get` returns the live borrowed View pointer, or NULL after
+// the View is destroyed. The returned pointer is only a non-owning snapshot:
+// resolve it immediately before a View operation on AffineUI's UI thread, and
+// never pass NULL to an operation unless that operation explicitly documents
+// NULL behavior.
+//
+// Language bindings must use this for callback-provided Views that can escape
+// the callback. Create while the callback's raw pointer is known to be live,
+// resolve immediately before each operation, convert NULL into the language's
+// ordinary stale-object exception/error, and destroy the weak handle when the
+// wrapper is collected/disposed. Returns NULL only if allocation fails.
+AFFINEUI_C_API affineui_weak_view* affineui_view_weak_ref(affineui_view* view);
+AFFINEUI_C_API affineui_view* affineui_weak_view_get(
+    const affineui_weak_view* weak_view);
+AFFINEUI_C_API void affineui_weak_view_destroy(affineui_weak_view* weak_view);
 
 AFFINEUI_C_API void affineui_view_clear(affineui_view* view);
 AFFINEUI_C_API void affineui_view_begin(affineui_view* view);

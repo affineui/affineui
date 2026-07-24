@@ -16,6 +16,7 @@
 #include "c_api_util.h"
 
 #include <cstddef>
+#include <new>
 #include <string>
 #include <utility>
 #include <vector>
@@ -32,6 +33,12 @@ affineui::Document*       to_doc(affineui_document* d) { return reinterpret_cast
 const affineui::Document* to_doc(const affineui_document* d) { return reinterpret_cast<const affineui::Document*>(d); }
 affineui::View*       to_view(affineui_view* v) { return reinterpret_cast<affineui::View*>(v); }
 const affineui::View* to_view(const affineui_view* v) { return reinterpret_cast<const affineui::View*>(v); }
+affineui::detail::WeakViewRef* to_weak_view(affineui_weak_view* v) {
+    return reinterpret_cast<affineui::detail::WeakViewRef*>(v);
+}
+const affineui::detail::WeakViewRef* to_weak_view(const affineui_weak_view* v) {
+    return reinterpret_cast<const affineui::detail::WeakViewRef*>(v);
+}
 affineui::WidgetRef*       to_widget(affineui_widget* w) { return reinterpret_cast<affineui::WidgetRef*>(w); }
 const affineui::WidgetRef* to_widget(const affineui_widget* w) { return reinterpret_cast<const affineui::WidgetRef*>(w); }
 
@@ -531,6 +538,20 @@ affineui_view* affineui_view_create(int theme) {
 
 void affineui_view_destroy(affineui_view* view) {
     delete to_view(view);
+}
+
+affineui_weak_view* affineui_view_weak_ref(affineui_view* view) {
+    return reinterpret_cast<affineui_weak_view*>(
+        new (std::nothrow) affineui::detail::WeakViewRef(to_view(view)));
+}
+
+affineui_view* affineui_weak_view_get(const affineui_weak_view* weak_view) {
+    if (!weak_view) return nullptr;
+    return reinterpret_cast<affineui_view*>(to_weak_view(weak_view)->get());
+}
+
+void affineui_weak_view_destroy(affineui_weak_view* weak_view) {
+    delete to_weak_view(weak_view);
 }
 
 void affineui_view_clear(affineui_view* view) {

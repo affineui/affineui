@@ -89,6 +89,71 @@ std::shared_ptr<py::function> keep_python_function(py::function cb) {
     return {new py::function(std::move(cb)), delete_python_function};
 }
 
+[[noreturn]] void throw_stale_callback_view() {
+    PyErr_SetString(
+        PyExc_ReferenceError,
+        "the native AffineUI View that supplied this callback object no longer exists");
+    throw py::error_already_set();
+}
+
+// A Python callback must never receive pybind's ordinary non-owning View
+// wrapper: Python can retain it after the native View is destroyed. Keep only
+// the core's independently invalidating token and resolve it for the duration
+// of each method call. The proxy is intentionally duck-compatible with View.
+class PythonCallbackView {
+public:
+    explicit PythonCallbackView(affineui::View& view) : view_(&view) {}
+    explicit PythonCallbackView(affineui::detail::WeakViewRef view)
+        : view_(std::move(view)) {}
+
+    [[nodiscard]] bool is_alive() const noexcept {
+        return view_.get() != nullptr;
+    }
+
+    py::object getattr(const std::string& name) const {
+        auto* view = view_.get();
+        if (!view) throw_stale_callback_view();
+
+        py::object target =
+            py::cast(view, py::return_value_policy::reference);
+        py::object attribute = target.attr(name.c_str());
+        if (!PyCallable_Check(attribute.ptr())) return attribute;
+
+        auto weak = view_;
+        return py::cpp_function(
+            [weak = std::move(weak), name](py::args args,
+                                           py::kwargs kwargs) -> py::object {
+                auto* live = weak.get();
+                if (!live) throw_stale_callback_view();
+
+                py::object current =
+                    py::cast(live, py::return_value_policy::reference);
+                py::object callable = current.attr(name.c_str());
+                PyObject* result = PyObject_Call(
+                    callable.ptr(), args.ptr(),
+                    kwargs ? kwargs.ptr() : nullptr);
+                if (!result) throw py::error_already_set();
+
+                py::object out =
+                    py::reinterpret_steal<py::object>(result);
+                // Fluent View methods return View&. Do not let that return path
+                // smuggle the temporary raw pybind wrapper past the weak proxy.
+                if (py::isinstance<affineui::View>(out) &&
+                    out.cast<affineui::View*>() == live) {
+                    return py::cast(PythonCallbackView{weak});
+                }
+                return out;
+            });
+    }
+
+private:
+    affineui::detail::WeakViewRef view_{};
+};
+
+PythonCallbackView callback_view(affineui::View& view) {
+    return PythonCallbackView{view};
+}
+
 template <typename... Args>
 void call_python_function(const char* label,
                           const std::shared_ptr<py::function>& callback,
@@ -114,6 +179,16 @@ PYBIND11_MODULE(_affineui, m) {
     m.attr("__version__") = AFFINEUI_PY_VERSION;
     m.def("version", [] { return std::string{affineui::version_string()}; });
     m.def("native_backend", [] { return std::string{"sokol"}; });
+
+    py::class_<PythonCallbackView>(m, "CallbackView")
+        .def_property_readonly("is_alive", &PythonCallbackView::is_alive)
+        .def("__bool__", &PythonCallbackView::is_alive)
+        .def("__getattr__", &PythonCallbackView::getattr)
+        .def("__repr__", [](const PythonCallbackView& view) {
+            return view.is_alive()
+                ? std::string{"<affineui.CallbackView alive>"}
+                : std::string{"<affineui.CallbackView expired>"};
+        });
 
     // Painter — an opaque handle to the live painter, plus the drawing calls.
     //
@@ -598,7 +673,7 @@ PYBIND11_MODULE(_affineui, m) {
                  auto cb = keep_python_function(std::move(build));
                  h.toolbar([cb = std::move(cb)](affineui::View& v) {
                      py::gil_scoped_acquire gil;
-                     (*cb)(&v);
+                     (*cb)(callback_view(v));
                  });
                  return h;
              },
@@ -763,7 +838,8 @@ PYBIND11_MODULE(_affineui, m) {
              [](affineui::VirtualListProvider& p, py::function fn) {
                  auto cb = keep_python_function(std::move(fn));
                  p.on_build_item([cb](affineui::View& v, std::size_t i) {
-                     call_python_function("on_build_item", cb, &v, i);
+                     call_python_function(
+                         "on_build_item", cb, callback_view(v), i);
                  });
                  return &p;
              }, py::return_value_policy::reference)
@@ -1034,7 +1110,7 @@ PYBIND11_MODULE(_affineui, m) {
                  auto callback = keep_python_function(std::move(build));
                  return ref.append([callback = std::move(callback)](affineui::View& view) {
                      py::gil_scoped_acquire gil;
-                     (*callback)(&view);
+                     (*callback)(callback_view(view));
                  });
              },
              py::return_value_policy::reference_internal)
@@ -1043,7 +1119,7 @@ PYBIND11_MODULE(_affineui, m) {
                  auto callback = keep_python_function(std::move(build));
                  return ref.replace([callback = std::move(callback)](affineui::View& view) {
                      py::gil_scoped_acquire gil;
-                     (*callback)(&view);
+                     (*callback)(callback_view(view));
                  });
              },
              py::return_value_policy::reference_internal)
@@ -1343,7 +1419,7 @@ PYBIND11_MODULE(_affineui, m) {
                  }
                  auto scope = view.container(classes, key);
                  auto ref = scope.ref();
-                 build(&view);
+                 build(callback_view(view));
                  return ref;
              },
              py::arg("classes") = "",
@@ -1373,7 +1449,7 @@ PYBIND11_MODULE(_affineui, m) {
                  }
                  auto scope = view.panel(key);
                  auto ref = scope.ref();
-                 build(&view);
+                 build(callback_view(view));
                  return ref;
              },
              py::arg("key") = "",
@@ -1391,7 +1467,7 @@ PYBIND11_MODULE(_affineui, m) {
                  }
                  auto scope = view.element(tag, classes, key);
                  auto ref = scope.ref();
-                 build(&view);
+                 build(callback_view(view));
                  return ref;
              },
              py::arg("tag"),
@@ -1408,7 +1484,7 @@ PYBIND11_MODULE(_affineui, m) {
                 py::object build) {
                  auto scope = view.card(title, classes, key);
                  auto ref = scope.ref();
-                 if (!build.is_none()) build(&view);
+                 if (!build.is_none()) build(callback_view(view));
                  return ref;
              },
              py::arg("title"),
@@ -1424,7 +1500,7 @@ PYBIND11_MODULE(_affineui, m) {
                 py::object build) {
                  auto scope = view.foldout(title, expanded, key);
                  auto ref = scope.ref();
-                 if (!build.is_none()) build(&view);
+                 if (!build.is_none()) build(callback_view(view));
                  return ref;
              },
              py::arg("title"),
@@ -1447,7 +1523,7 @@ PYBIND11_MODULE(_affineui, m) {
              [](affineui::View& view, const std::string& key, py::object build) {
                  auto scope = view.toolbar(key);
                  auto ref = scope.ref();
-                 if (!build.is_none()) build(&view);
+                 if (!build.is_none()) build(callback_view(view));
                  return ref;
              },
              py::arg("key") = "", py::arg("build") = py::none(),
@@ -1469,7 +1545,7 @@ PYBIND11_MODULE(_affineui, m) {
              [](affineui::View& view, const std::string& key, py::object build) {
                  auto scope = view.menu_bar(key);
                  auto ref = scope.ref();
-                 if (!build.is_none()) build(&view);
+                 if (!build.is_none()) build(callback_view(view));
                  return ref;
              },
              py::arg("key") = "", py::arg("build") = py::none(),
@@ -1486,7 +1562,9 @@ PYBIND11_MODULE(_affineui, m) {
                 py::function build, const std::string& key) {
                  return view.menu_button(
                      label,
-                     [&build](affineui::View& v) { build(&v); },
+                     [&build](affineui::View& v) {
+                         build(callback_view(v));
+                     },
                      key);
              },
              py::arg("label"), py::arg("build"), py::arg("key") = "",
@@ -1497,7 +1575,9 @@ PYBIND11_MODULE(_affineui, m) {
                 py::function build) {
                  return view.menu(
                      menu_id,
-                     [&build](affineui::View& v) { build(&v); });
+                     [&build](affineui::View& v) {
+                         build(callback_view(v));
+                     });
              },
              py::arg("menu_id"), py::arg("build"),
              "Add a popup menu (hidden until a menu_button targets its id); "
@@ -1516,7 +1596,7 @@ PYBIND11_MODULE(_affineui, m) {
              [](affineui::View& view, const std::string& key, py::object build) {
                  auto scope = view.menu_item_custom(key);
                  auto ref = scope.ref();
-                 if (!build.is_none()) build(&view);
+                 if (!build.is_none()) build(callback_view(view));
                  return ref;
              },
              py::arg("key") = "", py::arg("build") = py::none(),
@@ -1534,7 +1614,9 @@ PYBIND11_MODULE(_affineui, m) {
                 const std::string& key) {
                  return view.submenu(
                      label,
-                     [&build](affineui::View& v) { build(&v); },
+                     [&build](affineui::View& v) {
+                         build(callback_view(v));
+                     },
                      icon, key);
              },
              py::arg("label"), py::arg("build"), py::arg("icon") = "",
@@ -1576,7 +1658,7 @@ PYBIND11_MODULE(_affineui, m) {
                 const std::string& key, py::object build) {
                  auto scope = view.dock_panel(title, tabpanel_id, classes, key);
                  auto ref = scope.ref();
-                 if (!build.is_none()) build(&view);
+                 if (!build.is_none()) build(callback_view(view));
                  return ref;
              },
              py::arg("title"), py::arg("tabpanel_id"), py::arg("classes") = "",
@@ -1590,7 +1672,7 @@ PYBIND11_MODULE(_affineui, m) {
                  return view.document_view(
                      key, [cb = std::move(cb)](affineui::View& dv) {
                          py::gil_scoped_acquire gil;
-                         (*cb)(&dv);
+                         (*cb)(callback_view(dv));
                      });
              },
              py::arg("key"), py::arg("build"),
@@ -1605,7 +1687,7 @@ PYBIND11_MODULE(_affineui, m) {
                  return view.document(
                      [cb = std::move(cb)](affineui::View& p) {
                          py::gil_scoped_acquire gil;
-                         (*cb)(&p);
+                         (*cb)(callback_view(p));
                      },
                      title, icon);
              },
@@ -1621,7 +1703,7 @@ PYBIND11_MODULE(_affineui, m) {
                      title, where,
                      [cb = std::move(cb)](affineui::View& p) {
                          py::gil_scoped_acquire gil;
-                         (*cb)(&p);
+                         (*cb)(callback_view(p));
                      },
                      icon, key);
              },
@@ -1688,7 +1770,7 @@ PYBIND11_MODULE(_affineui, m) {
              [](affineui::View& view, const std::string& key, py::object build) {
                  auto scope = view.tree(key);
                  auto ref = scope.ref();
-                 if (!build.is_none()) build(&view);
+                 if (!build.is_none()) build(callback_view(view));
                  return ref;
              },
              py::arg("key") = "", py::arg("build") = py::none(),
@@ -1705,7 +1787,7 @@ PYBIND11_MODULE(_affineui, m) {
              [](affineui::View& view, const std::string& key, py::object build) {
                  auto scope = view.status_bar(key);
                  auto ref = scope.ref();
-                 if (!build.is_none()) build(&view);
+                 if (!build.is_none()) build(callback_view(view));
                  return ref;
              },
              py::arg("key") = "", py::arg("build") = py::none(),
@@ -2159,17 +2241,16 @@ PYBIND11_MODULE(_affineui, m) {
                  auto callback = keep_python_function(std::move(builder));
                  // The builder runs from the App's frame loop (and from the
                  // synchronous set_view()/rebuild_view() call below), so it
-                 // must acquire the GIL before touching Python. The View& is
-                 // handed to Python by reference — pybind wraps it without
-                 // copying or owning it, so the callback populates the App's
-                 // persistent retained View in place. Exceptions propagate
-                 // into rebuild_view() (which closes the mutation window and
-                 // rethrows); surface them as the callback's Python error.
+                 // must acquire the GIL before touching Python. Python receives
+                 // an invalidating weak proxy for the App's persistent View;
+                 // method calls still populate that View in place, but keeping
+                 // the callback object after App destruction cannot retain a
+                 // raw pointer. Exceptions propagate into rebuild_view() (which
+                 // closes the mutation window and rethrows).
                  app.set_view([callback](affineui::View& view) {
                      py::gil_scoped_acquire gil;
                      try {
-                         (*callback)(py::cast(
-                             &view, py::return_value_policy::reference));
+                         (*callback)(callback_view(view));
                      } catch (py::error_already_set& e) {
                          // Re-raise as a C++ exception so rebuild_view()'s
                          // mid-batch handler closes the mutation window before

@@ -67,7 +67,7 @@ automatically: its `AffineUINativeDir` MSBuild property defaults to
 with `dotnet build -p:AffineUINativeDir=<dir>`.
 
 At first use the wrapper checks `affineui_c_abi_version()` against the version
-it was written for (`AffineUIRuntime.ExpectedAbiVersion` = 2) and throws a
+it was written for (`AffineUIRuntime.ExpectedAbiVersion` = 5) and throws a
 clear exception on mismatch.
 
 ## Running the example
@@ -135,10 +135,12 @@ bool consumed = ui.Dispatch(in evt);   // host suppresses its own input if true
   leak-free, no delegate bookkeeping. Exceptions thrown by callbacks never
   cross into native code; they are routed to
   `AffineUIRuntime.OnCallbackException` (default: stderr).
-- **Lifetimes:** owned handles are `SafeHandle`s. Every `Widget` keeps its
-  `View` alive, and the native view is not destroyed until all widget handles
-  are released. `App.Document` is borrowed — never destroyed, keeps the `App`
-  alive, and degrades to a no-op after the app is disposed.
+- **Lifetimes:** owned handles are `SafeHandle`s. A `Widget` is an invalidating
+  handle and does not keep its `View` alive. A callback-provided `View` retains
+  only an opaque native weak token; `IsAlive` becomes false with its owner and
+  stale operations throw `ObjectDisposedException`. `App.Document` is borrowed
+  — never destroyed, keeps the `App` alive, and degrades to a no-op after the
+  app is disposed.
 - **Hard to crash:** operations on a widget whose node is gone read defaults
   and no-op on writes, exactly like the C++ `WidgetRef`.
 
