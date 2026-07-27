@@ -14,7 +14,7 @@ endif()
 
 # ─── Project ─────────────────────────────────────────────────────────────────
 project(affineui
-    VERSION 0.4.2
+    VERSION 0.4.3
     DESCRIPTION "Tiny GPU-accelerated HTML5/CSS UI renderer for C++"
     LANGUAGES C CXX
 )

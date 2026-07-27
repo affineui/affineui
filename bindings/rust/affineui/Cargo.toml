@@ -15,7 +15,7 @@ vendored = ["affineui-sys/vendored"]
 system = ["affineui-sys/system"]
 
 [dependencies]
-affineui-sys = { path = "../affineui-sys", version = "0.4.2", default-features = false }
+affineui-sys = { path = "../affineui-sys", version = "0.4.3", default-features = false }
 
 [lib]
 doctest = false
