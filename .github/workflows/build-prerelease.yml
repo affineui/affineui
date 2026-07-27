@@ -39,6 +39,12 @@ on:
 permissions:
   contents: read
 
+env:
+  # Where a PRE-RELEASE's Python artifacts go. Declared once, here, because the
+  # publish action's default is PRODUCTION PyPI — an omitted override is not a
+  # no-op, it silently retargets the upload. See the testpypi job.
+  PRERELEASE_INDEX: https://test.pypi.org/legacy/
+
 concurrency:
   # Never cancel: aborting mid-publish leaves a registry half-populated.
   group: build-prerelease-${{ inputs.version }}
@@ -157,9 +163,30 @@ jobs:
         with:
           name: sdist
           path: dist
+      # Fail here rather than upload to the wrong index. 0.4.3-rc.1 died on
+      # `invalid-publisher` because this step had no `repository-url` and the
+      # action DEFAULTS TO PRODUCTION PyPI — every other signal in this job
+      # (environment, url:, the comments) said TestPyPI, so nothing caught it.
+      # The error was protective luck: our Trusted Publisher is registered on
+      # TestPyPI, so PyPI had no matching claim. Had one existed, an rc would
+      # have gone to real PyPI, where the version is burned permanently.
+      - name: The upload target must be TestPyPI, not PyPI
+        env:
+          REPO_URL: ${{ env.PRERELEASE_INDEX }}
+        run: |
+          set -euo pipefail
+          case "$REPO_URL" in
+            https://test.pypi.org/*) echo "ok  uploading to $REPO_URL" ;;
+            *) echo "::error::refusing to publish a pre-release to '$REPO_URL' — expected a test.pypi.org URL"; exit 1 ;;
+          esac
+
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
+          # WITHOUT THIS the action uploads to production PyPI. A pre-release
+          # must never land there: PyPI has no hidden pre-release bucket and
+          # the version can never be reused. See docs/RELEASING.md.
+          repository-url: ${{ env.PRERELEASE_INDEX }}
           # A re-run after a later job failed must not die here on an
           # already-uploaded file. crates.io and nuget are idempotent too.
           skip-existing: true
