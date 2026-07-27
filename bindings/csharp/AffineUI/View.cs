@@ -105,7 +105,15 @@ public sealed partial class View : IDisposable
             if (resolved == IntPtr.Zero)
                 throw new ObjectDisposedException(
                     nameof(View),
-                    "The native AffineUI View that supplied this callback wrapper no longer exists.");
+                    // Two different deaths, two different messages: an owned View
+                    // reaches Zero only once the caller has Dispose()d it, while a
+                    // callback wrapper reaches Zero when the framework destroyed
+                    // the View it was proxying. Reporting the callback story for a
+                    // self-disposed owned View sent people hunting for a callback
+                    // that was never involved.
+                    _ownedHandle != null
+                        ? "This AffineUI View has been disposed."
+                        : "The native AffineUI View that supplied this callback wrapper no longer exists.");
             return resolved;
         }
     }

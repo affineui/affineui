@@ -470,6 +470,11 @@ class CallbackView(View):
     It supports the View builder API while the native owner is alive. Keeping
     it after that owner is destroyed is safe: is_alive becomes False and any
     View operation raises ReferenceError.
+
+    Subclasses View here to carry the full builder surface for type checkers and
+    IDEs, since the proxy forwards every View method. It is NOT a View at
+    runtime, though: it is a distinct forwarding object, so ``isinstance(cv,
+    View)`` is False. Call the builder methods on it; don't type-test it.
     """
     @property
     def is_alive(self) -> bool: ...

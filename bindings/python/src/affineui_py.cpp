@@ -180,6 +180,12 @@ PYBIND11_MODULE(_affineui, m) {
     m.def("version", [] { return std::string{affineui::version_string()}; });
     m.def("native_backend", [] { return std::string{"sokol"}; });
 
+    // Registered WITHOUT affineui::View as a base — deliberately. This wraps a
+    // WeakViewRef, not a View, so it cannot derive from the concrete C++ View,
+    // and it forwards the whole builder surface through __getattr__ instead. The
+    // .pyi stub declares `class CallbackView(View)` so type checkers see that
+    // surface; the price is that `isinstance(cv, View)` is False at runtime,
+    // which the stub's docstring calls out. Keep the two in step.
     py::class_<PythonCallbackView>(m, "CallbackView")
         .def_property_readonly("is_alive", &PythonCallbackView::is_alive)
         .def("__bool__", &PythonCallbackView::is_alive)
