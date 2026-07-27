@@ -10,7 +10,10 @@
 //!
 //! Lifetimes: a `Widget` owns only an invalidating native handle. It does not
 //! retain its `View`; after the View or node is gone, reads return defaults and
-//! writes safely no-op.
+//! writes safely no-op. A `View` received by a callback is also invalidating:
+//! cloning or storing it is safe, but operations fail with a clear Rust panic
+//! after the native owner destroys the View. Use [`View::is_alive`] to check
+//! without panicking.
 
 use crate::dock::{DockLocation, DockPlacement};
 use crate::sys;
@@ -78,19 +81,27 @@ impl WidgetKind {
     }
 }
 
+#[derive(Clone, Copy)]
+enum ViewHandle {
+    Owned(*mut sys::affineui_view),
+    // Callback-provided Views can escape because View is Clone. Never retain
+    // their borrowed raw pointer: the native weak handle resolves it only while
+    // the View's independent lifetime token is alive.
+    Weak(*mut sys::affineui_weak_view),
+}
+
 pub(crate) struct ViewInner {
-    raw: *mut sys::affineui_view,
-    // Borrowed views (callback-provided pointers owned by the framework,
-    // e.g. App::set_view builders and provider on_build_item) must not
-    // destroy the underlying view.
-    owned: bool,
+    handle: ViewHandle,
     _not_send: NotThreadSafe,
 }
 
 impl Drop for ViewInner {
     fn drop(&mut self) {
-        if self.owned {
-            unsafe { sys::affineui_view_destroy(self.raw) };
+        unsafe {
+            match self.handle {
+                ViewHandle::Owned(raw) => sys::affineui_view_destroy(raw),
+                ViewHandle::Weak(raw) => sys::affineui_weak_view_destroy(raw),
+            }
         }
     }
 }
@@ -281,20 +292,44 @@ impl View {
         ensure_abi();
         let raw = unsafe { sys::affineui_view_create(theme as i32) };
         View {
-            inner: Rc::new(ViewInner { raw, owned: true, _not_send: NotThreadSafe::default() }),
+            inner: Rc::new(ViewInner {
+                handle: ViewHandle::Owned(raw),
+                _not_send: NotThreadSafe::default(),
+            }),
         }
     }
 
-    /// Wrap a framework-owned view pointer handed to a callback. The
-    /// wrapper borrows: dropping it does not destroy the view.
+    /// Wrap a framework-owned View handed to a callback. Copy its native weak
+    /// lifetime token while the borrowed pointer is live, so clones that escape
+    /// the callback resolve to null rather than a freed View.
     pub(crate) fn borrowed(raw: *mut sys::affineui_view) -> View {
+        let weak = unsafe { sys::affineui_view_weak_ref(raw) };
         View {
-            inner: Rc::new(ViewInner { raw, owned: false, _not_send: NotThreadSafe::default() }),
+            inner: Rc::new(ViewInner {
+                handle: ViewHandle::Weak(weak),
+                _not_send: NotThreadSafe::default(),
+            }),
         }
+    }
+
+    fn resolved_raw(&self) -> *mut sys::affineui_view {
+        match self.inner.handle {
+            ViewHandle::Owned(raw) => raw,
+            ViewHandle::Weak(weak) => unsafe { sys::affineui_weak_view_get(weak) },
+        }
+    }
+
+    /// Whether the native View is still alive. Owned Views remain alive until
+    /// their last clone is dropped; callback Views become false after their
+    /// framework owner is destroyed.
+    pub fn is_alive(&self) -> bool {
+        !self.resolved_raw().is_null()
     }
 
     pub(crate) fn raw(&self) -> *mut sys::affineui_view {
-        self.inner.raw
+        let raw = self.resolved_raw();
+        assert!(!raw.is_null(), "AffineUI callback View is no longer alive");
+        raw
     }
 
     pub(crate) fn wrap_widget(&self, raw: *mut sys::affineui_widget) -> Widget {

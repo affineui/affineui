@@ -15,7 +15,7 @@
 
 use core::ffi::{c_char, c_float, c_int, c_void};
 
-pub const AFFINEUI_C_ABI_VERSION: c_int = 4;
+pub const AFFINEUI_C_ABI_VERSION: c_int = 5;
 
 // ── Opaque handles ───────────────────────────────────────────────────
 
@@ -33,6 +33,7 @@ opaque!(affineui_ui);
 opaque!(affineui_app);
 opaque!(affineui_document);
 opaque!(affineui_view);
+opaque!(affineui_weak_view);
 opaque!(affineui_widget);
 opaque!(affineui_menu);
 opaque!(affineui_index_selection);
@@ -622,6 +623,9 @@ extern "C" {
     // View.
     pub fn affineui_view_create(theme: c_int) -> *mut affineui_view;
     pub fn affineui_view_destroy(view: *mut affineui_view);
+    pub fn affineui_view_weak_ref(view: *mut affineui_view) -> *mut affineui_weak_view;
+    pub fn affineui_weak_view_get(weak_view: *const affineui_weak_view) -> *mut affineui_view;
+    pub fn affineui_weak_view_destroy(weak_view: *mut affineui_weak_view);
     pub fn affineui_view_clear(view: *mut affineui_view);
     pub fn affineui_view_begin(view: *mut affineui_view);
     pub fn affineui_view_end(view: *mut affineui_view);

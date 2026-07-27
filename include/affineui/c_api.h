@@ -318,6 +318,8 @@ AFFINEUI_C_API void affineui_tools_shutdown(void);
 // wrapper can see all bump this. Wrappers pin the version they were written
 // against; a mismatch in either direction is a hard error at load.
 //
+// 5: opaque affineui_weak_view invalidating handles for safely retaining
+//    callback-provided Views without exposing C++ layout or field offsets.
 // 4: native menus + window chrome. affineui_app_config GREW four fields
 //    (native_menus, titlebar, traffic_light_x/y) — a caller compiled against
 //    version 3 passes a shorter struct, and the core would read past its end, so
@@ -330,7 +332,7 @@ AFFINEUI_C_API void affineui_tools_shutdown(void);
 //    the four dock providers, the Document dock readback), and a user_free
 //    parameter added to the three deferred dock builders.
 // 2: baseline.
-#define AFFINEUI_C_ABI_VERSION 4
+#define AFFINEUI_C_ABI_VERSION 5
 
 AFFINEUI_C_API int         affineui_c_abi_version(void);
 

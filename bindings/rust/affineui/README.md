@@ -149,6 +149,9 @@ Callbacks are plain Rust closures, released exactly once; panics in
 callbacks are caught at the FFI boundary and never cross into C++.
 Widget handles degrade gracefully — reads return defaults and writes
 no-op once the underlying node is gone, so stale handles never crash.
+Callback-provided `View` clones retain an opaque weak token rather than a raw
+borrowed pointer. `is_alive()` reports expiry, and a stale View operation
+produces a catchable Rust panic before any native View operation is invoked.
 
 ---
 

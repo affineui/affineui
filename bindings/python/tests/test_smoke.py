@@ -60,6 +60,50 @@ def test_app_can_load_html_without_running_window():
     assert not missing.set_style("display: none")
 
 
+def test_callback_view_weakly_invalidates_after_owner_drop():
+    escaped = []
+    view = ui.View(ui.ViewTheme.Plain)
+    view.begin()
+    view.panel(
+        key="weak-panel",
+        build=lambda callback_view: escaped.append(
+            callback_view.selector("data-test", "weak")
+        ),
+    )
+    view.end()
+
+    callback_view = escaped.pop()
+    assert isinstance(callback_view, ui.CallbackView)
+    assert callback_view.is_alive
+    assert callback_view
+    assert "weak-panel" in view.to_html_fragment()
+
+    del view
+    gc.collect()
+
+    assert not callback_view.is_alive
+    assert not callback_view
+    with pytest.raises(ReferenceError, match="no longer exists"):
+        callback_view.clear()
+
+
+def test_app_callback_view_weakly_invalidates_after_app_drop():
+    escaped = []
+    app = ui.App(title="Callback View Lifetime")
+    app.set_view(lambda callback_view: escaped.append(callback_view))
+
+    callback_view = escaped[-1]
+    assert isinstance(callback_view, ui.CallbackView)
+    assert callback_view.is_alive
+
+    del app
+    gc.collect()
+
+    assert not callback_view.is_alive
+    with pytest.raises(ReferenceError, match="no longer exists"):
+        callback_view.heading(1, "ignored", key="ignored")
+
+
 def test_capture_and_caret_configuration_cross_the_binding():
     doc = ui.Document()
     doc.set_caret_blink_interval(0.0)

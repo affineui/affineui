@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>AffineUI.Tests.Lifetime</RootNamespace>
+    <AssemblyName>LifetimeTests</AssemblyName>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AffineUINativeDir Condition="'$(AffineUINativeDir)' == ''">$(MSBuildThisFileDirectory)..\..\..\..\build\ninja</AffineUINativeDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\AffineUI\AffineUI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('$(AffineUINativeDir)\affineui_c.dll')">
+    <None Include="$(AffineUINativeDir)\affineui_c.dll" Link="affineui_c.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(AffineUINativeDir)\libaffineui_c.so')">
+    <None Include="$(AffineUINativeDir)\libaffineui_c.so" Link="libaffineui_c.so" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(AffineUINativeDir)\libaffineui_c.dylib')">
+    <None Include="$(AffineUINativeDir)\libaffineui_c.dylib" Link="libaffineui_c.dylib" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
