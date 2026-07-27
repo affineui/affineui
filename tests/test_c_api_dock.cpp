@@ -13,6 +13,8 @@
 
 #include <cstring>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "affineui/c_api.h"
 #include "affineui/c_api_app.h"
@@ -348,4 +350,91 @@ TEST_CASE("c_api: dock providers are invoked, and free their user data once") {
 
     // Exactly once — not zero (leak), not twice (double-free).
     CHECK(freed_count == 1);
+}
+
+TEST_CASE("c_api: dock pane sizes read back out (the SAVE half of persistence)") {
+    // affineui_document_dock_pane_size_count/_at arrived with the binding-side
+    // dock_pane_sizes() work, but nothing exercised them from C++ — the only
+    // coverage was through Rust/C#/Python, which run on one CI job. These are
+    // the functions BOTH the Rust and C# bindings read sizes through, so a
+    // regression here silently breaks size persistence in every language at
+    // once while the C++ suite stays green.
+    //
+    // Materialize into a real App: dock_pane_sizes() reads the live flex-basis
+    // off the laid-out DOM, so a view-only test cannot see it at all.
+    affineui_view* v = affineui_view_create(AFFINEUI_THEME_DECIUS);
+    REQUIRE(v != nullptr);
+
+    affineui_view_begin(v);
+    affineui_view_document_view(
+        v, "workspace",
+        [](void*, affineui_view* view) {
+            affineui_view_document(view, nullptr, nullptr, nullptr, "Scene", "cube");
+
+            affineui_dock_location left;
+            affineui_dock_location_docked(&left, AFFINEUI_DOCK_LEFT, 280);
+            CStr l{affineui_view_dockpanel(view, "Outliner", &left, nullptr,
+                                           nullptr, nullptr, "list", "outliner")};
+
+            affineui_dock_location right;
+            affineui_dock_location_docked(&right, AFFINEUI_DOCK_RIGHT, 320);
+            CStr r{affineui_view_dockpanel(view, "Inspector", &right, nullptr,
+                                           nullptr, nullptr, "sliders", "inspector")};
+        },
+        nullptr);
+    affineui_view_end(v);
+
+    affineui_app_config cfg;
+    std::memset(&cfg, 0, sizeof(cfg));
+    affineui_app_config_init(&cfg);
+    affineui_app* app = affineui_app_create(&cfg);
+    REQUIRE(app != nullptr);
+
+    affineui_app_load_view(app, v);
+    affineui_document* doc = affineui_app_document(app);
+    REQUIRE(doc != nullptr);
+    affineui_document_layout(doc, 1280, 800);
+
+    // Collect the (pane_id, px) pairs through the ABI exactly as a binding does.
+    const size_t n = affineui_document_dock_pane_size_count(doc);
+    CHECK_MESSAGE(n > 0,
+                  "no pane sizes came back — the SAVE half of size persistence is broken");
+
+    std::vector<std::pair<std::string, int>> sizes;
+    for (size_t i = 0; i < n; ++i) {
+        char* pane_id = nullptr;
+        int   px      = 0;
+        REQUIRE(affineui_document_dock_pane_size_at(doc, i, &pane_id, &px) == 1);
+        CStr owned{pane_id};  // the ABI hands back a heap copy the caller frees
+        sizes.emplace_back(owned.str(), px);
+    }
+
+    auto find = [&](const std::string& id) -> int {
+        for (const auto& [pane, px] : sizes)
+            if (pane.find(id) != std::string::npos) return px;
+        return -1;
+    };
+
+    // The declared basis must survive the round trip, per pane.
+    CHECK(find("outliner") == 280);
+    CHECK(find("inspector") == 320);
+
+    // The flexible center/document pane has no fixed basis and is omitted.
+    CHECK(find("scene") == -1);
+    CHECK(find("cube") == -1);
+
+    // Out-of-range and NULL arguments are rejected, not undefined behavior:
+    // a binding iterating a stale count must not read past the end.
+    char* pane_id = nullptr;
+    int   px      = 0;
+    CHECK(affineui_document_dock_pane_size_at(doc, n, &pane_id, &px) == 0);
+    CHECK(affineui_document_dock_pane_size_at(doc, 9999, &pane_id, &px) == 0);
+    CHECK(pane_id == nullptr);  // nothing allocated on the failure path
+    CHECK(affineui_document_dock_pane_size_at(doc, 0, nullptr, &px) == 0);
+    CHECK(affineui_document_dock_pane_size_at(doc, 0, &pane_id, nullptr) == 0);
+    CHECK(affineui_document_dock_pane_size_count(nullptr) == 0);
+    CHECK(affineui_document_dock_pane_size_at(nullptr, 0, &pane_id, &px) == 0);
+
+    affineui_app_destroy(app);
+    affineui_view_destroy(v);
 }
