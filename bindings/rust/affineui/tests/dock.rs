@@ -273,15 +273,48 @@ fn dock_pane_sizes_round_trip() {
         "the flexible center pane must NOT appear: {sizes:?}"
     );
 
-    // What an app actually does with it: persist, then feed back through
-    // set_dock_size_provider on the next launch.
+    // The full loop: persist `sizes`, then restore them into a FRESH workspace
+    // and prove they actually applied. The restore panels are declared with a
+    // WRONG seed (100) on purpose — reading back 280/320 can only mean the saved
+    // values won through the provider, not that the seed happened to match.
     let saved: Vec<(String, i32)> = sizes.clone();
+
+    let restore_app = App::new(Config::default());
     let restore = View::new(Theme::Decius);
     restore.set_dock_size_provider(move |pane_id| {
-        saved
-            .iter()
-            .find(|(id, _)| id == pane_id)
-            .map(|(_, px)| *px)
-            .unwrap_or(0)
+        saved.iter().find(|(id, _)| id == pane_id).map(|(_, px)| *px).unwrap_or(0)
     });
+    restore.build(|v| {
+        v.document_view("workspace", |v| {
+            v.document("Scene", "cube", |v| {
+                v.heading(1, "Viewport", "", "");
+            });
+            v.dockpanel(
+                "Outliner",
+                DockLocation::docked(Dock::Left).sized(100), // wrong seed
+                "list",
+                "outliner",
+                |v| {
+                    v.heading(2, "Objects", "", "");
+                },
+            );
+            v.dockpanel(
+                "Inspector",
+                DockLocation::docked(Dock::Right).sized(100), // wrong seed
+                "sliders",
+                "inspector",
+                |v| {
+                    v.heading(2, "Properties", "", "");
+                },
+            );
+        });
+    });
+    restore_app.load_view(&restore);
+
+    let restored = restore_app.document().dock_pane_sizes();
+    let rfind = |id: &str| -> Option<i32> {
+        restored.iter().find(|(pane, _)| pane.contains(id)).map(|(_, px)| *px)
+    };
+    assert_eq!(rfind("outliner"), Some(280), "saved left size restored, got {restored:?}");
+    assert_eq!(rfind("inspector"), Some(320), "saved right size restored, got {restored:?}");
 }

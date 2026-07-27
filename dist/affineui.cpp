@@ -448685,7 +448685,11 @@ int affineui_document_dock_pane_size_at(const affineui_document* doc, size_t ind
     const auto sizes = to_doc(doc)->dock_pane_sizes();
     if (index >= sizes.size()) return 0;
 
-    *out_pane_id = dup_string(sizes[index].first);
+    // Fail (writing nothing) rather than report success with a null id: a
+    // binding would otherwise persist the pane under an empty/missing key.
+    char* id = dup_string(sizes[index].first);
+    if (!id) return 0;
+    *out_pane_id = id;
     *out_px = sizes[index].second;
     return 1;
 }
@@ -448697,7 +448701,10 @@ int affineui_document_dock_override_at(const affineui_document* doc, size_t inde
     const auto overrides = to_doc(doc)->dock_overrides();
     if (index >= overrides.size()) return 0;
 
-    *out_panel_id = dup_string(overrides[index].first);
+    // Same guard as dock_pane_size_at: never report success with a null id.
+    char* id = dup_string(overrides[index].first);
+    if (!id) return 0;
+    *out_panel_id = id;
     from_dock_placement(overrides[index].second, out);
     return 1;
 }

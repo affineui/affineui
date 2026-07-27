@@ -191,6 +191,32 @@ Console.WriteLine("AffineUI .NET docking\n");
     Check(Find("inspector") == 320, $"right pane size read back (got {Find("inspector")})");
     Check(Find("scene") is null && Find("cube") is null,
           "the flexible center pane has no fixed basis and is omitted");
+
+    // The full loop: restore the SAVED sizes into a fresh workspace and prove
+    // they applied. The restore panels declare a WRONG seed (100) on purpose —
+    // reading back 280/320 can only mean the saved values won via the provider.
+    var saved = sizes;
+    using var app2 = new App(new AppConfig { Title = "Dock Restore", Width = 1280, Height = 820 });
+    using var restore = new View(Theme.Decius);
+    restore.SetDockSizeProvider(paneId =>
+        saved.Where(p => p.PaneId == paneId).Select(p => p.Size).FirstOrDefault());
+    restore.Build(v =>
+    {
+        v.DocumentView("ws", v =>
+        {
+            v.Document("Scene", "cube", v => v.Heading(1, "Viewport"));
+            v.DockPanel("Outliner", DockLocation.Docked(Dock.Left).Sized(100), "list", "outliner",
+                        v => v.Heading(2, "Objects"));
+            v.DockPanel("Inspector", DockLocation.Docked(Dock.Right).Sized(100), "sliders", "inspector",
+                        v => v.Heading(2, "Properties"));
+        });
+    });
+    app2.LoadView(restore);
+
+    var restored = app2.Document.DockPaneSizes();
+    int? RFind(string id) => restored.Where(p => p.PaneId.Contains(id)).Select(p => (int?)p.Size).FirstOrDefault();
+    Check(RFind("outliner") == 280, $"saved left size restored (got {RFind("outliner")})");
+    Check(RFind("inspector") == 320, $"saved right size restored (got {RFind("inspector")})");
 }
 
 // ── the deferred callbacks are released exactly once ───────────────────────
