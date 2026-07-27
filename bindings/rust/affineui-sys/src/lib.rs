@@ -921,6 +921,15 @@ extern "C" {
         out: *mut affineui_dock_placement,
     ) -> c_int;
 
+    pub fn affineui_document_dock_pane_size_count(doc: *const affineui_document) -> usize;
+    /// `*out_pane_id` is a heap copy — free with `affineui_string_free`.
+    pub fn affineui_document_dock_pane_size_at(
+        doc: *const affineui_document,
+        index: usize,
+        out_pane_id: *mut *mut c_char,
+        out_px: *mut c_int,
+    ) -> c_int;
+
     pub fn affineui_view_toolbar_separator(view: *mut affineui_view, key: *const c_char) -> *mut affineui_widget;
     pub fn affineui_view_icon_button(
         view: *mut affineui_view,

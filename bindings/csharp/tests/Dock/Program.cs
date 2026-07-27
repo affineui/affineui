@@ -157,6 +157,42 @@ Console.WriteLine("AffineUI .NET docking\n");
     Check(!html.Contains("280px"), "the declared seed is overridden");
 }
 
+// ── the SAVE half: Document.DockPaneSizes() reads splitter sizes back out ──
+// The block above proves RESTORE (feed sizes in via the provider). This proves
+// SAVE — without it an app could restore a layout it was never able to persist.
+// Needs a real App/Document because DockPaneSizes() reads the live flex-basis
+// from the DOM (which is exactly why a ToHtmlFragment-only test never caught the
+// gap).
+{
+    using var app = new App(new AppConfig { Title = "Dock Save", Width = 1280, Height = 820 });
+    using var view = new View(Theme.Decius);
+    view.Build(v =>
+    {
+        v.DocumentView("ws", v =>
+        {
+            v.Document("Scene", "cube", v => v.Heading(1, "Viewport"));
+            v.DockPanel("Outliner", DockLocation.Docked(Dock.Left).Sized(280), "list", "outliner",
+                        v => v.Heading(2, "Objects"));
+            v.DockPanel("Inspector", DockLocation.Docked(Dock.Right).Sized(320), "sliders", "inspector",
+                        v => v.Heading(2, "Properties"));
+        });
+    });
+    app.LoadView(view);
+
+    var sizes = app.Document.DockPaneSizes();
+    Check(sizes.Count > 0, "DockPaneSizes() returns something — the SAVE half works");
+
+    int? Find(string id) => sizes
+        .Where(p => p.PaneId.Contains(id))
+        .Select(p => (int?)p.Size)
+        .FirstOrDefault();
+
+    Check(Find("outliner") == 280, $"left pane size read back (got {Find("outliner")})");
+    Check(Find("inspector") == 320, $"right pane size read back (got {Find("inspector")})");
+    Check(Find("scene") is null && Find("cube") is null,
+          "the flexible center pane has no fixed basis and is omitted");
+}
+
 // ── the deferred callbacks are released exactly once ───────────────────────
 // The dock builders are DEFERRED: the engine holds their GCHandle past the call
 // and frees it through user_free. A leak (never freed) or a double-free is a

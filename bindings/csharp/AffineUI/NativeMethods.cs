@@ -630,6 +630,13 @@ internal static partial class NativeMethods
     internal static partial int affineui_document_dock_override_at(
         IntPtr doc, nuint index, out IntPtr outPanelId, out affineui_dock_placement outPlacement);
 
+    [LibraryImport(Lib)]
+    internal static partial nuint affineui_document_dock_pane_size_count(IntPtr doc);
+
+    [LibraryImport(Lib)]
+    internal static partial int affineui_document_dock_pane_size_at(
+        IntPtr doc, nuint index, out IntPtr outPaneId, out int outPx);
+
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial IntPtr affineui_view_toolbar_separator(IntPtr view, string? key);
 

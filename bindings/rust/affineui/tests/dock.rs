@@ -9,7 +9,7 @@
 //! One #[test], like headless.rs — AffineUI is single-threaded by contract and
 //! cargo's parallel harness would violate it.
 
-use affineui::{Dock, DockCorner, DockLocation, Theme, View};
+use affineui::{App, Config, Dock, DockCorner, DockLocation, Theme, View};
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -205,4 +205,83 @@ fn docking() {
         assert_eq!(drops.get(), 0, "still alive while the view is");
     }
     assert_eq!(drops.get(), 1, "provider closure must be dropped exactly once");
+}
+
+/// The SAVE half of size persistence: `Document::dock_pane_sizes`.
+///
+/// This was the gap. Rust could `set_dock_size_provider` (feed sizes back IN)
+/// but had no way to read them back OUT — so an app could restore a layout it
+/// was never able to save, and a user's splitter drags were unpersistable.
+/// `dock_overrides()` doesn't cover it: that records only *structure* (where a
+/// panel was dragged/torn off to), not pane size.
+///
+/// Materializes the view into a real Document, because dock_pane_sizes() reads
+/// the live flex-basis from the DOM — a View-only test cannot see it, which is
+/// exactly why the gap went unnoticed.
+#[test]
+fn dock_pane_sizes_round_trip() {
+    let app = App::new(Config::default());
+
+    let view = View::new(Theme::Decius);
+    view.build(|v| {
+        v.document_view("workspace", |v| {
+            v.document("Scene", "cube", |v| {
+                v.heading(1, "Viewport", "", "");
+            });
+            v.dockpanel(
+                "Outliner",
+                DockLocation::docked(Dock::Left).sized(280),
+                "list",
+                "outliner",
+                |v| {
+                    v.heading(2, "Objects", "", "");
+                },
+            );
+            v.dockpanel(
+                "Inspector",
+                DockLocation::docked(Dock::Right).sized(320),
+                "sliders",
+                "inspector",
+                |v| {
+                    v.heading(2, "Properties", "", "");
+                },
+            );
+        });
+    });
+    app.load_view(&view);
+
+    let sizes = app.document().dock_pane_sizes();
+    assert!(
+        !sizes.is_empty(),
+        "dock_pane_sizes() returned nothing — the SAVE half of persistence is broken"
+    );
+
+    let find = |id: &str| -> Option<i32> {
+        sizes
+            .iter()
+            .find(|(pane, _)| pane.contains(id))
+            .map(|(_, px)| *px)
+    };
+
+    // The declared flex-basis must come back out, per pane.
+    assert_eq!(find("outliner"), Some(280), "left pane size, got {sizes:?}");
+    assert_eq!(find("inspector"), Some(320), "right pane size, got {sizes:?}");
+
+    // The flexible center/document pane has no fixed basis and is omitted.
+    assert!(
+        find("scene").is_none() && find("cube").is_none(),
+        "the flexible center pane must NOT appear: {sizes:?}"
+    );
+
+    // What an app actually does with it: persist, then feed back through
+    // set_dock_size_provider on the next launch.
+    let saved: Vec<(String, i32)> = sizes.clone();
+    let restore = View::new(Theme::Decius);
+    restore.set_dock_size_provider(move |pane_id| {
+        saved
+            .iter()
+            .find(|(id, _)| id == pane_id)
+            .map(|(_, px)| *px)
+            .unwrap_or(0)
+    });
 }
